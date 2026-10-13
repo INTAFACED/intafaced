@@ -1,20 +1,25 @@
 /**
- * Unit tests for merge-gate.mjs. No network: `gh` is a fake that answers from fixture JSON shaped like the real output
- * (captured 2026-10-13 from `gh pr checks --json`, `gh run list --json`, `gh run view --json jobs`).
+ * Unit tests for merge-gate.mjs. No network: `gh` is a fake that answers from fixture JSON and log excerpts shaped like
+ * the real output (captured 2026-10-13 from `gh pr checks --json`, `gh run list --json`, `gh run view --json jobs`,
+ * `gh run view --job <id> --log`).
  * Run: node --test tooling/scripts/merge-gate.test.mjs
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { GitHubRefusalError } from './gate-gh.mjs';
 import {
+  AGENT_RULE_PATTERNS,
   CI_PR_PATHS,
   KNOWN_PR_ONLY_RED,
   collapseChecks,
   ciWouldRun,
   evaluate,
+  mainCopyProblem,
   mergeCommand,
+  parseDoctrineFailures,
+  parseTurboFailures,
   renderComment,
   runGate,
   selectMainRun,
@@ -22,16 +27,26 @@ import {
 
 const HEAD = 'a'.repeat(40);
 const REPO = 'Phantom-X-007/intafaced';
-const fx = (name) => JSON.parse(readFileSync(new URL(`./fixtures/merge-gate/${name}.json`, import.meta.url), 'utf8'));
-const chk = (name, bucket, workflow = 'CI', completedAt = '2026-10-13T12:00:00Z') => ({
-  name,
-  bucket,
-  workflow,
-  completedAt,
-  state: bucket.toUpperCase(),
-  link: `https://example/${encodeURIComponent(name)}`,
-});
+const FIX = new URL('./fixtures/merge-gate/', import.meta.url);
+const fx = (name) => JSON.parse(readFileSync(new URL(`${name}.json`, FIX), 'utf8'));
+const log = (name) => readFileSync(new URL(`${name}.log`, FIX), 'utf8');
+let nextJob = 9000;
+const jobIds = new Map();
+const chk = (name, bucket, workflow = 'CI', completedAt = '2026-10-13T12:00:00Z') => {
+  const k = `${workflow}/${name}`;
+  if (!jobIds.has(k)) jobIds.set(k, ++nextJob);
+  return {
+    name,
+    bucket,
+    workflow,
+    completedAt,
+    state: bucket.toUpperCase(),
+    link: `https://github.com/o/r/actions/runs/1/job/${jobIds.get(k)}`,
+  };
+};
+const prJobId = (name, workflow = 'CI') => jobIds.get(`${workflow}/${name}`);
 const REQ_OK = [chk('Gitleaks', 'pass', 'Gitleaks'), chk('Dependency audit', 'pass', 'Supply chain')];
+const K = (name) => `CI/${name}`;
 
 /** A fake gh. `world` holds the fixture answers; `calls` records every invocation. */
 function fakeGh(world) {
@@ -51,6 +66,11 @@ function fakeGh(world) {
     }
     if (k.startsWith('run list') && k.includes('--commit')) return ok(world.prRuns ?? []);
     if (k.startsWith('run list')) return ok(world.mainRuns ?? []);
+    if (k.startsWith('run view --job')) {
+      const id = args[3];
+      if (!(id in (world.logs ?? {}))) throw new Error(`no log fixture for job ${id}`);
+      return ok(world.logs[id]);
+    }
     if (k.startsWith('run view')) return ok({ jobs: world.mainJobs[args[2]] });
     if (k.startsWith('pr comment')) return ok('');
     throw new Error(`unexpected gh call: ${k}`);
@@ -74,14 +94,18 @@ const clock = () => {
   return { now: () => t, sleep: async (ms) => void (t += ms) };
 };
 const mainWorld = { mainRuns: fx('main-runs'), mainJobs: { 300: fx('main-jobs-300'), 200: fx('main-jobs-200') } };
+const mainJobId = (name) => fx('main-jobs-200').find((j) => j.name === name).databaseId;
+const PASSRUN = [{ workflowName: 'CI', status: 'completed' }];
 
-test('collapseChecks keeps the latest attempt per name', () => {
+test('collapseChecks keeps the latest attempt per workflow+name, and does not merge same-named jobs of different workflows', () => {
   const out = collapseChecks([
     chk('A', 'fail', 'CI', '2026-10-13T10:00:00Z'),
     chk('A', 'pass', 'CI', '2026-10-13T11:00:00Z'),
     chk('B', 'pending', 'CI', '0001-01-01T00:00:00Z'),
+    chk('A', 'fail', 'Other', '2026-10-13T12:00:00Z'),
   ]);
-  assert.equal(out.find((c) => c.name === 'A').bucket, 'pass');
+  assert.equal(out.length, 3);
+  assert.equal(out.find((c) => c.name === 'A' && c.workflow === 'CI').bucket, 'pass');
   assert.equal(out.find((c) => c.name === 'B').bucket, 'pending');
 });
 
@@ -92,22 +116,49 @@ test('ci path filter: docs-only is skipped, code and the doctrine file are not',
   assert.equal(ciWouldRun(['packages/x/README.md']), false);
 });
 
-test('CI_PR_PATHS mirrors ci.yml on.pull_request.paths (drift guard)', () => {
-  const yml = readFileSync(fileURLToPath(new URL('../../.github/workflows/ci.yml', import.meta.url)), 'utf8');
-  const block = yml.match(/pull_request:\n {4}paths:\n((?: {6}- .*\n)+)/)?.[1] ?? '';
-  const paths = block
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => l.replace(/^ +- /, '').replace(/^'|'$/g, ''));
-  assert.deepEqual(paths, CI_PR_PATHS);
+test('agent-rule files are never docs-only, even though they are markdown', () => {
+  for (const f of [
+    'AGENTS.md',
+    'CLAUDE.md',
+    'apps/x/AGENTS.md',
+    'tooling/agent-protocol/AGENT_PROTOCOL.md',
+    'tooling/agent-protocol/other.md',
+    '.agents/skills/foo/SKILL.md',
+    'docs/some/SKILL.md',
+    '.cursor/rules/inta.md',
+  ]) {
+    assert.equal(ciWouldRun([f]), true, f);
+    assert.equal(ciWouldRun([f], ['**', '!**/*.md']), true, `${f} even if the mirrored filter were wrong`);
+  }
+  const r = evaluate({ checks: REQ_OK, mainFailing: new Set(), files: ['AGENTS.md'], title: 'docs: rules', ciPresent: false });
+  assert.equal(r.pass, false);
+  assert.match(r.reasons.join(), /CI never started/);
 });
 
+// The one test that reads the repo. It skips where the repo is absent (the empty-denominator gate runs this suite in a
+// tree that holds only tooling/), and it must run in any real checkout.
+const CI_YML = fileURLToPath(new URL('../../.github/workflows/ci.yml', import.meta.url));
+test(
+  'CI_PR_PATHS mirrors ci.yml on.pull_request.paths (drift guard)',
+  { skip: !existsSync(CI_YML) && 'ci.yml not present (empty-tree run)' },
+  () => {
+    const yml = readFileSync(CI_YML, 'utf8');
+    const block = yml.match(/pull_request:\n {4}paths:\n((?: {6}(?:- .*|#.*)\n)+)/)?.[1] ?? '';
+    const paths = block
+      .split('\n')
+      .filter((l) => l.trim() && !l.trim().startsWith('#'))
+      .map((l) => l.replace(/^ +- /, '').replace(/^'|'$/g, ''));
+    assert.deepEqual(paths, CI_PR_PATHS);
+    assert.ok(AGENT_RULE_PATTERNS.every((p) => paths.includes(p)));
+  },
+);
+
 test('ratchet: failure also on main is excused; failure absent from main is new', () => {
-  const checks = [...REQ_OK, chk('Doctrine gates', 'fail'), chk('Format', 'pass'), chk('Tests (money)', 'fail')];
+  const checks = [...REQ_OK, chk('Doctrine gates', 'fail'), chk('Format', 'pass'), chk('Typecheck & build', 'fail')];
   const r = evaluate({
     checks,
-    mainFailing: new Set(['Doctrine gates', 'Tests (full)']),
-    mainJobs: new Set(['Doctrine gates', 'Tests (full)', 'Format']),
+    mainFailing: new Set([K('Doctrine gates'), K('Tests (full)')]),
+    mainJobs: new Set([K('Doctrine gates'), K('Tests (full)'), K('Format'), K('Typecheck & build')]),
     files: ['a.ts'],
     title: 'fix: x',
     ciPresent: true,
@@ -119,14 +170,64 @@ test('ratchet: failure also on main is excused; failure absent from main is new'
   );
   assert.deepEqual(
     r.newFailures.map((c) => c.name),
-    ['Tests (money)'],
-  ); // a shard is not excused by a red "Tests (full)"
+    ['Typecheck & build'],
+  );
 });
 
-test('ratchet passes when every failure is also on main', () => {
+test('a PR test shard is excused by main "Tests (full)" only at name level; the log comparison decides', () => {
+  const r = evaluate({
+    checks: [...REQ_OK, chk('Tests (money)', 'fail')],
+    mainFailing: new Set([K('Tests (full)')]),
+    files: ['a.ts'],
+    title: 'fix: x',
+    ciPresent: true,
+  });
+  assert.deepEqual(
+    r.excusedOnMain.map((c) => c.name),
+    ['Tests (money)'],
+  );
+  const none = evaluate({
+    checks: [...REQ_OK, chk('Tests (money)', 'fail')],
+    mainFailing: new Set(),
+    files: ['a.ts'],
+    title: 'fix: x',
+    ciPresent: true,
+  });
+  assert.deepEqual(
+    none.newFailures.map((c) => c.name),
+    ['Tests (money)'],
+  );
+});
+
+test('a same-named job in another workflow neither hides nor is excused', () => {
+  const evil = chk('Doctrine gates', 'fail', 'Some other workflow');
+  const r = evaluate({
+    checks: [...REQ_OK, evil],
+    mainFailing: new Set([K('Doctrine gates')]),
+    files: ['a.ts'],
+    title: 'fix: x',
+    ciPresent: true,
+  });
+  assert.deepEqual(
+    r.newFailures.map((c) => c.workflow),
+    ['Some other workflow'],
+  );
+  // and a fake "Gitleaks" in another workflow does not satisfy the required check
+  const fake = evaluate({
+    checks: [chk('Gitleaks', 'pass', 'Not Gitleaks'), chk('Dependency audit', 'pass', 'Supply chain')],
+    mainFailing: new Set(),
+    files: ['docs/a.md'],
+    title: 'docs: x',
+    ciPresent: false,
+  });
+  assert.equal(fake.pass, false);
+  assert.match(fake.reasons.join(), /"Gitleaks" \(workflow "Gitleaks"\) never reported/);
+});
+
+test('ratchet passes when every failure is also on main (name level)', () => {
   const r = evaluate({
     checks: [...REQ_OK, chk('Doctrine gates', 'fail')],
-    mainFailing: new Set(['Doctrine gates']),
+    mainFailing: new Set([K('Doctrine gates')]),
     files: ['a.ts'],
     title: 'fix: x',
     ciPresent: true,
@@ -136,7 +237,7 @@ test('ratchet passes when every failure is also on main', () => {
 });
 
 test('known PR-only red (CX-8) is allowed, but only because it is listed and absent from main', () => {
-  assert.ok('CX-8 assembled smoke' in KNOWN_PR_ONLY_RED);
+  assert.ok('Order-path CX-8/CX-8 assembled smoke' in KNOWN_PR_ONLY_RED);
   const checks = [...REQ_OK, chk('CX-8 assembled smoke', 'fail', 'Order-path CX-8'), chk('Other PR job', 'fail', 'Other')];
   const r = evaluate({ checks, mainFailing: new Set(), mainJobs: new Set(), files: ['a.ts'], title: 'fix: x', ciPresent: true });
   assert.deepEqual(
@@ -148,12 +249,21 @@ test('known PR-only red (CX-8) is allowed, but only because it is listed and abs
     ['Other PR job'],
   );
   assert.equal(r.pass, false);
+  // same job name under a different workflow is not the known one
+  const other = evaluate({
+    checks: [...REQ_OK, chk('CX-8 assembled smoke', 'fail', 'Elsewhere')],
+    mainFailing: new Set(),
+    files: ['a.ts'],
+    title: 'fix: x',
+    ciPresent: true,
+  });
+  assert.equal(other.knownRed.length, 0);
 });
 
 test('required checks are never excused, even if main "fails" a job of the same name', () => {
   const r = evaluate({
     checks: [chk('Gitleaks', 'fail', 'Gitleaks'), chk('Dependency audit', 'pass', 'Supply chain')],
-    mainFailing: new Set(['Gitleaks']),
+    mainFailing: new Set(['Gitleaks/Gitleaks']),
     files: ['a.md'],
     title: 'docs: x',
     ciPresent: false,
@@ -173,13 +283,24 @@ test('a cancelled check on the PR counts as failing', () => {
   assert.equal(r.pass, false);
 });
 
-test('docs-only PR with CI skipped passes on the two required checks and says so', () => {
+test('docs-only PR with CI skipped passes on what reported and says so; a failing Docs format check blocks it', () => {
   const r = evaluate({ checks: REQ_OK, mainFailing: new Set(), files: ['docs/x.md'], title: 'docs: x', ciPresent: false });
   assert.equal(r.pass, true);
   assert.equal(r.docsOnly, true);
-  assert.match(
-    renderComment({ verdict: 'PASS', head: HEAD, pr: 7, main: null, checks: REQ_OK, evalResult: r }),
-    /Docs-only PR.*no tests ran.*Gitleaks and Dependency audit/,
+  const text = renderComment({ verdict: 'PASS', head: HEAD, pr: 7, main: null, checks: REQ_OK, evalResult: r });
+  assert.match(text, /Docs-only PR.*no tests ran.*Gitleaks, Dependency audit.*a failing one would have blocked it/);
+  assert.doesNotMatch(text, /two required checks only|Gitleaks and Dependency audit checks only/);
+  const bad = evaluate({
+    checks: [...REQ_OK, chk('Prettier (docs)', 'fail', 'Docs format')],
+    mainFailing: new Set(),
+    files: ['docs/x.md'],
+    title: 'docs: x',
+    ciPresent: false,
+  });
+  assert.equal(bad.pass, false);
+  assert.deepEqual(
+    bad.newFailures.map((c) => c.name),
+    ['Prettier (docs)'],
   );
 });
 
@@ -208,11 +329,45 @@ test('an undeclared gate-file change fails; a declared one passes', () => {
   assert.equal(ok.pass, true);
 });
 
-test('selectMainRun skips cancelled runs and runs that ran no jobs', async () => {
+test('verdict names the jobs main ran that were skipped or absent on the PR', () => {
+  const r = evaluate({
+    checks: [...REQ_OK, chk('Format', 'pass'), chk('Tests (money)', 'skipping')],
+    mainFailing: new Set(),
+    mainJobs: new Set([K('Format'), K('Tests (money)'), K('Tests (trade)')]),
+    files: ['a.ts'],
+    title: 'fix: x',
+    ciPresent: true,
+  });
+  assert.deepEqual(r.notCompared.sort(), ['Tests (money) (skipped)', 'Tests (trade) (absent)']);
+  assert.match(
+    renderComment({ verdict: 'PASS', head: HEAD, pr: 7, main: null, checks: REQ_OK, evalResult: r }),
+    /Not compared.*Tests \(money\) \(skipped\).*Tests \(trade\) \(absent\)/,
+  );
+});
+
+test('log parsers read the real log format', () => {
+  assert.deepEqual([...parseDoctrineFailures(log('doctrine-main'))].sort(), [
+    'money-skip-honesty',
+    'secrets',
+    'skip-honesty',
+    'test-db',
+    'workspace',
+  ]);
+  assert.deepEqual([...parseTurboFailures(log('turbo-main'))].sort(), [
+    '@intafaced/svc-indexer#test',
+    '@intafaced/svc-notify#test',
+    '@intafaced/svc-ops#test',
+    '@intafaced/svc-support#test',
+  ]);
+  assert.equal(parseDoctrineFailures('nothing here').size, 0);
+  assert.equal(parseTurboFailures('').size, 0);
+});
+
+test('selectMainRun skips cancelled runs and runs that ran no jobs, and keys jobs by workflow/name', async () => {
   const { gh, calls } = fakeGh(mainWorld);
   const m = await selectMainRun(gh, REPO);
   assert.equal(m.run.databaseId, 200); // 400 cancelled, 300 had only skipped jobs, 200 is the first real one
-  assert.deepEqual([...m.failing].sort(), ['CI merge seal', 'Doctrine gates', 'Tests (full)']);
+  assert.deepEqual([...m.failing].sort(), [K('CI merge seal'), K('Doctrine gates'), K('Tests (full)')]);
   assert.ok(
     calls.some((c) => c.args.includes('300')),
     'looked at the jobs-less run before skipping it',
@@ -224,24 +379,30 @@ test('selectMainRun returns null when no run ran jobs', async () => {
   assert.equal(await selectMainRun(gh, REPO), null);
 });
 
+function logWorld({ doctrinePr, turboPr, checks }) {
+  const logs = {
+    [mainJobId('Doctrine gates')]: log('doctrine-main'),
+    [mainJobId('Tests (full)')]: log('turbo-main'),
+  };
+  const all = [...REQ_OK, ...checks];
+  if (doctrinePr) logs[prJobId('Doctrine gates')] = log(doctrinePr);
+  if (turboPr) logs[prJobId('Tests (full)')] = log(turboPr);
+  return { pr: basePr(), files: ['services/svc-pay/a.ts'], checks: all, prRuns: PASSRUN, ...mainWorld, logs };
+}
+
 test('runGate: PASS posts one comment and prints the merge command, never merges', async () => {
-  const checks = [...REQ_OK, chk('Doctrine gates', 'fail'), chk('Format', 'pass'), chk('Definition of Done', 'skipping')];
-  const { gh, calls } = fakeGh({
-    pr: basePr(),
-    files: ['services/svc-pay/a.ts'],
-    checks,
-    prRuns: [{ workflowName: 'CI', status: 'completed' }],
-    ...mainWorld,
-  });
-  const c = clock();
-  const r = await runGate(opts(), { gh, ...c });
-  assert.equal(r.code, 0);
+  const doctrine = chk('Doctrine gates', 'fail');
+  const world = logWorld({ doctrinePr: 'doctrine-main', checks: [doctrine, chk('Format', 'pass'), chk('Definition of Done', 'skipping')] });
+  const { gh, calls } = fakeGh(world);
+  const r = await runGate(opts(), { gh, ...clock() });
+  assert.equal(r.code, 0, r.evalResult.reasons.join());
   assert.equal(r.mergeCommand, `gh pr merge 7 --match-head-commit ${HEAD} -R ${REPO} --squash`);
   assert.equal(r.mergeCommand, mergeCommand(7, HEAD));
   const comments = calls.filter((x) => x.args[0] === 'pr' && x.args[1] === 'comment');
   assert.equal(comments.length, 1);
   assert.match(comments[0].input, /Merge gate: PASS/);
   assert.match(comments[0].input, /Compared against.*main CI push run/);
+  assert.match(comments[0].input, /Log comparison.*Doctrine gates: 5 failing doctrine gate\(s\), all also failing on main/);
   assert.equal(
     calls.some((x) => x.args.includes('merge')),
     false,
@@ -249,19 +410,53 @@ test('runGate: PASS posts one comment and prints the merge command, never merges
   );
 });
 
-test('runGate: a new failure is FAIL (code 1), comment posted, no merge command', async () => {
-  const checks = [...REQ_OK, chk('Tests (money)', 'fail')];
-  const { gh, calls } = fakeGh({
-    pr: basePr(),
-    files: ['services/svc-pay/a.ts'],
-    checks,
-    prRuns: [{ workflowName: 'CI', status: 'completed' }],
-    ...mainWorld,
-  });
+test('runGate: a NEW doctrine gate failing inside an already-red "Doctrine gates" is a FAIL (the blocker case)', async () => {
+  const world = logWorld({ doctrinePr: 'doctrine-pr-new', checks: [chk('Doctrine gates', 'fail')] });
+  const { gh, calls } = fakeGh(world);
   const r = await runGate(opts(), { gh, ...clock() });
   assert.equal(r.code, 1);
   assert.equal(r.mergeCommand, undefined);
-  assert.match(calls.find((x) => x.args[1] === 'comment').input, /NEW failures.*Tests \(money\)/);
+  assert.match(r.evalResult.reasons.join(), /new failing doctrine gate\(s\) not failing on main: brand/);
+  assert.match(calls.find((x) => x.args[1] === 'comment').input, /NEW failures.*Doctrine gates.*brand/);
+});
+
+test('runGate: a NEW failing test task inside an already-red "Tests (full)" is a FAIL; a subset passes', async () => {
+  const bad = fakeGh(logWorld({ turboPr: 'turbo-pr-new', checks: [chk('Tests (full)', 'fail')] }));
+  const r1 = await runGate(opts(), { gh: bad.gh, ...clock() });
+  assert.equal(r1.code, 1);
+  assert.match(r1.evalResult.reasons.join(), /svc-pay#test/);
+  const good = fakeGh(logWorld({ turboPr: 'turbo-pr-subset', checks: [chk('Tests (full)', 'fail')] }));
+  const r2 = await runGate(opts(), { gh: good.gh, ...clock() });
+  assert.equal(r2.code, 0, r2.evalResult.reasons.join());
+});
+
+test('runGate: a failing PR shard is compared with main "Tests (full)"', async () => {
+  const w = logWorld({ checks: [chk('Tests (money)', 'fail')] });
+  w.logs[prJobId('Tests (money)')] = log('turbo-pr-subset');
+  assert.equal((await runGate(opts(), { gh: fakeGh(w).gh, ...clock() })).code, 0);
+  w.logs[prJobId('Tests (money)')] = log('turbo-pr-new');
+  assert.equal((await runGate(opts(), { gh: fakeGh(w).gh, ...clock() })).code, 1);
+});
+
+test('runGate: ids that cannot be read from the log count as new, never as excused', async () => {
+  const w = logWorld({ checks: [chk('Doctrine gates', 'fail')] });
+  w.logs[prJobId('Doctrine gates')] = 'the job died before printing a summary\n';
+  const r = await runGate(opts(), { gh: fakeGh(w).gh, ...clock() });
+  assert.equal(r.code, 1);
+  assert.match(r.evalResult.reasons.join(), /could not read the failing doctrine gate ids/);
+  delete w.logs[prJobId('Doctrine gates')];
+  const r2 = await runGate(opts(), { gh: fakeGh(w).gh, ...clock() });
+  assert.equal(r2.code, 1);
+  assert.match(r2.evalResult.reasons.join(), /could not compare logs/);
+});
+
+test('runGate: a new failure outside any ratcheted job is a FAIL (code 1), comment posted, no merge command', async () => {
+  const world = logWorld({ checks: [chk('Typecheck & build', 'fail')] });
+  const { gh, calls } = fakeGh(world);
+  const r = await runGate(opts(), { gh, ...clock() });
+  assert.equal(r.code, 1);
+  assert.equal(r.mergeCommand, undefined);
+  assert.match(calls.find((x) => x.args[1] === 'comment').input, /NEW failures.*Typecheck & build/);
 });
 
 test('runGate: wrong head stops before checking anything', async () => {
@@ -291,7 +486,7 @@ test('runGate: waits for pending checks, then judges', async () => {
     pr: basePr(),
     files: ['a.ts'],
     checks: () => (++polls < 3 ? [...REQ_OK, chk('Format', 'pending')] : done),
-    prRuns: [{ workflowName: 'CI', status: 'completed' }],
+    prRuns: PASSRUN,
     ...mainWorld,
   });
   const r = await runGate(opts(), { gh, ...clock() });
@@ -309,7 +504,7 @@ test('runGate: times out instead of hanging', async () => {
   await assert.rejects(runGate(opts({ timeoutMin: 1 }), { gh, ...clock() }), /not finished after 1 min.*Format/);
 });
 
-test('runGate: docs-only PR reporting only the two required checks passes', async () => {
+test('runGate: docs-only PR reporting only the required checks passes', async () => {
   const { gh, calls } = fakeGh({ pr: basePr({ title: 'docs: notes' }), files: ['docs/notes.md'], checks: REQ_OK, prRuns: [] });
   const r = await runGate(opts(), { gh, ...clock() });
   assert.equal(r.code, 0);
@@ -321,11 +516,18 @@ test('runGate: docs-only PR reporting only the two required checks passes', asyn
   );
 });
 
+test('runGate: an AGENTS.md-only PR whose CI never ran does not pass as docs-only', async () => {
+  const { gh } = fakeGh({ pr: basePr({ title: 'docs: rules' }), files: ['AGENTS.md'], checks: REQ_OK, prRuns: [] });
+  const r = await runGate(opts({ ciGraceSec: 10 }), { gh, ...clock() });
+  assert.equal(r.code, 1);
+  assert.match(r.evalResult.reasons.join(), /CI never started/);
+});
+
 test('runGate: no checks at all never hangs; fails once the required checks are overdue', async () => {
   const { gh } = fakeGh({ pr: basePr({ title: 'docs: notes' }), files: ['docs/notes.md'], checks: null, prRuns: [] });
   const r = await runGate(opts({ ciGraceSec: 10 }), { gh, ...clock() });
   assert.equal(r.code, 1);
-  assert.match(r.evalResult.reasons.join(), /"Gitleaks" never reported/);
+  assert.match(r.evalResult.reasons.join(), /"Gitleaks".*never reported/);
 });
 
 test('runGate: a code PR whose CI never appears fails after the grace period', async () => {
@@ -342,14 +544,22 @@ test('runGate: a 403 or 429 stops at once, with no retry', async () => {
 });
 
 test('runGate: merge conflict, draft and closed PRs do not pass', async () => {
-  const world = {
-    files: ['a.ts'],
-    checks: [...REQ_OK, chk('Format', 'pass')],
-    prRuns: [{ workflowName: 'CI', status: 'completed' }],
-    ...mainWorld,
-  };
+  const world = { files: ['a.ts'], checks: [...REQ_OK, chk('Format', 'pass')], prRuns: PASSRUN, ...mainWorld };
   const conflict = await runGate(opts(), { gh: fakeGh({ ...world, pr: basePr({ mergeable: 'CONFLICTING' }) }).gh, ...clock() });
   assert.equal(conflict.code, 1);
   await assert.rejects(runGate(opts(), { gh: fakeGh({ ...world, pr: basePr({ isDraft: true }) }).gh, ...clock() }), /draft/);
   await assert.rejects(runGate(opts(), { gh: fakeGh({ ...world, pr: basePr({ state: 'MERGED' }) }).gh, ...clock() }), /MERGED/);
+});
+
+test('mainCopyProblem: runs only when tooling/scripts and tooling/ci equal origin/main', () => {
+  const mk =
+    (diffStatus, fetchStatus = 0) =>
+    (args) => ({ status: args[0] === 'fetch' ? fetchStatus : diffStatus, stderr: 'boom' });
+  assert.equal(mainCopyProblem(mk(0)), null);
+  assert.match(mainCopyProblem(mk(1)), /up-to-date origin\/main checkout/);
+  assert.match(mainCopyProblem(mk(0, 128)), /could not fetch/);
+  assert.match(mainCopyProblem(mk(129)), /git diff against origin\/main failed/);
+  const seen = [];
+  mainCopyProblem((args) => (seen.push(args.join(' ')), { status: 0, stderr: '' }));
+  assert.deepEqual(seen, ['fetch -q origin main', 'diff --quiet origin/main -- tooling/scripts tooling/ci']);
 });

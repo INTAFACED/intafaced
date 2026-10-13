@@ -12,23 +12,35 @@
  *
  *   1. The PR head is exactly --head, the PR is open, not a draft, and has no merge conflict.
  *   2. Every check on that head has FINISHED (bounded wait; nothing here can hang past --timeout-min).
- *   3. The required checks, Gitleaks and Dependency audit, ran and passed. They run on every PR, docs-only included.
+ *   3. The required checks, Gitleaks (workflow "Gitleaks") and Dependency audit (workflow "Supply chain"), ran and passed.
+ *      Checks are identified by workflow AND name, so a same-named job in another workflow neither satisfies a required
+ *      check nor gets excused by a job of that name on main.
  *   4. The PR adds no failing check that is not ALSO failing on main's latest completed push run of ci.yml that actually
- *      ran jobs (cancelled and superseded runs, 21 of the last 60 in the 2026-10-13 audit, are skipped). Main is red
- *      today, so a failure main already has is not this PR's fault; a failure main does not have is.
- *   5. The PR does not change gate files (tooling/ci, workflows, ...) unless its title says so (gate-file-guard.mjs).
+ *      ran jobs (cancelled and superseded runs, 21 of the last 60 in the 2026-10-13 audit, are skipped).
+ *   5. Inside jobs that are already red on main, the PR adds no new failure: for "Doctrine gates" the set of failing gate
+ *      ids (the `✖ <id>` summary lines of the job log) and for "Tests (full)" and the PR test shards the set of failing
+ *      turbo tasks (the `Failed:` line) must be a subset of main's. A shard is compared with main's "Tests (full)".
+ *      If the failing ids cannot be read from a log, the failure counts as new.
+ *   6. The PR does not change gate files (tooling/ci, workflows, ...) unless its title says so (gate-file-guard.mjs).
+ *
+ * Limit that remains: a gate such as "secrets" that is already red on main can still gain a second finding without a new
+ * id. Only a per-finding baseline would see that.
  *
  * Docs-only PRs: ci.yml has a path filter, so a PR that only touches docs/**, *.md, NOTICE or LICENSE gets no CI run at
- * all (and may report no checks beyond the always-on ones). That is a PASS when, and only when, the changed files are
- * all excluded by that filter and the two required checks passed. The verdict says so.
+ * all. That is accepted when, and only when, the changed files are all excluded by that filter and every check that DID
+ * report (the two required ones, and Docs format when it ran) passed. Agent-rule files (AGENTS.md, CLAUDE.md,
+ * AGENT_PROTOCOL.md, SKILL.md, tooling/agent-protocol/**, .agents/**, .cursor/rules/**) are never docs-only: they need the
+ * full CI, which includes the autoload scan, and ci.yml's path filter lists them for that reason.
  *
- * Limits of a job-name ratchet: it compares job NAMES. A PR runs only the test shard its files affect ("Tests (money)")
- * while main's push run runs "Tests (full)", so a shard failure is never excused by a red "Tests (full)" on main. That is
- * deliberate (it is how a money regression would hide under a red full suite); set SHARD_EXCUSED_BY_FULL to relax it.
+ * RUN IT FROM AN UP-TO-DATE origin/main CHECKOUT. A PR can edit this very file; the gate refuses to run unless
+ * `git diff origin/main -- tooling/scripts tooling/ci` is empty (after fetching), so it is always main's copy that judges.
+ * That is also the backstop for the one thing gate-file-guard.yml cannot stop: a PR editing the guard workflow itself.
  *
  * Exit codes: 0 pass, 1 gate failed (new failures, missing required check, undeclared gate change, conflict), 2 could not
  * decide (wrong head, timeout, bad arguments, no baseline), 3 GitHub refused with 403/429 (stop, never retried).
  */
+import { spawnSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluateGateFileRule, RULE_TEXT } from './gate-file-guard.mjs';
 import { GitHubRefusalError, ghJson, makeGh } from './gate-gh.mjs';
@@ -36,27 +48,62 @@ import { GitHubRefusalError, ghJson, makeGh } from './gate-gh.mjs';
 export const REPO = 'Phantom-X-007/intafaced';
 export const MARKER = '<!-- merge-gate -->';
 
-/** Checks that must run and pass on every PR (branch protection requires the same two). Never excused by main. */
-export const REQUIRED = ['Gitleaks', 'Dependency audit'];
+/**
+ * Checks that must run and pass on every PR (branch protection requires the same two). Never excused by main.
+ * Identified by workflow + name, which is the `workflow` and `name` that `gh pr checks --json` reports.
+ */
+export const REQUIRED = [
+  { workflow: 'Gitleaks', name: 'Gitleaks' },
+  { workflow: 'Supply chain', name: 'Dependency audit' },
+];
+
+/** Identity of a check or job: "<workflow>/<job name>". */
+export const keyOf = (c) => `${c.workflow ?? ''}/${c.name}`;
+export const REQUIRED_KEYS = REQUIRED.map(keyOf);
+export const CI_WORKFLOW_NAME = 'CI';
+const ciKey = (name) => `${CI_WORKFLOW_NAME}/${name}`;
 
 /**
- * PR-ONLY JOBS KNOWN TO BE RED. They never run on main, so the ratchet cannot compare them with a main run.
- * An entry is allowed to fail on a PR and is reported in the verdict. Every entry needs a reason and a way out; delete
- * the entry when the job is fixed. This list may only shrink: it is a gate file, so adding to it needs a `ci:` title.
+ * PR-ONLY JOBS KNOWN TO BE RED, keyed "<workflow>/<job>". They never run on main, so the ratchet cannot compare them with
+ * a main run. An entry is allowed to fail on a PR and is reported in the verdict. Every entry needs a reason and a way
+ * out; delete the entry when the job is fixed. This list may only shrink: it is a gate file, so adding to it needs a `ci:`
+ * title.
  */
 export const KNOWN_PR_ONLY_RED = {
   // Has failed on every PR since 2026-08-24: the harness environment produces NaN. On the heal-main list.
   // Remove this entry when .github/workflows/order-path-cx8.yml is green on a clean PR.
-  'CX-8 assembled smoke': 'harness env NaN, red on every PR since 2026-08-24 (heal-main item)',
+  'Order-path CX-8/CX-8 assembled smoke': 'harness env NaN, red on every PR since 2026-08-24 (heal-main item)',
 };
 
-/** If true, a failing shard ("Tests (money)") is excused when "Tests (full)" fails on main. Off: see the header. */
-export const SHARD_EXCUSED_BY_FULL = false;
-export const SHARDS = ['Tests (protocol)', 'Tests (money)', 'Tests (trade)', 'Tests (pay-bank)'];
+/**
+ * Jobs whose failures are compared id by id inside the log, not only by name. `source` is the main job whose log is the
+ * baseline (a PR test shard is a subset of main's "Tests (full)").
+ */
+export const LOG_RATCHETS = {
+  [ciKey('Doctrine gates')]: { source: ciKey('Doctrine gates'), parse: 'doctrine', what: 'doctrine gate' },
+  [ciKey('Tests (full)')]: { source: ciKey('Tests (full)'), parse: 'turbo', what: 'test task' },
+  [ciKey('Tests (protocol)')]: { source: ciKey('Tests (full)'), parse: 'turbo', what: 'test task' },
+  [ciKey('Tests (money)')]: { source: ciKey('Tests (full)'), parse: 'turbo', what: 'test task' },
+  [ciKey('Tests (trade)')]: { source: ciKey('Tests (full)'), parse: 'turbo', what: 'test task' },
+  [ciKey('Tests (pay-bank)')]: { source: ciKey('Tests (full)'), parse: 'turbo', what: 'test task' },
+};
+
+/**
+ * Files whose change must run the full CI (including the agent-autoload scan) even though they are markdown.
+ * ci.yml's `on.pull_request.paths` lists the same patterns after its markdown exclusion; merge-gate.test.mjs fails on drift.
+ */
+export const AGENT_RULE_PATTERNS = [
+  '**/AGENTS.md',
+  '**/CLAUDE.md',
+  '**/AGENT_PROTOCOL.md',
+  '**/SKILL.md',
+  'tooling/agent-protocol/**',
+  '.agents/**',
+  '.cursor/rules/**',
+];
 
 /** Mirror of `on.pull_request.paths` in .github/workflows/ci.yml (merge-gate.test.mjs fails if they drift). */
-export const CI_PR_PATHS = ['**', '!docs/**', '!**/*.md', '!NOTICE', '!LICENSE', 'INTAFACED_DEFINITIVE_BUILD.md'];
-export const CI_WORKFLOW_NAME = 'CI';
+export const CI_PR_PATHS = ['**', '!docs/**', '!**/*.md', '!NOTICE', '!LICENSE', 'INTAFACED_DEFINITIVE_BUILD.md', ...AGENT_RULE_PATTERNS];
 
 const FAIL_BUCKETS = new Set(['fail', 'cancel']);
 
@@ -84,6 +131,8 @@ function pathGlob(glob) {
 
 /** GitHub path-filter semantics: patterns in order, the last one that matches decides; the workflow runs if any file is in. */
 export function ciWouldRun(files, patterns = CI_PR_PATHS) {
+  const agentRule = AGENT_RULE_PATTERNS.map(pathGlob);
+  if (files.some((f) => agentRule.some((re) => re.test(f)))) return true; // never docs-only, whatever the mirror says
   const compiled = patterns.map((p) => ({ neg: p.startsWith('!'), re: pathGlob(p.replace(/^!/, '')) }));
   return files.some((f) => {
     let included = false;
@@ -92,46 +141,48 @@ export function ciWouldRun(files, patterns = CI_PR_PATHS) {
   });
 }
 
-/** One entry per check name (a re-run leaves several): keep the latest by completedAt, a pending entry counts as latest. */
+/** One entry per workflow+name (a re-run leaves several): keep the latest by completedAt, a pending entry counts as latest. */
 export function collapseChecks(checks) {
   const byName = new Map();
   for (const c of checks) {
-    const prev = byName.get(c.name);
+    const prev = byName.get(keyOf(c));
     const stamp = (x) => (x.completedAt && !x.completedAt.startsWith('0001') ? Date.parse(x.completedAt) : Infinity);
-    if (!prev || stamp(c) >= stamp(prev)) byName.set(c.name, c);
+    if (!prev || stamp(c) >= stamp(prev)) byName.set(keyOf(c), c);
   }
   return [...byName.values()];
 }
 
 /**
- * Pure verdict.
+ * Pure verdict at the level of check names. Log-level refinement (refineWithLogs) runs after it.
  * @param {object} i
- * @param {Array<{name:string,bucket:string,workflow?:string,link?:string}>} i.checks collapsed checks of the PR head
- * @param {Set<string>|null} i.mainFailing failing job names on the compared main run (null: no baseline found)
- * @param {Set<string>} i.mainJobs every job name on the compared main run
+ * @param {Array<{name:string,workflow?:string,bucket:string,link?:string}>} i.checks collapsed checks of the PR head
+ * @param {Set<string>|null} i.mainFailing keys ("workflow/name") failing on the compared main run (null: no baseline found)
+ * @param {Set<string>} i.mainJobs keys of every job on the compared main run
  * @param {string[]} i.files changed files
  * @param {string} i.title PR title
  * @param {boolean} i.ciPresent a CI workflow run or check exists for this head
  */
-export function evaluate({ checks, mainFailing, mainJobs = new Set(), files, title, ciPresent }) {
+export function evaluate({ checks, mainFailing, mainJobs = new Set(), files, title, author, ciPresent }) {
   const reasons = [];
-  const byName = new Map(checks.map((c) => [c.name, c]));
+  const byKey = new Map(checks.map((c) => [keyOf(c), c]));
   const required = {};
-  for (const name of REQUIRED) {
-    const c = byName.get(name);
-    required[name] = c ? c.bucket : 'missing';
-    if (!c) reasons.push(`required check "${name}" never reported`);
-    else if (c.bucket !== 'pass') reasons.push(`required check "${name}" is ${c.bucket}`);
+  for (const r of REQUIRED) {
+    const c = byKey.get(keyOf(r));
+    required[r.name] = c ? c.bucket : 'missing';
+    if (!c) reasons.push(`required check "${r.name}" (workflow "${r.workflow}") never reported`);
+    else if (c.bucket !== 'pass') reasons.push(`required check "${r.name}" is ${c.bucket}`);
   }
 
-  const failing = checks.filter((c) => FAIL_BUCKETS.has(c.bucket) && !REQUIRED.includes(c.name));
+  const failing = checks.filter((c) => FAIL_BUCKETS.has(c.bucket) && !REQUIRED_KEYS.includes(keyOf(c)));
   const excusedOnMain = [];
   const knownRed = [];
   const newFailures = [];
   for (const c of failing) {
-    const shardOk = SHARD_EXCUSED_BY_FULL && SHARDS.includes(c.name) && mainFailing?.has('Tests (full)');
-    if (mainFailing?.has(c.name) || shardOk) excusedOnMain.push(c);
-    else if (c.name in KNOWN_PR_ONLY_RED && !mainJobs.has(c.name)) knownRed.push(c);
+    const k = keyOf(c);
+    const ratchet = LOG_RATCHETS[k];
+    // A PR test shard is a subset of main's "Tests (full)", so it is excused (pending the log comparison) by that job.
+    if (mainFailing?.has(k) || (ratchet && mainFailing?.has(ratchet.source))) excusedOnMain.push(c);
+    else if (k in KNOWN_PR_ONLY_RED && !mainJobs.has(k)) knownRed.push(c);
     else newFailures.push(c);
   }
   if (newFailures.length) {
@@ -139,16 +190,119 @@ export function evaluate({ checks, mainFailing, mainJobs = new Set(), files, tit
     reasons.push(`new failing check(s), ${why}: ${newFailures.map((c) => c.name).join(', ')}`);
   }
 
+  // What the verdict could not compare: jobs main ran that this PR skipped or did not run.
+  const notCompared = [];
+  for (const k of mainJobs) {
+    const c = byKey.get(k);
+    if (!c) notCompared.push(`${k.slice(k.indexOf('/') + 1)} (absent)`);
+    else if (c.bucket === 'skipping' || c.bucket === 'cancel')
+      notCompared.push(`${c.name} (${c.bucket === 'skipping' ? 'skipped' : 'cancelled'})`);
+  }
+
   let docsOnly = false;
   if (!ciPresent) {
-    if (ciWouldRun(files)) reasons.push('CI never started although this PR changes code paths, so its tests did not run');
+    if (ciWouldRun(files))
+      reasons.push('CI never started although this PR changes paths that run it (code or agent-rule files), so its tests did not run');
     else docsOnly = true;
   }
 
-  const gate = evaluateGateFileRule(title, files);
+  const gate = evaluateGateFileRule(title, files, { author });
   if (!gate.ok) reasons.push(`changes gate files without saying so in the title: ${gate.gateFiles.map((g) => g.file).join(', ')}`);
 
-  return { pass: reasons.length === 0, reasons, required, excusedOnMain, knownRed, newFailures, docsOnly, gate };
+  return {
+    pass: reasons.length === 0,
+    reasons,
+    required,
+    excusedOnMain,
+    knownRed,
+    newFailures,
+    notCompared,
+    docsOnly,
+    gate,
+    logChecks: [],
+  };
+}
+
+/** Failing gate ids from a "Doctrine gates" job log: the `  ✖ <id>   123ms  doctrine` summary lines. */
+export function parseDoctrineFailures(log) {
+  const ids = new Set();
+  for (const line of logLines(log)) {
+    const m = /^\s*✖ (\S+)\s+\d+ms\b/.exec(line);
+    if (m) ids.add(m[1]);
+  }
+  return ids;
+}
+
+/** Failing turbo tasks from a test job log: the `Failed:    a#test, b#test` line turbo prints. */
+export function parseTurboFailures(log) {
+  const ids = new Set();
+  for (const line of logLines(log)) {
+    const m = /^\s*Failed:\s+(.+?)\s*$/.exec(line);
+    if (m) for (const t of m[1].split(/,\s*/)) if (t) ids.add(t);
+  }
+  return ids;
+}
+
+/** `gh run view --log` lines are "job<TAB>step<TAB>timestamp text". Strip the prefix and any colour codes. */
+function* logLines(log) {
+  for (const raw of String(log).split('\n')) {
+    const parts = raw.split('\t');
+    const text =
+      parts.length >= 3
+        ? parts
+            .slice(2)
+            .join('\t')
+            .replace(/^\S+Z\s?/, '')
+        : raw;
+    yield text.replace(/\u001b\[[0-9;]*m/g, '');
+  }
+}
+
+const PARSERS = { doctrine: parseDoctrineFailures, turbo: parseTurboFailures };
+const jobIdOf = (c) => /\/job\/(\d+)/.exec(c.link ?? '')?.[1] ?? null;
+
+/**
+ * For every check that name-level comparison excused because main fails the same job, compare the failing ids inside the
+ * logs. Anything the PR fails that main does not, or any log that cannot be read, turns the excuse into a new failure.
+ * Mutates and returns `ev`.
+ */
+export function refineWithLogs(ev, { gh, repo, main }) {
+  if (!main || !ev.excusedOnMain.length) return ev;
+  const mainLogs = new Map();
+  const readLog = (id) => gh(['run', 'view', '--job', String(id), '-R', repo, '--log']).stdout;
+  const keep = [];
+  for (const c of ev.excusedOnMain) {
+    const k = keyOf(c);
+    const ratchet = LOG_RATCHETS[k];
+    if (!ratchet) {
+      keep.push(c); // e.g. "Format", "CI merge seal": no ids to compare, the name-level excuse stands
+      continue;
+    }
+    let detail;
+    try {
+      const prId = jobIdOf(c);
+      const mainJob = main.byKey.get(ratchet.source);
+      if (!prId || !mainJob) throw new Error('no job id to read the log of');
+      if (!mainLogs.has(ratchet.source)) mainLogs.set(ratchet.source, readLog(mainJob.databaseId));
+      const parse = PARSERS[ratchet.parse];
+      const prIds = parse(readLog(prId));
+      const mainIds = parse(mainLogs.get(ratchet.source));
+      const added = [...prIds].filter((x) => !mainIds.has(x)).sort();
+      if (!prIds.size) detail = `could not read the failing ${ratchet.what} ids from the log, so nothing proves they are all on main`;
+      else if (added.length) detail = `new failing ${ratchet.what}(s) not failing on main: ${added.join(', ')}`;
+      else ev.logChecks.push(`${c.name}: ${prIds.size} failing ${ratchet.what}(s), all also failing on main`);
+    } catch (e) {
+      if (e?.name === 'GitHubRefusalError') throw e;
+      detail = `could not compare logs (${e.message})`;
+    }
+    if (detail) {
+      ev.newFailures.push({ ...c, detail });
+      ev.reasons.push(`${c.name}: ${detail}`);
+    } else keep.push(c);
+  }
+  ev.excusedOnMain = keep;
+  ev.pass = ev.reasons.length === 0;
+  return ev;
 }
 
 /** The latest COMPLETED push run of ci.yml on main that really ran jobs. Cancelled and superseded runs are skipped. */
@@ -177,11 +331,13 @@ export async function selectMainRun(gh, repo, { maxCandidates = 12 } = {}) {
     if (++tried > maxCandidates) break;
     const jobs = ghJson(gh, ['run', 'view', String(run.databaseId), '-R', repo, '--json', 'jobs']).jobs;
     if (!jobs.some((j) => j.conclusion === 'success' || j.conclusion === 'failure')) continue; // ran no jobs
+    const keyed = jobs.map((j) => ({ ...j, workflow: CI_WORKFLOW_NAME }));
     return {
       run,
       jobs,
-      failing: new Set(jobs.filter((j) => j.conclusion === 'failure' || j.conclusion === 'timed_out').map((j) => j.name)),
-      names: new Set(jobs.map((j) => j.name)),
+      byKey: new Map(keyed.map((j) => [keyOf(j), j])),
+      failing: new Set(keyed.filter((j) => j.conclusion === 'failure' || j.conclusion === 'timed_out').map(keyOf)),
+      names: new Set(keyed.map(keyOf)),
     };
   }
   return null;
@@ -196,11 +352,12 @@ const link = (c) => (c.link ? `[${c.name}](${c.link})` : c.name);
 export function renderComment({ verdict, head, pr, main, checks, evalResult }) {
   const e = evalResult;
   const L = [`${MARKER}`, `**Merge gate: ${verdict}** for head \`${head.slice(0, 10)}\``, ''];
-  L.push(`- **Required checks:** ${REQUIRED.map((n) => `${n} ${e.required[n]}`).join(', ')}.`);
+  L.push(`- **Required checks:** ${REQUIRED.map((r) => `${r.name} ${e.required[r.name]}`).join(', ')}.`);
   L.push(`- **Checks reported:** ${checks.length}.`);
   if (e.docsOnly) {
     L.push(
-      '- **Docs-only PR:** CI is skipped by its path filter, so no tests ran. Passed on the required Gitleaks and Dependency audit checks only.',
+      '- **Docs-only PR:** CI is skipped by its path filter, so no tests ran. Passed on the checks that did report ' +
+        `(${checks.map((c) => c.name).join(', ') || 'none'}); a failing one would have blocked it.`,
     );
   }
   if (main) {
@@ -214,10 +371,14 @@ export function renderComment({ verdict, head, pr, main, checks, evalResult }) {
     L.push(
       `- **Failing here and also failing on main (pre-existing red, not added by this PR):** ${e.excusedOnMain.map(link).join(', ')}.`,
     );
+  for (const l of e.logChecks) L.push(`- **Log comparison:** ${l}.`);
   if (e.knownRed.length) {
-    L.push(`- **Known PR-only red, allowed:** ${e.knownRed.map((c) => `${link(c)} (${KNOWN_PR_ONLY_RED[c.name]})`).join('; ')}.`);
+    L.push(`- **Known PR-only red, allowed:** ${e.knownRed.map((c) => `${link(c)} (${KNOWN_PR_ONLY_RED[keyOf(c)]})`).join('; ')}.`);
   }
-  if (e.newFailures.length) L.push(`- **NEW failures (not on main):** ${e.newFailures.map(link).join(', ')}.`);
+  if (e.newFailures.length)
+    L.push(`- **NEW failures (not on main):** ${e.newFailures.map((c) => `${link(c)}${c.detail ? ` (${c.detail})` : ''}`).join('; ')}.`);
+  if (e.notCompared.length)
+    L.push(`- **Not compared (main ran these; they were skipped or absent on this PR):** ${e.notCompared.join(', ')}.`);
   if (e.gate.gateFiles.length) {
     L.push(
       `- **Gate files changed:** ${e.gate.gateFiles.map((g) => `\`${g.file}\``).join(', ')}${e.gate.declared ? ' (declared in the title)' : ' (NOT declared)'}.`,
@@ -256,7 +417,7 @@ function parseArgs(argv) {
 export async function runGate(o, { gh, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = () => {} }) {
   const { pr, head, repo } = o;
   const viewPr = () =>
-    ghJson(gh, ['pr', 'view', String(pr), '-R', repo, '--json', 'number,state,isDraft,headRefOid,baseRefName,title,mergeable,url']);
+    ghJson(gh, ['pr', 'view', String(pr), '-R', repo, '--json', 'number,state,isDraft,headRefOid,baseRefName,title,mergeable,url,author']);
   const first = viewPr();
   if (first.headRefOid !== head)
     throw new GateError(`PR #${pr} head is ${first.headRefOid}, not the reviewed ${head}. Nothing was checked.`);
@@ -264,6 +425,7 @@ export async function runGate(o, { gh, now = Date.now, sleep = (ms) => new Promi
   if (first.baseRefName !== 'main') throw new GateError(`PR #${pr} targets ${first.baseRefName}, not main.`);
   if (first.isDraft) throw new GateError(`PR #${pr} is a draft.`);
   const title = first.title;
+  const author = first.author?.login;
 
   const files = gh(['api', '--paginate', `repos/${repo}/pulls/${pr}/files`, '--jq', '.[].filename'])
     .stdout.split('\n')
@@ -302,7 +464,7 @@ export async function runGate(o, { gh, now = Date.now, sleep = (ms) => new Promi
 
     const pending = checks.filter((c) => c.bucket === 'pending').map((c) => c.name);
     const active = runs.filter((x) => x.status !== 'completed').map((x) => x.workflowName);
-    const missingRequired = REQUIRED.filter((n) => !checks.some((c) => c.name === n));
+    const missingRequired = REQUIRED.filter((r) => !checks.some((c) => keyOf(c) === keyOf(r))).map((r) => r.name);
     const ciPresent = checks.some((c) => c.workflow === CI_WORKFLOW_NAME) || runs.some((x) => x.workflowName === CI_WORKFLOW_NAME);
 
     let done = !pending.length && !active.length && !missingRequired.length;
@@ -328,7 +490,7 @@ export async function runGate(o, { gh, now = Date.now, sleep = (ms) => new Promi
     await sleep(o.pollSec * 1000);
   }
 
-  const failingNames = settled.checks.filter((c) => FAIL_BUCKETS.has(c.bucket) && !REQUIRED.includes(c.name));
+  const failingNames = settled.checks.filter((c) => FAIL_BUCKETS.has(c.bucket) && !REQUIRED_KEYS.includes(keyOf(c)));
   let main = null;
   if (settled.ciPresent) {
     main = await selectMainRun(gh, repo);
@@ -342,8 +504,10 @@ export async function runGate(o, { gh, now = Date.now, sleep = (ms) => new Promi
     mainJobs: main ? main.names : new Set(),
     files,
     title,
+    author,
     ciPresent: settled.ciPresent,
   });
+  refineWithLogs(evalResult, { gh, repo, main });
   if (settled.mergeable === 'CONFLICTING') {
     evalResult.reasons.push('PR has merge conflicts with main');
     evalResult.pass = false;
@@ -363,10 +527,33 @@ export async function runGate(o, { gh, now = Date.now, sleep = (ms) => new Promi
   };
 }
 
+/**
+ * The gate must be main's copy: a PR can edit this file. Returns a problem string, or null when tooling/scripts and
+ * tooling/ci match origin/main exactly (after a fetch). `git` is injected for tests.
+ */
+export function mainCopyProblem(git) {
+  const fetched = git(['fetch', '-q', 'origin', 'main']);
+  if (fetched.status !== 0)
+    return `could not fetch origin/main (${fetched.stderr.trim().slice(0, 200)}), so the gate cannot prove it is main's copy`;
+  const d = git(['diff', '--quiet', 'origin/main', '--', 'tooling/scripts', 'tooling/ci']);
+  if (d.status === 0) return null;
+  if (d.status === 1) {
+    return 'tooling/scripts or tooling/ci differ from origin/main in this checkout. Run the gate from an up-to-date origin/main checkout (not the PR branch), because a PR can edit the gate that judges it.';
+  }
+  return `git diff against origin/main failed (${d.stderr.trim().slice(0, 200)})`;
+}
+
 async function main() {
   let o;
   try {
     o = parseArgs(process.argv.slice(2));
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const git = (args) => {
+      const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 120_000 });
+      return { status: r.status ?? 2, stderr: String(r.stderr ?? '') };
+    };
+    const problem = mainCopyProblem(git);
+    if (problem) throw new GateError(problem);
     const result = await runGate(o, { gh: makeGh(), log: (m) => console.error(`merge-gate: ${m}`) });
     console.log(result.comment.replace(MARKER, '').trim());
     if (result.mergeCommand) console.log(`\nMERGE COMMAND (run it yourself, as its own step):\n${result.mergeCommand}`);
