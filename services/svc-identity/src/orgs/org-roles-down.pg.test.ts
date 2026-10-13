@@ -76,9 +76,9 @@ describe('org role rollback', () => {
     await db.sql`UPDATE organization_members SET role = 'owner' WHERE user_id = ${user!.id}`;
 
     for (const refused of ['admin', 'trader', 'auditor'] as const) {
-      await expect(
-        db.sql`UPDATE organization_members SET role = ${refused} WHERE user_id = ${user!.id}`,
-      ).rejects.toMatchObject({ code: '23514' });
+      await expect(db.sql`UPDATE organization_members SET role = ${refused} WHERE user_id = ${user!.id}`).rejects.toMatchObject({
+        code: '23514',
+      });
     }
 
     const kept = await db.sql<Array<{ user_id: string; role: string }>>`

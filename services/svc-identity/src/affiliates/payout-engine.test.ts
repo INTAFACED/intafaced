@@ -231,7 +231,10 @@ describe('multi-tier fan-out across the tree', () => {
 
   it('the whole book still sums to zero per asset after the fan-out', async () => {
     const ledger = await fundedLedger();
-    await postAffiliatePayout(ledger, planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN }));
+    await postAffiliatePayout(
+      ledger,
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN }),
+    );
 
     // treasury holds the negative of every custodial balance; the invariant the
     // ledger enforces per transaction must also hold across the book.
@@ -316,7 +319,10 @@ describe('multi-tier fan-out across the tree', () => {
     expect(identityRows.every((r) => r.sourceModule === 'identity')).toBe(true);
 
     await expect(
-      postAffiliatePayout(ledger, planAffiliatePayout({ feeEventId: FEE_EVENT, rows: identityRows, law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN })),
+      postAffiliatePayout(
+        ledger,
+        planAffiliatePayout({ feeEventId: FEE_EVENT, rows: identityRows, law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN }),
+      ),
     ).rejects.toThrow();
     expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('0');
     expect(await bal(ledger, houseFees('trade', ASSET))).toBe('100');
@@ -420,7 +426,10 @@ describe('a retried payout pays once', () => {
 
   it('every key is distinct and derived from the business event', async () => {
     const ledger = await fundedLedger();
-    const receipt = await postAffiliatePayout(ledger, planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN }));
+    const receipt = await postAffiliatePayout(
+      ledger,
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN }),
+    );
 
     expect(payoutKeysAreDistinct(receipt)).toBe(true);
     expect(payoutKeysAreBusinessDerived(receipt)).toBe(true);
@@ -670,7 +679,12 @@ describe('fan-out integrity', () => {
   it('a fractional fee pays fractional commission without touching a float', async () => {
     const ledger = await fundedLedger('33.333333333333333333');
     const fee = feeEvent({ feeAmount: '33.333333333333333333' });
-    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(PUBLISHED, fee), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
+    const plan = planAffiliatePayout({
+      feeEventId: FEE_EVENT,
+      rows: rows(PUBLISHED, fee),
+      law: PUBLISHED,
+      frozenBeneficiaryIds: NOBODY_FROZEN,
+    });
     await postAffiliatePayout(ledger, plan);
 
     // 10% of 33.333333333333333333, truncated at 18dp by decimalMul.
