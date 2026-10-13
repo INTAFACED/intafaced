@@ -80,7 +80,7 @@ import {
   type ConvertTradeWire,
 } from '../convert/quote.js';
 import { convertSettleIdsFor } from '../convert/ids.js';
-import { convertCustomerHoldKey, planConvertSettle, postConvertSettle } from '../convert/settle.js';
+import { convertCustomerHoldKey, planConvertSettle, postConvertSettle, releaseStrandedHouseHold } from '../convert/settle.js';
 import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
 import { isHouseMmAccount } from '../mm/seed-market.js';
 import { recoverMatchingAccountId } from '../mm/fill-account.js';
@@ -1091,6 +1091,8 @@ export class TradeService {
         if (stored.lifecycle === 'bound' || (stored.lifecycle === 'open' && recordedBound)) {
           const expiresAt = Date.parse(stored.quote.expiresAt);
           if (this.now().getTime() > expiresAt && !(await this.ledger.getTxByKey(convertCustomerHoldKey(ids.takerOrderId)))) {
+            // A legacy attempt may have booked the house hold first: give it back.
+            await releaseStrandedHouseHold(this.ledger, planConvertSettle({ bound, ...ids, now: new Date(bound.acceptedAt) }));
             throw new TradeError('convert quote expired — refuse rather than requote', 'trade.convert_quote_expired');
           }
         }

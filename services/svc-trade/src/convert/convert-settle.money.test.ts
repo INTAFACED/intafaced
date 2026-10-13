@@ -371,6 +371,80 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
       expect(fillPosts()).toHaveLength(0);
     });
 
+    describe('legacy bound quote with the house hold already booked (house-first order)', () => {
+      const reasonsOf = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
+      const houseBtc = async () => formatAmount((await ledger.balance(marketMaker('BTC'))).amount);
+
+      async function legacyBound(createdAgoMs: number, level: [string, string], qty: string) {
+        const created = new Date(Date.now() - createdAgoMs);
+        const estimate = estimateConvert({
+          side: 'buy',
+          qty: amt(qty),
+          levels: [level],
+          convertSpreadBps: OWNER_CONVERT_SPREAD_BPS,
+          tickSize: amt('0.01'),
+        });
+        const quote = buildFirmConvertQuote({
+          quoteId: crypto.randomUUID(),
+          userId: ALICE,
+          symbol: btcusdt.symbol,
+          marketId: btcusdt.id,
+          side: 'buy',
+          baseAsset: 'BTC',
+          quoteAsset: 'USDT',
+          requestedQty: amt(qty),
+          estimate,
+          convertSpreadBps: OWNER_CONVERT_SPREAD_BPS,
+          source: { kind: 'book', symbol: btcusdt.symbol, asOf: created.toISOString() },
+          now: created,
+          quoteTtlMs: 15_000,
+        });
+        const bound = acceptConvertQuote({ quote, now: new Date(created.getTime() + 1_000) });
+        await new SqlConvertQuoteStore(sql).saveBound(quote, bound);
+        const plan = planConvertSettle({ bound, ...convertSettleIdsFor(quote.quoteId), now: new Date(bound.acceptedAt) });
+        const before = await houseBtc();
+        await ledger.post(plan.mmHold); // the old order: house first
+        expect(await houseBtc()).not.toBe(before);
+        return { quote, before };
+      }
+
+      it('past the TTL: refused trade.convert_quote_expired, house hold released once, repeat posts nothing', async () => {
+        const { quote, before } = await legacyBound(20_000, ['100', '5'], '1');
+        await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_quote_expired',
+        });
+        expect(await houseBtc()).toBe(before);
+        expect(reasonsOf('order.hold.mm.released')).toHaveLength(1);
+        expect(reasonsOf('order.hold')).toHaveLength(0);
+        expect(fillPosts()).toHaveLength(0);
+
+        const journalAfter = ledger.journal().length;
+        await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_quote_expired',
+        });
+        expect(ledger.journal()).toHaveLength(journalAfter);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('inside the TTL but customer cannot cover: refused ledger.insufficient_funds, house hold released once, repeat posts nothing', async () => {
+        const { quote, before } = await legacyBound(2_000, ['300', '5'], '5');
+        await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
+          code: 'ledger.insufficient_funds',
+        });
+        expect(await houseBtc()).toBe(before);
+        expect(reasonsOf('order.hold.mm.released')).toHaveLength(1);
+        expect(reasonsOf('order.hold')).toHaveLength(0);
+        expect(fillPosts()).toHaveLength(0);
+
+        const journalAfter = ledger.journal().length;
+        await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
+          code: 'ledger.insufficient_funds',
+        });
+        expect(ledger.journal()).toHaveLength(journalAfter);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+    });
+
     describe('convert hold order — customer first, no stranded house inventory (#4676)', () => {
       const houseAvail = async (assetId: string) => formatAmount((await ledger.balance(marketMaker(assetId))).amount);
       const reasons = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
