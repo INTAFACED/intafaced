@@ -2,7 +2,18 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { colors, controlHeights, cssValue, cssVars, radii, redUpOverrides, renderTokensCss, sizes, textStyles, tightTextTokens } from './tokens.js';
+import {
+  colors,
+  controlHeights,
+  cssValue,
+  cssVars,
+  radii,
+  redUpOverrides,
+  renderTokensCss,
+  sizes,
+  textStyles,
+  tightTextTokens,
+} from './tokens.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const read = (name: string) => readFileSync(join(here, name), 'utf8');
