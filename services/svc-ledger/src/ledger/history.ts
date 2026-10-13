@@ -251,9 +251,38 @@ export const historyPageInputSchema = accountRefSchema
 
 export type HistoryPageInput = z.infer<typeof historyPageInputSchema>;
 
-/** One entry on a page: the history shape plus the asset, which a multi-asset page needs to mean anything. */
+/**
+ * Rails `historyPage` may echo back from `ledger_tx.meta.rail`. Anything else is
+ * returned as `null` — meta is free-form and never leaves this door as-is.
+ *
+ * Built from the rails that actually reach `recipes.deposit` (meta `{ rail, railRef }`):
+ *  - `crypto-native`      svc-pay/src/rails/crypto-native.ts:67 (id); operator credit svc-pay/src/user-money-service.ts:219
+ *  - `card-sandbox`       svc-pay/src/rails/card-sandbox.ts:55 (id); svc-pay/src/index.ts:284 (operator-credit rail)
+ *  - `bank-crypto-ledger` svc-bank/src/ramps/rails.ts:64 (BANK_CRYPTO_LEDGER_RAIL); on-ramp svc-bank/src/ramps/ramp-service.ts:285
+ * Operator ("admin") credits post the rail named in PAY_OPERATOR_CREDIT_RAILS
+ * (svc-pay/src/router.ts:1467), so they carry one of the above and stay ordinary deposits.
+ *  - `local-test`         the local test stack's labelled welcome credit
+ *    (tooling/scripts/local-test-world.mjs:10, stack worktree). A display label only;
+ *    production has no welcome rail.
+ */
+export const HISTORY_RAILS = ['crypto-native', 'card-sandbox', 'bank-crypto-ledger', 'local-test'] as const;
+export type HistoryRail = (typeof HISTORY_RAILS)[number];
+
+const HISTORY_RAIL_SET: ReadonlySet<string> = new Set(HISTORY_RAILS);
+
+/** `meta.rail` if it is an allow-listed rail, else `null`. */
+export function allowedHistoryRail(raw: unknown): HistoryRail | null {
+  return typeof raw === 'string' && HISTORY_RAIL_SET.has(raw) ? (raw as HistoryRail) : null;
+}
+
+/**
+ * One entry on a page: the history shape plus the asset, which a multi-asset page needs to mean anything,
+ * the `entryId` (bigserial `ledger_entries.id`, decimal string) a caller resumes from, and the allow-listed `rail`.
+ */
 export interface HistoryPageEntry extends HistoryEntry {
   readonly assetId: string;
+  readonly entryId: string;
+  readonly rail: HistoryRail | null;
 }
 
 export interface HistoryPage {
@@ -307,6 +336,8 @@ export function serializeHistoryPage(page: HistoryPage) {
       amount: formatAmount(e.amount),
       postedAt: e.postedAt.toISOString(),
       assetId: e.assetId,
+      entryId: e.entryId,
+      rail: e.rail,
     })),
     nextCursor: page.nextCursor,
   };
