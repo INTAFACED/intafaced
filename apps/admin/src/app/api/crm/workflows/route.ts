@@ -1,3 +1,4 @@
+import { moduleDisabledResponse } from '@/lib/modules';
 import * as crm from '@intafaced/contracts';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
@@ -62,6 +63,8 @@ function bindRead(action: string, input: Record<string, unknown>, value: unknown
     }
 }
 export async function GET(request: Request) {
+  const disabled = moduleDisabledResponse('crm');
+  if (disabled) return disabled;
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const params = new URL(request.url).searchParams,
@@ -81,6 +84,8 @@ export async function GET(request: Request) {
   }
 }
 export async function POST(request: Request) {
+  const disabled = moduleDisabledResponse('crm');
+  if (disabled) return disabled;
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const body = await readAdminJson(request),

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { crmRetentionStatusSchema } from '@intafaced/contracts';
 import { RetentionPolicySummary, retentionReviewWrite, type PendingRetentionReview } from './crm-privacy';
+import { crmDate } from '../lib/crm-browser';
 
 const contactId = randomUUID(),
   founderId = randomUUID(),
@@ -24,7 +25,7 @@ describe('retention context', () => {
     expect(html).toContain('Retention policy configured');
     expect(html).toContain('automatic deletion paused');
     expect(html).toContain('last sweep');
-    expect(html).toContain(new Date(now).toLocaleString());
+    expect(html).toContain(crmDate(now));
   });
 
   it('retains the same request UUID and exact body after an unknown receipt, then accepts only the matching review', async () => {
