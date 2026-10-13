@@ -1814,6 +1814,19 @@ export class PayService {
     instrument?: PaymentIntent['instrument'];
     customerRef?: string;
     metadata?: Record<string, string>;
+    /**
+     * The caller's Idempotency-Key, when this create is a merchant REST POST.
+     * With the merchant and the key environment it is the payment's identity:
+     * a retry returns the existing row and does not insert another one that
+     * could be captured on its own. Absent for tRPC, checkout, and
+     * subscriptions — those keep a random id.
+     */
+    idempotencyKey?: string;
+    /**
+     * Key environment of that Idempotency-Key. Missing stays live, the same
+     * rule as the REST journal owner. Sandbox and live do not share an id.
+     */
+    keyEnv?: 'live' | 'sandbox';
   }): Promise<PaymentView> {
     if (input.amount <= 0n) throw new PayError('Payment amount must be positive', 'pay.invalid_amount');
 
@@ -3656,6 +3669,25 @@ export class PayService {
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /**
+ * Payment id for one merchant REST create.
+ *
+ * A pure function of the merchant, the key environment, and the caller's
+ * Idempotency-Key. Missing `keyEnv` is live. The id is the primary key, so a
+ * second insert of the same three is a conflict and returns the existing row
+ * instead of a second capturable payment. Checkout and other callers that have
+ * no key do not use this — they keep `gen_random_uuid()`.
+ */
+function restPaymentId(merchantId: string, keyEnv: 'live' | 'sandbox' | undefined, idempotencyKey: string): string {
+  const env = keyEnv === 'sandbox' ? 'sandbox' : 'live';
+  const digest = createHash('sha256').update(`${merchantId}\u0000${env}\u0000${idempotencyKey}`).digest();
+  const bytes = Buffer.from(digest.subarray(0, 16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
  * Write a payment row and its `created` event.
  *
  * Extracted so `createPayment` (a merchant integration naming its own rail) and
@@ -3663,6 +3695,9 @@ export class PayService {
  * BYTE-IDENTICAL rows and event payloads. Two code paths writing a payments row
  * two slightly different ways is how one of them ends up missing a field the
  * settlement sweep or a dispute later depends on.
+ *
+ * A REST create names `id` from `restPaymentId`. A conflict returns that row
+ * and does not append a second `created` event.
  */
 function paymentCreationPayload(input: Parameters<PayService['createPayment']>[0], paymentId: string): Record<string, unknown> {
   return {
@@ -3691,6 +3726,8 @@ async function insertPayment(
     instrument?: PaymentIntent['instrument'];
     customerRef?: string;
     metadata?: Record<string, string>;
+    idempotencyKey?: string;
+    keyEnv?: 'live' | 'sandbox';
   },
 ): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
