@@ -207,6 +207,27 @@ export class SpaceService {
     return orderSpaces([...rows.map(toRecord), ...funded], assetId === undefined);
   }
 
+  /**
+   * EVERY named space this user has ever owned, archived or not, funded or not.
+   * For history reads (`bank.activity.list`), which must still see a closed
+   * Space's postings: a move into one is a move between the user's own pots,
+   * not a payment to a stranger. Filtered by `user_id`, so never another user's.
+   */
+  async allNamedSpaces(userId: string, assetId?: string): Promise<SpaceRecord[]> {
+    const rows = assetId
+      ? await this.sql<SpaceRow[]>`
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+            FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'named'
+            ORDER BY asset_id ASC, name ASC, id ASC
+        `
+      : await this.sql<SpaceRow[]>`
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+            FROM bank.spaces WHERE user_id = ${userId} AND kind = 'named'
+            ORDER BY asset_id ASC, name ASC, id ASC
+        `;
+    return rows.map(toRecord);
+  }
+
   async list(userId: string, assetId?: string, limit?: number): Promise<SpaceRecord[]> {
     const page = assertSpacesListLimit(limit);
     const rows = assetId
