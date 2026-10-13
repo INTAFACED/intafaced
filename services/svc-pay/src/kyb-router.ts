@@ -2,12 +2,7 @@ import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { DualControlError } from './dual-control.js';
-import {
-  ActionApprovalConsumeError,
-  consumePayApproval,
-  type ActionApprovalConsumer,
-  unwiredApprovalConsumer,
-} from './action-approval-consume.js';
+import { ActionApprovalConsumeError, consumePayApproval, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { KybError, KYB_STATUSES, type KybService } from './kyb-service.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ownership.js';
 import { PayError } from './payment-service.js';

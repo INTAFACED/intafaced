@@ -3,9 +3,15 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
+import type { Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { beforeEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { unwiredApprovalConsumer } from './action-approval-consume.js';
 import { KybError, KybService } from './kyb-service.js';
+import { createKybPspRouter } from './kyb-router.js';
+import { PayError } from './payment-service.js';
+import type { PspModeService } from './psp-mode.js';
 
 function at<T>(rows: readonly T[], index: number, what: string): T {
   const row = rows[index];
@@ -44,6 +50,34 @@ const migrations = readdirSync(drizzle)
 
 const OPERATOR = '99999999-9999-4999-8999-999999999999';
 const MERCHANT_USER = '11111111-1111-4111-8111-111111111111';
+const STRANGER = '22222222-2222-4222-8222-222222222222';
+const REJECTED_OWNER = '33333333-3333-4333-8333-333333333333';
+
+const authConfig = {
+  secret: 'a-test-signing-secret-that-is-long-enough',
+  issuer: 'intafaced',
+  audience: 'intafaced.api',
+  accessTtlSeconds: 900,
+};
+
+async function caller(userId: string): Promise<Context> {
+  const { token } = await issueAccessToken(
+    {
+      userId,
+      sessionId: '77777777-7777-4777-8777-777777777777',
+      scopes: ['pay:write'],
+      tier: 'full',
+      mfa: true,
+    },
+    authConfig,
+  );
+  return {
+    principal: await verifyAccessToken(token, authConfig),
+    service: null,
+    region: 'DE',
+    requestId: 'kyb-caller-owns',
+  };
+}
 
 const H8A_IMAGE = 'postgres:16-alpine';
 
@@ -110,14 +144,27 @@ describe('svc-pay digital KYB PG-hard', () => {
     await adminStop();
   }, 30_000);
 
-  async function merchant(mode: 'gateway' | 'psp' | 'payfac' = 'psp'): Promise<string> {
+  async function merchant(mode: 'gateway' | 'psp' | 'payfac' = 'psp', userId?: string): Promise<string> {
+    const owner = userId ?? `u-${Math.random().toString(36).slice(2)}`;
     const [row] = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchants (user_id, mode, status, pricing)
-      VALUES (${`u-${Math.random().toString(36).slice(2)}`}, ${mode}, 'active', ${sql.json({ feeBps: 250 } as never)})
+      VALUES (${owner}, ${mode}, 'active', ${sql.json({ feeBps: 250 } as never)})
       RETURNING id
     `;
     if (!row) throw new Error('inserting a merchant returned no row');
     return row.id;
+  }
+
+  function owners() {
+    return {
+      async getMerchant(merchantId: string) {
+        const [row] = await sql<Array<{ user_id: string }>>`
+          SELECT user_id FROM pay.merchants WHERE id = ${merchantId}
+        `;
+        if (!row) throw new PayError(`Merchant ${merchantId} not found`, 'pay.merchant_not_found');
+        return { userId: row.user_id };
+      },
+    };
   }
 
   describe('why was this merchant approved', () => {
@@ -199,6 +246,40 @@ describe('svc-pay digital KYB PG-hard', () => {
       await kyb.submit({ merchantId: id, kybRef: 'd1', actorId: MERCHANT_USER, actorScope: 'pay:write' });
       const err = await rejection(kyb.submit({ merchantId: id, kybRef: 'd2', actorId: MERCHANT_USER, actorScope: 'pay:write' }), KybError);
       expect(err.code).toBe('pay.kyb_invalid');
+    });
+
+    it('refuses kyb.submit when the caller does not own the merchant and leaves none and rejected', async () => {
+      const noneId = await merchant('psp', MERCHANT_USER);
+      const rejectedId = await merchant('psp', REJECTED_OWNER);
+      await sql`UPDATE pay.merchants SET kyb_status = 'rejected' WHERE id = ${rejectedId}`;
+
+      const router = createKybPspRouter(kyb, {} as PspModeService, unwiredApprovalConsumer(), owners());
+      const stranger = router.createCaller(await caller(STRANGER));
+
+      await expect(stranger.kyb.submit({ merchantId: noneId, kybRef: 'not-yours' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: expect.stringContaining('pay.merchant_forbidden'),
+      });
+      await expect(stranger.kyb.submit({ merchantId: rejectedId, kybRef: 'still-not-yours' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: expect.stringContaining('pay.merchant_forbidden'),
+      });
+
+      expect((await kyb.currentStatus(noneId)).kybStatus).toBe('none');
+      expect((await kyb.currentStatus(noneId)).kybRef).toBeNull();
+      expect((await kyb.currentStatus(rejectedId)).kybStatus).toBe('rejected');
+      expect((await kyb.currentStatus(rejectedId)).kybRef).toBeNull();
+      expect(await kyb.history(noneId, 50)).toEqual([]);
+      expect(await kyb.history(rejectedId, 50)).toEqual([]);
+
+      const owner = router.createCaller(await caller(REJECTED_OWNER));
+      const submitted = await owner.kyb.submit({ merchantId: rejectedId, kybRef: 'dossier-owner' });
+      expect(submitted.kybStatus).toBe('pending');
+      expect(submitted.changed).toBe(true);
+      expect(submitted.event?.actorId).toBe(REJECTED_OWNER);
+      expect(submitted.event?.fromStatus).toBe('rejected');
+      expect(submitted.event?.toStatus).toBe('pending');
+      expect((await kyb.currentStatus(noneId)).kybStatus).toBe('none');
     });
   });
 });

@@ -108,6 +108,10 @@ function stubKyb(): KybService {
   } as unknown as KybService;
 }
 
+function callerOwnsMerchant() {
+  return { getMerchant: async () => ({ userId: USER }) };
+}
+
 function stubPsp(): PspModeService {
   let feeBps = 250;
   let mode: 'gateway' | 'psp' = 'gateway';
