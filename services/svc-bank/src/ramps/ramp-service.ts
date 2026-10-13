@@ -461,6 +461,23 @@ export class RampService {
   }): Promise<OnrampRecord> {
     if (input.kind === 'fiat') refuseFiatRamp();
     return transaction(this.sql, async (tx) => {
+      if (input.kind === 'fiat') {
+        // selectLivePayFiatRail returns whichever live rail is first, so a retry
+        // can carry a different rail id for the same railRef. The fiat credit is
+        // the railRef. recipes.deposit keys `deposit:<stored rail>:<railRef>`,
+        // so the row we already claimed is the one this call must resume.
+        // The lock covers the gap before that row exists: two first credits of
+        // one railRef cannot both insert.
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`bank.ramp.onramp.fiat:${input.railRef}`})::bigint)`;
+        const prior = await tx<OnrampRow[]>`
+          SELECT * FROM bank.ramp_onramps
+           WHERE kind = 'fiat' AND rail_ref = ${input.railRef}
+           ORDER BY created_at ASC, id ASC
+           FOR UPDATE
+        `;
+        if (prior[0]) return sameOnrampOrConflict(toOnramp(prior[0]), input);
+      }
+
       const inserted = await tx<OnrampRow[]>`
         INSERT INTO bank.ramp_onramps (
           user_id, asset_id, amount, kind, rail, rail_ref, simulated, credited_by, status
