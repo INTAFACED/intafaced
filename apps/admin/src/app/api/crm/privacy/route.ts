@@ -1,3 +1,4 @@
+import { moduleDisabledResponse } from '@/lib/modules';
 import {
   crmErasurePreviewInputSchema,
   crmErasurePreviewSchema,
@@ -33,6 +34,8 @@ function response(value: unknown): Response {
 }
 
 export async function GET(request: Request) {
+  const disabled = moduleDisabledResponse('crm');
+  if (disabled) return disabled;
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const params = new URL(request.url).searchParams;
@@ -91,6 +94,8 @@ export async function GET(request: Request) {
   }
 }
 export async function POST(request: Request) {
+  const disabled = moduleDisabledResponse('crm');
+  if (disabled) return disabled;
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const body = await readAdminJson(request);
