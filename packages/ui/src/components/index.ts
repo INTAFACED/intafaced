@@ -1,5 +1,6 @@
 /** Public surface of the redesign UI kit. `../index.ts` re-exports this barrel. */
 export { cn } from './cn.js';
+export { Wordmark } from './wordmark.js';
 export { Button, buttonVariants, type ButtonProps } from './button.js';
 export { Tabs, TabsList, TabsTab, TabsPanel, TabsTrigger, TabsContent, type TabsListProps } from './tabs.js';
 export { ToggleGroup, ToggleGroupItem, type ToggleGroupProps, type ToggleGroupVariant } from './toggle-group.js';

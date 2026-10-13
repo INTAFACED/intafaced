@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
+import { ChevronDown } from 'lucide-react';
+import { Wordmark } from '@intafaced/ui';
 import { useSession } from '../features/session/session';
 import { usePreferences, savePreferences } from '../shared/preferences';
 import { currentReturnLocation } from './location';
@@ -114,6 +116,7 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
         onClick={() => setOpen(false)}
       >
         {doorLabel(tab.door, language)}
+        {hasMenu && <ChevronDown size={14} aria-hidden="true" className="tb-chev" />}
       </a>
       {hasMenu && open && (
         // TODO(B1): swap to the Base UI NavigationMenu in @intafaced/ui (same rows, same copy).
@@ -178,6 +181,7 @@ function AccountButton({ onSignOut }: { onSignOut: () => void }) {
                 </a>
               </li>
             ))}
+            <li className="tb-account-divider" role="separator" />
             <li>
               <button
                 type="button"
@@ -242,8 +246,7 @@ export function TopBar({
     <>
       <header className="tb">
         <a className="tb-brand" href="/home" aria-label={t('Go to Home')}>
-          {/* TODO(B1): replace the wordmark with the logo component. */}
-          intafaced
+          <Wordmark />
         </a>
         <nav className="tb-nav" aria-label={t('Main navigation')}>
           <ul>

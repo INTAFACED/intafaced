@@ -4,7 +4,7 @@ import { defineCopy } from '../shared/i18n';
 const messages = {
   Home: 'Home',
   'Your money and markets': 'Your money and markets',
-  'Trades, orders and withdrawals': 'Trades, orders and withdrawals',
+  'Trades, orders and transfers': 'Trades, orders and transfers',
   Markets: 'Markets',
   'Prices for every market': 'Prices for every market',
   'Buy and sell': 'Buy and sell',
@@ -231,7 +231,7 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
   es: {
     Home: 'Inicio',
     'Your money and markets': 'Tu dinero y los mercados',
-    'Trades, orders and withdrawals': 'Operaciones, órdenes y retiros',
+    'Trades, orders and transfers': 'Operaciones, órdenes y transferencias',
     Markets: 'Mercados',
     'Prices for every market': 'Precios de cada mercado',
     'Buy and sell': 'Comprar y vender',
@@ -456,7 +456,7 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
   fr: {
     Home: 'Accueil',
     'Your money and markets': 'Votre argent et les marchés',
-    'Trades, orders and withdrawals': 'Opérations, ordres et retraits',
+    'Trades, orders and transfers': 'Opérations, ordres et transferts',
     Markets: 'Marchés',
     'Prices for every market': 'Les prix de chaque marché',
     'Buy and sell': 'Acheter et vendre',

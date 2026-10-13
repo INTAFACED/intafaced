@@ -115,16 +115,19 @@ export function App() {
     if (redirectTo) navigate(redirectTo + location.hash, true);
   }, [redirectTo]);
   useEffect(() => {
-    document.title = `${devFeatures ? 'Hidden features' : room ? roomTitle(room, requestedLocale) : t('Page not found')} · Intafaced`;
+    document.title = `${devFeatures ? 'Hidden features' : room ? roomTitle(room, requestedLocale) : t('Page not found')} · INTAFACED`;
   }, [path, room, requestedLocale, devFeatures]);
   function followLink(event: MouseEvent<HTMLDivElement>) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = event.target instanceof Element ? event.target.closest('a') : null;
     if (!anchor || anchor.target || anchor.hasAttribute('download')) return;
     const url = new URL(anchor.href, location.href);
-    if (url.origin !== location.origin || url.hash) return;
+    if (url.origin !== location.origin) return;
+    // A link to another place in the same page is the browser's job (it scrolls to the anchor). A link to
+    // another route with a `#` stays inside the app: a full reload would drop the in-memory sign-in.
+    if (url.hash && url.pathname === location.pathname && url.search === location.search) return;
     event.preventDefault();
-    navigate(url.pathname + url.search);
+    navigate(url.pathname + url.search + url.hash);
   }
   const needsSession = room && ['home', 'money', 'pay', 'more', 'person'].includes(room.area) && path !== '/pay/checkout';
   const ribbon = dev && hidden && !devFeatures ? <DevRibbon feature={hidden} /> : null;

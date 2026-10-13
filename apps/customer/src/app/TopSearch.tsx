@@ -1,11 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useSession } from '../features/session/session';
-import { useMarkets, type Loadable, type MarketRow } from '../data';
+import { CoinIcon } from '@intafaced/ui';
+import { fmtPrice, useMarkets, useTickers, type Loadable, type MarketRow, type TickerRow } from '../data';
+import { assetName, homeCopy } from '../screens/home/copy';
 import { navigate } from './location';
 import { roomTitle, roomDescription, searchRooms, normalizePair } from './navigation';
 import { ShellIcon } from './icons';
 import { shellCopy } from './shell-copy';
 import { usePreferences } from '../shared/preferences';
+import { listings } from '../screens/home/select';
 
 type Group = 'Coins' | 'Markets' | 'Pages';
 interface Row {
@@ -14,6 +17,10 @@ interface Row {
   label: string;
   hint: string;
   href: string;
+  /** Coins: the ticker, drawn with its icon and plain name. */
+  asset?: string;
+  /** Right-aligned last price, when the ticker list has one. */
+  price?: string;
 }
 const perGroup = 8;
 
@@ -107,6 +114,7 @@ export function TopSearch({ compact }: { compact?: boolean }) {
         }}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
+            setQuery('');
             setOpen(false);
             event.currentTarget.blur();
           } else if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) setOpen(true);
@@ -135,7 +143,8 @@ export function TopSearch({ compact }: { compact?: boolean }) {
 /** Loads the listed markets once, after the first use, and keeps them for the session. */
 function SearchData({ open, ...props }: PanelProps & { open: boolean }) {
   const markets = useMarkets();
-  return open ? <SearchPanel {...props} source={markets} /> : null;
+  const tickers = useTickers();
+  return open ? <SearchPanel {...props} source={markets} tickers={tickers} /> : null;
 }
 
 interface PanelProps {
@@ -161,17 +170,29 @@ function SearchPanel({
   keysRef,
   close,
   source,
-}: PanelProps & { source: Loadable<MarketRow[]> }) {
+  tickers,
+}: PanelProps & { source: Loadable<MarketRow[]>; tickers: Loadable<Record<string, TickerRow>> }) {
   const { t } = shellCopy.useCopy();
+  const names = homeCopy.useCopy();
+  const last = tickers.status === 'ready' ? tickers.data : undefined;
+  const priceOf = (market: MarketRow) => (last?.[market.symbol]?.last ? fmtPrice(last[market.symbol]!.last, market.tickSize) : undefined);
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   const rows = useMemo(() => {
     if (source.status !== 'ready') return pages;
     const listed = source.data.filter((market) => market.orderable);
     const fits = (text: string) => words.every((word) => text.toLowerCase().includes(word));
-    const coins = [...new Set(listed.map((market) => market.base))]
-      .filter((asset) => fits(asset))
+    const coins = listings(listed)
+      .filter((listing) => fits(listing.base))
       .slice(0, perGroup)
-      .map<Row>((asset) => ({ key: `coin:${asset}`, group: 'Coins', label: asset, hint: '', href: `/coin/${encodeURIComponent(asset)}` }));
+      .map<Row>((listing) => ({
+        key: `coin:${listing.base}`,
+        group: 'Coins',
+        label: listing.base,
+        hint: assetName(listing.base, names) ?? '',
+        href: `/coin/${encodeURIComponent(listing.base)}`,
+        asset: listing.base,
+        price: priceOf(listing.market),
+      }));
     const markets = listed
       .filter((market) => fits(`${market.symbol} ${market.base} ${market.quote}`))
       .slice(0, perGroup)
@@ -180,10 +201,11 @@ function SearchPanel({
         group: 'Markets',
         label: market.symbol,
         hint: '',
+        price: priceOf(market),
         href: layoutMode === 'pro' ? `/trade/spot/${normalizePair(market.symbol)}` : `/coin/${encodeURIComponent(market.base)}`,
       }));
     return [...coins, ...markets, ...pages];
-  }, [source, pages, layoutMode, query]);
+  }, [source, tickers, pages, layoutMode, query]);
 
   function choose(row: Row | undefined) {
     if (!row) return;
@@ -240,8 +262,18 @@ function SearchPanel({
                       onPointerDown={(event) => event.preventDefault()}
                       onClick={() => choose(row)}
                     >
-                      <span>{row.label}</span>
-                      {row.hint && <small>{row.hint}</small>}
+                      <span className="tb-option-main">
+                        {row.asset ? <CoinIcon asset={row.asset} size={20} /> : null}
+                        <span>{row.label}</span>
+                        {row.asset && row.hint ? <small className="tb-option-name">{row.hint}</small> : null}
+                      </span>
+                      {row.price ? (
+                        <small className="tb-option-price" data-money>
+                          {row.price}
+                        </small>
+                      ) : !row.asset && row.hint ? (
+                        <small>{row.hint}</small>
+                      ) : null}
                     </li>
                   );
                 })}

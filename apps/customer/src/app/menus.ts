@@ -10,7 +10,7 @@ type PlainKey =
   | 'Portfolio'
   | 'Your assets and their value'
   | 'Activity'
-  | 'Trades, orders and withdrawals'
+  | 'Trades, orders and transfers'
   | 'Markets'
   | 'Prices for every market'
   | 'Spot'
@@ -20,7 +20,7 @@ type PlainKey =
   | 'Convert'
   | 'Swap one asset for another'
   | 'Send'
-  | 'Send money to someone on Intafaced'
+  | 'Send money to someone on INTAFACED'
   | 'Receive'
   | 'Share your details to get paid'
   | 'Help'
@@ -63,7 +63,7 @@ export function tabSpecs(layoutMode: 'simple' | 'pro'): TabSpec[] {
       icon: 'wallet',
       items: [
         { id: 'portfolio', href: '/money', icon: 'wallet', title: 'Portfolio', description: 'Your assets and their value' },
-        { id: 'activity', href: '/money/activity', icon: 'activity', title: 'Activity', description: 'Trades, orders and withdrawals' },
+        { id: 'activity', href: '/money/activity', icon: 'activity', title: 'Activity', description: 'Trades, orders and transfers' },
       ],
     },
     {
@@ -82,7 +82,7 @@ export function tabSpecs(layoutMode: 'simple' | 'pro'): TabSpec[] {
       href: '/pay',
       icon: 'send',
       items: [
-        { id: 'send', href: '/pay/send', icon: 'send', title: 'Send', description: 'Send money to someone on Intafaced' },
+        { id: 'send', href: '/pay/send', icon: 'send', title: 'Send', description: 'Send money to someone on INTAFACED' },
         { id: 'receive', href: '/pay/receive', icon: 'receive', title: 'Receive', description: 'Share your details to get paid' },
       ],
     },
