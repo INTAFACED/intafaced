@@ -16,5 +16,6 @@ RUN node apps/customer/deployment/validate-env.mjs \
 
 FROM nginx:1.30.5-alpine AS runtime
 COPY apps/customer/nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/customer/security-headers.conf apps/customer/security-headers-api.conf /etc/nginx/snippets/
 COPY --from=build /app/apps/customer/dist /usr/share/nginx/html
 EXPOSE 80
