@@ -78,6 +78,15 @@ function stringField(rec: Record<string, unknown>, key: string): string | null {
   return typeof v === 'string' ? v : null;
 }
 
+// Empty base64 round-trips through Buffer, so length is checked before the compare.
+const CANONICAL_B64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+function canonicalStandardBase64(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0) return false;
+  if (!CANONICAL_B64.test(value)) return false;
+  return Buffer.from(value, 'base64').toString('base64') === value;
+}
+
 export function createSbeCodec(deps: { readonly java?: JavaSbeCodec | null } = {}): SbeCodec {
   const java = deps.java === undefined ? loadJavaSbeCodec() : deps.java;
   const linked = java !== null;
@@ -152,7 +161,11 @@ export function createSbeCodec(deps: { readonly java?: JavaSbeCodec | null } = {
       }
       const payloadB64 = stringField(parsed, 'payloadB64');
       const outTemplate = stringField(parsed, 'template');
-      if (payloadB64 === null || (outTemplate !== 'Trade' && outTemplate !== 'DepthLevel')) {
+      if (
+        payloadB64 === null ||
+        !canonicalStandardBase64(payloadB64) ||
+        (outTemplate !== 'Trade' && outTemplate !== 'DepthLevel')
+      ) {
         return refuse(linked, 'invalid_message', 'SBE Java encode omitted payload');
       }
       return { ok: true, linked: true, template: outTemplate, payload: Uint8Array.from(Buffer.from(payloadB64, 'base64')), payloadB64 };
