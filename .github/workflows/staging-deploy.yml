@@ -589,9 +589,9 @@ jobs:
       #
       # A container that refuses to boot (a config guard exiting 1) is put back
       # by `restart: unless-stopped`, so it shows as `restarting` or `running`
-      # between attempts and never reaches `exited`. Three restarts counts as a
-      # crash loop and fails the step at once, instead of waiting out the full
-      # timeout. Container logs are NOT printed: this repository's Actions logs
+      # between attempts and never reaches `exited`. A container that is not
+      # healthy yet and has restarted three times counts as a crash loop and
+      # fails the step at once, instead of waiting out the full timeout. Container logs are NOT printed: this repository's Actions logs
       # are public (threat model §4), and a boot error can echo config. Read
       # them on the host with `docker compose -f docker-compose.apps.yml logs`.
       - name: Every container is healthy
@@ -621,10 +621,12 @@ jobs:
             while read -r line; do
               [ -n "$line" ] || continue
               case "$line" in
-                *' restarts='[3-9]' '*|*' restarts='[1-9][0-9]*) broken="${broken}${line}"$'\n' ;;
                 *' status=running '*' health=healthy') ;;
                 *' status=running '*' health=none') ;;
                 *' status=exited exit=0 '*) ;;
+                # after the OK arms: RestartCount is lifetime, so a container compose
+                # left untouched may carry old restarts and still be healthy now
+                *' restarts='[3-9]' '*|*' restarts='[1-9][0-9]*) broken="${broken}${line}"$'\n' ;;
                 *' health=starting') pending=1 ;;
                 *' status=created '*|*' status=restarting '*) pending=1 ;;
                 *) broken="${broken}${line}"$'\n' ;;
