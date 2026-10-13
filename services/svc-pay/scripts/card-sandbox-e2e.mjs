@@ -13,6 +13,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { paymentIsSettled } from './card-sandbox-settled-list.mjs';
 
 const PAY_URL = process.env.PAY_URL ?? 'http://127.0.0.1:4006';
 const EDGE_SECRET = process.env.EDGE_PRINCIPAL_SECRET ?? 'dev-only-edge-secret-at-least-32-chars-long';
@@ -129,14 +130,10 @@ async function main() {
   ok('settlement.run', { id: settlement.id, status: settlement.status, net: settlement.net });
 
   const listed = await trpc('payment.list', { merchantId: me.id, status: 'settled' }, ['pay:read'], { query: true });
-  if (!Array.isArray(listed) || !listed.some((p) => p.id === payment.id)) {
-    // may still be captured if settle didn't include — accept captured|settled
-    const any = await trpc('payment.list', { merchantId: me.id }, ['pay:read'], { query: true });
-    if (!any.some((p) => p.id === payment.id)) fail('payment.list missing payment', { listed, any });
-    ok('payment.list', { count: any.length, status: any.find((p) => p.id === payment.id)?.status });
-  } else {
-    ok('payment.list settled', { count: listed.length });
+  if (!paymentIsSettled(listed, payment.id)) {
+    fail('settled-missing', { listed, paymentId: payment.id });
   }
+  ok('payment.list settled', { count: listed.length });
 
   // Fresh payment for refund-before-settle proof
   const p2 = await trpc(
