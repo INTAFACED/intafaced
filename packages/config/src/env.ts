@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assertProductionPosture, productionPostureWarnings } from './production-posture.js';
 
 /**
  * Typed environment loader.
@@ -140,6 +141,11 @@ export class EnvError extends Error {
  * the whole picture in one run, not one variable per restart.
  */
 export function loadEnv<T extends z.ZodTypeAny>(schema: T, source: Record<string, unknown> = process.env): z.infer<T> {
+  // Before the schema: a server on dev keys must refuse with that reason, not a schema error.
+  assertProductionPosture(source);
+  for (const warning of productionPostureWarnings(source)) {
+    console.warn(JSON.stringify({ level: 'warn', event: 'config.production_posture_warning', service: source.SERVICE_NAME, warning }));
+  }
   const result = schema.safeParse(source);
   if (result.success) return result.data;
 
