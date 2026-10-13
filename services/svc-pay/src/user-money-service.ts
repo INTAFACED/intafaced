@@ -4,6 +4,8 @@ import { withPayoutLock, payoutTransaction } from './payout-admission.js';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
+  InsufficientFundsError,
+  LedgerError,
   parseAmount,
   recipes,
   userAvailable,
@@ -728,6 +730,10 @@ function toDeposit(row: DepositRow): DepositRecord {
     status: row.status,
     createdAt: row.created_at,
   };
+}
+
+function isInsufficientFunds(err: unknown): boolean {
+  return err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds');
 }
 
 function toWithdrawal(row: WithdrawalRow): WithdrawalRecord {
