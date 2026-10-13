@@ -25,6 +25,9 @@ async function loadEnvModule(overrides: Record<string, string | undefined>): Pro
   vi.stubEnv('BLUEPRINT_ENGINE_URL', undefined);
   vi.stubEnv('BLUEPRINT_ENGINE_MODE', undefined);
   vi.stubEnv('APP_ENV', undefined);
+  // CI points these at a local chain node for the whole job; with APP_ENV=prod the production-posture guard
+  // would refuse them before the engine check this file is about. They have nothing to do with it.
+  for (const key of ['PROTOCOL_RPC_URL', 'INDEXER_RPC_URL', 'INDEXER_REORG_RPC_URL']) vi.stubEnv(key, undefined);
   for (const [key, value] of Object.entries({ ...BASE_ENV, ...overrides })) {
     vi.stubEnv(key, value);
   }
