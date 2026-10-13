@@ -41,8 +41,15 @@ x-service-env: &service-env
   # Production Node, dev application environment. They are different questions:
   # NODE_ENV picks the optimised runtime paths, APP_ENV picks the policy —
   # svc-identity only hard-requires argon2 when APP_ENV is `prod` (§4.1).
+  #
+  # APP_ENV has NO DEFAULT (#4610). This file is the real-deploy unit (staging
+  # runs it), and a `:-dev` fallback turned a host that forgot APP_ENV into an
+  # EXPLICIT `dev`, which the local-test guard (`isExplicitDevOrTest`, #4606)
+  # trusts: fake sanctions list, `local-test:` approvals, screening off. Compose
+  # now refuses to start. Local dev gets `dev` from `.env` (copy .env.example,
+  # which sets APP_ENV=dev); the shell environment still wins over `.env`.
   NODE_ENV: production
-  APP_ENV: ${APP_ENV:-dev}
+  APP_ENV: ${APP_ENV:?APP_ENV must be set to dev, test, staging or prod}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LAUNCH_DROP: ${LAUNCH_DROP:-0}
   # Service names inside the compose network, and the CONTAINER ports — not the
@@ -1837,7 +1844,8 @@ services:
     command: ['pnpm', '--filter', '@intafaced/admin', 'start']
     environment:
       NODE_ENV: production
-      APP_ENV: ${APP_ENV:-dev}
+      # No default — see x-service-env (#4610).
+      APP_ENV: ${APP_ENV:?APP_ENV must be set to dev, test, staging or prod}
       # The console reports the drop it is told about, per request (§11).
       LAUNCH_DROP: ${LAUNCH_DROP:-0}
       HOSTNAME: 0.0.0.0
