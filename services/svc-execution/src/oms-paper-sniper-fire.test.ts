@@ -175,7 +175,7 @@ describe('firePaperSniperChildOnTrigger', () => {
     ).toMatchObject({ ok: false, reason: 'trigger_not_hit' });
   });
 
-  it("refuses omitted / blank amount with missing_qty (no invented size from the trigger)", () => {
+  it('refuses omitted / blank amount with missing_qty (no invented size from the trigger)', () => {
     expect(
       firePaperSniperChildOnTrigger({
         parentClientOrderId: 'p-snip',

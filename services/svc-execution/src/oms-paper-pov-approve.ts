@@ -35,27 +35,16 @@ export type OmsPaperPovApproveOk = {
 
 export type OmsPaperPovApproveResult = OmsPaperPovApproveOk | OmsPaperPovApproveRefusal;
 
-function refuse(
-  reason: OmsPaperPovApproveRefuseReason,
-  detail: string,
-): OmsPaperPovApproveRefusal {
+function refuse(reason: OmsPaperPovApproveRefuseReason, detail: string): OmsPaperPovApproveRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseMaxParticipationBps(
-  raw: number | null | undefined,
-): { ok: true; value: number } | OmsPaperPovApproveRefusal {
+function parseMaxParticipationBps(raw: number | null | undefined): { ok: true; value: number } | OmsPaperPovApproveRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'max_participation_blank',
-      'max participation is blank — refuse rather than invent a POV rate',
-    );
+    return refuse('max_participation_blank', 'max participation is blank — refuse rather than invent a POV rate');
   }
   if (!Number.isInteger(raw) || raw < 0) {
-    return refuse(
-      'max_participation_invalid',
-      'max participation must be a non-negative integer bps — not invented',
-    );
+    return refuse('max_participation_invalid', 'max participation must be a non-negative integer bps — not invented');
   }
   return { ok: true, value: raw };
 }

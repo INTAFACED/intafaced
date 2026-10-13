@@ -4,10 +4,7 @@ import type { VenueOrder } from '@intafaced/venue-contracts';
 import type { OmsCancelFn } from './oms-cancel.js';
 import { cancelRemainingOnCreditBreach } from './oms-credit-mitigate.js';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
-import {
-  InMemoryApprovedAlgoParentStore,
-  type ApprovedAlgoParent,
-} from './oms-start.js';
+import { InMemoryApprovedAlgoParentStore, type ApprovedAlgoParent } from './oms-start.js';
 
 const now = new Date('2026-08-25T00:00:00.000Z');
 
@@ -71,10 +68,7 @@ function seedAck(
   });
 }
 
-function seedParent(
-  parentStore: InMemoryApprovedAlgoParentStore,
-  over: Partial<ApprovedAlgoParent> = {},
-): void {
+function seedParent(parentStore: InMemoryApprovedAlgoParentStore, over: Partial<ApprovedAlgoParent> = {}): void {
   parentStore.seed({
     parentClientOrderId: 'parent-1',
     kind: 'twap',
@@ -288,9 +282,7 @@ describe('cancelRemainingOnCreditBreach', () => {
       usedCredit: '101',
     });
     if (!result.ok || !result.breached) return;
-    expect(result.children).toEqual([
-      { clientOrderId: 'child-1', venueId: 'street', outcome: 'stopped', status: 'canceled' },
-    ]);
+    expect(result.children).toEqual([{ clientOrderId: 'child-1', venueId: 'street', outcome: 'stopped', status: 'canceled' }]);
     expect(result.residual).toEqual({ filled: '0', remaining: '1' });
     expect(street.calls).toEqual([{ symbol: 'BTC/USDT', clientOrderId: 'child-1' }]);
     expect(parentStore.get('parent-1')?.residual?.remaining).toBe('2');

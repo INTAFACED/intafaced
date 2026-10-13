@@ -231,7 +231,7 @@ describe('restPaperBracketExitsOnEntryFill', () => {
     ).toMatchObject({ ok: false, reason: 'missing_stop_loss' });
   });
 
-  it("happy: entry fills — rest take_profit and stop_loss, triggers not invented from amount", () => {
+  it('happy: entry fills — rest take_profit and stop_loss, triggers not invented from amount', () => {
     const result = restPaperBracketExitsOnEntryFill({
       parentClientOrderId: 'p-brkt',
       kind: 'bracket',

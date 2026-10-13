@@ -7,9 +7,7 @@
  */
 import type { EmsOrderEvidence, EmsOrderStore } from './oms-ems-store.js';
 
-export type AlgoPauseKey =
-  | { readonly kind: 'parent'; readonly id: string }
-  | { readonly kind: 'group'; readonly id: string };
+export type AlgoPauseKey = { readonly kind: 'parent'; readonly id: string } | { readonly kind: 'group'; readonly id: string };
 
 export type AlgoPauseIds = {
   readonly parentClientOrderId?: string;
@@ -123,9 +121,7 @@ export function pauseInFlightAlgo(input: OmsPauseInput): OmsPauseResult {
     return { ok: false, reason: 'pause_store_unwired', detail: 'pause store is required for algo pause' };
   }
 
-  const key: AlgoPauseKey = parentClientOrderId
-    ? { kind: 'parent', id: parentClientOrderId }
-    : { kind: 'group', id: executionGroupId };
+  const key: AlgoPauseKey = parentClientOrderId ? { kind: 'parent', id: parentClientOrderId } : { kind: 'group', id: executionGroupId };
   const newlyPaused = input.pauseStore.pause(key);
   const rows = input.emsStore.list(parentClientOrderId ? { parentClientOrderId } : { executionGroupId });
 

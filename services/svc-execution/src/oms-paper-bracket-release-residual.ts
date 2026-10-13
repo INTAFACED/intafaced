@@ -8,13 +8,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperBracketReleaseResidualRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'not_expired'
-  | 'already_released'
-  | 'missing_residual'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_live' | 'not_expired' | 'already_released' | 'missing_residual' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsPaperBracketReleaseResidualRefusal = {
   readonly ok: false;
@@ -34,40 +28,24 @@ export type OmsPaperBracketReleaseResidualOk = {
   readonly residual: { readonly remaining: string; readonly released: true };
 };
 
-export type OmsPaperBracketReleaseResidualResult =
-  | OmsPaperBracketReleaseResidualOk
-  | OmsPaperBracketReleaseResidualRefusal;
+export type OmsPaperBracketReleaseResidualResult = OmsPaperBracketReleaseResidualOk | OmsPaperBracketReleaseResidualRefusal;
 
-function refuse(
-  reason: OmsPaperBracketReleaseResidualRefuseReason,
-  detail: string,
-): OmsPaperBracketReleaseResidualRefusal {
+function refuse(reason: OmsPaperBracketReleaseResidualRefuseReason, detail: string): OmsPaperBracketReleaseResidualRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseRetainedRemaining(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperBracketReleaseResidualRefusal {
+function parseRetainedRemaining(raw: string | null | undefined): { ok: true; text: string } | OmsPaperBracketReleaseResidualRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from a leg trigger or the clock',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from a leg trigger or the clock');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from a leg trigger or the clock',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from a leg trigger or the clock');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is not a ledger amount — refusing to invent leftover',
-    );
+    return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
   }
 }
 

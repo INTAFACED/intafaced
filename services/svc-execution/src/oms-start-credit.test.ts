@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  InMemoryApprovedAlgoParentStore,
-  type ApprovedAlgoParent,
-  type RetainedAlgoSchedule,
-} from './oms-start.js';
+import { InMemoryApprovedAlgoParentStore, type ApprovedAlgoParent, type RetainedAlgoSchedule } from './oms-start.js';
 import { startApprovedAlgoParentWithPreTradeCredit } from './oms-start-credit.js';
 
 const MATCHING_OPEN = { venueHalted: false } as const;
