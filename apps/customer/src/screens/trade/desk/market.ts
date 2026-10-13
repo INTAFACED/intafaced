@@ -22,9 +22,6 @@ export interface DeskMarket {
   minAmount: string | null;
   /** Smallest order value in the quote asset. */
   minCost: string | null;
-  /** Fee ratios, "0.002" is 0.20%. */
-  taker: string;
-  maker: string;
   /** Can be traded right now (listed, orderable, session open, state OPEN). */
   open: boolean;
 }
@@ -39,8 +36,6 @@ export function toDeskMarket(listing: DeskListing): DeskMarket {
     lotSize: listing.precision.amount,
     minAmount: listing.limits.amount.min,
     minCost: listing.limits.cost.min,
-    taker: listing.taker,
-    maker: listing.maker,
     open: listing.orderable && listing.active && listing.sessionOpen && stateOpen,
   };
 }

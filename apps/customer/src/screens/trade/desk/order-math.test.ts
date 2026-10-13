@@ -7,7 +7,10 @@ import {
   orderValue,
   padDecimals,
   portionOf,
+  probeAmount,
+  protectionNow,
   referencePrice,
+  scaled,
   scaleStep,
 } from './order-math';
 
@@ -103,25 +106,37 @@ describe('orderValue', () => {
 
 describe('maxAmount and portionOf', () => {
   it('sell: the whole balance, down to the lot', () => {
-    expect(maxAmount({ side: 'sell', type: 'limit', price: '', available: '0.250009', market, ref })).toBe('0.25');
-    expect(maxAmount({ side: 'sell', type: 'limit', price: '', available: null, market, ref })).toBeNull();
+    expect(maxAmount({ side: 'sell', type: 'limit', price: '', available: '0.250009', market })).toBe('0.25');
+    expect(maxAmount({ side: 'sell', type: 'limit', price: '', available: null, market })).toBeNull();
   });
 
-  it('buy: the balance over price plus taker fee, rounded down so the order never exceeds it', () => {
-    const max = maxAmount({ side: 'buy', type: 'limit', price: '65000', available: '1000', market, ref })!;
-    // 1000 / (65000 x 1.002) = 0.015353..., floored to 0.01535 BTC
-    expect(max).toBe('0.01535');
-    // Spending it all plus fee stays inside the balance.
-    const cost = (BigInt(max.replace('0.', '')) * 65000n * 1002n) / 1000n; // in 1e-5 units
-    expect(cost <= 1000n * 100000n).toBe(true);
+  it('limit buy: the balance over the price, rounded down so the hold never exceeds it (no fee factor)', () => {
+    // 1000 / 65000 = 0.0153846..., down to the 0.00001 lot
+    expect(maxAmount({ side: 'buy', type: 'limit', price: '65000', available: '1000', market })).toBe('0.01538');
+    expect(maxAmount({ side: 'buy', type: 'limit', price: '', available: '100', market })).toBeNull();
   });
 
-  it('buy at market uses the best ask; with no price it is unknown, never a guess', () => {
-    expect(maxAmount({ side: 'buy', type: 'market', price: '', available: '100', market, ref })).toBe('0.00153');
-    expect(
-      maxAmount({ side: 'buy', type: 'market', price: '', available: '100', market, ref: { bestBid: null, bestAsk: null } }),
-    ).toBeNull();
-    expect(maxAmount({ side: 'buy', type: 'limit', price: '', available: '100', market, ref })).toBeNull();
+  it('market buy: sized from the price protection, so the hold is never more than the balance', () => {
+    // The live case: 9,937.39 available and protection 65,409.08 gave 0.15238 BTC by best ask, a 9,967 hold.
+    const max = maxAmount({ side: 'buy', type: 'market', price: '', available: '9937.39399533', market, protectionPrice: '65409.08' })!;
+    expect(max).toBe('0.15192');
+    expect(scaled(max)! * scaled('65409.08')! <= scaled('9937.39399533')! * 10n ** 18n).toBe(true);
+    // No protection price yet: unknown, never a guess from the best ask.
+    expect(maxAmount({ side: 'buy', type: 'market', price: '', available: '100', market, protectionPrice: null })).toBeNull();
+  });
+
+  it('carries a protection price to a moved best ask, rounded up', () => {
+    expect(protectionNow('65409.08', '65083.66', '65083.66')).toBe('65409.08');
+    expect(scaled(protectionNow('65409.08', '65083.66', '65200')!)! > scaled('65409.08')!).toBe(true);
+    expect(protectionNow(null, '1', '1')).toBeNull();
+  });
+
+  it('a probe amount clears the minimum order value with room to spare', () => {
+    const probe = probeAmount(market, '65083.66')!;
+    expect(checkOrder({ side: 'buy', type: 'market', price: '', amount: probe }, market, { bestBid: null, bestAsk: '65083.66' }).ok).toBe(
+      true,
+    );
+    expect(probeAmount(market, '0')).toBeNull();
   });
 
   it('percent chips round down to the lot and give null for nothing', () => {

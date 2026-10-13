@@ -703,6 +703,15 @@
   .dk-note--good {
     color: var(--if-up-text);
   }
+  .dk-note-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-12, 12px);
+  }
+  .dk-note-small {
+    font-size: 12px;
+    opacity: 0.8;
+  }
   .dk-link {
     align-self: flex-start;
     padding: 0;

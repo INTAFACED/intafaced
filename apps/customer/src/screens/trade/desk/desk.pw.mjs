@@ -28,7 +28,8 @@ async function mount(page, exchange = new Exchange(), { hold = [], url = PAIR } 
       method: request.method(),
       path,
       query: Object.fromEntries(target.searchParams),
-      body: request.method() === 'GET' ? undefined : request.postDataJSON(),
+      body: request.method() === 'GET' ? undefined : request.postData() === null ? null : request.postDataJSON(),
+      headers: request.headers(),
     });
     if (exchange.opts.delayPlace && request.method() === 'POST' && path === 'orders')
       await new Promise((done) => setTimeout(done, exchange.opts.delayPlace));
@@ -152,7 +153,7 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
   ).toBe('rgb(202, 63, 100)');
   await expect(buyForm(page)).toContainText('Available');
   await expect(buyForm(page)).toContainText('4,100 USDT');
-  await expect(buyForm(page)).toContainText('Fees: 0.10% maker, 0.20% taker');
+  await expect(buyForm(page)).toContainText('Fee —');
 
   // Bottom strip and the market list
   await expect(page.getByRole('tab', { name: 'Open orders' })).toBeVisible();
@@ -184,7 +185,7 @@ test('chart: intervals, candles and line, market rules; the book tabs and groupi
   await expect(page.locator('.dk-info')).toContainText('Price step');
   await expect(page.locator('.dk-info')).toContainText('0.01 USDT');
   await expect(page.locator('.dk-info')).toContainText('0.00001 BTC');
-  await expect(page.locator('.dk-info')).toContainText('Taker fee');
+  await expect(page.locator('.dk-info')).toContainText('The fee for an order is shown with the order check');
   await shotBoth(page, 'desk-chart-info');
   await page.getByRole('tab', { name: 'Chart' }).click();
 
@@ -221,7 +222,7 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await expect(dialog).toContainText('Review your buy');
   await expect(dialog).toContainText('63,999.90 USDT');
   await expect(dialog).toContainText(`${expected.holdAmount} USDT`);
-  await expect(dialog).toContainText(`${expected.estimatedFee} USDT (0.10% maker)`);
+  await expect(dialog).toContainText(`${expected.estimatedFee} BTC (up to 0.10%)`);
   await shotBoth(page, 'desk-review-limit');
   expect(m.requests('POST', 'orders')).toHaveLength(0); // nothing sent until the click
 
@@ -277,7 +278,7 @@ test('market buy: the preview shows the fee and the price protection before conf
   await expect(dialog).toContainText('Market price');
   await expect(dialog).toContainText('Price protection');
   await expect(dialog).toContainText('You won’t pay more than 65,650.10 USDT per BTC');
-  await expect(dialog).toContainText('(0.20% taker)');
+  await expect(dialog).toContainText('up to 0.10%');
   await shotBoth(page, 'desk-review-market');
   await dialog.getByRole('button', { name: 'Confirm buy' }).click();
   await expect(buyForm(page)).toContainText('Your buy order filled: 0.0001 BTC');
@@ -354,7 +355,7 @@ test('a lost answer: the order is looked up, never sent again, and new orders wa
   expect(m.requests('POST', 'orders')).toHaveLength(1); // never retried
   // The service shows the order; the check finds it and the desk is free again.
   exchange.opts.hideOrders = false;
-  await notice.getByRole('button', { name: 'Check now' }).click();
+  await notice.getByRole('button', { name: 'Check order' }).click();
   await expect(page.locator('.dk-note--warn')).toHaveCount(0);
   await expect(page.getByText(/Checked: your order is/)).toBeVisible();
   expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
@@ -367,11 +368,12 @@ test('the preview changing at confirm shows the new numbers and asks again', asy
   await ready(page);
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
   await openReview(page);
-  // The fee changes after the review opened: the service's fresh preview differs from the reviewed one.
+  // The fee rate changes after the review opened: the service's fresh preview differs from the reviewed one.
   exchange.opts.markets = exchange.opts.markets.map((market) => (market.symbol === 'BTC/USDT' ? { ...market, maker: '0.002' } : market));
+  exchange.opts.feeBps = 20n;
   await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
   await expect(page.getByRole('alertdialog')).toContainText('changed');
-  await expect(page.getByRole('alertdialog')).toContainText('(0.20% maker)');
+  await expect(page.getByRole('alertdialog')).toContainText('(up to 0.20%)');
   expect(m.requests('POST', 'orders')).toHaveLength(0); // nothing was sent
   await shotBoth(page, 'desk-review-changed', { full: true });
 });
@@ -471,15 +473,88 @@ test('book and trade clicks fill the price; percent chips and Max round down to 
   await expect(price).toHaveValue('65000.10');
   await expect(sellForm(page).getByRole('textbox', { name: 'Price' })).toHaveValue('65000.10');
   await buyForm(page).getByRole('button', { name: '50% of max' }).click();
-  // 4,100 USDT / (65,000.10 x 1.002) = 0.06294... BTC; half of it, down to the lot
+  // 4,100 USDT / 65,000.10 = 0.06307... BTC (a buy's fee is taken from what it receives); half of it, down to the lot
   const amount = buyForm(page).getByRole('textbox', { name: 'Amount' });
-  await expect(amount).toHaveValue('0.03147');
+  await expect(amount).toHaveValue('0.03153');
   await sellForm(page).getByRole('button', { name: '100% of max' }).click();
   await expect(sellForm(page).getByRole('textbox', { name: 'Amount' })).toHaveValue('0.25');
   await buyForm(page).getByRole('button', { name: 'BBO' }).click();
   await expect(price).toHaveValue('64999.90');
   await sellForm(page).getByRole('button', { name: 'BBO' }).click();
   await expect(sellForm(page).getByRole('textbox', { name: 'Price' })).toHaveValue('65000.10');
+});
+
+test('a lost order that never arrived: the person sends the SAME order again, once, and it is placed once', async ({ page }) => {
+  const exchange = new Exchange();
+  exchange.opts.placeMode = 'lose';
+  const m = await mount(page, exchange);
+  await ready(page);
+  await fillBuy(page, { price: '63999.9', amount: '0.0001' });
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  const notice = page.locator('.dk-note--warn');
+  await expect(notice).toContainText('Checking your order…');
+  await expect(notice.getByRole('button', { name: 'Send the same order again' })).toBeVisible();
+  const key = 'trade-pending:00000000-0000-4000-8000-000000000001';
+  const marker = JSON.parse(await page.evaluate((k) => localStorage.getItem(k), key));
+  expect(marker.draft).toMatchObject({ symbol: 'BTC/USDT', side: 'buy', type: 'limit', amount: '0.0001', price: '63999.9' });
+  await page.waitForTimeout(1500);
+  expect(m.requests('POST', 'orders')).toHaveLength(1); // nothing is ever sent by itself
+  exchange.opts.placeMode = 'ok';
+  await notice.getByRole('button', { name: 'Send the same order again' }).click();
+  await expect(page.locator('.dk-note--warn')).toHaveCount(0);
+  await expect(page.getByText(/Done: your order is/)).toBeVisible();
+  const sent = m.requests('POST', 'orders');
+  expect(sent).toHaveLength(2);
+  expect(sent[1].body).toEqual(sent[0].body); // the very same order and clientOrderId
+  expect(exchange.open).toHaveLength(1);
+  expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
+});
+
+test('market sell is off with a true reason; limit sell stays on', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await page.getByRole('tab', { name: 'Market' }).click();
+  await sellForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.0001');
+  await expect(sellForm(page).getByRole('button', { name: 'Sell BTC' })).toBeDisabled();
+  await expect(sellForm(page)).toContainText('Market sells aren’t available yet. Use a limit order.');
+  await expect(page.locator('body')).not.toContainText('This can’t be done right now');
+  await page.getByRole('tab', { name: 'Limit' }).click();
+  await sellForm(page).getByRole('textbox', { name: 'Price' }).fill('66000');
+  await sellForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.0001');
+  await expect(sellForm(page).getByRole('button', { name: 'Sell BTC' })).toBeEnabled();
+  expect(m.requests('POST', 'orders')).toHaveLength(0);
+});
+
+test('an order bigger than the balance is refused in words before Confirm, from the exact hold', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await fillBuy(page, { price: '63999.9', amount: '0.07' }); // holds about 4,480 USDT; 4,100 are free
+  await expect(buyForm(page)).toContainText('Not enough USDT');
+  await expect(buyButton(page)).toBeDisabled();
+  expect(m.requests('POST', 'orders')).toHaveLength(0);
+});
+
+test('market buy Max is sized from the price protection, so the hold never passes the balance', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await page.getByRole('tab', { name: 'Market' }).click();
+  const amount = buyForm(page).getByRole('textbox', { name: 'Amount' });
+  await buyForm(page).getByRole('button', { name: '100% of max' }).click();
+  await expect(amount).not.toHaveValue('');
+  const sized = await amount.inputValue();
+  const check = m.exchange.preview({ symbol: 'BTC/USDT', side: 'buy', type: 'market', amount: sized, timeInForce: 'GTC', postOnly: false });
+  expect(Number(check.holdAmount)).toBeLessThanOrEqual(4100);
+  await openReview(page);
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+});
+
+test('fee line comes from the preview, not the market list', async ({ page }) => {
+  await mount(page);
+  await ready(page);
+  await fillBuy(page, { price: '63999.9', amount: '0.0001' });
+  await expect(buyForm(page)).toContainText('Fee up to 0.10%');
+  await expect(page.locator('body')).not.toContainText('0.20%');
 });
 
 test('another pair from the list: the URL changes and the form resets', async ({ page }) => {
@@ -505,15 +580,23 @@ test('layout holds at 1180, 1100, 800 and 390: no horizontal page scroll, the ma
   }
 });
 
-test('request budget: an idle desk stays under 120 requests a minute', async ({ page }) => {
+test('request budget: the desk stays at or under 95 requests a minute (UI-SPEC 4.2), also with the busiest tabs open', async ({ page }) => {
+  test.setTimeout(120_000);
   const m = await mount(page);
   await ready(page);
+  const perMinute = async (seconds) => {
+    const before = m.exchange.requests.length;
+    await page.waitForTimeout(seconds * 1000);
+    return Math.round(((m.exchange.requests.length - before) * 60) / seconds);
+  };
   await page.waitForTimeout(3000);
-  const before = m.exchange.requests.length;
-  await page.waitForTimeout(15000);
-  const during = m.exchange.requests.length - before;
-  // 15 s of idle polling, scaled to a minute
-  expect(during * 4).toBeLessThanOrEqual(120);
+  const normal = await perMinute(30); // Book tab, Open orders tab
+  await page.getByRole('tab', { name: 'Trade history' }).click();
+  await page.getByRole('tab', { name: 'Last trades' }).click();
+  const busiest = await perMinute(30); // Trades beside the book, Trade history below
+  console.log(`REQUESTS_PER_MINUTE default=${normal} busiest=${busiest}`);
+  expect(normal).toBeLessThanOrEqual(95);
+  expect(busiest).toBeLessThanOrEqual(95);
 });
 
 test('commit cost while the desk refreshes: the React Profiler numbers for an idle desk', async ({ page }) => {

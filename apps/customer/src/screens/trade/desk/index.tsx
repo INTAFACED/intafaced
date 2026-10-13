@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { ScreenProps } from '../../../app/screen-types';
 import { useSession } from '../../../features/session/session';
@@ -52,9 +52,16 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const book = useBook(market.symbol);
   const balances = useBalances();
   const openOrders = useOpenOrders();
-  const fills = useFills(true);
   const { isFavorite, toggle } = useFavorites(userId);
   const [tab, setTab] = useState<BottomTab>('open');
+  // Fills refresh quickly while Trade history shows, and for a minute after an order was sent.
+  const [justSent, setJustSent] = useState(false);
+  useEffect(() => {
+    if (!justSent) return;
+    const timer = setTimeout(() => setJustSent(false), 60_000);
+    return () => clearTimeout(timer);
+  }, [justSent]);
+  const fills = useFills(tab === 'trades' || justSent);
   const [suggestion, setSuggestion] = useState<BookPick | null>(null);
 
   // Stable props, so a book or ticker update re-renders only the panels that show it (UI-SPEC 3.6: a tick never re-renders the desk).
@@ -67,7 +74,10 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const symbol = market.symbol;
   const toggleFavorite = useCallback(() => toggle(symbol), [toggle, symbol]);
   const picker = useMemo(() => <PairPicker selected={symbol} />, [symbol]);
-  const onPlaced = useCallback(() => setTab('open'), []);
+  const onPlaced = useCallback(() => {
+    setTab('open');
+    setJustSent(true);
+  }, []);
   const onPickPrice = useCallback(
     (price: string) => setSuggestion((previous) => ({ price, amount: '', nonce: (previous?.nonce ?? 0) + 1 })),
     [],

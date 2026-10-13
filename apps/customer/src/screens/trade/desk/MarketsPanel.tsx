@@ -15,6 +15,7 @@ import {
   type Loadable,
   type TickerRow,
 } from './deps';
+import { useMinWidth } from './hooks';
 import { pairOf, type DeskMarket } from './market';
 import { isUsdQuote, turnoverText } from './text';
 import { useSession } from '../../../features/session/session';
@@ -51,7 +52,9 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
   const { userId } = useSession();
   const { isFavorite, toggle, favorites } = useFavorites(userId);
   const markets = useDeskMarkets();
-  const tickers: Loadable<Record<string, TickerRow>> = useTickers({ intervalMs: 10_000 });
+  // The list is hidden below 1180 px; a hidden list refreshes once a minute instead of every 10 seconds.
+  const visible = useMinWidth(1180);
+  const tickers: Loadable<Record<string, TickerRow>> = useTickers({ intervalMs: compact || visible ? 10_000 : 60_000 });
   const [query, setQuery] = useState('');
   const [chip, setChip] = useState<Chip>('all');
   const [sort, setSort] = useState<Sort>(null);

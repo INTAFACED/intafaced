@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { compareDecimal } from './deps';
 
 /**
@@ -42,4 +42,18 @@ export function useNow(intervalMs: number): number {
     return () => clearInterval(timer);
   }, [intervalMs]);
   return now;
+}
+
+/** Is the viewport at least `px` wide? Panels the layout hides keep polling slowly instead of at full speed. */
+export function useMinWidth(px: number): boolean {
+  const query = `(min-width: ${px}px)`;
+  return useSyncExternalStore(
+    (listener) => {
+      const list = window.matchMedia(query);
+      list.addEventListener('change', listener);
+      return () => list.removeEventListener('change', listener);
+    },
+    () => window.matchMedia(query).matches,
+    () => true,
+  );
 }

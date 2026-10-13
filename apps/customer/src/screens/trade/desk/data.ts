@@ -1,7 +1,8 @@
 /**
  * The desk's reads, all through the tab's one scheduler (`data/poll.ts`): identical requests are shared, polling
  * pauses while the tab is hidden, and the whole tab stays inside the request budget. Cadence (UI-SPEC 4.2):
- * book 2 s, trades 3 s, ticker 3 s, candles 10 s, open orders 10 s, balances 15 s, other lists 15 s.
+ * book 2 s, trades 3 s (only while that tab shows), ticker 5 s, candles 10 s, open orders 10 s, balances 15 s, order history 15 s
+ * (only while that tab shows), fills 60 s (15 s while Trade history shows or just after an order). Measured in desk.pw.mjs.
  *
  * The WebSocket the old desk tries (`useLinkedBook`) answers 503 on the local stack, so the desk polls.
  * Orders are never read or written from here; `OrderForm` owns that path.
@@ -24,11 +25,14 @@ export const DESK_INTERVALS = {
   markets: 300_000,
   book: 2_000,
   tape: 3_000,
-  ticker: 3_000,
+  ticker: 5_000,
   panelTickers: 10_000,
   openOrders: 10_000,
   balances: 15_000,
   lists: 15_000,
+  /** Fills feed the chart's B/S markers all the time, slowly; quickly while Trade history is open or an order was just sent. */
+  fillsSlow: 60_000,
+  fillsFast: 15_000,
 } as const;
 
 const SIGNED_OUT: Loadable<never> = { status: 'refused', code: 'auth.required' };
@@ -134,13 +138,19 @@ export function useClosedOrders(enabled: boolean): Loadable<Order[]> {
   );
 }
 
-export function useFills(enabled: boolean): Loadable<Trade[]> {
+export function useFills(fast: boolean): Loadable<Trade[]> {
   const env = useDataEnv();
   const api = useDeskApi();
   return useSource(
     useMemo(
-      () => privateSource<Trade[]>(env, 'desk-fills', (signal) => api.fills(undefined, 100, signal), DESK_INTERVALS.lists, enabled),
-      [env, api, enabled],
+      () =>
+        privateSource<Trade[]>(
+          env,
+          'desk-fills',
+          (signal) => api.fills(undefined, 100, signal),
+          fast ? DESK_INTERVALS.fillsFast : DESK_INTERVALS.fillsSlow,
+        ),
+      [env, api, fast],
     ),
   );
 }

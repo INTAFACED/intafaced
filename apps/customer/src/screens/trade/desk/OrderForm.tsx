@@ -1,8 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { SCALE } from '@intafaced/ledger-client/money';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
-import { formatAmount } from '../../../shared/money';
 import { useSession } from '../../../features/session/session';
 import { draftSchema, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
 import type { BookPick } from './OrderBook';
@@ -41,7 +39,8 @@ import {
   maxAmount,
   orderValue,
   padDecimals,
-  portionOf,
+  probeAmount,
+  protectionNow,
   scaled,
   type OrderType,
   type Problem,
@@ -59,13 +58,12 @@ import {
   usePendingOrder,
   type Pending,
 } from './pending';
+import { bpsToRatio, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
+import { CONFLICT_CODE, resendOrder } from './resend';
 import { failureOf, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
 
 const PERCENTS = [25, 50, 75, 100] as const;
-
-/** A basis-point count as the ratio string the percent formatter reads: 20 bps is "0.002". */
-const bpsToRatio = (bps: number): string => formatAmount((BigInt(bps) * SCALE) / 10_000n);
 
 function problemText(problem: Problem, market: DeskMarket, t: ReturnType<typeof deskCopy.useCopy>['t']): string {
   switch (problem.kind) {
@@ -208,8 +206,8 @@ function SideForm({
   const input = { side, type, price, amount };
   const checked = checkOrder(input, market, reference);
   const value = orderValue(input, reference);
-  const max = maxAmount({ side, type, price, available, market, ref: reference });
-  const tradable = signedIn && market.open && !blocked;
+  const sellOff = marketSellOff(side, type);
+  const tradable = signedIn && market.open && !blocked && !sellOff;
 
   // Advisory preview from the server, only for an order the client rules accept.
   const draft: Draft | null = useMemo(() => {
@@ -227,7 +225,53 @@ function SideForm({
   }, [tradable, checked.ok, checked.ok ? checked.amount : '', checked.ok ? checked.price : '', market.symbol, side, type]); // eslint-disable-line react-hooks/exhaustive-deps
   const key = draft ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}` : 'none';
   const { live, retry } = useLivePreview(api, draft && !review ? draft : null, key, context, () => env.poller.recordExternalRequest());
-  const canSend = tradable && checked.ok && live.state === 'ok' && !busy;
+
+  // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
+  // It is learnt from the order check, or from one small probe check on the Market tab; never guessed.
+  const marketBuy = side === 'buy' && type === 'market';
+  const [protection, setProtection] = useState<{ price: string; ask: string } | null>(null);
+  const bestAsk = reference?.bestAsk ?? null;
+  const liveProtection = live.state === 'ok' ? live.preview.protectionPrice : null;
+  useEffect(() => {
+    if (marketBuy && liveProtection && bestAsk) setProtection({ price: liveProtection, ask: bestAsk });
+  }, [marketBuy, liveProtection, bestAsk]);
+  const probed = useRef(false);
+  useEffect(() => {
+    if (!marketBuy || protection !== null || probed.current || !tradable || !bestAsk) return;
+    const probe = probeAmount(market, bestAsk);
+    if (!probe) return;
+    probed.current = true;
+    env.poller.recordExternalRequest();
+    void api
+      .preview({
+        symbol: market.symbol,
+        side: 'buy',
+        type: 'market',
+        amount: probe,
+        timeInForce: 'GTC',
+        postOnly: false,
+        clientOrderId: 'desk-preview',
+      })
+      .then((result) => {
+        if (mounted.current && result.ok && result.data.protectionPrice)
+          setProtection({ price: result.data.protectionPrice, ask: bestAsk });
+      });
+  }, [marketBuy, protection, tradable, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps
+  const protectionPrice = marketBuy ? protectionNow(protection?.price ?? null, protection?.ask ?? null, bestAsk) : null;
+  const max = maxAmount({ side, type, price, available, market, protectionPrice });
+  const short = live.state === 'ok' && holdShort(live.preview, spendAsset, available);
+  const gate = gateSubmit({
+    signedIn,
+    marketOpen: market.open,
+    pending: blocked,
+    side,
+    type,
+    checkedOk: checked.ok,
+    live: live.state,
+    short,
+    busy,
+  });
+  const canSend = gate.canSend;
 
   async function startReview() {
     if (!canSend || busyRef.current || !checked.ok) return;
@@ -252,6 +296,8 @@ function SideForm({
       const result = await api.preview(parsed.data);
       if (!mounted.current) return;
       if (!result.ok) setFailure(failureOf(result, context));
+      else if (previewIsOrderable(result.data) && holdShort(result.data, spendAsset, available))
+        setFailure(refusalFailure('ledger.insufficient_funds', context));
       else if (previewIsOrderable(result.data)) setReview({ draft: parsed.data, preview: result.data, changed: false });
       else setFailure(refusalFailure(previewRefusalCode(result.data), context));
     }
@@ -265,7 +311,13 @@ function SideForm({
     setBusy(true);
     setFailure(null);
     const { draft: sending, preview } = review;
-    const reservation = await reserve(userId, { kind: 'place', symbol: sending.symbol, id: sending.clientOrderId, startedAt: Date.now() });
+    const reservation = await reserve(userId, {
+      kind: 'place',
+      symbol: sending.symbol,
+      id: sending.clientOrderId,
+      startedAt: Date.now(),
+      draft: sending,
+    });
     if (reservation !== 'reserved') {
       if (mounted.current) {
         setReview(null);
@@ -339,17 +391,20 @@ function SideForm({
 
   function pickPercent(percent: (typeof PERCENTS)[number]) {
     if (available === null) return;
-    if (max === null) {
-      setHint(t('Enter a price first'));
+    const size = sizeFor({ side, type, price, available, lotSize: market.lotSize, protectionPrice, percent });
+    if (size.amount === null) {
+      setHint(
+        size.needsPrice
+          ? marketBuy
+            ? t('Checking the order')
+            : t('Enter a price first')
+          : refusalCopy('ledger.insufficient_funds', context).title,
+      );
       return;
     }
-    const portion = portionOf(max, percent, market.lotSize);
-    if (portion === null) {
-      setHint(refusalCopy('ledger.insufficient_funds', context).title);
-      return;
-    }
+    const sized = size.amount;
     edit(() => {
-      setAmount(portion);
+      setAmount(sized);
       setTotalEdit(null);
     });
   }
@@ -462,7 +517,11 @@ function SideForm({
         </div>
       </dl>
       <p className="dk-fees if-num">
-        {t('Fees line', { maker: fmtPct(market.maker, { signed: false }), taker: fmtPct(market.taker, { signed: false }) })}
+        {sellOff
+          ? t('Fee at fill')
+          : live.state === 'ok' && feeRate(live.preview) !== null
+            ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+            : t('Fee not yet')}
       </p>
       {signedIn ? (
         <Button
@@ -485,6 +544,8 @@ function SideForm({
       <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite">
         {hint ? <p className="dk-note">{hint}</p> : null}
         {signedIn && !market.open ? <p className="dk-note">{t('Market is closed')}</p> : null}
+        {signedIn && market.open && sellOff ? <p className="dk-note">{t('Market sell off')}</p> : null}
+        {gate.reason === 'short' ? <RefusalNote failure={refusalFailure('ledger.insufficient_funds', context)} /> : null}
         {tradable && showProblem && !checked.ok ? <p className="dk-note">{problemText(checked.problem, market, t)}</p> : null}
         {tradable && checked.ok && live.state === 'checking' ? <p className="dk-note">{t('Checking the order')}</p> : null}
         {tradable && checked.ok && live.state === 'blocked' ? <RefusalNote failure={live.failure} /> : null}
@@ -530,7 +591,7 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
   const { draft, preview } = review;
   const limit = draft.type === 'limit';
   const value = limit && draft.price ? orderValue({ side, type: 'limit', price: draft.price, amount: draft.amount }, null) : null;
-  const feeRate = preview.feeBps === null ? null : fmtPct(bpsToRatio(preview.feeBps), { signed: false });
+  const rate = preview.feeBps === null ? null : fmtPct(bpsToRatio(preview.feeBps), { signed: false });
   return (
     <dl className="dk-review-rows">
       <div>
@@ -571,9 +632,7 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
         <dt>{t('Review fee')}</dt>
         <dd className="if-num">
           {fmtAmount(preview.estimatedFee, { places: 8 })} {preview.feeAsset}
-          {feeRate
-            ? ` (${t('Review fee rate', { rate: feeRate, role: preview.feeRole === 'maker' ? t('Review role maker') : t('Review role taker') })})`
-            : ''}
+          {rate ? ` (${t('Review fee rate', { rate })})` : ''}
         </dd>
       </div>
       {preview.protectionPrice ? (
@@ -622,7 +681,7 @@ export const OrderPanel = memo(function OrderPanel({
   onPlaced,
 }: PanelProps) {
   const { t } = deskCopy.useCopy();
-  const { userId } = useSession();
+  const { userId, api: client } = useSession();
   const api = useDeskApi();
   const refresh = useRefreshPrivate();
   const [type, setType] = useState<OrderType>('limit');
@@ -632,6 +691,11 @@ export const OrderPanel = memo(function OrderPanel({
   const [checking, setChecking] = useState(false);
   const checkingRef = useRef(false);
   const lastSuggestion = useRef(0);
+  const [resending, setResending] = useState(false);
+  const [resendNote, setResendNote] = useState<string | null>(null);
+  const resendingRef = useRef(false);
+  const env = useDataEnv();
+  const attempts = useRef(0);
 
   // A book click means a limit order at that price.
   useEffect(() => {
@@ -651,8 +715,10 @@ export const OrderPanel = memo(function OrderPanel({
     if (!pendingValue || pendingValue.kind !== 'place' || !userId || checkingRef.current || isInFlight(pendingValue.id)) return;
     checkingRef.current = true;
     setChecking(true);
+    env.poller.recordExternalRequest(2);
     const result = await api.reconcile(pendingValue.id, pendingValue.symbol);
     if (result.ok && !result.data.recoveryRequired) {
+      attempts.current = 0;
       release(userId, pendingValue.id);
       setStillChecking(false);
       setSettled(
@@ -664,7 +730,10 @@ export const OrderPanel = memo(function OrderPanel({
         }),
       );
       refresh();
-    } else setStillChecking(true);
+    } else {
+      attempts.current += 1;
+      setStillChecking(true);
+    }
     checkingRef.current = false;
     setChecking(false);
   }
@@ -673,15 +742,59 @@ export const OrderPanel = memo(function OrderPanel({
   const pendingId = pendingValue?.id;
   useEffect(() => {
     if (!pendingId || pendingValue?.kind !== 'place') return;
-    void checkRef.current();
-    const timer = setInterval(() => void checkRef.current(), 5_000);
+    // First look at once, then 5, 10, 20, then every 60 seconds, so a lost order does not keep the desk over its budget.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const loop = async () => {
+      await checkRef.current();
+      if (stopped) return;
+      const wait = [5_000, 10_000, 20_000][Math.max(0, attempts.current - 1)] ?? 60_000;
+      timer = setTimeout(() => void loop(), wait);
+    };
+    void loop();
     const stop = onCheckRequested(() => void checkRef.current());
     return () => {
-      clearInterval(timer);
+      stopped = true;
+      clearTimeout(timer);
       stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingId]);
+
+  /** On the person's click only: the same order, the same clientOrderId. The trade service never makes two of it. */
+  async function sendAgain() {
+    if (!pendingValue?.draft || !userId || resendingRef.current || checkingRef.current || isInFlight(pendingValue.id)) return;
+    resendingRef.current = true;
+    setResending(true);
+    setResendNote(null);
+    const sending = pendingValue.draft;
+    env.poller.recordExternalRequest();
+    markInFlight(sending.clientOrderId);
+    let result: Awaited<ReturnType<typeof resendOrder>>;
+    try {
+      result = await resendOrder(client, sending);
+    } finally {
+      unmarkInFlight(sending.clientOrderId);
+    }
+    if (result.ok) {
+      release(userId, sending.clientOrderId);
+      setStillChecking(false);
+      setSettled(t('Resent ok', { status: t(`Order status ${result.order.status}` as 'Order status open') }));
+      refresh();
+      onPlaced();
+    } else if (result.reason === 'unsure') {
+      setResendNote(t('Resent unsure'));
+      requestCheck();
+    } else if (result.code === CONFLICT_CODE) {
+      setResendNote(t('Resent unsure'));
+    } else {
+      // The service said no, so nothing was placed. The marker can go.
+      release(userId, sending.clientOrderId);
+      setResendNote(t('Resent not sent'));
+    }
+    resendingRef.current = false;
+    setResending(false);
+  }
 
   const common = {
     market,
@@ -712,10 +825,21 @@ export const OrderPanel = memo(function OrderPanel({
               <p className="dk-note-title">{t('Checking your order')}</p>
               <p>{t('Checking your order body')}</p>
               {pending.value.kind === 'place' ? (
-                <button type="button" className="dk-link" disabled={checking} onClick={() => void check()}>
-                  {t('Check now')}
-                </button>
-              ) : null}
+                <div className="dk-note-actions">
+                  <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void check()}>
+                    {t('Check order')}
+                  </button>
+                  {pending.value.draft ? (
+                    <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void sendAgain()}>
+                      {resending ? t('Sending again') : t('Send again')}
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <p>{t('Other request open')}</p>
+              )}
+              {pending.value.kind === 'place' && pending.value.draft ? <p className="dk-note-small">{t('Send again hint')}</p> : null}
+              {resendNote ? <p role="status">{resendNote}</p> : null}
               {stillChecking ? <p>{t('Still checking')}</p> : null}
             </div>
           ) : pending.state === 'unreadable' ? (

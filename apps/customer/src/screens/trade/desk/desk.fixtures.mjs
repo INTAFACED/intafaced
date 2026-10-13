@@ -187,7 +187,7 @@ export class Exchange {
       markets: markets(),
       book: book(),
       refusal: null, // { code, message } for the preview to refuse with
-      placeMode: 'ok', // 'ok' | 'abort' | { status, json }
+      placeMode: 'ok', // 'ok' | 'abort' (taken, answer lost) | 'lose' (never arrived) | { status, json }
       delayPlace: 0, // ms the order's answer is held back
       previewError: false,
       fail: {}, // { orderbook: 500, ohlcv: 500, ... } answers that read with a server error
@@ -234,11 +234,12 @@ export class Exchange {
     const limit = draft.type === 'limit';
     const protection = draft.side === 'buy' ? (ask * 101n) / 100n : (bid * 99n) / 100n;
     const price = limit ? scaled(draft.price) : protection;
-    const taker = scaled(market.taker);
-    const maker = scaled(market.maker);
-    const rate = limit ? maker : taker;
+    // Like the real service: the fee rate comes from the owner schedule (10 bps, not the /markets listing), a buy holds
+    // price x amount and pays its fee in the base asset, and a market sell has no fee estimate at all.
+    const rate = ((this.opts.feeBps ?? 10n) * SCALE) / 10000n;
     const value = mulFloor(price, amount);
-    const fee = mulFloor(draft.side === 'buy' ? value : amount, rate);
+    const marketSell = !limit && draft.side === 'sell';
+    const fee = draft.side === 'buy' ? mulFloor(amount, rate) : mulFloor(value, rate);
     const refused = this.opts.refusal;
     return {
       symbol: draft.symbol,
@@ -248,19 +249,19 @@ export class Exchange {
       price: limit ? draft.price : null,
       timeInForce: draft.postOnly ? 'PO' : draft.timeInForce,
       holdAsset: draft.side === 'buy' ? market.quote : market.base,
-      holdAmount: draft.side === 'buy' ? plain(value + fee) : plain(amount + fee),
+      holdAmount: draft.side === 'buy' ? plain(value) : plain(amount),
       protectionPrice: limit ? null : plain(protection),
-      estimatedFee: plain(fee),
-      feeAsset: draft.side === 'buy' ? market.quote : market.base,
+      estimatedFee: marketSell ? null : plain(fee),
+      feeAsset: marketSell ? null : draft.side === 'buy' ? market.base : market.quote,
       feeBps: Number((rate * 10000n) / SCALE),
-      feeRole: limit ? 'maker' : 'taker',
+      feeRole: 'taker',
       orderable: !refused,
       refusals: refused ? [{ code: refused.code, field: 'order', message: refused.message ?? 'refused' }] : [],
     };
   }
 
   /** Answer one request: { status, json } or 'abort' to drop the connection. */
-  handle({ method, path, query, body }) {
+  handle({ method, path, query, body, headers = {} }) {
     this.requests.push({ method, path, body });
     const json = (value, status = 200) => ({ status, json: value });
     const name = path.split('/')[0];
@@ -288,12 +289,13 @@ export class Exchange {
         this.commit(body);
         return 'abort';
       }
+      if (this.opts.placeMode === 'lose') return 'abort';
       if (this.opts.placeMode !== 'ok') return json(this.opts.placeMode.json, this.opts.placeMode.status);
       return json(this.commit(body));
     }
     if (path.startsWith('orders/') && method === 'DELETE') {
-      // The real trade service refuses a JSON DELETE with no body.
-      if (body === null || body === undefined)
+      // The real trade service refuses a DELETE that says it is JSON but has no body. The app now sends neither.
+      if ((body === null || body === undefined) && /json/.test(headers['content-type'] ?? ''))
         return json(
           {
             statusCode: 400,

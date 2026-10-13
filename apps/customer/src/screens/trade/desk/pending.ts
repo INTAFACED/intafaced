@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { z } from 'zod';
+import { draftSchema } from '../../../features/trade/trade-api';
 
 export const pendingSchema = z.object({
   kind: z.enum(['place', 'cancel', 'amend', 'replace', 'convert', 'rfq', 'position', 'algo', 'copy']),
@@ -15,6 +16,12 @@ export const pendingSchema = z.object({
   id: z.string(),
   orderId: z.string().optional(),
   startedAt: z.number(),
+  /**
+   * The exact order that was being sent. Kept so a person can deliberately send the SAME order again under the SAME
+   * `clientOrderId` if it never arrived: the trade service dedupes on that id, so it can never be placed twice.
+   * The old desk ignores this field.
+   */
+  draft: draftSchema.optional(),
 });
 export type Pending = z.infer<typeof pendingSchema>;
 
@@ -63,7 +70,8 @@ export async function reserve(userId: string, value: Pending): Promise<Reservati
 /** Remove the marker, only if it is still the one this call wrote. */
 export function release(userId: string, id: string): void {
   const current = readPending(userId);
-  if (current.state === 'pending' && current.value.id !== id) return;
+  // Only the marker this order wrote. A different one, or one that cannot be read, stays.
+  if (current.state === 'unreadable' || (current.state === 'pending' && current.value.id !== id)) return;
   try {
     localStorage.removeItem(pendingKey(userId));
   } catch {

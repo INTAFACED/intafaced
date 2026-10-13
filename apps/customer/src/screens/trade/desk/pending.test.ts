@@ -34,6 +34,37 @@ describe('the order marker', () => {
   beforeEach(() => vi.unstubAllGlobals());
   afterEach(() => vi.unstubAllGlobals());
 
+  it('keeps the exact order beside the marker so it can be sent again on purpose, and the old desk shape still reads', async () => {
+    const { store } = stubBrowser();
+    const draft = {
+      symbol: 'BTC/USDT',
+      side: 'buy' as const,
+      type: 'limit' as const,
+      amount: '0.0001',
+      price: '64000',
+      timeInForce: 'GTC' as const,
+      postOnly: false,
+      clientOrderId: 'desk:abc',
+    };
+    expect(await reserve(USER, { ...marker, draft })).toBe('reserved');
+    const read = readPending(USER);
+    expect(read.state === 'pending' && read.value.draft).toEqual(draft);
+    store.set(pendingKey(USER), JSON.stringify(marker)); // an old-desk marker has no draft
+    expect(readPending(USER).state).toBe('pending');
+  });
+
+  it('release removes only its own marker and never one it cannot read', () => {
+    const { store } = stubBrowser();
+    store.set(pendingKey(USER), '{not json');
+    release(USER, 'desk:abc');
+    expect(store.get(pendingKey(USER))).toBe('{not json');
+    store.set(pendingKey(USER), JSON.stringify(marker));
+    release(USER, 'desk:other');
+    expect(store.has(pendingKey(USER))).toBe(true);
+    release(USER, 'desk:abc');
+    expect(store.has(pendingKey(USER))).toBe(false);
+  });
+
   it('is written before an order is sent, with the old desk’s key and shape', async () => {
     const { store, events } = stubBrowser();
     expect(await reserve(USER, marker)).toBe('reserved');

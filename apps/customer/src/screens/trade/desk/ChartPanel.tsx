@@ -9,7 +9,6 @@ import { PriceChart, type ChartOrderLine } from '../chart/PriceChart';
 import { deskCopy } from './copy';
 import {
   fmtAmount,
-  fmtPct,
   fmtPrice,
   Menu,
   MenuContent,
@@ -196,14 +195,6 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }
               <dd className="if-num">
                 {fmtAmount(market.minCost, { places: 8 })} {market.quote}
               </dd>
-            </div>
-            <div>
-              <dt>{t('Maker fee')}</dt>
-              <dd className="if-num">{fmtPct(market.maker, { signed: false })}</dd>
-            </div>
-            <div>
-              <dt>{t('Taker fee')}</dt>
-              <dd className="if-num">{fmtPct(market.taker, { signed: false })}</dd>
             </div>
           </dl>
           <p>{t('Fee rule')}</p>

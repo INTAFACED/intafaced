@@ -5,7 +5,7 @@
  * No float conversion anywhere in this file. The server stays the authority: these checks only stop an order
  * the market's published rules would refuse anyway, so the person hears why before anything is sent.
  */
-import { div, mul, SCALE } from '@intafaced/ledger-client/money';
+import { div, mul } from '@intafaced/ledger-client/money';
 import { baseQuantityForValue, exactValue, portionInLots } from '../../../features/trade/trade-api';
 import { formatAmount, parseAmount } from '../../../shared/money';
 import type { DeskMarket } from './market';
@@ -105,7 +105,11 @@ export function checkOrder(
 
 /**
  * The most the person can order, rounded DOWN to the lot size so an order never exceeds what they hold.
- * A sell is the whole balance. A buy is the balance divided by the price plus the taker fee, so the fee is covered.
+ * - A sell is the whole balance.
+ * - A limit buy is the balance divided by the limit price: the service holds `price x amount`, and a buy's fee is
+ *   taken from what is received, not from the balance.
+ * - A market buy is the balance divided by the service's price protection (best ask plus the slippage cap), because
+ *   that is the price the service holds against. Without a protection price the answer is null, never a guess.
  * Null while the balance or the price is unknown.
  */
 export function maxAmount(args: {
@@ -113,20 +117,46 @@ export function maxAmount(args: {
   type: OrderType;
   price: string;
   available: string | null;
-  market: Pick<DeskMarket, 'lotSize' | 'taker'>;
-  ref: Reference | null;
+  market: Pick<DeskMarket, 'lotSize'>;
+  /** Price protection the service reported for a market buy (see `protectionNow`). */
+  protectionPrice?: string | null;
 }): string | null {
   const available = scaled(args.available);
   const lot = positive(args.market.lotSize);
   if (available === null || lot === null) return null;
   if (args.side === 'sell') return formatAmount((available / lot) * lot);
-  const price = positive(args.type === 'limit' ? args.price : referencePrice('buy', args.ref));
-  const rate = scaled(args.market.taker);
-  if (price === null || rate === null) return null;
-  const perUnit = mul(price, SCALE + rate, 'ceil');
-  if (perUnit <= 0n) return null;
-  const raw = div(available, perUnit, 'floor');
+  const price = positive(args.type === 'limit' ? args.price : (args.protectionPrice ?? null));
+  if (price === null) return null;
+  const raw = div(available, price, 'floor');
   return formatAmount((raw / lot) * lot);
+}
+
+/**
+ * The protection price moves with the best ask. A price protection seen when the ask was `seenAsk` is carried to the
+ * current ask in proportion, rounded up so Max stays on the safe side. The exact hold is still checked from the
+ * preview before anything can be reviewed (`holdShort`).
+ */
+export function protectionNow(protection: string | null, seenAsk: string | null, currentAsk: string | null): string | null {
+  const p = positive(protection);
+  const seen = positive(seenAsk);
+  const now = positive(currentAsk);
+  if (p === null || seen === null || now === null) return null;
+  return formatAmount(div(mul(p, now, 'ceil'), seen, 'ceil'));
+}
+
+/** A small amount that clears the minimum order value at `ask`: used once to learn the market-buy price protection. */
+export function probeAmount(market: Pick<DeskMarket, 'lotSize' | 'minAmount' | 'minCost'>, ask: string): string | null {
+  const price = positive(ask);
+  const lot = positive(market.lotSize);
+  if (price === null || lot === null) return null;
+  const minCost = positive(market.minCost) ?? 0n;
+  let units = div(minCost, price, 'ceil');
+  const minAmount = positive(market.minAmount) ?? 0n;
+  if (units < minAmount) units = minAmount;
+  units = ((units + lot - 1n) / lot) * lot;
+  // A little over the minimum value, so the price moving a tick does not push the probe under it.
+  units += lot * 2n;
+  return units > 0n ? formatAmount(units) : null;
 }
 
 /** 25, 50, 75 or 100 percent of `max`, rounded down to the lot. */

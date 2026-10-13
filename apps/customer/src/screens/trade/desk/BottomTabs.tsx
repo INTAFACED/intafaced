@@ -1,13 +1,12 @@
-import { memo, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
 import { isTerminalOrder, type Order } from '../../../features/trade/trade-api';
-import { cancelOrder } from './cancel';
 import { usePreferences } from '../../../shared/preferences';
 import { deskCopy } from './copy';
-import { useClosedOrders, useRefreshPrivate } from './data';
+import { useClosedOrders, useDeskApi, useRefreshPrivate } from './data';
 import {
   Amount,
   Button,
@@ -112,16 +111,19 @@ function State<T>({
 function CancelButton({ order, onDone }: { order: Order; onDone: () => void }) {
   const { t } = deskCopy.useCopy();
   const env = useDataEnv();
-  const { api: client } = useSession();
+  const api = useDeskApi();
+  const busyRef = useRef(false);
   const [state, setState] = useState<'idle' | 'busy' | 'done' | 'uncertain' | 'refused'>('idle');
   const asset = order.symbol.split('/')[0] ?? '';
   async function cancel() {
-    if (state === 'busy') return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setState('busy');
     env.poller.recordExternalRequest();
     // One DELETE per click. Nothing here retries it: on a doubtful answer the person checks Open orders.
-    const result = await cancelOrder(client, order);
-    setState(result.ok ? 'done' : result.reason);
+    const result = await api.cancel(order);
+    busyRef.current = false;
+    setState(result.ok ? 'done' : result.reason === 'uncertain' ? 'uncertain' : 'refused');
     onDone();
   }
   if (state === 'done') return <span className="dk-bt-note">{t('Cancel done')}</span>;
