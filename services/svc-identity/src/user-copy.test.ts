@@ -23,6 +23,7 @@ describe('userCopy — catalog keys, never invented English', () => {
     expect(userCopy('notify.identity.rank.updated.title')).toBe('Rank updated');
     expect(userCopy('auth.email_taken')).toBe('An account with that email already exists.');
     expect(userCopy('auth.handle_taken')).toBe('That handle is already taken.');
+    expect(userCopy('auth.too_many_attempts')).toBe('Too many attempts. Wait before trying again, or sign in with a passkey.');
   });
 
   it('renders the dotted key when the key is not in the catalog', () => {

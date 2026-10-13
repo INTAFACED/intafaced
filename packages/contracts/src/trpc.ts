@@ -66,6 +66,18 @@ function causeCode(cause: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * `retryAfterSeconds` of an `auth.too_many_attempts` refusal, so a client can show
+ * "try again in N minutes". Only for that one code; no other error changes shape.
+ */
+export function retryAfterSecondsOf(cause: unknown): number | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.too_many_attempts') return undefined;
+  const details = 'details' in cause ? cause.details : undefined;
+  if (!details || typeof details !== 'object' || !('retryAfterSeconds' in details)) return undefined;
+  const seconds = details.retryAfterSeconds;
+  return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
+}
+
 const t = initTRPC.context<Context>().create({
   errorFormatter({ shape, error }) {
     const cause = error.cause;
@@ -84,6 +96,8 @@ const t = initTRPC.context<Context>().create({
         // tRPC strips `cause` in production. Copy the named code so a public
         // door can assert `token.buyback_tokens_unmoved` instead of prose.
         ...(code ? { cause: { code } } : {}),
+        // Only on `auth.too_many_attempts`.
+        ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
       },
     };
   },
