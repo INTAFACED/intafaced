@@ -22,6 +22,7 @@ import { frozenMessage } from './freeze.js';
 import {
   HISTORY_MAX_ENTRIES,
   HistoryTooLargeError,
+  allowedHistoryRail,
   decodeHistoryCursor,
   encodeHistoryCursor,
   type HistoryEntry,
@@ -413,8 +414,9 @@ export class PostgresLedger implements LedgerClient {
     const assetId = input.assetId ?? null;
     const cursorId = cursor?.entryId ?? null;
 
-    const rows = await this.sql<Array<HistoryRow & { entry_id: string; asset_id: string }>>`
-      SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at
+    const rows = await this.sql<Array<HistoryRow & { entry_id: string; asset_id: string; rail: unknown }>>`
+      SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
+             t.meta -> 'rail' AS rail
         FROM accounts a
         CROSS JOIN LATERAL (
           SELECT e.id AS entry_id, e.tx_id, e.direction, e.amount, e.asset_id
@@ -445,6 +447,9 @@ export class PostgresLedger implements LedgerClient {
         amount: parseStoredAmount(r.amount, 'ledger_entries.amount'),
         postedAt: r.posted_at,
         assetId: r.asset_id,
+        entryId: r.entry_id,
+        // Only the one key, and only if allow-listed: meta is free-form.
+        rail: allowedHistoryRail(r.rail),
       })),
       nextCursor: rows.length > limit && last ? encodeHistoryCursor({ entryId: last.entry_id }) : null,
     };
