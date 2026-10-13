@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { assertProductionPosture } from '@intafaced/config/production-posture';
 import Fastify from 'fastify';
 import postgres, { type Sql } from 'postgres';
 import { z } from 'zod';
@@ -208,6 +209,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.stderr.write('ops.crm.archive_startup_failed\n');
     process.exitCode = 1;
   };
+  // This entrypoint skips loadEnv, so it asks the production-posture question itself. The message
+  // names variables, never values, so it is safe to print.
+  try {
+    assertProductionPosture(process.env);
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : 'ops.crm.production_posture_refused'}\n`);
+    process.exit(1);
+  }
   try {
     const configuration = archiveReceiverConfiguration(process.env);
     sql = postgres(configuration.url, { max: 2, connect_timeout: 3, onnotice: () => undefined });
