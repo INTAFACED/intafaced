@@ -1761,6 +1761,13 @@ services:
     # 8090 because that is the port every existing doc already claims. Making
     # the docs true is cheaper than correcting all of them.
     ports: ['8090:80']
+    # Origins the browser CSP must allow beyond this site; all optional, empty by
+    # default (see apps/customer/csp-origins.envsh). An invalid value stops the
+    # container at start.
+    environment:
+      CUSTOMER_LIVEKIT_ORIGIN: ${CUSTOMER_LIVEKIT_ORIGIN:-}
+      CUSTOMER_STORAGE_ORIGIN: ${CUSTOMER_STORAGE_ORIGIN:-}
+      CUSTOMER_MEDIA_ORIGINS: ${CUSTOMER_MEDIA_ORIGINS:-}
     # nginx proxies /api to the edge and /ws to the socket by SERVICE NAME, so
     # both must be resolvable on this network — the browser stays same-origin
     # and never learns a port.

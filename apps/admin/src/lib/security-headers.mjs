@@ -5,7 +5,12 @@
  * the same file for the per-request Content-Security-Policy. One list, no copy to drift.
  *
  * HSTS: TLS ends at the load balancer in front of this process, so over plain http browsers ignore Strict-Transport-Security.
- * It is still sent for the https responses that are forwarded. No `preload`: that is a one-way registration, not a header.
+ * It is still sent for the https responses that are forwarded. Deliberately cautious for now: one day, no includeSubDomains, no
+ * `preload` (a one-way registration). Once every subdomain of the console's domain is inventoried and https-only, raise max-age
+ * (e.g. 31536000) and add includeSubDomains here and in apps/customer/security-headers*.conf.
+ *
+ * Roll the CSP out with one staging pass and the browser console open (login, then each console page): a violation is logged
+ * there by directive and blocked URL.
  *
  * Permissions-Policy leaves `publickey-credentials-get` and `-create` out on purpose: the founder login uses WebAuthn passkeys
  * and their default allowlist (self) is what it needs. Nothing in the console uses camera, microphone, geolocation or payment.
@@ -13,7 +18,7 @@
 
 /** Headers that do not vary per request. Sent on every path, API and static files included. */
 export const STATIC_SECURITY_HEADERS = [
-  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+  { key: 'Strict-Transport-Security', value: 'max-age=86400' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

@@ -29,13 +29,13 @@ describe('static security headers (next.config headers())', () => {
 
   it('carry the required values and none is empty', () => {
     const headers = new Map(STATIC_SECURITY_HEADERS.map((h) => [h.key, h.value]));
-    expect(headers.get('Strict-Transport-Security')).toBe('max-age=31536000; includeSubDomains');
+    expect(headers.get('Strict-Transport-Security')).toBe('max-age=86400');
     expect(headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(headers.get('X-Frame-Options')).toBe('DENY');
     expect(headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
     expect(headers.get('Cross-Origin-Opener-Policy')).toBe('same-origin');
     for (const { key, value } of STATIC_SECURITY_HEADERS) expect(value.trim(), key).not.toBe('');
-    expect(headers.get('Strict-Transport-Security')).not.toMatch(/preload/);
+    expect(headers.get('Strict-Transport-Security')).not.toMatch(/preload|includeSubDomains/);
     expect(new Set(STATIC_SECURITY_HEADERS.map((h) => h.key)).size).toBe(STATIC_SECURITY_HEADERS.length);
   });
 

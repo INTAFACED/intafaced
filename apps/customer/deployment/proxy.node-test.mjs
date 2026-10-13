@@ -7,6 +7,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { installSnippets } from './render-security-headers.mjs';
 
 const customer = dirname(dirname(fileURLToPath(import.meta.url)));
 const binary = process.env.NGINX_BINARY || 'nginx';
@@ -18,7 +19,7 @@ const stop = (server) =>
   });
 
 const securityHeaders = {
-  'strict-transport-security': 'max-age=31536000; includeSubDomains',
+  'strict-transport-security': 'max-age=86400',
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
   'referrer-policy': 'strict-origin-when-cross-origin',
@@ -81,11 +82,12 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
     const portReservation = createServer();
     const port = await listen(portReservation);
     await stop(portReservation);
+    installSnippets(join(temp, 'snippets'));
     const source = readFileSync(join(customer, 'nginx.conf'), 'utf8')
       .replace('listen 80;', `listen 127.0.0.1:${port};`)
       .replace('listen [::]:80;', '')
       .replace('/usr/share/nginx/html', join(customer, 'dist'))
-      .replaceAll('/etc/nginx/snippets/', `${customer}/`)
+      .replaceAll('/etc/nginx/snippets/', `${join(temp, 'snippets')}/`)
       .replaceAll('svc-edge:4000', `127.0.0.1:${apiPort}`)
       .replaceAll('svc-ws:4014', `127.0.0.1:${wsPort}`);
     const config = join(temp, 'nginx.conf');
@@ -151,7 +153,7 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
     });
     assert.equal(edge.headers.get('cache-control'), 'no-store');
     // /api/ answers belong to svc-edge (its widget removes X-Frame-Options on purpose), so nginx adds only HSTS there.
-    assert.equal(edge.headers.get('strict-transport-security'), 'max-age=31536000; includeSubDomains');
+    assert.equal(edge.headers.get('strict-transport-security'), 'max-age=86400');
     assert.equal(edge.headers.get('x-frame-options'), null);
     assert.equal(edge.headers.get('content-security-policy'), null);
     assert.match(edge.headers.get('set-cookie'), /HttpOnly/);

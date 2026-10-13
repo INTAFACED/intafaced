@@ -1,0 +1,68 @@
+# Sourced (not executed) by the nginx image entrypoint, before the envsubst step
+# renders security-headers.conf.template. Installed by the Dockerfile as
+# /docker-entrypoint.d/16-customer-csp-origins.envsh and must be executable.
+#
+# Turns three deploy-time variables into the two CSP source lists the template
+# uses. Origins are checked against a strict pattern, so a typo or a value with
+# `;` cannot widen or break the policy; a bad value stops the container.
+#
+#   CUSTOMER_LIVEKIT_ORIGIN  Academy live-session media server, e.g.
+#                            wss://lk.example.com (https://, or a bare host, also
+#                            work). Both the wss and https forms are allowed:
+#                            the SDK opens a websocket and, for LiveKit Cloud
+#                            hosts, fetches https://<host>/settings/regions or an
+#                            https validate call after a failed connect.
+#   CUSTOMER_STORAGE_ORIGIN  Origin that serves presigned recorded-video URLs
+#                            (the origin of ACADEMY_VIDEO_S3_ENDPOINT), e.g.
+#                            https://s3.eu-west-1.amazonaws.com.
+#   CUSTOMER_MEDIA_ORIGINS   Any further https origins for <video>/<audio>,
+#                            space separated.
+#
+# All three default to empty: connect-src is then 'self' only (the /api and /ws
+# paths, ws included) and media-src is 'self' blob:.
+customer_csp_origins() {
+  set -f
+  csp_media="'self' blob:"
+  csp_connect="'self'"
+
+  for origin in ${CUSTOMER_STORAGE_ORIGIN:-} ${CUSTOMER_MEDIA_ORIGINS:-}; do
+    case "$origin" in
+      https://*) host="${origin#https://}" ;;
+      *) host="" ;;
+    esac
+    if ! printf '%s' "$host" | grep -Eq '^(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'; then
+      echo "customer csp: '$origin' is not an https origin like https://media.example.com (CUSTOMER_STORAGE_ORIGIN / CUSTOMER_MEDIA_ORIGINS)" >&2
+      exit 1
+    fi
+    csp_media="$csp_media $origin"
+  done
+
+  if [ -n "${CUSTOMER_LIVEKIT_ORIGIN:-}" ]; then
+    case "$CUSTOMER_LIVEKIT_ORIGIN" in
+      wss://*) host="${CUSTOMER_LIVEKIT_ORIGIN#wss://}"; secure=1 ;;
+      https://*) host="${CUSTOMER_LIVEKIT_ORIGIN#https://}"; secure=1 ;;
+      ws://*) host="${CUSTOMER_LIVEKIT_ORIGIN#ws://}"; secure=0 ;;
+      http://*) host="${CUSTOMER_LIVEKIT_ORIGIN#http://}"; secure=0 ;;
+      *://*) host=""; secure=1 ;;
+      *) host="$CUSTOMER_LIVEKIT_ORIGIN"; secure=1 ;;
+    esac
+    if ! printf '%s' "$host" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'; then
+      echo "customer csp: '$CUSTOMER_LIVEKIT_ORIGIN' is not a host like wss://lk.example.com (CUSTOMER_LIVEKIT_ORIGIN)" >&2
+      exit 1
+    fi
+    if [ "$secure" = 1 ]; then
+      csp_connect="$csp_connect wss://$host https://$host"
+    else
+      csp_connect="$csp_connect ws://$host http://$host"
+    fi
+  fi
+
+  # The names the template uses. The nginx entrypoint only substitutes variables
+  # matching NGINX_ENVSUBST_FILTER (^CUSTOMER_CSP_), so nginx's own $host,
+  # $uri and friends are never touched.
+  export CUSTOMER_CSP_MEDIA_SRC="$csp_media"
+  export CUSTOMER_CSP_CONNECT_SRC="$csp_connect"
+  set +f
+}
+customer_csp_origins
+unset -f customer_csp_origins 2>/dev/null || true

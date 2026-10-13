@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { installSnippets, renderSecurityHeaders } from './render-security-headers.mjs';
 
 const customer = dirname(dirname(fileURLToPath(import.meta.url)));
 const read = (name) => readFileSync(join(customer, name), 'utf8');
@@ -43,14 +44,14 @@ test('every nginx location that sets add_header includes a security-headers snip
 });
 
 test('snippets carry every required header, with non-empty values', () => {
-  const full = new Map(headers(read('security-headers.conf')));
-  assert.equal(full.get('strict-transport-security'), 'max-age=31536000; includeSubDomains');
+  const full = new Map(headers(renderSecurityHeaders()));
+  assert.equal(full.get('strict-transport-security'), 'max-age=86400');
   assert.equal(full.get('x-content-type-options'), 'nosniff');
   assert.equal(full.get('x-frame-options'), 'DENY');
   assert.equal(full.get('referrer-policy'), 'strict-origin-when-cross-origin');
   assert.equal(full.get('cross-origin-opener-policy'), 'same-origin');
   for (const [name, value] of full) assert.ok(value.trim(), `${name} is not empty`);
-  assert.doesNotMatch(full.get('strict-transport-security'), /preload/);
+  assert.doesNotMatch(full.get('strict-transport-security'), /preload|includeSubDomains/);
 
   const permissions = full.get('permissions-policy');
   for (const denied of ['geolocation=()', 'payment=()']) assert.ok(permissions.includes(denied), denied);
@@ -75,7 +76,7 @@ test('snippets carry every required header, with non-empty values', () => {
   assert.ok(csp.get('style-src').includes("'unsafe-inline'"));
   assert.ok(!JSON.stringify([...csp]).includes('unsafe-eval'));
 
-  assert.deepEqual(headers(read('security-headers-api.conf')), [['strict-transport-security', 'max-age=31536000; includeSubDomains']]);
+  assert.deepEqual(headers(read('security-headers-api.conf')), [['strict-transport-security', 'max-age=86400']]);
 });
 
 test('the built index.html has no inline script, so script-src needs no hash or nonce', () => {
@@ -97,8 +98,12 @@ test('nginx accepts the config with the snippets in place', (t) => {
   if (probe.error) return t.skip('nginx is not installed');
   const temp = mkdtempSync(join(tmpdir(), 'intafaced-customer-headers-'));
   try {
+    installSnippets(join(temp, 'snippets'), {
+      CUSTOMER_LIVEKIT_ORIGIN: 'wss://lk.example.com',
+      CUSTOMER_STORAGE_ORIGIN: 'https://s3.example.com',
+    });
     const source = conf
-      .replaceAll('/etc/nginx/snippets/', `${customer}/`)
+      .replaceAll('/etc/nginx/snippets/', `${join(temp, 'snippets')}/`)
       .replace('/usr/share/nginx/html', temp)
       .replaceAll('svc-edge:4000', '127.0.0.1:1')
       .replaceAll('svc-ws:4014', '127.0.0.1:1');
@@ -112,4 +117,74 @@ test('nginx accepts the config with the snippets in place', (t) => {
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
+});
+
+const cspOf = (rendered) =>
+  Object.fromEntries(
+    rendered
+      .match(/Content-Security-Policy "([^"]+)"/)[1]
+      .split(';')
+      .map((part) => part.trim().split(/\s+/))
+      .map(([name, ...sources]) => [name, sources]),
+  );
+
+test('unset deploy variables give the tight default: no external connect or media origin, no bare wss:', () => {
+  const csp = cspOf(renderSecurityHeaders());
+  assert.deepEqual(csp['connect-src'], ["'self'"]);
+  assert.deepEqual(csp['media-src'], ["'self'", 'blob:']);
+});
+
+test('deploy variables name the LiveKit and storage origins exactly, never a wildcard scheme', () => {
+  const csp = cspOf(
+    renderSecurityHeaders({
+      CUSTOMER_LIVEKIT_ORIGIN: 'wss://lk.example.com',
+      CUSTOMER_STORAGE_ORIGIN: 'https://s3.eu-west-1.amazonaws.com',
+      CUSTOMER_MEDIA_ORIGINS: 'https://a.example.com https://*.cdn.example.com',
+    }),
+  );
+  assert.deepEqual(csp['connect-src'], ["'self'", 'wss://lk.example.com', 'https://lk.example.com']);
+  assert.deepEqual(csp['media-src'], [
+    "'self'",
+    'blob:',
+    'https://s3.eu-west-1.amazonaws.com',
+    'https://a.example.com',
+    'https://*.cdn.example.com',
+  ]);
+  for (const sources of Object.values(csp)) assert.ok(!sources.some((source) => /^(wss?|https?):$/.test(source)), 'no bare scheme source');
+  assert.deepEqual(cspOf(renderSecurityHeaders({ CUSTOMER_LIVEKIT_ORIGIN: 'lk.example.com:7443' }))['connect-src'], [
+    "'self'",
+    'wss://lk.example.com:7443',
+    'https://lk.example.com:7443',
+  ]);
+  assert.deepEqual(cspOf(renderSecurityHeaders({ CUSTOMER_LIVEKIT_ORIGIN: 'ws://localhost:7880' }))['connect-src'], [
+    "'self'",
+    'ws://localhost:7880',
+    'http://localhost:7880',
+  ]);
+});
+
+test('an invalid origin stops rendering instead of widening the policy', () => {
+  for (const env of [
+    { CUSTOMER_STORAGE_ORIGIN: "https://x.example.com; script-src 'unsafe-inline'" },
+    { CUSTOMER_STORAGE_ORIGIN: 'http://insecure.example.com' },
+    { CUSTOMER_MEDIA_ORIGINS: 'https://' },
+    { CUSTOMER_MEDIA_ORIGINS: '*' },
+    { CUSTOMER_LIVEKIT_ORIGIN: 'wss://lk.example.com/path' },
+    { CUSTOMER_LIVEKIT_ORIGIN: 'ftp://lk.example.com' },
+    { CUSTOMER_LIVEKIT_ORIGIN: 'wss:' },
+  ]) {
+    assert.throws(() => renderSecurityHeaders(env), /customer csp/, JSON.stringify(env));
+  }
+});
+
+test('the template substitutes only its two CUSTOMER_CSP_ placeholders, so nginx $variables stay untouched', () => {
+  const template = read('security-headers.conf.template').replace(/#.*$/gm, '');
+  assert.deepEqual([...new Set([...template.matchAll(/\$\{?([A-Za-z_]+)/g)].map((m) => m[1]))].sort(), [
+    'CUSTOMER_CSP_CONNECT_SRC',
+    'CUSTOMER_CSP_MEDIA_SRC',
+  ]);
+  assert.doesNotMatch(renderSecurityHeaders(), /\$\{/);
+  const dockerfile = read('Dockerfile');
+  assert.match(dockerfile, /NGINX_ENVSUBST_FILTER=\^CUSTOMER_CSP_/);
+  assert.match(dockerfile, /NGINX_ENVSUBST_OUTPUT_DIR=\/etc\/nginx\/snippets/);
 });
