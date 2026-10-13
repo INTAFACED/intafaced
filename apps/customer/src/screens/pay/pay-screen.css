@@ -23,6 +23,10 @@
     margin: 0;
     padding: 0;
   }
+  /* The reset above has the same weight as the receipt rows' own padding and loads after it, so put the padding back. */
+  .if-pay .buy-receipt__rows {
+    padding: 16px;
+  }
   .if-pay a:focus-visible,
   .if-pay button:focus-visible {
     outline: 2px solid var(--if-lime);

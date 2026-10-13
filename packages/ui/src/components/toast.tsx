@@ -69,7 +69,7 @@ export function ToastProvider({
       <ToastPrimitive.Portal>
         <ToastPrimitive.Viewport
           data-slot="toast-viewport"
-          className="pointer-events-none fixed inset-x-0 top-4 z-60 flex flex-col items-center gap-2 px-4"
+          className="pointer-events-none fixed inset-x-0 top-[calc(var(--if-banner-offset,0px)+56px)] z-60 flex flex-col items-center gap-2 px-4"
         >
           <ToastList closeLabel={closeLabel} />
         </ToastPrimitive.Viewport>
