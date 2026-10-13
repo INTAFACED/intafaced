@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount, MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
 import { acceptConvertQuote, buildFirmConvertQuote, estimateConvert } from './quote.js';
-import { planConvertSettle, postConvertSettle } from './settle.js';
+import { convertCustomerHoldKey, planConvertSettle, postConvertSettle } from './settle.js';
 import { convertSettleIdsFor } from './ids.js';
 
 const USER = '00000000-0000-4000-8000-000000000001';
@@ -53,6 +53,13 @@ describe('planConvertSettle / postConvertSettle', () => {
 
     expect(formatAmount((await ledger.balance(userAvailable(USER, 'BTC'))).amount)).toBe('1');
     expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('convertCustomerHoldKey matches the plan hold key', () => {
+    const bound = boundBuy();
+    const ids = convertSettleIdsFor(bound.quote.quoteId);
+    const plan = planConvertSettle({ bound, ...ids, now: ACCEPT_AT });
+    expect(convertCustomerHoldKey(ids.takerOrderId)).toBe(plan.hold.idempotencyKey);
   });
 
   it('settle keys are stable for the same quote id', () => {

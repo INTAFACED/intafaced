@@ -130,6 +130,11 @@ export async function postConvertSettle(ledger: LedgerClient, plan: ConvertSettl
   await ledger.post(plan.fill);
 }
 
+/** Ledger key of the customer hold (`recipes.orderHold`); settle.test.ts pins it to the plan. */
+export function convertCustomerHoldKey(takerOrderId: string): string {
+  return `order.hold:${takerOrderId}`;
+}
+
 function liquidityUnavailable(): TradeError {
   return new TradeError(
     'convert liquidity is unavailable right now — nothing was charged, request a new quote',

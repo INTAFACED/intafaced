@@ -80,7 +80,7 @@ import {
   type ConvertTradeWire,
 } from '../convert/quote.js';
 import { convertSettleIdsFor } from '../convert/ids.js';
-import { planConvertSettle, postConvertSettle } from '../convert/settle.js';
+import { convertCustomerHoldKey, planConvertSettle, postConvertSettle } from '../convert/settle.js';
 import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
 import { isHouseMmAccount } from '../mm/seed-market.js';
 import { recoverMatchingAccountId } from '../mm/fill-account.js';
@@ -1081,6 +1081,17 @@ export class TradeService {
             now: this.now(),
             assertedPrice: input.maxAvgPrice ?? null,
           });
+        }
+        // A quote put back to `open` after a refused settle (#4676) keeps its
+        // recorded price. With no customer hold booked, a retry is a fresh accept
+        // in effect, so the TTL applies: refuse before anything is posted or
+        // re-bound, else a top-up hours later settles at a stale rate. With the
+        // hold booked (or a `bound` quote) the original settle semantics stand.
+        if (stored.lifecycle === 'open' && recordedBound) {
+          const expiresAt = Date.parse(stored.quote.expiresAt);
+          if (this.now().getTime() > expiresAt && !(await this.ledger.getTxByKey(convertCustomerHoldKey(ids.takerOrderId)))) {
+            throw new TradeError('convert quote expired — refuse rather than requote', 'trade.convert_quote_expired');
+          }
         }
         // The quote's immutable original bound is the business payload. A retry
         // recovers this decision rather than sampling a new price or quantity.

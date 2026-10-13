@@ -357,7 +357,8 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
         expect((await new SqlConvertQuoteStore(sql).load(quoted.quoteId))?.lifecycle).not.toBe('bound');
         expect(ledger.reconcile()).toEqual({ ok: true });
 
-        // The customer tops up: the same quote then settles exactly once.
+        // Within the TTL (documented): the same quote keeps its recorded price, so a top-up
+        // inside the TTL settles it exactly once. After the TTL it is refused (next test).
         await fundUser('USDT', '1000');
         const settled = await trade.convertExecute(principal, { quoteId: quoted.quoteId });
         expect(settled.outAmount).toBe(quoted.outAmount);
@@ -365,6 +366,30 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
         expect(reasons('order.hold')).toHaveLength(1);
         expect(fillPosts()).toHaveLength(1);
         expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('customer short, top-up AFTER the TTL: same quote refuses trade.convert_quote_expired, nothing held or filled', async () => {
+        matching.asks = [['300', '5']];
+        const quoted = await trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy', qty: amt('5') });
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'ledger.insufficient_funds',
+        });
+        await fundUser('USDT', '1000');
+        const house = await houseAvail('BTC');
+        const usdt = await avail('USDT');
+        const journalBefore = ledger.journal().length;
+
+        nowFn = () => new Date(Date.parse(quoted.expiresAt) + 1);
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_quote_expired',
+        });
+        expect(ledger.journal()).toHaveLength(journalBefore);
+        expect(reasons('order.hold')).toHaveLength(0);
+        expect(reasons('order.hold.mm')).toHaveLength(0);
+        expect(fillPosts()).toHaveLength(0);
+        expect(await houseAvail('BTC')).toBe(house);
+        expect(await avail('USDT')).toBe(usdt);
+        expect((await new SqlConvertQuoteStore(sql).load(quoted.quoteId))?.lifecycle).toBe('open');
       });
 
       it('house cannot cover: distinct trade.convert_liquidity_unavailable, customer hold released once, quote not bound, retry never double-holds', async () => {
