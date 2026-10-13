@@ -536,6 +536,128 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
       });
     });
 
+    describe('quoteQty — spend by amount (U7)', () => {
+      const houseAvail = async (assetId: string) => formatAmount((await ledger.balance(marketMaker(assetId))).amount);
+      const reasons = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
+      const spend = (quoteQty: string, extra: Record<string, unknown> = {}) =>
+        trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy', quoteQty: amt(quoteQty), ...extra });
+
+      it('quotes the exact spend for the largest lot count, then execute charges that and never more than typed', async () => {
+        const typed = amt('10');
+        const quoted = await spend('10');
+        // 100 per BTC + 25 bps spread = 100.25; 0.0997 BTC costs 9.994925 USDT, 0.0998 would cost 10.00495.
+        expect(quoted.outAmount).toBe('0.0997');
+        expect(quoted.filledQty).toBe('0.0997');
+        expect(quoted.requestedQty).toBe('0.0997');
+        expect(quoted.inAmount).toBe('9.994925');
+        expect(quoted.userNotional).toBe(quoted.inAmount);
+        expect(amt(quoted.inAmount) <= typed).toBe(true);
+
+        const settled = await trade.convertExecute(principal, { quoteId: quoted.quoteId });
+        expect(settled.inAmount).toBe(quoted.inAmount);
+        expect(settled.outAmount).toBe(quoted.outAmount);
+        expect(amt(settled.inAmount) <= typed).toBe(true);
+        expect(await avail('USDT')).toBe(formatAmount(amt('1000') - amt(quoted.inAmount)));
+        expect(await avail('BTC')).toBe('0.0997');
+        // The customer hold is the quoted spend, not the typed amount.
+        const hold = reasons('order.hold')[0]!;
+        const debited = hold.entries.filter((e) => e.direction === 'credit').reduce((sum, e) => sum + e.amount, 0n);
+        expect(debited).toBe(amt(quoted.inAmount));
+        expect(fillPosts()).toHaveLength(1);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('execute is still bound to the quote when the book moves against the user afterwards', async () => {
+        const typed = amt('10');
+        const quoted = await spend('10');
+        matching.asks = [['150', '5']];
+        const settled = await trade.convertExecute(principal, { quoteId: quoted.quoteId });
+        expect(settled.inAmount).toBe('9.994925');
+        expect(amt(settled.inAmount) <= typed).toBe(true);
+        expect(await avail('USDT')).toBe(formatAmount(amt('1000') - amt('9.994925')));
+      });
+
+      it('accept may repeat the quoted base quantity and refuses a different one', async () => {
+        const quoted = await spend('10');
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId, qty: amt('0.0998') })).rejects.toMatchObject({
+          code: 'trade.convert_price_moved',
+        });
+        const settled = await trade.convertExecute(principal, { quoteId: quoted.quoteId, qty: amt('0.0997') });
+        expect(settled.inAmount).toBe('9.994925');
+      });
+
+      it('rounds down across book levels and still never exceeds the spend', async () => {
+        matching.asks = [
+          ['100', '1'],
+          ['110.37', '4'],
+        ];
+        const typed = amt('333.33');
+        const quoted = await spend('333.33');
+        expect(amt(quoted.inAmount) <= typed).toBe(true);
+        expect(amt(quoted.outAmount) > amt('1')).toBe(true);
+        // One more lot would break the cap.
+        const next = await trade.convertQuote(principal, {
+          symbol: btcusdt.symbol,
+          side: 'buy',
+          qty: amt(quoted.outAmount) + amt('0.0001'),
+        });
+        expect(amt(next.inAmount) > typed).toBe(true);
+      });
+
+      it('both fields refuse, neither refuses, and nothing is stored', async () => {
+        await expect(spend('10', { qty: amt('1') })).rejects.toMatchObject({ code: 'trade.convert_invalid_qty' });
+        await expect(trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy' })).rejects.toMatchObject({
+          code: 'trade.convert_invalid_qty',
+        });
+        const rows = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM trade.convert_quotes`;
+        expect(rows[0]?.n).toBe('0');
+      });
+
+      it('a spend below the market minimum refuses with the existing below-minimum code', async () => {
+        // 0.5 USDT buys 0.0049 BTC = 0.49 USDT of book, under the 1 USDT minNotional.
+        await expect(spend('0.5')).rejects.toMatchObject({ code: 'trade.below_min_notional' });
+        // Less than one lot at all.
+        await expect(spend('0.001')).rejects.toMatchObject({ code: 'trade.below_min_notional' });
+      });
+
+      it('sell by spend is refused; sell by base amount is unchanged', async () => {
+        await expect(trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'sell', quoteQty: amt('10') })).rejects.toMatchObject({
+          code: 'trade.convert_invalid_qty',
+        });
+        const sell = await trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'sell', qty: amt('1') });
+        expect(sell.inAsset).toBe('BTC');
+        expect(sell.inAmount).toBe('1');
+      });
+
+      it('a spend larger than the visible book refuses trade.convert_insufficient_depth', async () => {
+        await expect(spend('1000000')).rejects.toMatchObject({ code: 'trade.convert_insufficient_depth' });
+      });
+
+      it('house cannot cover a spend quote: customer hold released, nothing charged', async () => {
+        matching.asks = [['100', '20']];
+        await fundUser('USDT', '5000');
+        const quoted = await spend('2000');
+        expect(amt(quoted.outAmount)).toBeGreaterThan(amt(await houseAvail('BTC')));
+        const usdt = await avail('USDT');
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_liquidity_unavailable',
+        });
+        expect(await avail('USDT')).toBe(usdt);
+        expect(reasons('order.hold.released')).toHaveLength(1);
+        expect(fillPosts()).toHaveLength(0);
+      });
+
+      it('an expired spend quote refuses and posts nothing', async () => {
+        const quoted = await spend('10');
+        nowFn = () => new Date(Date.parse(quoted.expiresAt) + 1);
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_quote_expired',
+        });
+        expect(fillPosts()).toHaveLength(0);
+        expect(await avail('USDT')).toBe('1000');
+      });
+    });
+
     it('settled quote after expiry still returns the first settle — no second fill', async () => {
       const quoted = await trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy', qty: amt('1') });
       const first = await trade.convertExecute(principal, { quoteId: quoted.quoteId });

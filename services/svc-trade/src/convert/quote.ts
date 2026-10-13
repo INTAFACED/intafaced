@@ -130,6 +130,60 @@ export function snapToTick(price: Amount, tickSize: Amount, side: OrderSide): Am
 }
 
 /**
+ * Walk `levels` for up to `qty` base units, apply the house spread, and say what
+ * the user pays (buy) or receives (sell). Pure bigint maths. Unlike
+ * `estimateConvert` this never refuses on an empty fill or a spread that eats the
+ * fill — the caller decides — so the spend search can probe any size.
+ */
+function priceBook(
+  side: OrderSide,
+  qty: Amount,
+  levels: readonly DepthLevel[],
+  convertSpreadBps: number,
+): { filledQty: Amount; remaining: Amount; bookNotional: Amount; userNotional: Amount } {
+  let remaining = qty;
+  let bookNotional = 0n;
+  let filledQty = 0n;
+
+  for (const level of levels) {
+    if (remaining === 0n) break;
+    const { price, size } = parseLevel(level);
+    const take = size < remaining ? size : remaining;
+    // Notional floors the way tradeFill does — never invent wei the book did not offer.
+    bookNotional += mul(price, take, 'floor');
+    filledQty += take;
+    remaining -= take;
+  }
+
+  const spread = mulBps(bookNotional, convertSpreadBps, 'ceil');
+  const userNotional = side === 'buy' ? bookNotional + spread : bookNotional > spread ? sub(bookNotional, spread) : 0n;
+  return { filledQty, remaining, bookNotional, userNotional };
+}
+
+function finishEstimate(
+  side: OrderSide,
+  tickSize: Amount,
+  walked: { filledQty: Amount; remaining: Amount; bookNotional: Amount; userNotional: Amount },
+): ConvertQuoteResult {
+  const { filledQty, bookNotional, userNotional } = walked;
+  if (userNotional <= 0n) {
+    throw new TradeError('convert spread consumes the entire fill', 'trade.convert_spread_too_high');
+  }
+
+  // VWAP after spread: both legs are SCALE-fixed; use money div (not raw bigint).
+  const rawAvg = div(userNotional, filledQty, side === 'buy' ? 'ceil' : 'floor');
+  const avgPrice = snapToTick(rawAvg, tickSize, side);
+
+  return {
+    filledQty,
+    bookNotional,
+    userNotional,
+    avgPrice,
+    fullyFilled: walked.remaining === 0n,
+  };
+}
+
+/**
  * Walk the book for `qty` base units and apply the convert spread.
  */
 export function estimateConvert(input: ConvertQuoteInput): ConvertQuoteResult {
@@ -141,42 +195,96 @@ export function estimateConvert(input: ConvertQuoteInput): ConvertQuoteResult {
     throw new TradeError('no liquidity to quote against', 'trade.convert_no_liquidity');
   }
 
-  let remaining = input.qty;
-  let bookNotional = 0n;
-  let filledQty = 0n;
-
-  for (const level of input.levels) {
-    if (remaining === 0n) break;
-    const { price, size } = parseLevel(level);
-    const take = size < remaining ? size : remaining;
-    // Notional floors the way tradeFill does — never invent wei the book did not offer.
-    bookNotional += mul(price, take, 'floor');
-    filledQty += take;
-    remaining -= take;
+  const walked = priceBook(input.side, input.qty, input.levels, convertSpreadBps);
+  if (walked.filledQty === 0n) {
+    throw new TradeError('no liquidity to quote against', 'trade.convert_no_liquidity');
   }
+  return finishEstimate(input.side, input.tickSize, walked);
+}
 
-  if (filledQty === 0n) {
+export interface ConvertSpendInput {
+  /** Spend is a buy concept: "spend 100 USDT". Sell is refused. */
+  side: OrderSide;
+  /** Most the user will pay, in the quote asset, spread included. Strictly positive. */
+  quoteQty: Amount;
+  levels: readonly DepthLevel[];
+  convertSpreadBps: number | null | undefined;
+  tickSize: Amount;
+  /** Base quantity grid. The result is a whole number of lots. */
+  lotSize: Amount;
+}
+
+export interface ConvertSpendResult extends ConvertQuoteResult {
+  /** Base quantity bought: the largest whole number of lots whose cost fits `quoteQty`. */
+  qty: Amount;
+}
+
+/**
+ * Largest base amount on the lot grid whose total cost (book notional plus the
+ * house spread) is <= `quoteQty`. Taker fee is 0 on convert, so spread is the
+ * only mark-up and it is inside `userNotional`.
+ *
+ * Cost is non-decreasing in quantity (the book is walked best price first and
+ * the spread is a rounded-up share of the notional), so a binary search over
+ * the lot count finds the exact boundary. Every probe is the same bigint
+ * walk `estimateConvert` uses, so the answer agrees with what a quote of that
+ * base quantity would charge: `estimateConvert(qty).userNotional <= quoteQty`
+ * and one more lot would exceed it (or the book).
+ *
+ * Refuses: sell side, non-positive spend, spend below one lot
+ * (`trade.below_min_notional`), and spend the visible book cannot absorb
+ * (`trade.convert_insufficient_depth`, same as a base quantity the book cannot fill).
+ */
+export function estimateConvertForSpend(input: ConvertSpendInput): ConvertSpendResult {
+  if (input.side !== 'buy') {
+    throw new TradeError('quoteQty (a spend amount) is supported on buy only — sell by base amount', 'trade.convert_invalid_qty');
+  }
+  if (input.quoteQty <= 0n) {
+    throw new TradeError('convert spend must be strictly positive', 'trade.convert_invalid_qty');
+  }
+  if (input.lotSize <= 0n) {
+    throw new TradeError('market lot size must be strictly positive', 'trade.convert_invalid_qty');
+  }
+  const convertSpreadBps = requireConvertSpreadBps(input.convertSpreadBps);
+  if (input.levels.length === 0) {
     throw new TradeError('no liquidity to quote against', 'trade.convert_no_liquidity');
   }
 
-  const spread = mulBps(bookNotional, convertSpreadBps, 'ceil');
-  const userNotional = input.side === 'buy' ? bookNotional + spread : bookNotional > spread ? sub(bookNotional, spread) : 0n;
-
-  if (userNotional <= 0n) {
-    throw new TradeError('convert spread consumes the entire fill', 'trade.convert_spread_too_high');
+  let depth = 0n;
+  for (const level of input.levels) depth += parseLevel(level).size;
+  const depthLots = depth / input.lotSize;
+  if (depthLots === 0n) {
+    throw new TradeError('no liquidity to quote against', 'trade.convert_no_liquidity');
   }
 
-  // VWAP after spread: both legs are SCALE-fixed; use money div (not raw bigint).
-  const rawAvg = div(userNotional, filledQty, input.side === 'buy' ? 'ceil' : 'floor');
-  const avgPrice = snapToTick(rawAvg, input.tickSize, input.side);
+  const costOf = (lots: bigint) => priceBook(input.side, lots * input.lotSize, input.levels, convertSpreadBps).userNotional;
+  const wholeBook = costOf(depthLots);
+  if (wholeBook < input.quoteQty) {
+    throw new TradeError(
+      `insufficient book depth to spend ${formatAmount(input.quoteQty)} — the whole visible book costs ${formatAmount(wholeBook)}`,
+      'trade.convert_insufficient_depth',
+    );
+  }
 
-  return {
-    filledQty,
-    bookNotional,
-    userNotional,
-    avgPrice,
-    fullyFilled: remaining === 0n,
-  };
+  // Invariant: costOf(lo) <= quoteQty and (hi is past the answer: costOf(hi) > quoteQty,
+  // or hi is the whole book at exactly quoteQty). costOf(0) is 0.
+  let lo = wholeBook === input.quoteQty ? depthLots : 0n;
+  let hi = depthLots;
+  while (hi - lo > 1n) {
+    const mid = (lo + hi) / 2n;
+    if (costOf(mid) <= input.quoteQty) lo = mid;
+    else hi = mid;
+  }
+  if (lo === 0n) {
+    throw new TradeError(
+      `spend ${formatAmount(input.quoteQty)} does not buy one ${formatAmount(input.lotSize)} lot — below the minimum`,
+      'trade.below_min_notional',
+    );
+  }
+
+  const qty = lo * input.lotSize;
+  const estimate = finishEstimate(input.side, input.tickSize, priceBook(input.side, qty, input.levels, convertSpreadBps));
+  return { ...estimate, qty };
 }
 
 export function legsForConvert(side: OrderSide, baseAsset: string, quoteAsset: string, filledQty: Amount, userNotional: Amount) {
