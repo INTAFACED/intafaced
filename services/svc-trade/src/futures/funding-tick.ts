@@ -232,6 +232,12 @@ export async function runFundingTick(deps: FundingTickDeps, marketId: string): P
   // Rate frozen with the membership, once per periodId. A replay plans from the
   // first rate seen even if the oracle now quotes a different one for the same
   // period — otherwise leg 1 re-posts under the same key with a new amount.
+  //
+  // The bound is asserted on the QUOTE first: only a rate that would actually be
+  // posted is frozen. An over-bound first quote (a fat-finger publish) posts no
+  // legs, so freezing it would protect no ledger body and would wedge the period
+  // after the publisher corrects the rate.
+  assertFundingRateWithinBound(quote.rate, deps.maxAbsRate);
   const rate = await deps.periods.freezeRate(quote.periodId, quote.rate);
 
   // Bound check before plan so an absurd rate never reaches leg construction

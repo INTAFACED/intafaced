@@ -504,9 +504,9 @@ describe('runFundingTick', () => {
     expect(margins.paidByPosition('plong')).toBe(frozenAmount * 2n);
   });
 
-  it('the rate bound is enforced on the FROZEN rate, not the later oracle quote', async () => {
+  it('an over-bound first quote is refused and NOT frozen: the corrected quote settles', async () => {
     const periods = memoryFundingPeriodStore();
-    const periodId = 'm1:period-frozen-over-bound';
+    const periodId = 'm1:period-over-bound-then-corrected';
     const { ledger, posts } = recordingLedger();
     const margins = memoryFundingMarginApplier();
     const deps = (rate: string) => ({
@@ -518,13 +518,33 @@ describe('runFundingTick', () => {
       maxAbsRate: '0.001',
     });
 
-    // First sight is over the bound: refused, and the over-bound rate is what froze.
     await expect(runFundingTick(deps('0.5'), 'm1')).rejects.toMatchObject({ code: 'trade.funding_rate_exceeds_max' });
-    // Oracle now quotes an in-bound rate for the same period; the frozen one still rules.
-    await expect(runFundingTick(deps('0.00001'), 'm1')).rejects.toMatchObject({ code: 'trade.funding_rate_exceeds_max' });
     expect(posts).toHaveLength(0);
-    expect(margins.applied()).toHaveLength(0);
-    expect(await periods.isSettled(periodId)).toBe(false);
+    expect(await periods.freezeRate(periodId, '0.00001')).toBe('0.00001'); // nothing was frozen by the refusal
+    const settled = await runFundingTick(deps('0.00001'), 'm1');
+    expect(settled.status).toBe('settled');
+    expect(posts.length).toBeGreaterThan(0);
+  });
+
+  it('the bound still applies to the frozen rate (a store that froze a larger one earlier)', async () => {
+    const periods = memoryFundingPeriodStore();
+    const periodId = 'm1:period-frozen-over-bound';
+    await periods.freezeRate(periodId, '0.5'); // e.g. frozen before the bound was configured
+    const { ledger, posts } = recordingLedger();
+    await expect(
+      runFundingTick(
+        {
+          rates: fixedRate('0.00001', periodId),
+          positions: positionsOf(longShort()),
+          periods,
+          margins: memoryFundingMarginApplier(),
+          ledger,
+          maxAbsRate: '0.001',
+        },
+        'm1',
+      ),
+    ).rejects.toMatchObject({ code: 'trade.funding_rate_exceeds_max' });
+    expect(posts).toHaveLength(0);
   });
 
   it('zero rate: no legs, marks settled so cron does not invent retry money', async () => {
