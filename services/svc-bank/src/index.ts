@@ -495,7 +495,7 @@ await app.register(fastifyTRPCPlugin, {
     // edge's signature over that principal — see packages/contracts/src/edge.ts
     // for why an unsigned header makes every scope check decorative.
     createContext: ({ req }) => {
-      const ctx = edgeContext({ headers: req.headers, id: req.id });
+      const ctx = edgeContext(req);
       const { service } = verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, {
         rawBody: inboundRawBody(req),
         mode: env.INTERNAL_SERVICE_BODY_BIND,

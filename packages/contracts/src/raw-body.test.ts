@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rawBodyOf, retainRawBody, type RawBodyHost } from './raw-body.js';
+import { inboundRawBodyOf, rawBodyOf, retainRawBody, type RawBodyHost } from './raw-body.js';
 import { serviceBodyDigest } from './service-auth.js';
 
 /**
@@ -35,8 +35,8 @@ function fakeHost() {
   return {
     host,
     /** Every request runs the hook. Only a request with a body runs the parser. */
-    request(body?: string) {
-      const req = {};
+    request(body?: string, headers: Record<string, string> = {}) {
+      const req = { headers };
       hook?.(req, {}, () => undefined);
 
       if (body === undefined) return { req, error: null as Error | null, parsed: undefined as unknown };
@@ -201,5 +201,55 @@ describe('raw body retention — the parser it replaces', () => {
 
     expect(error).toBeNull();
     expect(parsed).toEqual({ constructor: { bar: 'baz' }, b: '__proto__', n: null });
+  });
+});
+
+describe('raw body retention — a body that no retaining parser kept', () => {
+  it('does not call an announced body empty (tRPC adapter / text-plain parser)', () => {
+    const { host, request } = fakeHost();
+    retainRawBody(host);
+    // Marker ran, our parser did not: someone else's parser consumed the body.
+    const { req } = request(undefined, { 'content-length': '41' });
+    expect(rawBodyOf(req)).toEqual({ retained: false, unread: true });
+  });
+
+  it('treats any transfer-encoding as an announced body', () => {
+    const { host, request } = fakeHost();
+    retainRawBody(host);
+    const { req } = request(undefined, { 'transfer-encoding': 'chunked' });
+    expect(rawBodyOf(req)).toEqual({ retained: false, unread: true });
+  });
+
+  it('still reports an announced-empty body (content-length 0, or none) as empty', () => {
+    const { host, request } = fakeHost();
+    retainRawBody(host);
+    for (const headers of [{}, { 'content-length': '0' }] as Array<Record<string, string>>) {
+      const { req } = request(undefined, headers);
+      const raw = rawBodyOf(req);
+      expect(raw.retained && raw.bytes.length).toBe(0);
+    }
+  });
+
+  it('fails closed on a marked request object with no headers', () => {
+    const { host } = fakeHost();
+    retainRawBody(host);
+    // fakeHost().request always supplies headers; build the marker by hand.
+    let marker: ((req: object, reply: unknown, done: () => void) => void) | undefined;
+    retainRawBody({ addContentTypeParser: () => undefined, addHook: (_n, h) => ((marker = h), undefined) });
+    const bare = {};
+    marker?.(bare, {}, () => undefined);
+    expect(rawBodyOf(bare)).toEqual({ retained: false, unread: true });
+  });
+
+  it('inboundRawBodyOf binds the exact wire string an adapter left on req.body', () => {
+    const wire = '{"b":1,  "a":"café"}';
+    const raw = inboundRawBodyOf({ body: wire });
+    expect(raw.retained && raw.bytes.equals(Buffer.from(wire, 'utf8'))).toBe(true);
+  });
+
+  it('inboundRawBodyOf binds a buffer body and otherwise defers to rawBodyOf', () => {
+    const buf = Buffer.from('xyz');
+    expect(inboundRawBodyOf({ body: buf })).toEqual({ retained: true, bytes: buf });
+    expect(inboundRawBodyOf({ body: { parsed: true } })).toEqual({ retained: false });
   });
 });

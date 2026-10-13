@@ -72,7 +72,7 @@ async function mount(opts: { venue: string | null; claimLiveClob: boolean; seedB
     dbPing: async () => {
       /* up */
     },
-    createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+    createContext: ({ req }) => edgeContext(req),
   });
   await app.ready();
   apps.push(app);

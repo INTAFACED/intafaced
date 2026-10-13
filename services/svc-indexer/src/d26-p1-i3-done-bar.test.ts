@@ -64,7 +64,7 @@ async function mountPublicDoor(indexer: Indexer, store: MemoryProjectionStore, c
     dbPing: async () => {
       /* Postgres is up — halt must still 503. */
     },
-    createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+    createContext: ({ req }) => edgeContext(req),
   });
   await app.ready();
   apps.push(app);

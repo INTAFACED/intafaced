@@ -156,7 +156,7 @@ export function registerStartBasketDoor(app: FastifyInstance, deps: StartBasketD
   app.post('/execution/oms/start-basket', async (req, reply) => {
     const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
-    const ctx = deps.edgeContext({ headers: req.headers, id: String(req.id) });
+    const ctx = deps.edgeContext(req);
     const body = (req.body ?? {}) as StartBasketDoorBody;
     return handleStartBasketDoor(body, ctx.principal?.userId, deps);
   });
