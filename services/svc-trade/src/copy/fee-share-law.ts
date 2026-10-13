@@ -12,6 +12,7 @@
  * on follower fill notional. Follower pays the same fee as solo trading.
  */
 
+import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, COPY_LAW_RESIDUAL, CopyError } from './errors.js';
 
 export type CopyFeeShareLaw =
@@ -85,6 +86,25 @@ export function parseCopyFeeShareLawJson(raw: string | null | undefined): CopyFe
     );
   }
 
+  const earningsCapRaw = obj.earningsCapPerFollower.trim();
+  let earningsCap: Amount;
+  try {
+    earningsCap = parseAmount(earningsCapRaw);
+  } catch {
+    throw new CopyError(
+      'TRADE_COPY_FEE_SHARE_LAW.earningsCapPerFollower must be a non-negative decimal string',
+      'trade.copy_fee_share_blank',
+      COPY_FEE_SHARE_RESIDUAL,
+    );
+  }
+  if (earningsCap < 0n) {
+    throw new CopyError(
+      'TRADE_COPY_FEE_SHARE_LAW.earningsCapPerFollower must be a non-negative decimal string',
+      'trade.copy_fee_share_blank',
+      COPY_FEE_SHARE_RESIDUAL,
+    );
+  }
+
   const decayRoundTrips = obj.decayRoundTrips ?? 0;
   if (typeof decayRoundTrips !== 'number' || !Number.isInteger(decayRoundTrips) || decayRoundTrips < 0) {
     throw new CopyError(
@@ -106,7 +126,8 @@ export function parseCopyFeeShareLawJson(raw: string | null | undefined): CopyFe
   return {
     published: true,
     leaderShareBps,
-    earningsCapPerFollower: obj.earningsCapPerFollower.trim(),
+    // Owner spelling. formatAmount('1000.00') is '1000' and would rewrite the shipped cap.
+    earningsCapPerFollower: earningsCapRaw,
     decayRoundTrips,
     decayShareBps,
   };

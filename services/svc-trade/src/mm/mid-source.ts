@@ -138,7 +138,7 @@ export function createVenueMmMidSource(input: {
   resolveSymbol: (marketId: string) => string | null;
   /**
    * When set, mids come from the sequenced MaintainedBook (same port as futures
-   * marks). Unset keeps snapshotBook poll. Desynced / missing observedAt → null.
+   * marks). Unset keeps snapshotBook poll. Desynced / missing or non-finite observedAt → null.
    */
   bookForSymbol?: (symbol: string) => MaintainedVenueBookPort | null;
   depthLimit?: number;
@@ -186,7 +186,10 @@ export function createVenueMmMidSource(input: {
         const book = input.bookForSymbol(symbol);
         if (book == null || !book.servable) return null;
         const observedAt = book.observedAt();
-        if (observedAt == null) return null;
+        // Invalid Date is not null. getTime() is NaN, toQuotedMark keeps it, and
+        // acceptableForMarking treats NaN age as inside the window. Same refusal
+        // as readObservedAt on the snapshot path: a non-finite stamp is no stamp.
+        if (observedAt == null || !Number.isFinite(observedAt.getTime())) return null;
         const top = book.top();
         if (top == null) return null;
         const mid = midFromVenueBook(
