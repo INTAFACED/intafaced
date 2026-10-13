@@ -59,6 +59,21 @@ const modeRoutes: Record<string, string> = {
   'Quote desk': '/otc',
 };
 let catalogueIdentity = 0;
+/**
+ * The market a bare /trade or /exchange opens: BTC/USDT when it can take orders,
+ * else the first market that is active and orderable, else the first active one.
+ * Never a market that only shows "Entry restricted" when an orderable one exists.
+ */
+export function defaultListing<T extends { symbol: string; active: boolean; orderable: boolean }>(visible: readonly T[]): T | undefined {
+  const usable = (value: T) => value.active && value.orderable;
+  return (
+    visible.find((value) => value.symbol === 'BTC/USDT' && usable(value)) ??
+    visible.find(usable) ??
+    visible.find((value) => value.active) ??
+    visible[0]
+  );
+}
+
 export function TradeRoutes({ path }: { path: string }) {
   const route = new URL(path, location.origin),
     pathname = route.pathname;
@@ -112,8 +127,7 @@ export function TradeRoutes({ path }: { path: string }) {
   const assetSymbol = asset ? visible.find((value) => value.base === asset)?.symbol : null;
   const requested = selected ?? routePair ?? assetSymbol;
   const market =
-    visible.find((value) => value.symbol === requested) ??
-    ((routePair || asset) && !selected ? undefined : (visible.find((value) => value.active) ?? visible[0]));
+    visible.find((value) => value.symbol === requested) ?? ((routePair || asset) && !selected ? undefined : defaultListing(visible));
   useEffect(() => {
     if (favoritesKey !== `trade-favorites:${userId ?? 'guest'}`) return;
     try {
