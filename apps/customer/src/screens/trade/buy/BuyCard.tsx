@@ -42,7 +42,17 @@ import {
   usePendingNote,
   type OrderRequest,
 } from './order-flow';
-import { coinOptions, dollarsForBase, marketFor, payOptions, planOrder, type CoinOption, type PlanProblem, type Unit } from './order-plan';
+import {
+  coinOptions,
+  dollarsForBase,
+  marketFor,
+  payOptions,
+  planOrder,
+  smallestOrder,
+  type CoinOption,
+  type PlanProblem,
+  type Unit,
+} from './order-plan';
 import { useAvailable, useMarketLimits } from './quote-flow';
 import { receiptFrom, type Receipt } from './receipt';
 import { dec, fractionDigits } from './trade-math';
@@ -329,6 +339,12 @@ function BuyForm({
       price,
       lot: market.lotSize,
       spendAsset,
+      smallest: smallestOrder({
+        lot: market.lotSize,
+        minAmount: limitRow?.minAmount ?? market.minAmount,
+        minCost: limitRow?.minCost ?? null,
+        price,
+      }),
     });
     if (!mounted.current) return;
     setBusy(null);

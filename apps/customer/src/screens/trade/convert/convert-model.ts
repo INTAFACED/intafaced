@@ -106,3 +106,26 @@ export function refinedQty(input: { qty: string; spent: string; typed: string; l
   const next = floorToStep((qty * typed) / spent, lot);
   return next > qty ? str(next) : null;
 }
+
+/**
+ * The quote added our spread on top and now costs more than the budget: the next, strictly smaller quantity that should
+ * fit (proportional to the overshoot, rounded down to a lot), or null when no whole lot is left.
+ */
+export function steppedDownQty(input: { qty: string; spent: string; cap: string; lot: string }): string | null {
+  const qty = dec(input.qty);
+  const spent = dec(input.spent);
+  const cap = dec(input.cap);
+  const lot = dec(input.lot);
+  if (qty === null || spent === null || cap === null || lot === null || spent <= 0n || lot <= 0n || spent <= cap) return null;
+  let next = floorToStep((qty * cap) / spent, lot);
+  if (next >= qty) next = qty - lot; // always strictly smaller
+  return next > 0n ? str(next) : null;
+}
+
+/** The most that may be spent: what was typed, and never more than the balance. */
+export function spendCap(typed: string, available: string | null): string | null {
+  const t = dec(typed);
+  if (t === null) return null;
+  const a = dec(available);
+  return str(a !== null && a < t ? a : t);
+}

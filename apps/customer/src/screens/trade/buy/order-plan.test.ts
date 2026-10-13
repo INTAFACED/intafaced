@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { MarketRow } from '../../../data';
-import { coinOptions, dollarsForBase, isPayAsset, marketFor, maxBase, payOptions, planOrder, type PlanInput } from './order-plan';
+import {
+  coinOptions,
+  dollarsForBase,
+  smallestOrder,
+  isPayAsset,
+  marketFor,
+  maxBase,
+  payOptions,
+  planOrder,
+  type PlanInput,
+} from './order-plan';
 
 const market = (base: string, quote: string, overrides: Partial<MarketRow> = {}): MarketRow => ({
   symbol: `${base}/${quote}`,
@@ -170,5 +180,13 @@ describe('dollarsForBase (the box a Max lands in)', () => {
   it('is null when anything is unknown', () => {
     expect(dollarsForBase('x', '1', '0.1')).toBeNull();
     expect(dollarsForBase('1', null, '0.1')).toBeNull();
+  });
+});
+
+describe('smallestOrder', () => {
+  it('is the larger of the lot, the minimum size and the minimum order value at the price', () => {
+    expect(smallestOrder({ lot: '0.00001', minAmount: '0.00001', minCost: '5', price: '65083.66' })).toBe('0.00008');
+    expect(smallestOrder({ lot: '0.01', minAmount: '0.5', minCost: null, price: null })).toBe('0.5');
+    expect(smallestOrder({ lot: '0', minAmount: null, minCost: null, price: null })).toBeNull();
   });
 });

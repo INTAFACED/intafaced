@@ -33,6 +33,7 @@ const messages = {
   'Use steps of {step} {asset}.': 'Use steps of {step} {asset}.',
   'Not enough {asset}. You have {value} available.': 'Not enough {asset}. You have {value} available.',
   'Too big': 'That’s more than we can convert in one go right now. Try a smaller amount.',
+  'Too small after price': 'That amount is too small once our price is added. Try a little more.',
   'Price error title': 'Couldn’t get a price',
   'Price error body': 'Nothing was converted. Try again.',
   'Get a new price': 'Get a new price',

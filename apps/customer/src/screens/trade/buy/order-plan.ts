@@ -193,3 +193,24 @@ export function dollarsForBase(base: string, price: string | null, lot: string):
 }
 
 const CENT = 10n ** 16n;
+
+/** The smallest coin amount a market accepts: the larger of the lot, the minimum size and the minimum order value at `price`. */
+export function smallestOrder(input: {
+  lot: string;
+  minAmount: string | null;
+  minCost: string | null;
+  price: string | null;
+}): string | null {
+  const lot = dec(input.lot);
+  if (lot === null || lot <= 0n) return null;
+  let smallest = lot;
+  const minAmount = dec(input.minAmount);
+  if (minAmount !== null && minAmount > smallest) smallest = ceilToStep(minAmount, lot);
+  const minCost = dec(input.minCost);
+  const price = dec(input.price);
+  if (minCost !== null && minCost > 0n && price !== null && price > 0n) {
+    const needed = divUp(minCost, price);
+    if (needed !== null && needed > smallest) smallest = ceilToStep(needed, lot);
+  }
+  return str(smallest);
+}

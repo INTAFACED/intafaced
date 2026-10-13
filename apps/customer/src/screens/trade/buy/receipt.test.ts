@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { Order } from './deps';
+import { fillsComplete } from './order-flow';
 import { fillsOf, receiptFrom } from './receipt';
 
 /** A market buy as the service really returns it (checked on the local stack): cost from the reserved price, no average, no fee, no fills. */
@@ -96,10 +97,30 @@ describe('receiptFrom', () => {
     expect(receiptFrom(order({ status: 'open', remaining: '0.00015', filled: '0' }), null).status).toBe('open');
   });
 
-  it('uses the fills for the amount too, so a partial fill reads true', () => {
-    expect(receiptFrom(order({ filled: '0.00015' }), [trade({ amount: '0.0001', cost: '6.5' })])).toMatchObject({
+  it('never lets a truncated fill list lower "bought", raise "partly filled" or understate "paid"', () => {
+    // The order filled 0.00015 in two fills; only one of them is in the (capped, newest-first) list.
+    const two = order({ filled: '0.00015', amount: '0.00015' });
+    const receipt = receiptFrom(two, [trade({ amount: '0.0001', cost: '6.5' })]);
+    expect(receipt).toMatchObject({ status: 'filled', filled: '0.00015', cost: null, average: null, fee: null });
+  });
+
+  it('says "partly filled" only when the order itself filled less than asked', () => {
+    expect(receiptFrom(order({ filled: '0.0001', status: 'closed' }), [trade({ amount: '0.0001', cost: '6.5' })])).toMatchObject({
       status: 'partial',
       filled: '0.0001',
+      cost: '6.5',
     });
+    expect(receiptFrom(order(), [trade({ amount: '0.00005', cost: '3' })]).status).toBe('filled');
+  });
+});
+
+describe('fillsComplete', () => {
+  const o = { id: 'o-1', filled: '0.00015' };
+  it('accepts only fills that add up to the order', () => {
+    expect(fillsComplete(o, [trade({ amount: '0.0001' }), trade({ id: 't2', amount: '0.00005' })])).toBe(true);
+    expect(fillsComplete(o, [trade({ amount: '0.0001' })])).toBe(false);
+    expect(fillsComplete(o, [])).toBe(false);
+    expect(fillsComplete(o, [trade({ amount: '0.00015', order: 'other' })])).toBe(false);
+    expect(fillsComplete({ id: 'o-1', filled: 'x' }, [trade()])).toBe(false);
   });
 });

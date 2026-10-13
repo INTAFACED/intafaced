@@ -211,6 +211,10 @@ test('a quote that expires while the review is open: the new price must be accep
   await accept.click(); // acknowledges only
   expect(api.of('accept')).toHaveLength(0);
   await expect(dialog(page).getByRole('button', { name: 'Convert now' })).toBeVisible();
+  // A click right after the swap is ignored (it must not convert numbers the customer has not seen).
+  await dialog(page).getByRole('button', { name: 'Convert now' }).click();
+  expect(api.of('accept')).toHaveLength(0);
+  await page.waitForTimeout(800);
   await dialog(page).getByRole('button', { name: 'Convert now' }).click();
   await expect(page.getByTestId('cvt-receipt')).toBeVisible();
   expect(api.of('accept')).toHaveLength(1);
@@ -362,6 +366,41 @@ test('a dropped connection on accept: sent once, the note stays, "Check again" a
   await expect(page.getByTestId('cvt-receipt')).toBeVisible();
   expect(api.of('accept')).toHaveLength(2);
   expect(api.of('accept')[1].body).toEqual(sent); // same quote id, same request id
+  expect(await note(page)).toBeNull();
+});
+
+test('Max never quotes more than the balance: the spread is on top, so the request is stepped down', async ({ page }) => {
+  const api = await mock(page);
+  await open(page);
+  await page.getByRole('button', { name: 'Max' }).click();
+  await expect(preview(page)).toBeEnabled();
+  const quotes = api.of('quote');
+  // 9,993 USDT / 2602.84 = 3.8392 ETH is dearer than 9,993 once the spread is added, so a smaller quantity was asked.
+  expect(quotes.length).toBeGreaterThanOrEqual(2);
+  await preview(page).click();
+  const paid = await page.getByTestId('dlg-pay').innerText();
+  expect(BigInt(paid.replace(' USDT', '').split('.')[0]) <= 9993n).toBe(true);
+  expect(paid).not.toMatch(/^1\d{4}/);
+  const sent = [...api.world.quotes.values()].at(-1);
+  expect(BigInt(sent.inAmount.split('.')[0])).toBeLessThanOrEqual(9993n);
+  expect(BigInt(sent.inAmount.replace('.', '').padEnd(1, '0')) > 0n).toBe(true);
+});
+
+test('after a reload the note still carries the quote id, so "Check again" is there; a refusal is still told', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'trade-pending:00000000-0000-4000-8000-000000000001',
+      JSON.stringify({ kind: 'convert', symbol: 'ETH/USDT', id: 'convert:old', orderId: 'quote-old', startedAt: 1 }),
+    );
+  });
+  const api = await mock(page, { accept: () => trpcRefusal('trade.convert_quote_expired', 'expired', 400) });
+  await open(page);
+  const pending = page.getByTestId('pending');
+  await expect(pending).toContainText('We couldn’t confirm this conversion');
+  await pending.getByRole('button', { name: 'Check again' }).click();
+  await expect.poll(() => api.of('accept')[0]?.body).toEqual({ quoteId: 'quote-old', clientConvertId: 'convert:old' });
+  // The refusal cleared the note, and the words survive it.
+  await expect(page.getByTestId('check-note')).toContainText('That price has expired');
   expect(await note(page)).toBeNull();
 });
 

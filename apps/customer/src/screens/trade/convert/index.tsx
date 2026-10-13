@@ -34,8 +34,8 @@ import { usePendingNote } from '../buy/order-flow';
 import { useAvailable, useMarketLimits } from '../buy/quote-flow';
 import { dec, fractionDigits, toPlaces } from '../buy/trade-math';
 import { convertCopy } from './copy';
-import { defaultPair, edgeFor, edges, fromAssets, planConvert, toAssets, type Edge } from './convert-model';
-import { acceptQuote, newClientConvertId, useQuote, type Fill, type Quote } from './convert-flow';
+import { defaultPair, edgeFor, edges, fromAssets, planConvert, spendCap, toAssets, type Edge } from './convert-model';
+import { acceptQuote, newClientConvertId, refOf, useQuote, type AcceptRef, type Fill, type Quote } from './convert-flow';
 import type { ScreenProps } from '../../../app/screen-types';
 
 const ACTIVITY_HREF = '/money/activity?tab=trades';
@@ -177,7 +177,8 @@ function ConvertCard({
   const [accepting, setAccepting] = useState(false);
   const [dialogMessage, setDialogMessage] = useState<{ text: string; action?: { label: string; href: string } } | null>(null);
   const [result, setResult] = useState<Fill | null>(null);
-  const [attempt, setAttempt] = useState<{ quote: Quote; id: string } | null>(null);
+  const [attempt, setAttempt] = useState<{ ref: AcceptRef; id: string } | null>(null);
+  const swappedAt = useRef(0);
   const [rechecking, setRechecking] = useState(false);
   const [checkNote, setCheckNote] = useState<string | null>(null);
   const mounted = useRef(true);
@@ -223,10 +224,43 @@ function ConvertCard({
 
   const request =
     plan.ok && !insufficient && session && note.state === 'none'
-      ? { symbol: market.symbol, side: edge.side, qty: plan.base, typed: amount, lot: market.lotSize, pair: market.symbol }
+      ? {
+          symbol: market.symbol,
+          side: edge.side,
+          qty: plan.base,
+          typed: amount,
+          // Never quote more than was typed or than the balance holds: our spread is added ON TOP of the book price.
+          cap: spendCap(amount, available.value) ?? amount,
+          lot: market.lotSize,
+          pair: market.symbol,
+        }
       : null;
   const { state, secondsLeft, expired, retry } = useQuote(tools, request);
   const quote = state.status === 'ready' ? state.quote : null;
+  // A second look at the answer itself: a quote that costs more than the customer holds is never offered for review.
+  const quoteOverBalance = (() => {
+    if (!quote || available.state !== 'ready') return false;
+    const cost = dec(quote.inAmount);
+    const have = dec(available.value);
+    return cost !== null && have !== null && cost > have;
+  })();
+  const shortText = (() => {
+    const words = refusalCopy('ledger.insufficient_funds', {
+      asset: from,
+      available: fmtAmount(available.value, { places: fromPlaces, round: 'down' }),
+    });
+    return `${words.title}. ${words.body}`;
+  })();
+  // A reload or another tab loses the screen's own memory of the request, but not the device note: the quote id travels in it.
+  const recheck: { ref: AcceptRef; id: string } | null =
+    attempt ??
+    (note.state === 'pending' && note.pending.kind === 'convert' && note.pending.orderId
+      ? {
+          ref: { quoteId: note.pending.orderId, symbol: note.pending.symbol, inAsset: null, outAsset: null, cost: null },
+          id: note.pending.id,
+        }
+      : null);
+  const ownNote = note.state === 'pending' && recheck !== null && recheck.id === note.pending.id;
 
   const toList = toAssets(all, from);
   const fromList = fromAssets(all);
@@ -273,6 +307,13 @@ function ConvertCard({
     if (numbersChanged(reviewing.quote, quote)) {
       setReviewing({ quote, changed: true });
       setDialogMessage(null);
+      swappedAt.current = Date.now();
+      return;
+    }
+    // The click that swapped the numbers in must not also be the one that converts them: a quick second click is ignored.
+    if (Date.now() - swappedAt.current < 700) return;
+    if (quoteOverBalance) {
+      setDialogMessage({ text: shortText });
       return;
     }
     // A second click before the screen has redrawn must not send a second request: the ref answers at once, state does not.
@@ -282,10 +323,11 @@ function ConvertCard({
     const id = newClientConvertId();
     setAccepting(true);
     setDialogMessage(null);
-    setAttempt({ quote: shown, id });
-    const outcome = await acceptQuote(tools, userId, shown, id, {
+    setAttempt({ ref: refOf(shown), id });
+    const outcome = await acceptQuote(tools, userId, refOf(shown), id, {
       asset: from,
       available: fmtAmount(available.value, { places: fromPlaces, round: 'down' }),
+      availableRaw: available.value,
     }).finally(() => {
       sending.current = false;
     });
@@ -301,6 +343,8 @@ function ConvertCard({
         const action = outcome.copy.action;
         setDialogMessage({ text: `${outcome.copy.title}. ${outcome.copy.body}`, action });
         setAttempt(null);
+        // The balance may be why: read it again now rather than in half a minute.
+        if (userId) defaultPoller().refresh(`balance:${userId}`);
         retry();
         return;
       }
@@ -324,11 +368,11 @@ function ConvertCard({
   }
 
   async function onRecheck() {
-    if (!attempt || note.state !== 'pending' || note.pending.id !== attempt.id || rechecking) return;
+    if (!recheck || note.state !== 'pending' || note.pending.id !== recheck.id || rechecking) return;
     setRechecking(true);
     setCheckNote(null);
     // Same quote, same request id: the service answers with the original conversion and cannot make a second one.
-    const outcome = await acceptQuote(tools, userId, attempt.quote, attempt.id, {}, { recheck: true });
+    const outcome = await acceptQuote(tools, userId, recheck.ref, recheck.id, {}, { recheck: true });
     if (!mounted.current) return;
     setRechecking(false);
     if (outcome.kind === 'done') {
@@ -342,7 +386,14 @@ function ConvertCard({
   const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
   const quoteLoading = state.status === 'loading' || (quote !== null && expired);
   const canReview =
-    quote !== null && !expired && !insufficient && !signedOut && note.state === 'none' && available.state === 'ready' && !accepting;
+    quote !== null &&
+    !expired &&
+    !insufficient &&
+    !quoteOverBalance &&
+    !signedOut &&
+    note.state === 'none' &&
+    available.state === 'ready' &&
+    !accepting;
   const rate = quote ? priceText(quote.avgPrice, market) : null;
 
   if (result)
@@ -499,17 +550,32 @@ function ConvertCard({
         />
       ) : null}
       {state.status === 'depth' ? <p className="cvt-note">{t('Too big')}</p> : null}
+      {state.status === 'overCost' ? (
+        <p className="cvt-note" data-testid="over-cost">
+          {dec(amount) === dec(available.value) ? shortText : t('Too small after price')}
+        </p>
+      ) : null}
+      {quoteOverBalance ? (
+        <p className="cvt-note" role="alert">
+          {shortText}
+        </p>
+      ) : null}
+      {note.state !== 'pending' && checkNote ? (
+        <p className="cvt-note" role="status" data-testid="check-note">
+          {checkNote}
+        </p>
+      ) : null}
       {state.status === 'error' ? (
         <StateBlock kind="error" className="buy-state" title={t('Price error title')} onRetry={retry} retryLabel={t('Get a new price')} />
       ) : null}
 
       {note.state === 'pending' ? (
         <div className="buy-pending" role="alert" data-testid="pending">
-          <p className="buy-pending__title">{attempt?.id === note.pending.id ? t('Not confirmed title') : t('Earlier title')}</p>
-          <p className="buy-pending__body">{attempt?.id === note.pending.id ? t('Not confirmed body') : t('Earlier body')}</p>
+          <p className="buy-pending__title">{ownNote ? t('Not confirmed title') : t('Earlier title')}</p>
+          <p className="buy-pending__body">{ownNote ? t('Not confirmed body') : t('Earlier body')}</p>
           {checkNote ? <p className="buy-pending__body">{checkNote}</p> : null}
           <div className="buy-pending__actions">
-            {attempt?.id === note.pending.id ? (
+            {ownNote ? (
               <Button variant="secondary" size={40} loading={rechecking} onClick={onRecheck}>
                 {rechecking ? t('Checking again') : t('Check again')}
               </Button>

@@ -169,16 +169,33 @@ export async function checkOrder(api: TradeApi, userId: string | null, pending: 
 
 /**
  * The fills of a just-placed order: the ledger's record of what was really paid. They can lag the order by a moment, so
- * this reads (never writes) up to four times, 350 ms apart, and gives up with null; the receipt then shows "—" for money.
+ * this reads (never writes) up to four times, 350 ms apart. The fills are accepted only when they ADD UP to what the
+ * order says it filled: the list is newest-first and capped, so a partial view must never pass for the whole.
+ * The window starts just before the order, and asks for 500. Otherwise null; the receipt then shows "—" for money.
  */
 export async function fetchFills(api: TradeApi, order: Order, pauseMs = 350): Promise<Trade[] | null> {
-  if (dec(order.filled) === 0n || dec(order.filled) === null) return null;
+  const filled = dec(order.filled);
+  if (filled === null || filled === 0n) return null;
   for (let attempt = 0; attempt < 4; attempt += 1) {
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));
-    const result = await api.fills(order.symbol, 50);
-    if (result.ok && result.data.some((trade) => trade.order === order.id)) return result.data;
+    const result = await api.fills(order.symbol, 500, undefined, order.timestamp - 1000);
+    if (result.ok && fillsComplete(order, result.data)) return result.data;
   }
   return null;
+}
+
+/** True when this order's fills in `trades` add up exactly to the order's filled amount. */
+export function fillsComplete(order: Pick<Order, 'id' | 'filled'>, trades: readonly Trade[]): boolean {
+  const filled = dec(order.filled);
+  if (filled === null) return false;
+  let sum = 0n;
+  for (const trade of trades) {
+    if (trade.order !== order.id) continue;
+    const amount = dec(trade.amount);
+    if (amount === null) return false;
+    sum += amount;
+  }
+  return sum === filled;
 }
 
 export type MaxOutcome = { kind: 'ok'; base: string } | { kind: 'refused'; copy: RefusalCopy } | { kind: 'none' };
@@ -198,6 +215,8 @@ export async function computeMax(
     price: string | null;
     lot: string;
     spendAsset: string;
+    /** The smallest size the market accepts (see `smallestOrder`); the first question is never smaller than this. */
+    smallest?: string | null;
   },
 ): Promise<MaxOutcome> {
   const available = dec(input.available);
@@ -216,7 +235,9 @@ export async function computeMax(
   // The first question is about half the size: a full-size guess reserves more than the account holds (the hold is at the
   // protection price, above the ask), and the service would only answer "not enough". Half learns the fee and the price.
   const half = floorToStep(guess / 2n, lot);
-  const probeSize = half > 0n ? half : guess;
+  const smallest = dec(input.smallest) ?? 0n;
+  // Never below the smallest valid order (a balance near the minimum would otherwise be refused as "too small"), never above the guess.
+  const probeSize = half > smallest ? half : smallest <= guess ? (smallest > 0n ? smallest : guess) : guess;
   const probe = await previewOrder(
     api,
     buildDraft({ symbol: input.symbol, side: input.side, base: str(probeSize) }, `max:${crypto.randomUUID()}`),

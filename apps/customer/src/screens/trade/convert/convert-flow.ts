@@ -9,13 +9,14 @@ import {
   classifyRefusal,
   convertQuoteSchema,
   convertTradeSchema,
+  isHiddenPath,
   refusalCopy,
   type ApiResult,
   type RefusalContext,
   type ToolApi,
 } from '../buy/deps';
 import { isNetworkFailure, plainRefusal } from '../buy/quote-flow';
-import { refinedQty } from './convert-model';
+import { refinedQty, steppedDownQty } from './convert-model';
 import { dec } from '../buy/trade-math';
 import { runGuarded, type BlockReason, type Pending } from '../buy/write-lock';
 import type { z } from 'zod';
@@ -30,6 +31,8 @@ export interface QuoteRequest {
   qty: string;
   /** What the customer typed in the From asset; only used to tighten the first quote (buying with the quote asset). */
   typed: string;
+  /** The most the quote may cost (From asset): what was typed, and never more than the available balance. */
+  cap: string;
   lot: string;
   /** Pair for the "Use Spot" link when instant buys are paused. */
   pair: string;
@@ -43,6 +46,8 @@ export type QuoteState =
   | { status: 'refused'; copy: RefusalCopy; kind: ReturnType<typeof classifyRefusal> }
   /** The book cannot fill that much right now. */
   | { status: 'depth' }
+  /** Even the smallest whole lot, with our price on top, costs more than the budget. */
+  | { status: 'overCost' }
   | { status: 'error' };
 
 const DEBOUNCE_MS = 400;
@@ -70,17 +75,39 @@ async function askOnce(tools: ToolApi, request: QuoteRequest, qty: string): Prom
   return result;
 }
 
-/** One quote, tightened once when paying with the quote asset (see `refinedQty`). Reads only: safe to repeat. */
+/** The failure `fetchQuote` returns when no quote fits the budget; mapped to the `overCost` state. */
+export const OVER_COST_CODE = 'screen.convert_over_cost';
+const overCost = (): ApiResult<Quote> => ({ ok: false, reason: 'error', message: 'No quote fits the budget.', code: OVER_COST_CODE });
+
+/**
+ * One quote that costs NO MORE than `cap` (what was typed and never more than the balance) when paying with the quote
+ * asset. Our spread is added on top of the book price, so the first quote can overshoot (Max always does): it is stepped
+ * DOWN and asked again, at most twice, and an over-cost quote is never returned. A first quote that falls a lot short is
+ * tightened UP once (see `refinedQty`), kept only if it still fits. Reads only: safe to repeat.
+ */
 export async function fetchQuote(tools: ToolApi, request: QuoteRequest): Promise<ApiResult<Quote>> {
   const first = await askOnce(tools, request, request.qty);
   if (!first.ok || request.side !== 'buy' || !first.data.fullyFilled) return first;
-  const next = refinedQty({ qty: request.qty, spent: first.data.inAmount, typed: request.typed, lot: request.lot });
-  if (next === null) return first;
-  const second = await askOnce(tools, request, next);
+  const cap = dec(request.cap);
+  if (cap === null) return overCost();
+  let current = first.data;
+  let qty = request.qty;
+  for (let step = 0; step < 2 && (dec(current.inAmount) ?? cap + 1n) > cap; step += 1) {
+    const next = steppedDownQty({ qty, spent: current.inAmount, cap: request.cap, lot: request.lot });
+    if (next === null) return overCost();
+    const result = await askOnce(tools, request, next);
+    if (!result.ok || !result.data.fullyFilled) return result.ok ? overCost() : result;
+    current = result.data;
+    qty = next;
+  }
+  if ((dec(current.inAmount) ?? cap + 1n) > cap) return overCost();
+  if (current !== first.data) return { ok: true, data: current };
+  const up = refinedQty({ qty, spent: current.inAmount, typed: request.cap, lot: request.lot });
+  if (up === null) return first;
+  const second = await askOnce(tools, request, up);
   if (!second.ok || !second.data.fullyFilled) return first;
   const spent = dec(second.data.inAmount);
-  const typed = dec(request.typed);
-  return spent !== null && typed !== null && spent <= typed ? second : first;
+  return spent !== null && spent <= cap ? second : first;
 }
 
 function toState(result: ApiResult<Quote>, request: QuoteRequest, receivedAt: number): QuoteState {
@@ -90,6 +117,7 @@ function toState(result: ApiResult<Quote>, request: QuoteRequest, receivedAt: nu
     if (!result.data.fullyFilled) return { status: 'depth' };
     return hold < MIN_HOLD_MS ? { status: 'error' } : { status: 'ready', quote: result.data, heldUntil: receivedAt + hold };
   }
+  if (result.code === OVER_COST_CODE) return { status: 'overCost' };
   if (result.code === 'trade.convert_insufficient_depth' || /insufficient book depth/i.test(result.message)) return { status: 'depth' };
   if (isNetworkFailure(result) || result.reason === 'unreachable' || result.reason === 'uncertain') return { status: 'error' };
   return {
@@ -107,7 +135,7 @@ export function useQuote(tools: ToolApi, request: QuoteRequest | null) {
   const [held, setHeld] = useState<{ key: string; state: QuoteState }>({ key: '', state: { status: 'idle' } });
   const [now, setNow] = useState(() => Date.now());
   const [refreshKey, setRefreshKey] = useState(0);
-  const key = request ? `${request.symbol}|${request.side}|${request.qty}|${request.typed}` : '';
+  const key = request ? `${request.symbol}|${request.side}|${request.qty}|${request.typed}|${request.cap}` : '';
   const requestRef = useRef(request);
   requestRef.current = request;
   // A quote belongs to the input it was asked for: for any other input there is nothing to show yet.
@@ -180,15 +208,34 @@ export const newClientConvertId = () => `convert:${crypto.randomUUID()}`;
  * returns the original conversion and cannot make a second one. Even so, nothing here repeats the call on its own;
  * `recheck` is for a button the customer presses after an unknown outcome, with the SAME quote id and request id.
  */
+export interface AcceptRef {
+  quoteId: string;
+  symbol: string;
+  /** What the customer saw, to check the answer against; null when rebuilt from the device note after a reload. */
+  inAsset: string | null;
+  outAsset: string | null;
+  /** What the quote costs the customer, in `inAsset`; null when unknown. */
+  cost: string | null;
+}
+
+export const refOf = (quote: Quote): AcceptRef => ({
+  quoteId: quote.quoteId,
+  symbol: quote.symbol,
+  inAsset: quote.inAsset,
+  outAsset: quote.outAsset,
+  cost: quote.inAmount,
+});
+
 export async function acceptQuote(
   tools: ToolApi,
   userId: string | null,
-  quote: Quote,
+  quote: AcceptRef,
   clientConvertId: string,
-  context: { asset?: string; available?: string },
+  context: { asset?: string; available?: string; availableRaw?: string | null },
   options: { recheck?: boolean } = {},
 ): Promise<AcceptOutcome> {
-  const pending: Pending = { kind: 'convert', id: clientConvertId, symbol: quote.symbol, startedAt: Date.now() };
+  // The quote id travels in the shared device note (`orderId`), so a reload or another tab can still check this request.
+  const pending: Pending = { kind: 'convert', id: clientConvertId, symbol: quote.symbol, orderId: quote.quoteId, startedAt: Date.now() };
   const guarded = await runGuarded(
     userId,
     pending,
@@ -201,23 +248,35 @@ export async function acceptQuote(
   const result = guarded.value;
   if (result.ok) return sameConversion(result.data, quote) ? { kind: 'done', fill: result.data } : { kind: 'uncertain', clientConvertId };
   if (result.reason === 'uncertain') return { kind: 'uncertain', clientConvertId };
-  return { kind: 'refused', copy: convertRefusal(result, context), code: result.code ?? null };
+  const cost = dec(quote.cost);
+  const have = dec(context.availableRaw);
+  const customerShort = cost !== null && have !== null && cost > have;
+  return { kind: 'refused', copy: convertRefusal(result, context, customerShort), code: result.code ?? null };
 }
 
 /**
- * A conversion is settled against OUR inventory, not the customer's balance alone. The customer's own balance is checked
- * before a quote is even asked for, so an "insufficient funds" answer at accept names a shortage on our side. Saying
- * "Not enough USDT" would blame the customer for it (the local stack hit this: the house held no ETH), so it reads as
- * the plain "can't be done right now" instead.
+ * A conversion is settled against our inventory AND the customer's balance, and both legs fail with the same
+ * "insufficient funds" code, so the code cannot say whose shortage it was. Compare the quote's cost with what the customer
+ * holds: if it costs more, say "Not enough <asset>" (retrying cannot help); if not, the shortage is ours (the local stack
+ * hit this: the house held no ETH) and it reads as the plain "can't be done right now", with Help when Help is live.
  */
-export function convertRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>, context: RefusalContext = {}): RefusalCopy {
-  return classifyRefusal(failure.code ?? '') === 'insufficient' ? refusalCopy('', {}) : plainRefusal(failure, context);
+export function convertRefusal(
+  failure: Extract<ApiResult<unknown>, { ok: false }>,
+  context: RefusalContext = {},
+  customerShort = false,
+): RefusalCopy {
+  if (classifyRefusal(failure.code ?? '') !== 'insufficient') return plainRefusal(failure, context);
+  if (customerShort) return refusalCopy('ledger.insufficient_funds', context);
+  return refusalCopy('', { helpHref: isHiddenPath('/help') ? undefined : '/help' });
 }
 
 /** The answer names the quote we accepted and the assets we showed; anything else is not a receipt for this conversion. The amounts on the receipt are always the service's own. */
-export function sameConversion(fill: Fill, quote: Quote): boolean {
+export function sameConversion(fill: Fill, quote: AcceptRef): boolean {
   return (
-    fill.quoteId === quote.quoteId && fill.symbol === quote.symbol && fill.inAsset === quote.inAsset && fill.outAsset === quote.outAsset
+    fill.quoteId === quote.quoteId &&
+    fill.symbol === quote.symbol &&
+    (quote.inAsset === null || fill.inAsset === quote.inAsset) &&
+    (quote.outAsset === null || fill.outAsset === quote.outAsset)
   );
 }
 
