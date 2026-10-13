@@ -207,6 +207,7 @@ describe('auto-invest PG-hard', () => {
         kind: 'flexible',
         name: 'Flex2',
         aprBps: 3650,
+        minDeposit: 0n,
       });
       await fund(USER_A, 'USDT', '50');
       await bank.autoInvest.createThresholdSweep({
@@ -380,6 +381,7 @@ describe('auto-invest PG-hard', () => {
         kind: 'flexible',
         name: 'BTC pool',
         aprBps: 100,
+        minDeposit: 0n,
       });
       await expect(
         bank.autoInvest.createThresholdSweep({
@@ -397,6 +399,7 @@ describe('auto-invest PG-hard', () => {
         kind: 'flexible',
         name: 'Flex3',
         aprBps: 100,
+        minDeposit: 0n,
       });
       await expect(
         bank.autoInvest.createThresholdSweep({
@@ -652,6 +655,7 @@ describe('auto-invest PG-hard', () => {
         kind: 'flexible',
         name: 'P',
         aprBps: 100,
+        minDeposit: 0n,
       });
       await fund(USER_A, 'USDT', '1000');
       const rule = await bank.autoInvest.createThresholdSweep({
@@ -679,6 +683,7 @@ describe('auto-invest PG-hard', () => {
         kind: 'flexible',
         name: 'C',
         aprBps: 100,
+        minDeposit: 0n,
       });
       await fund(USER_A, 'USDT', '1000');
       const rule = await bank.autoInvest.createThresholdSweep({

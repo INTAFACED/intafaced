@@ -1068,6 +1068,7 @@ describe('svc-bank loans PG-hard', () => {
         quoteAssetId: 'USDT',
         aprBps: 1_000,
         maxLtvBps: 5_000,
+        minPrincipal: 0n,
         policy: DEFAULT_LIQUIDATION_POLICY,
         ...overrides,
       });
@@ -1096,6 +1097,47 @@ describe('svc-bank loans PG-hard', () => {
         marginCalls: sink,
         venue: marketMakerVenue(),
       });
+    });
+
+    it('refuses a loan product whose minimum principal was not set', async () => {
+      const name = 'BTC-backed USDT blank floor';
+      await expect(
+        loans.createProduct({
+          name,
+          debtAssetId: 'USDT',
+          collateralAssetId: 'BTC',
+          quoteAssetId: 'USDT',
+          aprBps: 1_000,
+          maxLtvBps: 5_000,
+          policy: DEFAULT_LIQUIDATION_POLICY,
+        }),
+      ).rejects.toMatchObject({
+        name: 'BankError',
+        code: 'bank.below_minimum',
+        message: expect.stringContaining('blank limit'),
+      });
+
+      const counted = await sql<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM bank.loan_products WHERE name = ${name}
+      `;
+      expect(counted[0]!.n).toBe(0);
+    });
+
+    it('stores an explicit zero minimum principal as zero', async () => {
+      const product = await loans.createProduct({
+        name: 'BTC-backed USDT explicit zero',
+        debtAssetId: 'USDT',
+        collateralAssetId: 'BTC',
+        quoteAssetId: 'USDT',
+        aprBps: 1_000,
+        maxLtvBps: 5_000,
+        minPrincipal: 0n,
+        policy: DEFAULT_LIQUIDATION_POLICY,
+      });
+      const stored = await sql<Array<{ min_principal: string }>>`
+        SELECT min_principal::text AS min_principal FROM bank.loan_products WHERE id = ${product.id}
+      `;
+      expect(formatAmount(amt(stored[0]!.min_principal))).toBe('0');
     });
 
     // ── The happy path, and the ordering inside it ────────────────────────────

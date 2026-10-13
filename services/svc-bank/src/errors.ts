@@ -17,8 +17,15 @@ export type BankErrorCode =
   | 'bank.schedule_inactive'
   /** Standing-order create omitted a caller-stable schedule id. */
   | 'bank.schedule_id_required'
+  /** One-off transfer omitted a caller-stable transfer id. A blank id is not minted. */
+  | 'bank.transfer_id_required'
   /** Retry reused a schedule id with different user, spaces, amount, cadence, or start. */
   | 'bank.schedule_conflict'
+  /**
+   * A retry reused a one-off transfer id with a different amount or destination.
+   * The ledger key returns the first transaction without comparing the body.
+   */
+  | 'bank.transfer_mismatch'
   | 'bank.pool_not_found'
   | 'bank.pool_closed'
   | 'bank.pool_underfunded'
@@ -29,6 +36,13 @@ export type BankErrorCode =
    */
   | 'bank.earn_rate_unset'
   | 'bank.below_minimum'
+  /**
+   * Fixed earn pool with no positive term. Null, zero, negative, or a
+   * non-finite term leaves matures_at unset or already due, and withdraw only
+   * locks while matures_at is still in the future. A blank term is not an
+   * open-ended lock, and it is not a default number of days.
+   */
+  | 'bank.term_required'
   /** Collateral lock or excess release omitted a caller-stable event id. MAX+1 on omit made a retry a second post. */
   | 'bank.event_id_required'
   | 'bank.native_asset_not_earnable'

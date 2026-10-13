@@ -195,6 +195,7 @@ async function seedOpenLoan(bank: ReturnType<typeof createBankServices>, ledger:
     quoteAssetId: 'USDT',
     aprBps: 1_000,
     maxLtvBps: 5_000,
+    minPrincipal: 0n,
     policy: DEFAULT_LIQUIDATION_POLICY,
   });
   return bank.loans.open({
@@ -263,6 +264,7 @@ describe('LoanService.seize refuses a missing mark before any post', () => {
       quoteAssetId: 'USD',
       aprBps: 1_000,
       maxLtvBps: 5_000,
+      minPrincipal: 0n,
       policy: DEFAULT_LIQUIDATION_POLICY,
     });
     const opened = await bank.loans.open({

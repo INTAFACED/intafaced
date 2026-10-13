@@ -3,11 +3,13 @@ import { transaction } from '@intafaced/db';
 import {
   InsufficientFundsError,
   LedgerError,
+  accountKey,
   formatAmount,
   parseAmount,
   recipes,
   type Amount,
   type LedgerClient,
+  type LedgerTx,
 } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertExecutionsListLimit, assertSchedulesListLimit } from '../owner-list-limit.js';
@@ -109,6 +111,37 @@ function sameScheduleWindow(storedStartsAt: Date, storedEndsAt: Date | null, sta
 export type FiringOutcome = 'settled' | 'rejected' | 'already-fired' | 'stopped';
 
 /**
+ * A stored `bank.transfer:<id>:0` is this request only when the credit is the
+ * source, the debit is the destination, and both amounts are the request.
+ *
+ * Posted `accountId` is the ledger row id. `accountKey` is the same account.
+ * Either identity matches. A miss is a different movement under the same key.
+ */
+async function postedManualTransferAmount(
+  ledger: LedgerClient,
+  tx: LedgerTx,
+  from: Parameters<typeof accountForSpace>[0],
+  to: Parameters<typeof accountForSpace>[0],
+  amount: Amount,
+): Promise<Amount | null> {
+  if (tx.entries.length !== 2) return null;
+  const credit = tx.entries.find((entry) => entry.direction === 'credit');
+  const debit = tx.entries.find((entry) => entry.direction === 'debit');
+  if (!credit || !debit) return null;
+  if (credit.amount !== amount || debit.amount !== amount) return null;
+
+  const fromRef = accountForSpace(from);
+  const toRef = accountForSpace(to);
+  const fromKey = accountKey(fromRef);
+  const toKey = accountKey(toRef);
+  const [fromBalance, toBalance] = await Promise.all([ledger.balance(fromRef), ledger.balance(toRef)]);
+  const fromHit = credit.accountId === fromKey || (fromBalance.accountId !== '' && credit.accountId === fromBalance.accountId);
+  const toHit = debit.accountId === toKey || (toBalance.accountId !== '' && debit.accountId === toBalance.accountId);
+  if (!fromHit || !toHit) return null;
+  return credit.amount;
+}
+
+/**
  * What `rejection_code` says on an occurrence that was skipped.
  *
  * A constant rather than a `BankErrorCode`, because it is not an error and no
@@ -183,10 +216,12 @@ export class TransferService {
    * 0: a one-off transfer is a schedule that fires once.
    *
    * If this crashes exactly here — after the ledger post, before returning —
-   * nobody's funds are stranded. The movement is committed in the book and the
-   * caller's retry with the same `transferId` returns the original transaction.
-   * There is no local row for this path precisely so there is nothing to
-   * disagree with the ledger about.
+   * nobody's funds are stranded. The movement is committed in the book and a
+   * retry with the same id, amount, and destination returns that transaction.
+   * A retry that changes the amount or destination is refused: the key
+   * `bank.transfer:<transferId>:0` does not compare the body, so returning the
+   * new amount would report a movement the book did not make. There is no
+   * local row for this path.
    */
   async transfer(input: {
     transferId: string;
@@ -195,6 +230,11 @@ export class TransferService {
     amount: Amount;
     now?: Date;
   }): Promise<TransferResult> {
+    const transferId = input.transferId.trim();
+    if (!transferId) {
+      throw new BankError('A transfer needs a caller-stable transfer id', 'bank.transfer_id_required');
+    }
+
     const now = input.now ?? new Date();
 
     return withMoneySpan(
@@ -214,9 +254,21 @@ export class TransferService {
           throw new BankError(`Cannot transfer ${from.assetId} into a ${to.assetId} space — convert first`, 'bank.asset_mismatch');
         }
 
+        const prior = await this.ledger.getTxByKey(`bank.transfer:${transferId}:0`);
+        if (prior) {
+          const storedAmount = await postedManualTransferAmount(this.ledger, prior, from, to, input.amount);
+          if (storedAmount === null) {
+            throw new BankError(
+              `Transfer ${transferId} already posted on different terms — a retry must carry the same amount and destination`,
+              'bank.transfer_mismatch',
+            );
+          }
+          return { transferId, occurrence: 0, ledgerTxId: prior.id, amount: formatAmount(storedAmount) };
+        }
+
         const tx = await this.ledger.post(
           recipes.bankTransfer({
-            transferId: input.transferId,
+            transferId,
             occurrence: 0,
             from: accountForSpace(from),
             to: accountForSpace(to),
@@ -225,7 +277,7 @@ export class TransferService {
           }),
         );
 
-        return { transferId: input.transferId, occurrence: 0, ledgerTxId: tx.id, amount: formatAmount(input.amount) };
+        return { transferId, occurrence: 0, ledgerTxId: tx.id, amount: formatAmount(input.amount) };
       },
     );
   }

@@ -207,6 +207,7 @@ describe('mounted earn doors', () => {
       kind: 'flexible',
       name: 'Configured USDT',
       aprBps: 3650,
+      minDeposit: 0n,
     });
     await fundPoolReserve(pool.id, '100');
     await fundUser(USER, '1000');

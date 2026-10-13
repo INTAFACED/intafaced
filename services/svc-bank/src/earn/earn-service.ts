@@ -109,6 +109,21 @@ function toPosition(row: PositionRow): PositionRecord {
   };
 }
 
+/**
+ * Withdraw raises bank.position_locked only while matures_at is still in the
+ * future. A blank, zero, negative, or non-finite term is not an open-ended
+ * lock, and it is not a default number of days.
+ */
+function assertFixedTerm(termDays: number | null | undefined): number {
+  if (typeof termDays !== 'number' || !Number.isFinite(termDays) || termDays <= 0) {
+    throw new BankError(
+      'A fixed earn pool needs a positive term in days; a blank term is not an open-ended lock.',
+      'bank.term_required',
+    );
+  }
+  return termDays;
+}
+
 export interface EarnServiceOptions {
   /** The asset svc-token owns. Refused here. */
   nativeAssetId: string;
@@ -154,14 +169,18 @@ export class EarnService {
     termDays?: number | null;
     minDeposit?: Amount;
   }): Promise<PoolRecord> {
+    if (input.minDeposit === undefined) {
+      throw new BankError(`Earn pool "${input.name}" has no minimum deposit. A blank limit is not zero.`, 'bank.below_minimum');
+    }
     this.assertEarnable(input.assetId);
+    const termDays = input.kind === 'fixed' ? assertFixedTerm(input.termDays) : null;
 
     const rows = await this.sql<PoolRow[]>`
       INSERT INTO bank.earn_pools (asset_id, kind, name, apr_bps, term_days, min_deposit)
       VALUES (
         ${input.assetId}, ${input.kind}, ${input.name}, ${input.aprBps},
-        ${input.kind === 'fixed' ? (input.termDays ?? null) : null},
-        ${formatAmount(input.minDeposit ?? 0n)}::numeric
+        ${termDays},
+        ${formatAmount(input.minDeposit)}::numeric
       )
       RETURNING id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
     `;
@@ -306,6 +325,7 @@ export class EarnService {
             'bank.below_minimum',
           );
         }
+        if (pool.kind === 'fixed') assertFixedTerm(pool.termDays);
 
         const maturesAt =
           pool.kind === 'fixed' && pool.termDays !== null ? new Date(now.getTime() + pool.termDays * 24 * 60 * 60 * 1000) : null;
@@ -479,6 +499,12 @@ export class EarnService {
     return out;
   }
 
+  /**
+   * One position. An active row is returned only when its principal column
+   * matches that row's earn stake pot. Drift throws
+   * `bank.earn_principal_mismatch` and the column is not returned.
+   * Pending and closed stay on the column: they are not the open set.
+   */
   async position(positionId: string): Promise<PositionRecord> {
     const rows = await this.sql<PositionRow[]>`
       SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status
@@ -486,9 +512,15 @@ export class EarnService {
     `;
     const row = rows[0];
     if (!row) throw new BankError(`Position ${positionId} not found`, 'bank.position_not_found');
+    if (row.status === 'active') {
+      const recorded = parseAmount(row.principal);
+      const book = (await this.ledger.balance(earnStakeAccount(row.user_id, row.asset_id, row.id))).amount;
+      stakePrincipalForAccrual(row.id, recorded, book);
+    }
     return toPosition(row);
   }
 
+  /** Active rows. Each principal column is checked against that row's earn stake pot before it is returned. */
   async positionsOf(userId: string, limit?: number): Promise<PositionRecord[]> {
     const page = assertEarnPositionsListLimit(limit);
     const rows = await this.sql<PositionRow[]>`
@@ -496,6 +528,11 @@ export class EarnService {
         FROM bank.earn_positions WHERE user_id = ${userId} AND status = 'active' ORDER BY opened_at DESC
        LIMIT ${page}
     `;
+    for (const row of rows) {
+      const recorded = parseAmount(row.principal);
+      const book = (await this.ledger.balance(earnStakeAccount(row.user_id, row.asset_id, row.id))).amount;
+      stakePrincipalForAccrual(row.id, recorded, book);
+    }
     return rows.map(toPosition);
   }
 
