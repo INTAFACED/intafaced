@@ -185,6 +185,7 @@ describe('protocol calls that pay out or hand over control cannot be put in a se
     'open(address,address,uint128,address,address,uint16,uint32,uint8)': '0x492284ae',
     'lock(uint256)': '0xdd467064',
     'release(uint256)': '0x37bdc99b',
+    'dispute(uint256)': '0x86d6282c',
     'approveSpend(uint256)': '0xad453b6f',
   };
 
@@ -197,6 +198,16 @@ describe('protocol calls that pay out or hand over control cannot be put in a se
     } catch (err) {
       expect(err).toBeInstanceOf(SessionScopeError);
       expect((err as SessionScopeError).code).toBe('session.outbound_transfer_forbidden');
+    }
+  });
+
+  it('keeps escrow refund and settleTimeout allowed, for the reasons written here', () => {
+    // refund(uint256): seller-only (msg.sender == deal.seller) and returns funds to the seller, i.e. the account;
+    // settleTimeout(uint256): permissionless, so a session adds no power by calling it.
+    // dispute is forbidden above because it is what makes settleTimeout able to pay the buyer.
+    for (const signature of ['refund(uint256)', 'settleTimeout(uint256)']) {
+      expect(isOutboundTransferSelector(toFunctionSelector(signature))).toBe(false);
+      expect(() => specFor([toFunctionSelector(signature)])).not.toThrow();
     }
   });
 

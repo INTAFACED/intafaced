@@ -94,7 +94,9 @@ library SessionKeyLib {
     // through an address (or a struct holding one) the caller names and this
     // library cannot bind to the account. Refused outright for a session; the
     // owner key does these. Reasons, by group:
-    //   escrow open/lock/release, market buy/bid: spend or release the account's
+    //   escrow open/lock/release/dispute (dispute starts the clock after which
+    //     settleTimeout can pay the buyer, i.e. release by another route),
+    //     market buy/bid: spend or release the account's
     //     tokens against terms the caller chooses (price, quote token, fee recipient)
     //   market list/startAuction: escrow the account's NFT against a caller-chosen
     //     quote token and price
@@ -106,6 +108,7 @@ library SessionKeyLib {
     bytes4 internal constant SEL_ESCROW_OPEN = 0x492284ae; // open(address,address,uint128,address,address,uint16,uint32,uint8)
     bytes4 internal constant SEL_LOCK = 0xdd467064; // lock(uint256)
     bytes4 internal constant SEL_ESCROW_RELEASE = 0x37bdc99b; // release(uint256)
+    bytes4 internal constant SEL_ESCROW_DISPUTE = 0x86d6282c; // dispute(uint256)
     bytes4 internal constant SEL_CREW_APPROVE_SPEND = 0xad453b6f; // approveSpend(uint256)
     bytes4 internal constant SEL_LEGACY_SET_HEIRS = 0xe520d104; // setHeirs(address[],uint16[])
     bytes4 internal constant SEL_MARKET_LIST = 0xea8cdb1f; // list(address,uint256,address,uint256)
@@ -255,6 +258,7 @@ library SessionKeyLib {
             selector == SEL_ESCROW_OPEN ||
             selector == SEL_LOCK ||
             selector == SEL_ESCROW_RELEASE ||
+            selector == SEL_ESCROW_DISPUTE ||
             selector == SEL_CREW_APPROVE_SPEND ||
             selector == SEL_LEGACY_SET_HEIRS ||
             selector == SEL_MARKET_LIST ||

@@ -114,7 +114,7 @@ contract SessionKeyForgeTest {
         harness = new SessionKeyLibHarness();
     }
 
-    function _forbiddenSelectors() internal pure returns (bytes4[32] memory s) {
+    function _forbiddenSelectors() internal pure returns (bytes4[33] memory s) {
         s[0] = 0xa9059cbb;
         s[1] = 0x23b872dd;
         s[2] = 0x095ea7b3;
@@ -147,6 +147,7 @@ contract SessionKeyForgeTest {
         s[29] = 0xf9bf1347;
         s[30] = 0x4223ede2;
         s[31] = 0x30af4ba0;
+        s[32] = 0x86d6282c; // SovereignEscrow.dispute(uint256)
     }
 
     function _legalSpec(address key, address target) internal view returns (SessionKeyLib.SessionSpec memory spec) {
@@ -221,7 +222,7 @@ contract SessionKeyForgeTest {
     // ── assertGrantable: outbound selectors ──────────────────────────────────
 
     function test_every_hardcoded_outbound_selector_refused() public view {
-        bytes4[32] memory forbidden = _forbiddenSelectors();
+        bytes4[33] memory forbidden = _forbiddenSelectors();
         for (uint256 i = 0; i < forbidden.length; i++) {
             SessionKeyLib.SessionSpec memory spec = _legalSpec(address(0xBEEF), address(0xCAFE));
             spec.selectors[0] = forbidden[i];
@@ -232,9 +233,9 @@ contract SessionKeyForgeTest {
     }
 
     function testFuzz_outbound_selector_refused(uint8 which) public view {
-        bytes4[32] memory forbidden = _forbiddenSelectors();
+        bytes4[33] memory forbidden = _forbiddenSelectors();
         SessionKeyLib.SessionSpec memory spec = _legalSpec(address(0xBEEF), address(0xCAFE));
-        spec.selectors[0] = forbidden[which % 32];
+        spec.selectors[0] = forbidden[which % 33];
         try harness.grantable(spec, address(this)) {
             revert("outbound selector must revert");
         } catch {}
@@ -610,10 +611,11 @@ contract SessionKeyForgeTest {
     // ── payout selectors added to the forbidden set ──────────────────────────
 
     function test_payout_selectors_refused_at_grant_and_clone() public {
-        bytes4[7] memory sels = [
+        bytes4[8] memory sels = [
             bytes4(0x492284ae), // escrow open
             bytes4(0xdd467064), // lock(uint256)
             bytes4(0x37bdc99b), // escrow release
+            bytes4(0x86d6282c), // escrow dispute
             bytes4(0xad453b6f), // crew approveSpend
             bytes4(0xe520d104), // legacy setHeirs
             bytes4(0xea8cdb1f), // market list

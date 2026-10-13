@@ -63,6 +63,8 @@ export const FORBIDDEN_SIGNATURES = [
   'open(address,address,uint128,address,address,uint16,uint32,uint8)', // SovereignEscrow
   'lock(uint256)', // SovereignEscrow, LaunchLpLock
   'release(uint256)', // SovereignEscrow
+  // dispute: a seller-side session could open it, and settleTimeout then pays the buyer (release by another route)
+  'dispute(uint256)', // SovereignEscrow
   'buy(uint256)', // RoyaltyMarket
   'bid(uint256,uint256)', // RoyaltyMarket
   // market: escrow the account's NFT against a caller-chosen quote token and price
