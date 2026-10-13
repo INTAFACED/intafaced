@@ -156,6 +156,37 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
+test('recent activity: no BTC fill in a short list says none; in a full page of other fills it points to View all instead of claiming none', async ({
+  page,
+}) => {
+  const fill = (index, symbol) => ({
+    id: `x${index}`,
+    order: `order-x${index}`,
+    timestamp: Date.now() - index * 60_000,
+    datetime: new Date(Date.now() - index * 60_000).toISOString(),
+    symbol,
+    type: null,
+    side: 'buy',
+    takerOrMaker: 'taker',
+    price: '2600.00',
+    amount: '0.5',
+    cost: '1300.000000',
+    fee: { cost: '0.00050000', currency: 'ETH', rate: '0.001' },
+  });
+  // A short list (fewer than the 100 the call returns) with no BTC: that is everything, so "none yet" is true.
+  await mock(page, { fills: () => [fill(1, 'ETH/USDT'), fill(2, 'ETH/USDT')] });
+  await open(page, '/coin/BTC');
+  await expect(page.locator('.coin-recent__empty')).toContainText('No BTC activity yet');
+  // A full page of ETH fills: older BTC fills may exist, so it must not claim none, and View all is offered.
+  await mock(page, { fills: () => Array.from({ length: 100 }, (_, index) => fill(index + 1, 'ETH/USDT')) });
+  await open(page, '/coin/BTC');
+  const empty = page.locator('.coin-recent__empty');
+  await expect(empty).toContainText('No BTC trades in your latest 100');
+  await expect(empty).not.toContainText('No BTC activity yet');
+  await expect(empty.locator('a')).toHaveText('View all');
+  await expect(empty.locator('a')).toHaveAttribute('href', '/money/activity?tab=all&asset=BTC');
+});
+
 test('the Buy card on the page is the working one: $10 of BTC reaches the review', async ({ page }) => {
   const api = await mock(page);
   await open(page);

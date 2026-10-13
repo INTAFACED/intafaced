@@ -186,6 +186,11 @@ describe('marketTarget', () => {
   it('Simple opens the Buy card while the coin page is hidden', () => {
     expect(marketTarget(btc, 'simple', (path) => path === '/coin/:asset')).toBe('/trade/buy?asset=BTC');
   });
+  it('a signed-out visitor never gets the coin page (it needs a session): Simple opens the public Buy card', () => {
+    expect(marketTarget(btc, 'simple', () => false, false)).toBe('/trade/buy?asset=BTC');
+    expect(marketTarget(btc, 'simple', () => false, true)).toBe('/coin/BTC');
+    expect(marketTarget(btc, 'pro', () => false, false)).toBe('/trade/spot/BTC-USDT');
+  });
   it('Simple falls back to the desk while both are hidden', () => {
     expect(marketTarget(btc, 'simple', (path) => path === '/coin/:asset' || path === '/trade/buy')).toBe('/trade/spot/BTC-USDT');
   });

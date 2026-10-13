@@ -116,8 +116,8 @@ export function linkFor(
 ): string | null {
   let target = KIND_LINK[item.kind] ?? customerRoomHref(item.href);
   if (!target) return null;
-  // A fill or an ended order opens its tab already filtered to the coin, so the row you clicked is easy to find.
-  if (item.kind === 'trade.fill' || item.kind === 'trade.order.terminal') {
+  // A fill opens Trades already filtered to the coin, so the row you clicked is easy to find. Orders has no coin filter, so an ended order gets none.
+  if (item.kind === 'trade.fill') {
     const market = markets?.get(text(item.params?.marketId) ?? '');
     if (market) target += `&asset=${encodeURIComponent(market.base)}`;
   }

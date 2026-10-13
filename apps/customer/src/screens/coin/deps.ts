@@ -48,6 +48,8 @@ export { navigate } from '../../app/location';
 export { BuyCard } from '../trade/buy/BuyCard';
 export { useChartCandles, type ChartInterval } from '../trade/chart/candles';
 export { useDeskMarkets, useFills } from '../trade/desk/data';
+// How many fills the fills call returns at most; a full page means older fills may exist that it never saw.
+export { FILLS_PAGE } from '../money/activity-view';
 export { byNewest, FillsTable, LoadState, precisionOf } from '../trade/desk/OrderTables';
 export { stepOf } from '../trade/chart/chart-data';
 export { partialWindowStart, sinceLabel } from '../trade/markets/window';

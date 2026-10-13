@@ -22,6 +22,7 @@ import {
   groupInAsset,
   inTab,
   isLedgerTab,
+  ledgerEmpty,
   tabFromSearch,
   tabHref,
   titleOf,
@@ -215,16 +216,52 @@ function Body({
 
   const searching =
     (tab !== 'all' || asset !== null) && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
-  if (rows.length === 0 && !searching)
+  const more = feed.hasMore ? (
+    <div className="money-more">
+      {feed.moreFailed ? <p className="money-more__note">{t('Couldn’t load more')}</p> : null}
+      <Button variant="secondary" size={40} loading={feed.loadingMore} onClick={feed.loadMore}>
+        {feed.moreFailed ? t('Try again') : t('Load more')}
+      </Button>
+    </div>
+  ) : null;
+  if (rows.length === 0 && !searching) {
+    // A filter that matches nothing in the pages read so far must not say there is nothing: older pages may match.
+    const why = ledgerEmpty(tab, asset, feed.hasMore);
+    const block =
+      why === 'more' ? (
+        <StateBlock
+          kind="empty"
+          className="money-state"
+          title={
+            asset
+              ? t('No {asset} activity in the latest items', { asset })
+              : t(tab === 'deposits' ? 'No deposits in the latest items' : 'No transfers in the latest items')
+          }
+          body={t('Load more to look further back')}
+        />
+      ) : why === 'asset' && asset ? (
+        <StateBlock
+          kind="empty"
+          className="money-state"
+          title={t('No {asset} activity', { asset })}
+          body={t('No {asset} activity body', { asset })}
+        />
+      ) : (
+        <StateBlock
+          kind="empty"
+          className="money-state"
+          title={t(tab === 'all' ? 'No activity yet' : TAB_EMPTY[tab as Exclude<LedgerTab, 'all'>])}
+          body={tab === 'all' ? t('No activity yet body') : t('Nothing of this kind yet body')}
+          action={tab === 'all' ? emptyAction(copy) : undefined}
+        />
+      );
     return (
-      <StateBlock
-        kind="empty"
-        className="money-state"
-        title={t(tab === 'all' ? 'No activity yet' : TAB_EMPTY[tab])}
-        body={tab === 'all' ? t('No activity yet body') : t('Nothing of this kind yet body')}
-        action={tab === 'all' ? emptyAction(copy) : undefined}
-      />
+      <>
+        {block}
+        {more}
+      </>
     );
+  }
   if (rows.length === 0) return <SkeletonRows count={4} label={t('Searching your history')} />;
 
   return (
@@ -254,14 +291,7 @@ function Body({
           ))}
         </tbody>
       </table>
-      {feed.hasMore ? (
-        <div className="money-more">
-          {feed.moreFailed ? <p className="money-more__note">{t('Couldn’t load more')}</p> : null}
-          <Button variant="secondary" size={40} loading={feed.loadingMore} onClick={feed.loadMore}>
-            {feed.moreFailed ? t('Try again') : t('Load more')}
-          </Button>
-        </div>
-      ) : null}
+      {more}
     </>
   );
 }

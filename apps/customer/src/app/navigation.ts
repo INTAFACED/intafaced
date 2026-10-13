@@ -352,9 +352,13 @@ export function deskPairLabel(path: string): string | null {
 export function tradeTabHref(layoutMode: 'simple' | 'pro', lastPair: string = defaultDeskPair): string {
   return layoutMode === 'pro' ? `/trade/spot/${normalizePair(lastPair)}` : '/trade';
 }
-/** Where a coin link goes: the coin page in Simple, the desk in Pro. */
-export function coinHref(asset: string, layoutMode: 'simple' | 'pro', symbol?: string | null): string {
-  return layoutMode === 'pro' ? `/trade/spot/${normalizePair(symbol ?? `${asset}-USDT`)}` : `/coin/${encodeURIComponent(asset)}`;
+/**
+ * Where a coin link goes: the coin page in Simple, the desk in Pro. The coin page needs a session, so a signed-out visitor
+ * in Simple gets the public Buy card instead of a sign-in wall.
+ */
+export function coinHref(asset: string, layoutMode: 'simple' | 'pro', symbol?: string | null, signedIn = true): string {
+  if (layoutMode === 'pro') return `/trade/spot/${normalizePair(symbol ?? `${asset}-USDT`)}`;
+  return signedIn ? `/coin/${encodeURIComponent(asset)}` : `/trade/buy?asset=${encodeURIComponent(asset)}`;
 }
 export const doors: ReadonlyArray<{ name: Door; path: string }> = [
   { name: 'Home', path: '/home' },

@@ -33,6 +33,27 @@ export function tabHref(tab: Tab, asset: string | null = null): string {
   return query ? `/money/activity?${query}` : '/money/activity';
 }
 
+/**
+ * What an empty ledger list may honestly say. `more`: nothing matched in the pages loaded so far but older pages exist, so it
+ * must not claim there is none (and must keep "Load more"). Otherwise the whole history has been read: `asset` (a coin filter
+ * matched nothing), `tab` (Deposits or Transfers has nothing), or `all` (no activity at all).
+ */
+export type LedgerEmpty = 'more' | 'asset' | 'tab' | 'all';
+export function ledgerEmpty(tab: LedgerTab, asset: string | null, hasMore: boolean): LedgerEmpty {
+  if (hasMore && (tab !== 'all' || asset !== null)) return 'more';
+  if (asset !== null) return 'asset';
+  return tab === 'all' ? 'all' : 'tab';
+}
+
+/** The fills call returns only the latest page; a full page means older fills may exist that it never saw. */
+export const FILLS_PAGE = 100;
+export type TradesEmpty = 'none' | 'asset' | 'asset-latest';
+/** Empty Trades: `none` (no fills at all), `asset-latest` (a coin filter matched nothing in a full page of fills), or `asset` (nothing in the coin, and all fills were seen). */
+export function tradesEmpty(asset: string | null, loaded: number): TradesEmpty {
+  if (asset === null || loaded === 0) return 'none';
+  return loaded >= FILLS_PAGE ? 'asset-latest' : 'asset';
+}
+
 /** Does a fill's symbol ("BTC/USDT", or "BTC-USDT") have this coin as its base or quote? */
 export function symbolHasAsset(symbol: string, asset: string): boolean {
   return symbol.replace('-', '/').split('/').includes(asset);

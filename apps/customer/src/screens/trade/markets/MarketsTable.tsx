@@ -12,6 +12,7 @@ import {
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import './markets.css';
+import { useSession } from '../../../features/session/session';
 import { marketsCopy } from './copy';
 import { Skeleton, isHiddenPath, type Decimal } from './deps';
 import { MarketRow, type FavoriteControl } from './MarketRow';
@@ -385,6 +386,7 @@ export function MarketsTable({
   empty,
 }: MarketsTableProps) {
   const { t } = marketsCopy.useCopy();
+  const signedIn = Boolean(useSession().session);
   const shown = useMemo(() => ALL_COLUMNS.filter((column) => columns.includes(column)), [columns]);
   const style = useMemo(() => {
     const join = (list: readonly MarketColumn[], override: Partial<Record<MarketColumn, string>> = {}) =>
@@ -411,7 +413,7 @@ export function MarketsTable({
         points={sparklines?.[entry.market.symbol]}
         columns={shown}
         mode={mode}
-        href={hrefFor ? hrefFor(entry.market, mode) : marketTarget(entry.market, mode, isHiddenPath)}
+        href={hrefFor ? hrefFor(entry.market, mode) : marketTarget(entry.market, mode, isHiddenPath, signedIn)}
         favorite={favorite?.(entry.market)}
         variant={variant}
         selected={selectedSymbol === entry.market.symbol}
@@ -420,7 +422,7 @@ export function MarketsTable({
         style={rowStyle}
       />
     ),
-    [sparklines, shown, mode, hrefFor, favorite, variant, selectedSymbol],
+    [sparklines, shown, mode, hrefFor, favorite, variant, selectedSymbol, signedIn],
   );
 
   return (

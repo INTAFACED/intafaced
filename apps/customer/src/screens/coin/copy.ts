@@ -60,6 +60,8 @@ const messages = {
   'View all': 'View all',
   'No activity yet': 'No {asset} activity yet',
   'No activity body': 'Your {asset} trades will show here.',
+  'No latest activity': 'No {asset} trades in your latest {count}',
+  'No latest activity body': 'Older {asset} activity may be under View all.',
   // Names we can say without guessing
   Bitcoin: 'Bitcoin',
   Ethereum: 'Ethereum',

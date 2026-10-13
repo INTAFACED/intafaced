@@ -168,7 +168,7 @@ test('bell: cancelled order opens Orders; Mark all as read clears the dots and t
   await page.goto('/home');
   await bell(page).click();
   await page.locator('.nf-row').nth(1).click();
-  await expect(page.getByTestId('standin')).toHaveText('Stand-in page /money/activity?tab=orders&asset=BTC');
+  await expect(page.getByTestId('standin')).toHaveText('Stand-in page /money/activity?tab=orders');
 
   await bell(page).click();
   await expect(page.locator('.nf-row[data-unread]')).toHaveCount(2);
@@ -291,7 +291,7 @@ test('page: All and Unread tabs, rows, Load more by cursor, empty Unread, 1440 a
 
   // Links and times: a read fill still links to Trades; the time is shown in the viewer's zone (UTC here).
   await page.getByRole('tab', { name: 'All' }).click();
-  await expect(page.locator('.nf-row').first()).toHaveAttribute('href', '/money/activity?tab=orders&asset=BTC');
+  await expect(page.locator('.nf-row').first()).toHaveAttribute('href', '/money/activity?tab=orders');
   await expect(page.locator('.nf-row').nth(1)).toHaveAttribute('href', '/money/activity?tab=trades&asset=BTC');
   await page.getByRole('button', { name: 'Load more' }).click();
   await expect(page.locator('.nf-row')).toHaveCount(31);

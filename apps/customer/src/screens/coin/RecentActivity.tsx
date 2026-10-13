@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import '../trade/desk/desk.css';
 import { coinCopy } from './copy';
-import { byNewest, FillsTable, LoadState, precisionOf, StateBlock, useDeskMarkets, useFills } from './deps';
+import { byNewest, FILLS_PAGE, FillsTable, LoadState, precisionOf, StateBlock, useDeskMarkets, useFills } from './deps';
 
 const SHOWN = 5;
 
@@ -31,15 +31,25 @@ export function RecentActivity({ asset }: { asset: string }) {
         <LoadState load={fills} thing="trades">
           {(rows) => {
             const mine = byNewest(rows.filter((fill) => partsOf(fill.symbol).includes(asset))).slice(0, SHOWN);
-            return mine.length === 0 ? (
+            if (mine.length > 0) return <FillsTable rows={mine} precision={precision} layout="activity" />;
+            // Only the latest page of fills is read. A full page with none in this coin does not mean there are none, so it points to the full list.
+            if (rows.length >= FILLS_PAGE)
+              return (
+                <StateBlock
+                  kind="empty"
+                  className="coin-recent__empty"
+                  title={t('No latest activity', { asset, count: FILLS_PAGE })}
+                  body={t('No latest activity body', { asset })}
+                  action={{ label: t('View all'), href: `/money/activity?tab=all&asset=${encodeURIComponent(asset)}` }}
+                />
+              );
+            return (
               <StateBlock
                 kind="empty"
                 className="coin-recent__empty"
                 title={t('No activity yet', { asset })}
                 body={t('No activity body', { asset })}
               />
-            ) : (
-              <FillsTable rows={mine} precision={precision} layout="activity" />
             );
           }}
         </LoadState>

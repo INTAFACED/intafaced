@@ -240,7 +240,7 @@ export function TopBar({
   const { session } = useSession();
   useBannerOffset();
   const notificationsLive = isFeatureLive('notifications');
-  const tabs = tabSpecs(layoutMode);
+  const tabs = tabSpecs(layoutMode, Boolean(session));
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
   return (
     <>
@@ -284,9 +284,10 @@ export function TopBar({
 export function MobileTabs({ door, language }: { door: Door | undefined; language: Parameters<typeof doorLabel>[1] }) {
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
+  const { session } = useSession();
   return (
     <nav className="mobile-doors" aria-label={t('Customer doors on phone')}>
-      {tabSpecs(layoutMode).map((tab) => (
+      {tabSpecs(layoutMode, Boolean(session)).map((tab) => (
         <a key={tab.door} href={tab.href} aria-current={door === tab.door ? 'page' : undefined}>
           <ShellIcon name={tab.icon} />
           {doorLabel(tab.door, language)}

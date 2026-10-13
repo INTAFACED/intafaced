@@ -174,6 +174,7 @@ function SearchPanel({
 }: PanelProps & { source: Loadable<MarketRow[]>; tickers: Loadable<Record<string, TickerRow>> }) {
   const { t } = shellCopy.useCopy();
   const names = homeCopy.useCopy();
+  const signedIn = Boolean(useSession().session);
   const last = tickers.status === 'ready' ? tickers.data : undefined;
   const priceOf = (market: MarketRow) => {
     if (!last?.[market.symbol]?.last) return undefined;
@@ -193,11 +194,12 @@ function SearchPanel({
         group: 'Coins',
         label: listing.base,
         hint: assetName(listing.base, names) ?? '',
-        // Until the M3 coin page: the Buy card in Simple, the coin's own desk in Pro (critic H3).
+        // The coin page in Simple (the public Buy card when signed out), the coin's own desk in Pro.
         href: coinHref(
           listing.base,
           layoutMode,
           (listed.find((m) => m.base === listing.base && m.quote === 'USDT') ?? listing.market).symbol,
+          signedIn,
         ),
         asset: listing.base,
         price: priceOf(listing.market),
@@ -211,10 +213,10 @@ function SearchPanel({
         label: market.symbol,
         hint: '',
         price: priceOf(market),
-        href: coinHref(market.base, layoutMode, market.symbol),
+        href: coinHref(market.base, layoutMode, market.symbol, signedIn),
       }));
     return [...coins, ...markets, ...pages];
-  }, [source, tickers, pages, layoutMode, query]);
+  }, [source, tickers, pages, layoutMode, query, signedIn]);
 
   function choose(row: Row | undefined) {
     if (!row) return;

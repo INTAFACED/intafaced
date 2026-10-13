@@ -5,6 +5,9 @@ import {
   groupInAsset,
   inTab,
   isLedgerTab,
+  ledgerEmpty,
+  tradesEmpty,
+  FILLS_PAGE,
   symbolHasAsset,
   TABS,
   tabFromSearch,
@@ -377,5 +380,28 @@ describe('titleOf', () => {
     expect(titleOf(item({ kind: 'payment', direction: 'out' }), t, withHandle)).toBe('Payment sent');
     expect(titleOf(item({ kind: 'space_move' }), t, withHandle)).toBe('Moved between your accounts');
     expect(titleOf(item({ kind: 'other' }), t, withHandle)).toBe('Other activity');
+  });
+});
+
+describe('empty states never claim there is nothing while older history may match', () => {
+  it('a coin filter or a narrow tab with more pages to read says "not found yet" and keeps Load more', () => {
+    expect(ledgerEmpty('all', 'BTC', true)).toBe('more');
+    expect(ledgerEmpty('deposits', null, true)).toBe('more');
+    expect(ledgerEmpty('transfers', 'BTC', true)).toBe('more');
+  });
+  it('once every page is read, the filter or tab can honestly say there is none', () => {
+    expect(ledgerEmpty('all', 'BTC', false)).toBe('asset');
+    expect(ledgerEmpty('deposits', null, false)).toBe('tab');
+    expect(ledgerEmpty('all', null, false)).toBe('all');
+  });
+  it('an unfiltered All with more pages is not a filtered search', () => {
+    expect(ledgerEmpty('all', null, true)).toBe('all');
+  });
+  it('Trades: a filter matching nothing in a full page of fills says "latest"; below a full page it says none', () => {
+    expect(tradesEmpty('BTC', FILLS_PAGE)).toBe('asset-latest');
+    expect(tradesEmpty('BTC', FILLS_PAGE + 5)).toBe('asset-latest');
+    expect(tradesEmpty('BTC', FILLS_PAGE - 1)).toBe('asset');
+    expect(tradesEmpty('BTC', 0)).toBe('none');
+    expect(tradesEmpty(null, 0)).toBe('none');
   });
 });

@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { ChevronRight } from 'lucide-react';
+import { useSession } from '../../../features/session/session';
 import { assetName, marketsCopy } from './copy';
 import { CoinIcon, fmtPct, isHiddenPath, Pct, Skeleton } from './deps';
 import { marketTarget, priceText, type Card, type CardId, type Mode } from './select';
@@ -12,6 +13,7 @@ const IN_PANEL = 'bg-field';
 export function TopCards({ cards, mode, onSeeAll }: { cards: Card[]; mode: Mode; onSeeAll: (id: CardId) => void }) {
   const copy = marketsCopy.useCopy();
   const { t } = copy;
+  const signedIn = Boolean(useSession().session);
   return (
     <section
       className="mkt-cards"
@@ -36,7 +38,7 @@ export function TopCards({ cards, mode, onSeeAll }: { cards: Card[]; mode: Mode;
             <ul className="mkt-card__list">
               {card.entries.map(({ market, ticker }) => (
                 <li key={market.symbol}>
-                  <a className="mkt-card__row" href={marketTarget(market, mode, isHiddenPath)}>
+                  <a className="mkt-card__row" href={marketTarget(market, mode, isHiddenPath, signedIn)}>
                     <CoinIcon asset={market.base} size={24} />
                     <span className="mkt-card__name" title={assetName(market.base, copy) ?? undefined}>
                       {market.base}

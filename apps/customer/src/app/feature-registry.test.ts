@@ -135,6 +135,15 @@ describe('top-bar menus list only live features', () => {
         );
       }
   });
+  it('sends a signed-out visitor to the public Help centre, never to a page that needs a session', () => {
+    const more = tabSpecs('simple', false).find((tab) => tab.door === 'More')!;
+    expect(more.href).toBe('/help');
+    expect(more.items.map((item) => item.href)).toEqual(['/help']);
+    for (const path of ['/help']) expect(findRoom(path)?.area).toBe('public');
+    const signedIn = tabSpecs('simple', true).find((tab) => tab.door === 'More')!;
+    expect(signedIn.href).toBe('/more');
+    expect(signedIn.items.map((item) => item.href)).toEqual(['/support', '/view']);
+  });
   it('points the Trade tab at the markets list in Simple and the desk in Pro', () => {
     expect(tabSpecs('simple').find((tab) => tab.door === 'Trade')?.href).toBe('/trade');
     expect(tabSpecs('pro').find((tab) => tab.door === 'Trade')?.href).toBe('/trade/spot/BTC-USDT');

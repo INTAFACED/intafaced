@@ -87,11 +87,9 @@ describe('linkFor', () => {
     expect(linkFor(base)).toBe('/money/activity?tab=trades');
     expect(linkFor({ kind: 'trade.order.terminal', href: '/trade/orders/o' })).toBe('/money/activity?tab=orders');
   });
-  it('filters a fill or an ended order to its coin when the market is known', () => {
+  it('filters a fill to its coin when the market is known; an ended order gets no coin filter (Orders has none)', () => {
     expect(linkFor(base, markets)).toBe('/money/activity?tab=trades&asset=BTC');
-    expect(linkFor({ ...base, kind: 'trade.order.terminal', params: { marketId: BTC_ID } }, markets)).toBe(
-      '/money/activity?tab=orders&asset=BTC',
-    );
+    expect(linkFor({ ...base, kind: 'trade.order.terminal', params: { marketId: BTC_ID } }, markets)).toBe('/money/activity?tab=orders');
     expect(linkFor({ ...base, params: { marketId: 'unknown' } }, markets)).toBe('/money/activity?tab=trades');
   });
   it('opens verification and rank on live screens', () => {
