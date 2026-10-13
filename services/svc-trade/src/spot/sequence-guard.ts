@@ -112,7 +112,12 @@ export interface SequenceRegression {
 export interface SequenceUnavailable {
   readonly marketId: string;
   readonly symbol: string;
-  /** Why the counter could not be read or compared. Not evidence of a lost journal. */
+  /**
+   * Why the engine counter could not be read (outage, 5xx, malformed reply), for
+   * logs only: it can carry upstream response text, so never send it to a
+   * client. Not evidence of a lost journal. (`trade.fills.sequence` is a
+   * Postgres integer, so the stored side is always a safe integer.)
+   */
   readonly reason: string;
 }
 
@@ -218,8 +223,12 @@ export function describeRegressions(regressions: readonly SequenceRegression[]):
   );
 }
 
-/** Not ready because the engine could not be asked. No journal or replay advice: nothing says it was lost. */
+/**
+ * Not ready because the engine could not be asked. No journal or replay advice:
+ * nothing says it was lost. Public text names only the markets; the full cause
+ * (which may echo upstream bodies) stays in the log.
+ */
 export function describeUnavailable(unavailable: readonly SequenceUnavailable[]): string {
-  const detail = unavailable.map((u) => `${u.symbol} (${u.reason})`).join(', ');
-  return `the matching engine's sequence counter could not be read for: ${detail}. Readiness is unknown until matching answers.`;
+  const detail = unavailable.map((u) => u.symbol).join(', ');
+  return `the matching engine's sequence counter could not be read (unreachable or malformed reply) for: ${detail}. Readiness is unknown until matching answers.`;
 }

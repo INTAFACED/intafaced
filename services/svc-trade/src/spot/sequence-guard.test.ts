@@ -416,6 +416,9 @@ describe('svc-trade sequence-guard (H8a PG-hard)', () => {
     const message = describeUnavailable(result.unavailable);
     expect(message).toContain('BTC/USDT');
     expect(message).not.toMatch(/journal|replay/i);
+    // /ready is unauthenticated through the edge: upstream response text stays in the log.
+    expect(message).not.toContain('down');
+    expect(message).not.toContain('/depth');
   });
 
   it('returns the original order on retry while sequence probing is unavailable', async () => {

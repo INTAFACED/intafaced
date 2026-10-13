@@ -487,7 +487,12 @@ app.get('/ready', async (_req, reply) => {
   if (sequences.regressions.length > 0) {
     const reason = describeRegressions(sequences.regressions);
     app.log.error({ regressions: sequences.regressions, unavailable: sequences.unavailable }, reason);
-    return reply.code(503).send({ ready: false, reason, markets: sequences.regressions.map((r) => r.symbol) });
+    return reply.code(503).send({
+      ready: false,
+      reason,
+      markets: sequences.regressions.map((r) => r.symbol),
+      unavailable: sequences.unavailable.map((u) => u.symbol),
+    });
   }
   if (sequences.unavailable.length > 0) {
     const reason = describeUnavailable(sequences.unavailable);
