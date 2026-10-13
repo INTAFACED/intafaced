@@ -117,6 +117,9 @@ function stubBank(overrides: Partial<Record<string, unknown>> = {}) {
   } as unknown as BankServices;
 }
 
+const treasury = (overrides: Partial<Principal> = {}) =>
+  signed(principal({ userId: OP, sub: OP, scopes: ['admin:treasury'], tier: 'full', mfa: true, ...overrides }));
+
 describe('svc-bank mount — authorisation', () => {
   it('refuses an anonymous caller on a scoped procedure, and reads nothing', async () => {
     let read = false;
@@ -328,6 +331,52 @@ describe('svc-bank mount — ops job kill switches (earn / loan / risk)', () => 
     expect(ran).toBe(false);
   });
 
+  it('ops.seizeLoan refuses bank.loan_risk_sweep_disabled before consuming approval, then seizes with the same ids', async () => {
+    let seized = 0;
+    const bank = stubBank({
+      loans: {
+        seize: async () => {
+          seized += 1;
+          return {
+            ledgerTxId: 'tx-seize',
+            collateralSold: parseAmount('1'),
+            proceeds: parseAmount('1'),
+            principalRepaid: parseAmount('1'),
+            interestRepaid: parseAmount('0'),
+            closed: true,
+          };
+        },
+      },
+    });
+    const base = stubApprovalConsumer(CONFIRM);
+    let consumes = 0;
+    const approvals = {
+      async consume(input: Parameters<typeof base.consume>[0]) {
+        consumes += 1;
+        return base.consume(input);
+      },
+    };
+    const input = { loanId: LOAN, confirmOperatorId: CONFIRM, ...APPROVAL };
+
+    await expect(
+      createBankRouter(bank, { loanRiskSweepEnabled: false, approvals }).createCaller(treasury()).ops.seizeLoan(input),
+    ).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      cause: { code: 'bank.loan_risk_sweep_disabled' },
+    });
+    expect(consumes).toBe(0);
+    expect(seized).toBe(0);
+
+    await expect(
+      createBankRouter(bank, { loanRiskSweepEnabled: true, approvals }).createCaller(treasury()).ops.seizeLoan(input),
+    ).resolves.toMatchObject({
+      ledgerTxId: 'tx-seize',
+      confirmOperatorId: CONFIRM,
+    });
+    expect(consumes).toBe(1);
+    expect(seized).toBe(1);
+  });
+
   it('ops.runRiskSweep runs when the flag is on', async () => {
     let ran = false;
     const bank = stubBank({
@@ -417,8 +466,6 @@ describe('svc-bank mount — autoInvest.policy honesty door', () => {
 });
 
 describe('svc-bank mount — treasury value mutates identity consume', () => {
-  const treasury = (overrides: Partial<Principal> = {}) =>
-    signed(principal({ userId: OP, sub: OP, scopes: ['admin:treasury'], tier: 'full', mfa: true, ...overrides }));
   const approvals = () => ({ approvals: stubApprovalConsumer(CONFIRM) });
 
   it('refuses missing approval ids without posting — a typed-in name is not approval', async () => {
