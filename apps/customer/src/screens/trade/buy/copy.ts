@@ -1,0 +1,111 @@
+import { defineCopy } from '../../../shared/i18n';
+
+// English source only (UI-SPEC 4.4); other languages fall back to English. Plain money words: no internal terms.
+const messages = {
+  // Page
+  'Buy crypto': 'Buy crypto',
+  Trade: 'Trade',
+  'Order history': 'Order history',
+  'Buy crypto in a few steps': 'Buy crypto in a few steps',
+  'Buy crypto intro': 'Bitcoin, Ether and more, paid from your USDT or USDC balance.',
+  // Card
+  'Buy or sell': 'Buy or sell',
+  Buy: 'Buy',
+  Sell: 'Sell',
+  Amount: 'Amount',
+  'Amount in {unit}': 'Amount in {unit}',
+  'Enter in {unit}': 'Enter in {unit}',
+  'About {value}': '≈ {value}',
+  'Coin row buy': 'Buy',
+  'Coin row sell': 'Sell',
+  'Pay with': 'Pay with',
+  'Receive in': 'Receive in',
+  '{asset} balance': '{asset} balance',
+  'Available {value}': 'Available {value}',
+  'Available loading': 'Available —',
+  Max: 'Max',
+  'Estimated price': 'Estimated price',
+  Fee: 'Fee',
+  'Review buy': 'Review buy',
+  'Review sell': 'Review sell',
+  'Log in to buy': 'Log in to buy',
+  'Log in to sell': 'Log in to sell',
+  'Enter an amount': 'Enter an amount',
+  Checking: 'Checking…',
+  'Waiting for a price': 'Waiting for a price…',
+  'Minimum is {min} {asset}.': 'Minimum is {min} {asset}.',
+  'Use steps of {step} {asset}.': 'Use steps of {step} {asset}.',
+  'Not enough {asset}. You have {value} available.': 'Not enough {asset}. You have {value} available.',
+  'Couldn’t check this order': 'We couldn’t check this order. Nothing was sent.',
+  'Couldn’t work out Max': 'We couldn’t work out the most you can use. Enter an amount instead.',
+  // Coin picker
+  'Choose a coin': 'Choose a coin',
+  'Search coins': 'Search coins',
+  'No coin matches': 'No coin matches “{query}”.',
+  'Change coin': 'Change coin',
+  // Review
+  'Review your buy': 'Review your buy',
+  'Review your sell': 'Review your sell',
+  'Review hint': 'Check the numbers. Nothing is bought until you confirm.',
+  'Review hint sell': 'Check the numbers. Nothing is sold until you confirm.',
+  'You pay about': 'You pay about',
+  'You sell': 'You sell',
+  'You get': 'You get',
+  'You get about': 'You get about',
+  Price: 'Price',
+  'Price per coin': '{price} per {coin}',
+  'Price protection': 'Price protection',
+  'Protection buy': 'We won’t buy above {price}.',
+  'Protection sell': 'We won’t sell below {price}.',
+  'Price moved': 'The price moved. Check the new numbers, then confirm again.',
+  Cancel: 'Cancel',
+  'Confirm buy': 'Confirm buy',
+  'Confirm sell': 'Confirm sell',
+  Sending: 'Sending…',
+  // Result
+  'You bought {amount} {coin}': 'You bought {amount} {coin}',
+  'You sold {amount} {coin}': 'You sold {amount} {coin}',
+  Paid: 'Paid',
+  Received: 'Received',
+  'Average price': 'Average price',
+  'Partly filled': 'Only part of your order could be filled: {done} of {total} {coin}. The rest was cancelled.',
+  Done: 'Done',
+  'View in Activity': 'View in Activity',
+  'Not filled title': 'Your order wasn’t filled',
+  'Not filled body': 'Nothing was bought or sold, and your balance didn’t change. Try again in a moment.',
+  'Still working title': 'Your order is still being worked on',
+  'Still working body': 'Check Activity for the result before placing another.',
+  'Try again': 'Try again',
+  // Unknown outcome and blocks
+  'Not confirmed title': 'We couldn’t confirm this order',
+  'Not confirmed body': 'It may have gone through. Check Activity before trying again.',
+  'Check order': 'Check order',
+  'Checking order': 'Checking…',
+  'Order found': 'We found your order. Status: {status}.',
+  'Order not found yet': 'We can’t see this order yet. Check Activity in a minute, or contact support.',
+  'Couldn’t check the order': 'We couldn’t check right now. Try again in a moment.',
+  'Earlier order title': 'An earlier order is still being checked',
+  'Earlier order body': 'New orders wait until it is. Check Activity first.',
+  'Earlier convert body': 'A conversion is still being checked. New orders wait until it is. Check Activity first.',
+  'Other tab': 'Another tab is sending an order. Wait for it to finish, then try again.',
+  'No safe storage': 'This browser can’t keep a safe record of the order, so we haven’t sent it. Use a current Chrome, Safari or Firefox.',
+  'Sign in again': 'Your session ended. Sign in to carry on.',
+  // States
+  'Couldn’t load coins': 'Couldn’t load coins.',
+  Retry: 'Try again',
+  'No coins title': 'No coins to buy right now',
+  'No coins body': 'Markets will show here when they open.',
+  'Go to Markets': 'Go to Markets',
+  // Names we can say without guessing
+  Bitcoin: 'Bitcoin',
+  Ethereum: 'Ethereum',
+} as const;
+
+export const buyCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.tradeBuy', messages);
+
+const nameKey = { BTC: 'Bitcoin', ETH: 'Ethereum' } as const satisfies Record<string, keyof typeof messages>;
+
+/** The plain name for a coin we can name, else null (the ticker then stands alone). */
+export function coinName(base: string, copy: Pick<ReturnType<typeof buyCopy.useCopy>, 't'>): string | null {
+  return base in nameKey ? copy.t(nameKey[base as keyof typeof nameKey]) : null;
+}
