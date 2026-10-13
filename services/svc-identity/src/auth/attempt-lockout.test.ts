@@ -56,6 +56,16 @@ function wrongCode(secret: string): string {
   throw new Error('unreachable');
 }
 
+/** Await a promise that MUST reject with an AuthError; fails the test if it resolves or rejects with anything else. */
+async function authRejection(promise: Promise<unknown>): Promise<AuthError> {
+  const outcome = await promise.then(
+    () => undefined,
+    (e: unknown) => e,
+  );
+  expect(outcome).toBeInstanceOf(AuthError);
+  return outcome as AuthError;
+}
+
 const available = await postgresAvailable(URL);
 
 if (!available) {
@@ -143,13 +153,12 @@ if (!available) {
       expect(row!.locked_until).not.toBeNull();
 
       const during = new Date(t0.getTime() + 60_000);
-      const err = await reserveAttempt(db.sql, userId, 'mfa', during).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(AuthError);
+      const err = await authRejection(reserveAttempt(db.sql, userId, 'mfa', during));
       expect(err).toMatchObject({ code: 'auth.too_many_attempts' });
-      expect((err as AuthError).details?.retryAfterSeconds).toBeGreaterThan(0);
-      expect((err as AuthError).details?.retryAfterSeconds).toBeLessThanOrEqual(900);
+      expect(err.details?.retryAfterSeconds).toBeGreaterThan(0);
+      expect(err.details?.retryAfterSeconds).toBeLessThanOrEqual(900);
       // The message names no count, threshold or kind.
-      expect((err as AuthError).message).not.toMatch(/\d/);
+      expect(err.message).not.toMatch(/\d/);
       // Refused attempts do not count.
       expect((await attempts(userId))[0]!.failures).toBe(5);
       await expect(assertNotLocked(db.sql, userId, 'mfa', during)).rejects.toMatchObject({ code: 'auth.too_many_attempts' });
@@ -237,9 +246,7 @@ if (!available) {
         });
       }
       expect((await attempts(userId))[0]!.locked_until!.getTime()).toBe(lockedUntil.getTime());
-      const err = await reserveAttempt(db.sql, userId, 'mfa', new Date(t20.getTime() + 23 * 60 * MIN)).catch(
-        (e: unknown) => e as AuthError,
-      );
+      const err = await authRejection(reserveAttempt(db.sql, userId, 'mfa', new Date(t20.getTime() + 23 * 60 * MIN)));
       expect(err.details?.retryAfterSeconds).toBe(3600);
 
       // After 24 h one more wrong guess is allowed through and re-locks for 24 h.
@@ -322,11 +329,9 @@ if (!available) {
 
     it('answers an unknown identifier exactly like a wrong password, forever, and stores nothing', async () => {
       const { handle } = await register();
-      const wrong = await auth.login({ identifier: handle, password: 'nope nope nope nope' }).catch((e: unknown) => e as AuthError);
+      const wrong = await authRejection(auth.login({ identifier: handle, password: 'nope nope nope nope' }));
       for (let i = 0; i < 15; i++) {
-        const unknown = await auth
-          .login({ identifier: `nobody-${i}`, password: 'nope nope nope nope' })
-          .catch((e: unknown) => e as AuthError);
+        const unknown = await authRejection(auth.login({ identifier: `nobody-${i}`, password: 'nope nope nope nope' }));
         expect(unknown).toMatchObject({ code: wrong.code, message: wrong.message });
       }
       const rows = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM auth_attempts`;
