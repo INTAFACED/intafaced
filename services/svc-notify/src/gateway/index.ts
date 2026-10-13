@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { assertProductionPosture } from '@intafaced/config/production-posture';
 import postgres from 'postgres';
 import { readRelayEnvironment } from './env.js';
 import { buildMailboxRelay } from './relay.js';
@@ -8,6 +9,14 @@ import { createRelayShutdown } from './shutdown.js';
 // channels or NATS import is required to boot this private mailbox relay.
 let sql: ReturnType<typeof postgres> | undefined;
 let app: ReturnType<typeof buildMailboxRelay> | undefined;
+// This entrypoint skips loadEnv, so it asks the production-posture question itself. The message names
+// variables, never values, so it is safe to print (the catch below hides everything else on purpose).
+try {
+  assertProductionPosture(process.env);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : 'notify.relay.production_posture_refused');
+  process.exit(1);
+}
 try {
   const config = readRelayEnvironment(process.env);
   sql = postgres(config.databaseUrl, {

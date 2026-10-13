@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { assertWebauthnPosture } from './webauthn-posture.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
 // INTERNAL_SERVICE_SECRET is required because rank.awardXp is a serviceProcedure
@@ -127,4 +128,6 @@ const schema = serviceEnvSchema
   );
 
 export const env = loadEnv(schema);
+// loadEnv's posture scan sees only variables that are set; the WebAuthn relying party has local defaults.
+assertWebauthnPosture(env);
 export type Env = typeof env;
