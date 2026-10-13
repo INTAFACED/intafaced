@@ -116,12 +116,81 @@ export function createLedgerClient(baseUrl: string, internalSecret: string): Led
       }));
     },
 
-    async getTx(): Promise<LedgerTx | null> {
-      throw new Error('getTx is not exposed over the internal ledger API — query svc-ledger directly');
+    /**
+     * One booked transaction by its id, through svc-ledger's read-only
+     * `/trpc/txById` door. This used to throw, so any caller holding a ledger tx
+     * id (a business transfer receipt) failed on a real deployment while the
+     * in-memory ledger in the tests answered it. Same signing and transport as
+     * every other call; "not booked" is `null`, as in-process.
+     *
+     * The door carries each entry's account, asset, direction and amount, which
+     * is what a caller verifying a receipt reads. `meta`, the hash chain links
+     * and each entry's own id and running balance stay in the ledger.
+     */
+    async getTx(txId: string): Promise<LedgerTx | null> {
+      const result = await call<
+        | { found: false }
+        | {
+            found: true;
+            txId: string;
+            idempotencyKey: string;
+            hash: string;
+            postedAt: string;
+            module: string;
+            reason: string;
+            entries: Array<{ accountId: string; assetId: string; direction: 'debit' | 'credit'; amount: string }>;
+          }
+      >('/trpc/txById', { txId });
+      if (result.found === false) return null;
+      // Anything but an explicit `found` is not an answer: null would read as "never booked".
+      if (result.found !== true) throw new Error('svc-ledger answered a transaction lookup without a `found` verdict');
+      return {
+        id: result.txId,
+        idempotencyKey: result.idempotencyKey,
+        module: result.module,
+        reason: result.reason,
+        meta: {},
+        postedAt: new Date(result.postedAt),
+        hash: result.hash,
+        previousHash: null,
+        entries: result.entries.map((e) => ({
+          // Not carried by the door; no caller reads them.
+          id: '',
+          txId: result.txId,
+          accountId: e.accountId,
+          assetId: e.assetId,
+          direction: e.direction,
+          amount: parseAmount(e.amount),
+          balanceAfter: 0n,
+        })),
+      };
     },
 
-    async getTxByKey(): Promise<LedgerTx | null> {
-      throw new Error('getTxByKey is not exposed over the internal ledger API — query svc-ledger directly');
+    /**
+     * Existence check by idempotency key, through `/trpc/txByKey`. Money paths
+     * ask "was this already booked?" before they post; this used to throw, so a
+     * first payout, a card cashback settle and a business transfer proposal all
+     * failed on a real deployment. The door answers the identifying fields only;
+     * entries stay in svc-ledger. Not booked is `null`, as in-process.
+     */
+    async getTxByKey(idempotencyKey: string): Promise<LedgerTx | null> {
+      const result = await call<
+        { found: false } | { found: true; txId: string; hash: string; postedAt: string; module: string; reason: string }
+      >('/trpc/txByKey', { idempotencyKey });
+      if (result.found === false) return null;
+      // Anything but an explicit `found` is not an answer: null would read as "never booked".
+      if (result.found !== true) throw new Error('svc-ledger answered a transaction lookup without a `found` verdict');
+      return {
+        id: result.txId,
+        idempotencyKey,
+        module: result.module,
+        reason: result.reason,
+        meta: {},
+        postedAt: new Date(result.postedAt),
+        hash: result.hash,
+        previousHash: null,
+        entries: [],
+      };
     },
   };
 }

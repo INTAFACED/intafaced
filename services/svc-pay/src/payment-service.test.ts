@@ -32,6 +32,8 @@ import { createIdentityOperationDecisionClient, type IdentityOperationDecisionPo
 import { randomUUID } from 'node:crypto';
 import { MerchantAccountControls } from './merchant-account-controls.js';
 import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
+import { createLedgerClient } from './ledger-client.js';
+import { fakeLedgerDoor, type DoorCall } from './ledger-door-fake.js';
 
 /**
  * svc-pay money paths.
@@ -2178,6 +2180,70 @@ describe('svc-pay money PG-hard', () => {
   });
 
   describe('payout', () => {
+    it('a first payout runs over the HTTP ledger client, which used to throw on getTxByKey (#4694)', async () => {
+      const m = await merchant(0),
+        payment = await cryptoPayment(m.id, '9');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'payout-over-http-ledger');
+      // The same book, reached the way production reaches it: the real HTTP
+      // client, signing every request, against a fake svc-ledger door.
+      const calls: DoorCall[] = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = fakeLedgerDoor(ledger, SECRET, calls);
+      try {
+        const overHttp = new PayService(sql, createLedgerClient('http://ledger.test', SECRET), rails, { payoutDestinations: dests });
+        const paid = await overHttp.payoutSettlement({
+          settlementId: settlement.id,
+          railId: 'crypto-native',
+          destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
+        });
+        expect(paid.status).toBe('paid_out');
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+      // The pre-admission check (payment-service.ts:3192) and the in-admission check
+      // (:3213) both asked the door whether the hold was already booked.
+      const asked = calls.filter((c) => c.path === '/trpc/txByKey').map((c) => c.body.idempotencyKey);
+      expect(asked).toEqual([`withdraw.hold:${settlement.id}:0`, `withdraw.hold:${settlement.id}:0`]);
+      expect(calls.every((c) => c.service === 'svc-pay')).toBe(true);
+      expect(calls.some((c) => c.path === '/trpc/post')).toBe(true);
+      expect(chain.outboundTransfers()).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+    it('recovers an admitted payout over the HTTP ledger client after a crash before the hold (#4694)', async () => {
+      const m = await merchant(0),
+        payment = await cryptoPayment(m.id, '8');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'recover-over-http-ledger');
+      const calls: DoorCall[] = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = fakeLedgerDoor(ledger, SECRET, calls);
+      try {
+        const http = createLedgerClient('http://ledger.test', SECRET);
+        const crashing = new PayService(sql, http, rails, {
+          payoutDestinations: dests,
+          afterPayoutAdmission: () => {
+            throw new Error('test.admission_crash');
+          },
+        });
+        const request = {
+          settlementId: settlement.id,
+          railId: 'crypto-native',
+          destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
+        };
+        // First attempt: no admission yet, so both hold lookups run (payment-service.ts:3192 and :3213) and admit it.
+        await expect(crashing.payoutSettlement(request)).rejects.toThrow('test.admission_crash');
+        expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(1);
+        // Retry: the admission is recovered and the payout completes.
+        const retried = await new PayService(sql, http, rails, { payoutDestinations: dests }).payoutSettlement(request);
+        expect(retried.status).toBe('paid_out');
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+      expect(calls.filter((c) => c.path === '/trpc/txByKey')).toHaveLength(2);
+      expect(chain.outboundTransfers()).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
     it('an old ledger hold without an owner record refuses recovery without guessing a destination', async () => {
       const m = await merchant(0),
         payment = await cryptoPayment(m.id, '5');
