@@ -47,6 +47,30 @@ export const MONEY_SKIP_REGISTER = [
   // ── svc-bank ───────────────────────────
 
   // ── svc-ledger ───────────────────────
+  {
+    file: 'services/svc-ledger/src/db/durable-freeze-down.test.ts',
+    kind: 'infra-journalled',
+    why:
+      '0002 down migration must lock posting_freeze so a concurrent freeze cannot be dropped (#4532). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
+      'the Tests (money) shard sets both with a live Postgres, so this runs on every money PR and skips only on a laptop without the DB. ' +
+      'LIFTS WHEN: converted to the svc-ledger H8a PG-hard pattern (TEST_DATABASE_URL or Testcontainers, no postgresAvailable), as service.freeze.test.ts already is.',
+  },
+  {
+    file: 'services/svc-ledger/src/db/outbox-down.test.ts',
+    kind: 'infra-journalled',
+    why:
+      '0013 down migration must lock ledger_tx_outbox so an unpublished posting intent cannot be dropped (#4532). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
+      'the Tests (money) shard sets both with a live Postgres, so this runs on every money PR and skips only on a laptop without the DB. ' +
+      'LIFTS WHEN: converted to the svc-ledger H8a PG-hard pattern (TEST_DATABASE_URL or Testcontainers, no postgresAvailable), as service.freeze.test.ts already is.',
+  },
+  {
+    file: 'services/svc-ledger/src/db/purpose-keyed-holds-down.test.ts',
+    kind: 'infra-journalled',
+    why:
+      '0001 down migration must refuse (P0001) while zero-balance duplicate holds remain (#4532). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
+      'the Tests (money) shard sets both with a live Postgres, so this runs on every money PR and skips only on a laptop without the DB. ' +
+      'LIFTS WHEN: converted to the svc-ledger H8a PG-hard pattern (TEST_DATABASE_URL or Testcontainers, no postgresAvailable), as service.freeze.test.ts already is.',
+  },
 
   // ── svc-market ───────────────────────
 
