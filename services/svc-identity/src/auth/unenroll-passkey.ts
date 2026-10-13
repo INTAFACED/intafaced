@@ -2,6 +2,7 @@
  * Unenroll a stored passkey so later mint, rotate, and session verify refuse it.
  * No ceremony. No invented challenge. Remaining creds stay in place.
  */
+import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 
 export class UnenrollPasskeyError extends Error {
@@ -33,22 +34,26 @@ export async function unenrollPasskey(
   credentialId: string | null | undefined,
 ): Promise<{ credentialId: string; remaining: number }> {
   const id = requireCredentialId(credentialId);
-  const rows = await sql<Array<{ webauthn_creds: unknown }>>`
-    SELECT webauthn_creds FROM users WHERE id = ${userId}
-  `;
-  const user = rows[0];
-  if (!user) throw new UnenrollPasskeyError('User not found', 'auth.not_found');
+  // One transaction under a row lock: a racing login counter write or enrol
+  // cannot overwrite this removal, and this removal cannot overwrite theirs.
+  return transaction(sql, async (tx) => {
+    const rows = await tx<Array<{ webauthn_creds: unknown }>>`
+      SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE
+    `;
+    const user = rows[0];
+    if (!user) throw new UnenrollPasskeyError('User not found', 'auth.not_found');
 
-  const existing = asCreds(user.webauthn_creds);
-  if (existing.length === 0 || !existing.some((c) => c.credentialId === id)) {
-    throw new UnenrollPasskeyError('No enrolled passkey', 'auth.passkey_missing');
-  }
+    const existing = asCreds(user.webauthn_creds);
+    if (existing.length === 0 || !existing.some((c) => c.credentialId === id)) {
+      throw new UnenrollPasskeyError('No enrolled passkey', 'auth.passkey_missing');
+    }
 
-  const remaining = existing.filter((c) => c.credentialId !== id);
-  await sql`
-    UPDATE users
-       SET webauthn_creds = ${sql.json(remaining as never)}, updated_at = now()
-     WHERE id = ${userId}
-  `;
-  return { credentialId: id, remaining: remaining.length };
+    const remaining = existing.filter((c) => c.credentialId !== id);
+    await tx`
+      UPDATE users
+         SET webauthn_creds = ${tx.json(remaining as never)}, updated_at = now()
+       WHERE id = ${userId}
+    `;
+    return { credentialId: id, remaining: remaining.length };
+  });
 }
