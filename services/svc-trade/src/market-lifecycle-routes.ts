@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
 import { correctionLinkSchema } from '@intafaced/exchange-contract';
 import {
+  MarketLifecycleLocalTestFixtureError,
   MarketLifecyclePublicationConflict,
   MarketLifecyclePublicationChainError,
   SqlMarketLifecycleEvidenceStore,
@@ -43,6 +44,7 @@ export function registerMarketLifecycleRoutes(
         .code(200)
         .send({ ok: true, evidenceId: lifecyclePublicationId(publication.marketId, publication.idempotencyKey), publication });
     } catch (error) {
+      if (error instanceof MarketLifecycleLocalTestFixtureError) return reply.code(409).send({ error: error.code });
       if (error instanceof MarketLifecyclePublicationConflict) return reply.code(409).send({ error: error.code });
       if (error instanceof MarketLifecyclePublicationChainError) return reply.code(409).send({ error: error.code, message: error.message });
       throw error;
