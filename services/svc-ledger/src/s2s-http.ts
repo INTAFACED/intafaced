@@ -17,6 +17,7 @@ import {
   UnbalancedTransactionError,
   InvalidEntryError,
   type EntryInput,
+  type LedgerTx,
 } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import { composePortfolioView } from '@intafaced/portfolio-view';
@@ -129,7 +130,28 @@ export async function handleS2sPost(ledger: LedgerService, body: unknown) {
     ...(input.meta ? { meta: input.meta } : {}),
     ...(input.correlationId ? { correlationId: input.correlationId } : {}),
   });
-  return { txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() };
+  return postAcknowledgement(tx);
+}
+
+/**
+ * What a post returns: the transaction identity AND the entries the ledger actually booked, so a caller's receipt check
+ * compares real accounts and amounts instead of an empty list. Amounts are decimal strings.
+ */
+export function postAcknowledgement(tx: LedgerTx) {
+  return {
+    txId: tx.id,
+    hash: tx.hash,
+    postedAt: tx.postedAt.toISOString(),
+    entries: (tx.entries ?? []).map((e) => ({
+      id: e.id,
+      txId: e.txId,
+      accountId: e.accountId,
+      assetId: e.assetId,
+      direction: e.direction,
+      amount: formatAmount(e.amount),
+      balanceAfter: formatAmount(e.balanceAfter),
+    })),
+  };
 }
 
 export async function handleS2sBalance(ledger: LedgerService, body: unknown) {

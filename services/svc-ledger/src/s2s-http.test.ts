@@ -99,6 +99,23 @@ describe('s2s-http (graph W1-C money surface)', () => {
     expect(out.postedAt).toMatch(/^2026-07-27/);
   });
 
+  it('returns the entries the ledger booked, as decimal strings, so callers can check the receipt', async () => {
+    const booked = {
+      id: 'tx-s2s',
+      hash: 'deadbeef',
+      postedAt: new Date('2026-07-27T00:00:00Z'),
+      entries: [
+        { id: '1', txId: 'tx-s2s', accountId: 'acct-1', assetId: 'USDT', direction: 'debit', amount: amt('5'), balanceAfter: amt('5') },
+        { id: '2', txId: 'tx-s2s', accountId: 'acct-2', assetId: 'USDT', direction: 'credit', amount: amt('5'), balanceAfter: -amt('5') },
+      ],
+    };
+    const out = await handleS2sPost(stubService({ post: async () => booked }), validPost);
+    expect(out.entries).toEqual([
+      { id: '1', txId: 'tx-s2s', accountId: 'acct-1', assetId: 'USDT', direction: 'debit', amount: '5', balanceAfter: '5' },
+      { id: '2', txId: 'tx-s2s', accountId: 'acct-2', assetId: 'USDT', direction: 'credit', amount: '5', balanceAfter: '-5' },
+    ]);
+  });
+
   it('refuses assembled entries that are not a known recipe, and never posts', async () => {
     let posted = false;
     await expect(

@@ -14,6 +14,7 @@ import {
   type EntryInput,
   type OwnerType,
 } from '@intafaced/ledger-client';
+import { postAcknowledgement } from './s2s-http.js';
 import { composePortfolioView, portfolioViewSchema } from '@intafaced/portfolio-view';
 import { DualControlError } from './ledger/dual-control.js';
 import {
@@ -138,7 +139,24 @@ export function createLedgerRouter(
      */
     post: serviceProcedure
       .input(postRequestSchema)
-      .output(z.object({ txId: z.string(), hash: z.string(), postedAt: z.string() }))
+      .output(
+        z.object({
+          txId: z.string(),
+          hash: z.string(),
+          postedAt: z.string(),
+          entries: z.array(
+            z.object({
+              id: z.string(),
+              txId: z.string(),
+              accountId: z.string(),
+              assetId: z.string(),
+              direction: z.enum(['debit', 'credit']),
+              amount: z.string(),
+              balanceAfter: z.string(),
+            }),
+          ),
+        }),
+      )
       .mutation(async ({ input }) => {
         try {
           // Same gate as the mounted s2s door. An assembled body is not a
@@ -158,7 +176,7 @@ export function createLedgerRouter(
             ...(input.meta ? { meta: input.meta } : {}),
             ...(input.correlationId ? { correlationId: input.correlationId } : {}),
           });
-          return { txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() };
+          return postAcknowledgement(tx);
         } catch (err) {
           throw toTrpcError(err);
         }
