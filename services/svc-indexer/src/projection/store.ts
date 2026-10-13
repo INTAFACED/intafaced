@@ -68,6 +68,17 @@ import type { BlockHash, BookSide, ChainBlock, TakerSide } from '../chain/source
  * 0.1 + 0.2 to something that is not 0.3.
  */
 
+/**
+ * The height below which blocks are treated as final: head minus the finality
+ * depth, floored at 0. The ONE definition — `status.finalizedHeight` publishes
+ * it, `bookFinalized` reads at it, and `Indexer` prunes through it, so the three
+ * can never disagree about which block is safe to price from. `null` on an
+ * empty index.
+ */
+export function finalizedHeightOf(head: { readonly height: number } | null, finalityDepth: number): number | null {
+  return head ? Math.max(0, head.height - finalityDepth) : null;
+}
+
 export type BlockStatus = 'canonical' | 'orphaned';
 
 export interface StoredBlock {
@@ -209,6 +220,24 @@ export interface ProjectionStore {
    * finalized height, so a read at the finalized height is always inside it.
    */
   book(market: string, depth: number, atHeight?: number): Promise<BookView>;
+
+  /**
+   * The book as of the finalized block, read as ONE consistent snapshot: the
+   * head, the canonical block at `finalizedHeightOf(head, finalityDepth)` and
+   * the levels at it all come from the same point in time.
+   *
+   * This is a method of its own, not `head()` followed by `book(…, atHeight)`,
+   * because `prune` runs through `head − finalityDepth` after every sync pass.
+   * A prune that lands between those two reads collapses versions at or below
+   * a horizon that has moved past the height already chosen, and the book at
+   * that older height silently loses levels that are still live — a missing
+   * level, with a valid as-of, that a quote reader accepts. Reading everything
+   * in one snapshot makes the horizon and the height agree by construction.
+   *
+   * Empty index, or no canonical block at the finalized height: the empty book
+   * with a `null` as-of, as for `book`.
+   */
+  bookFinalized(market: string, depth: number, finalityDepth: number): Promise<BookView>;
   recentFills(market: string, limit: number): Promise<readonly FillRecord[]>;
   fillsForAccount(account: string, limit: number): Promise<readonly FillRecord[]>;
   position(market: string, account: string): Promise<PositionRecord | null>;

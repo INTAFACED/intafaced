@@ -8,15 +8,16 @@ import {
   type ChainBlock,
   type TakerSide,
 } from '../chain/source.js';
-import type {
-  ApplyOutcome,
-  BookLevel,
-  BookView,
-  FillRecord,
-  PositionRecord,
-  ProjectionStore,
-  StoredBlock,
-  UnwindOutcome,
+import {
+  finalizedHeightOf,
+  type ApplyOutcome,
+  type BookLevel,
+  type BookView,
+  type FillRecord,
+  type PositionRecord,
+  type ProjectionStore,
+  type StoredBlock,
+  type UnwindOutcome,
 } from './store.js';
 
 /**
@@ -324,7 +325,23 @@ export class MemoryProjectionStore implements ProjectionStore {
   async book(market: string, depth: number, atHeight?: number): Promise<BookView> {
     // Pinned read: the as-of block must be a canonical block we hold. Without
     // one there is nothing to name, so the book is empty with a null as-of.
-    const asOf = atHeight === undefined ? await this.head() : await this.blockAt(atHeight);
+    // No await between the lookup and the scan: see `bookFinalized`.
+    const canonical = this.#canonical();
+    const asOf = atHeight === undefined ? (canonical.at(-1) ?? null) : (canonical.find((b) => b.height === atHeight) ?? null);
+    return this.#bookAt(market, depth, asOf);
+  }
+
+  async bookFinalized(market: string, depth: number, finalityDepth: number): Promise<BookView> {
+    // One synchronous turn: nothing can apply, unwind or prune between the head
+    // read, the finalized-block lookup and the level scan. This is the in-memory
+    // form of the Postgres REPEATABLE READ snapshot.
+    const canonical = this.#canonical();
+    const height = finalizedHeightOf(canonical.at(-1) ?? null, finalityDepth);
+    const asOf = height === null ? null : (canonical.find((b) => b.height === height) ?? null);
+    return this.#bookAt(market, depth, asOf);
+  }
+
+  #bookAt(market: string, depth: number, asOf: StoredBlock | null): BookView {
     const ceiling = asOf?.height ?? -1;
 
     const side = (s: BookSide, direction: 1 | -1): BookLevel[] =>
