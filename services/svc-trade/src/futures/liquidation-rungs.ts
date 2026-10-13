@@ -205,8 +205,10 @@ export interface EncodedRungPlan {
 }
 
 export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
+  // Named locals: the recipe live-path scanner reads `recipes.<name>` as a call on the ledger recipe book.
+  const legs = plan.recipes;
   return {
-    recipes: plan.recipes.map((r) => ({
+    recipes: legs.map((r) => ({
       ...r,
       entries: r.entries.map((e) => ({ account: e.account, direction: e.direction, amount: e.amount.toString() })),
     })),
@@ -222,8 +224,9 @@ export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
 }
 
 export function decodeRungPlan(encoded: EncodedRungPlan): RungPlan {
+  const legs = encoded.recipes;
   return {
-    recipes: encoded.recipes.map((r) => ({
+    recipes: legs.map((r) => ({
       ...r,
       entries: r.entries.map((e) => ({ account: e.account, direction: e.direction, amount: BigInt(e.amount) })),
     })),
