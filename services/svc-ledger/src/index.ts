@@ -48,7 +48,10 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['ledger'],
 });
 
-const ledger = new LedgerService(sql, bus, { postingEnabled: env.LEDGER_POSTING_ENABLED });
+const ledger = new LedgerService(sql, bus, {
+  postingEnabled: env.LEDGER_POSTING_ENABLED,
+  idempotencyConflict: env.LEDGER_IDEMPOTENCY_CONFLICT_MODE,
+});
 
 // Before the first request, never after: a frozen database stays frozen, and
 // LEDGER_POSTING_ENABLED=false becomes a durable freeze that also reaches the
