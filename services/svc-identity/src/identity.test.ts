@@ -95,7 +95,7 @@ function softAuthenticator() {
 
   const sign = (authData: Buffer, clientDataJSON: Buffer, key: KeyObject = privateKey) => {
     const clientDataHash = createHash('sha256').update(clientDataJSON).digest();
-    return cryptoSign('SHA256', Buffer.concat([authData, clientDataHash]), { key, dsaEncoding: 'ieee-p1363' });
+    return cryptoSign('SHA256', Buffer.concat([authData, clientDataHash]), { key, dsaEncoding: 'der' });
   };
 
   return {
