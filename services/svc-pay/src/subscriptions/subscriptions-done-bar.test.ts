@@ -29,6 +29,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { createEdgeContext, encodePrincipal, mergeRouters, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
 import { MemoryLedger, formatAmount, merchantClearing, parseAmount as amt } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { createSubscriptionRouter } from '../subscription-router.js';
 import { PayError, PayService } from '../payment-service.js';
 import { RailRegistry } from '../rails/registry.js';

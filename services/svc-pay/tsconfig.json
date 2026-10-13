@@ -7,5 +7,5 @@
     "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["src/**/*.test.ts", "dist", "node_modules"]
+  "exclude": ["src/**/*.test.ts", "src/payment-events-test-reset.ts", "dist", "node_modules"]
 }

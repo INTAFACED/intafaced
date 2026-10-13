@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { beforeEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import {
   assertNoThirdPartyMoneyLibrary,
   assertPspMerchant,

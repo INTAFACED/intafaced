@@ -7,6 +7,7 @@ import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { beforeEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { unwiredApprovalConsumer } from './action-approval-consume.js';
 import { KybError, KybService } from './kyb-service.js';
 import { createKybPspRouter } from './kyb-router.js';

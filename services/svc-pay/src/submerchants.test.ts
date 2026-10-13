@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { DEFAULT_GRANTED_AREAS, MAX_SUBMERCHANT_DEPTH, PERMISSION_AREAS, SubMerchantError, SubMerchantService } from './submerchants.js';
 
 /**
