@@ -11,10 +11,13 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { postgresAvailable, resolveTestDatabaseUrl } from '@intafaced/db';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const URL = 'postgres://Nitro@127.0.0.1:5432/intafaced_test';
+// Same env var as the rest of svc-bank's database tests; falls back to the local compose default.
+const URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
+const available = await postgresAvailable(URL);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
@@ -57,6 +60,7 @@ function enumDefault(columnDefault: string): string {
 let sql: postgres.Sql;
 
 beforeAll(async () => {
+  if (!available) return;
   sql = postgres(URL, { max: 1, onnotice: () => undefined });
   await sql.unsafe('CREATE SCHEMA IF NOT EXISTS bank');
   await sql`
@@ -107,7 +111,7 @@ async function eligibleIds(tx: Tx, poolId: string): Promise<string[]> {
   return rows.map((row) => row.id);
 }
 
-describe('earn position status default', () => {
+describe.skipIf(!available)('earn position status default', () => {
   it('stores an omitted status as pending and leaves stored rows alone', async () => {
     const { up, down } = migrationPair();
     try {
