@@ -20,6 +20,8 @@ export type RefusalKind =
   | 'recipientNoAccount'
   | 'signedOut'
   | 'stepUp'
+  | 'mfaRequired'
+  | 'pricesDown'
   | 'noPermission'
   | 'rateLimited'
   | 'tryAgain'
@@ -52,6 +54,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'token.invalid': 'signedOut',
   'token.malformed': 'signedOut',
   'mfa.required': 'stepUp',
+  'auth.mfa_required': 'mfaRequired',
+  'bank.prices_unavailable': 'pricesDown',
   'scope.denied': 'noPermission',
   'ownership.denied': 'noPermission',
   'trade.permission_denied': 'noPermission',

@@ -25,13 +25,19 @@ export interface RefusalContext {
 type Words = { title: string; body: string; action?: { label: string; href: string } };
 
 const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
-  screening: { title: 'Paused for account checks', body: 'This action is paused while account checks are set up.' },
+  screening: { title: 'Paused for account checks', body: 'Your account is paused while checks are set up.' },
   region: { title: 'Not offered where you are', body: "This action isn't offered in your region yet." },
   verify: {
     title: 'Verify your identity first',
     body: 'You need a verified account to do this.',
     action: { label: 'Verify now', href: '/verification' },
   },
+  mfaRequired: {
+    title: 'Confirm it is you',
+    body: 'Sign in again with your passkey or authenticator code to change this.',
+    action: { label: 'Sign in again', href: '/login' },
+  },
+  pricesDown: { title: "Prices can't be loaded", body: "Prices can't be loaded right now. Try again in a minute." },
   slippageCapUnset: { title: 'Market orders are paused', body: 'Use a limit order instead.' },
   noBook: { title: 'No one is trading this market right now', body: 'Prices will show when the first orders arrive.' },
   marketNotOpen: { title: "This market isn't open", body: "You can't trade it right now." },
@@ -56,6 +62,17 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   notFound: { title: "We couldn't find that", body: 'It may have been removed. Go back and try again.' },
   duplicate: { title: 'That was already sent', body: 'We saw this request a moment ago, so we kept the first one.' },
   unknown: { title: "This can't be done right now", body: 'Try again later. If it keeps happening, contact support.' },
+};
+
+/** What a customer can quote to support instead of the raw service code (UI-SPEC 4.3: no internal terms on screen). */
+const REFERENCE: Readonly<Partial<Record<RefusalKind, string>>> = {
+  screening: 'SCR-1',
+  region: 'REG-1',
+  verify: 'VER-1',
+  accountOnHold: 'HOLD-1',
+  stepUp: 'MFA-1',
+  mfaRequired: 'MFA-2',
+  pricesDown: 'PRC-1',
 };
 
 function words(kind: RefusalKind, context: RefusalContext): Words {
@@ -96,8 +113,10 @@ export function refusalCopy(code: string, context: RefusalContext = {}): Refusal
   let kind = classifyRefusal(code);
   if (kind === 'destMissing' && context.recipient) kind = 'recipientNoAccount';
   const result = words(kind, context);
-  if (kind === 'unknown' && context.helpHref) return { ...result, action: { label: 'Contact support', href: context.helpHref } };
-  return result;
+  const reference = REFERENCE[kind];
+  const withReference = reference ? { ...result, reference: `Ref ${reference}` } : result;
+  if (kind === 'unknown' && context.helpHref) return { ...withReference, action: { label: 'Contact support', href: context.helpHref } };
+  return withReference;
 }
 
 /** The code, trimmed for the small support line under the message. */

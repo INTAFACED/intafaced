@@ -9,7 +9,7 @@
  */
 import { formatMoney, formatNumber, formatPercent } from '@intafaced/i18n';
 import { SCALE } from '@intafaced/ledger-client/money';
-import { dec, fractionDigits, roundScaled, toFixedString, type Scaled } from './decimal';
+import { dec, decOrNull, fractionDigits, ratio, roundScaled, toFixedString, type Scaled } from './decimal';
 import type { Decimal } from './types';
 
 export const UNKNOWN = '—';
@@ -154,6 +154,17 @@ export function fmtPct(ratio: Maybe, options: PctOptions = {}): string {
   const body = formatPercent(toFixedString(rounded, places + 2), locale, { minFractionDigits: places, maxFractionDigits: places });
   const sign = rounded === 0n ? '' : negative ? MINUS : (options.signed ?? true) ? PLUS : '';
   return `${sign}${body}`;
+}
+
+/**
+ * A percent the service already multiplied by 100 (CCXT `percentage`: "-0.597971947108675048" means -0.60%).
+ * Same text as `fmtPct`; the old desk printed the raw 18-digit string.
+ */
+export function fmtPctPoints(percent: Maybe, options: PctOptions = {}): string {
+  const parsed = dec(percent);
+  if (parsed === null) return UNKNOWN;
+  const asRatio = decOrNull(ratio(parsed, 100n * SCALE));
+  return fmtPct(asRatio, options);
 }
 
 /** "+$134.46 (+4.02%)" or "—" when the dollar change is unknown. A missing percent drops the bracket. */

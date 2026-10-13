@@ -95,4 +95,6 @@ export interface RefusalCopy {
   title: string;
   body: string;
   action?: { label: string; href: string };
+  /** Short reference a customer can quote to support ("Ref SCR-1"). Never the raw service code. */
+  reference?: string;
 }

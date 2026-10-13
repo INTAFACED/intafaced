@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { direction, fmtAmount, fmtChangeLine, fmtPct, fmtPrice, fmtUsd, fmtUsdChange, UNKNOWN } from './format';
+import { direction, fmtAmount, fmtChangeLine, fmtPct, fmtPctPoints, fmtPrice, fmtUsd, fmtUsdChange, UNKNOWN } from './format';
 
 describe('fmtUsd', () => {
   it('shows 2 decimals with grouping', () => {
@@ -100,6 +100,19 @@ describe('fmtAmount', () => {
   it('dash for unknown', () => {
     expect(fmtAmount(null)).toBe(UNKNOWN);
     expect(fmtAmount('1e5')).toBe(UNKNOWN);
+  });
+});
+
+describe('fmtPctPoints', () => {
+  it('reads a CCXT percent (already x100) and prints the same text as fmtPct', () => {
+    expect(fmtPctPoints('-0.597971947108675048')).toBe('−0.60%');
+    expect(fmtPctPoints('2.5')).toBe('+2.50%');
+    expect(fmtPctPoints('0')).toBe('0.00%');
+    expect(fmtPctPoints('4.02')).toBe(fmtPct('0.0402'));
+  });
+  it('is unknown, never zero, for a missing value', () => {
+    expect(fmtPctPoints(null)).toBe(UNKNOWN);
+    expect(fmtPctPoints('abc')).toBe(UNKNOWN);
   });
 });
 

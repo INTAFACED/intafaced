@@ -11,9 +11,12 @@ import type { ApiClient } from '../shared/api';
 import { balancesFetcher, marketsFetcher, ohlcvFetcher, tickerFetcher, tickersFetcher } from './fetchers';
 import {
   classOf,
+  closesOf,
   computeMovers,
+  DENSE_SPARKLINE_POINTS,
   DERIVATION_MARKET_CAP,
   derive24h,
+  FINE_SPARKLINE,
   forwardFill,
   mergeTicker,
   PAR_ASSETS,
@@ -78,6 +81,14 @@ function rawTickersSource(env: DataEnv, intervalMs: number): Source<Record<strin
 
 function hourlySource(env: DataEnv, symbol: string): Source<OhlcvRow[]> {
   return env.poller.source(`ohlcv:${symbol}:1h:${DERIVATION_CANDLES}`, ohlcvFetcher(env.api, symbol, '1h', DERIVATION_CANDLES), {
+    intervalMs: INTERVALS.derivation,
+  });
+}
+
+/** 15 minute candles for the sparkline of a market whose server sparkline is too short to draw (critic M2). */
+function fineSource(env: DataEnv, symbol: string): Source<OhlcvRow[]> {
+  const { timeframe, limit } = FINE_SPARKLINE;
+  return env.poller.source(`ohlcv:${symbol}:${timeframe}:${limit}`, ohlcvFetcher(env.api, symbol, timeframe, limit), {
     intervalMs: INTERVALS.derivation,
   });
 }
@@ -166,18 +177,27 @@ export function sparklinesSource(env: DataEnv, symbols: readonly string[]): Sour
     (markets) =>
       switchMap(
         raw,
-        (rawMap) => needSparkline(rawMap, wanted, markets).join(','),
+        (rawMap) => `${needSparkline(rawMap, wanted, markets).join(',')}|${needFineSparkline(rawMap, wanted, markets).join(',')}`,
         (rawMap) => {
           const need = needSparkline(rawMap, wanted, markets);
-          const candles = need.map((symbol) => hourlySource(env, symbol));
+          const needFine = needFineSparkline(rawMap, wanted, markets);
+          const candles = [...need.map((symbol) => hourlySource(env, symbol)), ...needFine.map((symbol) => fineSource(env, symbol))];
           return combine([raw, ...candles] as const, (all) => {
             const [rawSnap, ...candleSnaps] = all as unknown as [Loadable<Record<string, RawTicker>>, ...Loadable<OhlcvRow[]>[]];
             if (rawSnap.status !== 'ready') return rawSnap as Loadable<never>;
             if (candleSnaps.some((s) => s.status === 'loading')) return { status: 'loading' };
-            const stats = statsFrom(candleSnaps, need, nowOf(env));
+            const hourlySnaps = candleSnaps.slice(0, need.length);
+            const fineSnaps = candleSnaps.slice(need.length);
+            const stats = statsFrom(hourlySnaps, need, nowOf(env));
             const out: Record<string, Decimal[]> = {};
             for (const symbol of wanted) {
-              const points = sparklineFor(rawSnap.data[symbol], stats.get(symbol) ?? null);
+              const fineIndex = needFine.indexOf(symbol);
+              const fineSnap = fineIndex >= 0 ? fineSnaps[fineIndex] : undefined;
+              const fine =
+                fineSnap && fineSnap.status === 'ready'
+                  ? closesOf(fineSnap.data, TIMEFRAME_MS[FINE_SPARKLINE.timeframe], FINE_SPARKLINE.limit, nowOf(env))
+                  : null;
+              const points = sparklineFor(rawSnap.data[symbol], stats.get(symbol) ?? null, fine);
               if (points) out[symbol] = points;
             }
             return { status: 'ready', data: out, asOf: newestAsOf(all as unknown as Loadable<unknown>[]) };
@@ -192,6 +212,18 @@ function needSparkline(raw: Readonly<Record<string, RawTicker>>, wanted: readonl
   const open = new Set(markets.filter((m) => m.orderable).map((m) => m.symbol));
   return wanted
     .filter((symbol) => open.has(symbol) && symbol in raw && !(raw[symbol]!.sparkline && raw[symbol]!.sparkline!.length >= 2))
+    .sort();
+}
+
+/** Open markets whose server sparkline has points, but too few to draw a line that looks like a price (critic M2). */
+function needFineSparkline(raw: Readonly<Record<string, RawTicker>>, wanted: readonly string[], markets: readonly MarketRow[]): string[] {
+  if (orderableCount(markets) > DERIVATION_MARKET_CAP) return [];
+  const open = new Set(markets.filter((m) => m.orderable).map((m) => m.symbol));
+  return wanted
+    .filter((symbol) => {
+      const points = raw[symbol]?.sparkline?.length ?? 0;
+      return open.has(symbol) && points >= 2 && points < DENSE_SPARKLINE_POINTS;
+    })
     .sort();
 }
 

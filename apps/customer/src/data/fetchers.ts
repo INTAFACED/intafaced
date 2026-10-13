@@ -19,7 +19,7 @@ const marketListingSchema = listingSchema.extend({
   listedAt: z.string().nullish(),
 });
 
-const rawTickerSchema = tickerSchema.extend({ sparkline: z.array(z.string()).nullish() });
+const rawTickerSchema = tickerSchema.extend({ sparkline: z.array(z.string()).nullish(), windowStart: z.number().nullish() });
 
 const balancesResponseSchema = balancesSchema.extend({
   balances: z.record(z.string(), z.object({ free: decimalSchema, used: decimalSchema, total: decimalSchema })),

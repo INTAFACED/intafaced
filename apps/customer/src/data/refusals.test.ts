@@ -8,7 +8,8 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
     for (const code of ['denied.screening_fixture', 'denied.screening_unconfigured', 'denied.network_dark', 'denied.module_blocked']) {
       expect(refusalCopy(code)).toEqual({
         title: 'Paused for account checks',
-        body: 'This action is paused while account checks are set up.',
+        body: 'Your account is paused while checks are set up.',
+        reference: 'Ref SCR-1',
       });
     }
   });
@@ -18,8 +19,21 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
         title: 'Verify your identity first',
         body: 'You need a verified account to do this.',
         action: { label: 'Verify now', href: '/verification' },
+        reference: 'Ref VER-1',
       });
     }
+  });
+  it('prices that cannot load and a missing second factor have their own words', () => {
+    expect(refusalCopy('bank.prices_unavailable')).toMatchObject({ body: "Prices can't be loaded right now. Try again in a minute." });
+    expect(refusalCopy('auth.mfa_required')).toMatchObject({
+      body: 'Sign in again with your passkey or authenticator code to change this.',
+    });
+  });
+  it('shows a short reference, never the raw code', () => {
+    expect(refusalCopy('denied.screening_fixture').reference).toBe('Ref SCR-1');
+    expect(refusalCopy('something.never_seen').reference).toBeUndefined();
+    for (const code of ['denied.screening_fixture', 'bank.prices_unavailable', 'denied.region_blocked'])
+      expect(refusalCopy(code).reference ?? '').not.toContain(code);
   });
   it('instant buy paused links to Spot for the pair', () => {
     expect(refusalCopy('trade.convert_spread_unset', { pair: 'BTC-USDT' })).toEqual({
@@ -89,6 +103,8 @@ describe('classifyRefusal', () => {
       ['trade.convert_quote_expired', 'quoteExpired'],
       ['ledger.frozen', 'accountOnHold'],
       ['mfa.required', 'stepUp'],
+      ['auth.mfa_required', 'mfaRequired'],
+      ['bank.prices_unavailable', 'pricesDown'],
       ['auth.required', 'signedOut'],
       ['bank.below_minimum', 'belowMinimum'],
       ['trade.self_trade', 'selfTrade'],

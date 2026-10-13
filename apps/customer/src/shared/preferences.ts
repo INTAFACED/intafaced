@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { z } from 'zod';
 import { canonicalUiLocale } from './locale';
 
-const schema = z.object({
+const fields = z.object({
   theme: z.enum(['dark', 'light', 'system']).default('dark'),
   language: z
     .string()
@@ -17,7 +17,9 @@ const schema = z.object({
   displayCurrency: z.enum(['USD', 'BTC']).default('USD'),
   phoneChart: z.enum(['top', 'bottom', 'hidden']).default('top'),
   upColor: z.enum(['green', 'red']).default('green'),
-  timeZone: z.enum(['UTC', 'UTC+8', 'device']).default('UTC'),
+  /** Which clock times are shown in. Until the person picks one (`timeZoneChosen`) it is the browser's own zone. */
+  timeZone: z.enum(['UTC', 'UTC+8', 'device']).default('device'),
+  timeZoneChosen: z.boolean().default(false),
   dailyStart: z.enum(['nativeUTC', 'utc8', 'zoned']).default('nativeUTC'),
   dailyZone: z
     .string()
@@ -40,6 +42,11 @@ const schema = z.object({
   /** Simple (Robinhood-like) or Pro (dense desk). Layout only: it never changes data, prices or what an action does. */
   layoutMode: z.enum(['simple', 'pro']).default('simple'),
 });
+/**
+ * Older saves wrote the whole snapshot, so a stored `UTC` cannot be told apart from a chosen one.
+ * Only a zone the person picked after this change (`timeZoneChosen`) overrides the device's own.
+ */
+const schema = fields.transform((value) => (value.timeZoneChosen ? value : { ...value, timeZone: 'device' as const }));
 export type Preferences = z.infer<typeof schema>;
 const key = 'intafaced.customer.view.v1';
 let snapshot: Preferences = schema.parse({});
@@ -126,7 +133,7 @@ if (typeof window !== 'undefined') {
 }
 export type PreferencePersistence = 'device' | 'visit';
 export function savePreferences(patch: Partial<Preferences>): PreferencePersistence {
-  snapshot = schema.parse({ ...snapshot, ...patch });
+  snapshot = schema.parse({ ...snapshot, ...patch, ...(patch.timeZone !== undefined ? { timeZoneChosen: true } : {}) });
   observeDaily(snapshot);
   let persistence: PreferencePersistence = 'visit';
   try {

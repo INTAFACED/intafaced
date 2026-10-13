@@ -204,6 +204,13 @@ describe('mergeTicker', () => {
     expect(merged.windowStart).toBe(NOW - DAY_MS);
   });
 
+  it('takes the server windowStart, so a 3-hour-old window is not called a day (critic H5)', () => {
+    const merged = mergeTicker(raw('BTC/USDT', '110', { open: '98', windowStart: NOW - 4 * HOUR_MS }), null);
+    expect(merged.windowStart).toBe(NOW - 4 * HOUR_MS);
+    // without it, the server's open still means a full day
+    expect(mergeTicker(raw('BTC/USDT', '110', { open: '98' }), null).windowStart).toBe(NOW - DAY_MS);
+  });
+
   it('fills only the gaps when the server sends some fields', () => {
     const merged = mergeTicker(raw('BTC/USDT', '110', { open: '98' }), stats);
     expect(merged.open24h).toBe('98');
@@ -251,6 +258,13 @@ describe('sparklineFor', () => {
   });
   it('falls back to derived closes', () => {
     expect(sparklineFor(raw('X', '1'), stats)).toEqual(['1', '2', '2']);
+  });
+  it('replaces a crude server array (fewer than 12 points) with finer closes when there are some', () => {
+    const fine = Array.from({ length: 40 }, (_, i) => String(100 + i));
+    expect(sparklineFor(raw('X', '1', { sparkline: ['1', '2', '3', '4', '5'] }), stats, fine)).toEqual(fine);
+    const dense = Array.from({ length: 12 }, (_, i) => String(i + 1));
+    expect(sparklineFor(raw('X', '1', { sparkline: dense }), stats, fine)).toEqual(dense);
+    expect(sparklineFor(raw('X', '1', { sparkline: ['1', '2', '3'] }), stats, null)).toEqual(['1', '2', '3']);
   });
   it('needs at least two points to draw', () => {
     expect(sparklineFor(raw('X', '1', { sparkline: ['1'] }), null)).toBeNull();
@@ -473,6 +487,13 @@ describe('valuePortfolio: total value (UI-SPEC §1.2)', () => {
     const summary = valuePortfolio({ balances, markets, tickers: young, nowMs: NOW });
     expect(summary.windowStart).toBe(NOW - 3 * HOUR_MS);
     expect(valuePortfolio({ balances, markets, tickers, nowMs: NOW }).windowStart).toBeNull();
+  });
+
+  it('a server ticker that sends windowStart 4 hours ago makes the summary say so (critic H5)', () => {
+    const serverRow = mergeTicker(raw('IFC/USDT', '1.0036', { open: '1', windowStart: NOW - 4 * HOUR_MS, timestamp: NOW }), null);
+    expect(serverRow.windowStart).toBe(NOW - 4 * HOUR_MS);
+    const summary = valuePortfolio({ balances, markets, tickers: { ...tickers, 'IFC/USDT': serverRow }, nowMs: NOW });
+    expect(summary.windowStart).toBe(NOW - 4 * HOUR_MS);
   });
 
   it('values the real stack shape: BTC, ETH, IFC, USDC, USDT with USDT preferred', () => {

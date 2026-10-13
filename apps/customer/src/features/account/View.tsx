@@ -388,7 +388,7 @@ export function View() {
                 displayCurrency: 'USD',
                 phoneChart: 'top',
                 upColor: 'green',
-                timeZone: 'UTC',
+                timeZone: 'device',
                 dailyStart: 'nativeUTC',
                 dailyZone: 'America/New_York',
                 showOrders: true,

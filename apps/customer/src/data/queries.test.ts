@@ -293,15 +293,41 @@ describe('movers and sparklines', () => {
     b();
   });
 
-  it('uses the server sparkline when present and asks for no candles', async () => {
-    const withSpark = Object.fromEntries(Object.entries(TICKERS).map(([s, t]) => [s, { ...t, sparkline: ['1', '2', '3'] }]));
+  it('uses a dense server sparkline (12 points or more) and asks for no candles', async () => {
+    const dense = Array.from({ length: 12 }, (_, i) => String(i + 1));
+    const withSpark = Object.fromEntries(Object.entries(TICKERS).map(([s, t]) => [s, { ...t, sparkline: dense }]));
     const { api, countOf } = fakeApi(standardRoutes({ '/tickers': () => withSpark }));
     const env = envFor(api);
     const sparks = sparklinesSource(env, ['BTC/USDT']);
     const { snap, stop } = await read(sparks);
     if (snap.status !== 'ready') throw new Error('not ready');
-    expect(snap.data['BTC/USDT']).toEqual(['1', '2', '3']);
+    expect(snap.data['BTC/USDT']).toEqual(dense);
     expect(countOf('/ohlcv')).toBe(0);
+    stop();
+  });
+
+  it('replaces a crude 5-point server sparkline with 15 minute closes, one request per symbol (critic M2)', async () => {
+    const crude = Object.fromEntries(Object.entries(TICKERS).map(([s, t]) => [s, { ...t, sparkline: ['1', '2', '3', '4', '5'] }]));
+    const quarter = Math.floor(NOW / 900_000) * 900_000;
+    const { api, calls, countOf } = fakeApi(
+      standardRoutes({
+        '/tickers': () => crude,
+        '/ohlcv': (query) => {
+          expect(query).toMatchObject({ timeframe: '15m', limit: 96 });
+          return Array.from({ length: 96 }, (_, i) => {
+            const price = String(65000 + i);
+            return [quarter - (95 - i) * 900_000, price, price, price, price, '0.5'];
+          });
+        },
+      }),
+    );
+    const env = envFor(api);
+    const { snap, stop } = await read(sparklinesSource(env, ['BTC/USDT']));
+    if (snap.status !== 'ready') throw new Error('not ready');
+    expect(snap.data['BTC/USDT']!.length).toBe(96);
+    expect(snap.data['BTC/USDT']![95]).toBe('65095');
+    expect(countOf('/ohlcv')).toBe(1);
+    expect(calls.filter((c) => c.path.startsWith('/ohlcv/')).every((c) => c.query.timeframe === '15m')).toBe(true);
     stop();
   });
 

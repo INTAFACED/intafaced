@@ -30,6 +30,8 @@ export interface RawTicker {
   baseVolume: string | null;
   quoteVolume: string | null;
   sparkline?: readonly string[] | null;
+  /** Epoch ms the server's 24 h figures start at. Earlier than now - 24 h is a full day; later is a market younger than that. */
+  windowStart?: number | null;
 }
 
 export const HOUR_MS = 3_600_000;
@@ -189,15 +191,41 @@ export function mergeTicker(raw: RawTicker, stats: Stats24h | null): TickerRow {
     changePct24h: pct,
     baseVolume24h: dec(raw.baseVolume) !== null ? raw.baseVolume : (stats?.baseVolume24h ?? null),
     quoteVolume24h: dec(raw.quoteVolume) !== null ? raw.quoteVolume : null,
-    windowStart: dec(raw.open) !== null ? raw.timestamp - DAY_MS : (stats?.windowStart ?? null),
+    // The server's own window start wins: a market that listed 3 hours ago sends that hour, not a full day.
+    windowStart:
+      typeof raw.windowStart === 'number'
+        ? raw.windowStart
+        : dec(raw.open) !== null
+          ? raw.timestamp - DAY_MS
+          : (stats?.windowStart ?? null),
     source: usedDerived ? 'derived' : 'server',
   };
 }
 
-/** Sparkline points for a symbol: the server's own array when it sends one, else the derived closes. */
-export function sparklineFor(raw: RawTicker | undefined, stats: Stats24h | null): Decimal[] | null {
-  const fromServer = raw?.sparkline?.filter((p) => dec(p) !== null);
-  if (fromServer && fromServer.length >= 2) return [...fromServer];
+/** A server sparkline shorter than this draws as a crude zig-zag, so finer candles replace it (critic M2). */
+export const DENSE_SPARKLINE_POINTS = 12;
+/** The finer series that replaces a crude server sparkline: 15 minute candles over the last day. */
+export const FINE_SPARKLINE = { timeframe: '15m', limit: 96 } as const;
+
+/**
+ * Closes of the last `count` candles of a series, one per interval (a silent interval carries the previous
+ * close, it is not interpolated). Oldest first.
+ */
+export function closesOf(rows: readonly OhlcvRow[], stepMs: number, count: number, nowMs: number): Decimal[] {
+  return forwardFill(rows, { stepMs, nowMs, fromMs: nowMs - count * stepMs })
+    .slice(-count)
+    .map((c) => c.c);
+}
+
+/**
+ * Sparkline points for a symbol, best first: the server's array when it has enough points to draw a line, the
+ * finer candle closes when it does not, then whatever the server sent, then the derived hourly closes.
+ */
+export function sparklineFor(raw: RawTicker | undefined, stats: Stats24h | null, fine: readonly Decimal[] | null = null): Decimal[] | null {
+  const fromServer = raw?.sparkline?.filter((p) => dec(p) !== null) ?? [];
+  if (fromServer.length >= DENSE_SPARKLINE_POINTS) return [...fromServer];
+  if (fine && fine.length >= 2) return [...fine];
+  if (fromServer.length >= 2) return [...fromServer];
   return stats && stats.sparkline.length >= 2 ? stats.sparkline : null;
 }
 
