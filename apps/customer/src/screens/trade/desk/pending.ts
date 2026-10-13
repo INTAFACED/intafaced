@@ -94,8 +94,17 @@ export function usePendingOrder(userId: string | null): PendingState {
  * still in flight (it would report "not found" for an order that is about to arrive).
  */
 const inFlight = new Set<string>();
-export const markInFlight = (id: string): void => void inFlight.add(id);
-export const unmarkInFlight = (id: string): void => void inFlight.delete(id);
+const announce = (): void => {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(CHANGE));
+};
+export const markInFlight = (id: string): void => {
+  inFlight.add(id);
+  announce();
+};
+export const unmarkInFlight = (id: string): void => {
+  inFlight.delete(id);
+  announce();
+};
 export const isInFlight = (id: string): boolean => inFlight.has(id);
 
 const CHECK_NOW = 'trade-pending-check';

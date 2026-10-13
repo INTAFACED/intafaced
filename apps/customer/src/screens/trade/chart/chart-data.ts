@@ -29,6 +29,9 @@ export const toBar = (c: Candle): Bar => ({
   close: Number(c.c),
 });
 
+/** A price as a chart coordinate (an order's price line). */
+export const priceCoordinate = (price: Decimal): number => Number(price);
+
 export const toLinePoint = (c: Candle): { time: number; value: number } => ({ time: toSeconds(c.t), value: Number(c.c) });
 
 export function toVolumeBar(c: Candle, colors: { up: string; down: string }): { time: number; value: number; color: string } {

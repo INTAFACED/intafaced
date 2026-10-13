@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
-import { isTerminalOrder, type Order, type TradeApi } from '../../../features/trade/trade-api';
+import { isTerminalOrder, type Order } from '../../../features/trade/trade-api';
+import { cancelOrder } from './cancel';
 import { usePreferences } from '../../../shared/preferences';
 import { deskCopy } from './copy';
 import { useClosedOrders, useRefreshPrivate } from './data';
@@ -32,7 +33,6 @@ type Tab = 'open' | 'history' | 'trades' | 'assets';
 interface Props {
   market: DeskMarket;
   markets: readonly DeskMarket[];
-  api: TradeApi;
   openOrders: Loadable<Order[]>;
   fills: Loadable<Trade[]>;
   balances: Loadable<Record<string, BalanceEntry>>;
@@ -109,9 +109,10 @@ function State<T>({
   return <>{children(load.data)}</>;
 }
 
-function CancelButton({ order, api, onDone }: { order: Order; api: TradeApi; onDone: () => void }) {
+function CancelButton({ order, onDone }: { order: Order; onDone: () => void }) {
   const { t } = deskCopy.useCopy();
   const env = useDataEnv();
+  const { api: client } = useSession();
   const [state, setState] = useState<'idle' | 'busy' | 'done' | 'uncertain' | 'refused'>('idle');
   const asset = order.symbol.split('/')[0] ?? '';
   async function cancel() {
@@ -119,10 +120,8 @@ function CancelButton({ order, api, onDone }: { order: Order; api: TradeApi; onD
     setState('busy');
     env.poller.recordExternalRequest();
     // One DELETE per click. Nothing here retries it: on a doubtful answer the person checks Open orders.
-    const result = await api.cancel({ id: order.id, symbol: order.symbol });
-    if (result.ok) setState('done');
-    else if (result.reason === 'uncertain') setState('uncertain');
-    else setState('refused');
+    const result = await cancelOrder(client, order);
+    setState(result.ok ? 'done' : result.reason);
     onDone();
   }
   if (state === 'done') return <span className="dk-bt-note">{t('Cancel done')}</span>;
@@ -148,7 +147,7 @@ function CancelButton({ order, api, onDone }: { order: Order; api: TradeApi; onD
 }
 
 /** Bottom strip (UI-SPEC 5.7): Open orders, Order history, Trade history and Assets, Pro density (40 px rows). */
-export function BottomTabs({ market, markets, api, openOrders, fills, balances, tab, onTab }: Props) {
+export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders, fills, balances, tab, onTab }: Props) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
   const { userId } = useSession();
@@ -184,9 +183,7 @@ export function BottomTabs({ market, markets, api, openOrders, fills, balances, 
             <td className="dk-num if-num">{order.price === null ? t('Market price word') : fmtPrice(order.price, tickOf(order.symbol))}</td>
             <td className="dk-num if-num">{fmtAmount(order.amount, { places: lotOf(order.symbol) })}</td>
             <td className="dk-num if-num">{fmtAmount(order.filled, { places: lotOf(order.symbol) })}</td>
-            <td>
-              {withAction && !isTerminalOrder(order) ? <CancelButton order={order} api={api} onDone={refresh} /> : orderStatus(order, t)}
-            </td>
+            <td>{withAction && !isTerminalOrder(order) ? <CancelButton order={order} onDone={refresh} /> : orderStatus(order, t)}</td>
           </tr>
         ))}
       </tbody>
@@ -298,4 +295,4 @@ export function BottomTabs({ market, markets, api, openOrders, fills, balances, 
       </TabsPanel>
     </Tabs>
   );
-}
+});

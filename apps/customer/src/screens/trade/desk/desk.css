@@ -1,6 +1,6 @@
 /*
  * Pro desk (UI-SPEC 5.7, MEASURED-TOKENS). Only --if-* tokens: no colour values live here.
- * Panels are #000 (--if-bg) on a 3 px --if-line gutter, as OKX paints them.
+ * Panels are the black page colour (--if-bg) on a 3 px --if-line gutter, as OKX paints them.
  *
  * The whole file is in `@layer components`; the layer order is declared again so it holds in any bundle order
  * (a kit utility class such as `text-on-up` must keep beating this file, the Home lesson, critic H1).

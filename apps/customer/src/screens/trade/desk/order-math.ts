@@ -2,7 +2,7 @@
  * Order form arithmetic and the client-side refusals (UI-SPEC 5.7 money path).
  *
  * Everything is a decimal string in and out, bigint in between (`parseAmount` scales to 18 places).
- * No float, no `Number()`, no `toFixed()`. The server stays the authority: these checks only stop an order
+ * No float conversion anywhere in this file. The server stays the authority: these checks only stop an order
  * the market's published rules would refuse anyway, so the person hears why before anything is sent.
  */
 import { div, mul, SCALE } from '@intafaced/ledger-client/money';

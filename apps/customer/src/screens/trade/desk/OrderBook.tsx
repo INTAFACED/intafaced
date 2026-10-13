@@ -344,7 +344,7 @@ function Tape({
 }
 
 /** Right column (UI-SPEC 5.7): Order book and Last trades. Trades are fetched only while their tab is showing. */
-export function BookPanel({ market, book, ticker, zone, onPick, onPickPrice }: BookProps) {
+export const BookPanel = memo(function BookPanel({ market, book, ticker, zone, onPick, onPickPrice }: BookProps) {
   const { t } = deskCopy.useCopy();
   const [tab, setTab] = useState<'book' | 'trades'>('book');
   return (
@@ -363,4 +363,4 @@ export function BookPanel({ market, book, ticker, zone, onPick, onPickPrice }: B
       </Tabs>
     </div>
   );
-}
+});

@@ -188,6 +188,7 @@ export class Exchange {
       book: book(),
       refusal: null, // { code, message } for the preview to refuse with
       placeMode: 'ok', // 'ok' | 'abort' | { status, json }
+      delayPlace: 0, // ms the order's answer is held back
       previewError: false,
       fail: {}, // { orderbook: 500, ohlcv: 500, ... } answers that read with a server error
       hideOrders: false, // the order lists come back empty (an order the service took is not found yet)
@@ -291,6 +292,17 @@ export class Exchange {
       return json(this.commit(body));
     }
     if (path.startsWith('orders/') && method === 'DELETE') {
+      // The real trade service refuses a JSON DELETE with no body.
+      if (body === null || body === undefined)
+        return json(
+          {
+            statusCode: 400,
+            code: 'FST_ERR_CTP_EMPTY_JSON_BODY',
+            error: 'Bad Request',
+            message: 'Body cannot be empty when content-type is set to application/json',
+          },
+          400,
+        );
       const id = decodeURIComponent(path.slice(7));
       const at = this.open.findIndex((order) => order.id === id);
       if (at === -1) return json({ error: { message: 'gone', code: 'trade.order_not_found' } }, 404);

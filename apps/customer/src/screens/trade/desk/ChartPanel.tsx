@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import type { Order } from '../../../features/trade/trade-api';
 import { useDeviceSetting } from '../../../features/trade/hooks';
@@ -46,7 +46,7 @@ interface Props {
 const intervalLabel = (interval: ChartInterval) => (interval === '1d' ? '1D' : interval === '1w' ? '1W' : interval);
 
 /** Centre top (UI-SPEC 5.7): Chart and Info tabs, interval toolbar, candles or line, full screen. */
-export function ChartPanel({ market, openOrders, fills }: Props) {
+export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }: Props) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
   const [setting, setSetting] = useDeviceSetting<{ interval: ChartInterval; mode: Mode }>(
@@ -211,4 +211,4 @@ export function ChartPanel({ market, openOrders, fills }: Props) {
       </TabsPanel>
     </Tabs>
   );
-}
+});

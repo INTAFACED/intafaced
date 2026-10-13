@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { OrderBook as WireBook } from '@intafaced/exchange-contract/schemas';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { SCALE } from '@intafaced/ledger-client/money';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
@@ -7,7 +6,6 @@ import { formatAmount } from '../../../shared/money';
 import { useSession } from '../../../features/session/session';
 import { draftSchema, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
 import type { BookPick } from './OrderBook';
-import { STALE_BOOK_MS } from './OrderBook';
 import { deskCopy } from './copy';
 import { useDeskApi, useRefreshPrivate } from './data';
 import {
@@ -356,10 +354,9 @@ function SideForm({
     });
   }
 
-  const showProblem = !checked.ok && (checked.problem.kind !== 'amountEmpty' || price !== '');
-  const total = totalEdit ?? (type === 'limit' ? (value?.value ?? '') : '');
+  const showProblem = !checked.ok && status === null && (checked.problem.kind !== 'amountEmpty' || price !== '');
+  const total = totalEdit ?? value?.value ?? '';
   const verb = side === 'buy' ? t('Buy asset', { asset: market.base }) : t('Sell asset', { asset: market.base });
-  const sideWord = side === 'buy' ? t('Side buy') : t('Side sell');
   const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
   const bbo = bboPrice(side, reference);
 
@@ -512,7 +509,7 @@ function SideForm({
               <AlertDialogTitle>{side === 'buy' ? t('Review buy') : t('Review sell')}</AlertDialogTitle>
               <AlertDialogDescription>{review.changed ? t('Review changed') : t('Review intro')}</AlertDialogDescription>
             </AlertDialogHeader>
-            <ReviewRows market={market} review={review} side={side} sideWord={sideWord} />
+            <ReviewRows market={market} review={review} side={side} />
             <AlertDialogFooter>
               <Button variant="secondary" size={40} disabled={busy} onClick={() => setReview(null)}>
                 {t('Cancel')}
@@ -528,16 +525,7 @@ function SideForm({
   );
 }
 
-function ReviewRows({
-  market,
-  review,
-  side,
-}: {
-  market: DeskMarket;
-  review: { draft: Draft; preview: Preview };
-  side: Side;
-  sideWord: string;
-}) {
+function ReviewRows({ market, review, side }: { market: DeskMarket; review: { draft: Draft; preview: Preview }; side: Side }) {
   const { t } = deskCopy.useCopy();
   const { draft, preview } = review;
   const limit = draft.type === 'limit';
@@ -612,7 +600,10 @@ function ReviewRows({
 
 interface PanelProps {
   market: DeskMarket;
-  book: Loadable<WireBook>;
+  /** Best bid and ask of the book; null while there is no book. Stable between updates that change nothing. */
+  reference: Reference | null;
+  /** The book snapshot is recent enough to price against (BBO). */
+  referenceFresh: boolean;
   balances: Loadable<Record<string, BalanceEntry>>;
   suggestion: BookPick | null;
   focusSide: Side | null;
@@ -621,7 +612,15 @@ interface PanelProps {
 }
 
 /** Centre bottom (UI-SPEC 5.7): Limit / Market tabs and the Buy and Sell forms side by side. */
-export function OrderPanel({ market, book, balances, suggestion, focusSide, onPlaced }: PanelProps) {
+export const OrderPanel = memo(function OrderPanel({
+  market,
+  reference,
+  referenceFresh,
+  balances,
+  suggestion,
+  focusSide,
+  onPlaced,
+}: PanelProps) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
   const api = useDeskApi();
@@ -642,9 +641,6 @@ export function OrderPanel({ market, book, balances, suggestion, focusSide, onPl
     }
   }, [suggestion]);
 
-  const bookData = book.status === 'ready' ? book.data : null;
-  const reference: Reference | null = bookData ? { bestBid: bookData.bids[0]?.[0] ?? null, bestAsk: bookData.asks[0]?.[0] ?? null } : null;
-  const referenceFresh = bookData !== null && Date.now() - bookData.timestamp < STALE_BOOK_MS;
   const signedIn = userId !== null;
   const free = (asset: string): string | null => (balances.status === 'ready' ? (balances.data[asset]?.free ?? '0') : null);
 
@@ -711,7 +707,7 @@ export function OrderPanel({ market, book, balances, suggestion, focusSide, onPl
         </div>
       ) : (
         <TabsPanel value={type} className="dk-order-body">
-          {pending.state === 'pending' ? (
+          {pending.state === 'pending' && !isInFlight(pending.value.id) ? (
             <div className="dk-note dk-note--warn" role="status">
               <p className="dk-note-title">{t('Checking your order')}</p>
               <p>{t('Checking your order body')}</p>
@@ -746,4 +742,4 @@ export function OrderPanel({ market, book, balances, suggestion, focusSide, onPl
       )}
     </Tabs>
   );
-}
+});

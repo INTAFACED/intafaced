@@ -30,6 +30,8 @@ async function mount(page, exchange = new Exchange(), { hold = [], url = PAIR } 
       query: Object.fromEntries(target.searchParams),
       body: request.method() === 'GET' ? undefined : request.postDataJSON(),
     });
+    if (exchange.opts.delayPlace && request.method() === 'POST' && path === 'orders')
+      await new Promise((done) => setTimeout(done, exchange.opts.delayPlace));
     if (result === 'abort') return route.abort('connectionreset');
     return route.fulfill(result);
   };
@@ -57,6 +59,17 @@ const ready = async (page) => {
 const shot = async (page, name, { full = false } = {}) => {
   await page.waitForTimeout(350); // let dialogs and fades finish
   await page.screenshot({ path: join(shots, `${name}.png`), fullPage: full });
+};
+/** Both sizes the desk is checked at: 1440x900 and 1280x800. */
+const shotBoth = async (page, name, options) => {
+  for (const [width, height] of [
+    [1440, 900],
+    [1280, 800],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await shot(page, `${name}-${width}`, options);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
 };
 const buyForm = (page) => page.locator('form.dk-form[data-side="buy"]');
 const sellForm = (page) => page.locator('form.dk-form[data-side="sell"]');
@@ -150,10 +163,7 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
   // Words
   expect(await page.locator('main').innerText()).not.toMatch(forbidden);
   expect(m.errors).toEqual([]);
-  await shot(page, 'desk-loaded-1440');
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.waitForTimeout(400);
-  await shot(page, 'desk-loaded-1280');
+  await shotBoth(page, 'desk-loaded');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
@@ -175,7 +185,7 @@ test('chart: intervals, candles and line, market rules; the book tabs and groupi
   await expect(page.locator('.dk-info')).toContainText('0.01 USDT');
   await expect(page.locator('.dk-info')).toContainText('0.00001 BTC');
   await expect(page.locator('.dk-info')).toContainText('Taker fee');
-  await shot(page, 'desk-chart-info-1440');
+  await shotBoth(page, 'desk-chart-info');
   await page.getByRole('tab', { name: 'Chart' }).click();
 
   // Grouping: x10 merges 0.10 steps into whole-dollar buckets
@@ -187,7 +197,7 @@ test('chart: intervals, candles and line, market rules; the book tabs and groupi
   await page.getByRole('tab', { name: 'Last trades' }).click();
   await expect(page.locator('.dk-bk-row--tape').first()).toBeVisible();
   await expect.poll(() => m.exchange.requests.some((r) => r.path.startsWith('trades/'))).toBe(true);
-  await shot(page, 'desk-trades-1440');
+  await shotBoth(page, 'desk-trades');
   expect(m.errors).toEqual([]);
 });
 
@@ -212,10 +222,15 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await expect(dialog).toContainText('63,999.90 USDT');
   await expect(dialog).toContainText(`${expected.holdAmount} USDT`);
   await expect(dialog).toContainText(`${expected.estimatedFee} USDT (0.10% maker)`);
-  await shot(page, 'desk-review-limit-1440');
+  await shotBoth(page, 'desk-review-limit');
   expect(m.requests('POST', 'orders')).toHaveLength(0); // nothing sent until the click
 
+  m.exchange.opts.delayPlace = 900;
   await dialog.getByRole('button', { name: 'Confirm buy' }).click();
+  // While the order is on its way the desk says nothing about "checking": that is only for a lost answer.
+  await page.waitForTimeout(400);
+  await expect(page.locator('.dk-note--warn')).toHaveCount(0);
+  await expect(buyButton(page)).toBeDisabled();
   await expect(dialog).toHaveCount(0);
   await expect(buyForm(page)).toContainText('Your buy order is in');
   await expect(page.getByText('We haven’t found it yet.')).toHaveCount(0); // no lookup ran for an order still in flight
@@ -239,13 +254,13 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await expect(table.locator('tbody tr').first()).toContainText('BTC/USDT');
   await expect(table.locator('tbody tr').first()).toContainText('63,999.90');
   await expect(table.locator('tbody tr').first()).toContainText('Limit');
-  await shot(page, 'desk-open-order-1440', { full: true });
+  await shotBoth(page, 'desk-open-order', { full: true });
 
   await table.getByRole('button', { name: /Cancel buy order/ }).click();
   await expect(table.locator('tbody tr')).toHaveCount(0, { timeout: 15000 });
   await expect(page.getByText('No open orders.')).toBeVisible();
   expect(m.requests('DELETE', 'orders/order-1')).toHaveLength(1);
-  await shot(page, 'desk-cancelled-1440', { full: true });
+  await shotBoth(page, 'desk-cancelled', { full: true });
   expect(m.errors).toEqual([]);
 });
 
@@ -263,7 +278,7 @@ test('market buy: the preview shows the fee and the price protection before conf
   await expect(dialog).toContainText('Price protection');
   await expect(dialog).toContainText('You won’t pay more than 65,650.10 USDT per BTC');
   await expect(dialog).toContainText('(0.20% taker)');
-  await shot(page, 'desk-review-market-1440');
+  await shotBoth(page, 'desk-review-market');
   await dialog.getByRole('button', { name: 'Confirm buy' }).click();
   await expect(buyForm(page)).toContainText('Your buy order filled: 0.0001 BTC');
   const sent = m.requests('POST', 'orders')[0].body;
@@ -274,7 +289,7 @@ test('market buy: the preview shows the fee and the price protection before conf
   await expect(row).toContainText('BTC/USDT');
   await expect(row).toContainText('65,000.10');
   await expect(row).toContainText('0.0001');
-  await shot(page, 'desk-trade-history-1440', { full: true });
+  await shotBoth(page, 'desk-trade-history', { full: true });
   expect(m.errors).toEqual([]);
 });
 
@@ -289,7 +304,7 @@ test('client refusals: below the smallest order; finer than the lot or tick cann
   await page.waitForTimeout(1200);
   expect(m.requests('POST', 'orders/preview')).toHaveLength(0);
   expect(m.requests('POST', 'orders')).toHaveLength(0);
-  await shot(page, 'desk-client-refusal-1440', { full: true });
+  await shotBoth(page, 'desk-client-refusal', { full: true });
   // A price finer than the tick, or an amount finer than the lot, cannot even be typed.
   const price = buyForm(page).getByRole('textbox', { name: 'Price' });
   await price.fill('');
@@ -316,9 +331,7 @@ test('refused: an account that is not verified gets words and the Verify path, n
   await expect(buyForm(page)).not.toContainText('raw words from the service');
   await expect(buyButton(page)).toBeDisabled();
   expect(m.requests('POST', 'orders')).toHaveLength(0);
-  await shot(page, 'desk-refused-1440', { full: true });
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await shot(page, 'desk-refused-1280', { full: true });
+  await shotBoth(page, 'desk-refused', { full: true });
 });
 
 test('a lost answer: the order is looked up, never sent again, and new orders wait until it is found', async ({ page }) => {
@@ -336,7 +349,7 @@ test('a lost answer: the order is looked up, never sent again, and new orders wa
   const key = 'trade-pending:00000000-0000-4000-8000-000000000001';
   expect(JSON.parse(await page.evaluate((k) => localStorage.getItem(k), key))).toMatchObject({ kind: 'place', symbol: 'BTC/USDT' });
   await expect(buyButton(page)).toBeDisabled();
-  await shot(page, 'desk-checking-1440', { full: true });
+  await shotBoth(page, 'desk-checking', { full: true });
   await page.waitForTimeout(1500);
   expect(m.requests('POST', 'orders')).toHaveLength(1); // never retried
   // The service shows the order; the check finds it and the desk is free again.
@@ -360,16 +373,14 @@ test('the preview changing at confirm shows the new numbers and asks again', asy
   await expect(page.getByRole('alertdialog')).toContainText('changed');
   await expect(page.getByRole('alertdialog')).toContainText('(0.20% maker)');
   expect(m.requests('POST', 'orders')).toHaveLength(0); // nothing was sent
-  await shot(page, 'desk-review-changed-1440', { full: true });
+  await shotBoth(page, 'desk-review-changed', { full: true });
 });
 
 test('states: loading, no book, market closed, errors, signed out', async ({ page, browser }) => {
   // Loading
   let m = await mount(page, new Exchange(), { hold: ['markets'] });
   await page.locator('.if-desk[aria-busy="true"]').waitFor();
-  await shot(page, 'desk-loading-1440');
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await shot(page, 'desk-loading-1280');
+  await shotBoth(page, 'desk-loading');
   await m.release();
   await ready(page);
 
@@ -379,7 +390,7 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   await heldBook.locator('.dk-ticker .dk-pair').waitFor();
   await heldBook.locator('.dk-bk-skeleton').waitFor();
   await expect(heldBook.locator('.dk-chart-skeleton')).toBeVisible();
-  await shot(heldBook, 'desk-panels-loading-1440');
+  await shotBoth(heldBook, 'desk-panels-loading');
   await heldBook.close();
 
   // No book
@@ -390,9 +401,7 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   await empty.locator('.dk-bk-note').waitFor();
   await expect(empty.locator('.dk-bk-note')).toHaveText('No orders yet in this market.');
   await expect(empty.locator('.dk-bk-mid')).toContainText('—');
-  await shot(empty, 'desk-no-book-1440');
-  await empty.setViewportSize({ width: 1280, height: 800 });
-  await shot(empty, 'desk-no-book-1280');
+  await shotBoth(empty, 'desk-no-book');
   await empty.close();
 
   // Market closed
@@ -403,7 +412,7 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   await closed.locator('.dk-order [data-slot="state-block"]').waitFor();
   await expect(closed.locator('.dk-order')).toContainText('This market isn’t open');
   await expect(closed.locator('.dk-order')).toContainText('You can’t trade it right now');
-  await shot(closed, 'desk-market-closed-1440');
+  await shotBoth(closed, 'desk-market-closed');
   await closed.close();
 
   // Errors inside the failing panels only
@@ -415,7 +424,7 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   await expect(broken.locator('.dk-bk')).toContainText('Couldn’t load the order book.');
   await expect(broken.locator('.dk-chart')).toContainText('Couldn’t load the chart.');
   await expect(broken.locator('.dk-ticker .dk-pair')).toHaveText('BTC/USDT'); // the rest of the desk stays
-  await shot(broken, 'desk-errors-1440');
+  await shotBoth(broken, 'desk-errors');
   await broken.close();
 
   // Signed out
@@ -430,7 +439,7 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   expect(
     m.exchange.requests.filter((r) => r.path.startsWith('orders/') || r.path === 'account/balance' || r.path === 'account/trades'),
   ).toHaveLength(0);
-  await shot(out, 'desk-signed-out-1440', { full: true });
+  await shotBoth(out, 'desk-signed-out', { full: true });
   await out.close();
 });
 
@@ -505,4 +514,21 @@ test('request budget: an idle desk stays under 120 requests a minute', async ({ 
   const during = m.exchange.requests.length - before;
   // 15 s of idle polling, scaled to a minute
   expect(during * 4).toBeLessThanOrEqual(120);
+});
+
+test('commit cost while the desk refreshes: the React Profiler numbers for an idle desk', async ({ page }) => {
+  await mount(page);
+  await ready(page);
+  await page.waitForTimeout(3000);
+  await page.evaluate(() => (window.__commits = []));
+  await page.waitForTimeout(12000);
+  const commits = await page.evaluate(() => window.__commits);
+  const times = commits.map((c) => c.ms).sort((a, b) => a - b);
+  const mean = times.reduce((a, b) => a + b, 0) / Math.max(1, times.length);
+  const p95 = times[Math.floor(times.length * 0.95)] ?? 0;
+  console.log(
+    `profiler: ${times.length} commits in 12 s, mean ${mean.toFixed(2)} ms, p95 ${p95.toFixed(2)} ms, max ${(times.at(-1) ?? 0).toFixed(2)} ms (dev build, StrictMode doubles renders)`,
+  );
+  // Development build with StrictMode is far slower than production; this guards against a runaway, not the 4 ms budget.
+  expect(p95).toBeLessThan(25);
 });

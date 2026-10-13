@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, Search, Star } from 'lucide-react';
 import { deskCopy } from './copy';
 import { useDeskMarkets } from './data';
@@ -46,7 +46,7 @@ interface Props {
 }
 
 /** Left column (UI-SPEC 5.7): search, Favorites / All / USDT / USDC chips and one 60 px row per open market. */
-export function MarketsPanel({ selected, hrefFor, onChoose, compact = false }: Props) {
+export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onChoose, compact = false }: Props) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
   const { isFavorite, toggle, favorites } = useFavorites(userId);
@@ -175,4 +175,4 @@ export function MarketsPanel({ selected, hrefFor, onChoose, compact = false }: P
       <div className="dk-mk-body">{list}</div>
     </div>
   );
-}
+});

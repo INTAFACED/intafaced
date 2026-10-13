@@ -16,6 +16,7 @@ import {
   legendValues,
   movingAverage,
   planUpdate,
+  priceCoordinate,
   priceFormat,
   stepOf,
   toBar,
@@ -211,7 +212,8 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
             borderVisible: false,
             priceFormat: priceFormat(tickSize),
           });
-    averages.current.forEach((s) => s.applyOptions({ visible: mode === 'candles' }));
+    // The axis follows the first series on it (the averages were added first), so they carry the price format too.
+    averages.current.forEach((s) => s.applyOptions({ visible: mode === 'candles', priceFormat: priceFormat(tickSize) }));
     setReady((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, tickSize, ready === 0]);
@@ -255,7 +257,7 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
     lines.current.forEach((line) => series.removePriceLine(line));
     lines.current = orderLines.map((order) =>
       series.createPriceLine({
-        price: Number(order.price),
+        price: priceCoordinate(order.price),
         color: order.side === 'buy' ? c.up : c.down,
         lineWidth: 1,
         lineStyle: 2,

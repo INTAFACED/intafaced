@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { ScreenProps } from '../../../app/screen-types';
 import { useSession } from '../../../features/session/session';
@@ -6,14 +6,14 @@ import { usePreferences } from '../../../shared/preferences';
 import { useTicker as useTickerRow } from './deps';
 import './desk.css';
 import '../chart/chart.css';
-import { BookPanel, type BookPick } from './OrderBook';
+import { BookPanel, STALE_BOOK_MS, type BookPick } from './OrderBook';
 import { BottomTabs, type BottomTab } from './BottomTabs';
 import { ChartPanel } from './ChartPanel';
 import { MarketsPanel } from './MarketsPanel';
 import { OrderPanel } from './OrderForm';
 import { TickerStrip } from './TickerStrip';
 import { deskCopy } from './copy';
-import { DESK_INTERVALS, useBalances, useBook, useDeskApi, useDeskMarkets, useFills, useOpenOrders } from './data';
+import { DESK_INTERVALS, useBalances, useBook, useDeskMarkets, useFills, useOpenOrders } from './data';
 import {
   defaultDeskPair,
   Popover,
@@ -26,7 +26,8 @@ import {
   useFavorites,
 } from './deps';
 import { findMarket, type DeskMarket } from './market';
-import type { Side } from './order-math';
+import { useNow } from './hooks';
+import type { Reference, Side } from './order-math';
 
 function PairPicker({ selected }: { selected: string }) {
   const { t } = deskCopy.useCopy();
@@ -47,7 +48,6 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
   const { timeZone } = usePreferences();
-  const api = useDeskApi();
   const ticker = useTickerRow(market.symbol, { intervalMs: DESK_INTERVALS.ticker });
   const book = useBook(market.symbol);
   const balances = useBalances();
@@ -57,15 +57,31 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const [tab, setTab] = useState<BottomTab>('open');
   const [suggestion, setSuggestion] = useState<BookPick | null>(null);
 
+  // Stable props, so a book or ticker update re-renders only the panels that show it (UI-SPEC 3.6: a tick never re-renders the desk).
+  const now = useNow(2_000);
+  const bookData = book.status === 'ready' ? book.data : null;
+  const bestBid = bookData?.bids[0]?.[0] ?? null;
+  const bestAsk = bookData?.asks[0]?.[0] ?? null;
+  const reference = useMemo<Reference | null>(() => (bookData ? { bestBid, bestAsk } : null), [bookData !== null, bestBid, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps
+  const referenceFresh = bookData !== null && now - bookData.timestamp < STALE_BOOK_MS;
+  const symbol = market.symbol;
+  const toggleFavorite = useCallback(() => toggle(symbol), [toggle, symbol]);
+  const picker = useMemo(() => <PairPicker selected={symbol} />, [symbol]);
+  const onPlaced = useCallback(() => setTab('open'), []);
+  const onPickPrice = useCallback(
+    (price: string) => setSuggestion((previous) => ({ price, amount: '', nonce: (previous?.nonce ?? 0) + 1 })),
+    [],
+  );
+
   return (
     <div className="if-desk" data-market={market.symbol}>
       <TickerStrip
         market={market}
         ticker={ticker}
         favorite={isFavorite(market.symbol)}
-        onToggleFavorite={() => toggle(market.symbol)}
+        onToggleFavorite={toggleFavorite}
         zone={timeZone}
-        picker={<PairPicker selected={market.symbol} />}
+        picker={picker}
       />
       <div className="dk-grid">
         <aside className="dk-panel dk-left" aria-label={t('Markets')}>
@@ -80,32 +96,17 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
           <ChartPanel market={market} openOrders={openOrders} fills={fills} />
           <OrderPanel
             market={market}
-            book={book}
+            reference={reference}
+            referenceFresh={referenceFresh}
             balances={balances}
             suggestion={suggestion}
             focusSide={side}
-            onPlaced={() => setTab('open')}
+            onPlaced={onPlaced}
           />
         </div>
-        <BookPanel
-          market={market}
-          book={book}
-          ticker={ticker}
-          zone={timeZone}
-          onPick={setSuggestion}
-          onPickPrice={(price) => setSuggestion((previous) => ({ price, amount: '', nonce: (previous?.nonce ?? 0) + 1 }))}
-        />
+        <BookPanel market={market} book={book} ticker={ticker} zone={timeZone} onPick={setSuggestion} onPickPrice={onPickPrice} />
       </div>
-      <BottomTabs
-        market={market}
-        markets={markets}
-        api={api}
-        openOrders={openOrders}
-        fills={fills}
-        balances={balances}
-        tab={tab}
-        onTab={setTab}
-      />
+      <BottomTabs market={market} markets={markets} openOrders={openOrders} fills={fills} balances={balances} tab={tab} onTab={setTab} />
     </div>
   );
 }

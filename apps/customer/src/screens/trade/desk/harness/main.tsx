@@ -8,7 +8,7 @@ import '../../../../features/public/public.css';
 import '../../../../app/redesign.css';
 import '../../../../app/shell.css';
 import './harness-tokens.css';
-import { StrictMode, useEffect, type MouseEvent, type ReactNode } from 'react';
+import { Profiler, StrictMode, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HideBalancesProvider, TooltipProvider } from '@intafaced/ui';
 import { SessionProvider, useSession } from '../../../../features/session/session';
@@ -64,7 +64,18 @@ function Page() {
             <span>harness stand-in for the top bar</span>
           </nav>
           <main id="main">
-            <Desk path={path} search={search} params={{ pair }} />
+            <Profiler
+              id="desk"
+              onRender={(_id, phase, actualDuration) => {
+                // Commit costs for the test to read (React Profiler, development build with StrictMode).
+                ((window as unknown as { __commits?: Array<{ phase: string; ms: number }> }).__commits ??= []).push({
+                  phase,
+                  ms: actualDuration,
+                });
+              }}
+            >
+              <Desk path={path} search={search} params={{ pair }} />
+            </Profiler>
           </main>
         </div>
       </TooltipProvider>

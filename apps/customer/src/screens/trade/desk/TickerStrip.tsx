@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Star } from 'lucide-react';
 import { deskCopy } from './copy';
 import { ChangeText, CoinIcon, direction as signOf, fmtAmount, Skeleton, type Loadable, type TickerRow } from './deps';
@@ -28,7 +29,7 @@ function Stat({ label, value, loading }: { label: string; value: string; loading
 }
 
 /** Ticker strip, 48 px (UI-SPEC 5.7): pair, last price, 24h change, low, high, volume, turnover. All from /ticker. */
-export function TickerStrip({ market, ticker, favorite, onToggleFavorite, zone, picker }: Props) {
+export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite, onToggleFavorite, zone, picker }: Props) {
   const { t } = deskCopy.useCopy();
   const row = ticker.status === 'ready' ? ticker.data : null;
   const last = row?.last ?? null;
@@ -100,4 +101,4 @@ export function TickerStrip({ market, ticker, favorite, onToggleFavorite, zone, 
       </div>
     </header>
   );
-}
+});

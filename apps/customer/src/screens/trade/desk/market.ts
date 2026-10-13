@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { listingSchema } from '../../../features/trade/trade-api';
 
-/** `/markets` row as the desk reads it: the existing trade schema plus the lifecycle state the data layer also reads. */
+/** `/markets` row as the desk reads it: the existing trade schema plus the market state the data layer also reads. */
 export const deskListingSchema = listingSchema.extend({
   lifecycle: z.object({ state: z.string() }).passthrough().nullish(),
 });
@@ -25,12 +25,12 @@ export interface DeskMarket {
   /** Fee ratios, "0.002" is 0.20%. */
   taker: string;
   maker: string;
-  /** Can be traded right now (listed, orderable, session open, lifecycle OPEN). */
+  /** Can be traded right now (listed, orderable, session open, state OPEN). */
   open: boolean;
 }
 
 export function toDeskMarket(listing: DeskListing): DeskMarket {
-  const lifecycleOpen = listing.lifecycle ? listing.lifecycle.state === 'OPEN' : true;
+  const stateOpen = listing.lifecycle ? listing.lifecycle.state === 'OPEN' : true;
   return {
     symbol: listing.symbol,
     base: listing.base,
@@ -41,7 +41,7 @@ export function toDeskMarket(listing: DeskListing): DeskMarket {
     minCost: listing.limits.cost.min,
     taker: listing.taker,
     maker: listing.maker,
-    open: listing.orderable && listing.active && listing.sessionOpen && lifecycleOpen,
+    open: listing.orderable && listing.active && listing.sessionOpen && stateOpen,
   };
 }
 
