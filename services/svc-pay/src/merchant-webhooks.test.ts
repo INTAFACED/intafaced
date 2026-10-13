@@ -304,6 +304,81 @@ describe('MerchantWebhookService', () => {
     expect(delivery?.lastError).toBe('pay.webhook_not_configured');
   });
 
+  it('a 307 or 308 to another host does not deliver and does not mark the row delivered', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const sinkHits: Array<{ body: string; signature: string | undefined }> = [];
+    const registeredHits: number[] = [];
+
+    const sink = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        const signature = req.headers['x-intafaced-signature'];
+        sinkHits.push({
+          body: Buffer.concat(chunks).toString('utf8'),
+          signature: typeof signature === 'string' ? signature : undefined,
+        });
+        res.writeHead(200);
+        res.end('ok');
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      sink.once('error', reject);
+      sink.listen(0, '::1', resolve);
+    });
+    const sinkAddr = sink.address();
+    if (!sinkAddr || typeof sinkAddr === 'string') throw new Error('no sink port');
+    const sinkUrl = `http://[::1]:${sinkAddr.port}/stolen`;
+
+    const redirectors = await Promise.all(
+      [307, 308].map(async (status, index) => {
+        registeredHits[index] = 0;
+        const server = createServer((req, res) => {
+          req.resume();
+          req.on('end', () => {
+            registeredHits[index] = (registeredHits[index] ?? 0) + 1;
+            res.writeHead(status, { location: sinkUrl });
+            res.end();
+          });
+        });
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const addr = server.address();
+        if (!addr || typeof addr === 'string') throw new Error('no redirector port');
+        return { server, url: `http://127.0.0.1:${addr.port}/hook` };
+      }),
+    );
+
+    try {
+      const svc = new MerchantWebhookService(store, { disableAfterFailures: 8, maxAttempts: 8 });
+      for (const redirector of redirectors) {
+        await svc.registerEndpoint(MERCHANT, redirector.url);
+      }
+      await svc.enqueue({
+        type: 'payment.captured',
+        payment: payment({ id: '55555555-5555-4555-8555-555555555555' }),
+      });
+      for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
+
+      const result = await svc.processDue(25);
+
+      expect(registeredHits).toEqual([1, 1]);
+      expect(result.delivered).toBe(0);
+      expect(sinkHits).toEqual([]);
+      const rows = [...store.deliveries.values()];
+      expect(rows).toHaveLength(2);
+      for (const delivery of rows) {
+        expect(delivery.status).not.toBe('delivered');
+        expect(delivery.deliveredAt).toBeNull();
+      }
+    } finally {
+      await Promise.all(
+        [sink, ...redirectors.map((redirector) => redirector.server)].map(
+          (open) => new Promise<void>((resolve) => open.close(() => resolve())),
+        ),
+      );
+    }
+  });
+
   it('processDue refuses unset batch — never invent 25; owner may pass 25', async () => {
     const store = new MemoryMerchantWebhookStore();
     const svc = new MerchantWebhookService(store);
