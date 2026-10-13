@@ -21,7 +21,7 @@ import {
   userStake,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import { createBankServices, type BankServices } from './bank-service.js';
+import { createBankServices, memoryRecipientState, type BankServices } from './bank-service.js';
 import { createBankRouter } from './router.js';
 import { accountForSpace } from './spaces/space-service.js';
 import { memoryLedgerHistory } from './analytics/ledger-history.js';
@@ -249,7 +249,7 @@ describe('svc-bank money PG-hard', () => {
       RESTART IDENTITY CASCADE
     `;
     ledger = new MemoryLedger();
-    bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+    bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC', recipients: memoryRecipientState() });
     router = createBankRouter(bank);
   }, 30_000);
 

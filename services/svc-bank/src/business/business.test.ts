@@ -16,7 +16,7 @@ import {
   type LedgerClient,
   type PostRequest,
 } from '@intafaced/ledger-client';
-import { createBankServices, type BankServices } from '../bank-service.js';
+import { createBankServices, memoryRecipientState, type BankServices } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { accountForSpace } from '../spaces/space-service.js';
 
@@ -144,7 +144,7 @@ describe('maker/checker dual control with ledger holds', () => {
       RESTART IDENTITY CASCADE
     `;
     ledger = new MemoryLedger();
-    bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+    bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC', recipients: memoryRecipientState() });
   });
 
   afterAll(async () => {
@@ -1425,7 +1425,10 @@ describe('maker/checker dual control with ledger holds', () => {
   it('records a payroll when the ledger client returns no entries', async () => {
     const inner = new MemoryLedger();
     const hidden = ledgerThatHidesEntries(inner);
-    const bankStub = createBankServices(sql, hidden, memoryLedgerHistory(inner), { nativeAssetId: 'IFC' });
+    const bankStub = createBankServices(sql, hidden, memoryLedgerHistory(inner), {
+      nativeAssetId: 'IFC',
+      recipients: memoryRecipientState(),
+    });
     const account = await bankStub.business.createAccount({
       name: 'Ops Co',
       assetId: 'USDT',

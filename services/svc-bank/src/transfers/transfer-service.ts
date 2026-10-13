@@ -206,7 +206,10 @@ export class TransferService {
         }
 
         const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
-        const to = await this.spaces.resolveForCredit(input.toSpaceId);
+        const to = await this.spaces.resolveForCredit(input.toSpaceId, {
+          actingUserId: from.userId,
+          alreadyBooked: async () => (await this.ledger.getTxByKey(`bank.transfer:${input.transferId}:0`)) !== null,
+        });
 
         if (from.assetId !== to.assetId) {
           // Converting between assets is a trade, and a trade has an execution
@@ -317,6 +320,9 @@ export class TransferService {
     if (from.assetId !== to.assetId) {
       throw new BankError(`Cannot schedule ${from.assetId} into a ${to.assetId} space`, 'bank.asset_mismatch');
     }
+    // Refuse a standing order to a recipient who cannot receive, at creation
+    // as well as at each run: it is the earliest place the user can be told.
+    if (to.userId !== from.userId) await this.spaces.assertCanReceive(to.userId);
 
     const scheduleId = input.scheduleId;
 
@@ -891,9 +897,17 @@ export class TransferService {
         let to: Awaited<ReturnType<SpaceService['get']>>;
         try {
           from = await this.spaces.resolveForDebit(schedule.fromSpaceId, now);
-          to = await this.spaces.resolveForCredit(schedule.toSpaceId);
+          to = await this.spaces.resolveForCredit(schedule.toSpaceId, { actingUserId: from.userId });
         } catch (err) {
-          if (err instanceof BankError && (err.code === 'bank.space_locked' || err.code === 'bank.space_archived')) {
+          // `bank.recipient_cannot_receive` is a refusal of this occurrence like a
+          // lock or an archive: recorded on the run, one code, no state named.
+          // `bank.recipient_check_unavailable` / `_unset` are NOT here: identity
+          // being down must not consume the occurrence, so they rethrow and the
+          // claim rolls back for the next pass.
+          if (
+            err instanceof BankError &&
+            (err.code === 'bank.space_locked' || err.code === 'bank.space_archived' || err.code === 'bank.recipient_cannot_receive')
+          ) {
             // Crash window: claim rolled back (or never committed settle) AFTER
             // ledger.post already moved value under bank.transfer:<id>:<n>. A
             // later lock must RECOVER that movement as settled — never mark

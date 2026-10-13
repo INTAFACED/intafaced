@@ -13,6 +13,7 @@ import { BusinessService } from './business/business-service.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
+import type { RecipientStatePort } from './recipient-state.js';
 
 /**
  * svc-bank — MULTI-CURRENCY ACCOUNTS OVER THE LEDGER (§8.1).
@@ -91,12 +92,20 @@ export interface BankServiceOptions {
    * only USDT/USDC/USD and refuses `bank.prices_unavailable` for anyone else.
    */
   portfolio?: PortfolioServiceOptions;
+  /**
+   * Who may be credited: asks svc-identity whether a recipient is frozen or closed.
+   *
+   * Not defaulted to "everyone may receive". With no port every credit to another
+   * user refuses `bank.recipient_check_unset`; moves between a user's own spaces
+   * need no check and still work. See `recipient-state.ts`.
+   */
+  recipients?: RecipientStatePort;
   /** Merged money history: the ledger page port and the cursor secret. Unset = `bank.activity.list` refuses, never answers empty. */
   activity?: ActivityServiceOptions;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
-  const spaces = new SpaceService(sql, ledger);
+  const spaces = new SpaceService(sql, ledger, options.recipients);
   const transfers = new TransferService(sql, ledger, spaces);
   const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
   const analytics = new SpendAnalytics(spaces, history);
@@ -137,6 +146,14 @@ export {
   BusinessService,
 };
 export { BankError, type BankErrorCode } from './errors.js';
+export {
+  createIdentityRecipientState,
+  memoryRecipientState,
+  unconfiguredRecipientState,
+  RecipientStateUnavailableError,
+  type RecipientStatePort,
+  type RecipientStatus,
+} from './recipient-state.js';
 export { accountForSpace, type SpaceRecord, type SpaceView } from './spaces/space-service.js';
 export { planDue, occurrenceStart, dueOccurrence, type Cadence } from './transfers/schedule.js';
 export { PAUSED_SKIP_REASON, type ResumeReport, type ScheduleRecord } from './transfers/transfer-service.js';

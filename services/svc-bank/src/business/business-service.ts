@@ -293,7 +293,14 @@ export class BusinessService {
 
     const now = new Date();
     const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
-    const to = await this.spaces.resolveForCredit(input.toSpaceId);
+    const to = await this.spaces.resolveForCredit(input.toSpaceId, {
+      actingUserId: from.userId,
+      // A retry of a proposal that already booked must resume it, not be refused.
+      alreadyBooked: async () =>
+        (await this.approvalExists(input.clientId)) ||
+        (await this.ledger.getTxByKey(`bank.transfer:${input.clientId}:0`)) !== null ||
+        (await this.ledger.getTxByKey(`bank.business.hold:${input.clientId}`)) !== null,
+    });
     if (from.assetId !== account.assetId || to.assetId !== account.assetId) {
       throw new BankError(`Business account ${account.assetId} cannot move ${from.assetId}→${to.assetId}`, 'bank.asset_mismatch');
     }
@@ -517,7 +524,10 @@ export class BusinessService {
         throw new BankError('Payroll cannot pay the same space twice, or pay the source', 'bank.same_space');
       }
       seen.add(line.toSpaceId);
-      const to = await this.spaces.resolveForCredit(line.toSpaceId);
+      const to = await this.spaces.resolveForCredit(line.toSpaceId, {
+        actingUserId: from.userId,
+        alreadyBooked: async () => Boolean(existing) || (await this.ledger.getTxByKey(`bank.business.payroll:${input.payrollId}`)) !== null,
+      });
       if (to.assetId !== from.assetId) {
         throw new BankError(
           `Payroll cannot mix ${from.assetId} and ${to.assetId} — rates are not invented here`,
@@ -847,7 +857,10 @@ export class BusinessService {
   /** Reconcile the original settle key; an unknown outcome never releases its hold. */
   private async finishSettle(approval: BusinessApproval): Promise<{ transferId: string; ledgerTxId: string }> {
     const from = await this.spaces.get(approval.fromSpaceId);
-    const to = await this.spaces.resolveForCredit(approval.toSpaceId);
+    const to = await this.spaces.resolveForCredit(approval.toSpaceId, {
+      actingUserId: from.userId,
+      alreadyBooked: async () => (await this.ledger.getTxByKey(`bank.business.settle:${approval.id}`)) !== null,
+    });
     const request = recipes.businessApprovalSettle({
       approvalId: approval.id,
       from: accountForSpace(from),
@@ -912,6 +925,11 @@ export class BusinessService {
     `;
     if (!rows[0]) throw new BankError(`Business account ${id} not found`, 'bank.business_not_found');
     return toAccount(rows[0]);
+  }
+
+  private async approvalExists(id: string): Promise<boolean> {
+    const rows = await this.sql<Array<{ id: string }>>`SELECT id FROM bank.business_approvals WHERE id = ${id}::uuid`;
+    return rows.length > 0;
   }
 
   private async approval(id: string): Promise<BusinessApproval> {
