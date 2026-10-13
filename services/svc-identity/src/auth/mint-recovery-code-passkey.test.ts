@@ -4,10 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { hashToken } from './passwords.js';
 import { requireVerifiedPasskey } from './mint-api-key-passkey.js';
-import {
-  mintRecoveryCodeAfterPasskey,
-  verifiedPasskeyMintsRecoveryCode,
-} from './mint-recovery-code-passkey.js';
+import { mintRecoveryCodeAfterPasskey, verifiedPasskeyMintsRecoveryCode } from './mint-recovery-code-passkey.js';
 
 function fakeSql(row: { webauthn_creds: unknown; recovery_code_hashes?: unknown } | null) {
   const updates: unknown[] = [];

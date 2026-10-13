@@ -16,11 +16,7 @@ export const SILENT_BREAK = 'fix.developer.silent_break' as const;
 export const IEEE_MONEY = 'fix.developer.ieee_money' as const;
 export const DECIMAL_UNSET = 'fix.developer.decimal_unset' as const;
 
-export type DeveloperRefuseReason =
-  | typeof DEPRECATION_UNSET
-  | typeof SILENT_BREAK
-  | typeof IEEE_MONEY
-  | typeof DECIMAL_UNSET;
+export type DeveloperRefuseReason = typeof DEPRECATION_UNSET | typeof SILENT_BREAK | typeof IEEE_MONEY | typeof DECIMAL_UNSET;
 
 export type DeveloperRefusal = {
   readonly ok: false;
@@ -67,10 +63,7 @@ function refuse(kind: DeveloperKind, reason: DeveloperRefuseReason, detail: stri
   return { ok: false, reason, kind, posted: false, detail };
 }
 
-function refuseIeeeOrUnset(
-  kind: DeveloperKind,
-  input: z.infer<typeof developerInputSchema>,
-): DeveloperRefusal | null {
+function refuseIeeeOrUnset(kind: DeveloperKind, input: z.infer<typeof developerInputSchema>): DeveloperRefusal | null {
   if (input.ieee === true) {
     return refuse(kind, IEEE_MONEY, 'FIX money is a decimal string — IEEE / JS number refuses');
   }
@@ -83,10 +76,7 @@ function refuseIeeeOrUnset(
   return null;
 }
 
-function refuseSilentTagBreak(
-  kind: DeveloperKind,
-  input: z.infer<typeof developerInputSchema>,
-): DeveloperRefusal | null {
+function refuseSilentTagBreak(kind: DeveloperKind, input: z.infer<typeof developerInputSchema>): DeveloperRefusal | null {
   const previous = namedSet(input.previousTags);
   const next = new Set(namedSet(input.nextTags));
   const removed = previous.filter((tag) => !next.has(tag));
@@ -94,11 +84,7 @@ function refuseSilentTagBreak(
   const deprecated = new Set(namedSet(input.deprecated));
   const undeclared = removed.filter((tag) => !deprecated.has(tag));
   if (undeclared.length > 0) {
-    return refuse(
-      kind,
-      DEPRECATION_UNSET,
-      `removed FIX tag ${undeclared.join(',')} without deprecation — refusing a silent break`,
-    );
+    return refuse(kind, DEPRECATION_UNSET, `removed FIX tag ${undeclared.join(',')} without deprecation — refusing a silent break`);
   }
   if (!text(input.changelog)) {
     return refuse(kind, SILENT_BREAK, 'deprecated FIX removal without changelog — refusing a silent break');

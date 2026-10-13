@@ -257,7 +257,7 @@ describe('cancelOtherPaperBracketExitOnFill', () => {
     ).toMatchObject({ ok: false, reason: 'missing_stop_loss' });
   });
 
-  it("happy: take_profit fills — cancel stop_loss, residual stays, triggers not invented from amount", () => {
+  it('happy: take_profit fills — cancel stop_loss, residual stays, triggers not invented from amount', () => {
     const result = cancelOtherPaperBracketExitOnFill({
       parentClientOrderId: 'p-brkt',
       kind: 'bracket',
@@ -285,7 +285,7 @@ describe('cancelOtherPaperBracketExitOnFill', () => {
     expect(result).not.toHaveProperty('matching');
   });
 
-  it("happy: stop_loss fills — cancel take_profit, residual stays", () => {
+  it('happy: stop_loss fills — cancel take_profit, residual stays', () => {
     const result = cancelOtherPaperBracketExitOnFill({
       parentClientOrderId: 'p-brkt',
       status: 'paper',

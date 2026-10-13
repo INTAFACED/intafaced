@@ -120,11 +120,7 @@ async function mountDoors(bank: ReturnType<typeof createBankServices>): Promise<
   return app;
 }
 
-async function post(
-  app: FastifyInstance,
-  path: string,
-  input: Record<string, unknown>,
-): Promise<{ statusCode: number; body: WireBody }> {
+async function post(app: FastifyInstance, path: string, input: Record<string, unknown>): Promise<{ statusCode: number; body: WireBody }> {
   const res = await app.inject({ method: 'POST', url: `/trpc/${path}`, headers: signedHeaders(), payload: input });
   return { statusCode: res.statusCode, body: res.json() as WireBody };
 }
@@ -199,9 +195,9 @@ describe('LoanService.repay — timed-out retry is one loanRepay', () => {
       loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(bank, ledger);
-    await expect(
-      bank.loans.repay({ loanId: opened.loan.id, amount: amt('1000'), eventId: '', now: NOW }),
-    ).rejects.toMatchObject({ code: 'bank.repayment_id_required' });
+    await expect(bank.loans.repay({ loanId: opened.loan.id, amount: amt('1000'), eventId: '', now: NOW })).rejects.toMatchObject({
+      code: 'bank.repayment_id_required',
+    });
     expect(repayCount(ledger)).toBe(0);
   });
 
@@ -243,9 +239,9 @@ describe('LoanService.repay — timed-out retry is one loanRepay', () => {
       return posted;
     };
 
-    await expect(
-      bank.loans.repay({ loanId: opened.loan.id, amount: amt('1000'), eventId, now: NOW }),
-    ).rejects.toThrow(/timed out after repay posted/);
+    await expect(bank.loans.repay({ loanId: opened.loan.id, amount: amt('1000'), eventId, now: NOW })).rejects.toThrow(
+      /timed out after repay posted/,
+    );
     expect(repayCount(ledger)).toBe(1);
 
     const retry = await bank.loans.repay({ loanId: opened.loan.id, amount: amt('1000'), eventId, now: NOW });

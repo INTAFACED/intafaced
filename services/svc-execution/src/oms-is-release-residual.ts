@@ -5,12 +5,7 @@
  */
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 
-export type OmsIsReleaseResidualRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'not_expired'
-  | 'already_released'
-  | 'missing_residual';
+export type OmsIsReleaseResidualRefuseReason = 'missing_parent' | 'not_live' | 'not_expired' | 'already_released' | 'missing_residual';
 
 export type OmsIsReleaseResidualRefusal = {
   readonly ok: false;
@@ -31,36 +26,22 @@ export type OmsIsReleaseResidualOk = {
 
 export type OmsIsReleaseResidualResult = OmsIsReleaseResidualOk | OmsIsReleaseResidualRefusal;
 
-function refuse(
-  reason: OmsIsReleaseResidualRefuseReason,
-  detail: string,
-): OmsIsReleaseResidualRefusal {
+function refuse(reason: OmsIsReleaseResidualRefuseReason, detail: string): OmsIsReleaseResidualRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseRetainedRemaining(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsIsReleaseResidualRefusal {
+function parseRetainedRemaining(raw: string | null | undefined): { ok: true; text: string } | OmsIsReleaseResidualRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration or the clock',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration or the clock');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration or the clock',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration or the clock');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is not a ledger amount — refusing to invent leftover',
-    );
+    return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
   }
 }
 

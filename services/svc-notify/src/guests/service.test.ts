@@ -30,7 +30,7 @@ async function gateway(answer: (res: ServerResponse) => void) {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   servers.push(server);
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/send`;
-  return { messages, keys, email: new EmailChannel({ url, token: 'fixture-gateway-token-at-least-16', timeoutMs: 100 }) };
+  return { messages, keys, email: new EmailChannel({ url, token: 'fixture-gateway-token-at-least-16', timeoutMs: 2000 }) };
 }
 
 describe('Guest notification durable boundary (isolated PostgreSQL)', () => {

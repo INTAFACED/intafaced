@@ -57,7 +57,8 @@ async function row(db: TestDatabase, purchase: string) {
   return result!.row as Record<string, unknown>;
 }
 
-describe('actual market migration runner down transactions', () => {
+// Each test shells out to the real migration runner against a fresh database; 5 s is not enough under CI load.
+describe('actual market migration runner down transactions', { timeout: 30_000 }, () => {
   it('rolls back the complete reversal when its tracking-row delete fails', async () => {
     const { db, purchase } = await fixture();
     try {

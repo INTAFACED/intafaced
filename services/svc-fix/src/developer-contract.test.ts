@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DECIMAL_UNSET,
-  DEPRECATION_UNSET,
-  IEEE_MONEY,
-  SILENT_BREAK,
-  handleFixDeveloper,
-} from './developer-contract.js';
+import { DECIMAL_UNSET, DEPRECATION_UNSET, IEEE_MONEY, SILENT_BREAK, handleFixDeveloper } from './developer-contract.js';
 
 describe('CARD G-developer remaining FIX changelog + explicit decimal', () => {
   it('refuses a removed FIX tag without deprecation', () => {

@@ -22,13 +22,15 @@ function stagedOrigin(mobileRoot) {
   try {
     receipt = JSON.parse(readFileSync(join(mobileRoot, 'www/native-stage.json'), 'utf8'));
   } catch {
-    throw new Error('Run pnpm --filter mobile build with MOBILE_CUSTOMER_ORIGIN before Capacitor copy/sync; no verified staging receipt');
+    throw new Error(
+      'Run pnpm --filter mobile native:stage with MOBILE_CUSTOMER_ORIGIN before Capacitor copy/sync; no verified staging receipt',
+    );
   }
   const indexHash = createHash('sha256')
     .update(readFileSync(join(mobileRoot, 'www/index.html')))
     .digest('hex');
   if (receipt.customerOrigin !== origin || receipt.indexSha256 !== indexHash || receipt.schemaVersion !== 1) {
-    throw new Error('Native staging does not match this origin/assets; rerun pnpm --filter mobile build');
+    throw new Error('Native staging does not match this origin/assets; rerun pnpm --filter mobile native:stage');
   }
   return origin;
 }

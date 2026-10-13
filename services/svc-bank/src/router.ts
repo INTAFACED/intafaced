@@ -316,6 +316,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.cards_disabled':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
+      // The ledger may have committed; the claim is held pending. Retry later
+      // with the same id, never with a new one.
+      case 'bank.ledger_outcome_unknown':
+        return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
+
       default: {
         // EXHAUSTIVENESS. If this line stops compiling, a `BankErrorCode` was
         // added without anyone deciding what a caller may be told about it —

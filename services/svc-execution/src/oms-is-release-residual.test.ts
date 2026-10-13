@@ -38,12 +38,14 @@ describe('releaseExpiredImplementationShortfallResidual', () => {
       kind: 'implementation_shortfall',
       remaining: RETAINED_REMAINING,
     };
-    expect(
-      releaseExpiredImplementationShortfallResidual({ ...base, status: 'running' }),
-    ).toMatchObject({ ok: false, reason: 'not_expired' });
-    expect(
-      releaseExpiredImplementationShortfallResidual({ ...base, status: 'approved' }),
-    ).toMatchObject({ ok: false, reason: 'not_expired' });
+    expect(releaseExpiredImplementationShortfallResidual({ ...base, status: 'running' })).toMatchObject({
+      ok: false,
+      reason: 'not_expired',
+    });
+    expect(releaseExpiredImplementationShortfallResidual({ ...base, status: 'approved' })).toMatchObject({
+      ok: false,
+      reason: 'not_expired',
+    });
     expect(releaseExpiredImplementationShortfallResidual(base)).toMatchObject({
       ok: false,
       reason: 'not_expired',
@@ -72,15 +74,18 @@ describe('releaseExpiredImplementationShortfallResidual', () => {
       ok: false,
       reason: 'missing_residual',
     });
-    expect(
-      releaseExpiredImplementationShortfallResidual({ ...base, remaining: null }),
-    ).toMatchObject({ ok: false, reason: 'missing_residual' });
-    expect(
-      releaseExpiredImplementationShortfallResidual({ ...base, remaining: '' }),
-    ).toMatchObject({ ok: false, reason: 'missing_residual' });
-    expect(
-      releaseExpiredImplementationShortfallResidual({ ...base, remaining: '   ' }),
-    ).toMatchObject({ ok: false, reason: 'missing_residual' });
+    expect(releaseExpiredImplementationShortfallResidual({ ...base, remaining: null })).toMatchObject({
+      ok: false,
+      reason: 'missing_residual',
+    });
+    expect(releaseExpiredImplementationShortfallResidual({ ...base, remaining: '' })).toMatchObject({
+      ok: false,
+      reason: 'missing_residual',
+    });
+    expect(releaseExpiredImplementationShortfallResidual({ ...base, remaining: '   ' })).toMatchObject({
+      ok: false,
+      reason: 'missing_residual',
+    });
   });
 
   it("refuses invalid remaining 'not-an-amount' with missing_residual", () => {

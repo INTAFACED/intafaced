@@ -50,7 +50,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 }
 const ALICE = '11111111-1111-4111-8111-111111111111';
-const MAKER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const MAKER_USER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 describe('H8a money suite is not skip-green', () => {
   it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
@@ -100,6 +100,20 @@ describe('svc-trade fok-place (H8a PG-hard)', () => {
       formatAmount((await ledger.balance(orderHoldAccount(userId, assetId, orderId))).amount);
     const postsWithReason = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
 
+    // settleFill refuses a fill whose maker order this service never created (fail-closed, #328: only the house MM
+    // maker path may settle without one), so the scripted fill must reference a real resting maker order.
+    async function restMaker() {
+      await fund(MAKER_USER, 'BTC', '10');
+      return trade.placeOrder(principalFor(MAKER_USER), {
+        marketId: btcusdt.id,
+        side: 'sell',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('100'),
+        clientOrderId: 'maker-rest',
+      });
+    }
+
     beforeEach(async () => {
       await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
@@ -126,7 +140,8 @@ describe('svc-trade fok-place (H8a PG-hard)', () => {
 
     it('fills completely — tif FOK, no leftover rest', async () => {
       await fund(ALICE, 'USDT', '500');
-      matching.scriptFills([{ makerOrderId: MAKER, makerAccountId: 'mm', price: '100', qty: '1' }]);
+      const maker = await restMaker();
+      matching.scriptFills([{ makerOrderId: maker.id, makerAccountId: MAKER_USER, price: '100', qty: '1' }]);
       const order = await trade.placeOrder(principalFor(ALICE), {
         marketId: btcusdt.id,
         side: 'buy',
@@ -137,8 +152,8 @@ describe('svc-trade fok-place (H8a PG-hard)', () => {
         clientOrderId: 'fok-full',
       });
       expect(order.status).not.toBe('open');
-      expect(matching.submitted[0]?.request.tif).toBe('FOK');
-      expect(matching.submitted[0]?.request.price).toBe('100');
+      expect(matching.submitted.at(-1)?.request.tif).toBe('FOK');
+      expect(matching.submitted.at(-1)?.request.price).toBe('100');
       expect(await heldFor(ALICE, 'USDT', order.id)).toBe('0');
     });
 

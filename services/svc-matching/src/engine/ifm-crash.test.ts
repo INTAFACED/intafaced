@@ -120,7 +120,12 @@ describe('IFM crash window — in_flight_unknown, no invented cancel', () => {
     expect(j2.read().some((record) => record.kind === 'cancel')).toBe(false);
 
     const books = replay(j2.read());
-    expect(books.get(MARKET)?.toState().asks[0]!.orders.map((o) => o.orderId)).toEqual([REST]);
+    expect(
+      books
+        .get(MARKET)
+        ?.toState()
+        .asks[0]!.orders.map((o) => o.orderId),
+    ).toEqual([REST]);
     expect(books.get(MARKET)?.toState().asks[0]!.orders).toHaveLength(1);
     j2.close();
   });
@@ -145,7 +150,12 @@ describe('IFM crash window — in_flight_unknown, no invented cancel', () => {
     const records = j2.read();
     expect(records.some((record) => record.kind === 'cancel')).toBe(false);
     const books = replay(records);
-    expect(books.get(MARKET)?.toState().bids[0]!.orders.map((o) => o.orderId)).toEqual([REST]);
+    expect(
+      books
+        .get(MARKET)
+        ?.toState()
+        .bids[0]!.orders.map((o) => o.orderId),
+    ).toEqual([REST]);
     expect(books.get(MARKET)?.toState().bids[0]!.orders).toHaveLength(1);
     j2.close();
   });

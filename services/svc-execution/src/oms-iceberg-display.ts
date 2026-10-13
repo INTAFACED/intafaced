@@ -49,7 +49,6 @@ export function refuseLiveOmsIcebergDisplay(input: {
   return {
     ok: false,
     reason: 'not_matching_iceberg',
-    detail:
-      'live OMS iceberg/display-qty is not matching iceberg — refusing rather than silently full-display',
+    detail: 'live OMS iceberg/display-qty is not matching iceberg — refusing rather than silently full-display',
   };
 }
