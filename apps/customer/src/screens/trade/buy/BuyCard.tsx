@@ -29,6 +29,8 @@ import {
   useTickers,
   type MarketRow,
   type TradeApi,
+  useHideBalances,
+  HIDDEN_MASK,
 } from './deps';
 import {
   buildDraft,
@@ -275,6 +277,7 @@ function BuyForm({
   const limits = useMarketLimits();
   const spendAsset = buying ? quote : market.base;
   const available = useAvailable(spendAsset);
+  const hideBalances = useHideBalances();
   const note = usePendingNote(userId);
 
   const price = useMemo(() => {
@@ -618,7 +621,7 @@ function BuyForm({
           <span className="buy-row__aside" data-testid="available">
             {available.state === 'ready'
               ? t('Available {value}', {
-                  value: `${fmtAmount(available.value, { places: 8, round: 'down' })} ${spendAsset}`,
+                  value: hideBalances ? HIDDEN_MASK : `${fmtAmount(available.value, { places: 8, round: 'down' })} ${spendAsset}`,
                 })
               : t('Available loading')}
           </span>

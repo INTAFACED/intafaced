@@ -17,7 +17,7 @@ import {
 } from '../buy/deps';
 import { isNetworkFailure, plainRefusal } from '../buy/quote-flow';
 import { refinedQty, steppedDownQty } from './convert-model';
-import { dec } from '../buy/trade-math';
+import { dec, str } from '../buy/trade-math';
 import { runGuarded, type BlockReason, type Pending } from '../buy/write-lock';
 import type { z } from 'zod';
 
@@ -33,6 +33,11 @@ export interface QuoteRequest {
   typed: string;
   /** The most the quote may cost (From asset): what was typed, and never more than the available balance. */
   cap: string;
+  /**
+   * Set only for a buy where the customer typed the spend (the From side): the exact decimal to send as `quoteQty`, so the
+   * service sizes the order and never charges more. Null for a sell, which keeps `qty`.
+   */
+  spend: string | null;
   lot: string;
   /** Pair for the "Use Spot" link when instant buys are paused. */
   pair: string;
@@ -68,6 +73,31 @@ function matches(quote: Quote, request: QuoteRequest, qty: string): boolean {
   return quote.symbol === request.symbol && quote.side === request.side && asked !== null && got !== null && asked === got;
 }
 
+/**
+ * An older trade service does not know `quoteQty`: it drops the unknown key and refuses the call for the missing `qty`
+ * (a plain BAD_REQUEST), or answers `trade.convert_invalid_qty`. Those, and only those, mean "ask the old way".
+ * A depth or minimum refusal is a real answer and never falls back.
+ */
+export function refusesQuoteQty(failure: Extract<ApiResult<unknown>, { ok: false }>): boolean {
+  if (/depth|minimum/i.test(failure.message)) return false;
+  return failure.code === 'trade.convert_invalid_qty' || failure.code === 'BAD_REQUEST' || failure.code === 'trade.missing_qty';
+}
+
+/** Trade services seen to refuse `quoteQty` in this page's life, so the old way is not tried second every time. */
+const oldServers = new WeakSet<ToolApi>();
+
+/** Ask for a quote sized by the spend. Whatever comes back must be a buy that costs no more than the spend. */
+async function askSpend(tools: ToolApi, request: QuoteRequest, spend: string): Promise<ApiResult<Quote>> {
+  const result = await tools.convertQuote({ symbol: request.symbol, side: 'buy', quoteQty: spend });
+  if (!result.ok) return result;
+  const paid = dec(result.data.inAmount);
+  const cap = dec(spend);
+  if (result.data.symbol !== request.symbol || result.data.side !== 'buy' || paid === null || cap === null)
+    return { ok: false, reason: 'invalid_response', message: 'The quote does not match the request.' };
+  if (paid > cap) return overCost();
+  return result;
+}
+
 async function askOnce(tools: ToolApi, request: QuoteRequest, qty: string): Promise<ApiResult<Quote>> {
   const result = await tools.convertQuote({ symbol: request.symbol, side: request.side, qty });
   if (result.ok && !matches(result.data, request, qty))
@@ -86,6 +116,21 @@ const overCost = (): ApiResult<Quote> => ({ ok: false, reason: 'error', message:
  * tightened UP once (see `refinedQty`), kept only if it still fits. Reads only: safe to repeat.
  */
 export async function fetchQuote(tools: ToolApi, request: QuoteRequest): Promise<ApiResult<Quote>> {
+  // Typing the spend: the service finds the biggest whole-lot order that fits it, spread included. One read, exact.
+  if (request.side === 'buy' && request.spend !== null && !oldServers.has(tools)) {
+    const cap = dec(request.cap);
+    const exact = cap !== null && cap > 0n ? str(cap) : null;
+    if (exact !== null) {
+      const answer = await askSpend(tools, request, exact);
+      if (answer.ok || !refusesQuoteQty(answer)) return answer;
+      if (answer.code === 'BAD_REQUEST') oldServers.add(tools);
+    }
+  }
+  return fetchQuoteByLots(tools, request);
+}
+
+/** The older way (and the one sells use): ask by coin amount and walk it down or up to fit the budget. */
+async function fetchQuoteByLots(tools: ToolApi, request: QuoteRequest): Promise<ApiResult<Quote>> {
   const first = await askOnce(tools, request, request.qty);
   if (!first.ok || request.side !== 'buy' || !first.data.fullyFilled) return first;
   const cap = dec(request.cap);
@@ -135,7 +180,7 @@ export function useQuote(tools: ToolApi, request: QuoteRequest | null) {
   const [held, setHeld] = useState<{ key: string; state: QuoteState }>({ key: '', state: { status: 'idle' } });
   const [now, setNow] = useState(() => Date.now());
   const [refreshKey, setRefreshKey] = useState(0);
-  const key = request ? `${request.symbol}|${request.side}|${request.qty}|${request.typed}|${request.cap}` : '';
+  const key = request ? `${request.symbol}|${request.side}|${request.qty}|${request.typed}|${request.cap}|${request.spend ?? ''}` : '';
   const requestRef = useRef(request);
   requestRef.current = request;
   // A quote belongs to the input it was asked for: for any other input there is nothing to show yet.

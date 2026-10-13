@@ -353,23 +353,6 @@
   .tb-account-item:focus-visible {
     background: var(--tb-hover);
   }
-  .tb-segmented {
-    display: inline-flex;
-    height: 28px;
-    padding: 2px;
-    background: var(--tb-field);
-    border-radius: 999px;
-  }
-  .tb-segment {
-    padding: 0 12px;
-    border-radius: 999px;
-    font-size: 13px;
-    color: var(--tb-fg-2);
-  }
-  .tb-segment--on {
-    background: var(--tb-raised);
-    color: var(--tb-fg);
-  }
   .tb-login {
     font-size: 14px;
     font-weight: 500;
@@ -473,17 +456,8 @@
     color: var(--tb-fg-2);
   }
 
-  /* Phone */
-  .mobile-doors {
-    display: none;
-  }
-  @media (max-width: 767px) {
-    .tb {
-      gap: 12px;
-      padding: 0 16px;
-    }
-    .tb-nav,
-    .tb-segmented,
+  /* Below 1000 px the 240 px search shrinks to an icon button: tabs, search, bell and account no longer fit side by side (768 px overflowed by 75 px). The input stays in place, transparent, so a tap still opens the results and Cmd+K still focuses it. */
+  @media (max-width: 999px) {
     .tb-search kbd {
       display: none;
     }
@@ -497,6 +471,20 @@
       position: absolute;
       inset: 0;
       opacity: 0;
+    }
+  }
+
+  /* Phone */
+  .mobile-doors {
+    display: none;
+  }
+  @media (max-width: 767px) {
+    .tb {
+      gap: 12px;
+      padding: 0 16px;
+    }
+    .tb-nav {
+      display: none;
     }
     .if-app {
       padding-bottom: 64px;

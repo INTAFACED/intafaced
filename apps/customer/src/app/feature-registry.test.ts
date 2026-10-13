@@ -40,9 +40,6 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/uc/promotion',
       '/notice/42',
       '/partner',
-      // The old holding page, until the M3 coin page exists (critic H3).
-      '/coin/BTC',
-      '/portfolio/BTC',
     ])
       expect(isHiddenPath(path), path).toBe(true);
     for (const path of [
@@ -53,6 +50,8 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/trade/spot/BTC-USDT',
       '/trade/buy',
       '/trade/convert',
+      '/coin/BTC',
+      '/portfolio/BTC',
       '/pay',
       '/pay/send',
       '/pay/receive',
@@ -89,6 +88,14 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       expect(isFeatureLive(id), id).toBe(true);
       expect(featureById(id)?.checked, id).toMatch(/2026-10-13/);
     }
+  });
+  it('marks Passkeys live with a note on how WebAuthn is set up', () => {
+    const passkeys = featureById('passkeys');
+    expect(isFeatureLive('passkeys')).toBe(true);
+    // A section of Security, not a route of its own: nothing to hide, nothing to redirect.
+    expect(passkeys?.paths).toEqual([]);
+    expect(passkeys?.checked).toMatch(/2026-10-14.*WEBAUTHN_ENABLED=true.*localhost/);
+    expect(isHiddenPath('/uc/safe')).toBe(false);
   });
   it('shows the Pro switch from M2', () => {
     expect(isFeatureLive('pro-mode-switch')).toBe(true);
@@ -127,6 +134,15 @@ describe('top-bar menus list only live features', () => {
           /unavailable|not connected|restricted|fixture|lifecycle|room|door|ledger/i,
         );
       }
+  });
+  it('sends a signed-out visitor to the public Help centre, never to a page that needs a session', () => {
+    const more = tabSpecs('simple', false).find((tab) => tab.door === 'More')!;
+    expect(more.href).toBe('/help');
+    expect(more.items.map((item) => item.href)).toEqual(['/help']);
+    for (const path of ['/help']) expect(findRoom(path)?.area).toBe('public');
+    const signedIn = tabSpecs('simple', true).find((tab) => tab.door === 'More')!;
+    expect(signedIn.href).toBe('/more');
+    expect(signedIn.items.map((item) => item.href)).toEqual(['/support', '/view']);
   });
   it('points the Trade tab at the markets list in Simple and the desk in Pro', () => {
     expect(tabSpecs('simple').find((tab) => tab.door === 'Trade')?.href).toBe('/trade');

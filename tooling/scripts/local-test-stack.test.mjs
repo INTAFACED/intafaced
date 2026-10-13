@@ -312,3 +312,27 @@ assert.match(
 );
 assert.equal(source.split("'build-customer'").length - 1, 1, 'one place builds the Customer app');
 console.log('local-test-stack: customer folder override checks passed');
+
+// 9. The test market maker is part of `status`, and start / restart bring it back if it was running before.
+{
+  const mkHome = mkdtempSync(join(tmpdir(), 'local-test-stack-market-'));
+  try {
+    const state = join(mkHome, '.intafaced', 'local-test-stack');
+    const status = () => spawnSync(process.execPath, [script, 'status'], { env: { ...process.env, HOME: mkHome }, encoding: 'utf8' });
+    // Never started: shown, and not an error by itself.
+    assert.match(status().stdout, /market-maker\s+-\s+-\s+not started/);
+    // Started once, process gone: DOWN, and `status` exits non-zero so a script or a glance notices.
+    mkdirSync(join(state, 'run'), { recursive: true });
+    writeFileSync(join(state, 'run', 'market.json'), JSON.stringify({ pid: 99998, startedAt: '2026-10-14T00:00:00.000Z' }));
+    const down = status();
+    assert.match(down.stdout, /market-maker\s+-\s+99998\s+DOWN \(was running/);
+    assert.equal(down.status, 1);
+  } finally {
+    rmSync(mkHome, { recursive: true, force: true });
+  }
+  // start (and restart, which ends in start) calls ensure after the services are up; it never starts one that was never started.
+  assert.match(source, /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*ensureMarket\(\);/);
+  assert.match(source, /async function cmdRestart[\s\S]*?await cmdStart\(\[\]\);/);
+  assert.match(source, /local-test-market\.mjs'\), 'ensure'\]/);
+  console.log('local-test-stack: market supervision checks passed');
+}

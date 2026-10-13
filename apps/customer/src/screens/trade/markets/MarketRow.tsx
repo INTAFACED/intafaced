@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Star } from 'lucide-react';
+import { useSession } from '../../../features/session/session';
 import { assetName, marketsCopy } from './copy';
 import {
   Button,
@@ -119,8 +120,9 @@ export function MarketRow({
 }: MarketRowProps) {
   const copy = marketsCopy.useCopy();
   const { t } = copy;
+  const { session } = useSession();
   const name = assetName(market.base, copy);
-  const target = href ?? marketTarget(market, mode, isHiddenPath);
+  const target = href ?? marketTarget(market, mode, isHiddenPath, Boolean(session));
   const dir = direction(ticker?.changePct24h) ?? 'flat';
   const price = priceText(market, ticker?.last);
   const change = fmtPct(ticker?.changePct24h);
@@ -129,7 +131,7 @@ export function MarketRow({
   const start = partialWindowStart(ticker, Date.now());
   const since = start === null ? null : t('since {time}', { time: sinceLabel(start, timeZone) });
   const coinPath = `/coin/${encodeURIComponent(market.base)}`;
-  const showDetails = !isHiddenPath(coinPath);
+  const showDetails = Boolean(session) && !isHiddenPath(coinPath);
   const rowProps = {
     role: 'row',
     'aria-rowindex': ariaRowIndex,

@@ -51,9 +51,9 @@ export const rooms: readonly Room[] = [
   },
   {
     path: '/coin/:asset',
-    title: 'Holding',
+    title: 'Coin',
     description: 'Asset details and actions',
-    door: 'Money',
+    door: 'Trade',
     area: 'money',
     hidden: true,
     screen: 'coin',
@@ -236,12 +236,12 @@ export const rooms: readonly Room[] = [
   })),
   { path: '/uc/innovation/myorders', title: 'Launch orders', description: 'Your asset launch orders', door: 'More', area: 'more' },
   { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
-  { path: '/uc/account', title: 'Account', description: 'Identity and strategy subaccounts', area: 'person', screen: 'account' },
-  { path: '/uc/safe', title: 'Security', description: 'Passkeys, two-factor and sessions', area: 'person', screen: 'account' },
+  { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
+  { path: '/uc/safe', title: 'Security', description: 'Passkeys, sign-in checks and your devices', area: 'person', screen: 'account' },
   { path: '/verification', title: 'Verification', description: 'Verification status and documents', area: 'person', screen: 'account' },
   { path: '/identbusiness', title: 'Business verification', description: 'Open a verified company account', area: 'person' },
-  { path: '/view', title: 'View', description: 'Theme, language and display preferences', area: 'person', screen: 'account' },
-  { path: '/notifications', title: 'Inbox', description: 'Your account notifications', area: 'person', screen: 'notifications' },
+  { path: '/view', title: 'Display', description: 'Theme, language and display preferences', area: 'person', screen: 'account' },
+  { path: '/notifications', title: 'Notifications', description: 'Your account notifications', area: 'person', screen: 'notifications' },
   { path: '/uc/promotion', title: 'Promotions', description: 'Referral activity', area: 'person' },
   { path: '/uc/promotion/mycards', title: 'Promotion cards', description: 'Your promotion cards', area: 'person' },
   { path: '/uc/promotion/mypromotion', title: 'My promotions', description: 'Referral activity', area: 'person' },
@@ -353,11 +353,12 @@ export function tradeTabHref(layoutMode: 'simple' | 'pro', lastPair: string = de
   return layoutMode === 'pro' ? `/trade/spot/${normalizePair(lastPair)}` : '/trade';
 }
 /**
- * Where a coin link goes until the coin page (M3) exists: the Buy card in Simple, the desk in Pro. The old `/coin/:asset`
- * page is hidden (feature registry), so nothing links to it. When M3 lands, point Simple here at `/coin/{asset}`.
+ * Where a coin link goes: the coin page in Simple, the desk in Pro. The coin page needs a session, so a signed-out visitor
+ * in Simple gets the public Buy card instead of a sign-in wall.
  */
-export function coinHref(asset: string, layoutMode: 'simple' | 'pro', symbol?: string | null): string {
-  return layoutMode === 'pro' ? `/trade/spot/${normalizePair(symbol ?? `${asset}-USDT`)}` : `/trade/buy?asset=${encodeURIComponent(asset)}`;
+export function coinHref(asset: string, layoutMode: 'simple' | 'pro', symbol?: string | null, signedIn = true): string {
+  if (layoutMode === 'pro') return `/trade/spot/${normalizePair(symbol ?? `${asset}-USDT`)}`;
+  return signedIn ? `/coin/${encodeURIComponent(asset)}` : `/trade/buy?asset=${encodeURIComponent(asset)}`;
 }
 export const doors: ReadonlyArray<{ name: Door; path: string }> = [
   { name: 'Home', path: '/home' },

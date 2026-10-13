@@ -30,6 +30,8 @@ export {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
+  useHideBalances,
+  HIDDEN_MASK,
 } from '@intafaced/ui';
 
 export {
