@@ -62,6 +62,7 @@ const SERVICES = [
   ['svc-support', 'support'],
   ['svc-academy', 'academy'],
   ['svc-market', 'market'],
+  ['svc-ops', 'ops'],
 ];
 
 const host = process.env.POSTGRES_HOST ?? 'postgres';

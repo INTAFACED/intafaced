@@ -6,6 +6,7 @@ import {
   SANCTIONS_SOURCE_ENV,
   SCREENING_REFUSE_FIXTURE,
   SCREENING_REFUSE_UNCONFIGURED,
+  SCREENING_FAIL_CLOSED_ENV,
   SCREENING_REVIEWED_EMPTY,
 } from '@intafaced/config';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -75,13 +76,19 @@ async function withScreeningList(regions: string | undefined, source: string | u
 
 const savedRegions = process.env[SANCTIONS_REGIONS_ENV];
 const savedSource = process.env[SANCTIONS_SOURCE_ENV];
+const savedSwitch = process.env[SCREENING_FAIL_CLOSED_ENV];
 
 beforeEach(() => {
+  // vitest.config.ts turns the shared fail-closed switch off for business fixtures. Preview reads that
+  // switch (it no longer hard-codes strict), so these screening cases run strict like production.
+  process.env[SCREENING_FAIL_CLOSED_ENV] = 'on';
   process.env[SANCTIONS_REGIONS_ENV] = SCREENING_REVIEWED_EMPTY;
   process.env[SANCTIONS_SOURCE_ENV] = 'counsel-memo-ref';
 });
 
 afterEach(() => {
+  if (savedSwitch === undefined) delete process.env[SCREENING_FAIL_CLOSED_ENV];
+  else process.env[SCREENING_FAIL_CLOSED_ENV] = savedSwitch;
   if (savedRegions === undefined) delete process.env[SANCTIONS_REGIONS_ENV];
   else process.env[SANCTIONS_REGIONS_ENV] = savedRegions;
   if (savedSource === undefined) delete process.env[SANCTIONS_SOURCE_ENV];
@@ -403,6 +410,44 @@ describe('POST /api/v1/orders/preview', () => {
       expect(ledgerPost).not.toHaveBeenCalled();
       await app.close();
     });
+  });
+
+  it('follows the shared fail-closed switch: a fixture list is orderable only when explicitly off in dev', async () => {
+    const savedApp = process.env.APP_ENV;
+    const savedSwitch = process.env[SCREENING_FAIL_CLOSED_ENV];
+    try {
+      await withScreeningList('AA:placeholder', 'test-fixture-not-a-real-list', async () => {
+        process.env.APP_ENV = 'dev';
+        process.env[SCREENING_FAIL_CLOSED_ENV] = 'off';
+        const local = appWith({});
+        const open = await local.app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+        expect(open.statusCode, open.body).toBe(200);
+        expect(open.json().orderable).toBe(true);
+        expect(open.json().refusals).toEqual([]);
+        await local.app.close();
+
+        // Off is ignored outside explicit dev/test: staging and prod stay fail-closed.
+        process.env.APP_ENV = 'prod';
+        const hosted = appWith({});
+        const shut = await hosted.app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+        expect(shut.json().orderable).toBe(false);
+        expect(shut.json().refusals.map((row: { code: string }) => row.code)).toContain(SCREENING_REFUSE_FIXTURE);
+        await hosted.app.close();
+
+        // Unset switch stays fail-closed.
+        process.env.APP_ENV = 'dev';
+        delete process.env[SCREENING_FAIL_CLOSED_ENV];
+        const unset = appWith({});
+        const refused = await unset.app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+        expect(refused.json().orderable).toBe(false);
+        await unset.app.close();
+      });
+    } finally {
+      if (savedApp === undefined) delete process.env.APP_ENV;
+      else process.env.APP_ENV = savedApp;
+      if (savedSwitch === undefined) delete process.env[SCREENING_FAIL_CLOSED_ENV];
+      else process.env[SCREENING_FAIL_CLOSED_ENV] = savedSwitch;
+    }
   });
 
   it('stays orderable when shape passes and the sanctions gate allows the region', async () => {

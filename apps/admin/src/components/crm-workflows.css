@@ -1,0 +1,251 @@
+/* Founder CRM workflow pieces: follow-up rows, count buttons, merge cards. Reuses the adm-* tokens from globals.css. */
+
+/* Counts in the summary strip that open a filtered view. */
+.adm-workspace .crm-wf-count {
+  min-height: 0;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--if-text-muted);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.adm-workspace .crm-wf-count:hover:not(:disabled) {
+  border-color: var(--if-border-strong);
+  color: var(--if-text);
+}
+.adm-workspace .crm-wf-count.is-warn {
+  color: var(--if-warn);
+}
+
+/* Follow-ups queue: one clickable row per task. */
+.crm-wf-task-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.crm-wf-task-list > li {
+  border-top: 1px solid var(--if-border);
+}
+.adm-workspace button.crm-wf-task {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 18px;
+  width: 100%;
+  padding: 14px 8px;
+  border: 0;
+  border-radius: var(--if-radius-md);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.adm-workspace button.crm-wf-task:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--if-accent) 6%, var(--if-surface));
+}
+.crm-wf-task > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.crm-wf-task-who strong {
+  font-size: 15px;
+}
+.crm-wf-task-who small,
+.crm-wf-task-meta {
+  color: var(--if-text-muted);
+  font-size: 12px;
+}
+.crm-wf-task-what {
+  grid-column: 1;
+}
+.crm-wf-task-meta {
+  grid-column: 1;
+}
+.crm-wf-task-due {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.crm-wf-due.is-overdue,
+.crm-wf-warn {
+  color: var(--if-warn);
+}
+.crm-wf-due.is-overdue {
+  font-weight: 600;
+}
+.crm-wf-warn {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+/* Merge: duplicate group as side-by-side cards; click the one to keep. */
+.crm-wf-group {
+  margin: 0 0 22px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.crm-wf-group > legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.crm-wf-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+.adm-workspace button.crm-wf-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-md);
+  background: var(--if-surface-raised);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+.adm-workspace button.crm-wf-card.is-keep {
+  border-color: var(--if-accent);
+  background: color-mix(in srgb, var(--if-accent) 8%, var(--if-surface-raised));
+}
+.adm-workspace button.crm-wf-card.is-fold {
+  border-style: dashed;
+}
+.crm-wf-card-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--if-text-muted);
+}
+.is-keep .crm-wf-card-tag {
+  color: var(--if-accent);
+}
+.crm-wf-fields {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 12px;
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.crm-wf-key {
+  color: var(--if-text-muted);
+}
+.crm-wf-sep {
+  display: block;
+  margin: 6px 0 2px;
+  border-top: 1px solid var(--if-border);
+}
+.crm-wf-summary {
+  margin: 14px 0;
+  padding: 12px 16px;
+  border-left: 2px solid var(--if-warn);
+  background: color-mix(in srgb, var(--if-warn) 6%, var(--if-surface));
+}
+
+/* The page heading ("Duplicates") must not run into the Refresh button next to it. */
+.adm-workspace > .adm-crm-topbar .adm-workspace-heading {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 6px 12px;
+}
+.adm-workspace > .adm-crm-topbar .adm-workspace-heading h1 {
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .adm-workspace button.crm-wf-task {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .crm-wf-task-due {
+    grid-column: 1;
+    grid-row: auto;
+    justify-items: start;
+  }
+}
+.crm-wf-cardwrap {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+.adm-message-text {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Next-action editor in the enquiry header: compact, no reason field. */
+.adm-crm-next-edit {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--if-border);
+}
+.adm-crm-next-edit label {
+  display: grid;
+  gap: 4px;
+  color: var(--if-text-muted);
+  font-size: 12px;
+}
+.adm-crm-next-edit input {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  color: var(--if-text);
+  background: var(--if-surface);
+  border: 1px solid var(--if-border-strong);
+  border-radius: var(--if-radius-md);
+  font: inherit;
+  font-size: 14px;
+}
+.adm-crm-next-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.adm-workspace .adm-crm-next-chips button {
+  min-height: 32px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.adm-workspace .adm-crm-next-edit button[type='submit'] {
+  justify-self: start;
+  min-height: 36px;
+  color: var(--if-text-on-accent);
+  background: var(--if-accent);
+  border-color: var(--if-accent);
+  font-weight: 600;
+}
+.adm-workspace .adm-crm-next-edit button[type='submit']:disabled {
+  color: var(--if-text-muted);
+  background: var(--if-surface-raised);
+  border-color: var(--if-border-strong);
+}
+.adm-crm-next-edit .adm-crm-next-warn {
+  margin: 0;
+  color: var(--if-warn);
+  font-size: 12px;
+}
+/* "also: <old name>" under a row whose search match came through a merged contact. */
+.adm-crm-table .adm-crm-also {
+  display: block;
+  color: var(--if-text-muted);
+  font-style: italic;
+}

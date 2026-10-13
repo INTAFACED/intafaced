@@ -1,3 +1,7 @@
+-- intafaced:destructive — drops the CHECKs purchases_settled_has_tx_ck and purchases_rejected_has_code_ck
+-- from market.purchases without re-adding them under those names. Both rules are carried by the new, stricter
+-- purchases_status_fields_ck below (settled needs ledger_tx_id; rejected needs rejection_code), so no
+-- invariant is lost, only merged. No row is deleted or rewritten. Reversal: the .down.sql.
 -- svc-market · purchase status lock (L1229)
 -- Reversal: 0005_market_purchase_status_lock.down.sql
 --
