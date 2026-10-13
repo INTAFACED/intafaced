@@ -27,6 +27,7 @@
     "platform:logs": "docker compose -f docker-compose.apps.yml logs -f",
     "platform:ps": "docker compose -f docker-compose.apps.yml ps",
     "platform:reset": "docker compose -f docker-compose.apps.yml down -v && docker compose -f docker-compose.apps.yml up -d --build",
+    "preview:outreach": "node tooling/preview/outreach/run.mjs",
     "wt": "node tooling/scripts/worktree.mjs create",
     "wt:base": "node tooling/scripts/worktree.mjs base",
     "wt:list": "node tooling/scripts/worktree.mjs list",
