@@ -221,8 +221,10 @@ export type BankErrorCode =
    * A settlement re-drive disagreed with the amount its row was claimed for.
    *
    * The ledger's business key is the authorisation, not the amount, and a reused
-   * key returns the original transaction without comparing bodies — correct for a
-   * re-drive, silently wrong for a disagreement. Refused rather than reconciled,
+   * key returned the original transaction without comparing bodies — correct for a
+   * re-drive, silently wrong for a disagreement. (The ledger now compares: in `refuse`
+   * mode it answers `ledger.idempotency_conflict`; in `detect` mode it still returns the
+   * original and logs `ledger.idempotency_mismatch`, so this check stays.) Refused rather than reconciled,
    * because the alternative reports a capture the ledger never saw and reverses
    * a remainder computed from it.
    */

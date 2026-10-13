@@ -6,7 +6,11 @@ import { LedgerError } from '@intafaced/ledger-client';
  * Both ledger engines check idempotency before validating the body, so a post
  * whose key already committed returns the original transaction instead of
  * refusing. A typed refusal therefore proves nothing committed under that key:
- * the claim may be released. Every other failure (a transport error, a 5xx, an
+ * the claim may be released.
+ *
+ * `ledger.idempotency_conflict` (the same key with a DIFFERENT body, in `refuse` mode) is
+ * deliberately NOT listed: it proves the key already committed something, so the claim must
+ * stay pending as an unknown outcome, never be released. Every other failure (a transport error, a 5xx, an
  * untyped body, a code not listed here) can follow a remote commit, and the
  * claim must stay pending with its original terms.
  */

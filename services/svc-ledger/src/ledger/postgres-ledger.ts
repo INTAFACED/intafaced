@@ -8,7 +8,10 @@ import {
   assertValidPost,
   formatAmount,
   hashTx,
+  postFingerprint,
   signedDelta,
+  IDEMPOTENCY_CONFLICT_CODE,
+  type IdempotencyConflictOptions,
   InsufficientFundsError,
   LedgerError,
   type AccountRef,
@@ -57,7 +60,10 @@ import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
  * worktrees cannot TRUNCATE each other into a false insufficient-funds failure.
  */
 export class PostgresLedger implements LedgerClient {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    private readonly options: IdempotencyConflictOptions = {},
+  ) {}
 
   async post(request: PostRequest): Promise<LedgerTx> {
     // The shared order, documented at `assertIdempotencyKey`: key, then
@@ -81,8 +87,8 @@ export class PostgresLedger implements LedgerClient {
     assertIdempotencyKey(request.idempotencyKey);
 
     // Fast path — a retry that has already committed needs no lock at all.
-    const existing = await this.getTxByKey(request.idempotencyKey);
-    if (existing) return existing;
+    const existing = await this.loadClaimedTxByKey(this.sql, request.idempotencyKey);
+    if (existing) return this.replayOf(existing, request);
 
     // A JS-number amount is a TypeError inside bigint math —
     // refuse it as invalid money, not a crash that looks like our bug.
@@ -119,8 +125,8 @@ export class PostgresLedger implements LedgerClient {
         // frozen: the value moved, and telling a caller otherwise would have it
         // retry a movement that already happened. The freeze stops new writes,
         // not the truth about old ones.
-        const inTx = await this.loadTxByKey(tx, request.idempotencyKey);
-        if (inTx) return inTx;
+        const inTx = await this.loadClaimedTxByKey(tx, request.idempotencyKey);
+        if (inTx) return this.replayOf(inTx, request);
 
         const freezeRows = await tx<Array<{ frozen: boolean; reason: string | null }>>`
           SELECT frozen, reason FROM posting_freeze WHERE id = true
@@ -199,8 +205,8 @@ export class PostgresLedger implements LedgerClient {
         // hash, and the meta from this insert. Rewriting the journal row does
         // not free the key and does not move this copy.
         await tx`
-          INSERT INTO ledger_posted_keys (idempotency_key, tx_id, posted_hash, posted_meta)
-          VALUES (${request.idempotencyKey}, ${txId}, ${hash}, ${tx.json(meta as never)})
+          INSERT INTO ledger_posted_keys (idempotency_key, tx_id, posted_hash, posted_meta, request_fingerprint)
+          VALUES (${request.idempotencyKey}, ${txId}, ${hash}, ${tx.json(meta as never)}, ${postFingerprint(request)})
         `;
         const seq = insertedTx[0]!.seq;
 
@@ -544,7 +550,35 @@ export class PostgresLedger implements LedgerClient {
     return { id: row.id, balance: parseStoredAmount(row.balance, 'accounts.balance') };
   }
 
+  /**
+   * A key that already booked a movement. A retry of the SAME body gets the
+   * original back; a different body under that key is refused, because
+   * answering it with the old booking told the caller its new movement had
+   * happened. Rows booked before migration 0021 have no stored fingerprint and
+   * keep the old behaviour (nothing to compare against).
+   */
+  private replayOf(claimed: { tx: LedgerTx; fingerprint: string | null }, request: PostRequest): LedgerTx {
+    if (claimed.fingerprint !== null && claimed.fingerprint !== postFingerprint(request)) {
+      if ((this.options.idempotencyConflict ?? 'refuse') === 'refuse') {
+        throw new LedgerError(
+          `Idempotency key ${request.idempotencyKey} already booked a different movement; a retry must carry the same body`,
+          IDEMPOTENCY_CONFLICT_CODE,
+        );
+      }
+      try {
+        this.options.onIdempotencyMismatch?.({ idempotencyKey: request.idempotencyKey, module: request.module, reason: request.reason });
+      } catch {
+        // Reporting a mismatch must never change the answer: detect mode returns the original, always.
+      }
+    }
+    return claimed.tx;
+  }
+
   private async loadTxByKey(tx: Sql, key: string): Promise<LedgerTx | null> {
+    return (await this.loadClaimedTxByKey(tx, key))?.tx ?? null;
+  }
+
+  private async loadClaimedTxByKey(tx: Sql, key: string): Promise<{ tx: LedgerTx; fingerprint: string | null } | null> {
     // One statement snapshot: separate claim/journal probes can straddle a
     // concurrent commit and falsely call the just-committed row unclaimed.
     const rows = await tx<ClaimRow[]>`
@@ -556,13 +590,14 @@ export class PostgresLedger implements LedgerClient {
       SELECT t.*,
              (k.idempotency_key IS NOT DISTINCT FROM t.idempotency_key
               AND k.posted_hash IS NOT DISTINCT FROM t.hash
-              AND k.posted_meta IS NOT DISTINCT FROM t.meta) AS claim_matches
+              AND k.posted_meta IS NOT DISTINCT FROM t.meta) AS claim_matches,
+             k.request_fingerprint AS request_fingerprint
         FROM target JOIN ledger_tx t ON t.id = target.id
         LEFT JOIN ledger_posted_keys k ON k.tx_id = t.id
     `;
     if (rows.length === 0) return null;
     assertPostedClaim(rows);
-    return this.hydrate(tx, rows[0]!);
+    return { tx: await this.hydrate(tx, rows[0]!), fingerprint: rows[0]!.request_fingerprint ?? null };
   }
 
   private async hydrate(sql: Sql, row: TxRow): Promise<LedgerTx> {
@@ -654,6 +689,7 @@ export { hashTx };
 
 interface ClaimRow extends TxRow {
   claim_matches: boolean;
+  request_fingerprint?: string | null;
 }
 
 function assertPostedClaim(rows: ClaimRow[]): void {
