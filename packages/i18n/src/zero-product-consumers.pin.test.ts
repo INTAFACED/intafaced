@@ -13,6 +13,8 @@ import { describe, expect, it } from 'vitest';
  *   · `svc-pay` — payer-visible hosted checkout copy (not a product SPA)
  *   · `svc-ws` — close/error reason keys on the socket path (not a keyed UI)
  *   · `apps/admin` — operator console status / kill-switch / banner copy
+ *   · `apps/customer` — the React customer app, which keys its screens through
+ *     the catalog (`src/shared/i18n.tsx`, `copy.ts`, `locale.ts`; #4490)
  *   · `svc-p2p` — offer/instrument refuse copy (wire codes, not a keyed UI)
  *   · `svc-bank` — ramp/card wire refusals (dotted key when catalog misses)
  *   · `svc-market` — listing / vendor / commerce refuse copy
@@ -37,7 +39,7 @@ const IMPORT_RE = /['"]@intafaced\/i18n(?:\/[^'"]*)?['"]/;
 
 /** Product UI + product services. Allowlisted dirs already resolve catalog keys. */
 const PRODUCT_ROOTS = ['apps', 'services'] as const;
-const ALLOWED_APP_DIRS = new Set(['admin']);
+const ALLOWED_APP_DIRS = new Set(['admin', 'customer']);
 const ALLOWED_SERVICE_DIRS = new Set([
   'svc-notify',
   'svc-pay',

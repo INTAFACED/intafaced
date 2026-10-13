@@ -7,12 +7,7 @@ import { parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsIsPaperSliceRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'missing_qty'
-  | 'qty_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_live' | 'missing_qty' | 'qty_invalid' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsIsPaperSliceRefusal = {
   readonly ok: false;
@@ -37,9 +32,7 @@ function refuse(reason: OmsIsPaperSliceRefuseReason, detail: string): OmsIsPaper
   return { ok: false, reason, detail };
 }
 
-function parseQty(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsIsPaperSliceRefusal {
+function parseQty(raw: string | null | undefined): { ok: true; text: string } | OmsIsPaperSliceRefusal {
   if (raw === null || raw === undefined) {
     return refuse('missing_qty', 'slice qty is blank — refuse rather than invent size from arrival');
   }
@@ -90,10 +83,7 @@ export function slicePaperImplementationShortfallParent(input: {
     return refuse('not_live', `kind ${String(input.kind)} is not implementation_shortfall`);
   }
   if (!paperLive(input.status)) {
-    return refuse(
-      'not_live',
-      `parent ${parentClientOrderId} is ${input.status} — slice needs a live paper IS parent`,
-    );
+    return refuse('not_live', `parent ${parentClientOrderId} is ${input.status} — slice needs a live paper IS parent`);
   }
   const qty = parseQty(input.amount);
   if (!qty.ok) return qty;

@@ -8,12 +8,7 @@ import { parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsIsPaperApproveRefuseReason =
-  | 'missing_parent'
-  | 'arrival_price_blank'
-  | 'arrival_price_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off'
-  | 'missing_operator';
+  'missing_parent' | 'arrival_price_blank' | 'arrival_price_invalid' | 'paper_gate_unwired' | 'paper_off' | 'missing_operator';
 
 export type OmsIsPaperApproveRefusal = {
   readonly ok: false;
@@ -39,9 +34,7 @@ function refuse(reason: OmsIsPaperApproveRefuseReason, detail: string): OmsIsPap
   return { ok: false, reason, detail };
 }
 
-function parseArrivalPrice(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsIsPaperApproveRefusal {
+function parseArrivalPrice(raw: string | null | undefined): { ok: true; text: string } | OmsIsPaperApproveRefusal {
   if (raw === null || raw === undefined) {
     return refuse('arrival_price_blank', 'arrival price is blank — refuse rather than invent a price from a book');
   }

@@ -78,10 +78,7 @@ export function installPostOnlyPlace(ctor: typeof TradeService): void {
   proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
     const bound = bindPostOnly(input);
     if (bound.tif === 'PO' && (bound.type === 'market' || bound.price == null)) {
-      throw new TradeError(
-        'post-only requires a limit price; trade does not invent one',
-        'trade.invalid_tif',
-      );
+      throw new TradeError('post-only requires a limit price; trade does not invent one', 'trade.invalid_tif');
     }
     return origPlace.call(this, principal, bound);
   };

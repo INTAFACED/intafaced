@@ -207,7 +207,8 @@ describe('svc-trade stop-limit-place (H8a PG-hard)', () => {
       expect(order.status).toBe('open');
       expect(matching.submitted[0]?.request.type).toBe('limit');
       expect(matching.submitted[0]?.request.stopPx).toBeUndefined();
-      expect(matching.submitted[0]?.request.stopPrice).toBeUndefined();
+      // #31: the plain place request always carries an explicit stopPrice: null (not set), never a value.
+      expect(matching.submitted[0]?.request.stopPrice).toBeNull();
     });
   });
 });

@@ -3,7 +3,7 @@
  * Stage the React customer site for the existing sideload/WebView wrapper.
  * Verify the explicit deployed HTTPS origin before replacing any assets.
  *
- *   pnpm --filter mobile build
+ *   pnpm --filter mobile native:stage
  *   node ./scripts/build-wrap.mjs --check
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, renameSync } from 'node:fs';

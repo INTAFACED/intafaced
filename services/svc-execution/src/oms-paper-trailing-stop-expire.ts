@@ -7,13 +7,7 @@
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperTrailingStopExpireRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'already_expired'
-  | 'already_stopped'
-  | 'missing_expire_at'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_live' | 'already_expired' | 'already_stopped' | 'missing_expire_at' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsPaperTrailingStopExpireRefusal = {
   readonly ok: false;
@@ -34,14 +28,9 @@ export type OmsPaperTrailingStopExpireOk = {
   readonly residual: { readonly remaining: string | null };
 };
 
-export type OmsPaperTrailingStopExpireResult =
-  | OmsPaperTrailingStopExpireOk
-  | OmsPaperTrailingStopExpireRefusal;
+export type OmsPaperTrailingStopExpireResult = OmsPaperTrailingStopExpireOk | OmsPaperTrailingStopExpireRefusal;
 
-function refuse(
-  reason: OmsPaperTrailingStopExpireRefuseReason,
-  detail: string,
-): OmsPaperTrailingStopExpireRefusal {
+function refuse(reason: OmsPaperTrailingStopExpireRefuseReason, detail: string): OmsPaperTrailingStopExpireRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -93,10 +82,7 @@ export function expirePaperTrailingStopParent(input: {
     return refuse('already_stopped', `parent ${parentClientOrderId} is already stopped`);
   }
   if (status === 'running') {
-    return refuse(
-      'not_live',
-      `parent ${parentClientOrderId} is running live — refusing to invent a paper expire over live`,
-    );
+    return refuse('not_live', `parent ${parentClientOrderId} is running live — refusing to invent a paper expire over live`);
   }
   if (status !== 'paper') {
     return refuse('not_live', `parent ${parentClientOrderId} is not a paper parent`);
@@ -104,10 +90,7 @@ export function expirePaperTrailingStopParent(input: {
 
   const expireAt = retainedExpireAt(input.expireAt);
   if (!expireAt) {
-    return refuse(
-      'missing_expire_at',
-      'expireAt is missing — refusing to invent a window from trail or the clock',
-    );
+    return refuse('missing_expire_at', 'expireAt is missing — refusing to invent a window from trail or the clock');
   }
 
   return {

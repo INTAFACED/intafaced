@@ -8,13 +8,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperScaleOutApproveRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'child_size_blank'
-  | 'child_size_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off'
-  | 'missing_operator';
+  'missing_parent' | 'not_live' | 'child_size_blank' | 'child_size_invalid' | 'paper_gate_unwired' | 'paper_off' | 'missing_operator';
 
 export type OmsPaperScaleOutApproveRefusal = {
   readonly ok: false;
@@ -34,47 +28,28 @@ export type OmsPaperScaleOutApproveOk = {
   readonly childSize: string;
 };
 
-export type OmsPaperScaleOutApproveResult =
-  | OmsPaperScaleOutApproveOk
-  | OmsPaperScaleOutApproveRefusal;
+export type OmsPaperScaleOutApproveResult = OmsPaperScaleOutApproveOk | OmsPaperScaleOutApproveRefusal;
 
-function refuse(
-  reason: OmsPaperScaleOutApproveRefuseReason,
-  detail: string,
-): OmsPaperScaleOutApproveRefusal {
+function refuse(reason: OmsPaperScaleOutApproveRefuseReason, detail: string): OmsPaperScaleOutApproveRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseChildSize(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperScaleOutApproveRefusal {
+function parseChildSize(raw: string | null | undefined): { ok: true; text: string } | OmsPaperScaleOutApproveRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'child_size_blank',
-      'scale-out child size is blank — refuse rather than invent size',
-    );
+    return refuse('child_size_blank', 'scale-out child size is blank — refuse rather than invent size');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'child_size_blank',
-      'scale-out child size is blank — refuse rather than invent size',
-    );
+    return refuse('child_size_blank', 'scale-out child size is blank — refuse rather than invent size');
   }
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuse(
-        'child_size_invalid',
-        'scale-out child size must be a positive ledger amount — not invented',
-      );
+      return refuse('child_size_invalid', 'scale-out child size must be a positive ledger amount — not invented');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'child_size_invalid',
-      'scale-out child size is not a ledger amount — refusing to invent size',
-    );
+    return refuse('child_size_invalid', 'scale-out child size is not a ledger amount — refusing to invent size');
   }
 }
 

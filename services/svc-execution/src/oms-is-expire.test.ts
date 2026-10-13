@@ -19,9 +19,7 @@ const RETAINED_EXPIRE_AT = '2026-08-31T18:00:00.000Z';
 
 describe('expireImplementationShortfallParent', () => {
   it('refuses missing parentClientOrderId', () => {
-    expect(
-      expireImplementationShortfallParent({ status: 'running', expireAt: RETAINED_EXPIRE_AT }),
-    ).toMatchObject({
+    expect(expireImplementationShortfallParent({ status: 'running', expireAt: RETAINED_EXPIRE_AT })).toMatchObject({
       ok: false,
       reason: 'missing_parent',
     });

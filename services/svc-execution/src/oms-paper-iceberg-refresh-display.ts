@@ -7,12 +7,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperIcebergRefreshDisplayRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'display_qty_blank'
-  | 'display_qty_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_live' | 'display_qty_blank' | 'display_qty_invalid' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsPaperIcebergRefreshDisplayRefusal = {
   readonly ok: false;
@@ -31,47 +26,28 @@ export type OmsPaperIcebergRefreshDisplayOk = {
   readonly displayQty: string;
 };
 
-export type OmsPaperIcebergRefreshDisplayResult =
-  | OmsPaperIcebergRefreshDisplayOk
-  | OmsPaperIcebergRefreshDisplayRefusal;
+export type OmsPaperIcebergRefreshDisplayResult = OmsPaperIcebergRefreshDisplayOk | OmsPaperIcebergRefreshDisplayRefusal;
 
-function refuse(
-  reason: OmsPaperIcebergRefreshDisplayRefuseReason,
-  detail: string,
-): OmsPaperIcebergRefreshDisplayRefusal {
+function refuse(reason: OmsPaperIcebergRefreshDisplayRefuseReason, detail: string): OmsPaperIcebergRefreshDisplayRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseDisplayQty(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperIcebergRefreshDisplayRefusal {
+function parseDisplayQty(raw: string | null | undefined): { ok: true; text: string } | OmsPaperIcebergRefreshDisplayRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'display_qty_blank',
-      'iceberg display qty is blank — refuse rather than invent size from parent amount',
-    );
+    return refuse('display_qty_blank', 'iceberg display qty is blank — refuse rather than invent size from parent amount');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'display_qty_blank',
-      'iceberg display qty is blank — refuse rather than invent size from parent amount',
-    );
+    return refuse('display_qty_blank', 'iceberg display qty is blank — refuse rather than invent size from parent amount');
   }
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuse(
-        'display_qty_invalid',
-        'iceberg display qty must be a positive ledger amount — not invented',
-      );
+      return refuse('display_qty_invalid', 'iceberg display qty must be a positive ledger amount — not invented');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'display_qty_invalid',
-      'iceberg display qty is not a ledger amount — refusing to invent size',
-    );
+    return refuse('display_qty_invalid', 'iceberg display qty is not a ledger amount — refusing to invent size');
   }
 }
 
@@ -103,10 +79,7 @@ export function refreshPaperIcebergDisplayQty(input: {
   }
   const status = input.status?.trim() ?? '';
   if (status !== 'paper') {
-    return refuse(
-      'not_live',
-      `parent ${parentClientOrderId} is ${status || 'not paper'} — refresh needs a live paper iceberg parent`,
-    );
+    return refuse('not_live', `parent ${parentClientOrderId} is ${status || 'not paper'} — refresh needs a live paper iceberg parent`);
   }
   const qty = parseDisplayQty(input.displayQty);
   if (!qty.ok) return qty;

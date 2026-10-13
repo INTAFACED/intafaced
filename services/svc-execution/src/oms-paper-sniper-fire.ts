@@ -39,10 +39,7 @@ export type OmsPaperSniperFireOk = {
 
 export type OmsPaperSniperFireResult = OmsPaperSniperFireOk | OmsPaperSniperFireRefusal;
 
-function refuse(
-  reason: OmsPaperSniperFireRefuseReason,
-  detail: string,
-): OmsPaperSniperFireRefusal {
+function refuse(reason: OmsPaperSniperFireRefuseReason, detail: string): OmsPaperSniperFireRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -66,36 +63,22 @@ function parseLedger(
   }
 }
 
-function parseQty(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperSniperFireRefusal {
+function parseQty(raw: string | null | undefined): { ok: true; text: string } | OmsPaperSniperFireRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_qty',
-      'child qty is blank — refuse rather than invent size from the trigger',
-    );
+    return refuse('missing_qty', 'child qty is blank — refuse rather than invent size from the trigger');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_qty',
-      'child qty is blank — refuse rather than invent size from the trigger',
-    );
+    return refuse('missing_qty', 'child qty is blank — refuse rather than invent size from the trigger');
   }
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuse(
-        'qty_invalid',
-        'child qty must be a positive ledger amount — not invented from the trigger',
-      );
+      return refuse('qty_invalid', 'child qty must be a positive ledger amount — not invented from the trigger');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'qty_invalid',
-      'child qty is not a ledger amount — refusing to invent size from the trigger',
-    );
+    return refuse('qty_invalid', 'child qty is not a ledger amount — refusing to invent size from the trigger');
   }
 }
 
@@ -130,20 +113,14 @@ export function firePaperSniperChildOnTrigger(input: {
   }
   const status = input.status?.trim() ?? '';
   if (status !== 'paper') {
-    return refuse(
-      'not_live',
-      `parent ${parentClientOrderId} is ${status || 'not paper'} — fire needs a live paper sniper parent`,
-    );
+    return refuse('not_live', `parent ${parentClientOrderId} is ${status || 'not paper'} — fire needs a live paper sniper parent`);
   }
   const trigger = parseLedger(input.triggerPrice, 'missing_trigger', 'sniper trigger price');
   if (!trigger.ok) return trigger;
   const last = parseLedger(input.lastPrice, 'missing_last', 'sniper last price');
   if (!last.ok) return last;
   if (last.value !== trigger.value) {
-    return refuse(
-      'trigger_not_hit',
-      'last is not the sniper trigger — refusing to invent a hit or a live child',
-    );
+    return refuse('trigger_not_hit', 'last is not the sniper trigger — refusing to invent a hit or a live child');
   }
   const qty = parseQty(input.amount);
   if (!qty.ok) return qty;

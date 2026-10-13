@@ -5,10 +5,7 @@
  * Does not touch matching.
  */
 import { parseAmount } from '@intafaced/ledger-client';
-import {
-  startApprovedAlgoParent,
-  type OmsStartResult,
-} from './oms-start.js';
+import { startApprovedAlgoParent, type OmsStartResult } from './oms-start.js';
 
 export type OmsStartCreditRefuse =
   | { readonly ok: false; readonly reason: 'credit_blank'; readonly detail: string }
@@ -20,9 +17,7 @@ function refuseCredit(reason: OmsStartCreditRefuse['reason'], detail: string): O
   return { ok: false, reason, detail };
 }
 
-function parsePreTradeCredit(
-  raw: string | null | undefined,
-): { ok: true } | OmsStartCreditRefuse {
+function parsePreTradeCredit(raw: string | null | undefined): { ok: true } | OmsStartCreditRefuse {
   if (raw === null || raw === undefined) {
     return refuseCredit('credit_blank', 'pre-trade credit is blank — refuse rather than invent a limit');
   }

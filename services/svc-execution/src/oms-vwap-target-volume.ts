@@ -14,36 +14,22 @@ export type OmsVwapTargetVolumeRefuse =
 
 export type OmsApproveWithVwapTargetVolumeResult = OmsApproveResult | OmsVwapTargetVolumeRefuse;
 
-function refuseVolume(
-  reason: OmsVwapTargetVolumeRefuse['reason'],
-  detail: string,
-): OmsVwapTargetVolumeRefuse {
+function refuseVolume(reason: OmsVwapTargetVolumeRefuse['reason'], detail: string): OmsVwapTargetVolumeRefuse {
   return { ok: false, reason, detail };
 }
 
-function parseTargetVolume(
-  raw: string | null | undefined,
-): { ok: true } | OmsVwapTargetVolumeRefuse {
+function parseTargetVolume(raw: string | null | undefined): { ok: true } | OmsVwapTargetVolumeRefuse {
   if (raw === null || raw === undefined) {
-    return refuseVolume(
-      'target_volume_blank',
-      'VWAP target volume is blank — refuse rather than invent size',
-    );
+    return refuseVolume('target_volume_blank', 'VWAP target volume is blank — refuse rather than invent size');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuseVolume(
-      'target_volume_blank',
-      'VWAP target volume is blank — refuse rather than invent size',
-    );
+    return refuseVolume('target_volume_blank', 'VWAP target volume is blank — refuse rather than invent size');
   }
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuseVolume(
-        'target_volume_invalid',
-        'VWAP target volume must be a positive ledger amount — not invented',
-      );
+      return refuseVolume('target_volume_invalid', 'VWAP target volume must be a positive ledger amount — not invented');
     }
     return { ok: true };
   } catch (err) {
@@ -52,9 +38,7 @@ function parseTargetVolume(
   }
 }
 
-function resolvedKind(
-  input: Parameters<typeof approveAlgoParent>[0],
-): AlgoKind | string | undefined {
+function resolvedKind(input: Parameters<typeof approveAlgoParent>[0]): AlgoKind | string | undefined {
   const fromInput = input.kind;
   if (fromInput === 'twap' || fromInput === 'vwap' || fromInput === 'pov') return fromInput;
   const id = input.parentClientOrderId?.trim() ?? '';

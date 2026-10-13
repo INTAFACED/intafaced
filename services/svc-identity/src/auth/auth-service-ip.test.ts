@@ -11,9 +11,7 @@ describe('bindApiKeyIpAllowlist', () => {
     await expect(bindApiKeyIpAllowlist(fakeSql(), 'u', 'k', ['10.0.0.0/8'])).rejects.toMatchObject({
       code: 'auth.ip_invalid',
     });
-    await expect(bindApiKeyIpAllowlist(fakeSql(), 'u', 'k', ['203.0.113.10', 'not-an-ip'])).rejects.toBeInstanceOf(
-      ApiKeyIpError,
-    );
+    await expect(bindApiKeyIpAllowlist(fakeSql(), 'u', 'k', ['203.0.113.10', 'not-an-ip'])).rejects.toBeInstanceOf(ApiKeyIpError);
   });
 
   it('returns the bound list and treats a missing key as not found', async () => {

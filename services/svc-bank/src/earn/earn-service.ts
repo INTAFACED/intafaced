@@ -11,6 +11,7 @@ import {
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
+import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { BankError } from '../errors.js';
 import { assertEarnPoolsListLimit } from '../catalog-list-limit.js';
 import { assertEarnPositionsListLimit } from '../owner-list-limit.js';
@@ -272,7 +273,8 @@ export class EarnService {
    *
    * L3-3 ordering: **claim `pending` → ledger post → activate** (same as
    * svc-token stake). `pending` is not interest-eligible; if the ledger
-   * refuses we delete the claim so nothing is left to accrue against.
+   * definitely refuses we delete the claim so nothing is left to accrue
+   * against. An unknown outcome keeps the claim and rethrows.
    * Ledger post is idempotent on `positionId` for crash recovery — see
    * `resumePending` when the process dies after the post and before activate.
    *
@@ -324,10 +326,12 @@ export class EarnService {
         }
 
         try {
-          // Post alone is in the try: if it fails, funds never left available and
-          // deleting the claim is safe. If the process dies *after* a successful
-          // post and before activate, the row stays `pending` for resumePending —
-          // never delete a staked claim.
+          // Post alone is in the try. Only a definite ledger refusal proves the
+          // funds never left available, so only then is deleting the claim safe.
+          // Any other failure may follow a commit whose acknowledgement was lost:
+          // the row stays `pending` with its original terms for resumePending or
+          // a same-id retry, both of which re-drive the same idempotent post.
+          // Never delete a claim that may be staked.
           await this.postEarnDeposit({
             positionId,
             poolId: pool.id,
@@ -336,6 +340,7 @@ export class EarnService {
             amount: input.amount,
           });
         } catch (err) {
+          if (!isDefiniteLedgerRefusal(err)) throw err;
           await this.sql`
             DELETE FROM bank.earn_positions WHERE id = ${positionId} AND status = 'pending'
           `;

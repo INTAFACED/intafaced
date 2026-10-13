@@ -299,6 +299,13 @@ contract SmartAccount is IAccount, IERC1271 {
         if (SessionKeyLib.isOutboundTransfer(selector)) {
             revert SessionKeyLib.SessionOutboundTransferForbidden(selector);
         }
+        // A trade made by a session is made FOR this account: where the call names
+        // a recipient, it must be this account. The owner's token allowance pays
+        // for the trade; it must not pay a stranger.
+        SessionKeyLib.assertRecipientIsAccount(selector, data, address(this));
+        // ...and where a contract trusts an address argument (the router's pool),
+        // that address must be one the owner put in this session's targets.
+        SessionKeyLib.assertTargetArgAllowed(spec, selector, data);
 
         // Counted BEFORE the external call, so re-entrancy spends the budget
         // once rather than once per re-entry.

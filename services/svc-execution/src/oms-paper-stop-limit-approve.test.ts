@@ -98,7 +98,7 @@ describe('approvePaperStopLimitParent', () => {
     expect(blank).not.toMatchObject({ approved: true });
   });
 
-  it("refuses omitted / null / whitespace / invalid stopPrice with stop_blank / stop_invalid even when limit and amount are present", () => {
+  it('refuses omitted / null / whitespace / invalid stopPrice with stop_blank / stop_invalid even when limit and amount are present', () => {
     expect(
       approvePaperStopLimitParent({
         parentClientOrderId: 'p-stpl',
@@ -144,7 +144,7 @@ describe('approvePaperStopLimitParent', () => {
     ).toMatchObject({ ok: false, reason: 'stop_invalid' });
   });
 
-  it("refuses omitted / null / whitespace / invalid limitPrice with limit_blank / limit_invalid even when stop and amount are present", () => {
+  it('refuses omitted / null / whitespace / invalid limitPrice with limit_blank / limit_invalid even when stop and amount are present', () => {
     expect(
       approvePaperStopLimitParent({
         parentClientOrderId: 'p-stpl',
@@ -211,7 +211,7 @@ describe('approvePaperStopLimitParent', () => {
     });
   });
 
-  it("happy: parent id + kind omitted + both prices + operator + paper on — not invented from amount", () => {
+  it('happy: parent id + kind omitted + both prices + operator + paper on — not invented from amount', () => {
     const result = approvePaperStopLimitParent({
       parentClientOrderId: 'p-stpl',
       stopPrice: STOP,

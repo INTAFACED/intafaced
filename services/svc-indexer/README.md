@@ -23,16 +23,16 @@ Internal tRPC (`createIndexerRouter`), self-mounted at `/trpc` behind `createEdg
 
 There is no scoped procedure in this router and there could not usefully be one. Every fact served is a copy of public chain state — the book, the tape, and a position at an address anyone can already query from any node. An account gate in front of a mirror of public data does not protect a user; it only makes the mirror worse than the original.
 
-| Procedure      | Guard          | Input                 | Output                                                                                                                       |
-| -------------- | -------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `health`       | —              | —                     | `{ ok, service, ingestEnabled, clob, chain: { status: 'unprobed', observedChainId: null } }` — liveness, not a custody claim |
-| `status`       | permissionless | —                     | cursor, **`behindBy`**, live `chain` probe, **`halted`**, `lastError`                                                        |
-| `markets`      | permissionless | —                     | `string[]`                                                                                                                   |
-| `book`         | permissionless | `{ market, depth }`   | `{ asOfHeight, asOfHash, bids: [price, qty][], asks: … }` — omit depth is `indexer.book_depth_unset`                         |
-| `fills`        | permissionless | `{ market, limit }`   | recent trades, newest first — omit limit is `indexer.fills_limit_unset`                                                      |
-| `accountFills` | permissionless | `{ account, limit }`  | an address's tape — omit limit is `indexer.fills_limit_unset`                                                                |
-| `position`     | permissionless | `{ market, account }` | signed size + entry price, or `null`                                                                                         |
-| `positions`    | permissionless | `{ account }`         | every market that address has a position in                                                                                  |
+| Procedure      | Guard          | Input                 | Output                                                                                                                                                                                                                 |
+| -------------- | -------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `health`       | —              | —                     | `{ ok, service, ingestEnabled, clob, chain: { status: 'unprobed', observedChainId: null } }` — liveness, not a custody claim                                                                                           |
+| `status`       | permissionless | —                     | cursor, **`behindBy`**, live `chain` probe, **`halted`**, `lastError`                                                                                                                                                  |
+| `markets`      | permissionless | —                     | `string[]`                                                                                                                                                                                                             |
+| `book`         | permissionless | `{ market, depth }`   | `{ asOfHeight, asOfHash, bids: [price, qty][], asks: … }` — the book as of `status.finalizedHeight`, so it lags the head by `finalityDepth` blocks (`asOfHeight` says which); omit depth is `indexer.book_depth_unset` |
+| `fills`        | permissionless | `{ market, limit }`   | recent trades, newest first — omit limit is `indexer.fills_limit_unset`                                                                                                                                                |
+| `accountFills` | permissionless | `{ account, limit }`  | an address's tape — omit limit is `indexer.fills_limit_unset`                                                                                                                                                          |
+| `position`     | permissionless | `{ market, account }` | signed size + entry price, or `null`                                                                                                                                                                                   |
+| `positions`    | permissionless | `{ account }`         | every market that address has a position in                                                                                                                                                                            |
 
 HTTP: `GET /health` (process liveness — does **not** echo `INDEXER_CHAIN_ID` / Anvil 31337; chain is `unprobed`) · `GET /ready`. `status.chain` is the honest probe.
 
