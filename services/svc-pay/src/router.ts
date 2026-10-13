@@ -1255,10 +1255,16 @@ export function createPayRouter(
                   assetId: input.assetId,
                 });
               } catch (e) {
-                // The ledger refused for funds (money moved since the plan): the same named refusal the webhook door records,
-                // not a 500 the operator can only retry. Anything else keeps its own error.
-                if (!(e instanceof LedgerError && e.code === 'ledger.insufficient_funds')) throw e;
-                ledgerRefuse = refuseChargebackUncovered({ disputeId: input.disputeId, paymentId: input.paymentId });
+                // The ledger refused for funds (money moved since the plan). A named error, NOT a recorded case: the case
+                // store keeps its first answer, so a recorded refusal would be returned for a later retry that does post.
+                if (e instanceof LedgerError && e.code === 'ledger.insufficient_funds') {
+                  throw new TRPCError({
+                    code: 'PRECONDITION_FAILED',
+                    message: 'pay.chargeback_uncovered: clearing and available cannot cover the chargeback right now; nothing was booked',
+                    cause: e,
+                  });
+                }
+                throw e;
               }
             }
             const ledgerPost = posted?.txId?.trim() ? { txId: posted.txId.trim() } : undefined;
