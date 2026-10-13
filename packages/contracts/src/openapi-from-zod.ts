@@ -13,13 +13,7 @@ export const ZOD_TO_OPENAPI = '@asteasolutions/zod-to-openapi' as const;
 export const ZOD_TO_OPENAPI_VERSION = '7.3.4' as const;
 
 export type DeveloperRefuseReason =
-  | 'openapi_unset'
-  | 'schema_unregistered'
-  | 'ieee_money'
-  | 'decimal_unset'
-  | 'deprecation_unset'
-  | 'silent_break'
-  | 'svc_fix_not_this_pr';
+  'openapi_unset' | 'schema_unregistered' | 'ieee_money' | 'decimal_unset' | 'deprecation_unset' | 'silent_break' | 'svc_fix_not_this_pr';
 
 export type DeveloperRefusal = {
   readonly ok: false;
@@ -52,10 +46,7 @@ type ZodToOpenApi = {
     definitions: unknown;
   };
   OpenApiGeneratorV3: new (definitions: unknown) => {
-    generateDocument: (config: {
-      openapi: string;
-      info: { title: string; version: string };
-    }) => {
+    generateDocument: (config: { openapi: string; info: { title: string; version: string } }) => {
       openapi: string;
       info: { title: string; version: string };
       components?: { schemas?: Record<string, unknown> };
@@ -71,17 +62,11 @@ function loadAdapter(): ZodToOpenApi | DeveloperRefusal {
   try {
     const loaded = createRequire(import.meta.url)(ZOD_TO_OPENAPI) as ZodToOpenApi;
     if (!loaded?.extendZodWithOpenApi || !loaded.OpenAPIRegistry || !loaded.OpenApiGeneratorV3) {
-      return refuse(
-        'openapi_unset',
-        `${ZOD_TO_OPENAPI}@${ZOD_TO_OPENAPI_VERSION} is unwired — refusing rather than inventing OpenAPI`,
-      );
+      return refuse('openapi_unset', `${ZOD_TO_OPENAPI}@${ZOD_TO_OPENAPI_VERSION} is unwired — refusing rather than inventing OpenAPI`);
     }
     return loaded;
   } catch {
-    return refuse(
-      'openapi_unset',
-      `${ZOD_TO_OPENAPI}@${ZOD_TO_OPENAPI_VERSION} is missing — refusing rather than inventing OpenAPI`,
-    );
+    return refuse('openapi_unset', `${ZOD_TO_OPENAPI}@${ZOD_TO_OPENAPI_VERSION} is missing — refusing rather than inventing OpenAPI`);
   }
 }
 
@@ -146,9 +131,7 @@ function schemaHasNumberMoney(schema: unknown): boolean {
   return false;
 }
 
-function refuseNumberMoneyInDocument(document: {
-  components?: { schemas?: Record<string, unknown> };
-}): DeveloperRefusal | null {
+function refuseNumberMoneyInDocument(document: { components?: { schemas?: Record<string, unknown> } }): DeveloperRefusal | null {
   for (const [name, schema] of Object.entries(document.components?.schemas ?? {})) {
     if (schemaHasNumberMoney(schema)) {
       return refuse('ieee_money', `OpenAPI ${name} money is number — decimal string required`);

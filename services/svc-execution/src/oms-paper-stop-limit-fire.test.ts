@@ -226,7 +226,7 @@ describe('firePaperStopLimitLimitChildOnStop', () => {
     ).toMatchObject({ ok: false, reason: 'missing_limit' });
   });
 
-  it("refuses omitted / blank amount with missing_qty (no invented size from the stop or the limit)", () => {
+  it('refuses omitted / blank amount with missing_qty (no invented size from the stop or the limit)', () => {
     expect(
       firePaperStopLimitLimitChildOnStop({
         parentClientOrderId: 'p-stpl',

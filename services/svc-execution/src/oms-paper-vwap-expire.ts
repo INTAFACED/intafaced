@@ -7,13 +7,7 @@
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperVwapExpireRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'already_expired'
-  | 'already_stopped'
-  | 'missing_expire_at'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_live' | 'already_expired' | 'already_stopped' | 'missing_expire_at' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsPaperVwapExpireRefusal = {
   readonly ok: false;
@@ -96,10 +90,7 @@ export function expirePaperVwapParent(input: {
 
   const expireAt = retainedExpireAt(input.expireAt);
   if (!expireAt) {
-    return refuse(
-      'missing_expire_at',
-      'expireAt is missing — refusing to invent a schedule from target volume or the clock',
-    );
+    return refuse('missing_expire_at', 'expireAt is missing — refusing to invent a schedule from target volume or the clock');
   }
 
   return {

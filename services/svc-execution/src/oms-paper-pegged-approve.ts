@@ -8,13 +8,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperPeggedApproveRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'offset_blank'
-  | 'offset_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off'
-  | 'missing_operator';
+  'missing_parent' | 'not_live' | 'offset_blank' | 'offset_invalid' | 'paper_gate_unwired' | 'paper_off' | 'missing_operator';
 
 export type OmsPaperPeggedApproveRefusal = {
   readonly ok: false;
@@ -34,20 +28,13 @@ export type OmsPaperPeggedApproveOk = {
   readonly offset: string;
 };
 
-export type OmsPaperPeggedApproveResult =
-  | OmsPaperPeggedApproveOk
-  | OmsPaperPeggedApproveRefusal;
+export type OmsPaperPeggedApproveResult = OmsPaperPeggedApproveOk | OmsPaperPeggedApproveRefusal;
 
-function refuse(
-  reason: OmsPaperPeggedApproveRefuseReason,
-  detail: string,
-): OmsPaperPeggedApproveRefusal {
+function refuse(reason: OmsPaperPeggedApproveRefuseReason, detail: string): OmsPaperPeggedApproveRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseOffset(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperPeggedApproveRefusal {
+function parseOffset(raw: string | null | undefined): { ok: true; text: string } | OmsPaperPeggedApproveRefusal {
   if (raw === null || raw === undefined) {
     return refuse('offset_blank', 'pegged offset is blank — refuse rather than invent offset');
   }
@@ -58,10 +45,7 @@ function parseOffset(
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'offset_invalid',
-      'pegged offset is not a ledger amount — refusing to invent offset',
-    );
+    return refuse('offset_invalid', 'pegged offset is not a ledger amount — refusing to invent offset');
   }
 }
 

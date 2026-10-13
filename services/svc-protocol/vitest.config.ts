@@ -11,5 +11,10 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     fileParallelism: false,
+    // Business fixtures isolate the blank screening socket. Mounted-request tests
+    // explicitly arm strict policy; production defaults remain unchanged.
+    env: {
+      INTAFACED_SCREENING_FAIL_CLOSED: 'off',
+    },
   },
 });

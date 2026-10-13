@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 /**
- * Shell desk golden tests — the honesty/math suites under 05_Web_Front.
+ * Outreach golden tests — the proofs for the 05_Web_Front modules that the
+ * public invitation app (apps/invitation) still bundles.
  *
- * These files exist as `node …/*.golden.js` proofs (depth feedLive, ix-money,
- * book-honesty, hotkeys, …). Until this gate they only ran when an agent
- * remembered to. A golden that never executes is not a test.
+ * The legacy Vue customer site in that directory is retired (see its
+ * RETIRED.md), but `apps/invitation/vite.config.ts` still aliases six of its
+ * files into the shipped questionnaire: outreach-intake, outreach-review,
+ * outreach-public-info, outreach-draft-storage, outreach-countries and
+ * config/intafaced.js. This gate keeps the golden tests that sit next to those
+ * modules running; it replaces the broader `shell-golden` gate, which ran every
+ * golden in the retired site.
  *
- * Exit 0 = every discovered golden exited 0. Exit 1 = any failed or none found.
+ * Only `outreach-*.golden.js` files are run.
+ *
+ * Exit 0 = every discovered outreach golden exited 0. Exit 1 = any failed, or
+ * none were found (a golden suite that finds no goldens proves nothing).
  */
 import { readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -26,7 +34,7 @@ function listGoldens(dir) {
     return [];
   }
   return entries
-    .filter((name) => name.endsWith('.golden.js'))
+    .filter((name) => /^outreach-.+\.golden\.js$/.test(name))
     .map((name) => join(dir, name))
     .filter((p) => {
       try {
@@ -40,7 +48,8 @@ function listGoldens(dir) {
 
 const goldens = listGoldens(GOLDEN_DIR);
 if (goldens.length === 0) {
-  console.error('✗ shell-golden-scan — no *.golden.js under', relative(ROOT, GOLDEN_DIR));
+  console.error('✗ invitation-outreach-golden — no outreach-*.golden.js under', relative(ROOT, GOLDEN_DIR));
+  console.error('  NOTHING WAS RUN. apps/invitation still bundles these modules; do not leave them unproven.');
   process.exit(1);
 }
 
@@ -64,8 +73,8 @@ for (const file of goldens) {
 }
 
 if (failed) {
-  console.error(`✗ shell-golden-scan — ${failed}/${goldens.length} failed`);
+  console.error(`✗ invitation-outreach-golden — ${failed}/${goldens.length} failed`);
   process.exit(1);
 }
-console.log(`✓ shell-golden-scan clean — ${goldens.length} golden(s)`);
+console.log(`✓ invitation-outreach-golden clean — ${goldens.length} golden(s)`);
 process.exit(0);

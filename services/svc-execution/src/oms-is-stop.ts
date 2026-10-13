@@ -5,11 +5,7 @@
  */
 import type { ApprovedAlgoParentStore } from './oms-start.js';
 
-export type OmsIsStopRefuseReason =
-  | 'missing_parent'
-  | 'not_running'
-  | 'already_stopped'
-  | 'not_live';
+export type OmsIsStopRefuseReason = 'missing_parent' | 'not_running' | 'already_stopped' | 'not_live';
 
 export type OmsIsStopRefusal = {
   readonly ok: false;
@@ -34,10 +30,7 @@ function refuse(reason: OmsIsStopRefuseReason, detail: string): OmsIsStopRefusal
   return { ok: false, reason, detail };
 }
 
-function parentRemaining(
-  parentStore: ApprovedAlgoParentStore | undefined,
-  parentClientOrderId: string,
-): string | null {
+function parentRemaining(parentStore: ApprovedAlgoParentStore | undefined, parentClientOrderId: string): string | null {
   if (!parentStore) return null;
   const remaining = parentStore.get(parentClientOrderId)?.residual?.remaining?.trim() ?? '';
   return remaining || null;

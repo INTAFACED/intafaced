@@ -19,10 +19,7 @@ export const RFQ_LAST_LOOK_UNDISCLOSED = 'trade.rfq_last_look_undisclosed' as co
 export const RFQ_OFFBOOK_LEVERAGE_UNSET = 'trade.rfq_offbook_leverage_unset' as const;
 
 export type OptionsRfqRefuseCode =
-  | typeof RFQ_CAPACITY_UNSET
-  | typeof RFQ_CAPACITY_UNSUPPORTED
-  | typeof RFQ_LAST_LOOK_UNDISCLOSED
-  | typeof RFQ_OFFBOOK_LEVERAGE_UNSET;
+  typeof RFQ_CAPACITY_UNSET | typeof RFQ_CAPACITY_UNSUPPORTED | typeof RFQ_LAST_LOOK_UNDISCLOSED | typeof RFQ_OFFBOOK_LEVERAGE_UNSET;
 
 export class OptionsRfqError extends Error {
   readonly code: OptionsRfqRefuseCode;
@@ -109,8 +106,7 @@ export function checkOptionsRfq(input: OptionsRfqInput = {}): OptionsRfqCheck {
     return {
       ok: false,
       code: RFQ_OFFBOOK_LEVERAGE_UNSET,
-      reason:
-        'TRADE_OPTIONS_RFQ_OFFBOOK_LEVERAGE_CAP is unset — refuse rather than inherit the book\'s leverage cap',
+      reason: "TRADE_OPTIONS_RFQ_OFFBOOK_LEVERAGE_CAP is unset — refuse rather than inherit the book's leverage cap",
     };
   }
 

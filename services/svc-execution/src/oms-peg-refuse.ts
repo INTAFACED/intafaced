@@ -44,8 +44,7 @@ export function refuseLiveOmsPeg(input: {
       ok: false,
       reason: 'midpoint_unsupported',
       field: 'midpoint',
-      detail:
-        'live OMS midpoint is unsupported — refusing by field rather than mapping to a plain limit without preview+consent',
+      detail: 'live OMS midpoint is unsupported — refusing by field rather than mapping to a plain limit without preview+consent',
     };
   }
   if (input.peg === true) {
@@ -53,8 +52,7 @@ export function refuseLiveOmsPeg(input: {
       ok: false,
       reason: 'peg_unsupported',
       field: 'peg',
-      detail:
-        'live OMS peg is not matching peg — refusing by field rather than mapping to a plain limit without preview+consent',
+      detail: 'live OMS peg is not matching peg — refusing by field rather than mapping to a plain limit without preview+consent',
     };
   }
   if (input.relative === true) {
@@ -62,8 +60,7 @@ export function refuseLiveOmsPeg(input: {
       ok: false,
       reason: 'relative_unsupported',
       field: 'relative',
-      detail:
-        'live OMS relative is not matching peg — refusing by field rather than mapping to a plain limit without preview+consent',
+      detail: 'live OMS relative is not matching peg — refusing by field rather than mapping to a plain limit without preview+consent',
     };
   }
   const fromKind = kindPegReason(input.kind);
@@ -80,8 +77,7 @@ export function refuseLiveOmsPeg(input: {
       ok: false,
       reason: 'peg_unsupported',
       field: 'pegType',
-      detail:
-        'live OMS pegType is unsupported — refusing by field rather than mapping to a plain limit without preview+consent',
+      detail: 'live OMS pegType is unsupported — refusing by field rather than mapping to a plain limit without preview+consent',
     };
   }
   if (present(input.pegOffset)) {
@@ -89,8 +85,7 @@ export function refuseLiveOmsPeg(input: {
       ok: false,
       reason: 'peg_unsupported',
       field: 'pegOffset',
-      detail:
-        'live OMS pegOffset is unsupported — refusing by field rather than mapping to a plain limit without preview+consent',
+      detail: 'live OMS pegOffset is unsupported — refusing by field rather than mapping to a plain limit without preview+consent',
     };
   }
   return null;

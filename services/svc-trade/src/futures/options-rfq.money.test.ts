@@ -78,7 +78,8 @@ describe('options RFQ hitch (source) — matching not folded, book cap not inher
     expect(mill).toMatch(/checkOptionsRfq/);
     expect(mill).toMatch(/quoteOptionsRfq/);
     expect(mill).toMatch(/TRADE_OPTIONS_RFQ_CAPACITY/);
-    expect(mill).toMatch(/inherit the book's leverage cap/);
+    // #3771: the header comment reads "does NOT inherit the book's cap" (the test pinned a wording the source never had).
+    expect(mill).toMatch(/NOT inherit the book's cap/);
     expect(mill).not.toMatch(/bookLeverageCap\s*\?\?/);
     expect(mill).not.toMatch(/offBookLeverageCap\s*=\s*book/);
   });
@@ -89,7 +90,8 @@ describe('options RFQ hitch (source) — matching not folded, book cap not inher
     expect(routerSrc).not.toMatch(/rfq_capacity_unset/);
     const matchingFiles = readdirSync(matchingRoot, { recursive: true, encoding: 'utf8' }) as string[];
     expect(matchingFiles.some((f) => String(f).includes('options-rfq'))).toBe(false);
-  });
+    // The recursive walk of svc-matching (including node_modules) takes ~3s alone and exceeds 5s under CI/full-suite load.
+  }, 30_000);
 });
 
 describe('options RFQ mill (hermetic)', () => {

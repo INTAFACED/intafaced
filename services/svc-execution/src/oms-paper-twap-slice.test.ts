@@ -79,7 +79,7 @@ describe('slicePaperTwapParent', () => {
     ).toMatchObject({ ok: false, reason: 'not_live' });
   });
 
-  it("refuses omitted / null / whitespace amount with missing_qty even when durationMs is 60_000 (no invented size from duration)", () => {
+  it('refuses omitted / null / whitespace amount with missing_qty even when durationMs is 60_000 (no invented size from duration)', () => {
     expect(
       slicePaperTwapParent({
         parentClientOrderId: 'p-twap',

@@ -7,13 +7,7 @@
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperTwapApproveRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'duration_blank'
-  | 'duration_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off'
-  | 'missing_operator';
+  'missing_parent' | 'not_live' | 'duration_blank' | 'duration_invalid' | 'paper_gate_unwired' | 'paper_off' | 'missing_operator';
 
 export type OmsPaperTwapApproveRefusal = {
   readonly ok: false;
@@ -35,24 +29,16 @@ export type OmsPaperTwapApproveOk = {
 
 export type OmsPaperTwapApproveResult = OmsPaperTwapApproveOk | OmsPaperTwapApproveRefusal;
 
-function refuse(
-  reason: OmsPaperTwapApproveRefuseReason,
-  detail: string,
-): OmsPaperTwapApproveRefusal {
+function refuse(reason: OmsPaperTwapApproveRefuseReason, detail: string): OmsPaperTwapApproveRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseTwapDurationMs(
-  raw: number | null | undefined,
-): { ok: true; value: number } | OmsPaperTwapApproveRefusal {
+function parseTwapDurationMs(raw: number | null | undefined): { ok: true; value: number } | OmsPaperTwapApproveRefusal {
   if (raw === null || raw === undefined) {
     return refuse('duration_blank', 'TWAP duration is blank — refuse rather than invent a schedule');
   }
   if (!Number.isInteger(raw) || raw <= 0) {
-    return refuse(
-      'duration_invalid',
-      'TWAP duration must be a positive integer ms — not invented from slices',
-    );
+    return refuse('duration_invalid', 'TWAP duration must be a positive integer ms — not invented from slices');
   }
   return { ok: true, value: raw };
 }

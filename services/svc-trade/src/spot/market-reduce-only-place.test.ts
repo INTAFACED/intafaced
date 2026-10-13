@@ -305,6 +305,8 @@ describe('svc-trade market-reduce-only-place (H8a PG-hard)', () => {
 
     it('reduce still rests while matching would refuse an open', async () => {
       await fund(ALICE, 'BTC', '10');
+      // Fixture was always unfunded for the BUY (funds hold precedes matching); hidden by skip-without-Postgres until #3954/#3924 made it hard-fail.
+      await fund(ALICE, 'USDT', '2000');
 
       const resting = await trade.placeOrder(principalFor(ALICE), {
         marketId: btcusdt.id,
@@ -328,6 +330,8 @@ describe('svc-trade market-reduce-only-place (H8a PG-hard)', () => {
           clientOrderId: 'alice-ro-open',
         }),
       ).rejects.toMatchObject({ code: 'trade.market_reduce_only' });
+      // The refused BUY moved no money.
+      expect(await avail(ALICE, 'USDT')).toBe('2000');
 
       const reduce = await trade.placeOrder(principalFor(ALICE), {
         marketId: btcusdt.id,
@@ -343,6 +347,8 @@ describe('svc-trade market-reduce-only-place (H8a PG-hard)', () => {
 
     it('cancel still works while matching would refuse an open', async () => {
       await fund(ALICE, 'BTC', '10');
+      // Fixture was always unfunded for the BUY (funds hold precedes matching); hidden by skip-without-Postgres until #3954/#3924 made it hard-fail.
+      await fund(ALICE, 'USDT', '2000');
 
       const resting = await trade.placeOrder(principalFor(ALICE), {
         marketId: btcusdt.id,
@@ -366,6 +372,8 @@ describe('svc-trade market-reduce-only-place (H8a PG-hard)', () => {
           clientOrderId: 'alice-cancel-take',
         }),
       ).rejects.toMatchObject({ code: 'trade.market_reduce_only' });
+      // The refused BUY moved no money.
+      expect(await avail(ALICE, 'USDT')).toBe('2000');
 
       const cancelled = await trade.cancelOrder(principalFor(ALICE), resting.id);
       expect(cancelled.status).toBe('cancelled');

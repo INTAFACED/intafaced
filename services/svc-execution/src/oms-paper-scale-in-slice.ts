@@ -7,12 +7,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperScaleInSliceRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'missing_child_size'
-  | 'child_size_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_live' | 'missing_child_size' | 'child_size_invalid' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsPaperScaleInSliceRefusal = {
   readonly ok: false;
@@ -31,47 +26,28 @@ export type OmsPaperScaleInSliceOk = {
   readonly childSize: string;
 };
 
-export type OmsPaperScaleInSliceResult =
-  | OmsPaperScaleInSliceOk
-  | OmsPaperScaleInSliceRefusal;
+export type OmsPaperScaleInSliceResult = OmsPaperScaleInSliceOk | OmsPaperScaleInSliceRefusal;
 
-function refuse(
-  reason: OmsPaperScaleInSliceRefuseReason,
-  detail: string,
-): OmsPaperScaleInSliceRefusal {
+function refuse(reason: OmsPaperScaleInSliceRefuseReason, detail: string): OmsPaperScaleInSliceRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseChildSize(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperScaleInSliceRefusal {
+function parseChildSize(raw: string | null | undefined): { ok: true; text: string } | OmsPaperScaleInSliceRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_child_size',
-      'scale-in child size is missing — refuse rather than invent size from parent amount',
-    );
+    return refuse('missing_child_size', 'scale-in child size is missing — refuse rather than invent size from parent amount');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_child_size',
-      'scale-in child size is missing — refuse rather than invent size from parent amount',
-    );
+    return refuse('missing_child_size', 'scale-in child size is missing — refuse rather than invent size from parent amount');
   }
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuse(
-        'child_size_invalid',
-        'scale-in child size must be a positive ledger amount — not invented from parent amount',
-      );
+      return refuse('child_size_invalid', 'scale-in child size must be a positive ledger amount — not invented from parent amount');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'child_size_invalid',
-      'scale-in child size is not a ledger amount — refusing to invent size',
-    );
+    return refuse('child_size_invalid', 'scale-in child size is not a ledger amount — refusing to invent size');
   }
 }
 
@@ -104,10 +80,7 @@ export function slicePaperScaleInParent(input: {
   }
   const status = input.status?.trim() ?? '';
   if (status !== 'paper') {
-    return refuse(
-      'not_live',
-      `parent ${parentClientOrderId} is ${status || 'not paper'} — slice needs a live paper scale-in parent`,
-    );
+    return refuse('not_live', `parent ${parentClientOrderId} is ${status || 'not paper'} — slice needs a live paper scale-in parent`);
   }
   const size = parseChildSize(input.childSize);
   if (!size.ok) return size;

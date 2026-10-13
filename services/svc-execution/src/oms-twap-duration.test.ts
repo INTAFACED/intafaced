@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  InMemoryApprovedAlgoParentStore,
-  type RetainedAlgoSchedule,
-} from './oms-start.js';
+import { InMemoryApprovedAlgoParentStore, type RetainedAlgoSchedule } from './oms-start.js';
 import { approveAlgoParentWithTwapDuration } from './oms-twap-duration.js';
 
 const MATCHING_OPEN = { venueHalted: false } as const;
@@ -40,54 +37,42 @@ function twapApproveInput(
 describe('approveAlgoParentWithTwapDuration', () => {
   it('refuses TWAP + null durationMs with duration_blank; store has no approved row', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithTwapDuration(
-      twapApproveInput(parentStore, { durationMs: null }),
-    );
+    const result = approveAlgoParentWithTwapDuration(twapApproveInput(parentStore, { durationMs: null }));
     expect(result).toMatchObject({ ok: false, reason: 'duration_blank' });
     expect(parentStore.get('p-twap')).toBeNull();
   });
 
   it('refuses TWAP + undefined durationMs with duration_blank', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithTwapDuration(
-      twapApproveInput(parentStore, { durationMs: undefined }),
-    );
+    const result = approveAlgoParentWithTwapDuration(twapApproveInput(parentStore, { durationMs: undefined }));
     expect(result).toMatchObject({ ok: false, reason: 'duration_blank' });
     expect(parentStore.get('p-twap')).toBeNull();
   });
 
   it('refuses TWAP + 0 with duration_invalid; no approved row', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithTwapDuration(
-      twapApproveInput(parentStore, { durationMs: 0 }),
-    );
+    const result = approveAlgoParentWithTwapDuration(twapApproveInput(parentStore, { durationMs: 0 }));
     expect(result).toMatchObject({ ok: false, reason: 'duration_invalid' });
     expect(parentStore.get('p-twap')).toBeNull();
   });
 
   it('refuses TWAP + -1 with duration_invalid', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithTwapDuration(
-      twapApproveInput(parentStore, { durationMs: -1 }),
-    );
+    const result = approveAlgoParentWithTwapDuration(twapApproveInput(parentStore, { durationMs: -1 }));
     expect(result).toMatchObject({ ok: false, reason: 'duration_invalid' });
     expect(parentStore.get('p-twap')).toBeNull();
   });
 
   it('refuses TWAP + 1.5 (non-integer) with duration_invalid', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithTwapDuration(
-      twapApproveInput(parentStore, { durationMs: 1.5 }),
-    );
+    const result = approveAlgoParentWithTwapDuration(twapApproveInput(parentStore, { durationMs: 1.5 }));
     expect(result).toMatchObject({ ok: false, reason: 'duration_invalid' });
     expect(parentStore.get('p-twap')).toBeNull();
   });
 
   it('TWAP + 60_000 + complete schedule + jobs on + operator + matching open: approve succeeds', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithTwapDuration(
-      twapApproveInput(parentStore, { durationMs: 60_000 }),
-    );
+    const result = approveAlgoParentWithTwapDuration(twapApproveInput(parentStore, { durationMs: 60_000 }));
     expect(result).toEqual({
       ok: true,
       approved: true,
@@ -142,9 +127,7 @@ describe('approveAlgoParentWithTwapDuration', () => {
 
   it('TWAP jobs_off still refuses after a present duration (delegate to approve)', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithTwapDuration(
-      twapApproveInput(parentStore, { jobs: { enabled: false }, durationMs: 60_000 }),
-    );
+    const result = approveAlgoParentWithTwapDuration(twapApproveInput(parentStore, { jobs: { enabled: false }, durationMs: 60_000 }));
     expect(result).toMatchObject({ ok: false, reason: 'jobs_off' });
     expect(parentStore.get('p-twap')).toBeNull();
   });

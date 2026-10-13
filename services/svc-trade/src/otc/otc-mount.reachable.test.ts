@@ -600,7 +600,8 @@ describe('a quote the desk gave is a quote the desk honours', () => {
     );
 
     const res = await callMutation(desk, 'otc.accept', { quoteId: quoted.quoteId }, principal(OTHER));
-    expect(errorCode(res)).toBe('FORBIDDEN');
+    // #4428: a stranger's accept is refused exactly like a missing quote (NOT_FOUND), so quote existence is not revealed.
+    expect(errorCode(res)).toBe('NOT_FOUND');
 
     await desk.app.close();
   });
