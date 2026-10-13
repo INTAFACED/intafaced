@@ -34,6 +34,11 @@
 -- floor on margin_current bit; 0 otherwise. Non-zero is also raised at error level
 -- (trade.liquidation_margin_drift / trade.liquidation_margin_clipped).
 --
+-- plan_version: the plan of a 'planned' rung may be amended (a release or loss recipe
+-- cut down to what the position's pot still holds). Each amendment is a
+-- compare-and-set on this counter, so two workers amending at once cannot both win and
+-- only one amended body is ever posted.
+--
 -- announced_at: a closing rung closes its row inside the rung transaction; the bus
 -- announcement is a separate step. announced_at records that it published, so a
 -- crash between the two is found and re-published (the publish key makes a repeat
@@ -59,6 +64,7 @@ CREATE TABLE IF NOT EXISTS "trade"."liquidation_rungs" (
   "plan"           jsonb NOT NULL,
   "state"          text NOT NULL DEFAULT 'planned',
   "margin_drift"   numeric NOT NULL DEFAULT 0,
+  "plan_version"   integer NOT NULL DEFAULT 0,
   "announced_at"   timestamptz,
   "created_at"     timestamptz NOT NULL DEFAULT now(),
   "updated_at"     timestamptz NOT NULL DEFAULT now()

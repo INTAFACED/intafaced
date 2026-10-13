@@ -370,6 +370,7 @@ interface RungRow {
   from_margin: string;
   plan: EncodedRungPlan;
   state: RungState;
+  plan_version: number;
   margin_drift: string;
 }
 
@@ -383,6 +384,7 @@ function rungFromRow(row: RungRow): RungRecord {
     fromMargin: parseAmount(row.from_margin),
     plan: decodeRungPlan(row.plan),
     state: row.state,
+    planVersion: row.plan_version,
     marginDrift: parseAmount(row.margin_drift),
   };
 }
@@ -403,7 +405,7 @@ function rungFromRow(row: RungRow): RungRecord {
 export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
   async function liveIn(tx: Sql, positionId: string): Promise<RungRecord | null> {
     const rows = await tx<RungRow[]>`
-      SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, margin_drift
+      SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, plan_version, margin_drift
         FROM trade.liquidation_rungs
        WHERE position_id = ${positionId} AND state IN ('planned', 'posted')
        LIMIT 1
@@ -438,7 +440,7 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
             ${formatAmount(input.fromSize)}::numeric, ${formatAmount(input.fromMargin)}::numeric,
             ${tx.json(encodeRungPlan(input.plan) as never)}, 'planned'
           )
-          RETURNING rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, margin_drift
+          RETURNING rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, plan_version, margin_drift
         `;
         return { status: 'created' as const, rung: rungFromRow(inserted[0]!) };
       },
@@ -465,14 +467,16 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
       }
     },
 
-    async amendPlan(rungId, plan) {
-      const rows = await sql`
+    async amendPlan(rungId, plan, expectedVersion) {
+      // Compare-and-set on plan_version: the amendment applies only to the plan its
+      // author read. A second worker amending from the same read matches no row.
+      const rows = await sql<{ plan_version: number }[]>`
         UPDATE trade.liquidation_rungs
-           SET plan = ${sql.json(encodeRungPlan(plan) as never)}, updated_at = now()
-         WHERE rung_id = ${rungId} AND state = 'planned'
-        RETURNING rung_id
+           SET plan = ${sql.json(encodeRungPlan(plan) as never)}, plan_version = plan_version + 1, updated_at = now()
+         WHERE rung_id = ${rungId} AND state = 'planned' AND plan_version = ${expectedVersion}
+        RETURNING plan_version
       `;
-      return rows.length > 0;
+      return rows[0] ? rows[0].plan_version : null;
     },
 
     async markPosted(rungId) {
@@ -493,7 +497,7 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
           `;
           // Read AFTER the lock, so a concurrent apply's 'applied' is visible here.
           const found = await tx<RungRow[]>`
-            SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, margin_drift
+            SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, plan_version, margin_drift
               FROM trade.liquidation_rungs
              WHERE rung_id = ${rungId} AND position_id = ${positionId}
           `;
@@ -587,7 +591,7 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
 
     async listUnannounced(limit) {
       const rows = await sql<RungRow[]>`
-        SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, margin_drift
+        SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, plan_version, margin_drift
           FROM trade.liquidation_rungs
          WHERE kind = 'closing' AND state = 'applied' AND announced_at IS NULL
          ORDER BY created_at

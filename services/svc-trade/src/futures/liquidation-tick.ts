@@ -16,7 +16,7 @@
  * the tick refuses (`trade.ladder_unset`) — it does not flatten the book.
  */
 import { randomUUID } from 'node:crypto';
-import { formatAmount, parseAmount, type Amount, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
 import { type LiquidationPosition } from './liquidation-planner.js';
 import {
   DEPTH_UNKNOWN,
@@ -337,6 +337,8 @@ export interface LiquidationTickItemResult {
   alert?: { code: string; rungId: string; amount: string };
   /** The rung's margin release was amended down to what the pot held (`trade.liquidation_release_short`). Amount is the shortfall. */
   releaseShort?: { code: string; rungId: string; amount: string };
+  /** A partial rung's loss was booked for less than planned because the pot held less (`trade.liquidation_loss_short`). Amount is the shortfall. */
+  lossShort?: { code: string; rungId: string; amount: string };
   /**
    * Set when `outcome === 'margin_call'`: whether the notify port accepted
    * delivery. Observable on the tick result; REST durability is the trader door.
@@ -736,6 +738,7 @@ async function runLadderRung(
         marginRemaining: decision.marginRemaining,
         marginTaken: decision.fromMargin,
         releaseShort: 0n,
+        lossShort: 0n,
         reason: decision.reason,
         fromInsurance: decision.fromInsurance,
         marginAsset: row.marginAsset,
@@ -838,6 +841,7 @@ async function driveRung(
   rungs: LiquidationRungStore,
   row: LiquidationPositionRow,
   rung: RungRecord,
+  depth = 0,
 ): Promise<LiquidationTickItemResult> {
   const { plan } = rung;
   const closing = rung.kind === 'closing';
@@ -845,16 +849,55 @@ async function driveRung(
   const label = `rung ${rung.rungId} (${rung.kind}) close=${formatAmount(plan.sizeClosed)} marginTaken=${formatAmount(plan.marginTaken)}`;
 
   let releaseShort = plan.releaseShort;
+  let lossShort = plan.lossShort;
 
   if (rung.state === 'planned') {
     let current: RungPlan = plan;
+    let version = rung.planVersion;
+    /** Persist an amended plan BEFORE it posts. Null: somebody else amended first — the caller re-reads. */
+    const amend = async (next: RungPlan): Promise<boolean> => {
+      const v = await rungs.amendPlan(rung.rungId, next, version);
+      if (v === null) return false;
+      version = v;
+      current = next;
+      return true;
+    };
+    /** Lost the compare-and-set: take what the winner stored and post THAT. */
+    const rereadAndDrive = async (): Promise<LiquidationTickItemResult> => {
+      const fresh = await rungs.findLive(row.positionId);
+      if (!fresh || depth >= 3) throw new Error(`rung ${rung.rungId} changed under a concurrent amendment — replayed next tick`);
+      return driveRung(deps, rungs, row, fresh, depth + 1);
+    };
+    const replace = (key: string, recipe: PostRequest | null): PostRequest[] =>
+      current.recipes.flatMap((r) => (r.idempotencyKey !== key ? [r] : recipe ? [recipe] : []));
+    const underfundedItem = async (fromInsurance: Amount, why: string): Promise<LiquidationTickItemResult> => {
+      const parked = await parkUnderfundedWithAdl({
+        adl: deps.adl,
+        row,
+        fromInsurance,
+        insuranceReason: INSURANCE_UNDERFUNDED,
+        at: (deps.now ?? (() => new Date()))(),
+      });
+      return {
+        positionId: row.positionId,
+        outcome: 'errored',
+        reason: 'trade.liquidation_insurance_underfunded_on_replay',
+        summary: `${label}: ${why} ${formatAmount(fromInsurance)} — rung stays live and is retried every tick (${parked.summary})`,
+      };
+    };
+
     for (const stored of plan.recipes) {
-      let recipe: PostRequest | null = stored;
       try {
-        await deps.ledger.post(recipe);
+        await deps.ledger.post(stored);
       } catch (err) {
         const code = (err as { code?: unknown } | null)?.code;
-        if (code === 'ledger.insufficient_funds' && stored.reason === 'futures.margin.release') {
+        if (code !== 'ledger.insufficient_funds') throw err;
+        // WHICH ACCOUNT IS SHORT? The ledger's refusal is not reliable about it over HTTP
+        // (`accountId` arrives as 'unknown' or a ledger uuid, not an account ref), so the
+        // balances are read instead.
+        const potEntry = stored.entries.find((e) => e.direction === 'credit' && e.account.kind === 'collateral');
+
+        if (stored.reason === 'futures.margin.release' && potEntry) {
           /**
            * THE RELEASE CAME UP SHORT — AMEND IT, NEVER LEAVE THE POSITION OPEN.
            *
@@ -867,36 +910,86 @@ async function driveRung(
            * is not a key reuse), skip the release when the pot is empty, and persist the
            * amended plan BEFORE posting so a replay posts the same body.
            */
-          const potEntry = stored.entries.find((e) => e.direction === 'credit');
-          if (!potEntry) throw err;
           const pot = (await deps.ledger.balance(potEntry.account)).amount;
           if (pot >= potEntry.amount) throw err; // the pot is not short: this refusal is something else
           const amended = pot > 0n ? pot : 0n;
-          recipe = amended > 0n ? { ...stored, entries: stored.entries.map((e) => ({ ...e, amount: amended })) } : null;
+          const recipe: PostRequest | null =
+            amended > 0n ? { ...stored, entries: stored.entries.map((e) => ({ ...e, amount: amended })) } : null;
           releaseShort += potEntry.amount - amended;
-          current = {
-            ...current,
-            recipes: current.recipes.flatMap((r) => (r.idempotencyKey !== stored.idempotencyKey ? [r] : recipe ? [recipe] : [])),
-            releaseShort,
-          };
-          if (!(await rungs.amendPlan(rung.rungId, current))) {
-            throw new Error(`rung ${rung.rungId} left 'planned' while its release was being amended — replayed next tick`);
-          }
+          if (!(await amend({ ...current, recipes: replace(stored.idempotencyKey, recipe), releaseShort }))) return rereadAndDrive();
           if (recipe) await deps.ledger.post(recipe);
-        } else if (plan.fromInsurance > 0n && code === 'ledger.insufficient_funds') {
-          const parked = await parkUnderfundedWithAdl({
-            adl: deps.adl,
-            row,
+        } else if (
+          stored.reason === 'futures.loss.realized' &&
+          potEntry &&
+          (await deps.ledger.balance(potEntry.account)).amount < potEntry.amount
+        ) {
+          /**
+           * THE LOSS CAME UP SHORT — THE POT SHRANK AFTER PLANNING.
+           *
+           * Funding (or a withdrawal) left the position's pot holding less than the loss's
+           * pot leg, so the ledger refuses the whole loss. The loss key was never booked, so
+           * a different body is safe.
+           *   · CLOSING rung: the pot leg becomes what the pot holds and the difference moves
+           *     to the INSURANCE leg — the position is liquidated either way, and insurance
+           *     is what covers loss beyond the margin. Only if insurance cannot cover the
+           *     grown leg is it a genuine shortfall (the ADL park path).
+           *   · PARTIAL rung: the pot leg becomes what the pot holds and the under-booked loss
+           *     is recorded (`lossShort`, alert `trade.liquidation_loss_short`); the row is
+           *     reduced by the margin actually taken.
+           */
+          const pot = (await deps.ledger.balance(potEntry.account)).amount;
+          const potLegNow = pot > 0n ? pot : 0n;
+          const shift = potEntry.amount - potLegNow;
+          const lossId = stored.idempotencyKey.slice('futures.loss:'.length);
+          let recipe: PostRequest | null;
+          let next: RungPlan;
+          if (closing) {
+            const fromInsurance = current.fromInsurance + shift;
+            const bound = await checkInsuranceBound({
+              assetId: plan.marginAsset,
+              fromInsurance,
+              balance: (ref) => deps.ledger.balance(ref),
+            });
+            if (!bound.ok)
+              return underfundedItem(fromInsurance, 'the position pot shrank and the insurance fund cannot cover the grown leg of');
+            recipe = recipes.futuresRealizeLoss({
+              positionId: row.positionId,
+              userId: row.userId,
+              assetId: plan.marginAsset,
+              fromMargin: potLegNow,
+              fromInsurance,
+              lossId,
+            });
+            next = { ...current, recipes: replace(stored.idempotencyKey, recipe), fromInsurance, marginTaken: potLegNow };
+          } else {
+            recipe =
+              potLegNow > 0n
+                ? recipes.futuresRealizeLoss({
+                    positionId: row.positionId,
+                    userId: row.userId,
+                    assetId: plan.marginAsset,
+                    fromMargin: potLegNow,
+                    fromInsurance: 0n,
+                    lossId,
+                  })
+                : null;
+            lossShort += shift;
+            next = { ...current, recipes: replace(stored.idempotencyKey, recipe), marginTaken: potLegNow, lossShort };
+          }
+          if (!(await amend(next))) return rereadAndDrive();
+          if (recipe) await deps.ledger.post(recipe);
+        } else if (plan.fromInsurance > 0n) {
+          // The pot holds what the recipe needs, so a refusal on a rung that draws on insurance is
+          // the insurance fund — but only if the fund is actually below the leg. Otherwise it is
+          // something else, and telling the operator to top up insurance (or letting ADL deleverage
+          // others) would be wrong.
+          const bound = await checkInsuranceBound({
+            assetId: plan.marginAsset,
             fromInsurance: plan.fromInsurance,
-            insuranceReason: INSURANCE_UNDERFUNDED,
-            at: (deps.now ?? (() => new Date()))(),
+            balance: (ref) => deps.ledger.balance(ref),
           });
-          return {
-            positionId: row.positionId,
-            outcome: 'errored',
-            reason: 'trade.liquidation_insurance_underfunded_on_replay',
-            summary: `${label}: the ledger refused the insurance leg of ${formatAmount(plan.fromInsurance)} — rung stays live and is retried every tick (${parked.summary})`,
-          };
+          if (!bound.ok) return underfundedItem(plan.fromInsurance, 'the ledger refused the insurance leg of');
+          throw err;
         } else {
           throw err;
         }
@@ -919,6 +1012,9 @@ async function driveRung(
         reason: plan.reason,
         summary: `${label} ${applied.status === 'applied' ? 'applied' : 'already applied'}${alert ? ` — ${alert.code} ${formatAmount(alert.amount)}` : ''}`,
         ...(alert ? { alert: { code: alert.code, rungId: rung.rungId, amount: formatAmount(alert.amount) } } : {}),
+        ...(lossShort > 0n && applied.status === 'applied'
+          ? { lossShort: { code: 'trade.liquidation_loss_short', rungId: rung.rungId, amount: formatAmount(lossShort) } }
+          : {}),
         ...(releaseShort > 0n && applied.status === 'applied'
           ? { releaseShort: { code: 'trade.liquidation_release_short', rungId: rung.rungId, amount: formatAmount(releaseShort) } }
           : {}),

@@ -164,10 +164,14 @@ describe('liquidation rungs (Postgres)', () => {
       ledger: {
         async post(req) {
           await hooks.beforePost?.(req);
-          const potLeg = req.reason === 'futures.margin.release' ? req.entries.find((e) => e.direction === 'credit') : undefined;
-          if (potLeg && !booked.has(req.idempotencyKey) && potLeg.amount > pot.amount) {
-            throw new InsufficientFundsError('user:position-pot', 'USDT', formatAmount(potLeg.amount), formatAmount(pot.amount));
+          const potTake = req.entries
+            .filter((e) => e.direction === 'credit' && e.account.kind === 'collateral')
+            .reduce((sum, e) => sum + e.amount, 0n);
+          const firstTime = !booked.has(req.idempotencyKey);
+          if (potTake > 0n && firstTime && potTake > pot.amount) {
+            throw new InsufficientFundsError('user:position-pot', 'USDT', formatAmount(potTake), formatAmount(pot.amount));
           }
+          if (firstTime) pot.amount -= potTake;
           posts.push(req);
           const old = booked.get(req.idempotencyKey);
           if (old && body(old) !== body(req)) {
@@ -492,6 +496,7 @@ describe('liquidation rungs (Postgres)', () => {
           marginRemaining: 0n,
           marginTaken: amt('70'),
           releaseShort: 0n,
+          lossShort: 0n,
           reason: 'ladder_full_close',
           fromInsurance: 0n,
           marginAsset: 'USDT',
@@ -504,7 +509,7 @@ describe('liquidation rungs (Postgres)', () => {
       const id = await openPosition();
       await storedClosingRung(id);
       await sql`UPDATE trade.positions SET margin_current = margin_current - 5 WHERE id = ${id}`;
-      pot.amount = amt('25');
+      pot.amount = amt('95');
       const f = fixture();
       const t = await runLiquidationTick(f.deps);
       expect(t.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { code: 'trade.liquidation_release_short', amount: '5' } });
@@ -521,7 +526,7 @@ describe('liquidation rungs (Postgres)', () => {
     it('crash after the amendment is persisted: the replay posts the amended body byte for byte', async () => {
       const id = await openPosition();
       await storedClosingRung(id);
-      pot.amount = amt('25');
+      pot.amount = amt('95');
       const f = fixture();
       let crash = true;
       const real = f.deps.ledger.post;
@@ -549,7 +554,7 @@ describe('liquidation rungs (Postgres)', () => {
     it('an empty pot: the release is skipped and the row still closes', async () => {
       const id = await openPosition();
       await storedClosingRung(id);
-      pot.amount = 0n;
+      pot.amount = amt('70');
       const f = fixture();
       const t = await runLiquidationTick(f.deps);
       expect(t.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { amount: '30' } });
@@ -557,14 +562,128 @@ describe('liquidation rungs (Postgres)', () => {
       expect([...f.booked.values()].some((p) => p.reason === 'futures.margin.release')).toBe(false);
     });
 
+    it('M: bankrupt closing rung, funding left the pot at 99: the loss is re-split 99 + 61 insurance and the position closes', async () => {
+      const id = await openPosition();
+      const [{ user_id }] = await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`;
+      const loss: PostRequest = {
+        idempotencyKey: `futures.loss:liq:${id}:rung:r1:loss`,
+        module: 'trade',
+        reason: 'futures.loss.realized',
+        entries: [
+          { account: potOf(user_id!, id), direction: 'credit', amount: amt('100') },
+          {
+            account: { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as unknown as AccountRef,
+            direction: 'credit',
+            amount: amt('60'),
+          },
+          { account: fees, direction: 'debit', amount: amt('160') },
+        ],
+      };
+      const begun = await sqlLiquidationRungStore(sql).begin({
+        rungId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        positionId: id,
+        liquidationId: `liq:${id}`,
+        kind: 'closing',
+        fromSize: amt('10'),
+        fromMargin: amt('100'),
+        plan: {
+          recipes: [loss],
+          sizeClosed: amt('10'),
+          marginRemaining: 0n,
+          marginTaken: amt('100'),
+          releaseShort: 0n,
+          lossShort: 0n,
+          reason: 'bankrupt_full_close',
+          fromInsurance: amt('60'),
+          marginAsset: 'USDT',
+        },
+      });
+      await sql`UPDATE trade.positions SET margin_current = 99 WHERE id = ${id}`; // funding, after the rung was stored
+      expect(begun.status).toBe('created');
+      pot.amount = amt('99');
+      const f = fixture();
+      const t = await runLiquidationTick(f.deps);
+      expect(t.items[0]).toMatchObject({ outcome: 'liquidated' });
+      expect((await readRow(id)).status).toBe('liquidated');
+      const booked = [...f.booked.values()][0]!;
+      expect(booked.entries.map((e) => `${e.direction}:${e.account.kind}:${formatAmount(e.amount)}`)).toEqual([
+        'credit:collateral:99',
+        'credit:available:61',
+        'debit:available:160',
+      ]);
+      const [r] = await sql<{ plan: { fromInsurance: string }; plan_version: number }[]>`
+        SELECT plan, plan_version FROM trade.liquidation_rungs WHERE position_id = ${id}`;
+      expect(r!.plan.fromInsurance).toBe(amt('61').toString());
+      expect(r!.plan_version).toBe(1);
+    });
+
+    it('a PARTIAL rung whose pot shrank books the loss for what the pot holds and records lossShort', async () => {
+      const id = await openPosition();
+      const [{ user_id }] = await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`;
+      await sql`UPDATE trade.positions SET margin_current = 30 WHERE id = ${id}`;
+      const loss: PostRequest = {
+        idempotencyKey: `futures.loss:liq:${id}:rung:r1:loss`,
+        module: 'trade',
+        reason: 'futures.loss.realized',
+        entries: [
+          { account: potOf(user_id!, id), direction: 'credit', amount: amt('40') },
+          { account: fees, direction: 'debit', amount: amt('40') },
+        ],
+      };
+      await sqlLiquidationRungStore(sql).begin({
+        rungId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        positionId: id,
+        liquidationId: `liq:${id}`,
+        kind: 'partial',
+        fromSize: amt('10'),
+        fromMargin: amt('30'),
+        plan: {
+          recipes: [loss],
+          sizeClosed: amt('4'),
+          marginRemaining: 0n,
+          marginTaken: amt('40'),
+          releaseShort: 0n,
+          lossShort: 0n,
+          reason: 'ladder_partial',
+          fromInsurance: 0n,
+          marginAsset: 'USDT',
+        },
+      });
+      pot.amount = amt('30');
+      const f = fixture();
+      const t = await runLiquidationTick(f.deps);
+      expect(t.items[0]).toMatchObject({
+        outcome: 'partially_liquidated',
+        lossShort: { code: 'trade.liquidation_loss_short', amount: '10' },
+      });
+      expect(await readRow(id)).toEqual({ status: 'open', size: money('6'), margin: money('0') });
+    });
+
+    it("amendPlan is a compare-and-set: a stale version loses, and the winner's plan stands", async () => {
+      const id = await openPosition();
+      await storedClosingRung(id);
+      const store = sqlLiquidationRungStore(sql);
+      const live = (await store.findLive(id))!;
+      expect(live.planVersion).toBe(0);
+      const [a, b] = await Promise.all([
+        store.amendPlan(live.rungId, { ...live.plan, releaseShort: amt('5') }, 0),
+        store.amendPlan(live.rungId, { ...live.plan, releaseShort: amt('9') }, 0),
+      ]);
+      expect([a, b].filter((v) => v === 1)).toHaveLength(1);
+      expect([a, b].filter((v) => v === null)).toHaveLength(1);
+      const after = (await store.findLive(id))!;
+      expect(after.planVersion).toBe(1);
+      expect([amt('5'), amt('9')]).toContain(after.plan.releaseShort);
+    });
+
     it('amendPlan only writes to a rung that is still planned', async () => {
       const id = await openPosition();
       await storedClosingRung(id);
       const store = sqlLiquidationRungStore(sql);
       const live = (await store.findLive(id))!;
-      expect(await store.amendPlan(live.rungId, { ...live.plan, releaseShort: amt('1') })).toBe(true);
+      expect(await store.amendPlan(live.rungId, { ...live.plan, releaseShort: amt('1') }, 0)).toBe(1);
       await store.markPosted(live.rungId);
-      expect(await store.amendPlan(live.rungId, { ...live.plan, releaseShort: amt('2') })).toBe(false);
+      expect(await store.amendPlan(live.rungId, { ...live.plan, releaseShort: amt('2') }, 1)).toBeNull();
       expect((await store.findLive(id))!.plan.releaseShort).toBe(amt('1'));
     });
   });
@@ -678,6 +797,7 @@ describe('liquidation rungs (Postgres)', () => {
       marginRemaining: amt('90'),
       marginTaken: amt('10'),
       releaseShort: 0n,
+      lossShort: 0n,
       reason: 'ladder_partial',
       fromInsurance: 0n,
       marginAsset: 'USDT',
@@ -750,6 +870,7 @@ describe('liquidation rungs (Postgres)', () => {
         marginRemaining: big,
         marginTaken: huge,
         releaseShort: 0n,
+        lossShort: 0n,
         reason: 'ladder_partial',
         fromInsurance: huge,
         marginAsset: 'USDT',

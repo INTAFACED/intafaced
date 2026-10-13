@@ -67,7 +67,7 @@ function harness(opts: { insurance?: Amount; pot?: Amount } = {}) {
   const booked = new Map<string, PostRequest>();
   const reduces: { sizeClosed: string; marginRemaining: string }[] = [];
   const announced: string[] = [];
-  const hooks: { beforePost?: (req: PostRequest) => void | Promise<void> } = {};
+  const hooks: { beforePost?: (req: PostRequest) => void | Promise<void>; balance?: (ref: AccountRef) => Amount | undefined } = {};
 
   const book: RungRowBook = {
     read: (id) => (id === row.positionId ? { status: row.status, size: row.size, margin: row.margin } : null),
@@ -129,11 +129,15 @@ function harness(opts: { insurance?: Amount; pot?: Amount } = {}) {
             formatAmount(insurance.available),
           );
         }
-        // A release can only return what the pot holds.
-        const potLeg = req.reason === 'futures.margin.release' ? req.entries.find((e) => e.direction === 'credit') : undefined;
-        if (potLeg && !booked.has(req.idempotencyKey) && potLeg.amount > pot.amount) {
-          throw new InsufficientFundsError('user:position-pot', 'USDT', formatAmount(potLeg.amount), formatAmount(pot.amount));
+        // A recipe can only take out of the pot what the pot holds (the real ledger's non-negative CHECK).
+        const potTake = req.entries
+          .filter((e) => e.direction === 'credit' && e.account.kind === 'collateral')
+          .reduce((sum, e) => sum + e.amount, 0n);
+        const firstTime = !booked.has(req.idempotencyKey);
+        if (potTake > 0n && firstTime && potTake > pot.amount) {
+          throw new InsufficientFundsError('user:position-pot', 'USDT', formatAmount(potTake), formatAmount(pot.amount));
         }
+        if (firstTime) pot.amount -= potTake;
         posts.push(req);
         const old = booked.get(req.idempotencyKey);
         if (old && body(old) !== body(req)) {
@@ -145,6 +149,8 @@ function harness(opts: { insurance?: Amount; pot?: Amount } = {}) {
         return { id: `tx:${req.idempotencyKey}`, idempotencyKey: req.idempotencyKey } as never;
       },
       async balance(ref: AccountRef) {
+        const override = hooks.balance?.(ref);
+        if (override !== undefined) return { account: ref, accountId: 'x', amount: override };
         const amount =
           ref.ownerType === 'house' && ref.ownerId === 'insurance-fund'
             ? insurance.available
@@ -604,6 +610,7 @@ describe('probe L: the margin release comes up short (the position must never st
       marginRemaining: 0n,
       marginTaken: amt('70'),
       releaseShort: 0n,
+      lossShort: 0n,
       reason: 'ladder_full_close',
       fromInsurance: 0n,
       marginAsset: 'USDT',
@@ -622,7 +629,7 @@ describe('probe L: the margin release comes up short (the position must never st
   const releaseOf = (h: ReturnType<typeof harness>) => h.booked.get('futures.margin.release:pos-1:rung:r1');
 
   it('funding took 5 before the release posted: the release is amended to the pot, the row closes, the shortfall is alerted', async () => {
-    const h = harness({ pot: amt('25') });
+    const h = harness({ pot: amt('95') });
     await storedRung(h);
     h.row.margin -= amt('5'); // funding took it from the row and the pot
     const t = await runLiquidationTick(h.deps);
@@ -638,7 +645,7 @@ describe('probe L: the margin release comes up short (the position must never st
   });
 
   it('a margin withdrawal of 10 (pot and row) before the release posted: same, amended to 20', async () => {
-    const h = harness({ pot: amt('20') });
+    const h = harness({ pot: amt('90') });
     await storedRung(h);
     h.row.margin -= amt('10');
     const t = await runLiquidationTick(h.deps);
@@ -648,7 +655,7 @@ describe('probe L: the margin release comes up short (the position must never st
   });
 
   it('crash after the amendment is persisted but before it posts: the replay posts the AMENDED body, byte for byte', async () => {
-    const h = harness({ pot: amt('25') });
+    const h = harness({ pot: amt('95') });
     await storedRung(h);
     h.row.margin -= amt('5');
     let crash = true;
@@ -677,7 +684,7 @@ describe('probe L: the margin release comes up short (the position must never st
   });
 
   it('an empty pot: the release is skipped, the row still closes, the whole release is the shortfall', async () => {
-    const h = harness({ pot: 0n });
+    const h = harness({ pot: amt('70') });
     await storedRung(h);
     h.row.margin = 0n;
     const t = await runLiquidationTick(h.deps);
@@ -699,6 +706,164 @@ describe('probe L: the margin release comes up short (the position must never st
     expect(t.items[0]).toMatchObject({ outcome: 'errored' });
     expect(h.row.status).toBe('open');
     expect((await h.rungs.findLive('pos-1'))!.plan.releaseShort).toBe(0n);
+  });
+});
+
+describe('probes M / N: the pot shrank after planning and the LOSS is refused', () => {
+  const potAccount = {
+    ownerType: 'user',
+    ownerId: USER,
+    assetId: 'USDT',
+    kind: 'collateral',
+    purpose: 'position:pos-1',
+  } as unknown as AccountRef;
+  const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+  const insAcct = { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+  const avail = { ownerType: 'user', ownerId: USER, assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+
+  async function store(
+    h: ReturnType<typeof harness>,
+    o: { kind: 'closing' | 'partial'; potLeg: string; insLeg?: string; release?: string; sizeClosed?: string },
+  ) {
+    const ins = amt(o.insLeg ?? '0');
+    const entries: PostRequest['entries'] = [
+      { account: potAccount, direction: 'credit', amount: amt(o.potLeg) },
+      ...(ins > 0n ? [{ account: insAcct, direction: 'credit' as const, amount: ins }] : []),
+      { account: fees, direction: 'debit', amount: amt(o.potLeg) + ins },
+    ];
+    const recipes: PostRequest[] = [
+      { idempotencyKey: 'futures.loss:liq:pos-1:rung:r1:loss', module: 'trade', reason: 'futures.loss.realized', entries },
+      ...(o.release
+        ? [
+            {
+              idempotencyKey: 'futures.margin.release:pos-1:rung:r1',
+              module: 'trade',
+              reason: 'futures.margin.release',
+              entries: [
+                { account: potAccount, direction: 'credit' as const, amount: amt(o.release) },
+                { account: avail, direction: 'debit' as const, amount: amt(o.release) },
+              ],
+            },
+          ]
+        : []),
+    ];
+    const r = await h.rungs.begin({
+      rungId: 'r1',
+      positionId: 'pos-1',
+      liquidationId: 'liq:pos-1',
+      kind: o.kind,
+      fromSize: amt('10'),
+      fromMargin: amt('100'),
+      plan: {
+        recipes,
+        sizeClosed: amt(o.sizeClosed ?? '10'),
+        marginRemaining: 0n,
+        marginTaken: amt(o.potLeg),
+        releaseShort: 0n,
+        lossShort: 0n,
+        reason: o.kind === 'closing' ? 'ladder_full_close' : 'ladder_partial',
+        fromInsurance: ins,
+        marginAsset: 'USDT',
+      },
+    });
+    expect(r.status).toBe('created');
+  }
+  const lossOf = (h: ReturnType<typeof harness>) => h.booked.get('futures.loss:liq:pos-1:rung:r1:loss')!;
+  const legs = (req: PostRequest) => req.entries.map((e) => `${e.direction}:${e.account.kind}:${formatAmount(e.amount)}`);
+
+  it('M: bankrupt closing rung (100 from the pot + 60 insurance), funding left the pot at 99: the loss is re-split 99 + 61, the position closes, insurance is not blamed', async () => {
+    const h = harness({ pot: amt('99') });
+    await store(h, { kind: 'closing', potLeg: '100', insLeg: '60' });
+    h.row.margin = amt('99');
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'liquidated' });
+    expect(t.items[0]!.reason).not.toBe('trade.liquidation_insurance_underfunded_on_replay');
+    expect(h.row.status).toBe('liquidated');
+    expect(legs(lossOf(h))).toEqual(['credit:collateral:99', 'credit:available:61', 'debit:available:160']);
+    expect((await h.rungs.all())[0]).toMatchObject({ state: 'applied' });
+    expect((await h.rungs.all())[0]!.plan.fromInsurance).toBe(amt('61'));
+  });
+
+  it('M2: when insurance genuinely cannot cover the grown leg, it IS the insurance branch (loud, row open, the ADL park path)', async () => {
+    const h = harness({ pot: amt('99'), insurance: amt('60') });
+    await store(h, { kind: 'closing', potLeg: '100', insLeg: '60' });
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_insurance_underfunded_on_replay' });
+    expect(h.row.status).toBe('open');
+    expect(h.booked.size).toBe(0);
+  });
+
+  it('a loss refusal where the pot holds enough and insurance holds enough is neither: it errors as itself and is not amended', async () => {
+    const h = harness({ pot: amt('1000') });
+    await store(h, { kind: 'closing', potLeg: '100', insLeg: '60' });
+    h.hooks.beforePost = () => {
+      throw new InsufficientFundsError('user:other', 'USDT', '1', '0');
+    };
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'errored', reason: 'ledger.insufficient_funds' });
+    expect((await h.rungs.findLive('pos-1'))!.plan.fromInsurance).toBe(amt('60'));
+  });
+
+  it('N: non-bankrupt closing rung (loss 70, release 30), pot drained to 60: loss 60 + 10 insurance, release skipped, position closes', async () => {
+    const h = harness({ pot: amt('60') });
+    await store(h, { kind: 'closing', potLeg: '70', release: '30' });
+    h.row.margin = amt('60');
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { amount: '30' } });
+    expect(h.row.status).toBe('liquidated');
+    expect(legs(lossOf(h))).toEqual(['credit:collateral:60', 'credit:available:10', 'debit:available:70']);
+    expect(h.booked.has('futures.margin.release:pos-1:rung:r1')).toBe(false);
+  });
+
+  it('a PARTIAL rung whose pot shrank books the loss for what the pot holds, records the under-booking, and still reduces the row', async () => {
+    const h = harness({ pot: amt('30') });
+    await store(h, { kind: 'partial', potLeg: '40', sizeClosed: '4' });
+    h.row.margin = amt('30'); // funding took 70
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({
+      outcome: 'partially_liquidated',
+      lossShort: { code: 'trade.liquidation_loss_short', rungId: 'r1', amount: '10' },
+    });
+    expect(legs(lossOf(h))).toEqual(['credit:collateral:30', 'debit:available:30']);
+    expect(h.row.size).toBe(amt('6'));
+    expect(h.row.margin).toBe(0n);
+    expect((await h.rungs.all())[0]!.plan.lossShort).toBe(amt('10'));
+  });
+
+  it('the amended loss is persisted before it posts: a crash right after, then the replay posts the SAME amended body', async () => {
+    const h = harness({ pot: amt('99') });
+    await store(h, { kind: 'closing', potLeg: '100', insLeg: '60' });
+    let crash = true;
+    const real = h.deps.ledger.post;
+    h.deps.ledger.post = async (req) => {
+      if (crash && req.reason === 'futures.loss.realized' && req.entries[0]!.amount === amt('99')) {
+        crash = false;
+        throw new Error('died right after amending the loss');
+      }
+      return real(req);
+    };
+    await runLiquidationTick(h.deps);
+    const amended = (await h.rungs.findLive('pos-1'))!.plan.recipes[0]!;
+    expect(legs(amended)).toEqual(['credit:collateral:99', 'credit:available:61', 'debit:available:160']);
+    await runLiquidationTick(h.deps);
+    expect(body(lossOf(h))).toBe(body(amended));
+    expect(h.row.status).toBe('liquidated');
+  });
+
+  it('two workers amend the same rung at once with a moving pot: the compare-and-set lets one win, and only ONE amended body is ever posted', async () => {
+    const h = harness({ pot: amt('95') });
+    // Same stored rung as probe L: loss 70, release 30. After the loss the pot holds 25.
+    await store(h, { kind: 'closing', potLeg: '70', release: '30' });
+    h.row.margin = amt('95');
+    const reads = [amt('25'), amt('20')]; // the pot "moves" between the two workers' reads
+    h.hooks.balance = (ref) => (ref.kind === 'collateral' ? (reads.shift() ?? amt('25')) : undefined);
+    const [a, b] = await Promise.all([runLiquidationTick(h.deps), runLiquidationTick(h.deps)]);
+    expect(a.errored + b.errored).toBe(0);
+    const releases = h.posts.filter((p) => p.reason === 'futures.margin.release');
+    expect(new Set(releases.map(body)).size).toBe(1);
+    expect(h.row.status).toBe('liquidated');
+    expect(h.rungs.all()).toHaveLength(1);
+    expect(h.rungs.all()[0]!.state).toBe('applied');
   });
 });
 
@@ -800,6 +965,7 @@ describe('the close announcement is at-least-once', () => {
         marginRemaining: 0n,
         marginTaken: 0n,
         releaseShort: 0n,
+        lossShort: 0n,
         reason: 'ladder_full_close',
         fromInsurance: 0n,
         marginAsset: 'USDT',
@@ -919,6 +1085,7 @@ describe('the memory store models the lock and the one-live-rung rule', () => {
     marginRemaining: amt('90'),
     marginTaken: amt('10'),
     releaseShort: 0n,
+    lossShort: 0n,
     reason: 'ladder_partial',
     fromInsurance: 0n,
     marginAsset: 'USDT',
@@ -987,6 +1154,7 @@ describe('plan codec', () => {
       marginRemaining: big,
       marginTaken: huge,
       releaseShort: 0n,
+      lossShort: 0n,
       reason: 'ladder_partial',
       fromInsurance: huge,
       marginAsset: 'USDT',

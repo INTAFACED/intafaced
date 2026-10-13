@@ -73,6 +73,13 @@ export interface RungPlan {
    * is persisted before it posts, so a replay posts the same amended body.
    */
   releaseShort: Amount;
+  /**
+   * How much LESS of the loss was booked against the position's pot than planned (>= 0):
+   * the pot held less than the loss's pot leg when it posted. On a closing rung the
+   * difference moved to the insurance leg instead (`fromInsurance` grew), so nothing is
+   * under-booked and this stays 0; on a partial rung it is the under-booked loss.
+   */
+  lossShort: Amount;
   reason: string;
   /** The insurance leg of the loss: re-checked before a replay that has not booked it. */
   fromInsurance: Amount;
@@ -90,6 +97,8 @@ export interface RungRecord {
   fromMargin: Amount;
   plan: RungPlan;
   state: RungState;
+  /** Bumped by every `amendPlan`; an amendment applies only to the version its author read. */
+  planVersion: number;
   /**
    * Set when the rung applied. Closing rung: the margin the row held at close minus
    * the margin the stored release was computed from (positive: margin the trader added
@@ -151,12 +160,14 @@ export interface LiquidationRungStore {
   /** Every recipe of the rung is booked. Idempotent. */
   markPosted(rungId: string): Promise<void>;
   /**
-   * Replace the stored plan of a rung that is still 'planned' (nothing known to be fully
-   * posted). Used to persist an amended margin release BEFORE it posts, so any replay
-   * posts the amended body. Resolves false, writing nothing, when the rung is no longer
-   * 'planned'.
+   * COMPARE-AND-SET the stored plan of a rung that is still 'planned'. Used to persist an
+   * amended recipe BEFORE it posts, so any replay posts the amended body. It applies only
+   * if the stored plan is still the version the caller read (`expectedVersion`); two
+   * workers amending at once cannot both win, so only one amended body is ever posted.
+   * Resolves the new version, or null — writing nothing — when the rung is no longer
+   * 'planned' or somebody else amended first (the caller re-reads and posts what is stored).
    */
-  amendPlan(rungId: string, plan: RungPlan): Promise<boolean>;
+  amendPlan(rungId: string, plan: RungPlan, expectedVersion: number): Promise<number | null>;
   /**
    * Under a row lock, in ONE transaction: apply the rung to the row AND set it
    * 'applied'. Partial: size and margin move by the stored DELTA on whatever the
@@ -187,6 +198,7 @@ export interface EncodedRungPlan {
   marginRemaining: string;
   marginTaken: string;
   releaseShort: string;
+  lossShort: string;
   reason: string;
   fromInsurance: string;
   marginAsset: string;
@@ -202,6 +214,7 @@ export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
     marginRemaining: plan.marginRemaining.toString(),
     marginTaken: plan.marginTaken.toString(),
     releaseShort: plan.releaseShort.toString(),
+    lossShort: plan.lossShort.toString(),
     reason: plan.reason,
     fromInsurance: plan.fromInsurance.toString(),
     marginAsset: plan.marginAsset,
@@ -218,6 +231,7 @@ export function decodeRungPlan(encoded: EncodedRungPlan): RungPlan {
     marginRemaining: BigInt(encoded.marginRemaining),
     marginTaken: BigInt(encoded.marginTaken),
     releaseShort: BigInt(encoded.releaseShort ?? '0'),
+    lossShort: BigInt(encoded.lossShort ?? '0'),
     reason: encoded.reason,
     fromInsurance: BigInt(encoded.fromInsurance),
     marginAsset: encoded.marginAsset,
@@ -276,6 +290,7 @@ export function memoryLiquidationRungStore(rows: RungRowBook): LiquidationRungSt
           fromSize: input.fromSize,
           fromMargin: input.fromMargin,
           state: 'planned',
+          planVersion: 0,
           marginDrift: 0n,
         },
         plan: encodeRungPlan(input.plan),
@@ -288,11 +303,12 @@ export function memoryLiquidationRungStore(rows: RungRowBook): LiquidationRungSt
       const e = rungs.get(rungId);
       if (e && e.rec.state === 'planned') e.rec.state = 'posted';
     },
-    async amendPlan(rungId, plan) {
+    async amendPlan(rungId, plan, expectedVersion) {
       const e = rungs.get(rungId);
-      if (!e || e.rec.state !== 'planned') return false;
+      if (!e || e.rec.state !== 'planned' || e.rec.planVersion !== expectedVersion) return null;
       e.plan = encodeRungPlan(plan);
-      return true;
+      e.rec.planVersion += 1;
+      return e.rec.planVersion;
     },
     async apply(positionId, rungId) {
       const e = rungs.get(rungId);

@@ -172,6 +172,14 @@ export function reportLiquidationTick(tick: LiquidationTickResult, onError: (nam
         new Error(`${item.alert.code} positionId=${item.positionId} rungId=${item.alert.rungId} amount=${item.alert.amount}`),
       );
     }
+    if (item.lossShort) {
+      onError(
+        'futures.liquidation',
+        new Error(
+          `${item.lossShort.code} positionId=${item.positionId} rungId=${item.lossShort.rungId} amount=${item.lossShort.amount} (the loss was booked for less than planned: the pot held less)`,
+        ),
+      );
+    }
     if (item.releaseShort) {
       onError(
         'futures.liquidation',
