@@ -73,13 +73,53 @@ function under(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
-function normalise(pathname: string): string {
-  return pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+/**
+ * Next matches routes on the DECODED path (`/%74ools` serves `/tools`), but `request.nextUrl.pathname` stays encoded. So the gate
+ * decodes before it matches. It decodes repeatedly (a double-encoded `/%2574ools` becomes `/tools` too; refusing more than the
+ * router would serve is safe) and then resolves `.`/`..` and doubled slashes. Returns null when the path cannot be decoded or is
+ * still changing after 5 rounds: callers treat that as "refuse", never as "no module".
+ */
+function decodedPath(pathname: string): string | null {
+  let path = pathname;
+  for (let round = 0; round < 5; round += 1) {
+    let next: string;
+    try {
+      next = decodeURIComponent(path);
+    } catch {
+      return null;
+    }
+    if (next === path) {
+      const kept: string[] = [];
+      for (const part of path.split(/[\\/]+/)) {
+        if (part === '' || part === '.') continue;
+        if (part === '..') kept.pop();
+        else kept.push(part);
+      }
+      return `/${kept.join('/')}`;
+    }
+    path = next;
+  }
+  return null;
 }
 
-/** Module that owns a page path, or null (login, 404s, route probes). */
+function normalise(pathname: string): string | null {
+  const path = decodedPath(pathname);
+  if (path === null) return null;
+  return path.length > 1 ? path.replace(/\/+$/, '') : path;
+}
+
+/**
+ * True when the path has a malformed `%` sequence (or nests encodings too deeply to trust). With a gate configured the middleware
+ * answers these with a 404 rather than guess which module they might reach.
+ */
+export function isUndecodablePath(pathname: string): boolean {
+  return decodedPath(pathname) === null;
+}
+
+/** Module that owns a page path, or null (login, 404s, route probes). Check `isUndecodablePath` first. */
 export function moduleForPage(pathname: string): ModuleId | null {
   const path = normalise(pathname);
+  if (path === null) return null;
   if (path === '/') return 'killswitches';
   for (const route of MODULE_ROUTES) {
     if (route.href !== '/' && under(path, route.href)) return route.id;
@@ -87,9 +127,10 @@ export function moduleForPage(pathname: string): ModuleId | null {
   return null;
 }
 
-/** Module that owns an API path, or null (session/login APIs, unknown paths). */
+/** Module that owns an API path, or null (session/login APIs, unknown paths). Check `isUndecodablePath` first. */
 export function moduleForApi(pathname: string): ModuleId | null {
   const path = normalise(pathname);
+  if (path === null) return null;
   for (const [prefix, id] of API_PREFIXES) {
     if (under(path, prefix)) return id;
   }

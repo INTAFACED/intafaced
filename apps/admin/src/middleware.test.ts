@@ -67,4 +67,50 @@ describe('admin middleware module gate', () => {
     expect(run('/api/crm').status).toBe(404);
     expect(passes(run('/login'))).toBe(true);
   });
+
+  it('ADMIN_MODULES=crm: percent-encoded paths cannot reach a disabled page', () => {
+    process.env.ADMIN_MODULES = 'crm';
+    for (const path of [
+      '/%74ools', // t
+      '/%6Cedger', // l
+      '/%61ccounts', // a
+      '/%61ccounts/x',
+      '/%2574ools', // double-encoded t
+      '/%252574ools', // triple-encoded
+      '/%2Ftools', // encoded slash
+      '/crm/%2e%2e/tools', // encoded dot-dot
+      '/%6Caunch',
+      '/%6Aurisdiction',
+    ]) {
+      const res = run(path);
+      expect(res.status, path).toBe(307);
+      expect(new URL(res.headers.get('location')!).pathname, path).toBe('/crm');
+    }
+  });
+
+  it('ADMIN_MODULES=crm: encoded API paths are refused with the same 404', async () => {
+    process.env.ADMIN_MODULES = 'crm';
+    for (const path of ['/api/%61ccounts', '/api/operator%2Dtools', '/api/%2561ccounts']) {
+      const res = run(path);
+      expect(res.status, path).toBe(404);
+      expect(await res.json()).toEqual({ error: 'not_found' });
+    }
+  });
+
+  it('ADMIN_MODULES=crm: a malformed percent sequence is refused outright', () => {
+    process.env.ADMIN_MODULES = 'crm';
+    for (const path of ['/%', '/tools%', '/%E0%A4%A', '/crm/%zz', '/api/crm%']) expect(run(path).status, path).toBe(404);
+  });
+
+  it('ADMIN_MODULES=crm: encoded forms of the allowed paths still pass', () => {
+    process.env.ADMIN_MODULES = 'crm';
+    for (const path of ['/crm', '/%63rm', '/login', '/api/session', '/api/crm', '/api/%63rm/workflows']) {
+      expect(passes(run(path)), path).toBe(true);
+    }
+  });
+
+  it('with no gate configured, encoded and malformed paths are left to Next', () => {
+    delete process.env.ADMIN_MODULES;
+    for (const path of ['/%74ools', '/tools%']) expect(passes(run(path)), path).toBe(true);
+  });
 });

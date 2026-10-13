@@ -4,7 +4,8 @@ import { founderName, useFounderOwners } from './founder-names';
 import { CrmMetrics, CrmTasks, CrmCampaigns, CrmDuplicates, CrmExports, CrmEnquiryTasks } from './crm-workflows';
 import { CrmMessages } from './crm-messages';
 import { CrmPrivacy } from './crm-privacy';
-import { crmDate, crmLocalDate, crmOverdueDays, crmRelative, crmTime } from '@/lib/crm-browser';
+import { crmDate, crmLocalDate, crmOverdueCalendarDays, crmRelative, crmTime } from '@/lib/crm-browser';
+import { createOpenGate, draftOf } from '@/lib/crm-open-gate';
 import type {
   CrmActivity,
   CrmContact,
@@ -30,11 +31,11 @@ const AUDIENCES = ['investor', 'trader', 'merchant', 'academy', 'partner'] as co
 const DETAIL_TABS = ['overview', 'answers', 'activity', 'messages'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 const label = (value: string) => value.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
-const plural = (count: number, one: string, many: string) => `${count.toLocaleString()} ${count === 1 ? one : many}`;
-/** "Overdue · 2 days", or null when the due time has not passed. Whole days come from crmOverdueDays. */
+const plural = (count: number, one: string, many: string) => `${count.toLocaleString('en-GB')} ${count === 1 ? one : many}`;
+/** "Overdue · 2 days", or null when the due time has not passed. Days are local calendar days: yesterday evening is "1 day", not "today". */
 export function overdueLabel(dueAt: string, now = Date.now()): string | null {
   if (Date.parse(dueAt) >= now) return null;
-  const days = crmOverdueDays(dueAt, now);
+  const days = crmOverdueCalendarDays(dueAt, now);
   return days >= 1 ? `Overdue · ${plural(days, 'day', 'days')}` : 'Overdue · today';
 }
 /** The activity log's own contract kinds in words a founder would use. */
@@ -177,6 +178,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
   const [evidence, setEvidence] = useState('');
   const pending = useRef(new Map<string, { inputKey: string; requestId: string }>());
   const sequence = useRef(0);
+  const openGate = useRef(createOpenGate());
   const listScroll = useRef(0);
   const retentionPendingPrevious = useRef(false);
   const onRetentionDraftState = useCallback((dirty: boolean, pending: boolean) => {
@@ -224,8 +226,13 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
   useEffect(() => {
     void load();
   }, [load]);
-  async function open(id: string, manageBusy = true, silent = false) {
-    if (id !== detail?.opportunity.id && typeof window !== 'undefined') listScroll.current = window.scrollY;
+  /**
+   * Only the latest call's result is applied (see createOpenGate). `rebase` forces the form fields to the freshly loaded
+   * record; it is for a founder-confirmed reload, where the unsaved edits were just discarded.
+   */
+  async function open(id: string, manageBusy = true, silent = false, rebase = false) {
+    const gate = openGate.current;
+    if (id !== gate.selected() && typeof window !== 'undefined') listScroll.current = window.scrollY;
     if (detail && detail.opportunity.id !== id) {
       if (retentionWritePending) {
         setNotice('A retention review result is unconfirmed. Retry that same request before leaving this enquiry.');
@@ -237,6 +244,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
         setPrivacyResetVersion((value) => value + 1);
       }
     }
+    const call = gate.begin();
     if (manageBusy) setBusy(true);
     if (!silent) {
       setError('');
@@ -246,9 +254,11 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
     try {
       const result = await readJson<Detail | null>(`/api/crm?opportunityId=${encodeURIComponent(id)}`);
       if (!result) throw new Error('This enquiry could not be found.');
-      const changedRecord = detail?.opportunity.id !== id;
+      const decision = gate.settle(call, id, silent);
+      if (!decision.apply) return false;
+      const { changedRecord } = decision;
       setDetail(result);
-      setMobileDetail(true);
+      if (decision.showMobileDetail) setMobileDetail(true);
       if (changedRecord) {
         setDetailTab('overview');
         setVisitedDetailTabs(new Set(['overview']));
@@ -261,20 +271,26 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
           if (phone) window.scrollTo(0, 0);
           detailHeading.current?.focus({ preventScroll: phone || !stacked });
         });
-        setNewOwner(result.opportunity.ownerUserId);
-        setNewStage(result.opportunity.stage);
-        setActionDescription(result.opportunity.nextAction?.description ?? '');
-        const due = result.opportunity.nextAction?.dueAt;
-        setActionDue(due ? crmLocalDate(due) : '');
+      }
+      // A refresh of the same record with nothing typed also re-bases the form, so a change made elsewhere does not read as an unsaved edit.
+      if (changedRecord || rebase || (silent && !live.current.dirty)) {
+        const draft = draftOf(result, crmLocalDate);
+        setNewOwner(draft.newOwner);
+        setNewStage(draft.newStage);
+        setActionDescription(draft.actionDescription);
+        setActionDue(draft.actionDue);
         setReason('');
         setEvidence('');
         setNote('');
       }
       return true;
     } catch (failure) {
-      if (silent) return false;
+      // A newer open owns the screen now; this older call's failure must not clear or alert over it.
+      if (silent || !gate.isCurrent(call)) return false;
       // Keep the last loaded record when a confirmed write's refresh fails.
-      setDetail((current) => (!manageBusy && current?.opportunity.id === id ? current : null));
+      const keep = !manageBusy && gate.selected() === id;
+      if (!keep) gate.clear();
+      setDetail((current) => (keep && current?.opportunity.id === id ? current : null));
       const { message, kind } = failureOf(failure, 'Enquiry unavailable.');
       setError(message);
       setErrorKind(kind);
@@ -373,6 +389,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
   /**
    * Refresh = list + the open enquiry + the totals. A background run (focus, tab visible, every 60 s) never overlaps another load
    * and never replaces the open enquiry while there are unsaved edits, because saving uses the revision it was opened at.
+   * A manual run with unsaved edits asks first; if the founder declines, only the list and totals reload.
    */
   async function refresh(auto = false) {
     const state = live.current;
@@ -383,7 +400,11 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       lastAutoRefresh.current = Date.now();
     }
     const jobs: Array<Promise<unknown>> = [load(auto)];
-    if (state.detailId && !(auto && (state.dirty || state.retentionPending))) jobs.push(open(state.detailId, false, auto));
+    if (state.detailId && !(auto && (state.dirty || state.retentionPending))) {
+      const reloadDetail = auto || canLeaveCurrentDetail('Discard unsaved edits and reload this enquiry?');
+      // After a confirmed discard the form is re-based onto the newest revision, so the next save carries that revision knowingly.
+      if (reloadDetail) jobs.push(open(state.detailId, false, auto, !auto));
+    }
     await Promise.all(jobs);
     setWorkflowVersion((value) => value + 1);
   }
@@ -628,6 +649,8 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
         <CrmTasks
           key={String(overdueOnly)}
           initialOverdue={overdueOnly}
+          version={workflowVersion}
+          filtersActive={activeFilters > 0}
           owners={owners}
           onOpen={(id) => {
             void open(id).then((opened) => {

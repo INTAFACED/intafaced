@@ -1,8 +1,13 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { crmMergeInputSchema } from '@intafaced/contracts';
 import {
   CrmMetrics,
+  CrmTasks,
+  StaleNote,
   MergeCard,
+  chooseKeep,
+  mergeInput,
   PastDateWarning,
   TaskRow,
   csvCell,
@@ -113,6 +118,49 @@ describe('summary counts', () => {
     );
     expect(wired).toMatch(/<button[^>]*>— incomplete<\/button>/);
     expect(wired).toMatch(/<button[^>]*>— invitations<\/button>/);
+  });
+});
+
+describe('quiet reload failure and overdue wording', () => {
+  it('shows a small note, not an alert, beside figures that stayed on screen', () => {
+    const html = renderToStaticMarkup(<StaleNote error="We could not confirm the request." />);
+    expect(html).toContain('Couldn&#x27;t refresh just now. Showing the last figures we have.');
+    expect(html).toContain('role="status"');
+    expect(html).not.toContain('role="alert"');
+    expect(renderToStaticMarkup(<StaleNote error="" />)).toBe('');
+  });
+
+  it('explains why the overdue list can be longer than the filtered count, only when it was opened from the count with filters on', () => {
+    const open = (initialOverdue: boolean, filtersActive: boolean) =>
+      renderToStaticMarkup(
+        <CrmTasks owners={owners} onOpen={() => undefined} initialOverdue={initialOverdue} filtersActive={filtersActive} />,
+      );
+    expect(open(true, true)).toContain('This list covers every audience, stage and owner');
+    expect(open(true, false)).not.toContain('every audience');
+    expect(open(false, true)).not.toContain('every audience');
+  });
+});
+
+describe('merge direction', () => {
+  const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const card = (id: string) => ({ contact: { id } });
+
+  it('keeps the card the founder clicked: its contact id is the target, the other card is the source', () => {
+    expect(chooseKeep([card(A), card(B)], card(B))).toEqual({ target: B, source: A });
+    expect(chooseKeep([card(A), card(B)], card(A))).toEqual({ target: A, source: B });
+  });
+
+  it('with three or more records only the kept one is set; the founder picks the one to fold in', () => {
+    expect(chooseKeep([card(A), card(B), card(C)], card(B))).toEqual({ target: B, source: '' });
+  });
+
+  it('sends the kept contact as targetContactId with ITS revision, and the folded one as sourceContactId, in the shape the contract accepts', () => {
+    const { target, source } = chooseKeep([card(A), card(B)], card(B));
+    const input = mergeInput(source, target, 2, 7, 'Same person');
+    expect(input).toMatchObject({ targetContactId: B, targetExpectedRevision: 7, sourceContactId: A, sourceExpectedRevision: 2 });
+    expect(crmMergeInputSchema.safeParse({ ...input, requestId: C }).success).toBe(true);
   });
 });
 

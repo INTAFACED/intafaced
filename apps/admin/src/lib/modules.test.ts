@@ -8,6 +8,7 @@ import {
   isModuleEnabled,
   moduleDisabledResponse,
   moduleForApi,
+  isUndecodablePath,
   moduleForPage,
 } from './modules';
 
@@ -42,6 +43,25 @@ describe('ADMIN_MODULES gate', () => {
     }
     expect(moduleForPage('/login')).toBeNull();
     expect(moduleForPage('/accountsx')).toBeNull();
+  });
+
+  it('matches the decoded path, so percent-encoding cannot hide a module', () => {
+    expect(moduleForPage('/%74ools')).toBe('tools');
+    expect(moduleForPage('/%6Cedger/')).toBe('ledger');
+    expect(moduleForPage('/%61ccounts')).toBe('accounts');
+    expect(moduleForPage('/%2574ools')).toBe('tools'); // double-encoded
+    expect(moduleForPage('//tools')).toBe('tools');
+    expect(moduleForPage('/crm/../tools')).toBe('tools');
+    expect(moduleForPage('/%63rm')).toBe('crm');
+    expect(moduleForApi('/api/%61ccounts')).toBe('accounts');
+    expect(moduleForApi('/api/operator%2Dtools/x')).toBe('tools');
+    expect(moduleForPage('/login')).toBeNull();
+  });
+
+  it('flags a malformed or endlessly nested encoding so the gate can refuse it', () => {
+    for (const path of ['/%', '/tools%', '/%E0%A4%A', '/crm/%zz']) expect(isUndecodablePath(path), path).toBe(true);
+    expect(isUndecodablePath('/%25252525252574ools')).toBe(true); // still changing after 5 rounds
+    for (const path of ['/', '/crm', '/%74ools', '/%2574ools', '/login']) expect(isUndecodablePath(path), path).toBe(false);
   });
 
   it('maps API routes; session APIs belong to no module', () => {

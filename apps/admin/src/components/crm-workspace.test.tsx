@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CrmWorkspace, activityTitle, overdueLabel, sourceLine } from './crm-workspace';
 import { sessionStatus } from './founder-session-bar';
 
@@ -26,6 +26,28 @@ describe('activity log wording', () => {
 });
 
 describe('overdue and source wording', () => {
+  // "Today" and "1 day" are local calendar days, so pin the zone these dates are written for.
+  const zone = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = 'UTC';
+  });
+  afterAll(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+  it('says "1 day" for an earlier calendar day even when under 24 hours have passed, and "today" only for the same day', () => {
+    expect(overdueLabel('2026-10-14T23:30:00Z', now)).toBe('Overdue · 1 day'); // 10.5 hours ago, but yesterday
+    expect(overdueLabel('2026-10-15T00:10:00Z', now)).toBe('Overdue · today');
+  });
+  it("formats counts with the en-GB locale, not the Mac's", () => {
+    const spy = vi.spyOn(Number.prototype, 'toLocaleString');
+    try {
+      expect(overdueLabel('2023-01-01T00:00:00Z', now)).toBe('Overdue · 1,383 days');
+      expect(spy).toHaveBeenCalledWith('en-GB');
+    } finally {
+      spy.mockRestore();
+    }
+  });
   it('labels overdue days, today, and nothing for the future', () => {
     expect(overdueLabel('2026-10-13T09:00:00Z', now)).toBe('Overdue · 2 days');
     expect(overdueLabel('2026-10-14T09:00:00Z', now)).toBe('Overdue · 1 day');

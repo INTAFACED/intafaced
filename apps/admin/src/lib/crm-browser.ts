@@ -1,6 +1,13 @@
 'use client';
 /** Writes retain their request identity until a confirmed, validated receipt. */
 export type PendingCrmWrite = { inputKey: string; requestId: string };
+/** An input equal to this is replaced by the current time on every fetch, so "overdue" is measured when the data is read. */
+export const AT_FETCH_TIME = '@now';
+export function resolveFetchTime(input: Record<string, unknown>, now = new Date().toISOString()): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(input).map(([key, value]) => [key, value === AT_FETCH_TIME ? now : value]));
+}
+/** A failed reload keeps what is on screen only when that value came from the very same request; otherwise it would be another filter's figures. */
+export const readFailureKeepsValue = (shownUrl: string | null, url: string) => shownUrl !== null && shownUrl === url;
 export async function crmJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...options, cache: 'no-store' });
   if (!response.ok) {
@@ -56,5 +63,14 @@ export function crmRelative(value: string, now = Date.now()): string {
 }
 /** Whole days a due date is past, or 0 when it is not overdue. */
 export const crmOverdueDays = (value: string, now = Date.now()) => Math.max(0, Math.floor((now - Date.parse(value)) / 86400000));
+/** Local calendar days between a due date and now: 0 for the same day, 1 for any time yesterday (even 10 minutes ago). */
+export function crmOverdueCalendarDays(value: string, now = Date.now()): number {
+  const startOfDay = (time: number) => {
+    const day = new Date(time);
+    return new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  };
+  // Rounding absorbs the 23- and 25-hour days around a clock change.
+  return Math.max(0, Math.round((startOfDay(now) - startOfDay(Date.parse(value))) / 86400000));
+}
 export const crmLocalDate = (value: string) =>
   new Date(Date.parse(value) - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
