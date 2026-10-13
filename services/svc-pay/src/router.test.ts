@@ -514,6 +514,13 @@ describe('a caller can tell the failures apart', () => {
     expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(0);
   });
 
+  it('refuses a whitespace-only refundId, as the REST door treats it as absent', async () => {
+    const api = await caller(['pay:refund']);
+    const err = await api.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: '   ' }).catch((e: unknown) => e);
+    expect(await codeOf(err)).toBe('BAD_REQUEST');
+    expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(0);
+  });
+
   it('passes the caller refundId to the service verbatim, so a retry is the same refund', async () => {
     const api = await caller(['pay:refund']);
     await api.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'biz-refund-9' });

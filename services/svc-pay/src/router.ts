@@ -663,7 +663,17 @@ export function createPayRouter(
         // refundId is the caller's idempotency key. Without it the service invented
         // `${paymentId}:${count + 1}`, so a client retry of a PARTIAL refund that had
         // already succeeded booked a second refund. A retry must carry the same id.
-        .input(z.object({ paymentId: z.string().uuid(), amount: amountSchema, refundId: z.string().min(1).max(200) }))
+        .input(
+          z.object({
+            paymentId: z.string().uuid(),
+            amount: amountSchema,
+            refundId: z
+              .string()
+              .min(1)
+              .max(200)
+              .refine((id) => id.trim().length > 0, 'refundId must not be blank'),
+          }),
+        )
         .output(paymentView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
