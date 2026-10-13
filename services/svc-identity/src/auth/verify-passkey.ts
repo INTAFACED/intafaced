@@ -9,6 +9,7 @@ import {
   type AuthenticationResponseJSON,
   type PublicKeyCredentialRequestOptionsJSON,
 } from '@simplewebauthn/server';
+import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { b64urlDecode, type ChallengeStorePort } from './webauthn.js';
 import { requireOrigin, requireRpId, sqlPasskeyChallenges, type PasskeyRp, type StoredPasskey } from './enroll-passkey.js';
@@ -149,36 +150,50 @@ export async function verifyPasskey(
     throw new VerifyPasskeyError('WebAuthn challenge expired or already used', 'auth.webauthn_invalid');
   }
 
-  let verified: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
-  try {
-    verified = await ceremony.verify({
-      response,
-      expectedChallenge: held.challenge,
-      expectedOrigin: origins,
-      expectedRPID: rpId,
-      requireUserVerification: true,
-      credential: {
-        id: stored.credentialId,
-        publicKey: new Uint8Array(b64urlDecode(stored.publicKey)),
-        counter: stored.counter,
-        transports: stored.transports as 'internal'[] | undefined,
-      },
-    });
-  } catch {
-    throw new VerifyPasskeyError('Invalid WebAuthn response', 'auth.webauthn_invalid');
-  }
-  if (!verified.verified) {
-    throw new VerifyPasskeyError('Invalid WebAuthn response', 'auth.webauthn_invalid');
-  }
+  // Verify and advance the counter in one transaction under a row lock, so two
+  // concurrent assertions cannot both pass on the same counter, and a racing
+  // enrol or unenrol is never overwritten (a removed passkey stays removed).
+  // The ceremony is pure crypto; the challenge was already taken above.
+  return transaction(sql, async (tx) => {
+    const locked = await tx<Array<{ webauthn_creds: unknown }>>`
+      SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE
+    `;
+    if (!locked[0]) throw new VerifyPasskeyError('User not found', 'auth.not_found');
+    const creds = asCreds(locked[0].webauthn_creds);
+    const current = creds.find((c) => c.credentialId === response.id);
+    if (!current) throw new VerifyPasskeyError('No enrolled passkey matches this authenticator', 'auth.passkey_missing');
 
-  const nextCounter = verified.authenticationInfo?.newCounter ?? stored.counter;
-  const next = existing.map((c) =>
-    c.credentialId === stored.credentialId ? { ...c, counter: nextCounter, lastVerifiedAt: new Date().toISOString() } : c,
-  );
-  await sql`
-    UPDATE users
-       SET webauthn_creds = ${sql.json(next as never)}, updated_at = now()
-     WHERE id = ${userId}
-  `;
-  return { credentialId: stored.credentialId, verified: true };
+    let verified: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
+    try {
+      verified = await ceremony.verify({
+        response,
+        expectedChallenge: held.challenge,
+        expectedOrigin: origins,
+        expectedRPID: rpId,
+        requireUserVerification: true,
+        credential: {
+          id: current.credentialId,
+          publicKey: new Uint8Array(b64urlDecode(current.publicKey)),
+          counter: current.counter,
+          transports: current.transports as 'internal'[] | undefined,
+        },
+      });
+    } catch {
+      throw new VerifyPasskeyError('Invalid WebAuthn response', 'auth.webauthn_invalid');
+    }
+    if (!verified.verified) {
+      throw new VerifyPasskeyError('Invalid WebAuthn response', 'auth.webauthn_invalid');
+    }
+
+    const nextCounter = verified.authenticationInfo?.newCounter ?? current.counter;
+    const next = creds.map((c) =>
+      c.credentialId === current.credentialId ? { ...c, counter: nextCounter, lastVerifiedAt: new Date().toISOString() } : c,
+    );
+    await tx`
+      UPDATE users
+         SET webauthn_creds = ${tx.json(next as never)}, updated_at = now()
+       WHERE id = ${userId}
+    `;
+    return { credentialId: current.credentialId, verified: true as const };
+  });
 }

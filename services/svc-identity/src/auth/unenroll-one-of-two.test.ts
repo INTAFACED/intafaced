@@ -111,6 +111,7 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
   };
   return Object.assign(fn, {
     json: (v: unknown) => v,
+    begin: (_o: string, cb: (t: unknown) => unknown) => cb(fn as never),
     get sessionWrites() {
       return sessionWrites;
     },
