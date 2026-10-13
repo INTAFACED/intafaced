@@ -122,6 +122,26 @@ export class EvmSendRevertedError extends Error {
   }
 }
 
+/**
+ * The outbound transaction was included, and the receipt is not a success.
+ * The hash may already be in the broadcast journal — it left this process —
+ * but `send` must not hand it back as a completed transfer.
+ */
+export class EvmSendRevertedError extends Error {
+  readonly code = 'pay.evm_send_reverted';
+  readonly txHash: string;
+  readonly status: string;
+
+  constructor(txHash: string, status: string) {
+    super(
+      `Outbound transaction ${txHash} receipt status is ${status} — refusing to report the send as success`,
+    );
+    this.name = 'EvmSendRevertedError';
+    this.txHash = txHash;
+    this.status = status;
+  }
+}
+
 export class EvmLiveChain implements CryptoChainPort {
   readonly posture = 'live' as const;
   readonly description: string;
