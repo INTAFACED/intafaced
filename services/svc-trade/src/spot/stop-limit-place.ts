@@ -80,7 +80,11 @@ export function bindStopLimit(input: PlaceOrderInput): PlaceWithStopLimit {
   const hit = stash.get(key);
   if (!hit) return extra;
   stash.delete(key);
-  return { ...extra, type: extra.type === 'stop_limit' ? 'limit' : extra.type, stopPx: hit.stopPx == null ? null : parseAmount(hit.stopPx) };
+  return {
+    ...extra,
+    type: extra.type === 'stop_limit' ? 'limit' : extra.type,
+    stopPx: hit.stopPx == null ? null : parseAmount(hit.stopPx),
+  };
 }
 
 export function installStopLimitPlace(ctor: typeof TradeService): void {

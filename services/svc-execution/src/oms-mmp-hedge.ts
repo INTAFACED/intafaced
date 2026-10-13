@@ -7,10 +7,7 @@
 import { parseAmount } from '@intafaced/ledger-client';
 import type { ApprovedAlgoParentStore } from './oms-start.js';
 
-export type OmsMmpHedgeRefuseReason =
-  | 'missing_parent'
-  | 'hedge_size_blank'
-  | 'hedge_size_invalid';
+export type OmsMmpHedgeRefuseReason = 'missing_parent' | 'hedge_size_blank' | 'hedge_size_invalid';
 
 export type OmsMmpHedgeRefusal = {
   readonly ok: false;
@@ -32,9 +29,7 @@ function refuse(reason: OmsMmpHedgeRefuseReason, detail: string): OmsMmpHedgeRef
   return { ok: false, reason, detail };
 }
 
-function parseHedgeSize(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsMmpHedgeRefusal {
+function parseHedgeSize(raw: string | null | undefined): { ok: true; text: string } | OmsMmpHedgeRefusal {
   if (raw === null || raw === undefined) {
     return refuse('hedge_size_blank', 'hedge size is blank — refuse rather than invent size from the fill');
   }
@@ -54,10 +49,7 @@ function parseHedgeSize(
   }
 }
 
-function parentRemaining(
-  parentStore: ApprovedAlgoParentStore | undefined,
-  parentClientOrderId: string,
-): string | null {
+function parentRemaining(parentStore: ApprovedAlgoParentStore | undefined, parentClientOrderId: string): string | null {
   if (!parentStore) return null;
   const remaining = parentStore.get(parentClientOrderId)?.residual?.remaining?.trim() ?? '';
   return remaining || null;

@@ -3,11 +3,7 @@ import { parseAmount, ZERO } from '@intafaced/ledger-client';
 import type { VenueOrder } from '@intafaced/venue-contracts';
 import type { OmsCancelFn } from './oms-cancel.js';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
-import {
-  InMemoryApprovedAlgoParentStore,
-  type ApprovedAlgoParent,
-  type RetainedAlgoSchedule,
-} from './oms-start.js';
+import { InMemoryApprovedAlgoParentStore, type ApprovedAlgoParent, type RetainedAlgoSchedule } from './oms-start.js';
 import { amendRemainingLiveAlgoParent } from './oms-amend-remaining.js';
 
 const OP = '33333333-3333-4333-8333-333333333333';
@@ -32,8 +28,7 @@ function live(
       schedule?: RetainedAlgoSchedule;
     },
 ): ApprovedAlgoParent {
-  const schedule =
-    over.schedule ?? (over.kind === 'pov' ? retainedPov() : over.kind === 'vwap' ? retainedVwap() : retainedTwap());
+  const schedule = over.schedule ?? (over.kind === 'pov' ? retainedPov() : over.kind === 'vwap' ? retainedVwap() : retainedTwap());
   return {
     status: 'approved',
     startedAt: null,
@@ -163,9 +158,7 @@ describe('amendRemainingLiveAlgoParent', () => {
       ok: false,
       reason: 'missing_parent',
     });
-    expect(
-      await amendRemainingLiveAlgoParent({ parentClientOrderId: '   ', remaining: '4', parentStore }),
-    ).toMatchObject({
+    expect(await amendRemainingLiveAlgoParent({ parentClientOrderId: '   ', remaining: '4', parentStore })).toMatchObject({
       ok: false,
       reason: 'missing_parent',
     });
@@ -282,9 +275,7 @@ describe('amendRemainingLiveAlgoParent', () => {
       residual: { remaining: '4' },
     });
     if (!out.ok) return;
-    expect(out.children).toEqual([
-      { clientOrderId: 'child-1', venueId: 'street', outcome: 'stopped', status: 'canceled' },
-    ]);
+    expect(out.children).toEqual([{ clientOrderId: 'child-1', venueId: 'street', outcome: 'stopped', status: 'canceled' }]);
     expect(parentStore.get('parent-1')?.residual?.remaining).toBe('4');
     expect(street.calls).toEqual([{ symbol: 'BTC/USDT', clientOrderId: 'child-1' }]);
     expect(street.calls).toHaveLength(1);

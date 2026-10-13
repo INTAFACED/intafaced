@@ -5,7 +5,7 @@
   "type": "commonjs",
   "description": "INTAFACED React customer wrapper. Verified HTTPS origin required. Sideload / WebView. Not store-listed.",
   "scripts": {
-    "build": "node ./scripts/build-wrap.mjs",
+    "native:stage": "node ./scripts/build-wrap.mjs",
     "test": "node ./scripts/build-wrap.mjs --check && node --test ./scripts/build-wrap.test.mjs",
     "verify:origin": "node ./scripts/build-wrap.mjs --verify",
     "native:sync": "node ./scripts/build-wrap.mjs && cap sync"

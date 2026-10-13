@@ -344,6 +344,7 @@ describe('svc-trade order-route-chaos (H8a PG-hard)', () => {
       });
       await fund(ALICE, 'USDT', '1000');
 
+      // #3199: the stub now throws "submit response timed out after possible dispatch" (unknown-submission recovery).
       await expect(
         service.placeOrder(principalFor(ALICE), {
           marketId: btcusdt.id,
@@ -353,7 +354,7 @@ describe('svc-trade order-route-chaos (H8a PG-hard)', () => {
           price: amt('100'),
           clientOrderId: 'chaos-f4',
         }),
-      ).rejects.toThrow(/unreachable/);
+      ).rejects.toThrow(/timed out after possible dispatch/);
 
       const orderId = orderIdFor(ALICE, btcusdt.id, 'chaos-f4');
       const order = await service.findOrder(orderId);

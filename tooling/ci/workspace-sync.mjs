@@ -144,7 +144,7 @@ let vendoredInspected = 0;
 // tree it never opened. That is not hypothetical: `pnpm verify` and CI invoke
 // gates from the repo root today, and nothing enforces it.
 //
-// This is the house rule from `tooling/ci/fabricated-money-scan.mjs`: discovery
+// This is the house rule from `tooling/ci/fabricated-money-scan.mjs` (deleted 2026-10-13): discovery
 // finding nothing is a REPORT, never a silent pass. There it is a loud exit 0
 // because the shell may legitimately be gone. Here it is a failure, because a
 // monorepo with no services is not a state this repo can be in — it is a broken
@@ -658,7 +658,7 @@ if (compose !== null) {
   //    was written for; being unable to see it is not a pass.
   //  - `vendor/` is not there at all — a legitimate end state if the vendored
   //    shell is ever fully retired. Pass, but say so out loud, so nobody reads
-  //    a tick as coverage. That is the `fabricated-money-scan` rule.
+  //    a tick as coverage. That is the `fabricated-money-scan` (deleted 2026-10-13) rule.
   if (!existsSync(join(ROOT, 'vendor'))) {
     console.log('  · workspace-sync check 7: no vendor/ directory — NO VENDORED FRONT-END WAS INSPECTED.');
     console.log('    If the vendored shell still exists, discovery is broken; fix vendoredPackages rather than ignoring this line.');

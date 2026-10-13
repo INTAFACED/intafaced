@@ -52,8 +52,9 @@ export class ChainObserver {
       }),
     );
 
-    // No address filter: any account deployed by our factory is one of ours,
-    // and the event signature is specific enough to be unambiguous.
+    // Accounts appear after this watch starts, so there is no address list.
+    // The handler publishes only when ownerOfRecord finds a registry row for
+    // log.address (see #isRegisteredFactoryAccount).
     this.#stoppers.push(
       chain.client.watchEvent({
         event: sessionGrantedEvent,
@@ -76,6 +77,23 @@ export class ChainObserver {
   stop(): void {
     for (const stop of this.#stoppers) stop();
     this.#stoppers = [];
+  }
+
+  /**
+   * A registry row exists only after `claim` verified that the address is the
+   * CREATE2 account the factory derives for that owner with the fixed
+   * implementation, so a registered address is a factory account. A look-alike
+   * contract has no row and is dropped. The row's `deployed` flag is NOT
+   * checked: a grant that lands in the same transaction as the deployment
+   * arrives before `recordDeployment`, and dropping it would lose a real event.
+   *
+   * Known gap: an account the factory deployed but nobody has claimed yet has
+   * no row, so its events are dropped until it is linked. No consumer needs
+   * those events today.
+   */
+  async #isRegisteredFactoryAccount(address: Address): Promise<boolean> {
+    const record = await this.deps.registry.ownerOfRecord(address);
+    return record !== null;
   }
 
   async #onAccountCreated(logs: readonly { args: Record<string, unknown>; transactionHash: Hex | null }[]) {
@@ -112,6 +130,7 @@ export class ChainObserver {
       if (!sessionKey || !specHash) continue;
 
       await withSpan('observer.sessionGranted', async () => {
+        if (!(await this.#isRegisteredFactoryAccount(log.address))) return;
         await this.deps.bus.publish(
           'protocolSessionKeyCreated',
           {
@@ -139,6 +158,7 @@ export class ChainObserver {
       if (!sessionKey || !revokedBy) continue;
 
       await withSpan('observer.sessionRevoked', async () => {
+        if (!(await this.#isRegisteredFactoryAccount(log.address))) return;
         await this.deps.bus.publish(
           'protocolSessionKeyCancelled',
           {

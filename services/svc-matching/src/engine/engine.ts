@@ -25,7 +25,7 @@ import {
   wouldOpenOrIncrease,
 } from './reduce-only-market.js';
 import { isPostOnlySubmit, postOnlyAmendRefusal, postOnlyMarketSubmitResult, replayPostOnlyMarkets } from './post-only-market.js';
-import { prelaunchAmendResult, prelaunchSubmitResult, replayPrelaunchMarkets } from './prelaunch.js';
+import { prelaunchAmendResult, prelaunchSubmitResult, replayOpenedMarkets, replayPrelaunchMarkets } from './prelaunch.js';
 import {
   delistedAmendResult,
   delistedSubmitResult,
@@ -158,6 +158,12 @@ export class MatchingEngine {
   private readonly postOnlyMarkets = new Set<MarketId>();
   /** One-market operator prelaunch. Public submits refuse until OPEN. Not halt. No duration. */
   private readonly prelaunchMarkets = new Set<MarketId>();
+  /**
+   * Markets an approved (dual-control) OPEN has listed. Listed means visible in
+   * `markets` even with no book, so svc-trade can send the first order. A book
+   * is still only created by a submit. Expired/delisted markets are not listed.
+   */
+  private readonly listedMarkets = new Set<MarketId>();
   /** One-market operator expire. New submits refuse. Cancels stay. Not halt. No notice period. */
   private readonly expiredMarkets = new Set<MarketId>();
   /** One-market operator delist. New submits refuse. Cancels stay. Not halt. No notice period. */
@@ -189,6 +195,7 @@ export class MatchingEngine {
     this.reduceOnlyMarkets.clear();
     this.postOnlyMarkets.clear();
     this.prelaunchMarkets.clear();
+    this.listedMarkets.clear();
     this.expiredMarkets.clear();
     this.delistedMarkets.clear();
     this.deadSessions.clear();
@@ -200,6 +207,7 @@ export class MatchingEngine {
     for (const marketId of replayReduceOnlyMarkets(records)) this.reduceOnlyMarkets.add(marketId);
     for (const marketId of replayPostOnlyMarkets(records)) this.postOnlyMarkets.add(marketId);
     for (const marketId of replayPrelaunchMarkets(records)) this.prelaunchMarkets.add(marketId);
+    for (const marketId of replayOpenedMarkets(records)) this.listedMarkets.add(marketId);
     for (const marketId of replayExpiredMarkets(records)) this.expiredMarkets.add(marketId);
     for (const marketId of replayDelistedMarkets(records)) this.delistedMarkets.add(marketId);
     for (const sessionId of replayDeadSessions(records)) this.deadSessions.add(sessionId);
@@ -311,8 +319,18 @@ export class MatchingEngine {
     return this.books.has(marketId);
   }
 
+  /** Opened by an approved OPEN and still live (not expired, not delisted). */
+  isListed(marketId: MarketId): boolean {
+    return this.listedMarkets.has(marketId) && !this.expiredMarkets.has(marketId) && !this.delistedMarkets.has(marketId);
+  }
+
+  /** Every market with a book, plus every opened market that has none yet. */
   get markets(): readonly MarketId[] {
-    return [...this.books.keys()].sort();
+    const ids = new Set<MarketId>(this.books.keys());
+    for (const marketId of this.listedMarkets) {
+      if (this.isListed(marketId)) ids.add(marketId);
+    }
+    return [...ids].sort();
   }
 
   /**
@@ -991,6 +1009,7 @@ export class MatchingEngine {
         ...(confirmOperatorId ? { confirmOperatorId } : {}),
       });
       this.prelaunchMarkets.delete(marketId);
+      this.listedMarkets.add(marketId);
       return { accepted: true, marketId, prelaunch: false, operatorId, confirmOperatorId };
     });
   }

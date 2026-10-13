@@ -511,14 +511,19 @@ describe.skipIf(!live)('createTestDatabase setup failure cleanup', () => {
     const prefix = `itf_run_${service}_${process.pid}_`;
     const app = 'l1281_denied_pool';
     const role = `l1281_nocreatedb_${process.pid}`;
+    // CI's Postgres authenticates TCP logins with scram, so the role needs its own
+    // password and the URL must carry it: otherwise login fails before the
+    // CREATEDB check this test is about. (A trust-auth local server ignores it.)
+    const rolePassword = `l1281-${process.pid}-pw`;
     const probe = postgres(L1281_URL, { max: 1, onnotice: () => undefined });
     const url = new URL(L1281_URL);
     url.username = role;
+    url.password = rolePassword;
     url.searchParams.set('application_name', app);
 
     try {
       await probe.unsafe(`DROP ROLE IF EXISTS "${role}"`);
-      await probe.unsafe(`CREATE ROLE "${role}" LOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE`);
+      await probe.unsafe(`CREATE ROLE "${role}" LOGIN PASSWORD '${rolePassword}' NOCREATEDB NOSUPERUSER NOCREATEROLE`);
 
       let thrown: unknown;
       try {

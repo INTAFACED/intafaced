@@ -114,11 +114,7 @@ async function mountDoors(bank: ReturnType<typeof createBankServices>): Promise<
   return app;
 }
 
-async function post(
-  app: FastifyInstance,
-  path: string,
-  input: Record<string, unknown>,
-): Promise<{ statusCode: number; body: WireBody }> {
+async function post(app: FastifyInstance, path: string, input: Record<string, unknown>): Promise<{ statusCode: number; body: WireBody }> {
   const res = await app.inject({ method: 'POST', url: `/trpc/${path}`, headers: signedHeaders(), payload: input });
   return { statusCode: res.statusCode, body: res.json() as WireBody };
 }
@@ -167,9 +163,9 @@ describe('EarnService.deposit — retry with the same positionId is one stake', 
       aprBps: 3650,
     });
     await fund(ledger, USER, '5000');
-    await expect(
-      bank.earn.deposit({ poolId: pool.id, userId: USER, amount: amt('1000'), positionId: '' }),
-    ).rejects.toMatchObject({ code: 'bank.position_id_required' });
+    await expect(bank.earn.deposit({ poolId: pool.id, userId: USER, amount: amt('1000'), positionId: '' })).rejects.toMatchObject({
+      code: 'bank.position_id_required',
+    });
     expect(depositCount(ledger)).toBe(0);
   });
 
@@ -219,9 +215,9 @@ describe('EarnService.deposit — retry with the same positionId is one stake', 
       return posted;
     };
 
-    await expect(
-      bank.earn.deposit({ poolId: pool.id, userId: USER, amount: amt('1000'), positionId }),
-    ).rejects.toThrow(/timed out after earn deposit posted/);
+    await expect(bank.earn.deposit({ poolId: pool.id, userId: USER, amount: amt('1000'), positionId })).rejects.toThrow(
+      /timed out after earn deposit posted/,
+    );
     expect(depositCount(ledger)).toBe(1);
 
     const retry = await bank.earn.deposit({ poolId: pool.id, userId: USER, amount: amt('1000'), positionId });

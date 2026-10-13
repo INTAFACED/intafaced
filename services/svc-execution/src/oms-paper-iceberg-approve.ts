@@ -8,13 +8,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperIcebergApproveRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'display_qty_blank'
-  | 'display_qty_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off'
-  | 'missing_operator';
+  'missing_parent' | 'not_live' | 'display_qty_blank' | 'display_qty_invalid' | 'paper_gate_unwired' | 'paper_off' | 'missing_operator';
 
 export type OmsPaperIcebergApproveRefusal = {
   readonly ok: false;
@@ -34,47 +28,28 @@ export type OmsPaperIcebergApproveOk = {
   readonly displayQty: string;
 };
 
-export type OmsPaperIcebergApproveResult =
-  | OmsPaperIcebergApproveOk
-  | OmsPaperIcebergApproveRefusal;
+export type OmsPaperIcebergApproveResult = OmsPaperIcebergApproveOk | OmsPaperIcebergApproveRefusal;
 
-function refuse(
-  reason: OmsPaperIcebergApproveRefuseReason,
-  detail: string,
-): OmsPaperIcebergApproveRefusal {
+function refuse(reason: OmsPaperIcebergApproveRefuseReason, detail: string): OmsPaperIcebergApproveRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseDisplayQty(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperIcebergApproveRefusal {
+function parseDisplayQty(raw: string | null | undefined): { ok: true; text: string } | OmsPaperIcebergApproveRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'display_qty_blank',
-      'iceberg display qty is blank — refuse rather than invent size',
-    );
+    return refuse('display_qty_blank', 'iceberg display qty is blank — refuse rather than invent size');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'display_qty_blank',
-      'iceberg display qty is blank — refuse rather than invent size',
-    );
+    return refuse('display_qty_blank', 'iceberg display qty is blank — refuse rather than invent size');
   }
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuse(
-        'display_qty_invalid',
-        'iceberg display qty must be a positive ledger amount — not invented',
-      );
+      return refuse('display_qty_invalid', 'iceberg display qty must be a positive ledger amount — not invented');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'display_qty_invalid',
-      'iceberg display qty is not a ledger amount — refusing to invent size',
-    );
+    return refuse('display_qty_invalid', 'iceberg display qty is not a ledger amount — refusing to invent size');
   }
 }
 
