@@ -1,5 +1,12 @@
 'use client';
 import { useState } from 'react';
+import { browserDraftStorage, keptEnquiryId } from '@/lib/crm-drafts';
+import { signInReturnTarget } from '@/lib/crm-return';
+
+/** After signing in: the page the sign-in link asked for (only a /crm path), else the enquiry whose edits this tab kept, else /crm. */
+function returnTarget(): string {
+  return signInReturnTarget(window.location.search, keptEnquiryId(browserDraftStorage()));
+}
 
 function decode(value: string): ArrayBuffer {
   const text = atob(value.replace(/-/g, '+').replace(/_/g, '/'));
@@ -40,7 +47,7 @@ export function FounderLogin() {
         setError('');
         try {
           await post('/api/session', { identifier, password, totpCode });
-          window.location.assign('/crm');
+          window.location.assign(returnTarget());
         } catch (failure) {
           setError(failure instanceof Error ? failure.message : 'Sign-in failed.');
         } finally {
@@ -125,7 +132,7 @@ export function FounderLogin() {
                 clientExtensionResults: credential.getClientExtensionResults(),
               },
             });
-            window.location.assign('/crm');
+            window.location.assign(returnTarget());
           } catch (failure) {
             setError(failure instanceof Error ? failure.message : 'Passkey sign-in failed.');
           } finally {

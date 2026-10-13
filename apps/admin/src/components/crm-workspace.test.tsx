@@ -166,6 +166,8 @@ describe('session bar clock', () => {
     expect(sessionStatus(at(8), now)).toEqual({ warning: true, text: 'Session ends in 8 min — save your work' });
     expect(sessionStatus(at(10), now)?.warning).toBe(true);
     expect(sessionStatus(at(-1), now)?.warning).toBe(true);
+    expect(sessionStatus(at(-1), now)?.expired).toBe(true);
+    expect(sessionStatus(at(8), now)?.expired).toBeUndefined();
   });
 });
 
