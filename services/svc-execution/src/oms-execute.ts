@@ -18,6 +18,7 @@ import { planOmsRoute, type OmsPlanInput, type OmsPlanRefuse, type OmsPlanVenue 
 import { refuseLiveOmsIcebergDisplay } from './oms-iceberg-display.js';
 import { refuseLiveOmsPeg } from './oms-peg-refuse.js';
 import { refuseLiveOmsOco } from './oms-oco-refuse.js';
+import { refuseLiveOmsScaleExtra } from './oms-scale-refuse.js';
 import { refuseUnsetBuyingPower } from './oms-buying-power.js';
 import { refuseLiveOmsMmp } from './oms-mmp-refuse.js';
 import { refuseUnsetDiscretionCap } from './oms-discretion-refuse.js';
@@ -393,22 +394,11 @@ export async function executeOmsRoute(input: OmsExecuteInput, registry?: SealedH
     return identityRefusal(lineageIds, omsOco.reason, omsOco.detail);
   }
 
+  // Later guards in this function read extraKind, so it stays declared here.
   const extraKind = input.kind?.trim().toLowerCase();
-  if (
-    extraKind === 'scale-in' ||
-    extraKind === 'scale-out' ||
-    extraKind === 'scale' ||
-    extraKind === 'implementation_shortfall' ||
-    extraKind === 'is' ||
-    extraKind === 'sniper' ||
-    extraKind === 'trailing' ||
-    extraKind === 'trailing-stop'
-  ) {
-    return identityRefusal(
-      lineageIds,
-      'scale_unsupported',
-      `live OMS kind ${String(input.kind)} is an extra — refusing rather than dual-implementing slice (twap|vwap|pov only)`,
-    );
+  const omsScale = refuseLiveOmsScaleExtra({ kind: input.kind });
+  if (omsScale) {
+    return identityRefusal(lineageIds, omsScale.reason, omsScale.detail);
   }
   if (input.buyingPower !== undefined) {
     const buyingPower = refuseUnsetBuyingPower(input.buyingPower);
