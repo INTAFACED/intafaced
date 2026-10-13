@@ -51,10 +51,11 @@ export function createEnrollPasskeyRouter(sql: Sql, rp: PasskeyRp, privilegedUse
       .output(z.object({ credentialId: z.string() }))
       .mutation(async ({ ctx, input }) => {
         try {
-          // Pre-check only: enroll-passkey.ts does its own unlocked read-modify-write
-          // (row locks there are issue #4618). The race-free check is webauthn.registerVerify.
-          await assertMayAddFactor(sql, ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), false);
-          return await enrollPasskey(sql, ctx.principal.userId, rp, toRegistrationResponseJSON(input), challenges);
+          // Unlocked pre-check: a fast refusal before the challenge is spent. The
+          // authoritative check re-runs inside enrollPasskey's row-locked transaction.
+          const actor = factorActor(ctx.principal, privilegedUserIds);
+          await assertMayAddFactor(sql, ctx.principal.userId, actor, false);
+          return await enrollPasskey(sql, ctx.principal.userId, rp, toRegistrationResponseJSON(input), challenges, actor);
         } catch (err) {
           const gate = factorGateTrpcError(err);
           if (gate) throw gate;
