@@ -20,6 +20,7 @@
 --
 -- Adds one nullable column. No row is read, rewritten or deleted.
 --
--- Reversal: 0032_interest_accrual_plan.down.sql
+-- Reversal: 0032_interest_accrual_plan.down.sql. It refuses to run while any plan is
+-- stored without a ledger_tx_id, because the earlier code would read that day as final.
 
 ALTER TABLE "bank"."interest_accruals" ADD COLUMN IF NOT EXISTS "planned_payouts" jsonb;

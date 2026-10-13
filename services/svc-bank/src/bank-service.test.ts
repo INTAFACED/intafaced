@@ -2145,6 +2145,96 @@ describe('svc-bank money PG-hard', () => {
         expect(ledger.reconcile()).toEqual({ ok: true });
       });
 
+      it('records the payment even if a concurrent run released the claim after the post landed', async () => {
+        const { pool } = await twoPositions();
+        // After the first interest post lands, another run's underfunded refusal
+        // deletes the claim, as it would between our post and our UPDATE.
+        let armed = true;
+        const racing = new Proxy(ledger, {
+          get(target, prop) {
+            const value = Reflect.get(target, prop, target);
+            if (typeof value !== 'function') return value;
+            if (prop !== 'post') return value.bind(target);
+            return async (request: Parameters<MemoryLedger['post']>[0]) => {
+              const posted = await target.post(request);
+              if (armed && request.idempotencyKey.startsWith('bank.interest:')) {
+                armed = false;
+                await sql`DELETE FROM bank.interest_accruals WHERE pool_id = ${pool.id}`;
+              }
+              return posted;
+            };
+          },
+        }) as LedgerClient;
+        const racer = createBankServices(sql, racing, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+
+        const result = await racer.earn.accrue({ poolId: pool.id, at });
+
+        const txs = interestTxs(pool.id);
+        expect(txs).toHaveLength(1);
+        expect(result.ledgerTxId).toBe(txs[0]!.id);
+        const rows = await sql<Array<{ paid_amount: string; recipients: number; ledger_tx_id: string | null; planned_payouts: unknown }>>`
+          SELECT paid_amount, recipients, ledger_tx_id, planned_payouts FROM bank.interest_accruals WHERE pool_id = ${pool.id}
+        `;
+        expect(rows).toHaveLength(1);
+        expect(rows[0]!.ledger_tx_id).toBe(txs[0]!.id);
+        expect(rows[0]!.recipients).toBe(2);
+        expect(formatAmount(amt(rows[0]!.paid_amount))).toBe('2');
+        expect(formatAmount(await bank.earn.interestPaid(pool.id))).toBe('2');
+      });
+
+      it('accrueAll finishes an earlier day from its stored plan, then accrues today', async () => {
+        const { pool, positions } = await twoPositions();
+        const crashing = createBankServices(sql, dieAfterFirstInterestPost(ledger), memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+        await expect(crashing.earn.accrue({ poolId: pool.id, at })).rejects.toThrow('process died after the ledger post');
+        await bank.earn.withdraw(positions[USER_B]!);
+
+        const report = await bank.earn.accrueAll(new Date('2026-03-03T00:00:00Z'));
+
+        expect(report.failures).toEqual([]);
+        const earlier = report.results.find((r) => r.date === '2026-03-02');
+        expect(earlier).toBeDefined();
+        expect(earlier!.alreadyAccrued).toBe(false);
+        expect(formatAmount(earlier!.paid)).toBe('2');
+        expect(earlier!.recipients).toBe(2);
+        // Today is planned from today's positions: B has left.
+        const today = report.results.find((r) => r.date === '2026-03-03');
+        expect(today).toBeDefined();
+        expect(today!.recipients).toBe(1);
+        expect(formatAmount(today!.paid)).toBe('1');
+
+        expect(interestTxs(pool.id)).toHaveLength(2);
+        expect(await availableOf(USER_A, 'USDT')).toBe('2');
+        expect(await availableOf(USER_B, 'USDT')).toBe('1001');
+        const pending = await sql`SELECT id FROM bank.interest_accruals WHERE ledger_tx_id IS NULL AND planned_payouts IS NOT NULL`;
+        expect(pending).toHaveLength(0);
+
+        // Nothing is left to resume: a second pass pays nothing more.
+        await bank.earn.accrueAll(new Date('2026-03-03T00:00:00Z'));
+        expect(interestTxs(pool.id)).toHaveLength(2);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('accrueAll reports an earlier day it cannot fund and keeps its plan for the next pass', async () => {
+        const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Dry', aprBps: 3650 });
+        await sql`
+          INSERT INTO bank.interest_accruals (pool_id, accrual_date, rate_bps, paid_amount, recipients, planned_payouts)
+          VALUES (${pool.id}, '2026-03-02', 3650, 0, 0, ${sql.json([{ userId: USER_A, amount: '1' }])})
+        `;
+
+        const dry = await bank.earn.accrueAll(new Date('2026-03-03T00:00:00Z'));
+        expect(dry.failures).toEqual(expect.arrayContaining([expect.objectContaining({ poolId: pool.id, code: 'bank.pool_underfunded' })]));
+        expect(interestTxs(pool.id)).toHaveLength(0);
+        const kept = await sql`SELECT id FROM bank.interest_accruals WHERE pool_id = ${pool.id} AND accrual_date = '2026-03-02'`;
+        expect(kept).toHaveLength(1);
+
+        await accrueBankFees('USDT', '100');
+        await bank.earn.fundPool({ poolId: pool.id, fundingId: 'dry-1', amount: amt('100') });
+        const funded = await bank.earn.accrueAll(new Date('2026-03-03T00:00:00Z'));
+        expect(funded.results.find((r) => r.date === '2026-03-02')?.recipients).toBe(1);
+        expect(await availableOf(USER_A, 'USDT')).toBe('1');
+        expect(interestTxs(pool.id)).toHaveLength(1);
+      });
+
       it('resumes once when two runs pick up the crashed day together', async () => {
         const { pool, positions } = await twoPositions();
         const crashing = createBankServices(sql, dieAfterFirstInterestPost(ledger), memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
