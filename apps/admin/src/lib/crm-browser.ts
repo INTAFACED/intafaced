@@ -36,6 +36,25 @@ export async function crmWrite<T>(
   return result;
 }
 export const crmLabel = (value: string) => value.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
-export const crmDate = (value: string) => new Date(value).toLocaleString();
+// Day-month order and the founder's own clock, whatever the Mac's region setting: "15 Oct 2026, 10:53".
+const DATE_TIME = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+const TIME = new Intl.DateTimeFormat('en-GB', { timeStyle: 'short' });
+const RELATIVE = new Intl.RelativeTimeFormat('en-GB', { numeric: 'auto' });
+export const crmDate = (value: string) => DATE_TIME.format(new Date(value));
+export const crmTime = (value: string) => TIME.format(new Date(value));
+/** "in 2 days", "yesterday", "3 hours ago": for due dates and ages, next to crmDate, never instead of it. */
+export function crmRelative(value: string, now = Date.now()): string {
+  const seconds = (Date.parse(value) - now) / 1000;
+  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+  ];
+  for (const [unit, size] of units)
+    if (Math.abs(seconds) >= size || unit === 'minute') return RELATIVE.format(Math.round(seconds / size), unit);
+  return RELATIVE.format(0, 'minute');
+}
+/** Whole days a due date is past, or 0 when it is not overdue. */
+export const crmOverdueDays = (value: string, now = Date.now()) => Math.max(0, Math.floor((now - Date.parse(value)) / 86400000));
 export const crmLocalDate = (value: string) =>
   new Date(Date.parse(value) - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16);

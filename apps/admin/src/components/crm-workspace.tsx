@@ -4,6 +4,7 @@ import { founderName, useFounderOwners } from './founder-names';
 import { CrmMetrics, CrmTasks, CrmCampaigns, CrmDuplicates, CrmExports, CrmEnquiryTasks } from './crm-workflows';
 import { CrmMessages } from './crm-messages';
 import { CrmPrivacy } from './crm-privacy';
+import { crmDate, crmLocalDate, crmOverdueDays, crmRelative, crmTime } from '@/lib/crm-browser';
 import type {
   CrmActivity,
   CrmContact,
@@ -29,7 +30,59 @@ const AUDIENCES = ['investor', 'trader', 'merchant', 'academy', 'partner'] as co
 const DETAIL_TABS = ['overview', 'answers', 'activity', 'messages'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 const label = (value: string) => value.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
-const date = (value: string) => new Date(value).toLocaleString();
+const plural = (count: number, one: string, many: string) => `${count.toLocaleString()} ${count === 1 ? one : many}`;
+/** "Overdue · 2 days", or null when the due time has not passed. Whole days come from crmOverdueDays. */
+export function overdueLabel(dueAt: string, now = Date.now()): string | null {
+  if (Date.parse(dueAt) >= now) return null;
+  const days = crmOverdueDays(dueAt, now);
+  return days >= 1 ? `Overdue · ${plural(days, 'day', 'days')}` : 'Overdue · today';
+}
+/** The activity log's own contract kinds in words a founder would use. */
+export function activityTitle(
+  activity: Pick<CrmActivity, 'kind' | 'note' | 'referenceId'>,
+  owners: Array<{ userId: string; displayName: string }>,
+): { title: string; note: string | null } {
+  switch (activity.kind) {
+    case 'assigned': {
+      // The service stores the new owner's id in referenceId (svc-ops crm.ts: activity(..., 'assigned', null, ownerUserId)).
+      const owner = owners.find((value) => value.userId === activity.referenceId);
+      return { title: owner ? `Assigned to ${owner.displayName}` : 'Owner assigned', note: activity.note };
+    }
+    case 'stage_changed':
+      // The log keeps the reason only, not the stage before and after, so it cannot tell a stage move from a next-action edit.
+      return { title: 'Stage or next action updated', note: activity.note };
+    case 'note':
+      return { title: 'Note added', note: activity.note };
+    case 'questionnaire_submitted':
+      return { title: 'Questionnaire submitted', note: activity.note };
+    case 'call_invited':
+      return { title: 'Call invitation recorded', note: activity.note };
+    case 'call_booked':
+      return { title: 'Call booked', note: activity.note };
+    case 'email_status': {
+      const queued = /^Message queued: (.+)$/.exec(activity.note ?? '');
+      if (queued?.[1]) return { title: `Message queued: ${label(queued[1])}`, note: null };
+      return { title: 'Message update', note: activity.note };
+    }
+    default:
+      return { title: label(String(activity.kind)), note: activity.note };
+  }
+}
+/** "Source: A", "Source: A · latest B", or null when neither is known. */
+export function sourceLine(first: string | null | undefined, latest: string | null | undefined): string | null {
+  if (first && latest && first !== latest) return `Source: ${first} · latest ${latest}`;
+  const known = first ?? latest;
+  return known ? `Source: ${known}` : null;
+}
+const emailStatusText = (status: string) =>
+  status === 'verified' ? 'email verified' : status === 'unverified' ? 'email not verified' : `email ${label(status).toLowerCase()}`;
+const countryName = (code: string): string => {
+  try {
+    return new Intl.DisplayNames(['en-GB'], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+};
 function groupedAmount(value: string): string {
   const [whole = '0', fraction] = value.split('.');
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -55,19 +108,35 @@ function answerText(key: string, value: unknown): string {
   return String(value);
 }
 
+/** session = 401/403 (sign in again); conflict = 409/412 (changed or refused); other = anything else. */
+export type CrmErrorKind = 'session' | 'conflict' | 'other';
+export class CrmRequestError extends Error {
+  constructor(
+    message: string,
+    readonly kind: CrmErrorKind,
+  ) {
+    super(message);
+  }
+}
 async function readJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...options, cache: 'no-store' });
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403) throw new Error('Your founder session is unavailable. Sign in again.');
+    if (response.status === 401 || response.status === 403)
+      throw new CrmRequestError('Your founder session is unavailable. Sign in again.', 'session');
     if (response.status === 409 || response.status === 412)
-      throw new Error('The enquiry changed or this action was refused. Refresh and review before retrying.');
-    throw new Error('The workspace could not confirm this request. Refresh the enquiry before retrying.');
+      throw new CrmRequestError('The enquiry changed or this action was refused. Reload it and review before retrying.', 'conflict');
+    throw new CrmRequestError('The workspace could not confirm this request. Refresh the enquiry before retrying.', 'other');
   }
   return (await response.json()) as T;
 }
+const failureOf = (failure: unknown, fallback: string): { message: string; kind: CrmErrorKind } => ({
+  message: failure instanceof Error ? failure.message : fallback,
+  kind: failure instanceof CrmRequestError ? failure.kind : 'other',
+});
 
 export function CrmWorkspace({ csrf }: { csrf: string }) {
   const [view, setView] = useState('enquiries');
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const [workflowVersion, setWorkflowVersion] = useState(0);
   const [page, setPage] = useState<CrmOpportunityPage | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -79,12 +148,20 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
   const [privacyResetVersion, setPrivacyResetVersion] = useState(0);
   const [mobileDetail, setMobileDetail] = useState(false);
   const detailHeading = useRef<HTMLDivElement>(null);
+  const inFlight = useRef(0);
+  const lastAutoRefresh = useRef(0);
+  const live = useRef({ detailId: '', dirty: false, busy: false, retentionPending: false });
+  const refreshRef = useRef<(auto: boolean) => Promise<void>>(async () => undefined);
   const owners = useFounderOwners();
   const [audience, setAudience] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('');
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
+  const [errorKind, setErrorKind] = useState<CrmErrorKind>('other');
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [ownersWaited, setOwnersWaited] = useState(false);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -116,23 +193,38 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
     ...(query.trim() ? { query: query.trim() } : {}),
     ...(cursor ? { cursor } : {}),
   }).toString();
-  const load = useCallback(async () => {
-    const current = ++sequence.current;
-    setLoading(true);
-    setError('');
-    try {
-      const result = await readJson<CrmOpportunityPage>(`/api/crm?${filters}`);
-      if (current === sequence.current) setPage(result);
-    } catch (failure) {
-      if (current === sequence.current) setError(failure instanceof Error ? failure.message : 'Workspace unavailable.');
-    } finally {
-      if (current === sequence.current) setLoading(false);
-    }
-  }, [filters]);
+  // `silent` is for background refreshes: no spinner, and a failure keeps what is on screen instead of raising an alert.
+  const load = useCallback(
+    async (silent = false) => {
+      const current = ++sequence.current;
+      inFlight.current += 1;
+      if (!silent) {
+        setLoading(true);
+        setError('');
+      }
+      try {
+        const result = await readJson<CrmOpportunityPage>(`/api/crm?${filters}`);
+        if (current === sequence.current) {
+          setPage(result);
+          setLastUpdated(new Date().toISOString());
+        }
+      } catch (failure) {
+        if (!silent && current === sequence.current) {
+          const { message, kind } = failureOf(failure, 'Workspace unavailable.');
+          setError(message);
+          setErrorKind(kind);
+        }
+      } finally {
+        inFlight.current -= 1;
+        if (!silent && current === sequence.current) setLoading(false);
+      }
+    },
+    [filters],
+  );
   useEffect(() => {
     void load();
   }, [load]);
-  async function open(id: string, manageBusy = true) {
+  async function open(id: string, manageBusy = true, silent = false) {
     if (id !== detail?.opportunity.id && typeof window !== 'undefined') listScroll.current = window.scrollY;
     if (detail && detail.opportunity.id !== id) {
       if (retentionWritePending) {
@@ -146,8 +238,11 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       }
     }
     if (manageBusy) setBusy(true);
-    setError('');
-    setNotice('');
+    if (!silent) {
+      setError('');
+      setNotice('');
+    }
+    inFlight.current += 1;
     try {
       const result = await readJson<Detail | null>(`/api/crm?opportunityId=${encodeURIComponent(id)}`);
       if (!result) throw new Error('This enquiry could not be found.');
@@ -158,30 +253,41 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
         setDetailTab('overview');
         setVisitedDetailTabs(new Set(['overview']));
         setMessageDraftDirty(false);
-        requestAnimationFrame(() => detailHeading.current?.focus());
+        requestAnimationFrame(() => {
+          // Phone: the list is hidden, so start at the top where "Back" is. Narrow desktop: the detail sits below the list, so let
+          // focus scroll to it. Wide desktop: the detail is sticky beside the list, so never move the page.
+          const phone = window.matchMedia('(max-width: 600px)').matches;
+          const stacked = window.matchMedia('(max-width: 1000px)').matches;
+          if (phone) window.scrollTo(0, 0);
+          detailHeading.current?.focus({ preventScroll: phone || !stacked });
+        });
         setNewOwner(result.opportunity.ownerUserId);
         setNewStage(result.opportunity.stage);
         setActionDescription(result.opportunity.nextAction?.description ?? '');
         const due = result.opportunity.nextAction?.dueAt;
-        setActionDue(due ? new Date(Date.parse(due) - new Date(due).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '');
+        setActionDue(due ? crmLocalDate(due) : '');
         setReason('');
         setEvidence('');
         setNote('');
       }
       return true;
     } catch (failure) {
+      if (silent) return false;
       // Keep the last loaded record when a confirmed write's refresh fails.
       setDetail((current) => (!manageBusy && current?.opportunity.id === id ? current : null));
-      setError(failure instanceof Error ? failure.message : 'Enquiry unavailable.');
+      const { message, kind } = failureOf(failure, 'Enquiry unavailable.');
+      setError(message);
+      setErrorKind(kind);
       return false;
     } finally {
+      inFlight.current -= 1;
       if (manageBusy) setBusy(false);
     }
   }
   function hasDirtyDraft() {
     if (!detail) return false;
     const due = detail.opportunity.nextAction?.dueAt;
-    const originalDue = due ? new Date(Date.parse(due) - new Date(due).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+    const originalDue = due ? crmLocalDate(due) : '';
     return (
       newOwner !== detail.opportunity.ownerUserId ||
       newStage !== detail.opportunity.stage ||
@@ -198,7 +304,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
     setNewStage(detail.opportunity.stage);
     setActionDescription(detail.opportunity.nextAction?.description ?? '');
     const due = detail.opportunity.nextAction?.dueAt;
-    setActionDue(due ? new Date(Date.parse(due) - new Date(due).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '');
+    setActionDue(due ? crmLocalDate(due) : '');
     setReason('');
     setEvidence('');
     setNote('');
@@ -216,10 +322,20 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
     setPrivacyResetVersion((value) => value + 1);
     return true;
   }
+  function selectTab(tab: DetailTab) {
+    setDetailTab(tab);
+    setVisitedDetailTabs((visited) => new Set([...visited, tab]));
+  }
   function navigateView(next: string) {
     if (next === view) return;
     if (!canLeaveCurrentDetail('Discard unsaved edits before leaving this CRM view?')) return;
     setView(next);
+  }
+  /** Follow-ups, optionally narrowed to overdue ones (the totals strip's overdue count). */
+  function openTasks(overdue: boolean) {
+    if (view !== 'tasks' && !canLeaveCurrentDetail('Discard unsaved edits before leaving this CRM view?')) return;
+    setOverdueOnly(overdue);
+    setView('tasks');
   }
   async function mutate(action: string, input: Record<string, unknown>) {
     if (!detail) return;
@@ -247,11 +363,57 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       setWorkflowVersion((value) => value + 1);
       setNotice(refreshed ? 'Saved to the enquiry history.' : 'Your change was saved. Reopen the enquiry to load its latest records.');
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Could not save.');
+      const { message, kind } = failureOf(failure, 'Could not save.');
+      setError(message);
+      setErrorKind(kind);
     } finally {
       setBusy(false);
     }
   }
+  /**
+   * Refresh = list + the open enquiry + the totals. A background run (focus, tab visible, every 60 s) never overlaps another load
+   * and never replaces the open enquiry while there are unsaved edits, because saving uses the revision it was opened at.
+   */
+  async function refresh(auto = false) {
+    const state = live.current;
+    if (auto) {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (inFlight.current > 0 || state.busy) return;
+      if (Date.now() - lastAutoRefresh.current < 5000) return;
+      lastAutoRefresh.current = Date.now();
+    }
+    const jobs: Array<Promise<unknown>> = [load(auto)];
+    if (state.detailId && !(auto && (state.dirty || state.retentionPending))) jobs.push(open(state.detailId, false, auto));
+    await Promise.all(jobs);
+    setWorkflowVersion((value) => value + 1);
+  }
+  useEffect(() => {
+    live.current = {
+      detailId: detail?.opportunity.id ?? '',
+      dirty: hasDirtyDraft(),
+      busy,
+      retentionPending: retentionWritePending,
+    };
+    refreshRef.current = refresh;
+  });
+  useEffect(() => {
+    const run = () => void refreshRef.current(true);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') run();
+    };
+    const timer = window.setInterval(run, 60_000);
+    window.addEventListener('focus', run);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', run);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setOwnersWaited(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, []);
   const items = page?.items ?? [];
   const contacts = new Map(page?.contacts.map((contact) => [contact.id, contact]) ?? []);
   const submissions = new Map(page?.submissions.map((submission) => [submission.submissionId, submission]) ?? []);
@@ -260,14 +422,37 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
     setCursor(null);
     setHistory([]);
   };
+  const now = Date.now();
   let pageSummary = 'Workspace unavailable';
-  if (loading) pageSummary = 'Loading enquiries…';
+  if (loading) pageSummary = 'Loading…';
   else if (page) {
-    const overdue = items.filter((item) => item.nextAction && Date.parse(item.nextAction.dueAt) < Date.now()).length;
-    pageSummary = `${items.length} ${items.length === 1 ? 'enquiry' : 'enquiries'} on this page · ${overdue} overdue`;
+    const overdue = items.filter((item) => item.nextAction && Date.parse(item.nextAction.dueAt) < now).length;
+    pageSummary = `${items.length} shown · ${overdue} overdue`;
   }
+  const ownersMissing = owners.length !== 2;
+  // The organisation record may not exist yet; the form's own organisation and country fields still do.
+  const organisationName = detail ? (detail.organisation?.name ?? detail.submission.contact.organisationName ?? null) : null;
+  const countries = detail
+    ? (detail.submission.contact.country ? [detail.submission.contact.country] : (detail.organisation?.countries ?? [])).map(countryName)
+    : [];
+  const source = detail
+    ? sourceLine(detail.provenance.firstKnownSource?.campaign?.name, detail.provenance.latestKnownSource?.campaign?.name)
+    : null;
+  const activeFilters = [audience, stageFilter, ownerFilter].filter(Boolean).length;
   return (
     <section className={`adm-workspace${mobileDetail && view === 'enquiries' ? ' is-mobile-detail' : ''}`}>
+      {view === 'enquiries' && (
+        <a
+          className="adm-skip-link"
+          href="#crm-enquiries"
+          onClick={(event) => {
+            event.preventDefault();
+            document.getElementById('crm-enquiries')?.focus();
+          }}
+        >
+          Skip to enquiries
+        </a>
+      )}
       <div className="adm-crm-topbar">
         <div className="adm-workspace-heading">
           <div>
@@ -283,29 +468,34 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                       : 'Enquiries'}
             </h1>
           </div>
-          <button
-            onClick={() => {
-              void load();
-            }}
-            disabled={loading}
-          >
-            Refresh
-          </button>
+          <div className="adm-crm-refresh">
+            {lastUpdated && <span className="adm-subtle">Updated {crmTime(lastUpdated)}</span>}
+            <button
+              type="button"
+              onClick={() => {
+                void refresh();
+              }}
+              disabled={loading}
+            >
+              Refresh
+            </button>
+          </div>
         </div>
         <CrmMetrics
-          key={workflowVersion}
+          version={workflowVersion}
           filters={{
             ...(audience ? { audience } : {}),
             ...(stageFilter ? { stage: stageFilter } : {}),
             ...(ownerFilter ? { ownerUserId: ownerFilter } : {}),
           }}
-          onTasks={() => navigateView('tasks')}
+          onTasks={() => openTasks(false)}
+          onOverdue={() => openTasks(true)}
         />
         <nav className="adm-crm-tabs" aria-label="CRM workflows">
           <button type="button" aria-current={view === 'enquiries' ? 'page' : undefined} onClick={() => navigateView('enquiries')}>
             Enquiries
           </button>
-          <button type="button" aria-current={view === 'tasks' ? 'page' : undefined} onClick={() => navigateView('tasks')}>
+          <button type="button" aria-current={view === 'tasks' ? 'page' : undefined} onClick={() => openTasks(false)}>
             Follow-ups
           </button>
           <details className="adm-crm-tools-menu">
@@ -328,14 +518,17 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       </div>
       {(view === 'enquiries' || view === 'exports') && (
         <form
-          className="adm-filters"
+          className={`adm-filters${filtersOpen ? ' is-open' : ''}`}
           onSubmit={(event) => {
             event.preventDefault();
             resetPage();
             void load();
           }}
         >
-          <label>
+          <button type="button" className="adm-filters-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}>
+            {activeFilters ? `Filters (${activeFilters})` : 'Filters'}
+          </button>
+          <label className="adm-filter-field">
             Audience
             <select
               aria-label="Audience"
@@ -354,7 +547,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
               ))}
             </select>
           </label>
-          <label>
+          <label className="adm-filter-field">
             Stage
             <select
               aria-label="Stage"
@@ -372,7 +565,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
               ))}
             </select>
           </label>
-          <label>
+          <label className="adm-filter-field">
             Owner
             <select
               aria-label="Owner"
@@ -391,7 +584,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
             </select>
           </label>
           {view === 'enquiries' && (
-            <label>
+            <label className="adm-filter-search">
               Search
               <input
                 aria-label="Search"
@@ -410,12 +603,31 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       )}
       {error && (
         <p className="adm-alert" role="alert">
-          {error} <a href="/login">Sign in</a>
+          {error} {errorKind === 'session' && <a href="/login">Sign in</a>}
+          {errorKind === 'conflict' && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (detail) void refresh();
+                else void load();
+              }}
+            >
+              Reload this enquiry
+            </button>
+          )}
+        </p>
+      )}
+      {ownersWaited && owners.length === 0 && (
+        <p className="adm-subtle" role="status">
+          Founder names did not load, so the Owner filter is empty and owners cannot be changed. Reload the page to try again.
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
       {view === 'tasks' && (
         <CrmTasks
+          key={String(overdueOnly)}
+          initialOverdue={overdueOnly}
           owners={owners}
           onOpen={(id) => {
             void open(id).then((opened) => {
@@ -450,11 +662,11 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       {view === 'enquiries' && (
         <>
           <div className={`adm-workspace-grid${mobileDetail ? ' is-mobile-detail' : ''}`}>
-            <div>
+            <div id="crm-enquiries" tabIndex={-1}>
               <p className="adm-subtle adm-crm-page-summary">{pageSummary}</p>
               <div className="adm-table-scroll">
                 <table className="adm-crm-table">
-                  <caption className="adm-sr-only">Enquiries matching your filters</caption>
+                  <caption className="adm-sr-only">Rows matching your filters</caption>
                   <thead>
                     <tr>
                       <th>Contact</th>
@@ -467,8 +679,13 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                     {items.map((item) => {
                       const contact = contacts.get(item.contactId);
                       const submission = submissions.get(item.submissionId);
+                      const overdue = item.nextAction ? overdueLabel(item.nextAction.dueAt, now) : null;
                       return (
-                        <tr key={item.id} className={detail?.opportunity.id === item.id ? 'is-selected' : undefined}>
+                        <tr
+                          key={item.id}
+                          className={detail?.opportunity.id === item.id ? 'is-selected' : undefined}
+                          data-overdue={overdue ? 'true' : undefined}
+                        >
                           <td data-label="Contact">
                             <button
                               className="adm-text-button"
@@ -486,16 +703,17 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                           <td data-label="Audience and stage">
                             {label(item.audience)}
                             <small>{label(item.stage)}</small>
-                            {submission && (
-                              <small>{submission.completedAt ? 'Questionnaires complete' : 'Questionnaires incomplete'}</small>
-                            )}
+                            {submission && <small>{submission.completedAt ? 'Questionnaires finished' : 'Partly answered'}</small>}
                             {submission?.organisationName && <small>{submission.organisationName}</small>}
                           </td>
                           <td data-label="Next action">
                             {item.nextAction ? (
                               <>
                                 {item.nextAction.description}
-                                <small>{date(item.nextAction.dueAt)}</small>
+                                <small>
+                                  {crmDate(item.nextAction.dueAt)} · {crmRelative(item.nextAction.dueAt, now)}
+                                </small>
+                                {overdue && <span className="adm-overdue-badge">{overdue}</span>}
                               </>
                             ) : (
                               label(item.closedDisposition ?? 'Closed')
@@ -510,7 +728,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                   </tbody>
                 </table>
               </div>
-              {!loading && page && items.length === 0 && <p className="adm-empty">No enquiries match these filters.</p>}
+              {!loading && page && items.length === 0 && <p className="adm-empty">Nothing matches these filters.</p>}
               <div className="adm-pagination">
                 <button
                   disabled={loading || history.length === 0}
@@ -534,7 +752,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
             </div>
             <aside className={`adm-detail${mobileDetail ? ' is-mobile-open' : ''}`} aria-label="Enquiry details">
               {!detail ? (
-                <p>Select an enquiry to review its answers and follow-up.</p>
+                <p>Pick a row to see its answers and follow-up.</p>
               ) : (
                 <>
                   <button
@@ -552,7 +770,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                       });
                     }}
                   >
-                    ← Back to enquiries
+                    ← Back to the list
                   </button>
                   <div className="adm-crm-detail-heading" ref={detailHeading} tabIndex={-1} role="region" aria-label="Selected enquiry">
                     <div>
@@ -565,25 +783,31 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                     <span className="adm-status-pill">{founderName(owners, detail.opportunity.ownerUserId)}</span>
                   </div>
                   <p className="adm-subtle">
-                    Captured {date(detail.submission.capturedAt)} · email {label(detail.contact.emailEvidence.status)}
+                    Received {crmDate(detail.submission.capturedAt)} · {emailStatusText(detail.contact.emailEvidence.status)}
                   </p>
                   <p className="adm-subtle">
-                    Questionnaires {detail.submission.completedAt ? 'complete' : 'incomplete'}
-                    {detail.submission.completedAt ? ` · completed ${date(detail.submission.completedAt)}` : ''}
+                    {detail.submission.completedAt
+                      ? `Questionnaires finished ${crmDate(detail.submission.completedAt)}`
+                      : 'Partly answered: questionnaires not finished'}
                   </p>
                   <section className="adm-crm-next-action" aria-label="Current next action">
                     <small>Next action</small>
                     {detail.opportunity.nextAction ? (
                       <>
                         <strong>{detail.opportunity.nextAction.description}</strong>
-                        <span>{date(detail.opportunity.nextAction.dueAt)}</span>
+                        <span>
+                          {crmDate(detail.opportunity.nextAction.dueAt)} · {crmRelative(detail.opportunity.nextAction.dueAt, now)}
+                        </span>
+                        {overdueLabel(detail.opportunity.nextAction.dueAt, now) && (
+                          <span className="adm-overdue-badge">{overdueLabel(detail.opportunity.nextAction.dueAt, now)}</span>
+                        )}
                       </>
                     ) : (
                       <strong>{label(detail.opportunity.closedDisposition ?? 'Closed')}</strong>
                     )}
                   </section>
-                  <nav className="adm-crm-detail-tabs" role="tablist" aria-label="Enquiry detail">
-                    {DETAIL_TABS.map((tab) => (
+                  <div className="adm-crm-detail-tabs" role="tablist" aria-label="Enquiry detail">
+                    {DETAIL_TABS.map((tab, index) => (
                       <button
                         key={tab}
                         type="button"
@@ -591,16 +815,37 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                         aria-controls={`crm-${tab}-panel`}
                         aria-selected={detailTab === tab}
                         role="tab"
-                        aria-current={detailTab === tab ? 'page' : undefined}
-                        onClick={() => {
-                          setDetailTab(tab);
-                          setVisitedDetailTabs((visited) => new Set([...visited, tab]));
+                        tabIndex={detailTab === tab ? 0 : -1}
+                        onClick={() => selectTab(tab)}
+                        onKeyDown={(event) => {
+                          // Roving tabindex: arrows move between tabs and select, Home/End jump to the ends.
+                          const step =
+                            event.key === 'ArrowRight'
+                              ? 1
+                              : event.key === 'ArrowLeft'
+                                ? -1
+                                : event.key === 'Home'
+                                  ? 'first'
+                                  : event.key === 'End'
+                                    ? 'last'
+                                    : 0;
+                          if (step === 0) return;
+                          event.preventDefault();
+                          const target =
+                            step === 'first'
+                              ? 0
+                              : step === 'last'
+                                ? DETAIL_TABS.length - 1
+                                : (index + step + DETAIL_TABS.length) % DETAIL_TABS.length;
+                          const next = DETAIL_TABS[target]!;
+                          selectTab(next);
+                          document.getElementById(`crm-${next}-tab`)?.focus();
                         }}
                       >
                         {label(tab)}
                       </button>
                     ))}
-                  </nav>
+                  </div>
                   {hasDirtyDraft() && (
                     <p className="adm-save-notice" role="status">
                       Unsaved edits are retained while you review this enquiry.
@@ -608,30 +853,28 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                   )}
                   {visitedDetailTabs.has('overview') && (
                     <section role="tabpanel" id="crm-overview-panel" aria-labelledby="crm-overview-tab" hidden={detailTab !== 'overview'}>
-                      {detail.organisation && (
-                        <p>
-                          <strong>Organisation:</strong> {detail.organisation.name}
-                        </p>
-                      )}
-                      <p className="adm-subtle">
-                        Source: {detail.provenance.firstKnownSource?.campaign?.name ?? 'Unknown'} · latest{' '}
-                        {detail.provenance.latestKnownSource?.campaign?.name ?? 'Unknown'}
+                      <p>
+                        <strong>Organisation:</strong> {organisationName ?? <span className="adm-subtle">not given</span>}
                       </p>
+                      <p>
+                        <strong>Country:</strong> {countries.length ? countries.join(', ') : <span className="adm-subtle">not given</span>}
+                      </p>
+                      {source && <p className="adm-subtle">{source}</p>}
                       <details className="adm-original-contact">
                         <summary>Original contact and consent</summary>
                         <strong>{detail.submission.contact.name}</strong>
                         <p>{detail.submission.contact.email}</p>
                         <p className="adm-subtle">
-                          Selected interests: {detail.submission.contact.interests.map(label).join(', ')} · news consent{' '}
-                          {detail.submission.contact.marketingOptIn ? 'opted in' : 'not given'}
+                          Interested in: {detail.submission.contact.interests.map(label).join(', ')} · news emails:{' '}
+                          {detail.submission.contact.marketingOptIn ? 'agreed' : 'not agreed'}
                         </p>
                         {detail.provenance.originalContact.id !== detail.provenance.canonicalContact.id && (
                           <p className="adm-subtle">
-                            This original enquiry is linked to {detail.provenance.canonicalContact.name}. Original contact details and
-                            answers remain preserved.
+                            This enquiry is linked to {detail.provenance.canonicalContact.name} (the main contact). The original contact
+                            details and answers are kept.
                           </p>
                         )}
-                        <p className="adm-subtle">Recipient identity is unknown.</p>
+                        <p className="adm-subtle">We have not confirmed who owns this email address.</p>
                       </details>
                       <details className="adm-crm-edit">
                         <summary>Assign owner and set next action</summary>
@@ -657,9 +900,14 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                               ))}
                             </select>
                           </label>
-                          <button type="submit" disabled={busy || owners.length !== 2 || newOwner === detail.opportunity.ownerUserId}>
+                          <button type="submit" disabled={busy || ownersMissing || newOwner === detail.opportunity.ownerUserId}>
                             Assign owner
                           </button>
+                          {ownersMissing && (
+                            <p className="adm-subtle" role="status">
+                              Assign is off because the founder names did not load ({owners.length} of 2). Reload the page to try again.
+                            </p>
+                          )}
                         </form>
                         <form
                           className="adm-form"
@@ -778,19 +1026,17 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                     <section role="tabpanel" id="crm-answers-panel" aria-labelledby="crm-answers-tab" hidden={detailTab !== 'answers'}>
                       <h3>Original answers</h3>
                       <p>
-                        {detail.submission.completedAt
-                          ? `Completed ${date(detail.submission.completedAt)}. `
-                          : 'Questionnaires incomplete. '}
-                        {detail.submission.questionnaires.length} of {detail.submission.contact.interests.length} selected questionnaires
-                        completed.
+                        {detail.submission.completedAt ? `Finished ${crmDate(detail.submission.completedAt)}. ` : 'Partly answered: '}
+                        {detail.submission.questionnaires.length} of{' '}
+                        {plural(detail.submission.contact.interests.length, 'questionnaire', 'questionnaires')} finished.
                       </p>
                       <details className="adm-original-contact">
                         <summary>Original contact and consent</summary>
                         <strong>{detail.submission.contact.name}</strong>
                         <p>{detail.submission.contact.email}</p>
                         <p className="adm-subtle">
-                          Selected interests: {detail.submission.contact.interests.map(label).join(', ')} · news consent{' '}
-                          {detail.submission.contact.marketingOptIn ? 'opted in' : 'not given'}
+                          Interested in: {detail.submission.contact.interests.map(label).join(', ')} · news emails:{' '}
+                          {detail.submission.contact.marketingOptIn ? 'agreed' : 'not agreed'}
                         </p>
                       </details>
                       {detail.submission.questionnaires.map((questionnaire) => (
@@ -812,16 +1058,23 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                     <section role="tabpanel" id="crm-activity-panel" aria-labelledby="crm-activity-tab" hidden={detailTab !== 'activity'}>
                       <h3>History</h3>
                       <ol className="adm-history">
-                        {detail.activities.map((activity) => (
-                          <li key={activity.id}>
-                            <strong>{label(activity.kind)}</strong>
-                            <small>
-                              {date(activity.occurredAt)} ·{' '}
-                              {activity.actor.kind === 'operator' ? founderName(owners, activity.actor.userId) : label(activity.actor.kind)}
-                            </small>
-                            {activity.note && <p>{activity.note}</p>}
-                          </li>
-                        ))}
+                        {detail.activities.map((activity) => {
+                          const entry = activityTitle(activity, owners);
+                          return (
+                            <li key={activity.id}>
+                              <strong>{entry.title}</strong>
+                              <small>
+                                {crmDate(activity.occurredAt)} ·{' '}
+                                {activity.actor.kind === 'operator'
+                                  ? founderName(owners, activity.actor.userId)
+                                  : activity.actor.kind === 'system'
+                                    ? 'System'
+                                    : 'Enquirer'}
+                              </small>
+                              {entry.note && <p>{entry.note}</p>}
+                            </li>
+                          );
+                        })}
                       </ol>
                       <form
                         className="adm-form"
