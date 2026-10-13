@@ -120,7 +120,7 @@ if (!available) {
         maxFailures: 10,
         windowSeconds: 900,
         lockSeconds: 900,
-        maxConsecutiveFailures: 100,
+        maxConsecutiveFailures: null,
         longLockSeconds: 86_400,
       });
       expect(ATTEMPT_POLICY.mfa).toEqual({
@@ -256,14 +256,33 @@ if (!available) {
       expect(last.lockedForSeconds).toBeNull();
     });
 
-    it('password: 100 consecutive failures lock for 24 h; 20 do not (separate thresholds and counters)', async () => {
+    it('password has NO long lock: 150 consecutive failures across windows only ever hit the 15-minute lock', async () => {
       const { userId } = await register();
-      const { last: twenty, at } = await runAcrossWindows(userId, 'password', 20, 9, 900_000);
-      expect(twenty.lockedForSeconds).toBeNull();
-      // The mfa counter never moved.
+      const { at } = await runAcrossWindows(userId, 'password', 9, 9, 900_000);
+      // Keep failing across many windows; no attempt may report anything but the short lock.
+      let next = at;
+      const locks = new Set<number | null>();
+      for (let w = 0; w < 16; w++) {
+        const { last, at: end } = await runAcrossWindows(userId, 'password', 9, 9, 900_000, next);
+        locks.add(last.lockedForSeconds);
+        next = end;
+      }
+      expect([...locks]).toEqual([null]);
+      const rows = await db.sql<Array<{ c: number; locked_until: Date | null }>>`
+        SELECT consecutive_failures AS c, locked_until FROM auth_attempts WHERE user_id = ${userId}`;
+      expect(rows[0]!.c).toBeGreaterThan(100);
+      expect(rows[0]!.locked_until).toBeNull();
+      // Window threshold (10th failure in one window) still locks for 15 minutes.
+      const t = new Date(next + 1000);
+      let lastSeconds: number | null = null;
+      for (let i = 0; i < 10; i++) lastSeconds = (await reserveAttempt(db.sql, userId, 'password', t)).lockedForSeconds;
+      expect(lastSeconds).toBe(900);
+    });
+
+    it('mfa counter never moves from password reservations', async () => {
+      const { userId } = await register();
+      await runAcrossWindows(userId, 'password', 20, 9, 900_000);
       expect((await attempts(userId)).map((r) => r.kind)).toEqual(['password']);
-      const { last } = await runAcrossWindows(userId, 'password', 80, 9, 900_000, at + 900_000 + MIN);
-      expect(last.lockedForSeconds).toBe(86_400);
     });
   });
 
@@ -353,9 +372,8 @@ if (!available) {
       expect(hashes).toContain(hashToken(recoveryCodes[0]!));
       expect(hashes).toHaveLength(recoveryCodes.length);
 
-      // Counters are separate: the password counter is below its own threshold, so no lock.
-      const rows = await attempts(userId);
-      expect(rows.find((r) => r.kind === 'password')!.locked_until).toBeNull();
+      // Counters are separate: the correct password cleared the password counter; only mfa holds the lock.
+      expect((await attempts(userId)).map((r) => r.kind)).toEqual(['mfa']);
 
       await expireLock(userId, 'mfa');
       // Same code now works: its step was never consumed while locked.
@@ -371,15 +389,43 @@ if (!available) {
       expect((await attempts(userId)).map((r) => r.kind)).toEqual(['password']);
     });
 
-    it('success clears both counters', async () => {
+    it('a correct password clears the password counter at once; the code step then clears the mfa counter', async () => {
       const { handle, userId } = await register();
       const { secret } = await enrolTotp(userId);
       await expect(auth.login({ identifier: handle, password: 'wrong password entirely' })).rejects.toBeInstanceOf(AuthError);
       await expect(auth.login({ identifier: handle, password: PASSWORD, totpCode: wrongCode(secret) })).rejects.toMatchObject({
         code: 'auth.mfa_invalid',
       });
-      expect(await attempts(userId)).toHaveLength(2);
+      expect((await attempts(userId)).map((r) => r.kind)).toEqual(['mfa']);
       await auth.login({ identifier: handle, password: PASSWORD, totpCode: totpNext(secret) });
+      expect(await attempts(userId)).toEqual([]);
+    });
+  });
+
+  describe('regression: the TOTP owner is not trapped after a password lock', () => {
+    it('correct password with no code, then with the code, both work after the password lock expires; the correct password resets the counter', async () => {
+      const { handle, userId } = await register();
+      const { secret } = await enrolTotp(userId);
+      await wrongPasswordTimes(handle, 10);
+      await expect(auth.login({ identifier: handle, password: PASSWORD })).rejects.toMatchObject({ code: 'auth.too_many_attempts' });
+      // The worst legacy state: a huge consecutive count with the lock just expired.
+      await db.sql`UPDATE auth_attempts SET consecutive_failures = 101, locked_until = now() - interval '1 second' WHERE user_id = ${userId} AND kind = 'password'`;
+
+      // Step 1 of the normal flow: password only. Told the code is needed, and NOT re-locked.
+      await expect(auth.login({ identifier: handle, password: PASSWORD })).rejects.toMatchObject({ code: 'auth.mfa_required' });
+      expect((await attempts(userId)).filter((r) => r.kind === 'password')).toEqual([]);
+      // Step 2: password plus code.
+      const session = await auth.login({ identifier: handle, password: PASSWORD, totpCode: totpNext(secret) });
+      expect(session.userId).toBe(userId);
+      expect(await attempts(userId)).toEqual([]);
+    });
+
+    it('repeating the password-only first step never accumulates against the owner', async () => {
+      const { handle, userId } = await register();
+      await enrolTotp(userId);
+      for (let i = 0; i < 25; i++) {
+        await expect(auth.login({ identifier: handle, password: PASSWORD })).rejects.toMatchObject({ code: 'auth.mfa_required' });
+      }
       expect(await attempts(userId)).toEqual([]);
     });
   });

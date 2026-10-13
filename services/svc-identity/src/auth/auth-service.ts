@@ -420,6 +420,10 @@ export class AuthService {
     if (locked) throw locked;
     if (!user || !passwordOk) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    // The password verified: it is no longer a guess. Clear its counter NOW, before the
+    // two-step TOTP flow (password first, code second), so a correct password is never
+    // left counting against the owner. The mfa counter is separate and stays.
+    await recordSuccess(this.sql, user.id, 'password');
     let mfa = false;
     if (user.totp_secret) {
       if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
@@ -427,9 +431,7 @@ export class AuthService {
       await this.reserve(user.id, 'mfa');
       await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
       mfa = true;
-      await recordSuccess(this.sql, user.id, 'password', 'mfa');
-    } else {
-      await recordSuccess(this.sql, user.id, 'password');
+      await recordSuccess(this.sql, user.id, 'mfa');
     }
     if (await needsRehash(user.password_hash)) {
       const upgraded = await hashPassword(input.password);

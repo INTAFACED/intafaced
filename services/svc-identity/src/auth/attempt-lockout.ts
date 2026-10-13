@@ -39,8 +39,8 @@ import { AuthError } from './auth-service.js';
  * refunded). Any other exit (wrong code, replay, crash) leaves the count
  * standing, which is the safe default.
  *
- * LONG-RUN CAP. The window counter alone resets, so someone holding the password
- * could still make ~4 TOTP guesses per 10 minutes for ever. `consecutive_failures`
+ * LONG-RUN CAP (MFA ONLY). The window counter alone resets, so someone holding
+ * the password could still make ~4 TOTP guesses per 10 minutes for ever. `consecutive_failures`
  * is never reset by a window or a lock expiring: ONLY `recordSuccess` clears it.
  * Every reserved attempt that is not (yet) a success bumps it; at
  * `maxConsecutiveFailures` the account gets a long lock (24 h), and because the
@@ -49,6 +49,16 @@ import { AuthError } from './auth-service.js';
  * authenticators, with a time-based lock instead of permanent denial. A refused
  * (locked) attempt never changes anything, so a 24 h lock is not extended by
  * the attempts it refuses.
+ *
+ * The PASSWORD kind has NO long lock, on purpose. (1) Passwords are already
+ * throttled to 10 per 15 minutes (~960 a day) and an account with 2FA is still
+ * protected by the mfa step behind it. (2) A 24 h password lock would be a cheap
+ * denial of service: anyone who knows a public handle could lock it with 100
+ * requests and keep it locked with one a day. (3) Worse, a TOTP owner who
+ * enters the correct password is told `mfa_required` and sends the code in a
+ * second request; a long lock re-armed by that first request would trap them.
+ * So login clears the password counter the moment the password verifies
+ * (the mfa counter is separate and stays), and password locks are 15 minutes.
  *
  * KNOWN TRADE-OFFS (accepted):
  *  - Anyone who knows an identifier can keep that account's password logins
@@ -77,8 +87,11 @@ export interface AttemptPolicy {
   readonly windowSeconds: number;
   /** How long the account refuses this kind of attempt once the window threshold locks it. Fixed (no escalation). */
   readonly lockSeconds: number;
-  /** Consecutive failures with no success in between, across any number of windows, before the long lock. */
-  readonly maxConsecutiveFailures: number;
+  /**
+   * Consecutive failures with no success in between, across any number of windows, before the long
+   * lock. `null`: no long lock for this kind (see the PASSWORD note above).
+   */
+  readonly maxConsecutiveFailures: number | null;
   /** The long lock set at `maxConsecutiveFailures` (and again on every failed guess after it). */
   readonly longLockSeconds: number;
 }
@@ -87,7 +100,7 @@ const DAY_SECONDS = 24 * 60 * 60;
 
 /** The one place the numbers live. */
 export const ATTEMPT_POLICY: Readonly<Record<AttemptKind, AttemptPolicy>> = {
-  password: { maxFailures: 10, windowSeconds: 15 * 60, lockSeconds: 15 * 60, maxConsecutiveFailures: 100, longLockSeconds: DAY_SECONDS },
+  password: { maxFailures: 10, windowSeconds: 15 * 60, lockSeconds: 15 * 60, maxConsecutiveFailures: null, longLockSeconds: DAY_SECONDS },
   mfa: { maxFailures: 5, windowSeconds: 10 * 60, lockSeconds: 15 * 60, maxConsecutiveFailures: 20, longLockSeconds: DAY_SECONDS },
 };
 
@@ -124,7 +137,11 @@ export async function reserveAttempt(sql: Sql, userId: string, kind: AttemptKind
   const stale = sql`(a.locked_until <= ${at} OR a.window_started_at <= ${at} - make_interval(secs => ${windowSeconds}::int))`;
   const nextFailures = sql`(CASE WHEN ${stale} THEN 1 ELSE a.failures + 1 END)`;
   const lockFor = (failures: Fragment, consecutive: Fragment) => sql`
-    CASE WHEN ${consecutive} >= ${maxConsecutiveFailures}::int THEN ${at} + make_interval(secs => ${longLockSeconds}::int)
+    CASE ${
+      maxConsecutiveFailures === null
+        ? sql``
+        : sql`WHEN ${consecutive} >= ${maxConsecutiveFailures}::int THEN ${at} + make_interval(secs => ${longLockSeconds}::int)`
+    }
          WHEN ${failures} >= ${maxFailures}::int THEN ${at} + make_interval(secs => ${lockSeconds}::int) END`;
   const reserved = await sql<Array<{ locked_seconds: number | null }>>`
     INSERT INTO auth_attempts AS a (user_id, kind, failures, consecutive_failures, window_started_at, locked_until, updated_at)
