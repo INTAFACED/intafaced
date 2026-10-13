@@ -180,7 +180,7 @@ describe('a settled card movement requires its ledger transaction', () => {
       INSERT INTO bank.card_cashback (
         authorization_id, rate_bps, amount, status, ledger_tx_id
       ) VALUES (
-        ${await insertPendingApproval(db, cardId, 'open-for-pending-reward')}, 150, '0.40', 'pending', NULL
+        ${(await insertPendingApproval(db, cardId, 'open-for-pending-reward'))}, 150, '0.40', 'pending', NULL
       )
     `;
   });
