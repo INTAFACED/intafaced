@@ -14,6 +14,7 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import {
   formatAmount,
   InsufficientFundsError,
+  LedgerError,
   mul,
   mulBps,
   orderHoldAccount,
@@ -79,7 +80,7 @@ import {
   type ConvertTradeWire,
 } from '../convert/quote.js';
 import { convertSettleIdsFor } from '../convert/ids.js';
-import { planConvertSettle, postConvertSettle } from '../convert/settle.js';
+import { convertCustomerHoldKey, planConvertSettle, postConvertSettle, releaseStrandedHouseHold } from '../convert/settle.js';
 import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
 import { isHouseMmAccount } from '../mm/seed-market.js';
 import { recoverMatchingAccountId } from '../mm/fill-account.js';
@@ -1081,6 +1082,20 @@ export class TradeService {
             assertedPrice: input.maxAvgPrice ?? null,
           });
         }
+        // A recorded price (a `bound` quote, or one put back to `open` after a
+        // refused settle, #4676) is replayed on retry. With no customer hold
+        // booked nothing is committed yet, so the TTL applies: refuse before
+        // anything is posted or re-bound, else a top-up hours later (or a retry
+        // after a timed-out hold post) settles at a stale rate. With the hold
+        // booked, the original recovery semantics stand.
+        if (stored.lifecycle === 'bound' || (stored.lifecycle === 'open' && recordedBound)) {
+          const expiresAt = Date.parse(stored.quote.expiresAt);
+          if (this.now().getTime() > expiresAt && !(await this.ledger.getTxByKey(convertCustomerHoldKey(ids.takerOrderId)))) {
+            // A legacy attempt may have booked the house hold first: give it back.
+            await releaseStrandedHouseHold(this.ledger, planConvertSettle({ bound, ...ids, now: new Date(bound.acceptedAt) }));
+            throw new TradeError('convert quote expired — refuse rather than requote', 'trade.convert_quote_expired');
+          }
+        }
         // The quote's immutable original bound is the business payload. A retry
         // recovers this decision rather than sampling a new price or quantity.
         if (stored.lifecycle === 'open' || original) {
@@ -1097,7 +1112,21 @@ export class TradeService {
 
         // Expiry governs the original accept, not recovery of already bound effects.
         const plan = planConvertSettle({ bound, ...ids, now: new Date(bound.acceptedAt) });
-        await postConvertSettle(this.ledger, plan);
+        try {
+          await postConvertSettle(this.ledger, plan);
+        } catch (err) {
+          // A definite refusal posted nothing that is still held (customer
+          // shortfall posts nothing; house shortfall already released the
+          // customer hold), so the quote must not stay `bound`. Unknown
+          // outcomes stay bound: effects may exist and recovery needs them.
+          if (
+            (err instanceof LedgerError && err.code === 'ledger.insufficient_funds') ||
+            (err instanceof TradeError && err.code === 'trade.convert_liquidity_unavailable')
+          ) {
+            await this.convertStore.saveOpen(stored.quote);
+          }
+          throw err;
+        }
         const settledAt = this.now();
         await this.convertStore.saveSettled(stored.quote, bound, settledAt);
         await this.notifyDropCopyFill({
