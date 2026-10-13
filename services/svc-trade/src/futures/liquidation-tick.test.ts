@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { parseAmount as amt, type AccountRef, type Amount, type Balance, type PostRequest } from '@intafaced/ledger-client';
+import { LedgerError, parseAmount as amt, type AccountRef, type Amount, type Balance, type PostRequest } from '@intafaced/ledger-client';
 import {
   memoryLiquidationAttemptStore,
   runLiquidationTick,
@@ -352,6 +352,82 @@ describe('runLiquidationTick', () => {
  * not merely that an outcome string changed — a refusal that still moves money
  * is not a refusal.
  */
+describe('runLiquidationTick — one position cannot stop the others', () => {
+  const rowFor = (positionId: string): LiquidationPositionRow => ({ ...underwaterLong(), positionId });
+
+  it('a throwing post on the first position leaves the next two liquidated and reports one errored item', async () => {
+    const { ledger, posts } = recordingLedger();
+    const closed: string[] = [];
+    const result = await runLiquidationTick({
+      marks: fixedMark('80'),
+      positions: {
+        async listOpen() {
+          return [rowFor('pos-a'), rowFor('pos-b'), rowFor('pos-c')];
+        },
+      },
+      closer: {
+        async markLiquidated(id) {
+          closed.push(id);
+        },
+      },
+      attempts: memoryLiquidationAttemptStore(),
+      acceptedMarks: memoryAcceptedMarkStore(),
+      ledger: {
+        ...ledger,
+        async post(req: PostRequest) {
+          if (req.idempotencyKey.includes('pos-a'))
+            throw new LedgerError('refused: key reused with a different body', 'ledger.idempotency_conflict');
+          return ledger.post(req);
+        },
+      },
+      ladder: deepFullCloseLadder(),
+    });
+
+    expect(closed).toEqual(['pos-b', 'pos-c']);
+    expect(posts.map((p) => p.idempotencyKey).join(' ')).not.toContain('pos-a');
+    expect(result.scanned).toBe(3);
+    expect(result.liquidated).toBe(2);
+    expect(result.errored).toBe(1);
+    const errored = result.items.filter((i) => i.outcome === 'errored');
+    expect(errored).toEqual([
+      {
+        positionId: 'pos-a',
+        outcome: 'errored',
+        reason: 'ledger.idempotency_conflict',
+        summary: 'refused: key reused with a different body',
+      },
+    ]);
+  });
+
+  it('an error with no code reports trade.liquidation_tick_error', async () => {
+    const { ledger } = recordingLedger();
+    const result = await runLiquidationTick({
+      marks: fixedMark('80'),
+      positions: {
+        async listOpen() {
+          return [rowFor('pos-a')];
+        },
+      },
+      closer: { async markLiquidated() {} },
+      attempts: {
+        ...memoryLiquidationAttemptStore(),
+        async isDone() {
+          throw new Error('attempt store unreachable');
+        },
+      },
+      acceptedMarks: memoryAcceptedMarkStore(),
+      ledger,
+      ladder: deepFullCloseLadder(),
+    });
+    expect(result.errored).toBe(1);
+    expect(result.items[0]).toMatchObject({
+      outcome: 'errored',
+      reason: 'trade.liquidation_tick_error',
+      summary: 'attempt store unreachable',
+    });
+  });
+});
+
 describe('runLiquidationTick — mark gates', () => {
   const AT = new Date('2026-08-06T12:00:00.000Z');
 

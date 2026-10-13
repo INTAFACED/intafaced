@@ -253,7 +253,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
   });
 
   host.every('futures.liquidation', deps.config.liqIntervalMs, async () => {
-    await runLiquidationTick({
+    const tick = await runLiquidationTick({
       marks,
       positions: liqLoader,
       closer,
@@ -266,6 +266,16 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       // ADL omitted: owner policy unset. Tick defaults policy null →
       // trade.adl_unconfigured. Do not invent last-resort reduce magnitudes.
     });
+    // A position that threw does not fail the tick (the rest were still
+    // scanned), so it must not vanish either: one error-level line per position,
+    // through the same sink a failed job uses.
+    for (const item of tick.items) {
+      if (item.outcome !== 'errored') continue;
+      (deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)))(
+        'futures.liquidation',
+        new Error(`position ${item.positionId} errored (${item.reason}): ${item.summary ?? ''}`),
+      );
+    }
   });
 
   const fundingIntervalMs = deps.config.fundingIntervalMs;
