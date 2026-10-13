@@ -114,6 +114,7 @@ function AmountField({
 }) {
   const [display, setDisplay] = useState(() => groupAmount(value));
   const input = useRef<HTMLInputElement>(null);
+  const ask = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (storedAmount(display) !== value) setDisplay(groupAmount(value));
   }, [value]);
@@ -128,6 +129,13 @@ function AmountField({
   useEffect(() => () => window.clearTimeout(pause.current), []);
   const found = amountAmbiguity(display);
   const ambiguity = found && (settled || blocked) ? found : null;
+  // When the question first appears, bring it fully into view: the sticky action bar's fade must never cover its buttons.
+  const asking = !!ambiguity;
+  useEffect(() => {
+    if (!asking) return;
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    ask.current?.scrollIntoView({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' });
+  }, [asking]);
   const choose = (plain: string) => {
     setDisplay(groupAmount(plain));
     onValue(plain);
@@ -152,13 +160,13 @@ function AmountField({
         // A standing live region: the prompt is announced when it appears, and again when it is answered by being replaced.
         <div role="status" className="amount-ask-region">
           {ambiguity && (
-            <div className="amount-ask" data-blocked={blocked || undefined}>
-              <p id="amount-ask-text">
+            <div ref={ask} className="amount-ask" data-blocked={blocked || undefined}>
+              <p id="amount-ask-text" tabIndex={-1}>
                 Did you mean <strong>{ambiguity.yesText}</strong>
                 {ambiguity.words ? ` (${ambiguity.words})` : ''}?
               </p>
               <div className="amount-ask-actions">
-                <button type="button" className="amount-ask-yes" disabled={disabled} onClick={() => choose(ambiguity.yes)}>
+                <button type="button" disabled={disabled} onClick={() => choose(ambiguity.yes)}>
                   Yes, {ambiguity.yesText}
                 </button>
                 {ambiguity.no ? (
@@ -203,9 +211,18 @@ function AmountField({
 }
 
 // "You sent an enquiry from this browser": a display-only hint for the welcome screen, never sent anywhere. It holds only
-// the id of the receipt it describes, lives exactly where the draft lives (this tab; this device too if the visitor chose to
-// remember it), and is cleared whenever the draft is forgotten or an enquiry is reopened for more answers.
+// a SHA-256 digest of the receipt's id (an equality check is all it needs, so the id itself is never kept in the clear),
+// lives exactly where the draft lives (this tab; this device too if the visitor chose to remember it), and is cleared
+// whenever the draft is forgotten or an enquiry is reopened for more answers.
 const SENT_MARKER = 'intafaced.outreach.sent.v1';
+async function sentDigest(id: string): Promise<string | null> {
+  try {
+    const bytes = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(id));
+    return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return null; // no SubtleCrypto (an insecure page): no hint
+  }
+}
 function readSentMarker(): string | null {
   for (const area of ['sessionStorage', 'localStorage'] as const) {
     try {
@@ -217,14 +234,14 @@ function readSentMarker(): string | null {
   }
   return null;
 }
-function writeSentMarker(id: string, device: boolean) {
+function writeSentMarker(digest: string, device: boolean) {
   try {
-    window.sessionStorage.setItem(SENT_MARKER, id);
+    window.sessionStorage.setItem(SENT_MARKER, digest);
   } catch {
     /* storage unavailable: no hint */
   }
   try {
-    if (device) window.localStorage.setItem(SENT_MARKER, id);
+    if (device) window.localStorage.setItem(SENT_MARKER, digest);
     else window.localStorage.removeItem(SENT_MARKER);
   } catch {
     /* storage unavailable: no hint */
@@ -254,7 +271,7 @@ function App() {
     const timer = window.setTimeout(() => setCompletionReveal(null), 1000);
     return () => window.clearTimeout(timer);
   }, [completionReveal]);
-  const welcomePlayed = useRef(!!vm.resumeAvailable || document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const welcomePlayed = useRef(document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [entryReveal, setEntryReveal] = useState(!welcomePlayed.current);
   // One start signal: every welcome delay in outreach.css is measured from `.entry-started`.
   // It fires when the backdrop's first frame is drawn, or after 800ms at most, so a slow
@@ -307,9 +324,10 @@ function App() {
   useEffect(() => {
     let mounted = true;
     // The entrance is never cancelled because the storage check is slow: decoration does not wait for storage, and
-    // storage does not interrupt decoration. Only three things end it early: reduced motion, a hidden tab, and a visitor
-    // already known to be returning (all decided before the first frame, or settled here). A saved enquiry found LATE
-    // changes the hero button's label with a crossfade (HeroMetal) and leaves the entrance running.
+    // storage does not interrupt decoration. Only two things end it early: reduced motion and a hidden tab (decided before
+    // the first frame, or settled here). Every other visitor, a returning one included, sees the whole entrance: the storage
+    // check is asynchronous, so a saved enquiry is never known at the first render. A saved enquiry found LATE changes the
+    // hero button's label with a crossfade (HeroMetal) and leaves the entrance running.
     void vm.ready.then(
       () => {
         if (!mounted) return;
@@ -439,10 +457,11 @@ function App() {
     if (key === 'advance') {
       // 1. A text field that is empty or malformed: the first one only, with our copy.
       if (flagFirstInvalid(event.currentTarget)) return;
-      // 2. An amount that could be read two ways: ask, never guess.
+      // 2. An amount that could be read two ways: ask, never guess. Focus goes to the question, never to a button, so a
+      // second stray Enter cannot answer it.
       if (vm.questionStep?.kind === 'amount' && vm.amountUnresolved()) {
         setAmountBlocked(true);
-        requestAnimationFrame(() => document.querySelector<HTMLElement>('.amount-ask-yes')?.focus());
+        requestAnimationFrame(() => document.getElementById('amount-ask-text')?.focus());
         return;
       }
       // 3. An answer that was not given.
@@ -547,8 +566,12 @@ function App() {
           {vm.visibleFields.map((field: any) => (
             <React.Fragment key={field.key}>
               {field.type === 'checks' ? (
-                <fieldset disabled={vm.busy} className="check-cards" aria-describedby={describe(helper && 'step-helper', errorId)}>
-                  <legend className="sr-only">{field.label}</legend>
+                <fieldset
+                  disabled={vm.busy}
+                  className="check-cards"
+                  aria-labelledby="intake-heading"
+                  aria-describedby={describe(helper && 'step-helper', errorId)}
+                >
                   {field.options.map(([value, label]: string[]) => (
                     <CheckCard
                       key={value}
@@ -560,8 +583,7 @@ function App() {
                   ))}
                 </fieldset>
               ) : field.type === 'countries' ? (
-                <fieldset disabled={vm.busy}>
-                  <legend className="sr-only">{field.label}</legend>
+                <fieldset disabled={vm.busy} aria-labelledby="intake-heading">
                   <SearchPickerMulti
                     id="operating-countries"
                     label={field.label}
@@ -583,6 +605,7 @@ function App() {
                   <ChoiceCards
                     label={field.label}
                     items={field.options.map(([value, label]: string[]) => ({ value, label }))}
+                    labelledBy="intake-heading"
                     value={vm.answers[field.key]}
                     onValueChange={(value) => answer(field.key, value)}
                     disabled={vm.busy}
@@ -736,11 +759,41 @@ function App() {
     const next = !savedReceiptId ? 'none' : !vm.draft ? lastMarker.current : vm.complete ? `${savedReceiptId}:${vm.remember}` : 'none';
     if (next === lastMarker.current) return;
     lastMarker.current = next;
-    if (next === 'none') clearSentMarker();
-    else writeSentMarker(savedReceiptId as string, vm.remember);
+    if (next === 'none') {
+      clearSentMarker();
+      return;
+    }
+    const device = vm.remember;
+    void sentDigest(savedReceiptId as string).then((digest) => {
+      // Skip it if the draft was forgotten or changed while the digest was being made.
+      if (!digest || lastMarker.current !== next) return;
+      writeSentMarker(digest, device);
+      setReceiptDigest({ id: savedReceiptId as string, digest });
+    });
   });
-  const sentHere = vm.screen === 'welcome' && !!savedReceiptId && readSentMarker() === savedReceiptId;
-  const noteKey = sentHere ? 'sent' : vm.resumeAvailable ? 'resume' : 'new';
+  // The digest of the receipt on this page, to compare with the marker. Until it is known the welcome line and button keep
+  // what they showed, so a sent enquiry never flashes "Continue your enquiry" on its way to "View your enquiry".
+  const [receiptDigest, setReceiptDigest] = useState<{ id: string; digest: string | null } | null>(null);
+  useEffect(() => {
+    if (!savedReceiptId) return;
+    let live = true;
+    void sentDigest(savedReceiptId).then((digest) => {
+      if (live) setReceiptDigest({ id: savedReceiptId, digest });
+    });
+    return () => {
+      live = false;
+    };
+  }, [savedReceiptId]);
+  const digestPending = !!savedReceiptId && receiptDigest?.id !== savedReceiptId;
+  const shown = useRef({ sent: false, resume: false });
+  const sentHere = digestPending
+    ? shown.current.sent
+    : vm.screen === 'welcome' && !!savedReceiptId && !!receiptDigest?.digest && readSentMarker() === receiptDigest.digest;
+  const welcomeResume: boolean = digestPending ? shown.current.resume : !!vm.resumeAvailable;
+  useEffect(() => {
+    shown.current = { sent: sentHere, resume: welcomeResume };
+  });
+  const noteKey = sentHere ? 'sent' : welcomeResume ? 'resume' : 'new';
   const firstNoteKey = useRef(noteKey);
   const [noteFade, setNoteFade] = useState(false);
   useEffect(() => {
@@ -1019,7 +1072,7 @@ function App() {
               <HeroMetal
                 type="button"
                 onClick={begin}
-                label={sentHere ? 'View your enquiry' : vm.resumeAvailable ? 'Continue your enquiry' : 'Begin'}
+                label={sentHere ? 'View your enquiry' : welcomeResume ? 'Continue your enquiry' : 'Begin'}
               />
             </div>
             <p className="outreach-small">
@@ -1027,7 +1080,7 @@ function App() {
               <span className={noteFade ? 'note-fade' : undefined} key={noteKey}>
                 {(sentHere
                   ? ['You sent an enquiry from this browser.']
-                  : vm.resumeAvailable
+                  : welcomeResume
                     ? ['A previous enquiry is available in this browser.']
                     : ['No account needed.', 'No investment commitment.']
                 ).map((sentence: string) => (

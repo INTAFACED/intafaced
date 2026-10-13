@@ -1125,6 +1125,11 @@ body {
   color: var(--foreground);
   line-height: 1.5;
 }
+/* Focus lands on the question when Continue is blocked; the ring hugs the text, not the box. */
+.amount-ask #amount-ask-text:focus-visible {
+  outline-offset: 3px;
+  border-radius: 4px;
+}
 .amount-ask .amount-ask-note {
   margin: 10px 0 0;
   color: var(--destructive);
@@ -1142,10 +1147,6 @@ body {
   background: rgb(23 27 29 / 80%);
   color: var(--foreground);
   font-size: 14px;
-}
-.amount-ask-actions .amount-ask-yes {
-  border-color: rgb(200 246 74 / 70%);
-  color: #dcf5bd;
 }
 .amount-grid {
   grid-template-columns: 1fr;

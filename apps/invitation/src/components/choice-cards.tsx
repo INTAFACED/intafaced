@@ -29,6 +29,7 @@ export function ChoiceCards({
   onValueChange,
   disabled,
   describedBy,
+  labelledBy,
   variant = 'stack',
 }: {
   label: string;
@@ -37,6 +38,8 @@ export function ChoiceCards({
   onValueChange: (value: string) => void;
   disabled?: boolean;
   describedBy?: string;
+  /** The id of the heading that already asks this question: the group is then named by it, so it is read once, in the heading's words. */
+  labelledBy?: string;
   variant?: 'stack' | 'compact';
 }) {
   const name = useId();
@@ -45,7 +48,8 @@ export function ChoiceCards({
       className="choice-cards"
       data-variant={variant === 'compact' ? 'compact' : undefined}
       role="radiogroup"
-      aria-label={label}
+      aria-label={labelledBy ? undefined : label}
+      aria-labelledby={labelledBy}
       aria-describedby={describedBy}
     >
       {items.map((item) => {

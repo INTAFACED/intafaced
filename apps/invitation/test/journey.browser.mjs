@@ -93,7 +93,7 @@ assert.equal(storedAmount('150.000'), '150.000', 'an ambiguous amount stays exac
 assert.deepEqual(amountAmbiguity('150.000'), {
   yes: '150000',
   yesText: '150,000',
-  words: 'one hundred fifty thousand',
+  words: 'one hundred and fifty thousand',
   no: '150',
   noText: '150',
 });
@@ -109,14 +109,58 @@ assert.deepEqual(
   { yes: '150000.50', text: '150,000.50', words: null },
   'a comma-decimal reading is shown with its decimals and is not spelled out',
 );
+// Mixed separators: a grouped number, then "." and exactly three digits, is the same 1000x question ("1,500.000" is
+// 1,500 or 1,500,000). Never stored as either until the visitor says which.
+for (const typed of ['1,500.000', '1 500.000', '150,000.000', '1,234,567.890', '1,500.500', ' 1,500.000 ', '1\u00a0500.000'])
+  assert.deepEqual(parseAmount(typed), { kind: 'ambiguous', plain: '' }, `ambiguous mixed amount ${JSON.stringify(typed)}`);
+for (const [typed, plain] of [
+  ['1,500.00', '1500.00'],
+  ['1,500.0000', '1500.0000'],
+  ['1,500.5', '1500.5'],
+  ['1,500.50', '1500.50'],
+  ['1 500.5', '1500.5'],
+  ['1,500,000.5', '1500000.5'],
+])
+  assert.deepEqual(parseAmount(typed), { kind: 'valid', plain }, `still a plain decimal: ${JSON.stringify(typed)}`);
+for (const typed of ['1,500 000.000', '1 500,000.000', '1,50.000', '15000.000.000', '1,500.000,5'])
+  assert.notEqual(parseAmount(typed).kind, 'ambiguous', `not a mixed-separator question: ${JSON.stringify(typed)}`);
+assert.equal(storedAmount('1,500.000'), '1,500.000', 'a mixed-separator amount stays exactly as typed until it is answered');
+for (const typed of ['1,500.000', '1 500.000'])
+  assert.deepEqual(amountAmbiguity(typed), {
+    yes: '1500000',
+    yesText: '1,500,000',
+    words: 'one million five hundred thousand',
+    no: '1500',
+    noText: '1,500',
+  });
+assert.deepEqual(amountAmbiguity('150,000.000'), {
+  yes: '150000000',
+  yesText: '150,000,000',
+  words: 'one hundred and fifty million',
+  no: '150000',
+  noText: '150,000',
+});
+assert.deepEqual(amountAmbiguity('1,234,567.890'), {
+  yes: '1234567890',
+  yesText: '1,234,567,890',
+  words: null,
+  no: '1234567.89',
+  noText: '1,234,567.89',
+});
+assert.equal(amountAmbiguity('1,500.500').no, '1500.5');
+assert.equal(amountAmbiguity('1,500.500').yes, '1500500');
 for (const [n, words] of [
-  [150000, 'one hundred fifty thousand'],
+  [150000, 'one hundred and fifty thousand'],
   [1500000, 'one million five hundred thousand'],
   [2000, 'two thousand'],
+  [1005, 'one thousand and five'],
+  [1050, 'one thousand and fifty'],
+  [101, 'one hundred and one'],
   [21, 'twenty-one'],
   [100, 'one hundred'],
-  [999999999, 'nine hundred ninety-nine million nine hundred ninety-nine thousand nine hundred ninety-nine'],
-  [1000001, 'one million one'],
+  [150050, 'one hundred and fifty thousand and fifty'],
+  [999999999, 'nine hundred and ninety-nine million nine hundred and ninety-nine thousand nine hundred and ninety-nine'],
+  [1000001, 'one million and one'],
 ])
   assert.equal(spellAmount(n), words, `spelled ${n}`);
 assert.equal(spellAmount(1000000000), null);
@@ -222,10 +266,23 @@ async function chooseInterest(page, name) {
 function control(page, label, options) {
   return page.getByLabel(label, options).and(page.locator('input, select, textarea'));
 }
-// Every single choice is a radio card in a radiogroup named after the question.
+// Every single choice is a radio card in a radiogroup named after the question: the heading above it (aria-labelledby),
+// so a screen reader hears the question once, in the words that are on screen. The contract's own labels stay on the wire.
 const PARTICIPATION = 'Are you considering investing or making an introduction?';
+const HEADED = {
+  [PARTICIPATION]: 'How would you like to take part?',
+  'Trading experience': 'How much trading experience do you have?',
+  'Your trading role': 'What best describes how you trade?',
+  'Current experience': 'What’s your current experience?',
+  'Preferred learning format': 'How do you prefer to learn?',
+  'Preferred relationship': 'What kind of relationship do you have in mind?',
+};
+const groupName = (group) => HEADED[group] || group;
 async function radioIn(page, group, label) {
-  await page.getByRole('radiogroup', { name: group, exact: true }).getByRole('radio', { name: label, exact: true }).check();
+  await page
+    .getByRole('radiogroup', { name: groupName(group), exact: true })
+    .getByRole('radio', { name: label, exact: true })
+    .check();
 }
 async function begin(page, investor = true) {
   await page.getByRole('button', { name: 'Begin', exact: true }).click();
@@ -240,7 +297,10 @@ const TIMING = {
 };
 // Single-choice questions with more than three options are answer cards (radiogroup > radio).
 async function choose(page, group, label) {
-  await page.getByRole('radiogroup', { name: group, exact: true }).getByRole('radio', { name: label, exact: true }).check();
+  await page
+    .getByRole('radiogroup', { name: groupName(group), exact: true })
+    .getByRole('radio', { name: label, exact: true })
+    .check();
 }
 // Currency and country are searchable pickers (Base UI combobox): type, then pick the option.
 async function pick(page, label, text, option = text) {
@@ -833,6 +893,31 @@ try {
     await amount.fill('2.000');
     await amount.blur();
     await expect(ask).toContainText('Did you mean 2,000 (two thousand)?');
+    // A grouped number with a dot and three digits ("1,500.000") is the same question: 1,500,000 or 1,500. Neither is stored silently.
+    for (const typed of ['1,500.000', '1 500.000']) {
+      await amount.fill(typed);
+      await amount.blur();
+      await expect(ask).toContainText('Did you mean 1,500,000 (one million five hundred thousand)?');
+      await expect(amount, 'shown as typed until answered').toHaveValue(typed);
+      await expect(page.getByRole('button', { name: 'Yes, 1,500,000', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'No, I meant 1,500', exact: true })).toBeVisible();
+    }
+    assert.deepEqual(
+      await page.locator('.amount-ask-actions button').evaluateAll((buttons) =>
+        buttons.map((b) => {
+          const style = getComputedStyle(b);
+          return [b.className, style.borderTopColor, style.color, style.backgroundColor];
+        }),
+      ),
+      [
+        ['', 'rgb(99, 109, 101)', 'rgb(242, 245, 239)', 'rgba(23, 27, 29, 0.8)'],
+        ['', 'rgb(99, 109, 101)', 'rgb(242, 245, 239)', 'rgba(23, 27, 29, 0.8)'],
+      ],
+      'Yes and No carry the same neutral weight: neither reads as the recommended answer',
+    );
+    await page.getByRole('button', { name: 'No, I meant 1,500', exact: true }).click();
+    await expect(amount).toHaveValue('1,500');
+    await expect(ask).toHaveCount(0);
     for (const plain of ['150.5', '0.75', '150,000']) {
       await amount.fill(plain);
       await amount.blur();
@@ -842,14 +927,20 @@ try {
     // "150.000" with Continue blocked until answered; "No, I meant 150" is remembered; nothing is sent.
     await amount.fill('150.000');
     await amount.blur();
-    await expect(ask).toContainText('Did you mean 150,000 (one hundred fifty thousand)?');
+    await expect(ask).toContainText('Did you mean 150,000 (one hundred and fifty thousand)?');
     await expect(page.getByRole('button', { name: 'Yes, 150,000', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'No, I meant 150', exact: true })).toBeVisible();
     await expect(page.locator('#amount-error')).toHaveCount(0);
     await cont.click();
     await expect(amountHeading, 'Continue is blocked until the ambiguous amount is answered').toBeVisible();
     await expect(ask).toContainText('Choose one to continue.');
-    await expect(page.getByRole('button', { name: 'Yes, 150,000', exact: true })).toBeFocused();
+    await expect(
+      page.locator('#amount-ask-text'),
+      'focus goes to the question, never to a button that a stray Enter would press',
+    ).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(amount, 'a second Enter answers nothing').toHaveValue('150.000');
+    await expect(ask).toHaveCount(1);
     assert.equal(api.answerRequests.length, 0, 'an unanswered amount is never sent');
     await page.getByRole('button', { name: 'No, I meant 150', exact: true }).click();
     await expect(amount).toHaveValue('150');
@@ -885,6 +976,73 @@ try {
     await context.close();
     console.log(
       `amount ${width}px: accepted forms normalised, 11 odd forms kept as typed, blocked and never sent, Back/forward cannot bypass, dotted thousands asked about (never guessed), answer remembered`,
+    );
+  }
+
+  // An unanswered ambiguous amount must never trap the visitor on an EARLIER step. Only the amount step stops for it; going
+  // back and pressing Continue lands on the amount step, where the question is asked again. Also after a reload.
+  for (const reload of [false, true]) {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const api = await fixtures(context);
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(origin + '/invest');
+    await begin(page);
+    await fillContact(page, false);
+    await radioIn(page, PARTICIPATION, 'I’m considering investing');
+    await continueGroup(page);
+    await choose(page, 'Which best describes you or the organisation you represent?', 'Individual');
+    await continueGroup(page);
+    await choose(page, 'What is your role in the decision?', 'I make investment decisions');
+    await continueGroup(page);
+    await radioIn(page, 'Amount preference', 'Share an indicative amount');
+    await pick(page, 'Currency', 'USD', 'US Dollar');
+    const amount = control(page, 'Amount', { exact: true });
+    const amountHeading = page.getByRole('heading', { name: 'What amount are you considering?', exact: true });
+    const roleHeading = page.getByRole('heading', { name: 'What is your role in the decision?', exact: true });
+    const ask = page.locator('.amount-ask');
+    await amount.fill('150.000');
+    await amount.blur();
+    await expect(ask).toContainText('Did you mean 150,000');
+    // S3: the question's buttons are fully above the sticky action bar once it appears (it scrolls itself into view).
+    await expect
+      .poll(
+        async () => {
+          const yes = await page.getByRole('button', { name: 'Yes, 150,000', exact: true }).boundingBox();
+          const bar = await page.locator('.outreach-actions').boundingBox();
+          return yes.y >= 0 && yes.y + yes.height <= bar.y;
+        },
+        { message: 'the prompt buttons clear the sticky bar at 1280x800' },
+      )
+      .toBe(true);
+    await page.getByRole('button', { name: 'Back', exact: false }).click();
+    await expect(roleHeading).toBeVisible();
+    if (reload) {
+      await page.reload();
+      await reopen(page);
+      await expect(roleHeading, 'a reload returns to the step the visitor was on').toBeVisible();
+    }
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(amountHeading, 'Continue on the earlier step moves forward normally').toBeVisible();
+    await expect(page.locator('.outreach-notice'), 'no error on the way').toHaveCount(0);
+    await expect(amount).toHaveValue('150.000');
+    await expect(ask, 'the question is shown again on the amount step').toContainText('Did you mean 150,000');
+    await expect(page.locator('#amount-ask-text')).not.toBeFocused();
+    assert.equal(api.answerRequests.length, 0, 'nothing is sent while the amount is unresolved');
+    // On the amount step Continue is blocked, focus goes to the question, and still nothing is sent.
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(amountHeading).toBeVisible();
+    await expect(ask).toContainText('Choose one to continue.');
+    await expect(page.locator('#amount-ask-text')).toBeFocused();
+    assert.equal(api.answerRequests.length, 0, 'nothing is sent while the amount is unresolved');
+    await page.getByRole('button', { name: 'No, I meant 150', exact: true }).click();
+    await continueGroup(page);
+    assert.equal(api.answerRequests.length, 0);
+    assert.deepEqual(errors, []);
+    await context.close();
+    console.log(
+      `unanswered amount ${reload ? 'after a reload' : 'with Back'}: Continue on the earlier step moves on, the amount step asks and blocks, nothing sent, prompt clears the bar`,
     );
   }
 
@@ -933,7 +1091,13 @@ try {
 
     // A5 + A4 + A18: one question per step, answered with cards; the error clears with the choice; progress counts this step.
     assert.equal(await page.locator('[aria-pressed]').count(), 0, 'no toggle well: single choices are radio cards');
-    assert.equal(await page.getByRole('radiogroup', { name: PARTICIPATION, exact: true }).getByRole('radio').count(), 3);
+    assert.equal(
+      await page
+        .getByRole('radiogroup', { name: groupName(PARTICIPATION), exact: true })
+        .getByRole('radio')
+        .count(),
+      3,
+    );
     await expect(progress).toHaveAttribute('aria-valuenow', '1');
     await expect(progress).toHaveAttribute('aria-valuemax', '7');
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -1099,6 +1263,13 @@ try {
     await page.getByRole('button', { name: '← Return to your enquiry' }).click();
 
     // A12: a returning visitor after sending sees "View your enquiry", and one click opens it.
+    // The "sent" marker holds a SHA-256 digest of the receipt id, never the id itself.
+    const sentMarker = await page.evaluate(
+      () => sessionStorage.getItem('intafaced.outreach.sent.v1') || localStorage.getItem('intafaced.outreach.sent.v1'),
+    );
+    assert.match(sentMarker, /^[0-9a-f]{64}$/, 'the sent marker is a SHA-256 hex digest');
+    assert.equal(sentMarker, createHash('sha256').update(api.draft().submissionId).digest('hex'));
+    assert.notEqual(sentMarker, api.draft().submissionId, 'and not the plain receipt id');
     await page.reload();
     await expect(page.getByRole('button', { name: 'View your enquiry', exact: true })).toBeVisible();
     await expect(page.getByText('You sent an enquiry from this browser.')).toBeVisible();

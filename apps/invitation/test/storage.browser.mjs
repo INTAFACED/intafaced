@@ -163,9 +163,10 @@ try {
       return { visibility: c.visibility };
     });
     assert.equal(title.visibility, 'visible');
-    await page.getByRole('button', { name: 'Begin', exact: true }).click();
     // Whatever entrance had started by the time of this click is the first and only one; nothing may replay after it.
+    // Counted just BEFORE the click, so a replay that began in the gap would be caught, not allowed.
     const entriesAtBegin = await page.evaluate(() => window.__entries.length);
+    await page.getByRole('button', { name: 'Begin', exact: true }).click();
     await page.getByLabel('Your name', { exact: true }).fill('Bootstrap visitor');
     await page.getByLabel('Email', { exact: true }).fill(`capture-error-${mode}@example.invalid`);
     const sentBefore = captures.length;

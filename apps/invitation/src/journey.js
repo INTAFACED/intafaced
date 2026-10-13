@@ -46,6 +46,12 @@ const FIELD_HEADINGS = {
   operatingCountries: 'Where does your business operate?',
   relationship: 'What kind of relationship do you have in mind?',
   businessName: 'What’s your business called?',
+  // "experience" is a key of two audiences, so those two are listed per audience (see titleFor).
+  'trader.experience': 'How much trading experience do you have?',
+  role: 'What best describes how you trade?',
+  industry: 'What industry is your business in?',
+  format: 'How do you prefer to learn?',
+  'academy.experience': 'What’s your current experience?',
 };
 const FIELD_HELPERS = {
   markets: 'Choose one or more.',
@@ -276,7 +282,8 @@ const presentation = {
       };
     },
     titleFor(step) {
-      if (step.kind === 'field') return FIELD_HEADINGS[step.field.key] || step.field.label;
+      if (step.kind === 'field')
+        return FIELD_HEADINGS[this.currentAudience + '.' + step.field.key] || FIELD_HEADINGS[step.field.key] || step.field.label;
       if (step.kind === 'amount')
         return this.currentAudience === 'investor' ? 'What amount are you considering?' : 'What is your processing volume?';
       if (step.kind === 'timing') return 'When would you consider taking part?';
@@ -400,8 +407,10 @@ const presentation = {
     advance() {
       this.error = '';
       this.errorCode = '';
-      if (this.amountUnresolved()) {
-        this.error = 'Say which amount you meant to continue.';
+      // Only the amount step stops for an unresolved amount: from an earlier step the visitor moves on and meets the question
+      // on the amount step itself. saveAnswers() below is the last stop before anything is sent.
+      if (this.questionStep && this.questionStep.kind === 'amount' && this.amountUnresolved()) {
+        this.error = 'Choose which amount you meant, then continue.';
         return;
       }
       if (this.visibleFields.some((f) => (f.type === 'checks' || f.type === 'countries') && !this.answers[f.key].length)) {

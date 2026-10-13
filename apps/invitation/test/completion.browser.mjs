@@ -129,7 +129,7 @@ async function review(page) {
   await expect(page.getByRole('heading', { name: 'A little more, if you like.' })).toBeFocused();
   await page.getByRole('button', { name: 'Save details & continue' }).click();
   await page
-    .getByRole('radiogroup', { name: 'Are you considering investing or making an introduction?' })
+    .getByRole('radiogroup', { name: 'How would you like to take part?' })
     .getByRole('radio', { name: 'I can introduce an investor', exact: true })
     .check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
