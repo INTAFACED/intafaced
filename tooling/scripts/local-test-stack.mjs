@@ -190,6 +190,7 @@ const SECRET_NAMES = [
   'edgeAuthority',
   'payCryptoWebhook',
   'payCardWebhook',
+  'identityTotp', // identity's TOTP sealing key; lets the labelled local test operators enrol a second factor
 ];
 
 function loadOrCreateSecrets() {
@@ -485,6 +486,13 @@ function commonEnv(secrets, name, port) {
     // Every service that consults packages/config's screening reads the same pass-through
     // (Bank refuses spaces without it). Never set here; see screeningEnv().
     ...screeningEnv(),
+    // LOCAL TEST ONLY, option B approved by Nitro on 2026-10-13: the stack may stand in for the compliance
+    // officer who accepts a sanctions list. The list stays the labelled test fixture kept outside this repo
+    // (STATE/screening.local.json); turning the fail-closed refusal off lets that fixture be read as "a list
+    // exists" so Bank, Pay and Trade answer test accounts. packages/config/src/jurisdiction.ts
+    // (screeningFailClosedFromEnv). This is not a counsel-approved list and nothing here makes it one.
+    // The production-side guard against this value lives with the shared config check, not here.
+    INTAFACED_SCREENING_FAIL_CLOSED: 'off',
   };
 }
 
@@ -550,6 +558,13 @@ function serviceDefs(secrets) {
         // Edge reads each caller's current account authority with this key; without it
         // Edge refuses every signed-in token as 'invalid' and forwards anonymously.
         IDENTITY_EDGE_AUTHORITY_SECRET: secrets.edgeAuthority,
+        // LOCAL TEST ONLY (Nitro, option B, 2026-10-13). Required, no default, owner-unpublished: how long a
+        // two-person action approval lives. 600 s is a local test value, not an owner decision. The labelled
+        // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
+        // test accounts; "LOCAL TEST — not a real approval".
+        IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
+        // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
+        IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
       }),
     },
     {
@@ -559,6 +574,9 @@ function serviceDefs(secrets) {
         MATCHING_ENGINE_ENABLED: 'true',
         MATCHING_SNAPSHOT_EVERY: '0', // required, owner-unpublished; 0 = snapshotting off (no magnitude invented)
         MATCHING_JOURNAL_PATH: path.join(P.data, 'matching', 'engine_journal.ndjson'),
+        // Opening a market needs a two-person approval that matching consumes from identity
+        // (services/svc-matching/src/action-approval-consume.ts). Without this it refuses by name.
+        IDENTITY_URL: urlOf('identity'),
       }),
     },
     {

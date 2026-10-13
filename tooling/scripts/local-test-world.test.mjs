@@ -128,6 +128,19 @@ try {
     [],
   );
 
+  // The two stand-in operators (local-test-gates.mjs) get no welcome funds and are never picked as the founder.
+  assert.equal(isSkippedAccount('local_test_operator_a'), true);
+  assert.equal(isSkippedAccount('local_test_operator_b'), true);
+  assert.equal(isSkippedAccount('local_test_operators_real_person'), false);
+  assert.equal(
+    pickFounder([
+      { id: 'f', handle: 'Luffy', email: 'a@b.c', createdAt: '2026-10-13 17:23:43' },
+      { id: 'o', handle: 'local_test_operator_a', email: 'x@y.z', createdAt: '2026-10-13 19:00:00' },
+    ]).id,
+    'f',
+  );
+  assert.deepEqual(pendingWelcomes({ users: [{ id: 'o', handle: 'local_test_operator_b' }], ledgerAssets: ['USDT'], done: new Set() }), []);
+
   console.log('local-test-world: all checks passed');
 } finally {
   rmSync(home, { recursive: true, force: true });

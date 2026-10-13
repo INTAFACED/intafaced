@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const STACK_SCRIPT = path.join(path.dirname(SCRIPT), 'local-test-stack.mjs');
@@ -101,12 +102,21 @@ export function assertLocalTarget({ home = os.homedir(), urls = [EDGE] } = {}) {
 
 /** Accounts the welcome watcher never funds: the market tooling funds those itself. */
 export function isSkippedAccount(handle) {
-  return /^test[-_](market[-_]maker|taker)/i.test(String(handle));
+  return /^test[-_](market[-_]maker|taker)/i.test(String(handle)) || isOperatorAccount(handle);
+}
+
+/** The two labelled stand-in operators (local-test-gates.mjs). They approve things; they never receive welcome funds. */
+export function isOperatorAccount(handle) {
+  return /^local_test_operator_[ab]$/i.test(String(handle));
 }
 
 /** A test account of any kind (market, friend, harness) — never picked as "the founder". */
 export function isTestAccount(user) {
-  return /^test[-_]/i.test(String(user.handle)) || /@(local\.test|local-test\.invalid|example\.invalid)$/i.test(String(user.email));
+  return (
+    /^test[-_]/i.test(String(user.handle)) ||
+    isOperatorAccount(user.handle) ||
+    /@(local\.test|local-test\.invalid|example\.invalid)$/i.test(String(user.email))
+  );
 }
 
 export const welcomeRef = (userId, asset) => `welcome-${userId}-${asset}`;
@@ -426,6 +436,26 @@ async function friendReplyPass({ secrets, p, state, log, skipUserIds }) {
   state.returnCursor = lowestOpen ? lowestOpen.seq - 1 : Math.max(state.returnCursor ?? 0, ...handled.map((r) => r.seq));
 }
 
+// ── Verification (the operator stand-in; local-test-gates.mjs) ──────────────
+
+/**
+ * Any account that has asked to be verified gets approved by the two labelled local test operators
+ * ("LOCAL TEST — not a real approval"). Cheap when idle: one read-only count. A failure is logged once
+ * and retried after a minute, never in a tight loop.
+ */
+async function verifyPass({ secrets, state, log }) {
+  if (state._kycRetryAt && Date.now() < state._kycRetryAt) return;
+  if (pendingKycCount(secrets) === 0) return;
+  try {
+    state._gates ??= await makeGatesContext({ log });
+    const rows = await approvePending(state._gates);
+    if (rows.some((r) => !r.ok)) state._kycRetryAt = Date.now() + 60_000;
+  } catch (err) {
+    state._kycRetryAt = Date.now() + 60_000;
+    log(`verify pass failed (will retry in 60 s): ${String(err.message ?? err).slice(0, 240)}`);
+  }
+}
+
 // ── Commands ────────────────────────────────────────────────────────────────
 
 function guard() {
@@ -464,6 +494,7 @@ async function cmdWatch() {
   while (!stop) {
     try {
       const { users } = runWelcomePass({ secrets, state, log });
+      await verifyPass({ secrets, state, log });
       // Friend replies, only once the friend exists (seed creates it).
       const acct = readJson(p.accounts, {})?.friend;
       if (acct?.password) {
