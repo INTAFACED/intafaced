@@ -27,22 +27,31 @@ import {
   StateBlock,
   toFixedString,
   useMarkets,
+  type BalanceEntry,
   type Loadable,
   type MarketRow,
 } from './deps';
 import { InfoTip } from './InfoTip';
 import { buyHref } from './links';
 import { clockTime } from './time';
-import { useMoneyPortfolio, useNamedAccounts, type MoneyRow, type MoneyView, type NamedAccount } from './portfolio-source';
+import {
+  useAssetBalances,
+  useMoneyPortfolio,
+  useNamedAccounts,
+  type MoneyRow,
+  type MoneyView,
+  type NamedAccount,
+} from './portfolio-source';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
 // ── where the buttons go ─────────────────────────────────────────────────────
 
+type Mode = 'simple' | 'pro';
 const PILLS = [
-  { id: 'Buy', href: () => buyHref(null, null, false) },
-  { id: 'Sell', href: () => buyHref(null, null, true) },
+  { id: 'Buy', href: (mode: Mode) => buyHref(null, null, false, mode) },
+  { id: 'Sell', href: (mode: Mode) => buyHref(null, null, true, mode) },
   { id: 'Convert', href: () => (isHiddenPath('/trade/convert') ? null : '/trade/convert') },
   { id: 'Send', href: () => (isHiddenPath('/pay/send') ? null : '/pay/send') },
   { id: 'Receive', href: () => (isHiddenPath('/pay/receive') ? null : '/pay/receive') },
@@ -53,19 +62,19 @@ const PILLS_FOR: Record<PillMode, readonly PillId[] | null> = { normal: null, em
 /** Real pill widths, so the skeletons are the final size. */
 const PILL_WIDTH: Record<PillId, number> = { Buy: 64, Sell: 60, Convert: 88, Send: 72, Receive: 88 };
 
-function livePills(mode: PillMode) {
+function livePills(mode: PillMode, layout: Mode) {
   const wanted = PILLS_FOR[mode];
   // A short list keeps its own order, so the first pill (the primary one) is the most useful: Receive, then Buy.
   const ordered = wanted ? wanted.map((id) => PILLS.find((pill) => pill.id === id)!) : PILLS;
   return ordered.flatMap((pill) => {
-    const href = pill.href();
+    const href = pill.href(layout);
     return href ? [{ id: pill.id, href }] : [];
   });
 }
 
-function ActionPills({ loading, mode }: { loading: boolean; mode: PillMode }) {
+function ActionPills({ loading, mode, layout }: { loading: boolean; mode: PillMode; layout: Mode }) {
   const { t } = moneyCopy.useCopy();
-  const pills = livePills(mode);
+  const pills = livePills(mode, layout);
   return (
     <nav className="money-actions" aria-label={t('Actions')}>
       {pills.map((pill, index) =>
@@ -95,7 +104,7 @@ function cents(value: string | null): string | null {
   return parsed === null ? null : toFixedString(roundScaled(parsed, 2), 2);
 }
 
-function Headline({ view, hidden, copy }: { view: MoneyView; hidden: boolean; copy: Copy }) {
+function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolean; copy: Copy; pro: boolean }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
   const since = view.windowStart;
@@ -111,7 +120,7 @@ function Headline({ view, hidden, copy }: { view: MoneyView; hidden: boolean; co
   return (
     <>
       <div className="money-total">
-        <HeroNumber value={cents(view.totalUsd)} decimals={2} prefix="$" hidden={hidden} />
+        <HeroNumber value={cents(view.totalUsd)} decimals={2} prefix="$" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
       </div>
       {view.change24hUsd !== null && hasCrypto ? (
         <p className="money-change">
@@ -137,23 +146,27 @@ export function isSmall(row: MoneyRow): boolean {
   return value !== null && value < SCALE;
 }
 
-function Colgroup() {
+type Balances = Loadable<Record<string, BalanceEntry>>;
+
+function Colgroup({ pro }: { pro: boolean }) {
   return (
     <colgroup>
       <col className="money-col--coin" />
       <col className="money-col--amount" />
       <col className="money-col--value" />
       <col className="money-col--today money-cell--today" />
+      {pro ? <col className="money-col--free money-cell--pro" /> : null}
+      {pro ? <col className="money-col--used money-cell--pro" /> : null}
       <col className="money-col--actions money-cell--actions" />
     </colgroup>
   );
 }
 
-function RowActions({ row, markets, copy }: { row: MoneyRow; markets: Loadable<MarketRow[]>; copy: Copy }) {
+function RowActions({ row, markets, copy, layout }: { row: MoneyRow; markets: Loadable<MarketRow[]>; copy: Copy; layout: Mode }) {
   const { t } = copy;
   const symbol = markets.status === 'ready' ? primarySymbolFor(row.asset, markets.data) : null;
-  const buy = symbol ? buyHref(row.asset, symbol, false) : null;
-  const sell = symbol ? buyHref(row.asset, symbol, true) : null;
+  const buy = symbol ? buyHref(row.asset, symbol, false, layout) : null;
+  const sell = symbol ? buyHref(row.asset, symbol, true, layout) : null;
   const send = isHiddenPath('/pay/send') ? null : `/pay/send?asset=${encodeURIComponent(row.asset)}`;
   const items = [
     { id: 'Buy', href: buy, label: t('Buy {asset}', { asset: row.asset }) },
@@ -173,14 +186,45 @@ function RowActions({ row, markets, copy }: { row: MoneyRow; markets: Loadable<M
   );
 }
 
-function CoinRow({ row, hidden, markets, copy }: { row: MoneyRow; hidden: boolean; markets: Loadable<MarketRow[]>; copy: Copy }) {
+/** Pro columns: what can be spent now (Available) and what is set aside for open orders (In orders), as the balance call says. */
+function HeldCells({ asset, balances, hidden }: { asset: string; balances: Balances; hidden: boolean }) {
+  const entry = balances.status === 'ready' ? balances.data[asset] : undefined;
+  const show = (value: string | undefined) => (value === undefined ? '—' : fmtAmount(value, { round: 'down' }));
+  return (
+    <>
+      <td className="money-num money-cell--pro" data-col="available">
+        <Amount value={show(entry?.free)} hidden={hidden} />
+      </td>
+      <td className="money-num money-cell--pro" data-col="in-orders">
+        <Amount value={show(entry?.used)} hidden={hidden} />
+      </td>
+    </>
+  );
+}
+
+function CoinRow({
+  row,
+  hidden,
+  markets,
+  copy,
+  layout,
+  balances,
+}: {
+  row: MoneyRow;
+  hidden: boolean;
+  markets: Loadable<MarketRow[]>;
+  copy: Copy;
+  layout: Mode;
+  balances: Balances;
+}) {
   const name = assetName(row.asset, copy);
   const cash = row.class === 'cash';
   const today = row.usdChange24h === null || cash ? null : fmtChangeLine(row.usdChange24h, row.changeRatio);
   return (
     <tr className="money-row" data-asset={row.asset}>
       <td>
-        <a className="money-coin" href={`/coin/${encodeURIComponent(row.asset)}`}>
+        {/* No link: the coin page is M3. The Buy, Sell and Send buttons on the row are the way on. */}
+        <div className="money-coin">
           <CoinIcon asset={row.asset} size={32} />
           <span className="money-coin__text">
             <span className="money-coin__top">
@@ -189,7 +233,7 @@ function CoinRow({ row, hidden, markets, copy }: { row: MoneyRow; hidden: boolea
             </span>
             {name ? <span className="money-coin__name">{name}</span> : null}
           </span>
-        </a>
+        </div>
       </td>
       <td className="money-num">
         <Amount value={`${fmtAmount(row.amount, { round: 'down' })} ${row.asset}`} hidden={hidden} />
@@ -200,8 +244,9 @@ function CoinRow({ row, hidden, markets, copy }: { row: MoneyRow; hidden: boolea
       <td className="money-num money-cell--today">
         <ChangeText value={today} hidden={hidden} className="money-today" />
       </td>
+      {layout === 'pro' ? <HeldCells asset={row.asset} balances={balances} hidden={hidden} /> : null}
       <td className="money-cell--actions">
-        <RowActions row={row} markets={markets} copy={copy} />
+        <RowActions row={row} markets={markets} copy={copy} layout={layout} />
       </td>
     </tr>
   );
@@ -213,17 +258,22 @@ function CoinTable({
   markets,
   copy,
   head,
+  layout,
+  balances,
 }: {
   rows: MoneyRow[];
   hidden: boolean;
   markets: Loadable<MarketRow[]>;
   copy: Copy;
   head: boolean;
+  layout: Mode;
+  balances: Balances;
 }) {
   const { t } = copy;
+  const pro = layout === 'pro';
   return (
     <table className="money-table">
-      <Colgroup />
+      <Colgroup pro={pro} />
       {head ? (
         <thead>
           <tr>
@@ -237,6 +287,16 @@ function CoinTable({
             <th scope="col" className="money-num money-cell--today">
               {t('Today')}
             </th>
+            {pro ? (
+              <>
+                <th scope="col" className="money-num money-cell--pro">
+                  {t('Available')}
+                </th>
+                <th scope="col" className="money-num money-cell--pro">
+                  {t('In orders')}
+                </th>
+              </>
+            ) : null}
             <th scope="col" className="money-cell--actions">
               <span className="if-sr">{t('Actions')}</span>
             </th>
@@ -245,7 +305,7 @@ function CoinTable({
       ) : null}
       <tbody>
         {rows.map((row) => (
-          <CoinRow key={row.asset} row={row} hidden={hidden} markets={markets} copy={copy} />
+          <CoinRow key={row.asset} row={row} hidden={hidden} markets={markets} copy={copy} layout={layout} balances={balances} />
         ))}
       </tbody>
     </table>
@@ -261,6 +321,8 @@ function HoldingsCard({
   markets,
   copy,
   collapseSmall,
+  layout,
+  balances,
 }: {
   id: 'cash' | 'crypto';
   title: string;
@@ -270,6 +332,8 @@ function HoldingsCard({
   markets: Loadable<MarketRow[]>;
   copy: Copy;
   collapseSmall?: boolean;
+  layout: Mode;
+  balances: Balances;
 }) {
   const { t } = copy;
   // Small balances fold away only when there is something bigger to show above them.
@@ -282,7 +346,7 @@ function HoldingsCard({
         <h2 id={`money-${id}-title`}>{title}</h2>
         <Money value={total === null ? null : fmtUsd(total)} hidden={hidden} className="money-card__total" />
       </header>
-      <CoinTable rows={main} hidden={hidden} markets={markets} copy={copy} head />
+      <CoinTable rows={main} hidden={hidden} markets={markets} copy={copy} head layout={layout} balances={balances} />
       {folded.length > 0 ? (
         <Collapsible className="money-small">
           <CollapsibleTrigger className="money-small__trigger">
@@ -293,7 +357,7 @@ function HoldingsCard({
             <ChevronDown size={20} aria-hidden="true" className="money-small__chev" />
           </CollapsibleTrigger>
           <CollapsiblePanel>
-            <CoinTable rows={folded} hidden={hidden} markets={markets} copy={copy} head={false} />
+            <CoinTable rows={folded} hidden={hidden} markets={markets} copy={copy} head={false} layout={layout} balances={balances} />
           </CollapsiblePanel>
         </Collapsible>
       ) : null}
@@ -350,8 +414,10 @@ function Accounts({ accounts, hidden, copy }: { accounts: NamedAccount[]; hidden
 export default function Portfolio() {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
-  const { hideBalances } = usePreferences();
+  const { hideBalances, layoutMode } = usePreferences();
+  const layout: Mode = layoutMode === 'pro' ? 'pro' : 'simple';
   const portfolio = useMoneyPortfolio();
+  const balances = useAssetBalances(layout === 'pro');
   const markets = useMarkets();
   const accounts = useNamedAccounts();
 
@@ -372,7 +438,7 @@ export default function Portfolio() {
   }, [view !== null]);
 
   const mode: PillMode = portfolio.status === 'refused' ? 'refused' : portfolio.status === 'empty' ? 'empty' : 'normal';
-  const buyTarget = buyHref(null, null, false);
+  const buyTarget = buyHref(null, null, false, layout);
 
   let body;
   if (portfolio.status === 'loading') {
@@ -428,6 +494,8 @@ export default function Portfolio() {
             hidden={hideBalances}
             markets={markets}
             copy={copy}
+            layout={layout}
+            balances={balances}
           />
         ) : null}
         {cryptoRows.length > 0 ? (
@@ -440,15 +508,19 @@ export default function Portfolio() {
             markets={markets}
             copy={copy}
             collapseSmall
+            layout={layout}
+            balances={balances}
           />
         ) : null}
-        {accounts.status === 'ready' ? <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} /> : null}
+        {accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
+          <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
+        ) : null}
       </>
     );
   }
 
   return (
-    <div className="if-money" data-source={view?.source ?? undefined}>
+    <div className="if-money" data-source={view?.source ?? undefined} data-density={layout === 'pro' ? 'pro' : undefined}>
       <h1 className="if-sr">{t('Money')}</h1>
       <div className="money-head">
         <div className="money-head__main">
@@ -474,15 +546,15 @@ export default function Portfolio() {
               </div>
             </div>
           ) : view ? (
-            <Headline view={view} hidden={hideBalances} copy={copy} />
+            <Headline view={view} hidden={hideBalances} copy={copy} pro={layout === 'pro'} />
           ) : portfolio.status === 'empty' ? (
             <div className="money-total">
               {/* The balance call answered with no assets, so zero is correct here and only here. */}
-              <HeroNumber value="0.00" decimals={2} prefix="$" hidden={hideBalances} />
+              <HeroNumber value="0.00" decimals={2} prefix="$" size={layout === 'pro' ? 'hero-pro' : 'hero'} hidden={hideBalances} />
             </div>
           ) : null}
         </div>
-        <ActionPills loading={portfolio.status === 'loading'} mode={mode} />
+        <ActionPills loading={portfolio.status === 'loading'} mode={mode} layout={layout} />
       </div>
       {body}
     </div>

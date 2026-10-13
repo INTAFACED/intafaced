@@ -113,3 +113,68 @@ export const activityPage2 = () => ({
   ],
   nextCursor: null,
 });
+
+// ── trades and orders (the trade service's wire shapes, as the desk reads them) ──────────────────────────────────────
+
+const at = (iso) => ({ timestamp: Date.parse(iso), datetime: iso });
+const fill = (id, iso, side, price, amount, cost, fee) => ({
+  id,
+  order: `order-${id}`,
+  ...at(iso),
+  symbol: 'BTC/USDT',
+  type: 'market',
+  side,
+  takerOrMaker: 'taker',
+  price,
+  amount,
+  cost,
+  fee: { cost: fee, currency: side === 'buy' ? 'BTC' : 'USDT', rate: '0.001' },
+});
+/** Two fills, newest first: a buy of 0.00015 BTC and a sell of 0.002 BTC. */
+export const fills = () => [
+  fill('f1', '2026-10-14T08:02:00.000Z', 'buy', '65083.66', '0.00015', '9.762549', '0.00000015'),
+  fill('f2', '2026-10-13T10:30:00.000Z', 'sell', '64000.00', '0.002', '128', '0.128'),
+];
+
+const order = (id, iso, side, price, amount, status, filled) => ({
+  id,
+  clientOrderId: `desk:${id}`,
+  ...at(iso),
+  lastTradeTimestamp: null,
+  symbol: 'BTC/USDT',
+  type: 'limit',
+  side,
+  timeInForce: 'GTC',
+  postOnly: false,
+  reduceOnly: false,
+  price,
+  stopPrice: null,
+  average: null,
+  amount,
+  filled,
+  remaining: String(Number(amount) - Number(filled)),
+  cost: '0',
+  status,
+  fee: null,
+  trades: [],
+  recoveryRequired: false,
+  recoveryReason: null,
+  reconciliationKey: null,
+});
+export const openOrders = () => [order('o1', '2026-10-14T09:00:00.000Z', 'buy', '62500.00', '0.00008', 'open', '0')];
+export const closedOrders = () => [
+  order('o2', '2026-10-14T08:01:00.000Z', 'buy', '65100.00', '0.00015', 'closed', '0.00015'),
+  order('o3', '2026-10-13T17:00:00.000Z', 'buy', '60000.00', '0.0001', 'canceled', '0'),
+];
+
+/** A real buy as the server files it (critic round 1): three ledger lines, a few ms apart, each with its own id. */
+export const buyLines = () => [
+  row('h3', 'other', 'in', 'USDT', '0.032542', '2026-10-14T09:30:00.115Z'),
+  row('h2', 'trade', 'in', 'BTC', '0.0000999', '2026-10-14T09:30:00.093Z'),
+  row('h1', 'other', 'out', 'USDT', '6.540908', '2026-10-14T09:30:00.072Z'),
+];
+/** A resting order's hold and its release: the server calls both `other`. */
+export const holdLines = () => [
+  row('r2', 'other', 'in', 'USDT', '5', '2026-10-14T09:10:00.000Z'),
+  row('r1', 'other', 'out', 'USDT', '5', '2026-10-14T09:05:00.000Z'),
+];

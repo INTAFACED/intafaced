@@ -12,6 +12,8 @@ import { z } from 'zod';
 import { classOf, useDataEnv, useSource, type Decimal, type Loadable, type PortfolioSummary } from '../../data';
 import { dec, decOrNull, ratio, sub, sumOf, type Scaled } from '../../data/decimal';
 import { portfolioSource, type DataEnv } from '../../data/queries';
+import { balancesFetcher } from '../../data/fetchers';
+import type { BalanceEntry } from '../../data/derive';
 import { constantSource, type Source } from '../../data/source';
 import type { Fetcher, Outcome } from '../../data/poll';
 
@@ -250,4 +252,27 @@ export function useNamedAccounts(): Loadable<NamedAccount[]> {
   );
   const snap = useSource(source);
   return useMemo(() => (snap.status === 'ready' && snap.data.length === 0 ? { status: 'empty' } : snap), [snap]);
+}
+
+// ── free and used, for Pro ───────────────────────────────────────────────────
+
+const BALANCE_INTERVAL = 15_000;
+
+/**
+ * What can be spent now (`free`) and what is set aside for open orders (`used`), per asset, from `/account/balance`.
+ * Same request key as the desk and the data layer, so the poller shares one request. Pro shows it; Simple does not read it.
+ */
+export function useAssetBalances(enabled: boolean): Loadable<Record<string, BalanceEntry>> {
+  const env = useDataEnv();
+  return useSource(
+    useMemo(
+      () =>
+        env.userId && enabled
+          ? env.poller.source<Record<string, BalanceEntry>>(`balance:${env.userId}`, balancesFetcher(env.api), {
+              intervalMs: BALANCE_INTERVAL,
+            })
+          : constantSource<Record<string, BalanceEntry>>({ status: 'refused', code: 'auth.required' }),
+      [env, enabled],
+    ),
+  );
 }

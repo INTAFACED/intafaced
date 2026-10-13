@@ -6,11 +6,16 @@ import {
   activityPage1,
   activityPage2,
   balances,
+  buyLines,
   cashOnlySummary,
+  closedOrders,
   emptyBalances,
   emptySummary,
+  fills,
+  holdLines,
   hourlyCandles,
   markets,
+  openOrders,
   spaces,
   summary,
   tickers,
@@ -54,6 +59,9 @@ const exchange = {
   tickers: () => tickers(),
   balance: () => balances(),
   ohlcv: (symbol) => hourlyCandles(symbol),
+  'account/trades': () => fills(),
+  'orders/open': () => openOrders(),
+  'orders/closed': () => closedOrders(),
 };
 const bankDefaults = {
   'portfolio.summary': () => summary(),
@@ -160,10 +168,11 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   await expect(page.locator('.money-note')).toContainText('Excludes 1 coin (no USD price)');
   await expect(page.locator('.money-note')).toContainText('Not counted: ZED');
 
-  // Actions: only live ones (Convert is hidden), Buy is the one primary.
-  expect(await texts(page.locator('.money-actions > *'))).toEqual(['Buy', 'Sell', 'Send', 'Receive']);
+  // Actions: only live ones, Buy is the one primary. Simple Buy and Sell open the Buy card (critic H1).
+  expect(await texts(page.locator('.money-actions > *'))).toEqual(['Buy', 'Sell', 'Convert', 'Send', 'Receive']);
   expect(await page.locator('.money-actions a.bg-lime').count()).toBe(1);
-  await expect(page.locator('.money-actions a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  await expect(page.locator('.money-actions a').nth(0)).toHaveAttribute('href', '/trade/buy?side=buy');
+  await expect(page.locator('.money-actions a').nth(1)).toHaveAttribute('href', '/trade/buy?side=sell');
   expect(Math.round((await page.locator('.money-actions a').first().boundingBox()).height)).toBe(40);
 
   // Allocation bar and legend (percentages from the same decimal strings), plus the table for screen readers.
@@ -186,15 +195,16 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   expect(await texts(btc.locator('td').nth(1))).toEqual(['0.1 BTC']);
   expect(await texts(btc.locator('td').nth(2))).toEqual(['$6,781.24']);
   expect(await texts(btc.locator('td').nth(3))).toEqual(['▲+$181.24 (+2.75%)']);
-  await expect(btc.locator('a.money-coin')).toHaveAttribute('href', '/coin/BTC');
+  // No link to the old coin page (critic H3): the row's own buttons are the way on.
+  expect(await page.locator('.if-money a[href^="/coin/"]').count()).toBe(0);
   // Unpriced rows show a dash, never zero.
   const zed = page.locator('#crypto tr[data-asset="ZED"]');
   expect(await texts(zed.locator('td').nth(2))).toEqual(['—']);
   expect(await texts(zed.locator('td').nth(3))).toEqual(['—']);
   // Row actions come from the registry and the markets: Buy/Sell/Send for a listed coin, Send only for the rest.
   expect(await texts(btc.locator('.money-row__actions > *'))).toEqual(['Buy', 'Sell', 'Send']);
-  await expect(btc.locator('.money-row__actions a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
-  await expect(btc.locator('.money-row__actions a').nth(1)).toHaveAttribute('href', '/trade/spot/BTC-USDT?side=sell');
+  await expect(btc.locator('.money-row__actions a').nth(0)).toHaveAttribute('href', '/trade/buy?asset=BTC&side=buy');
+  await expect(btc.locator('.money-row__actions a').nth(1)).toHaveAttribute('href', '/trade/buy?asset=BTC&side=sell');
   await expect(btc.locator('.money-row__actions a').nth(2)).toHaveAttribute('href', '/pay/send?asset=BTC');
   expect(await texts(zed.locator('.money-row__actions > *'))).toEqual(['Send']);
   expect(await texts(page.locator('#cash tr[data-asset="USDT"] .money-row__actions > *'))).toEqual(['Send']);
@@ -266,7 +276,7 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
       .filter((stop) => stop.href)
       .map((stop) => stop.href)
       .slice(0, 6),
-  ).toEqual(['/trade/spot/BTC-USDT', '/trade/spot/BTC-USDT?side=sell', '/pay/send', '/pay/receive', '/coin/USDT', '/pay/send?asset=USDT']);
+  ).toEqual(['/trade/buy?side=buy', '/trade/buy?side=sell', '/trade/convert', '/pay/send', '/pay/receive', '/pay/send?asset=USDT']);
 
   await snap(page, 'portfolio-loaded-1440x900');
   expect(errors).toEqual([]);
@@ -357,7 +367,7 @@ test('loading shows final-size skeletons and nothing moves when data arrives', a
   const pills = await page
     .locator('.money-actions [data-slot="skeleton"]')
     .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
-  expect(pills).toEqual([40, 40, 40, 40]);
+  expect(pills).toEqual([40, 40, 40, 40, 40]);
   const before = await page.locator('.money-total').boundingBox();
   await shootBoth(page, 'portfolio-loading');
   await api.release();
@@ -374,7 +384,7 @@ test('an account with nothing in it: zero is right here, and there is a way forw
   const block = page.locator('[data-slot="state-block"][data-kind="empty"]');
   await expect(block).toContainText('You don’t hold anything yet.');
   await expect(block.locator('a')).toHaveText('Buy crypto');
-  await expect(block.locator('a')).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  await expect(block.locator('a')).toHaveAttribute('href', '/trade/buy?side=buy');
   expect(await texts(page.locator('.money-actions > *'))).toEqual(['Receive']);
   await expect(page.locator('#cash')).toHaveCount(0); // a card with no rows is omitted
   await shootBoth(page, 'portfolio-empty');
@@ -462,24 +472,192 @@ test('portfolio responsive: no horizontal page scroll at 1280, 1180, 768 and 390
   }
 });
 
+// ── pro ──────────────────────────────────────────────────────────────────────
+
+const PREFERENCES_KEY = 'intafaced.customer.view.v1';
+const pro = (page, extra = {}) =>
+  page.addInitScript(
+    ([key, value]) => localStorage.setItem(key, JSON.stringify(value)),
+    [PREFERENCES_KEY, { layoutMode: 'pro', ...extra }],
+  );
+
+test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy and Sell go to the desk (critic H4)', async ({ page }) => {
+  await mock(page, {
+    rest: {
+      balance: () => balances({ USDT: { free: '4095', used: '5', total: '4100.00' }, BTC: { free: '0.1', used: '0', total: '0.1' } }),
+    },
+  });
+  await pro(page);
+  await open(page);
+  await expectHero(page, '$12,481.91');
+  await expect(page.locator('.if-money')).toHaveAttribute('data-density', 'pro');
+  expect(
+    await page
+      .locator('[data-slot="hero-number"]')
+      .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
+  ).toBe('32px/40px');
+  expect(await texts(page.locator('#crypto > .money-table thead th'))).toEqual([
+    'Coin',
+    'Amount',
+    'Value',
+    'Today',
+    'Available',
+    'In orders',
+    'Actions',
+  ]);
+  const usdt = page.locator('#cash tr[data-asset="USDT"]');
+  expect(await texts(usdt.locator('td[data-col="available"]'))).toEqual(['4,095']);
+  expect(await texts(usdt.locator('td[data-col="in-orders"]'))).toEqual(['5']);
+  const btc = page.locator('#crypto tr[data-asset="BTC"]');
+  expect(await texts(btc.locator('td[data-col="available"]'))).toEqual(['0.1']);
+  expect(await texts(btc.locator('td[data-col="in-orders"]'))).toEqual(['0']);
+  expect(Math.round((await btc.boundingBox()).height)).toBe(40);
+  // Pro means the desk.
+  await expect(page.locator('.money-actions a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  await expect(btc.locator('.money-row__actions a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  await expect(btc.locator('.money-row__actions a').nth(1)).toHaveAttribute('href', '/trade/spot/BTC-USDT?side=sell');
+  await expect(btc.locator('.money-row__actions')).toHaveCSS('opacity', '1'); // always shown in Pro
+  expect(await page.locator('.if-money').innerText()).not.toMatch(forbidden);
+  await snap(page, 'portfolio-pro-1440x900');
+  // No sideways scroll at 1280 and 390.
+  for (const size of [
+    { width: 1280, height: 800 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `${size.width}px`).toBeLessThanOrEqual(0);
+  }
+});
+
+test('Simple Money has no Available and In orders columns', async ({ page }) => {
+  await mock(page);
+  await open(page);
+  expect(await texts(page.locator('#crypto > .money-table thead th'))).toEqual(['Coin', 'Amount', 'Value', 'Today', 'Actions']);
+});
+
+test('Money lists the named accounts only when one of them holds something (critic M9)', async ({ page }) => {
+  await mock(page, { bank: { 'spaces.list': () => spaces().map((space) => ({ ...space, balance: '0' })) } });
+  await open(page);
+  await expectHero(page, '$12,481.91');
+  await expect(page.locator('#accounts')).toHaveCount(0);
+});
+
 // ── activity ─────────────────────────────────────────────────────────────────
 
-test('activity: rows in plain words, signed amounts, local time, completed', async ({ page }) => {
+const ALL = '/money/activity?tab=all';
+
+test('activity opens on Trades, built from fills: one row per trade with price, total and fee (critic H2)', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   const api = await mock(page);
   await open(page, '/money/activity');
   await expect(page.locator('h1')).toHaveText('Activity');
-  expect(await texts(page.locator('[data-slot="tabs-tab"]'))).toEqual(['All', 'Deposits', 'Transfers', 'Trades']);
+  expect(await texts(page.locator('[data-slot="tabs-tab"]'))).toEqual(['Trades', 'Orders', 'All', 'Deposits', 'Transfers']);
+  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Trades');
+  expect(await texts(page.locator('.money-trade-tab thead th'))).toEqual(['Time', 'Trade', 'Price', 'Total', 'Fee']);
+  const rows = page.locator('.money-trade-tab tbody tr');
+  await expect(rows).toHaveCount(2);
+  expect(await texts(rows.nth(0).locator('td'))).toEqual([
+    '14 Oct, 08:02',
+    'Bought 0.00015 BTCBTC/USDT',
+    '65,083.66',
+    '9.762549 USDT',
+    '0.00000015 BTC',
+  ]);
+  expect(await texts(rows.nth(1).locator('td'))).toEqual([
+    '13 Oct, 10:30',
+    'Sold 0.002 BTCBTC/USDT',
+    '64,000.00',
+    '128.000000 USDT',
+    '0.128 USDT',
+  ]);
+  expect(Math.round((await rows.first().boundingBox()).height)).toBe(48);
+  expect(await page.locator('.if-money').innerText()).not.toMatch(forbidden);
+  // The ledger is not read for this tab, and the same request the desk makes feeds it.
+  expect(api.calls('activity.list')).toHaveLength(0);
+  expect(api.seen.filter((call) => call.procedure === 'rest:account/trades').length).toBeGreaterThan(0);
+  await snap(page, 'activity-trades-1440x900');
+  expect(errors).toEqual([]);
+});
+
+test('activity Orders tab shows open orders with Cancel and the order history (critic H2)', async ({ page }) => {
+  await mock(page);
+  await open(page, '/money/activity?tab=orders');
+  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Orders');
+  expect(await texts(page.locator('.money-trade-tab__head'))).toEqual(['Open orders', 'Order history']);
+  const tables = page.locator('.money-trade-tab table');
+  await expect(tables).toHaveCount(2);
+  const open_ = tables.nth(0).locator('tbody tr');
+  await expect(open_).toHaveCount(1);
+  await expect(open_.getByRole('button', { name: /Cancel buy order for 0.00008 BTC/ })).toBeVisible();
+  const history = tables.nth(1).locator('tbody tr');
+  await expect(history).toHaveCount(2);
+  expect(await texts(history.locator('td:last-child'))).toEqual(['Filled', 'Cancelled']);
+  await snap(page, 'activity-orders-1440x900');
+});
+
+test('every link that means "my orders" lands on the Orders tab', async ({ page }) => {
+  await mock(page);
+  await open(page, '/money/activity?tab=orders');
+  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Orders');
+  await open(page, '/money/activity?tab=nonsense');
+  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Trades');
+});
+
+test('All: the legs of one buy are one Trade row with what was paid; holds are left out with a note (critic H2)', async ({ page }) => {
+  await mock(page, {
+    bank: { 'activity.list': () => ({ items: [...holdLines(), ...buyLines()], nextCursor: null }) },
+  });
+  await open(page, ALL);
+  await expect(page.locator('.money-act')).toHaveCount(1);
+  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade']);
+  expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual(['+0.0000999 BTC']);
+  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 6.508366 USDT']);
+  const text = await page.locator('.if-money').innerText();
+  expect(text).not.toContain('Other activity');
+  expect(text).not.toContain('Completed −5');
+  await expect(page.locator('.money-act-note')).toContainText('Money set aside for your open orders isn’t listed here');
+  await snap(page, 'activity-all-trade-1440x900');
+});
+
+test('All shows a hold the server has labelled as "On hold", never as completed money gone', async ({ page }) => {
+  await mock(page, {
+    bank: {
+      'activity.list': () => ({
+        items: [{ ...holdLines()[1], kind: 'order_hold', id: 'oh1', txId: 'oh1' }],
+        nextCursor: null,
+      }),
+    },
+  });
+  await open(page, ALL);
+  expect(await texts(page.locator('.money-act__title'))).toEqual(['On hold for an open order']);
+  expect(await texts(page.locator('.money-act__hold'))).toEqual(['On hold']);
+  await expect(page.locator('.money-act__done')).toHaveCount(0);
+});
+
+test('Pro Activity rows are 40 px', async ({ page }) => {
+  await mock(page);
+  await pro(page);
+  await open(page, ALL);
+  await expect(page.locator('.money-act')).toHaveCount(9);
+  expect(Math.round((await page.locator('.money-act').first().boundingBox()).height)).toBe(40);
+});
+
+test('activity: rows in plain words, signed amounts, local time, completed', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+  const api = await mock(page);
+  await open(page, ALL);
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
   const rows = page.locator('.money-act');
-  await expect(rows).toHaveCount(12);
+  // 12 ledger lines on page one are 9 rows: the fill's three lines are one Trade, and the loose "other" line is left out.
+  await expect(rows).toHaveCount(9);
   expect(await texts(page.locator('.money-act__title'))).toEqual([
     'Received from @maya',
     'Trade',
-    'Trade',
-    'Fee',
     'Sent to @ola',
     'Received',
     'Moved between your accounts',
@@ -487,14 +665,12 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
     'Welcome test funds',
     'Payment sent',
     'Withdrawal',
-    'Other activity',
   ]);
+  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 678.124 USDT · Fee 0.6781 USDT', 'Account: Rent']);
   // Amounts carry their sign in text and their direction in colour.
   expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual([
     '+50 USDT',
-    '−678.124 USDT',
     '+0.01 BTC',
-    '−0.6781 USDT',
     '−20 USDT',
     '+15 USDT',
     '−300 USDT',
@@ -502,7 +678,6 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
     '+4,000 USDT',
     '−12.5 USDT',
     '−100 USDT',
-    '+0.2 ETH',
   ]);
   const colour = (selector) =>
     page
@@ -515,8 +690,6 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
   expect(await texts(page.locator('.money-act__time'))).toEqual([
     '14 Oct, 09:15',
     '14 Oct, 08:02',
-    '14 Oct, 08:02',
-    '14 Oct, 08:02',
     '13 Oct, 17:40',
     '13 Oct, 12:00',
     '12 Oct, 20:30',
@@ -524,18 +697,16 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
     '10 Oct, 06:00',
     '9 Oct, 15:00',
     '8 Oct, 11:11',
-    '7 Oct, 09:00',
   ]);
-  await expect(page.locator('.money-act__sub').first()).toHaveText('Account: Rent');
   expect(new Set(await texts(page.locator('.money-act__done')))).toEqual(new Set(['Completed']));
-  expect(Math.round((await rows.first().boundingBox()).height)).toBe(56);
+  expect(Math.round((await rows.first().boundingBox()).height)).toBe(48);
   expect(await page.locator('.if-money').innerText()).not.toMatch(forbidden);
 
   // Paging: "Load more" asks for the next page with the cursor and appends it.
   await expect(page.getByRole('button', { name: 'Load more' })).toBeVisible();
   await snap(page, 'activity-loaded-1440x900');
   await page.getByRole('button', { name: 'Load more' }).click();
-  await expect(rows).toHaveCount(15);
+  await expect(rows).toHaveCount(12);
   await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
   expect((await texts(page.locator('.money-act__time'))).at(-1)).toBe('30 Dec 2025, 10:00'); // another year shows the year
   // (React's dev double-mount may ask for page one twice; the second page is asked for once, with the cursor.)
@@ -547,8 +718,8 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
 
 test('activity screenshots at both sizes, and side by side with the OKX order centre', async ({ page }) => {
   await mock(page);
-  await open(page, '/money/activity');
-  await expect(page.locator('.money-act')).toHaveCount(12);
+  await open(page, ALL);
+  await expect(page.locator('.money-act')).toHaveCount(9);
   await shootBoth(page, 'activity-loaded');
   await page.screenshot({ path: join(shots, 'activity-loaded-full-1440.png'), fullPage: true });
   if (referenceActivity && existsSync(referenceActivity)) {
@@ -568,8 +739,8 @@ test('activity screenshots at both sizes, and side by side with the OKX order ce
 
 test('activity tabs filter the rows, keep the address in step, and look further back when a tab is thin', async ({ page }) => {
   const api = await mock(page);
-  await open(page, '/money/activity');
-  await expect(page.locator('.money-act')).toHaveCount(12);
+  await open(page, ALL);
+  await expect(page.locator('.money-act')).toHaveCount(9);
 
   await page.getByRole('tab', { name: 'Deposits' }).click();
   await expect(page).toHaveURL(/\/money\/activity\?tab=deposits$/);
@@ -588,20 +759,17 @@ test('activity tabs filter the rows, keep the address in step, and look further 
     'Received from @sam',
   ]);
   await page.getByRole('tab', { name: 'Trades' }).click();
-  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade', 'Trade', 'Trade']);
-  await page.screenshot({ path: join(shots, 'activity-trades-1440x900.png') });
+  await expect(page).toHaveURL(/\/money\/activity$/);
+  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
 
   // Back and forward follow the tabs.
   await page.goBack();
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Transfers');
-  // An old link (?tab=orders) reads as All.
-  await open(page, '/money/activity?tab=orders');
-  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
 });
 
-test('activity empty: a way forward; a thin tab says so plainly', async ({ page }) => {
+test('activity empty: a way forward', async ({ page }) => {
   await mock(page, { bank: { 'activity.list': () => ({ items: [], nextCursor: null }) } });
-  await open(page, '/money/activity');
+  await open(page, ALL);
   const block = page.locator('[data-slot="state-block"][data-kind="empty"]');
   await expect(block).toContainText('No activity yet');
   await expect(block).toContainText('When you receive, send or trade, it shows up here.');
@@ -609,31 +777,41 @@ test('activity empty: a way forward; a thin tab says so plainly', async ({ page 
   await shootBoth(page, 'activity-empty');
 });
 
+test('Trades with no trades says so, and Orders with no orders says so', async ({ page }) => {
+  await mock(page, { rest: { 'account/trades': () => [], 'orders/open': () => [], 'orders/closed': () => [] } });
+  await open(page, '/money/activity');
+  await expect(page.locator('[data-slot="state-block"][data-kind="empty"]')).toContainText('No trades yet');
+  await open(page, '/money/activity?tab=orders');
+  const blocks = page.locator('[data-slot="state-block"][data-kind="empty"]');
+  await expect(blocks).toHaveCount(2);
+  expect(await texts(blocks)).toEqual(['No open orders.', 'No past orders yet.']);
+});
+
 test('a tab with nothing of its kind says so without a button', async ({ page }) => {
   await mock(page, {
     bank: { 'activity.list': () => ({ items: activityPage1().items.filter((item) => item.kind === 'deposit'), nextCursor: null }) },
   });
-  await open(page, '/money/activity?tab=trades');
+  await open(page, '/money/activity?tab=transfers');
   const block = page.locator('[data-slot="state-block"][data-kind="empty"]');
-  await expect(block).toContainText('No trades yet');
+  await expect(block).toContainText('No transfers yet');
   await expect(block.locator('a')).toHaveCount(0);
 });
 
 test('activity error: inside the page with Try again; refusal in plain words', async ({ page }) => {
   let fail = true;
   await mock(page, { bank: { 'activity.list': () => (fail ? { status: 500, json: { error: 'x' } } : activityPage1()) } });
-  await open(page, '/money/activity');
+  await open(page, ALL);
   const block = page.locator('[data-slot="state-block"][data-kind="error"]');
   await expect(block).toContainText('Couldn’t load your activity.');
   await shootBoth(page, 'activity-error');
   fail = false;
   await block.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.locator('.money-act')).toHaveCount(12);
+  await expect(page.locator('.money-act')).toHaveCount(9);
 });
 
 test('activity refused: words and a reference, never the raw code', async ({ page }) => {
   await mock(page, { bank: { 'activity.list': paused } });
-  await open(page, '/money/activity');
+  await open(page, ALL);
   const block = page.locator('[data-slot="state-block"][data-kind="refused"]');
   await expect(block).toContainText('Paused for account checks');
   await expect(block).toContainText('Ref SCR-1');
@@ -643,12 +821,12 @@ test('activity refused: words and a reference, never the raw code', async ({ pag
 
 test('activity loading shows 8 final-size skeleton rows; a failed "load more" keeps the rows', async ({ page }) => {
   const api = await mock(page, { bank: { 'activity.list': null } });
-  await open(page, '/money/activity');
+  await open(page, ALL);
   expect(await page.locator('.money-act-skeleton__row').count()).toBe(8);
   expect(Math.round((await page.locator('.money-act-skeleton__row').first().boundingBox()).height)).toBe(56);
   await shootBoth(page, 'activity-loading');
   await api.release();
-  await expect(page.locator('.money-act')).toHaveCount(12);
+  await expect(page.locator('.money-act')).toHaveCount(9);
 });
 
 test('a failed "load more" keeps what is on screen and offers to try again', async ({ page }) => {
@@ -659,19 +837,19 @@ test('a failed "load more" keeps what is on screen and offers to try again', asy
         input?.cursor ? (second === 'fail' ? { status: 500, json: { error: 'x' } } : activityPage2()) : activityPage1(),
     },
   });
-  await open(page, '/money/activity');
+  await open(page, ALL);
   await page.getByRole('button', { name: 'Load more' }).click();
   await expect(page.locator('.money-more__note')).toHaveText('Couldn’t load more.');
-  await expect(page.locator('.money-act')).toHaveCount(12);
+  await expect(page.locator('.money-act')).toHaveCount(9);
   second = 'ok';
   await page.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.locator('.money-act')).toHaveCount(15);
+  await expect(page.locator('.money-act')).toHaveCount(12);
 });
 
 test('activity: hide balances masks the amounts; no horizontal scroll at narrow widths', async ({ page }) => {
   await mock(page);
-  await open(page, '/money/activity');
-  await expect(page.locator('.money-act')).toHaveCount(12);
+  await open(page, ALL);
+  await expect(page.locator('.money-act')).toHaveCount(9);
   await page.evaluate(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ hideBalances: true })));
   for (const size of [
     { width: 1280, height: 800 },
@@ -680,8 +858,8 @@ test('activity: hide balances masks the amounts; no horizontal scroll at narrow 
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(size);
-    await open(page, '/money/activity');
-    await expect(page.locator('.money-act')).toHaveCount(12);
+    await open(page, ALL);
+    await expect(page.locator('.money-act')).toHaveCount(9);
     expect([...new Set(await texts(page.locator('.money-act [data-slot="amount"]')))]).toEqual(['••••']);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     const wide = await page.evaluate(() =>
@@ -692,5 +870,12 @@ test('activity: hide balances masks the amounts; no horizontal scroll at narrow 
     );
     expect(overflow, `${size.width}px, too wide: ${wide.join(' | ')}`).toBeLessThanOrEqual(0);
     await page.screenshot({ path: join(shots, `activity-${size.width}x${size.height}.png`) });
+  }
+  // The Trades and Orders tabs do not scroll sideways either.
+  for (const tab of ['/money/activity', '/money/activity?tab=orders']) {
+    await open(page, tab);
+    await expect(page.locator('.money-trade-tab table').first()).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, tab).toBeLessThanOrEqual(0);
   }
 });
