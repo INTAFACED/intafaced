@@ -1198,7 +1198,7 @@ describe('leftover treasury mutates consume identity approval', () => {
       message: expect.stringContaining('pay.chargeback_uncovered'),
     });
     // Nothing was recorded: the case store keeps its first answer, so a recorded refusal would mask a later retry that posts.
-    expect(defaultDisputeCaseStore.get(disputeId)).toBeUndefined();
+    expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
 
     service.openChargeback = async () => ({ txId: 'tx-after-topup' });
     const retried = await api.fraud.openDispute(input);
