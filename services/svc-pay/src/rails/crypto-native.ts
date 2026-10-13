@@ -392,6 +392,23 @@ export class CryptoNativeAdapter implements RailAdapter {
     const prior = this.completedRefundKeys.get(idempotencyKey);
     if (prior) return prior;
 
+    // Authorize stays pending, and capture refuses, when confirmations are
+    // under minConfirmations. A refund is a new outbound transfer, irreversible
+    // once broadcast, so the same bar applies here before anything is sent. A
+    // replay of a broadcast that already left is returned above; this only
+    // gates a send that has not happened.
+    if (transfer.confirmations < this.minConfirmations) {
+      if (usedSequenceFallback) this.refundSequence--;
+      return railFailure({
+        railRef: ref,
+        amount,
+        assetId: transfer.assetId,
+        failureCode: 'chain.insufficient_confirmations',
+        failureReason: `${transfer.confirmations} confirmations, ${this.minConfirmations} required`,
+        at: this.now(),
+      });
+    }
+
     try {
       const { txHash } = await this.chain.send({
         to: payer,
