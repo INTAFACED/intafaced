@@ -1441,6 +1441,187 @@ describe('svc-pay money PG-hard', () => {
       expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
     });
 
+    it('refuses to post a frozen gross after a chargeback moved clearing', async () => {
+      const base = new MemoryLedger();
+      const gate = { blockSettle: true };
+      const ledgerProxy: LedgerClient = {
+        post: async (request: PostRequest) => {
+          if (gate.blockSettle && request.reason === 'pay.settled') {
+            throw new Error('simulated ledger outage during settlement post');
+          }
+          return base.post(request);
+        },
+        balance: (ref) => base.balance(ref),
+        balances: (ownerType, ownerId) => base.balances(ownerType, ownerId),
+        getTx: (txId) => base.getTx(txId),
+        getTxByKey: (key) => base.getTxByKey(key),
+      };
+      const gated = new PayService(sql, ledgerProxy, rails);
+      const bounds = {
+        from: new Date(Date.now() - 24 * 3600_000),
+        to: new Date(Date.now() + 24 * 3600_000),
+      };
+
+      const m = await gated.createMerchant({ userId: MERCHANT_USER, pricing: { feeBps: 0 } });
+      const created = await gated.createPayment({
+        merchantId: m.id,
+        amount: amt('100'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+      const frozen = await gated.authorize(created.id);
+      await gated.capture(frozen.id);
+
+      await expect(
+        gated.settleWindow({ merchantId: m.id, window: 'w-cb-after-freeze', assetId: 'USDT', ...bounds }),
+      ).rejects.toThrow(/simulated ledger outage/);
+
+      // A later capture sits in the same clearing account. Posting the frozen
+      // gross after the chargeback would take this payment's funds.
+      const createdLater = await gated.createPayment({
+        merchantId: m.id,
+        amount: amt('100'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+      const later = await gated.authorize(createdLater.id);
+      await gated.capture(later.id);
+      expect(formatAmount((await base.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('200');
+
+      const disputeId = `dsp-after-freeze-${frozen.id}`;
+      const outcome = await gated.handleWebhook(
+        'card-sandbox',
+        signed('card-sandbox', {
+          id: 'evt_cb_after_freeze',
+          type: 'dispute.opened',
+          ref: frozen.railRef,
+          amount: '100',
+          assetId: 'USDT',
+          disputeId,
+        }),
+      );
+
+      expect(outcome.applied).toBe(true);
+      expect((await gated.getPayment(frozen.id)).status).toBe('disputed');
+      expect((await gated.getPayment(later.id)).status).toBe('captured');
+      expect(formatAmount((await base.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('100');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
+      expect(base.journal().some((tx) => tx.reason === 'pay.chargeback.opened')).toBe(true);
+
+      gate.blockSettle = false;
+      await expect(
+        gated.settleWindow({ merchantId: m.id, window: 'w-cb-after-freeze', assetId: 'USDT', ...bounds }),
+      ).rejects.toMatchObject({ code: 'pay.settlement_desynced' });
+
+      expect(base.journal().filter((tx) => tx.reason === 'pay.settled')).toHaveLength(0);
+      expect(formatAmount((await base.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('100');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
+      const stuck = await gated.getSettlement(
+        (
+          await sql<Array<{ id: string }>>`
+            SELECT id FROM pay.settlements WHERE merchant_id = ${m.id} AND "window" = 'w-cb-after-freeze'
+          `
+        )[0]!.id,
+      );
+      expect(stuck.status).toBe('pending');
+
+      const released = await gated.releasePendingSettlement({
+        settlementId: stuck.id,
+        reason: 'chargeback moved clearing under the freeze',
+      });
+      expect(released.status).toBe('failed');
+
+      const posted = await gated.settleWindow({
+        merchantId: m.id,
+        window: 'w-cb-after-freeze-later',
+        assetId: 'USDT',
+        ...bounds,
+      });
+      expect(posted.status).toBe('posted');
+      expect(formatAmount(posted.gross)).toBe('100');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('100');
+      expect(formatAmount((await base.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('0');
+      expect(base.journal().filter((tx) => tx.reason === 'pay.settled')).toHaveLength(1);
+      expect(base.reconcile()).toEqual({ ok: true });
+    });
+
+    it('maps a short clearing balance to settlement_desynced so release can heal', async () => {
+      const base = new MemoryLedger();
+      const gate = { blockSettle: true };
+      const ledgerProxy: LedgerClient = {
+        post: async (request: PostRequest) => {
+          if (gate.blockSettle && request.reason === 'pay.settled') {
+            throw new Error('simulated ledger outage during settlement post');
+          }
+          return base.post(request);
+        },
+        balance: (ref) => base.balance(ref),
+        balances: (ownerType, ownerId) => base.balances(ownerType, ownerId),
+        getTx: (txId) => base.getTx(txId),
+        getTxByKey: (key) => base.getTxByKey(key),
+      };
+      const gated = new PayService(sql, ledgerProxy, rails);
+      const bounds = {
+        from: new Date(Date.now() - 24 * 3600_000),
+        to: new Date(Date.now() + 24 * 3600_000),
+      };
+
+      const m = await gated.createMerchant({ userId: MERCHANT_USER, pricing: { feeBps: 0 } });
+      const created = await gated.createPayment({
+        merchantId: m.id,
+        amount: amt('80'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+      const frozen = await gated.authorize(created.id);
+      await gated.capture(frozen.id);
+
+      await expect(
+        gated.settleWindow({ merchantId: m.id, window: 'w-cb-short-clearing', assetId: 'USDT', ...bounds }),
+      ).rejects.toThrow(/simulated ledger outage/);
+
+      // Clearing left, and the payment event log does not say so. The post
+      // must still refuse as desynced — a raw ledger error leaves the window stuck.
+      await base.post(
+        recipes.chargebackOpen({
+          disputeId: `dsp-short-${frozen.id}`,
+          paymentId: frozen.id,
+          merchantId: m.id,
+          merchantUserId: MERCHANT_USER,
+          assetId: 'USDT',
+          rail: 'card-sandbox',
+          fromClearing: amt('80'),
+          fromMerchantBalance: 0n,
+        }),
+      );
+      expect(formatAmount((await base.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('0');
+
+      gate.blockSettle = false;
+      await expect(
+        gated.settleWindow({ merchantId: m.id, window: 'w-cb-short-clearing', assetId: 'USDT', ...bounds }),
+      ).rejects.toMatchObject({ code: 'pay.settlement_desynced' });
+      expect(base.journal().filter((tx) => tx.reason === 'pay.settled')).toHaveLength(0);
+
+      const stuckId = (
+        await sql<Array<{ id: string }>>`
+          SELECT id FROM pay.settlements WHERE merchant_id = ${m.id} AND "window" = 'w-cb-short-clearing'
+        `
+      )[0]!.id;
+      const released = await gated.releasePendingSettlement({
+        settlementId: stuckId,
+        reason: 'clearing was already short of the frozen gross',
+      });
+      expect(released.status).toBe('failed');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
+      expect(base.reconcile()).toEqual({ ok: true });
+    });
+
     /**
      * G3 — stuck pending has an ops release path.
      *
