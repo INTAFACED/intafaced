@@ -235,6 +235,22 @@ describe('ActivityService: merging several owners', () => {
     expect(new Set(items.map((i) => i.id)).size).toBe(4);
   });
 
+  it('labels a hold, a release and a fill end to end; an unknown posting stays other', async () => {
+    const { service } = build([
+      post('user', ALICE, 'h1', 'order.hold', 'credit', '50', 'USDT', 'trade'),
+      post('user', ALICE, 'f1', 'trade.fill', 'debit', '0.001', 'BTC', 'trade'),
+      post('user', ALICE, 'r1', 'order.hold.released', 'debit', '20', 'USDT', 'trade'),
+      post('user', ALICE, 'x1', 'something.new', 'debit', '1', 'USDT', 'newmod'),
+    ]);
+    const { items } = await service.list(ALICE, { limit: 10 });
+    expect(items.map((i) => [i.txId, i.kind, i.direction])).toEqual([
+      ['x1', 'other', 'in'],
+      ['r1', 'order_release', 'in'],
+      ['f1', 'trade', 'in'],
+      ['h1', 'order_hold', 'out'],
+    ]);
+  });
+
   it('gives two entries of one tx in one pot distinct ids (a trade is two assets)', async () => {
     const { service } = build([
       post('user', ALICE, 't1', 'trade.fill', 'debit', '0.1', 'BTC', 'trade'),
