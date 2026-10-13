@@ -430,6 +430,16 @@ describe('errors', () => {
     await expect(client().balance(userAvailable(USER, 'USDT'))).rejects.toThrow(/\/trpc\/balance failed \(503\)/);
   });
 
+  it('gives reads a smaller budget than posts: one retry, not two', async () => {
+    // Reads run inside the receipt check while a pay transaction is open, so they are bounded tighter than the post.
+    respond = () => ({ status: 503, body: 'busy' });
+    await expect(client().balance(userAvailable(USER, 'USDT'))).rejects.toThrow();
+    expect(sent).toHaveLength(2);
+    sent.length = 0;
+    await expect(client().getTxByKey('withdraw.hold:s-1:0')).rejects.toThrow();
+    expect(sent).toHaveLength(2);
+  });
+
   it('never retries a refusal: a 4xx is the ledger’s answer, sent once', async () => {
     respond = () => ({ status: 422, body: 'ledger.insufficient_funds' });
     await expect(client().balance(userAvailable(USER, 'USDT'))).rejects.toThrow(/insufficient_funds/);

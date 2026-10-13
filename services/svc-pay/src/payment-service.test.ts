@@ -4,7 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import {
   InsufficientFundsError,
   MemoryLedger,
@@ -675,6 +675,135 @@ describe('svc-pay money PG-hard', () => {
       expect(outbound[0]).toMatchObject({ to: '0xbuyer' });
       expect(formatAmount(outbound[0]!.amount)).toBe('2');
       expect(await clearingOf(m.id)).toBe('3');
+    });
+
+    /**
+     * THE LOST ACKNOWLEDGEMENT. The ledger books a refund, the reply never reaches pay, pay's transaction rolls back (no
+     * `refund.posted`), the payment then settles, and the merchant retries the SAME refundId. `source` is recomputed from
+     * the live status (clearing -> settled) but the ledger key does not contain it, so the ledger answers with the ORIGINAL
+     * booking (detect mode) or refuses the key (refuse mode). Every retry would fail, and a new refundId would debit twice.
+     */
+    describe.each(['detect', 'refuse'] as const)('a refund booked but never acknowledged (ledger conflict mode: %s)', (mode) => {
+      const REFUND_ID = 'r-lost-reply';
+
+      /** Over the in-process ledger, or the real HTTP client against the fake door (every attempt of the first post is lost). */
+      const transports = {
+        memory: (book: MemoryLedger, gate: { lose: boolean }): LedgerClient => ({
+          post: async (request: PostRequest) => {
+            const tx = await book.post(request);
+            if (gate.lose && request.reason === 'payment.refunded') {
+              gate.lose = false;
+              throw new Error('simulated lost acknowledgement');
+            }
+            return tx;
+          },
+          balance: (ref) => book.balance(ref),
+          balances: (ownerType, ownerId) => book.balances(ownerType, ownerId),
+          getTx: (txId) => book.getTx(txId),
+          getTxByKey: (key) => book.getTxByKey(key),
+        }),
+        http: (book: MemoryLedger, gate: { lose: boolean }): LedgerClient => {
+          const door = fakeLedgerDoor(book, SECRET);
+          let lost = 0;
+          globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+            const isRefundPost =
+              new URL(String(input)).pathname === '/trpc/post' && JSON.parse(String(init?.body ?? '{}')).reason === 'payment.refunded';
+            if (gate.lose && isRefundPost) {
+              lost += 1;
+              // The first attempt reaches the ledger and books; all three attempts then fail, so the client gives up.
+              if (lost === 1) await door(input, init);
+              if (lost === 3) gate.lose = false;
+              throw new TypeError('fetch failed');
+            }
+            return door(input, init);
+          }) as typeof fetch;
+          return createLedgerClient('http://ledger.test', SECRET);
+        },
+      };
+
+      for (const [name, build] of Object.entries(transports)) {
+        describe(name, () => {
+          const realFetch = globalThis.fetch;
+          afterEach(() => {
+            globalThis.fetch = realFetch;
+          });
+
+          async function lostRefund() {
+            const book = new MemoryLedger({ idempotencyConflict: mode });
+            const gate = { lose: true };
+            const svc = new PayService(sql, build(book, gate), rails);
+            const m = await svc.createMerchant({ userId: MERCHANT_USER, pricing: { feeBps: 0 } });
+            const capture = async () => {
+              const created = await svc.createPayment({
+                merchantId: m.id,
+                amount: amt('100'),
+                assetId: 'USDT',
+                method: 'card',
+                railAdapter: 'card-sandbox',
+                instrument: { kind: 'card', token: 'tok_ok' },
+              });
+              await svc.authorize(created.id);
+              await svc.capture(created.id);
+              return created;
+            };
+            const p1 = await capture();
+            await capture();
+
+            await expect(svc.refund(p1.id, amt('40'), { refundId: REFUND_ID })).rejects.toThrow();
+            const key = `payment.refund:${p1.id}:${REFUND_ID}`;
+            const refundTxs = () => book.journal().filter((tx) => tx.idempotencyKey === key);
+            expect(refundTxs()).toHaveLength(1);
+            expect((await svc.history(p1.id, 50)).some((e) => e.event === 'refund.posted')).toBe(false);
+            return { book, svc, m, p1, refundTxs };
+          }
+
+          it('recovers with the ORIGINAL source after the payment settles, booking exactly one refund', async () => {
+            const { book, svc, m, p1, refundTxs } = await lostRefund();
+            // Another capture refills clearing so the window can settle what the database says was captured.
+            await book.post(
+              recipes.paymentCapture({
+                paymentId: 'p-topup',
+                merchantId: m.id,
+                assetId: 'USDT',
+                amount: amt('40'),
+                rail: 'card-sandbox',
+                railRef: 'ch_topup',
+              }),
+            );
+            await svc.settleWindow({
+              merchantId: m.id,
+              window: 'w-lost-reply',
+              assetId: 'USDT',
+              from: new Date(Date.now() - 24 * 3600_000),
+              to: new Date(Date.now() + 24 * 3600_000),
+            });
+            expect((await svc.getPayment(p1.id)).status).toBe('settled');
+
+            const view = await svc.refund(p1.id, amt('40'), { refundId: REFUND_ID });
+
+            expect(formatAmount(view.refundedAmount)).toBe('40');
+            expect(refundTxs()).toHaveLength(1);
+            const events = await svc.history(p1.id, 50);
+            expect(events.find((e) => e.event === 'refund.posted')?.payload).toMatchObject({ refundId: REFUND_ID, source: 'clearing' });
+            expect(events.find((e) => e.event === 'refunded')?.payload).toMatchObject({ refundId: REFUND_ID, source: 'clearing' });
+            expect(book.reconcile()).toEqual({ ok: true });
+          });
+
+          it('refuses the same refundId for a different amount as pay.refund_id_conflict, with no second booking', async () => {
+            const { book, svc, p1, refundTxs } = await lostRefund();
+
+            await expect(svc.refund(p1.id, amt('41'), { refundId: REFUND_ID })).rejects.toMatchObject({ code: 'pay.refund_id_conflict' });
+
+            expect(refundTxs()).toHaveLength(1);
+            expect((await svc.history(p1.id, 50)).some((e) => e.event === 'refund.posted')).toBe(false);
+            // The honest retry (same amount) still completes, exactly once.
+            const view = await svc.refund(p1.id, amt('40'), { refundId: REFUND_ID });
+            expect(formatAmount(view.refundedAmount)).toBe('40');
+            expect(refundTxs()).toHaveLength(1);
+            expect(book.reconcile()).toEqual({ ok: true });
+          });
+        });
+      }
     });
   });
 
