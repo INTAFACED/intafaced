@@ -128,7 +128,10 @@ async function review(page) {
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'A little more, if you like.' })).toBeFocused();
   await page.getByRole('button', { name: 'Save details & continue' }).click();
-  await page.getByRole('button', { name: 'I can introduce an investor', exact: true }).click();
+  await page
+    .getByRole('radiogroup', { name: 'Are you considering investing or making an introduction?' })
+    .getByRole('radio', { name: 'I can introduce an investor', exact: true })
+    .check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page
     .getByRole('radiogroup', { name: 'Which best describes you or the organisation you represent?' })
@@ -279,7 +282,7 @@ try {
       await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
     }
     const receipt = page.locator('.outreach-complete');
-    await expect(page.getByRole('heading', { name: 'Your enquiry is saved.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Thank you. We’ve received your enquiry.' })).toBeVisible();
     await expect(receipt.getByRole('status')).toHaveCount(1);
     // Erasure lives in the one quiet "Your details & this device" disclosure.
     const summary = page.locator('.saved-contact-details > summary');
@@ -385,9 +388,10 @@ try {
       video = page.video();
     }
     await page.reload();
-    await page.getByRole('button', { name: 'Continue your enquiry' }).click();
-    await page.getByRole('button', { name: 'Reopen saved enquiry' }).click();
-    await expect(page.getByRole('heading', { name: 'Your enquiry is saved.' })).toBeVisible();
+    // After sending, the welcome says so, and one click opens the confirmation.
+    await expect(page.getByText('You sent an enquiry from this browser.')).toBeVisible();
+    await page.getByRole('button', { name: 'View your enquiry', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Thank you. We’ve received your enquiry.' })).toBeVisible();
     await page.waitForTimeout(750);
     assert.equal(await page.locator('.completion-enter').count(), 0);
     const returnEvents = await page.evaluate(() => window.__completionEvents);

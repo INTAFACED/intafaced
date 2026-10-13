@@ -5,8 +5,12 @@
  *  - plain digits with an optional decimal point: 150000, 150000.50, 0.5
  *  - a whole number grouped in threes by ONE separator style, comma or space:
  *    150,000  1,250,000.50  150 000
- * Everything else ("1,5", "1.000,50", "1e5", "-5", "1,2,3", "1.5.", "1 250,000", a lone space) is not
+ * Everything else ("1,5", "1e5", "-5", "1,2,3", "1.5.", "1 250,000", a lone space) is not
  * normalised: it stays as typed and the field reports AMOUNT_ERROR. No guessing between locales.
+ *
+ * One more shape is neither accepted nor refused: a number that could be written the Indonesian or European way,
+ * "150.000", "1.500.000" or "150.000,50" (dots as thousands). It could also be a decimal ("150.000" is 150), so it is
+ * AMBIGUOUS: the visitor is asked what they meant (amountAmbiguity), nothing is guessed and nothing is sent until they answer.
  */
 export const AMOUNT_ERROR = 'Use digits, for example 150,000 or 150000.50';
 
@@ -15,14 +19,20 @@ export const AMOUNT_DECIMAL = /^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/;
 // First group 1-3 digits, then groups of exactly three, one separator style (backreference).
 const AMOUNT_GROUPED = /^[1-9][0-9]{0,2}([, ])[0-9]{3}(?:\1[0-9]{3})*(?:\.[0-9]{1,18})?$/;
 
-export type ParsedAmount = { kind: 'empty' | 'valid' | 'invalid'; plain: string };
+// Dots as thousands separators: first group 1-3 digits, then one or more groups of exactly three, then optionally ",d" or ",dd".
+const AMOUNT_AMBIGUOUS = /^([1-9][0-9]{0,2})((?:\.[0-9]{3})+)(?:,([0-9]{1,2}))?$/;
 
-/** `plain` is the normalised string for a valid amount, and '' otherwise. */
+export type ParsedAmount = { kind: 'empty' | 'valid' | 'invalid' | 'ambiguous'; plain: string };
+
+/** A no-break or narrow no-break space (pasted from a formatted source) is the same separator as a space; spaces at either end are ignored. */
+const clean = (raw: string) => raw.replace(/[\u00a0\u202f]/g, ' ').trim();
+
+/** `plain` is the normalised string for a valid amount, and '' otherwise. An ambiguous amount is not valid until it is resolved. */
 export function parseAmount(raw: string): ParsedAmount {
   if (raw === '') return { kind: 'empty', plain: '' };
-  // A no-break or narrow no-break space (pasted from a formatted source) is the same separator as a space.
-  // Spaces at either end are ignored; a value of only spaces is not an amount.
-  const text = raw.replace(/[  ]/g, ' ').trim();
+  // A value of only spaces is not an amount.
+  const text = clean(raw);
+  if (AMOUNT_AMBIGUOUS.test(text)) return { kind: 'ambiguous', plain: '' };
   if (AMOUNT_DECIMAL.test(text)) return { kind: 'valid', plain: text };
   if (AMOUNT_GROUPED.test(text)) return { kind: 'valid', plain: text.replace(/[, ]/g, '') };
   return { kind: 'invalid', plain: '' };
@@ -39,4 +49,82 @@ export function groupAmount(plain: string) {
   if (!AMOUNT_DECIMAL.test(plain)) return plain;
   const [whole, fraction] = plain.split('.');
   return whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (fraction === undefined ? '' : '.' + fraction);
+}
+
+const ONES = [
+  '',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+  'eleven',
+  'twelve',
+  'thirteen',
+  'fourteen',
+  'fifteen',
+  'sixteen',
+  'seventeen',
+  'eighteen',
+  'nineteen',
+];
+const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+const below1000 = (n: number): string => {
+  const parts: string[] = [];
+  if (n >= 100) parts.push(ONES[Math.floor(n / 100)] + ' hundred');
+  const rest = n % 100;
+  if (rest >= 20) parts.push(TENS[Math.floor(rest / 10)] + (rest % 10 ? '-' + ONES[rest % 10] : ''));
+  else if (rest > 0) parts.push(ONES[rest]);
+  return parts.join(' ');
+};
+
+/** 150000 -> "one hundred fifty thousand". Whole numbers below one billion only (three comma groups at most); otherwise null. */
+export function spellAmount(n: number): string | null {
+  if (!Number.isInteger(n) || n < 1 || n > 999_999_999) return null;
+  const parts: string[] = [];
+  for (const [size, name] of [
+    [1_000_000, 'million'],
+    [1_000, 'thousand'],
+    [1, ''],
+  ] as const) {
+    const chunk = Math.floor(n / size) % 1000;
+    if (chunk) parts.push(below1000(chunk) + (name ? ' ' + name : ''));
+  }
+  return parts.join(' ');
+}
+
+export interface AmountAmbiguity {
+  /** The amount if the dots were thousands separators, as a plain string: "150000", "150000.50". */
+  yes: string;
+  /** The same, shown with commas: "150,000". */
+  yesText: string;
+  /** The words for `yes`, only for a whole number of three comma groups or fewer: "one hundred fifty thousand". */
+  words: string | null;
+  /** The amount if the dot was a decimal point, as a plain string ("150" for "150.000"). Only one dot-group can be read that way. */
+  no: string | null;
+  noText: string | null;
+}
+
+/** Null unless `raw` could be dots-as-thousands ("150.000", "1.500.000", "150.000,50"). Never decides; it only describes both readings. */
+export function amountAmbiguity(raw: string): AmountAmbiguity | null {
+  const match = AMOUNT_AMBIGUOUS.exec(clean(raw));
+  if (!match) return null;
+  const [, head, dotted, cents] = match;
+  const whole = head + dotted.replace(/\./g, '');
+  const yes = cents === undefined ? whole : `${whole}.${cents}`;
+  const commaGroups = 1 + dotted.length / 4;
+  // "150.000" read as a decimal is 150; "150.500" is 150.5. A trailing zero is not kept.
+  const decimal = dotted.length === 4 && cents === undefined ? `${head}.${dotted.slice(1)}`.replace(/\.?0+$/, '') : null;
+  return {
+    yes,
+    yesText: groupAmount(yes),
+    words: cents === undefined && commaGroups <= 3 ? spellAmount(Number(whole)) : null,
+    no: decimal,
+    noText: decimal,
+  };
 }

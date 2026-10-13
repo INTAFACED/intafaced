@@ -5,27 +5,52 @@ import { createJourney } from './journey';
 import { HaloInput, HaloTextarea } from './components/halo-input';
 import { HaloField, HaloFieldLabel, HaloFieldContent, HaloFieldDescription, HaloFieldError } from './components/halo-field';
 import { GradientButtonGroup } from './components/gradient-button-group';
-import { HaloToggleGroup } from './components/halo-toggle-group';
 import { HaloProgress } from './components/halo-progress';
 import { PrimaryMetal } from './components/primary-metal';
 import { HeroMetal } from './components/hero-metal';
-import { ChoiceCards } from './components/choice-cards';
+import { CheckCard, ChoiceCards } from './components/choice-cards';
 import { SearchPicker, SearchPickerMulti, type PickerGroup, type PickerOption } from './components/search-picker';
 import { BlurFade } from './components/blur-fade';
 import { LivingBackdrop } from './components/living-backdrop';
-import { AMOUNT_ERROR, groupAmount, parseAmount, storedAmount } from './lib/amount';
+import { AMOUNT_ERROR, amountAmbiguity, groupAmount, parseAmount, storedAmount } from './lib/amount';
 import heroPhone from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/outreach/graphite-fins-phone.webp';
 import logo from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/logo.svg';
 import './outreach.css';
 
-function TextField({ id, label, help, multiline, hideLabel, inputRef, ...props }: any) {
-  const [invalid, setInvalid] = useState(false);
+/** Our own wording for what the browser would otherwise say in its own language. */
+const REQUIRED_ERROR = 'Please answer this to continue.';
+const FORMAT_ERROR = 'Check the format of this answer.';
+type TextControl = HTMLInputElement | HTMLTextAreaElement;
+const isTextControl = (element: Element): element is TextControl =>
+  element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+
+/**
+ * Forms are `noValidate`, so the browser never opens its own bubble (in its own language). This is the one place a
+ * submit looks at the controls: it marks ONLY the first invalid text field, with our own copy, and moves focus to it.
+ * `checkValidity()` fires the field's `invalid` event; `reportValidity()` is never used because it opens the bubble.
+ */
+function flagFirstInvalid(form: HTMLFormElement): boolean {
+  const first = Array.from(form.elements).find((element) => isTextControl(element) && !element.disabled && !element.validity.valid);
+  if (!first || !isTextControl(first)) return false;
+  first.checkValidity();
+  first.focus();
+  return true;
+}
+
+/**
+ * A text field. Errors are ours, not the browser's. Missing-value errors wait for the first submit; a format error on a
+ * field that has something in it shows as soon as the field is left. `missing` and `mismatch` are the field's own copy.
+ */
+function TextField({ id, label, help, below, describedBy, multiline, hideLabel, inputRef, missing, mismatch, ...props }: any) {
   const [validationMessage, setValidationMessage] = useState('');
+  const invalid = validationMessage !== '';
   const Control = multiline ? HaloTextarea : HaloInput;
-  const check = (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setInvalid(!event.currentTarget.validity.valid);
-    setValidationMessage(event.currentTarget.validationMessage);
-    props.onBlur?.(event);
+  const messageFor = (control: TextControl) => {
+    const state = control.validity;
+    if (state.customError) return control.validationMessage;
+    if (state.valueMissing) return missing || REQUIRED_ERROR;
+    if (state.typeMismatch || state.patternMismatch) return mismatch || FORMAT_ERROR;
+    return control.validationMessage || FORMAT_ERROR;
   };
   return (
     <HaloField data-invalid={invalid || undefined}>
@@ -38,20 +63,23 @@ function TextField({ id, label, help, multiline, hideLabel, inputRef, ...props }
           ref={inputRef}
           id={id}
           invalid={invalid}
-          aria-describedby={[help && `${id}-help`, invalid && `${id}-error`].filter(Boolean).join(' ') || undefined}
-          onInvalid={(event: React.InvalidEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-            setInvalid(true);
-            setValidationMessage(event.currentTarget.validationMessage);
+          aria-describedby={[help && `${id}-help`, invalid && `${id}-error`, describedBy].filter(Boolean).join(' ') || undefined}
+          onInvalid={(event: React.InvalidEvent<TextControl>) => setValidationMessage(messageFor(event.currentTarget))}
+          onBlur={(event: React.FocusEvent<TextControl>) => {
+            const control = event.currentTarget;
+            if (control.validity.valid) setValidationMessage('');
+            else if (control.value !== '') setValidationMessage(messageFor(control));
+            props.onBlur?.(event);
           }}
-          onBlur={check}
-          onChange={(event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+          onChange={(event: React.ChangeEvent<TextControl>) => {
             // The caller may set a custom validity message, so read validity afterwards.
             props.onChange?.(event);
-            if (invalid && event.currentTarget.validity.valid) setInvalid(false);
+            if (invalid && event.currentTarget.validity.valid) setValidationMessage('');
           }}
         />
         {help && <HaloFieldDescription id={`${id}-help`}>{help}</HaloFieldDescription>}
         {invalid && <HaloFieldError id={`${id}-error`}>{validationMessage}</HaloFieldError>}
+        {below}
       </HaloFieldContent>
     </HaloField>
   );
@@ -64,8 +92,26 @@ const CONTACT_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_ERROR = 'Enter a full email address, for example you@example.com.';
 const NAME_ERROR = 'Enter your name.';
 
-/** Accepts "150,000", "150 000" and "150000.50"; shows separators once the field is left; stores the plain string. */
-function AmountField({ value, onValue, disabled }: { value: string; onValue: (plain: string) => void; disabled?: boolean }) {
+const AMOUNT_HELP = 'An estimate is fine. Use a comma or space for thousands.';
+const AMOUNT_MISSING = 'Enter an amount, or choose the undecided option.';
+
+/**
+ * Accepts "150,000", "150 000" and "150000.50"; shows separators once the field is left; stores the plain string.
+ * "150.000", "1.500.000" and "150.000,50" are ASKED about, never guessed: the prompt names both readings, Continue stays
+ * blocked until one is chosen, and the choice is remembered by rewriting the field to the amount that was meant (so the
+ * stored draft, Back and forward and a reload all carry the answer, and nothing ambiguous is ever sent).
+ */
+function AmountField({
+  value,
+  onValue,
+  disabled,
+  blocked,
+}: {
+  value: string;
+  onValue: (plain: string) => void;
+  disabled?: boolean;
+  blocked?: boolean;
+}) {
   const [display, setDisplay] = useState(() => groupAmount(value));
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -75,6 +121,18 @@ function AmountField({ value, onValue, disabled }: { value: string; onValue: (pl
   useEffect(() => {
     input.current?.setCustomValidity(parseAmount(display).kind === 'invalid' ? AMOUNT_ERROR : '');
   }, [display]);
+  // The question waits until typing has paused (or the field is left, or Continue is pressed), so "1.500" on its way to
+  // "1.500.000" is never asked about, or announced, half way.
+  const [settled, setSettled] = useState(true);
+  const pause = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(pause.current), []);
+  const found = amountAmbiguity(display);
+  const ambiguity = found && (settled || blocked) ? found : null;
+  const choose = (plain: string) => {
+    setDisplay(groupAmount(plain));
+    onValue(plain);
+    requestAnimationFrame(() => input.current?.focus());
+  };
   return (
     <TextField
       id="amount"
@@ -87,19 +145,99 @@ function AmountField({ value, onValue, disabled }: { value: string; onValue: (pl
       required
       disabled={disabled}
       inputRef={input}
-      help="An estimate is fine."
+      missing={AMOUNT_MISSING}
+      help={ambiguity ? undefined : AMOUNT_HELP}
+      describedBy={ambiguity ? 'amount-ask-text' : undefined}
+      below={
+        // A standing live region: the prompt is announced when it appears, and again when it is answered by being replaced.
+        <div role="status" className="amount-ask-region">
+          {ambiguity && (
+            <div className="amount-ask" data-blocked={blocked || undefined}>
+              <p id="amount-ask-text">
+                Did you mean <strong>{ambiguity.yesText}</strong>
+                {ambiguity.words ? ` (${ambiguity.words})` : ''}?
+              </p>
+              <div className="amount-ask-actions">
+                <button type="button" className="amount-ask-yes" disabled={disabled} onClick={() => choose(ambiguity.yes)}>
+                  Yes, {ambiguity.yesText}
+                </button>
+                {ambiguity.no ? (
+                  <button type="button" disabled={disabled} onClick={() => choose(ambiguity.no as string)}>
+                    No, I meant {ambiguity.noText}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      input.current?.focus();
+                      input.current?.select();
+                    }}
+                  >
+                    No, I’ll change it
+                  </button>
+                )}
+              </div>
+              {blocked && <p className="amount-ask-note">Choose one to continue.</p>}
+            </div>
+          )}
+        </div>
+      }
       onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
         const typed = event.target.value;
         setDisplay(typed);
+        setSettled(false);
+        window.clearTimeout(pause.current);
+        pause.current = window.setTimeout(() => setSettled(true), 700);
         event.target.setCustomValidity(parseAmount(typed).kind === 'invalid' ? AMOUNT_ERROR : '');
         onValue(storedAmount(typed));
       }}
       onBlur={(event: React.FocusEvent<HTMLInputElement>) => {
+        window.clearTimeout(pause.current);
+        setSettled(true);
         const parsed = parseAmount(event.target.value);
         if (parsed.kind === 'valid') setDisplay(groupAmount(parsed.plain));
       }}
     />
   );
+}
+
+// "You sent an enquiry from this browser": a display-only hint for the welcome screen, never sent anywhere. It holds only
+// the id of the receipt it describes, lives exactly where the draft lives (this tab; this device too if the visitor chose to
+// remember it), and is cleared whenever the draft is forgotten or an enquiry is reopened for more answers.
+const SENT_MARKER = 'intafaced.outreach.sent.v1';
+function readSentMarker(): string | null {
+  for (const area of ['sessionStorage', 'localStorage'] as const) {
+    try {
+      const value = window[area].getItem(SENT_MARKER);
+      if (value) return value;
+    } catch {
+      /* storage unavailable: no hint */
+    }
+  }
+  return null;
+}
+function writeSentMarker(id: string, device: boolean) {
+  try {
+    window.sessionStorage.setItem(SENT_MARKER, id);
+  } catch {
+    /* storage unavailable: no hint */
+  }
+  try {
+    if (device) window.localStorage.setItem(SENT_MARKER, id);
+    else window.localStorage.removeItem(SENT_MARKER);
+  } catch {
+    /* storage unavailable: no hint */
+  }
+}
+function clearSentMarker() {
+  for (const area of ['sessionStorage', 'localStorage'] as const) {
+    try {
+      window[area].removeItem(SENT_MARKER);
+    } catch {
+      /* storage unavailable: nothing to clear */
+    }
+  }
 }
 
 function App() {
@@ -136,8 +274,12 @@ function App() {
   const [contactStep, setContactStep] = useState<1 | 2>(1);
   const [contactProblem, setContactProblem] = useState(0);
   const [privacyFocus, setPrivacyFocus] = useState(0);
+  // A question the visitor tried to leave unanswered. It belongs to one step, sits under the answers as an alert, and goes
+  // as soon as anything on the step is answered (so "Choose an option to continue." never outlives the choice).
+  const [stepError, setStepError] = useState<{ step: string; message: string } | null>(null);
+  const [amountBlocked, setAmountBlocked] = useState(false);
   const currencyGroups = useMemo<PickerGroup[]>(() => {
-    const option = (item: any): PickerOption => ({ value: item.code, label: `${item.name} · ${item.code}` });
+    const option = (item: any): PickerOption => ({ value: item.code, label: `${item.code} · ${item.name}` });
     const popular = POPULAR_CURRENCIES.map((code) => vm.currencies.find((item: any) => item.code === code)).filter(Boolean);
     return [
       { value: 'popular', label: 'Popular', items: popular.map(option) },
@@ -164,17 +306,15 @@ function App() {
   };
   useEffect(() => {
     let mounted = true;
-    // Decoration does not hold up the real storage check or Begin. A slow
-    // check settles forward before the text's 220ms entrance, never rewinding.
-    const grace = window.setTimeout(() => {
-      if (!vm.storageReady) settleEntry();
-    }, 100);
+    // The entrance is never cancelled because the storage check is slow: decoration does not wait for storage, and
+    // storage does not interrupt decoration. Only three things end it early: reduced motion, a hidden tab, and a visitor
+    // already known to be returning (all decided before the first frame, or settled here). A saved enquiry found LATE
+    // changes the hero button's label with a crossfade (HeroMetal) and leaves the entrance running.
     void vm.ready.then(
       () => {
         if (!mounted) return;
         if (
           welcomePlayed.current ||
-          vm.resumeAvailable ||
           vm.screen !== 'welcome' ||
           document.hidden ||
           window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -191,7 +331,6 @@ function App() {
     document.addEventListener('visibilitychange', hidden);
     return () => {
       mounted = false;
-      window.clearTimeout(grace);
       document.removeEventListener('visibilitychange', hidden);
     };
   }, [vm]);
@@ -213,8 +352,8 @@ function App() {
       const field = document.getElementById(nameMissing ? 'outreach-name' : 'outreach-email') as HTMLInputElement | null;
       if (!field) return;
       field.setCustomValidity(nameMissing ? NAME_ERROR : EMAIL_ERROR);
+      field.checkValidity(); // fires the field's own `invalid` event: our copy, shown on the field, never the browser's bubble
       field.focus();
-      field.reportValidity();
     });
     return () => cancelAnimationFrame(frame);
   }, [contactProblem]);
@@ -254,7 +393,13 @@ function App() {
   const begin = () => {
     welcomePlayed.current = true;
     setContactStep(1);
+    const returning = vm.resumeAvailable;
     act('begin');
+    // A returning visitor's first click reopens the saved enquiry directly (after the storage check, which it never races).
+    if (returning)
+      void vm.ready.then(() => {
+        if (vm.resumeAvailable && !vm.draft && !vm.busy) act('reopen');
+      });
   };
   const openPrivacy = () => {
     vm.privacyOpen = true;
@@ -265,30 +410,46 @@ function App() {
     setContactStep(step);
     requestAnimationFrame(() => vm.refs.stepHeading?.focus());
   };
-  const answer = (key: string, value: unknown) => vm.setAnswer(key, value);
-  const submit = (key: string) => (event: React.FormEvent) => {
+  const stepKey = `${vm.currentAudience}:${vm.group}`;
+  const answer = (key: string, value: unknown) => {
+    setStepError(null);
+    setAmountBlocked(false);
+    // A message the journey raised itself (not a failed save, which has an error code) is about the answers that just changed.
+    if (vm.error && !vm.errorCode) vm.error = '';
+    vm.setAnswer(key, value);
+  };
+  // What is still missing on a question step, as copy and the control to land on. Nothing here is the browser's.
+  const missingAnswer = (): { message: string; focus: string } | null => {
+    const kind = vm.questionStep?.kind;
+    const stated = vm.answers.amountStatus === 'stated';
+    if (
+      vm.visibleFields.some((field: any) => field.type === 'select' && !vm.answers[field.key]) ||
+      (kind === 'timing' && !vm.answers.timing)
+    )
+      return { message: 'Choose an option to continue.', focus: '.choice-cards input' };
+    if (vm.visibleFields.some((field: any) => (field.type === 'checks' || field.type === 'countries') && !vm.answers[field.key].length))
+      return { message: 'Choose at least one option to continue.', focus: '.check-card input, #operating-countries' };
+    if (kind === 'amount' && stated && !vm.answers.currency) return { message: 'Choose a currency to continue.', focus: '#currency' };
+    if (kind === 'amount' && stated && vm.currentAudience === 'merchant' && !vm.answers.period)
+      return { message: 'Choose a volume period to continue.', focus: '.amount-period input' };
+    return null;
+  };
+  const submit = (key: string) => (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (key === 'advance') {
-      const kind = vm.questionStep?.kind;
-      const stated = vm.answers.amountStatus === 'stated';
-      const amount = kind === 'amount' && stated ? parseAmount(vm.answers.amount).kind : 'valid';
-      const message =
-        amount === 'invalid'
-          ? AMOUNT_ERROR
-          : amount === 'empty'
-            ? 'Enter an amount, or choose the undecided option.'
-            : vm.visibleFields.some((field: any) => field.type === 'select' && !vm.answers[field.key]) ||
-                (kind === 'timing' && !vm.answers.timing)
-              ? 'Choose an option to continue.'
-              : kind === 'amount' && stated && !vm.answers.currency
-                ? 'Choose a currency to continue.'
-                : kind === 'amount' && stated && vm.currentAudience === 'merchant' && !vm.answers.period
-                  ? 'Choose a volume period to continue.'
-                  : '';
-      if (message) {
-        vm.error = message;
-        refresh();
-        if (amount !== 'valid') requestAnimationFrame(() => document.getElementById('amount')?.focus());
+      // 1. A text field that is empty or malformed: the first one only, with our copy.
+      if (flagFirstInvalid(event.currentTarget)) return;
+      // 2. An amount that could be read two ways: ask, never guess.
+      if (vm.questionStep?.kind === 'amount' && vm.amountUnresolved()) {
+        setAmountBlocked(true);
+        requestAnimationFrame(() => document.querySelector<HTMLElement>('.amount-ask-yes')?.focus());
+        return;
+      }
+      // 3. An answer that was not given.
+      const missing = missingAnswer();
+      if (missing) {
+        setStepError({ step: stepKey, message: missing.message });
+        requestAnimationFrame(() => document.querySelector<HTMLElement>(missing.focus)?.focus());
         return;
       }
     }
@@ -331,7 +492,11 @@ function App() {
     </button>
   );
   const interests = (captured = false) => (
-    <form key={captured ? 'append-interest' : 'initial-interest'} onSubmit={submit(captured ? 'saveInterests' : 'confirmInterests')}>
+    <form
+      key={captured ? 'append-interest' : 'initial-interest'}
+      noValidate
+      onSubmit={submit(captured ? 'saveInterests' : 'confirmInterests')}
+    >
       <fieldset disabled={vm.busy}>
         <legend>
           What interests you? <small>Select one or more.</small>
@@ -366,169 +531,180 @@ function App() {
       </div>
     </form>
   );
-  const question = () => (
-    <form key={`${vm.currentAudience}:${vm.group}`} onSubmit={submit('advance')}>
-      <div className="outreach-questions">
-        {vm.visibleFields.map((field: any) => (
-          <React.Fragment key={field.key}>
-            {field.type === 'select' && field.options.length <= 3 ? (
-              <HaloToggleGroup
-                className="question-choice-well"
-                aria-label={field.label}
-                items={field.options.map(([value, label]: string[]) => ({ value, label }))}
-                value={vm.answers[field.key]}
-                onValueChange={(value) => answer(field.key, value)}
-                disabled={vm.busy}
-              />
-            ) : field.type === 'checks' ? (
-              <fieldset disabled={vm.busy}>
-                <legend className="sr-only">{field.label}</legend>
-                {field.options.map(([value, label]: string[]) => (
-                  <label className="interest-choice" key={value} data-selected={vm.answers[field.key].includes(value) || undefined}>
-                    <input
-                      type="checkbox"
+  const question = () => {
+    const errorHere = stepError && stepError.step === stepKey ? stepError.message : '';
+    const helper = vm.stepHelper;
+    const errorId = errorHere ? 'step-error' : undefined;
+    const describe = (...ids: Array<string | undefined>) => ids.filter(Boolean).join(' ') || undefined;
+    return (
+      <form key={stepKey} noValidate onSubmit={submit('advance')}>
+        <div className="outreach-questions">
+          {helper && (
+            <p id="step-helper" className="step-helper">
+              {helper}
+            </p>
+          )}
+          {vm.visibleFields.map((field: any) => (
+            <React.Fragment key={field.key}>
+              {field.type === 'checks' ? (
+                <fieldset disabled={vm.busy} className="check-cards" aria-describedby={describe(helper && 'step-helper', errorId)}>
+                  <legend className="sr-only">{field.label}</legend>
+                  {field.options.map(([value, label]: string[]) => (
+                    <CheckCard
+                      key={value}
                       value={value}
+                      label={label}
                       checked={vm.answers[field.key].includes(value)}
-                      onChange={() => toggle(field.key, value)}
+                      onCheckedChange={() => toggle(field.key, value)}
                     />
-                    <span>{label}</span>
-                  </label>
-                ))}
-              </fieldset>
-            ) : field.type === 'countries' ? (
-              <fieldset disabled={vm.busy}>
-                <legend className="sr-only">{field.label}</legend>
-                <SearchPickerMulti
-                  id="operating-countries"
+                  ))}
+                </fieldset>
+              ) : field.type === 'countries' ? (
+                <fieldset disabled={vm.busy}>
+                  <legend className="sr-only">{field.label}</legend>
+                  <SearchPickerMulti
+                    id="operating-countries"
+                    label={field.label}
+                    hideLabel
+                    placeholder="Search countries"
+                    groups={operatingGroups}
+                    value={vm.answers[field.key].map((code: string) => countryOptions.find((item) => item.value === code)).filter(Boolean)}
+                    onValueChange={(items) =>
+                      answer(
+                        field.key,
+                        items.map((item) => item.value),
+                      )
+                    }
+                    disabled={vm.busy}
+                  />
+                </fieldset>
+              ) : field.type === 'select' ? (
+                <>
+                  <ChoiceCards
+                    label={field.label}
+                    items={field.options.map(([value, label]: string[]) => ({ value, label }))}
+                    value={vm.answers[field.key]}
+                    onValueChange={(value) => answer(field.key, value)}
+                    disabled={vm.busy}
+                    describedBy={describe(field.key === 'investorType' ? 'investor-type-help' : undefined, errorId)}
+                  />
+                  {field.key === 'investorType' && (
+                    <small id="investor-type-help" className="field-help">
+                      Choose your own profile or the organisation you represent.
+                    </small>
+                  )}
+                </>
+              ) : (
+                <TextField
+                  id={`outreach-${vm.currentAudience}-${field.key}`}
                   label={field.label}
                   hideLabel
-                  placeholder="Search countries"
-                  groups={operatingGroups}
-                  value={vm.answers[field.key].map((code: string) => countryOptions.find((item) => item.value === code)).filter(Boolean)}
-                  onValueChange={(items) =>
-                    answer(
-                      field.key,
-                      items.map((item) => item.value),
-                    )
-                  }
-                  disabled={vm.busy}
-                />
-                <p className="outreach-small picker-note">Choose one or more.</p>
-              </fieldset>
-            ) : field.type === 'select' ? (
-              <>
-                <ChoiceCards
-                  label={field.label}
-                  items={field.options.map(([value, label]: string[]) => ({ value, label }))}
                   value={vm.answers[field.key]}
-                  onValueChange={(value) => answer(field.key, value)}
+                  onChange={(event: any) => answer(field.key, event.target.value)}
+                  onBlur={(event: any) => answer(field.key, event.target.value.trim())}
+                  type={field.type === 'url' ? 'url' : 'text'}
+                  pattern={field.type === 'url' ? 'https?://\\S+' : undefined}
+                  mismatch={field.type === 'url' ? 'Start with https://, for example https://example.com.' : undefined}
+                  describedBy={helper ? 'step-helper' : undefined}
+                  multiline={field.type === 'textarea'}
+                  maxLength={field.max}
+                  required={!['website', 'scope'].includes(field.key)}
                   disabled={vm.busy}
-                  describedBy={field.key === 'investorType' ? 'investor-type-help' : undefined}
                 />
-                {field.key === 'investorType' && (
-                  <small id="investor-type-help" className="field-help">
-                    Choose your own profile or the organisation you represent.
-                  </small>
-                )}
-              </>
-            ) : (
-              <TextField
-                id={`outreach-${vm.currentAudience}-${field.key}`}
-                label={field.label}
-                hideLabel
-                value={vm.answers[field.key]}
-                onChange={(event: any) => answer(field.key, event.target.value)}
-                onBlur={(event: any) => answer(field.key, event.target.value.trim())}
-                type={field.type === 'url' ? 'url' : 'text'}
-                multiline={field.type === 'textarea'}
-                maxLength={field.max}
-                required={!['website', 'scope'].includes(field.key)}
+              )}
+            </React.Fragment>
+          ))}
+          {vm.questionStep?.kind === 'amount' && (
+            <fieldset disabled={vm.busy}>
+              <legend className="sr-only">
+                {vm.currentAudience === 'investor' ? 'What amount are you considering?' : 'Processing volume'}
+              </legend>
+              <p className="outreach-small">You can leave this undecided. This is context for discussion, not a payment or commitment.</p>
+              <ChoiceCards
+                label="Amount preference"
+                value={vm.answers.amountStatus}
+                items={[
+                  {
+                    value: vm.currentAudience === 'investor' ? 'undecided' : 'unknown',
+                    label: vm.currentAudience === 'investor' ? 'Not decided yet' : 'Not sure yet',
+                  },
+                  { value: 'stated', label: 'Share an indicative amount' },
+                ]}
+                onValueChange={(value) => answer('amountStatus', value)}
                 disabled={vm.busy}
               />
-            )}
-          </React.Fragment>
-        ))}
-        {vm.questionStep?.kind === 'amount' && (
-          <fieldset disabled={vm.busy}>
-            <legend className="sr-only">
-              {vm.currentAudience === 'investor' ? 'What amount are you considering?' : 'Processing volume'}
-            </legend>
-            <p className="outreach-small">You can leave this undecided. This is context for discussion, not a payment or commitment.</p>
-            <HaloToggleGroup
-              className="question-choice-well"
-              aria-label="Amount preference"
-              value={vm.answers.amountStatus}
-              items={[
-                {
-                  value: vm.currentAudience === 'investor' ? 'undecided' : 'unknown',
-                  label: vm.currentAudience === 'investor' ? 'Not decided yet' : 'Not sure yet',
-                },
-                { value: 'stated', label: 'Share an indicative amount' },
-              ]}
-              onValueChange={(value) => answer('amountStatus', value)}
+              {vm.answers.amountStatus === 'stated' && (
+                <div className="outreach-grid amount-grid">
+                  <AmountField
+                    value={vm.answers.amount}
+                    onValue={(plain) => answer('amount', plain)}
+                    disabled={vm.busy}
+                    blocked={amountBlocked}
+                  />
+                  <SearchPicker
+                    id="currency"
+                    label="Currency"
+                    placeholder="e.g. EUR"
+                    groups={currencyGroups}
+                    value={currencyOption(vm.answers.currency)}
+                    onValueChange={(item) => answer('currency', item ? item.value : '')}
+                    disabled={vm.busy}
+                    align="end"
+                  />
+                  {vm.currentAudience === 'merchant' && (
+                    <div className="amount-period">
+                      <span className="picker-label">Volume period</span>
+                      <ChoiceCards
+                        label="Volume period"
+                        variant="compact"
+                        value={vm.answers.period}
+                        items={['daily', 'monthly', 'annual'].map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }))}
+                        onValueChange={(value) => answer('period', value)}
+                        disabled={vm.busy}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </fieldset>
+          )}
+          {vm.questionStep?.kind === 'timing' && (
+            <ChoiceCards
+              label="When would you consider taking part?"
+              items={vm.timing.map(([value, label]: string[]) => ({ value, label }))}
+              value={vm.answers.timing}
+              onValueChange={(value) => answer('timing', value)}
               disabled={vm.busy}
+              describedBy={errorId}
             />
-            {vm.answers.amountStatus === 'stated' && (
-              <div className="outreach-grid amount-grid">
-                <AmountField value={vm.answers.amount} onValue={(plain) => answer('amount', plain)} disabled={vm.busy} />
-                <SearchPicker
-                  id="currency"
-                  label="Currency"
-                  placeholder="e.g. EUR"
-                  groups={currencyGroups}
-                  value={currencyOption(vm.answers.currency)}
-                  onValueChange={(item) => answer('currency', item ? item.value : '')}
-                  disabled={vm.busy}
-                />
-                {vm.currentAudience === 'merchant' && (
-                  <div className="amount-period">
-                    <span id="volume-period-label" className="picker-label">
-                      Volume period
-                    </span>
-                    <HaloToggleGroup
-                      className="question-choice-well"
-                      aria-label="Volume period"
-                      value={vm.answers.period}
-                      items={['daily', 'monthly', 'annual'].map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }))}
-                      onValueChange={(value) => answer('period', value)}
-                      disabled={vm.busy}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </fieldset>
-        )}
-        {vm.questionStep?.kind === 'timing' && (
-          <ChoiceCards
-            label="When would you consider taking part?"
-            items={vm.timing.map(([value, label]: string[]) => ({ value, label }))}
-            value={vm.answers.timing}
-            onValueChange={(value) => answer('timing', value)}
-            disabled={vm.busy}
-          />
-        )}
-        {vm.questionStep?.kind === 'message' && (
-          <TextField
-            id="outreach-message"
-            label="What would you like us to know?"
-            hideLabel
-            multiline
-            rows={3}
-            value={vm.answers.message}
-            onChange={(event: any) => answer('message', event.target.value)}
-            maxLength={2000}
-            disabled={vm.busy}
-            placeholder="A question, an introduction, or a little more context."
-          />
-        )}
-      </div>
-      <div className="outreach-actions">
-        {vm.group ? back('goGroup', vm.group - 1) : back()}
-        {primary(vm.group === vm.reviewIndex - 1 ? 'Review your answers' : 'Continue')}
-      </div>
-    </form>
-  );
+          )}
+          {vm.questionStep?.kind === 'message' && (
+            <TextField
+              id="outreach-message"
+              label="What would you like us to know?"
+              hideLabel
+              multiline
+              rows={3}
+              value={vm.answers.message}
+              onChange={(event: any) => answer('message', event.target.value)}
+              maxLength={2000}
+              disabled={vm.busy}
+              placeholder="A question, an introduction, or a little more context."
+            />
+          )}
+          {errorHere && (
+            <p id="step-error" className="step-error" role="alert">
+              {errorHere}
+            </p>
+          )}
+        </div>
+        <div className="outreach-actions">
+          {vm.group ? back('goGroup', vm.group - 1) : back()}
+          {primary(vm.group === vm.reviewIndex - 1 ? 'Review your answers' : 'Continue')}
+        </div>
+      </form>
+    );
+  };
   // The contact form is the two-screen details flow shown before a draft exists.
   const resumePanel = vm.resumeAvailable && (!vm.draft || vm.interestChangeRequested);
   const contactForm = !resumePanel && !vm.draft && !vm.interestsOpen;
@@ -553,12 +729,45 @@ function App() {
     const timer = window.setTimeout(() => setSpokenStatus(draftStatus), 800);
     return () => window.clearTimeout(timer);
   }, [showDraftStatus, draftStatus]);
+  const savedReceiptId: string | undefined = vm.state.local?.receipt?.submissionId;
+  const lastMarker = useRef('');
+  useEffect(() => {
+    if (!vm.storageReady) return;
+    const next = !savedReceiptId ? 'none' : !vm.draft ? lastMarker.current : vm.complete ? `${savedReceiptId}:${vm.remember}` : 'none';
+    if (next === lastMarker.current) return;
+    lastMarker.current = next;
+    if (next === 'none') clearSentMarker();
+    else writeSentMarker(savedReceiptId as string, vm.remember);
+  });
+  const sentHere = vm.screen === 'welcome' && !!savedReceiptId && readSentMarker() === savedReceiptId;
+  const noteKey = sentHere ? 'sent' : vm.resumeAvailable ? 'resume' : 'new';
+  const firstNoteKey = useRef(noteKey);
+  const [noteFade, setNoteFade] = useState(false);
+  useEffect(() => {
+    if (noteKey === firstNoteKey.current) return;
+    firstNoteKey.current = noteKey;
+    // Fade the new line in only once the entrance is over; during it the line is still arriving on its own.
+    if (!entryReveal) setNoteFade(true);
+  }, [noteKey]);
   const showDeviceDetails =
     !!vm.draft && !vm.interestChangeRequested && !vm.interestsOpen && (vm.complete || !vm.currentAudience || vm.isReview);
   const logoLink = (width: number, className: string) => (
     <a className={`brand-logo ${className}`} href="/join" aria-label="INTAFACED">
       <img src={logo} alt="INTAFACED" width={width} height={Math.round((width * 35) / 150)} />
     </a>
+  );
+  // The confirmation puts its check mark ABOVE the heading, so there the heading lives inside the receipt (one h1 either way).
+  const completeView = !resumePanel && !!vm.draft && !vm.interestsOpen && !vm.currentAudience && !!vm.complete;
+  const headingElement = (
+    <h1
+      id="intake-heading"
+      tabIndex={-1}
+      ref={(node) => {
+        vm.refs.stepHeading = node;
+      }}
+    >
+      {heading}
+    </h1>
   );
   // Screen 1 sends nothing and promises nothing: only the way to the notice. The sentence belongs where data is sent.
   const privacyLine = (full: boolean) => (
@@ -573,19 +782,16 @@ function App() {
     contactStep === 1 ? (
       <form
         key="contact-1"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          // type="email" lets "investor@gmail" through; the contract needs a dot in the domain. Say so here, on the field.
-          const problem = !vm.contact.name.trim() ? 'outreach-name' : !CONTACT_EMAIL.test(vm.contact.email.trim()) ? 'outreach-email' : '';
-          if (problem) {
-            const field = event.currentTarget.querySelector<HTMLInputElement>('#' + problem);
-            if (field) {
-              field.setCustomValidity(problem === 'outreach-name' ? NAME_ERROR : EMAIL_ERROR);
-              field.focus();
-              field.reportValidity();
-            }
-            return;
-          }
+          // type="email" lets "investor@gmail" through; the contract needs a dot in the domain. Say so, on the field, in our words.
+          const form = event.currentTarget;
+          const name = form.querySelector<HTMLInputElement>('#outreach-name');
+          const email = form.querySelector<HTMLInputElement>('#outreach-email');
+          name?.setCustomValidity(vm.contact.name.trim() ? '' : NAME_ERROR);
+          email?.setCustomValidity(CONTACT_EMAIL.test(vm.contact.email.trim()) ? '' : EMAIL_ERROR);
+          if (flagFirstInvalid(form)) return;
           goContactStep(2);
         }}
       >
@@ -608,6 +814,7 @@ function App() {
             autoComplete="name"
             placeholder="Full name"
             maxLength={120}
+            missing={NAME_ERROR}
             required
             disabled={vm.busy}
             value={vm.contact.name}
@@ -625,12 +832,16 @@ function App() {
             autoComplete="email"
             placeholder="you@example.com"
             maxLength={254}
+            missing={EMAIL_ERROR}
+            mismatch={EMAIL_ERROR}
             required
             disabled={vm.busy}
             help="We’ll use this address to reply about your enquiry."
             value={vm.contact.email}
             onChange={(event: any) => {
-              event.target.setCustomValidity('');
+              // The contract wants a dot in the domain, which type="email" does not: the field is invalid until it has one.
+              const typed = event.target.value.trim();
+              event.target.setCustomValidity(!typed || CONTACT_EMAIL.test(typed) ? '' : EMAIL_ERROR);
               contactValue('email', event.target.value);
             }}
             onBlur={(event: any) => contactValue('email', event.target.value.trim())}
@@ -643,12 +854,12 @@ function App() {
         {privacyLine(false)}
       </form>
     ) : (
-      <form key="contact-2" onSubmit={submit('saveContact')}>
+      <form key="contact-2" noValidate onSubmit={submit('saveContact')}>
         <p className="section-description">Everything on this page is optional. You can leave it blank and continue.</p>
         <div className="outreach-grid">
           <TextField
             id="organisation"
-            label="Organisation (optional)"
+            label="Organisation"
             name="organization"
             autoComplete="organization"
             maxLength={160}
@@ -658,7 +869,7 @@ function App() {
           />
           <SearchPicker
             id="country"
-            label="Country (optional)"
+            label="Country"
             placeholder="Prefer not to say"
             groups={countryGroups}
             value={vm.contact.country ? countryOptions.find((item) => item.value === vm.contact.country) || NO_COUNTRY : NO_COUNTRY}
@@ -667,30 +878,26 @@ function App() {
             emptyText="No match. Try a country name."
           />
         </div>
-        <label className="outreach-consent">
-          <input
-            type="checkbox"
+        <div className="check-cards">
+          <CheckCard
+            label="Send me INTAFACED news and updates."
+            description="Separate from replies about your enquiry."
             checked={vm.contact.marketingOptIn}
             disabled={vm.busy}
-            onChange={(event) => contactValue('marketingOptIn', event.target.checked)}
+            onCheckedChange={(checked) => contactValue('marketingOptIn', checked)}
           />
-          <span>Send me INTAFACED news and updates.</span>
-        </label>
-        <p className="outreach-small">Optional marketing permission is separate from replies about this enquiry.</p>
-        <label className="outreach-consent">
-          <input
-            type="checkbox"
+          <CheckCard
+            label="Remember my draft on this device."
+            description={
+              vm.persistentAvailable
+                ? 'An encrypted draft lets you close this tab and return on this device. Leave this off on a shared device.'
+                : 'Device recovery is unavailable in this browser. Keep this tab open to finish.'
+            }
             checked={vm.remember}
             disabled={vm.busy || !vm.persistentAvailable}
-            onChange={(event) => vm.setRemember(event.target.checked)}
+            onCheckedChange={(checked) => vm.setRemember(checked)}
           />
-          <span>Remember my draft on this device.</span>
-        </label>
-        <p className="outreach-small">
-          {vm.persistentAvailable
-            ? 'An encrypted draft lets you close this tab and return on this device. Leave this off on a shared device.'
-            : 'Device recovery is unavailable in this browser. Keep this tab open to finish.'}
-        </p>
+        </div>
         <p className="outreach-small save-note">
           Your details will be saved so the team can follow up, even if you finish the questions later.
         </p>
@@ -743,13 +950,13 @@ function App() {
       </button>
       <p className="outreach-small device-status">
         {!vm.state.storageAvailable
-          ? 'Draft in this page'
+          ? 'Held in this page only.'
           : !vm.state.draftStored
-            ? 'Saving draft…'
+            ? 'Saving…'
             : vm.remember
-              ? 'Draft kept on this device'
-              : 'Draft kept in this tab'}{' '}
-        · {vm.savedCount} of {vm.draft.contact.interests.length} questionnaires submitted.{' '}
+              ? 'Kept on this device.'
+              : 'Kept in this tab only.'}{' '}
+        {vm.savedCount} of {vm.draft.contact.interests.length} questionnaires submitted.{' '}
         <button type="button" className="outreach-inline-link" disabled={vm.busy} onClick={() => act('reopen')}>
           Check saved progress
         </button>
@@ -809,18 +1016,26 @@ function App() {
                 if (event.animationName === 'invitation-action-emphasis') settleEntry();
               }}
             >
-              <HeroMetal type="button" onClick={begin} label={vm.resumeAvailable ? 'Continue your enquiry' : 'Begin'} />
+              <HeroMetal
+                type="button"
+                onClick={begin}
+                label={sentHere ? 'View your enquiry' : vm.resumeAvailable ? 'Continue your enquiry' : 'Begin'}
+              />
             </div>
             <p className="outreach-small">
               {/* Each sentence wraps as a unit, so a phone never strands a lone "No" at a line end. */}
-              {(vm.resumeAvailable
-                ? ['A previous enquiry is available in this browser.']
-                : ['No account needed.', 'No investment commitment.']
-              ).map((sentence: string) => (
-                <React.Fragment key={sentence}>
-                  <span className="nowrap">{sentence}</span>{' '}
-                </React.Fragment>
-              ))}
+              <span className={noteFade ? 'note-fade' : undefined} key={noteKey}>
+                {(sentHere
+                  ? ['You sent an enquiry from this browser.']
+                  : vm.resumeAvailable
+                    ? ['A previous enquiry is available in this browser.']
+                    : ['No account needed.', 'No investment commitment.']
+                ).map((sentence: string) => (
+                  <React.Fragment key={sentence}>
+                    <span className="nowrap">{sentence}</span>{' '}
+                  </React.Fragment>
+                ))}
+              </span>{' '}
               <button type="button" className="outreach-inline-link" onClick={openPrivacy}>
                 Privacy
               </button>
@@ -849,8 +1064,8 @@ function App() {
             {vm.currentAudience && !vm.interestsOpen && !vm.interestChangeRequested && !vm.complete && (
               <HaloProgress
                 className="invitation-progress"
-                value={vm.group}
-                max={vm.reviewIndex}
+                value={vm.group + 1}
+                max={vm.reviewIndex + 1}
                 aria-label={
                   vm.isReview
                     ? 'Answers ready for review; not submitted yet'
@@ -863,15 +1078,7 @@ function App() {
                 }
               />
             )}
-            <h1
-              id="intake-heading"
-              tabIndex={-1}
-              ref={(node) => {
-                vm.refs.stepHeading = node;
-              }}
-            >
-              {heading}
-            </h1>
+            {!completeView && headingElement}
             {!vm.storageReady && (
               <p className="outreach-small" role="status">
                 Checking saved progress in this browser. You can enter your details while this finishes.
@@ -965,7 +1172,7 @@ function App() {
                   }}
                 >
                   <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-                    Your enquiry is saved.
+                    Your enquiry has been received.
                   </span>
                   <svg className="completion-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
                     <circle className="completion-outline" cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="1" pathLength="1" />
@@ -979,17 +1186,18 @@ function App() {
                       pathLength="1"
                     />
                   </svg>
+                  {headingElement}
                   <div className="completion-receipt-copy">
                     <p>
                       {vm.draft.contact.interests.includes('investor')
-                        ? 'The team reviews enquiries before arranging calls.'
+                        ? 'We review every enquiry personally before arranging a call.'
                         : 'The team will review your enquiry.'}{' '}
-                      We’ll use {vm.draft.contact.email} for any follow-up.
+                      We’ll reply to <span className="receipt-email">{vm.draft.contact.email}</span>.
                     </p>
                     <ul>
                       {vm.draft.contact.interests.map((key: string) => (
                         <li key={key}>
-                          {vm.audienceLabel(key)} <span>Saved ✓</span>
+                          {vm.audienceLabel(key)} <span>Received ✓</span>
                         </li>
                       ))}
                     </ul>
@@ -1055,7 +1263,11 @@ function App() {
             )}
           </p>
           {vm.publicInfo.retentionNotice && <p>{vm.publicInfo.retentionNotice}</p>}
-          {vm.resumeAvailable && primary('Forget local draft', 'forget')}
+          {vm.resumeAvailable && (
+            <button type="button" className="outreach-text-button" disabled={vm.busy} onClick={() => act('forget')}>
+              Forget this draft on my device
+            </button>
+          )}
         </section>
       )}
     </div>

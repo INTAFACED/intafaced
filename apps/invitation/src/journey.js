@@ -32,6 +32,29 @@ function currencyOptions() {
       return a.name.localeCompare(b.name);
     });
 }
+// Display-only headings. The contract's own field labels (outreach-intake QUESTIONS) are never changed: they stay the
+// accessible names of the controls and the keys of what is sent. Every key below exists in QUESTIONS; any other field
+// keeps the contract's label as its heading.
+const FIELD_HEADINGS = {
+  participation: 'How would you like to take part?',
+  markets: 'Which markets interest you?',
+  services: 'Which services would help your business?',
+  subjects: 'Which subjects would you like to study?',
+  website: 'What’s your business website?',
+  scope: 'What would the work involve?',
+  expertise: 'What’s your area of expertise?',
+  operatingCountries: 'Where does your business operate?',
+  relationship: 'What kind of relationship do you have in mind?',
+  businessName: 'What’s your business called?',
+};
+const FIELD_HELPERS = {
+  markets: 'Choose one or more.',
+  services: 'Choose one or more.',
+  subjects: 'Separate topics with commas.',
+  website: 'Optional.',
+  scope: 'Optional.',
+  operatingCountries: 'Choose one or more.',
+};
 const presentation = {
   name: 'IxOutreach',
   data() {
@@ -163,7 +186,7 @@ const presentation = {
       if (this.interestChangeRequested) return 'YOUR SAVED PROGRESS';
       if (this.interestsOpen) return 'YOUR INTERESTS';
       if (!this.draft) return this.resumeAvailable ? 'YOUR ENQUIRY' : 'YOUR DETAILS';
-      if (this.complete) return 'ENQUIRY SAVED';
+      if (this.complete) return 'YOUR ENQUIRY';
       if (this.isReview) return 'READY TO SEND';
       return this.audienceLabel(this.currentAudience).toUpperCase() + ' · ' + (this.group + 1) + ' OF ' + this.reviewIndex;
     },
@@ -171,22 +194,26 @@ const presentation = {
       if (this.interestChangeRequested) return 'Check your saved progress.';
       if (this.interestsOpen) return 'Where would you like to take part?';
       if (!this.draft) return this.resumeAvailable ? 'Pick up where you left off.' : 'Let’s start with you.';
-      if (this.complete) return 'Your enquiry is saved.';
+      if (this.complete) return 'Thank you. We’ve received your enquiry.';
       if (this.isReview) return 'Before you send.';
       let step = this.questionStep;
       if (!step) return 'Your enquiry';
-      if (step.kind === 'field') return step.field.key === 'participation' ? 'How would you like to take part?' : step.field.label;
-      if (step.kind === 'amount')
-        return this.currentAudience === 'investor' ? 'What amount are you considering?' : 'What is your processing volume?';
-      if (step.kind === 'timing') return 'When would you consider taking part?';
-      return 'Anything you’d like us to know?';
+      return this.titleFor(step);
+    },
+    // A short line under the heading for what used to sit inside it ("select at least one", "optional").
+    stepHelper() {
+      let step = this.questionStep;
+      if (!step || step.kind !== 'field' || this.interestsOpen || this.interestChangeRequested || this.complete) return '';
+      return FIELD_HELPERS[step.field.key] || '';
     },
     audienceDescription() {
       let row = AUDIENCES.find((a) => a.key === this.currentAudience);
       return row ? row.description + '.' : '';
     },
     expiryLabel() {
-      return this.draft ? new Date(this.draft.continuationExpiresAt).toLocaleString() : '';
+      return this.draft
+        ? new Date(this.draft.continuationExpiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+        : '';
     },
     newInterests() {
       return this.selectedInterests.filter((a) => !this.draft.contact.interests.includes(a));
@@ -202,10 +229,14 @@ const presentation = {
       );
     },
     reviewRows() {
-      let rows = this.fields.map((f) => ({ label: f.label, value: this.reviewValue(f, this.answers[f.key]) }));
+      // The rows reuse the step headings, so the review reads like the questions that were asked.
+      let rows = this.fields.map((f) => ({
+        label: this.titleFor({ kind: 'field', field: f }),
+        value: this.reviewValue(f, this.answers[f.key]),
+      }));
       if (this.currentAudience === 'investor' || this.currentAudience === 'merchant')
         rows.push({
-          label: this.currentAudience === 'investor' ? 'Amount you’re considering' : 'Processing volume',
+          label: this.titleFor({ kind: 'amount' }),
           value:
             this.currentAudience === 'investor' && this.answers.participation === 'introduction'
               ? 'Not requested for an introduction'
@@ -216,8 +247,11 @@ const presentation = {
                   (this.currentAudience === 'merchant' ? ' · ' + this.answers.period : '')
                 : 'Not stated',
         });
-      rows.push({ label: 'Timing', value: (this.timing.find((o) => o[0] === this.answers.timing) || ['', 'Not selected'])[1] });
-      if (this.answers.message) rows.push({ label: 'Your message', value: this.answers.message });
+      rows.push({
+        label: this.titleFor({ kind: 'timing' }),
+        value: (this.timing.find((o) => o[0] === this.answers.timing) || ['', 'Not selected'])[1],
+      });
+      if (this.answers.message) rows.push({ label: this.titleFor({ kind: 'message' }), value: this.answers.message });
       return rows;
     },
   },
@@ -240,6 +274,13 @@ const presentation = {
         interests: [intake.audienceForPath(this.location.path)].filter(Boolean),
         marketingOptIn: false,
       };
+    },
+    titleFor(step) {
+      if (step.kind === 'field') return FIELD_HEADINGS[step.field.key] || step.field.label;
+      if (step.kind === 'amount')
+        return this.currentAudience === 'investor' ? 'What amount are you considering?' : 'What is your processing volume?';
+      if (step.kind === 'timing') return 'When would you consider taking part?';
+      return 'Anything you’d like us to know?';
     },
     audienceLabel(a) {
       let row = AUDIENCES.find((v) => v.key === a);
@@ -352,9 +393,17 @@ const presentation = {
       this.storeUi();
       this.focusHeading();
     },
+    // An amount such as "150.000" could be 150 or 150,000: it is never sent until the visitor has said which.
+    amountUnresolved() {
+      return this.answers.amountStatus === 'stated' && parseAmount(this.answers.amount || '').kind === 'ambiguous';
+    },
     advance() {
       this.error = '';
       this.errorCode = '';
+      if (this.amountUnresolved()) {
+        this.error = 'Say which amount you meant to continue.';
+        return;
+      }
       if (this.visibleFields.some((f) => (f.type === 'checks' || f.type === 'countries') && !this.answers[f.key].length)) {
         this.error = 'Choose at least one option to continue.';
         return;
@@ -409,6 +458,11 @@ const presentation = {
     },
     saveAnswers() {
       return this.run(async () => {
+        if (this.amountUnresolved()) {
+          const error = new Error('invalid_input');
+          error.code = 'invalid_input';
+          throw error;
+        }
         await this.controller.answer(intake.buildQuestionnaire(this.currentAudience, this.answers));
         this.resetAnswers();
         if (this.complete) this.onCompletionConfirmed?.();
