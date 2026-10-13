@@ -10,6 +10,8 @@ import {
 } from './payment-service.js';
 import { paymentModeFromRail } from './sandbox-key-routing.js';
 import { signPayload } from './rails/webhook-signature.js';
+import { pinnedPost, type WebhookTransport } from './webhook-pinned-post.js';
+import { assertPublicWebhookUrl, resolvePublicAddress, systemResolver, type WebhookResolver } from './webhook-url-guard.js';
 
 /**
  * Outbound merchant webhooks — `pay.public-api` step 3.
@@ -71,7 +73,18 @@ export interface PaymentEventNotify {
 /** Injectable clock + HTTP for tests. */
 export interface MerchantWebhookRuntime {
   readonly now?: () => Date;
-  readonly fetch?: typeof fetch;
+  /**
+   * Opens the connection to an already-vetted address (see webhook-pinned-post.ts).
+   * Replaces `fetch`: `fetch` re-resolves the hostname, which defeats the SSRF guard.
+   */
+  readonly transport?: WebhookTransport;
+  /** DNS for the delivery-time SSRF check. Must return every answer. */
+  readonly resolver?: WebhookResolver;
+  /**
+   * Permit http and loopback receivers. dev/test only — the service wiring sets
+   * it from an explicit APP_ENV of `dev` or `test`. Default false (production posture).
+   */
+  readonly allowLocalHttp?: boolean;
   /** Consecutive delivery failures before an endpoint is disabled (ADR §2.4). */
   readonly disableAfterFailures?: number;
   /** Attempts before a delivery is marked `dead`. */
@@ -80,6 +93,8 @@ export interface MerchantWebhookRuntime {
 
 const DEFAULT_MAX_ATTEMPTS = 8;
 const DEFAULT_DISABLE_AFTER = 5;
+/** Ceiling for connect + response headers. */
+const DELIVERY_TIMEOUT_MS = 10_000;
 
 /**
  * How long a worker owns a due row after `claimDue`.
@@ -125,23 +140,6 @@ export function buildSignedHeaders(secret: string, timestamp: string, rawBody: s
     'x-intafaced-timestamp': timestamp,
     'x-intafaced-signature': signPayload(secret, timestamp, rawBody),
   };
-}
-
-function assertHttpsUrl(url: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new PayError('Webhook URL is not a valid absolute URL. NOTHING WAS ATTEMPTED.', 'pay.webhook_url_invalid');
-  }
-  const host = parsed.hostname.toLowerCase();
-  const local = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && local)) {
-    throw new PayError('Webhook URL must be https (http is only allowed for localhost). NOTHING WAS ATTEMPTED.', 'pay.webhook_url_invalid');
-  }
-  if (parsed.username || parsed.password) {
-    throw new PayError('Webhook URL must not embed credentials. NOTHING WAS ATTEMPTED.', 'pay.webhook_url_invalid');
-  }
 }
 
 function newId(): string {
@@ -665,7 +663,9 @@ function mapDelivery(row: DeliveryRow): MerchantWebhookDelivery {
 
 export class MerchantWebhookService {
   private readonly now: () => Date;
-  private readonly fetchImpl: typeof fetch;
+  private readonly transport: WebhookTransport;
+  private readonly resolver: WebhookResolver;
+  private readonly allowLocalHttp: boolean;
   private readonly maxAttempts: number;
   private readonly disableAfter: number;
 
@@ -674,13 +674,15 @@ export class MerchantWebhookService {
     runtime: MerchantWebhookRuntime = {},
   ) {
     this.now = runtime.now ?? (() => new Date());
-    this.fetchImpl = runtime.fetch ?? fetch;
+    this.transport = runtime.transport ?? pinnedPost;
+    this.resolver = runtime.resolver ?? systemResolver;
+    this.allowLocalHttp = runtime.allowLocalHttp === true;
     this.maxAttempts = runtime.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     this.disableAfter = runtime.disableAfterFailures ?? DEFAULT_DISABLE_AFTER;
   }
 
   async registerEndpoint(merchantId: string, url: string): Promise<MerchantWebhookEndpointCreated> {
-    assertHttpsUrl(url);
+    assertPublicWebhookUrl(url, { allowLocalHttp: this.allowLocalHttp });
     const secret = secretFor();
     const id = newId();
     const endpoint = await this.store.insertEndpoint({
@@ -779,25 +781,36 @@ export class MerchantWebhookService {
     let failed = 0;
     let disabled = 0;
 
+    /** One failed attempt: backoff, count against the endpoint, disable when exhausted. Never dropped. */
+    const fail = async (item: (typeof due)[number], statusCode: number | null, error: string): Promise<void> => {
+      const attempts = item.attempts + 1;
+      const dead = attempts >= this.maxAttempts;
+      const backoff = BACKOFF_SECONDS[Math.min(attempts - 1, BACKOFF_SECONDS.length - 1)] ?? 86_400;
+      const next = new Date(this.now().getTime() + backoff * 1000);
+      await this.store.markRetry(item.id, attempts, next, statusCode, error, dead);
+      failed += 1;
+      const consecutive = await this.store.bumpEndpointFailure(item.endpointId);
+      if (consecutive >= this.disableAfter || dead) {
+        await this.store.setEndpointStatus(item.endpointId, 'disabled', dead ? 'delivery_exhausted' : 'consecutive_failures', consecutive);
+        disabled += 1;
+      }
+    };
+
     for (const item of due) {
       if (!item.secret || item.secret.trim().length < 32) {
-        const err = 'pay.webhook_not_configured';
-        const attempts = item.attempts + 1;
-        const dead = attempts >= this.maxAttempts;
-        const backoff = BACKOFF_SECONDS[Math.min(attempts - 1, BACKOFF_SECONDS.length - 1)] ?? 86_400;
-        const next = new Date(this.now().getTime() + backoff * 1000);
-        await this.store.markRetry(item.id, attempts, next, null, err, dead);
-        failed += 1;
-        const consecutive = await this.store.bumpEndpointFailure(item.endpointId);
-        if (consecutive >= this.disableAfter || dead) {
-          await this.store.setEndpointStatus(
-            item.endpointId,
-            'disabled',
-            dead ? 'delivery_exhausted' : 'consecutive_failures',
-            consecutive,
-          );
-          disabled += 1;
-        }
+        await fail(item, null, 'pay.webhook_not_configured');
+        continue;
+      }
+
+      // SSRF guard, every attempt: the stored URL may predate the guard, and DNS
+      // can change between attempts. The address vetted here is the one we connect to.
+      let target: { url: URL; address: Awaited<ReturnType<typeof resolvePublicAddress>> };
+      try {
+        const url = assertPublicWebhookUrl(item.url, { allowLocalHttp: this.allowLocalHttp });
+        const address = await resolvePublicAddress(url.hostname, this.resolver, { allowLoopback: this.allowLocalHttp });
+        target = { url, address };
+      } catch {
+        await fail(item, null, 'webhook_target_not_public');
         continue;
       }
 
@@ -807,53 +820,24 @@ export class MerchantWebhookService {
       headers['x-intafaced-event-id'] = item.eventId;
 
       try {
-        const res = await this.fetchImpl(item.url, {
-          method: 'POST',
+        const res = await this.transport({
+          url: target.url,
+          address: target.address,
           headers,
           body: rawBody,
-          signal: AbortSignal.timeout(10_000),
+          timeoutMs: DELIVERY_TIMEOUT_MS,
         });
-        if (res.ok) {
+        if (res.status >= 200 && res.status < 300) {
           await this.store.markDelivered(item.id, res.status, this.now());
           await this.store.resetEndpointFailures(item.endpointId);
           delivered += 1;
           continue;
         }
-        const err = `HTTP ${res.status}`;
-        const attempts = item.attempts + 1;
-        const dead = attempts >= this.maxAttempts;
-        const backoff = BACKOFF_SECONDS[Math.min(attempts - 1, BACKOFF_SECONDS.length - 1)] ?? 86_400;
-        const next = new Date(this.now().getTime() + backoff * 1000);
-        await this.store.markRetry(item.id, attempts, next, res.status, err, dead);
-        failed += 1;
-        const consecutive = await this.store.bumpEndpointFailure(item.endpointId);
-        if (consecutive >= this.disableAfter || dead) {
-          await this.store.setEndpointStatus(
-            item.endpointId,
-            'disabled',
-            dead ? 'delivery_exhausted' : 'consecutive_failures',
-            consecutive,
-          );
-          disabled += 1;
-        }
+        // A redirect is never followed (it would walk past the guard): failure, loudly.
+        const err = res.status >= 300 && res.status < 400 ? `webhook_redirect_not_followed (HTTP ${res.status})` : `HTTP ${res.status}`;
+        await fail(item, res.status, err);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'delivery_error';
-        const attempts = item.attempts + 1;
-        const dead = attempts >= this.maxAttempts;
-        const backoff = BACKOFF_SECONDS[Math.min(attempts - 1, BACKOFF_SECONDS.length - 1)] ?? 86_400;
-        const next = new Date(this.now().getTime() + backoff * 1000);
-        await this.store.markRetry(item.id, attempts, next, null, message, dead);
-        failed += 1;
-        const consecutive = await this.store.bumpEndpointFailure(item.endpointId);
-        if (consecutive >= this.disableAfter || dead) {
-          await this.store.setEndpointStatus(
-            item.endpointId,
-            'disabled',
-            dead ? 'delivery_exhausted' : 'consecutive_failures',
-            consecutive,
-          );
-          disabled += 1;
-        }
+        await fail(item, null, err instanceof Error ? err.message : 'delivery_error');
       }
     }
 
