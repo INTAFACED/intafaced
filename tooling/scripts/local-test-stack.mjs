@@ -439,6 +439,9 @@ const distOf = (pkg) => path.join(REPO, 'services', pkg, 'dist', 'index.js');
 
 const CUSTOMER_DIST_ENV = 'LOCAL_STACK_CUSTOMER_DIST';
 
+/** True when `file` is `dir` or lies under it (both already real paths). */
+const insideDir = (dir, file) => file === dir || file.startsWith(dir + path.sep);
+
 /** Validate a candidate folder. Returns { dir } or { error } (plain words). Touches nothing. */
 function checkCustomerDist(raw) {
   if (typeof raw !== 'string' || raw.trim() === '') return { error: 'no folder given' };
@@ -459,12 +462,23 @@ function checkCustomerDist(raw) {
   }
   if (!real.startsWith(home + path.sep))
     return { error: `${dir} is not inside your home folder (${home}); only folders under it are allowed` };
+  // Hidden folders under home hold state and keys (~/.intafaced, ~/.ssh, ~/.config ...): never serve them.
+  const hidden = path
+    .relative(home, real)
+    .split(path.sep)
+    .find((seg) => seg.startsWith('.'));
+  if (hidden) return { error: `${dir} is inside a hidden folder (${hidden}); those are never served` };
   try {
     if (!fs.statSync(path.join(real, 'index.html')).isFile()) throw new Error('not a file');
+    if (!insideDir(real, fs.realpathSync(path.join(real, 'index.html')))) throw new Error('index.html points outside');
   } catch {
     return { error: `${dir} has no index.html, so it is not a built Customer app` };
   }
-  return { dir };
+  // A source folder (apps/customer) also has an index.html; serving it would expose src/ and node_modules.
+  if (fs.existsSync(path.join(real, 'package.json')))
+    return { error: `${dir} contains package.json, so it looks like a source folder, not a build output` };
+  // The realpath captured here is what gets stored and served, so a later symlink swap cannot redirect it.
+  return { dir: real };
 }
 
 /** Which source is asked for: the environment wins over the saved choice. */
@@ -1263,7 +1277,7 @@ function indexWithBanner(dist) {
   return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
 }
 
-function serveCustomer() {
+function serveCustomer(port = PORTS.customer) {
   const edge = { host: HOST, port: PORTS.edge };
   const send = (res, status, type, body, extra = {}) => {
     res.writeHead(status, { 'content-type': type, 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store', ...extra });
@@ -1271,7 +1285,7 @@ function serveCustomer() {
   };
   const server = http.createServer((req, res) => {
     const host = req.headers.host ?? '';
-    if (host !== `${HOST}:${PORTS.customer}` && host !== `localhost:${PORTS.customer}`) {
+    if (host !== `${HOST}:${port}` && host !== `localhost:${port}`) {
       // Refuse foreign Host headers (DNS rebinding). Only the two local names are served.
       res.writeHead(403);
       return void res.end();
@@ -1330,19 +1344,36 @@ function serveCustomer() {
     }
     const rel = path.normalize(decoded).replace(/^([/\\])+/, '');
     const file = path.join(dist, rel);
-    const inside = file === dist || file.startsWith(dist + path.sep);
-    if (inside && rel !== '' && rel !== 'index.html' && fs.existsSync(file) && fs.statSync(file).isFile()) {
-      const body = fs.readFileSync(file);
+    // Hidden files and folders are never served, and neither is anything whose real path leaves the folder
+    // (a symlink inside the build pointing elsewhere).
+    if (rel.split(path.sep).some((seg) => seg.startsWith('.'))) return send(res, 404, 'text/plain; charset=utf-8', 'not found');
+    let target = null;
+    if (insideDir(dist, file) && rel !== '' && rel !== 'index.html') {
+      try {
+        const real = fs.realpathSync(file);
+        if (!insideDir(dist, real)) return send(res, 404, 'text/plain; charset=utf-8', 'not found');
+        if (fs.statSync(real).isFile()) target = real;
+      } catch {
+        /* not found: falls through to the app shell like nginx try_files */
+      }
+    }
+    if (target) {
+      const body = fs.readFileSync(target);
       const immutable = p.startsWith('/assets/');
       res.writeHead(200, {
-        'content-type': MIME[path.extname(file)] ?? 'application/octet-stream',
+        'content-type': MIME[path.extname(target)] ?? 'application/octet-stream',
         'content-length': body.length,
         'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-store',
       });
       return void res.end(req.method === 'HEAD' ? undefined : body);
     }
     if (p.startsWith('/assets/')) return send(res, 404, 'text/plain; charset=utf-8', 'not found');
-    const html = indexWithBanner(dist);
+    let html;
+    try {
+      html = indexWithBanner(dist);
+    } catch {
+      return send(res, 503, 'text/plain; charset=utf-8', `No Customer build found in ${dist}. Run: pnpm local:stack --rebuild`);
+    }
     res.writeHead(200, { 'content-type': MIME['.html'], 'content-length': Buffer.byteLength(html), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : html);
   });
@@ -1350,7 +1381,7 @@ function serveCustomer() {
   server.on('upgrade', (req, socket) => {
     socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
   });
-  server.listen(PORTS.customer, HOST);
+  server.listen(port, HOST);
 }
 
 // ── local:fund ──────────────────────────────────────────────────────────────
@@ -1478,7 +1509,8 @@ async function cmdFund(rawArgs) {
 // ── Entry ───────────────────────────────────────────────────────────────────
 
 const [cmd = 'start', ...rest] = process.argv.slice(2);
-if (cmd === '__serve-customer') serveCustomer();
+if (cmd === '__serve-customer')
+  serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
 else if (cmd === 'start' && rest[0] === 'customer-dist')
   cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
 else if (cmd === 'start') await cmdStart(rest);
