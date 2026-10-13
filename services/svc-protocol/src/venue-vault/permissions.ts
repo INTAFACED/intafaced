@@ -18,7 +18,7 @@ export type VenueKeyPermissions = {
  * each normalise to a single token. A name moves funds when the normalised form
  * contains withdraw, transfer, send or fundout (also covers `funds_out`,
  * `can_transfer`, `AccountTransfer`, `wallet:transactions:send`), or equals
- * `wallet:readwrite` (Coinbase's read-write wallet scope, which can send).
+ * `wallet:readwrite` (Deribit's read-write wallet scope, which can send).
  *
  * Mirrors `scopeMovesFunds` in packages/venue-contracts/src/adapter.ts, which
  * svc-protocol does not depend on. Change the two together.
