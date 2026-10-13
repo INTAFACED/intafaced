@@ -8,7 +8,7 @@ import { roomTitle, roomDescription, searchRooms, normalizePair } from './naviga
 import { ShellIcon } from './icons';
 import { shellCopy } from './shell-copy';
 import { usePreferences } from '../shared/preferences';
-import { listings } from '../screens/home/select';
+import { isUsdQuote, listings } from '../screens/home/select';
 
 type Group = 'Coins' | 'Markets' | 'Pages';
 interface Row {
@@ -175,7 +175,11 @@ function SearchPanel({
   const { t } = shellCopy.useCopy();
   const names = homeCopy.useCopy();
   const last = tickers.status === 'ready' ? tickers.data : undefined;
-  const priceOf = (market: MarketRow) => (last?.[market.symbol]?.last ? fmtPrice(last[market.symbol]!.last, market.tickSize) : undefined);
+  const priceOf = (market: MarketRow) => {
+    if (!last?.[market.symbol]?.last) return undefined;
+    const price = fmtPrice(last[market.symbol]!.last, market.tickSize);
+    return isUsdQuote(market.quote) ? `$${price}` : `${price} ${market.quote}`;
+  };
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   const rows = useMemo(() => {
     if (source.status !== 'ready') return pages;

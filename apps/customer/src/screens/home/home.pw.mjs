@@ -92,14 +92,13 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   // Buy and Sell open the working spot desk until the M2 Buy card (critic H4), never the simulated /trade/buy.
   await expect(page.locator('.home-actions a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
   await expect(page.locator('.home-actions a').nth(1)).toHaveAttribute('href', '/trade/spot/BTC-USDT?side=sell');
-  // Critic H1: the Buy label is dark on lime (an unlayered rule once made it white, 1.25:1) and Edit is the muted grey.
+  // Critic H1: the Buy label is dark on lime (an unlayered rule once made it white, 1.25:1).
   const color = (selector) =>
     page
       .locator(selector)
       .first()
       .evaluate((node) => getComputedStyle(node).color);
   expect(await color('.home-actions [data-slot="button"]:first-child')).toBe('rgb(11, 11, 11)');
-  expect(await color('.home-watch__head a')).toBe('rgb(144, 144, 144)');
   // Critic H2: kit sizes are true px (the legacy 14 px root made every pill 35 tall).
   expect(Math.round((await page.locator('.home-actions a').first().boundingBox()).height)).toBe(40);
 
@@ -145,14 +144,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
 
   // Side card: no favourites -> "Popular", every orderable asset once, max 8.
   await expect(page.locator('.home-watch:not(.home-yours) .home-watch__head h2')).toHaveText('Popular');
-  expect(await texts(page.locator('.home-watch:not(.home-yours) .home-watch__ticker'))).toEqual([
-    'BTC',
-    'ETH',
-    'IFC',
-    'SOL',
-    'XRP',
-    'DOGE',
-  ]);
+  expect(await texts(page.locator('.home-watch:not(.home-yours) .home-watch__ticker'))).toEqual(['XRP', 'DOGE']); // the cards' coins are not repeated (critic N3)
 
   // Geometry: container 1224, main 792, side 408, card 186 x 176, hero text 48/58.
   expect(Math.round((await box('.if-home')).width)).toBe(1224);
@@ -182,7 +174,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     expect(value, `money shape: ${value}`).toMatch(moneyShape);
 
   // Keyboard: Tab from the top bar reaches eye -> the two info tips -> actions -> Cash -> Crypto -> 4 cards (each
-  // followed by its star) -> movers -> Your crypto -> Edit -> the watchlist rows (each followed by its star).
+  // followed by its star) -> movers -> Your crypto -> the watchlist rows (each followed by its star).
   await page.locator('.harness-bar a').last().focus();
   const path = [];
   for (let step = 0; step < 60; step++) {
@@ -229,21 +221,22 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     '/coin/ETH',
   ]);
   expect(path.slice(24, 26).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
-  expect(path[26].name).toBe('Edit your watchlist');
   expect(
     path
-      .slice(27)
+      .slice(26)
       .filter((stop) => stop.href)
       .map((stop) => stop.href),
-  ).toEqual(['/coin/BTC', '/coin/ETH', '/coin/IFC', '/coin/SOL', '/coin/XRP', '/coin/DOGE']);
-  expect(path.slice(27).filter((stop) => !stop.href).length).toBe(6); // one star per row
+  ).toEqual(['/coin/XRP', '/coin/DOGE']);
+  expect(path.slice(26).filter((stop) => !stop.href).length).toBe(2); // one star per row
 
   // The total-value rule is available in the page for assistive tech and as a tooltip that opens on hover AND
   // keyboard focus (critic M5), fully below the top bar (critic H7: it hid behind the banner when it opened upward).
   await expect(page.locator('.home-label')).toContainText('USDT and USDC count as 1 USD');
   await page.locator('.home-label .if-tip').hover();
-  await expect(page.locator('[data-slot="tooltip-content"]')).toBeVisible();
-  expect((await page.locator('[data-slot="tooltip-content"]').boundingBox()).y).toBeGreaterThanOrEqual(56);
+  // The tip left open by the keyboard walk may still be fading out, so look at the open one only.
+  const openTip = page.locator('[data-slot="tooltip-content"][data-open]');
+  await expect(openTip).toBeVisible();
+  expect((await openTip.boundingBox()).y).toBeGreaterThanOrEqual(56);
   await page.mouse.move(0, 0);
   await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(0);
   await page.locator('.home-label .if-tip').focus();
@@ -411,6 +404,7 @@ test('no orderable markets: Markets, Top movers and Watchlist are omitted', asyn
   await open(page);
   await expectHero(page, '$4,100.00');
   await expect(page.locator('.home-note')).toContainText('Excludes 2 coins (no USD price)');
+  await expect(page.locator('.home-change')).toHaveCount(0); // unpriced coins alone do not switch the Today line on (critic S4)
   expect(await texts(page.locator('.home-actions > *'))).toEqual(['Send', 'Receive']); // nothing can be bought, sold or converted
   for (const selector of ['.home-cards', '.home-pills', '.home-watch', '.home-side']) await expect(page.locator(selector)).toHaveCount(0);
   await expect(page.getByRole('heading', { name: /Markets|Top movers|Popular|Watchlist/ })).toHaveCount(0);
@@ -451,8 +445,8 @@ test('favourites from the existing device store become the Watchlist', async ({ 
   await open(page);
   await expect(page.locator('.home-watch:not(.home-yours) .home-watch__head h2')).toHaveText('Watchlist');
   expect(await texts(page.locator('.home-watch:not(.home-yours) .home-watch__ticker'))).toEqual(['ETH', 'SOL']);
-  // Edit opens the working spot desk, which has the star bar (the old /trade?tab=favorites landed on a dead desk).
-  await expect(page.locator('.home-watch__head a')).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  // No Edit button: the stars edit the watchlist (critic N6).
+  await expect(page.locator('.home-watch__head a, .home-watch__head button')).toHaveCount(0);
 });
 
 test('a star on a card or row adds the market to the watchlist and takes it off again', async ({ page }) => {

@@ -1,6 +1,6 @@
 import { assetName, homeCopy } from './copy';
 import { priceText, type Favoriting, type Tickers } from './MarketsSection';
-import { defaultDeskPair, direction, fmtPct, Button, CoinIcon, Pct, Skeleton, Sparkline, type Decimal, type Loadable } from './deps';
+import { direction, fmtPct, CoinIcon, Pct, Skeleton, Sparkline, type Decimal, type Loadable } from './deps';
 import { IN_PANEL } from './panel';
 import { StarButton } from './Star';
 import type { Listing } from './select';
@@ -27,16 +27,7 @@ export function Watchlist({
     <section className="home-watch" aria-labelledby="home-watch-title">
       <div className="home-watch__head">
         <h2 id="home-watch-title">{popular ? t('Popular') : t('Watchlist')}</h2>
-        {/* The watchlist editor lives on the spot desk (star bar) until the M2 markets screen; /trade?tab=favorites opened a dead desk. */}
-        <Button
-          variant="ghost"
-          size={32}
-          nativeButton={false}
-          render={<a href={`/trade/spot/${defaultDeskPair}`} />}
-          aria-label={t('Edit your watchlist')}
-        >
-          {t('Edit')}
-        </Button>
+        {/* No Edit button: the stars on each row edit the watchlist; a markets screen comes in M2 (critic N6). */}
       </div>
       {loading ? (
         <div aria-hidden="true">

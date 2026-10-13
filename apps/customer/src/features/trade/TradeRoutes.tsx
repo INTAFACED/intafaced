@@ -19,7 +19,7 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { navigate } from '../../app/location';
-import { hiddenFeatureFor } from '../../app/feature-registry';
+import { hiddenFeatureFor, isHiddenPath } from '../../app/feature-registry';
 import { fmtPctPoints } from '../../data';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, DataTable, Dialog, EmptyState, Field, Loading, Tabs } from '../../shared/ui';
@@ -111,7 +111,9 @@ export function TradeRoutes({ path }: { path: string }) {
   );
   const assetSymbol = asset ? visible.find((value) => value.base === asset)?.symbol : null;
   const requested = selected ?? routePair ?? assetSymbol;
-  const market = visible.find((value) => value.symbol === requested) ?? ((routePair || asset) && !selected ? undefined : visible[0]);
+  const market =
+    visible.find((value) => value.symbol === requested) ??
+    ((routePair || asset) && !selected ? undefined : (visible.find((value) => value.active) ?? visible[0]));
   useEffect(() => {
     if (favoritesKey !== `trade-favorites:${userId ?? 'guest'}`) return;
     try {
@@ -1902,13 +1904,15 @@ function OrderTicket({
             <Button disabled={blocked || busy} onClick={preview}>
               {busy ? <CopyText k={'checkingOrder'} /> : <CopyText k={side === 'buy' ? 'reviewBuy' : 'reviewSell'} />}
             </Button>
-            <a
-              className="text-link"
-              href={`/trade/convert?asset=${encodeURIComponent(market.base)}${market.paper ? '&simulated=true' : ''}`}
-            >
-              <CopyText k="convert" />
-              {market.base} ↗
-            </a>
+            {isHiddenPath('/trade/convert') ? null : (
+              <a
+                className="text-link"
+                href={`/trade/convert?asset=${encodeURIComponent(market.base)}${market.paper ? '&simulated=true' : ''}`}
+              >
+                <CopyText k="convert" />
+                {market.base} ↗
+              </a>
+            )}
             <small className="muted">
               <CopyText k="ctrlEnterReviewsFromAReviewedTicketItSendsOrderType" />
             </small>

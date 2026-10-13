@@ -88,7 +88,7 @@ export function tabSpecs(layoutMode: 'simple' | 'pro'): TabSpec[] {
     },
     {
       door: 'More',
-      href: '/more',
+      href: '/help',
       icon: 'grid',
       items: [
         { id: 'help', href: '/help', icon: 'help', title: 'Help', description: 'Answers and support' },

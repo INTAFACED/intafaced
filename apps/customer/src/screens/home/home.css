@@ -400,6 +400,12 @@
       grid-template-columns: minmax(0, 1fr);
       row-gap: 40px;
     }
+    /* Your crypto and Popular sit side by side from 664px up instead of stretching to full width (critic N4). */
+    .home-side {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      align-items: start;
+    }
   }
   @media (max-width: 767px) {
     .if-home {

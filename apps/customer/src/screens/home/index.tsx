@@ -201,7 +201,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
       <div className="home-total">
         <HeroNumber value={cents(data.totalUsd)} decimals={2} prefix="$" hidden={hidden} />
       </div>
-      {data.change24hUsd !== null && (hasCrypto || unpriced > 0) ? (
+      {data.change24hUsd !== null && hasCrypto ? (
         <p className="home-change">
           <ChangeText value={fmtChangeLine(data.change24hUsd, data.change24hPct)} hidden={hidden} suffix={changeLabel} />
           {data.source === 'derived' ? <InfoTip text={t('Today change rule')} label={t('Today change rule label')} /> : null}
@@ -240,7 +240,9 @@ export default function Home() {
     });
   }, [markets, favorites]);
   const popular = favoriteItems.length === 0;
-  const watchItems = popular ? all.slice(0, 8) : favoriteItems;
+  const cardSymbols = useMemo(() => new Set(cards.map((card) => card.symbol)), [cards]);
+  // Popular skips the coins already shown as Markets cards, so a short market list is not repeated (critic N3).
+  const watchItems = popular ? all.filter((item) => !cardSymbols.has(item.symbol)).slice(0, 8) : favoriteItems;
   const sparkSymbols = useMemo(() => [...new Set([...cards, ...watchItems].map((item) => item.symbol))], [cards, watchItems]);
   const sparklines = useSparklines(sparkSymbols);
 
@@ -333,14 +335,16 @@ export default function Home() {
           <aside className="home-side">
             {portfolio.status === 'loading' ? <YourCryptoSkeleton /> : null}
             {portfolio.status === 'ready' ? <YourCrypto holdings={portfolio.data.holdings} hidden={hideBalances} /> : null}
-            <Watchlist
-              items={watchItems}
-              popular={popular}
-              tickers={tickers}
-              sparklines={sparklines}
-              loading={marketsLoading}
-              favoriting={favoriting}
-            />
+            {marketsLoading || !popular || watchItems.length > 0 ? (
+              <Watchlist
+                items={watchItems}
+                popular={popular}
+                tickers={tickers}
+                sparklines={sparklines}
+                loading={marketsLoading}
+                favoriting={favoriting}
+              />
+            ) : null}
           </aside>
         ) : null}
       </div>
