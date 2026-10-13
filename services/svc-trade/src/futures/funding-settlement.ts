@@ -37,6 +37,10 @@
  * different amounts under the same keys (W8 notional freeze). Product law about
  * "who should have paid at the boundary" is still open; freeze-at-first-plan is
  * the money-safe rule that needs no owner number.
+ *
+ * The RATE is frozen the same way (`FundingPeriodStore.freezeRate`): amounts
+ * depend on it, so a replay after the oracle republished the period at a new
+ * rate would re-post leg 1 under the same key with a different amount.
  */
 import { formatAmount, mul, parseAmount, recipes, type Amount, type PostRequest } from '@intafaced/ledger-client';
 import { assertFundingRateWithinBound } from './funding-rate-bound.js';

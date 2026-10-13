@@ -26,7 +26,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { sqlFundingMarginApplier } from './tick-stores.js';
+import { sqlFundingMarginApplier, sqlFundingPeriodStore } from './tick-stores.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -244,6 +244,20 @@ describe('funding margin idempotency (Postgres)', () => {
       await sql`DELETE FROM trade.positions WHERE id = ${id}`;
       const rows = await sql`SELECT 1 FROM trade.position_funding_applied WHERE position_id = ${id}`;
       expect(rows).toHaveLength(0);
+    });
+  });
+  describe('funding period rate freeze', () => {
+    it('keeps the first rate for a period; a second rate is ignored (race-safe insert)', async () => {
+      const periods = sqlFundingPeriodStore(sql);
+      expect(await periods.freezeRate(PERIOD, '0.0001')).toBe('0.0001');
+      expect(await periods.freezeRate(PERIOD, '0.0003')).toBe('0.0001');
+      // Concurrent first writers converge on one stored rate.
+      const racing = 'BTC/USDT-PERP:2026-08-08T08:00:00.000Z';
+      const got = await Promise.all(['0.0002', '0.0004', '0.0006'].map((r) => periods.freezeRate(racing, r)));
+      expect(new Set(got).size).toBe(1);
+      const rows = await sql`SELECT rate FROM trade.funding_period_rates WHERE period_id = ${racing}`;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.rate).toBe(got[0]);
     });
   });
 });

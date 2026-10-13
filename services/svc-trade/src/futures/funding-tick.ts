@@ -4,7 +4,7 @@
  * JOB SHAPE (not a wall-clock cron): one callable tick that:
  *  1. asks an external FundingRateSource for the period rate (never invents)
  *  2. loads open positions for the market
- *  3. plans legs via planFundingSettlement
+ *  3. plans legs via planFundingSettlement (rate frozen per periodId on first sight)
  *  4. posts ledger recipes + records period settled (idempotent)
  *
  * Out of scope: rate oracle, 8h scheduler host, mark price, insurance.
@@ -99,6 +99,18 @@ export interface FundingPeriodStore {
    * same keys — ledger first-wins vs margin re-net (W6/W7 residual).
    */
   freezeMembership(periodId: string, candidates: readonly FundingOpenPosition[]): Promise<readonly FundingOpenPosition[]>;
+  /**
+   * Freeze the period RATE on first sight of `periodId`; ALWAYS return the first
+   * stored rate, ignoring `rate` on every later call (decimal string, never number).
+   *
+   * Required for the same reason as membership: leg recipe keys are
+   * (period, payer, payee) but their amounts depend on the rate. A replay that
+   * re-asks the oracle after it republished the period (or after a restart lost
+   * its rate book) re-posts leg 1 under the same key with a different amount —
+   * the ledger either keeps r1 while later legs book r2, or refuses the reused
+   * key and the period can never settle.
+   */
+  freezeRate(periodId: string, rate: string): Promise<string>;
   /**
    * Record a skip that is NOT a settled zero-leg period.
    * Optional on older stores — tick still returns skipped; production wires it.
@@ -217,15 +229,21 @@ export async function runFundingTick(deps: FundingTickDeps, marketId: string): P
     return { status: 'skipped', reason: 'no_legs', periodId: quote.periodId };
   }
 
+  // Rate frozen with the membership, once per periodId. A replay plans from the
+  // first rate seen even if the oracle now quotes a different one for the same
+  // period — otherwise leg 1 re-posts under the same key with a new amount.
+  const rate = await deps.periods.freezeRate(quote.periodId, quote.rate);
+
   // Bound check before plan so an absurd rate never reaches leg construction
   // or postLegs. assert is also inside planFundingSettlement (belt); this is
-  // the explicit money-path gate with the tick's configured max.
-  assertFundingRateWithinBound(quote.rate, deps.maxAbsRate);
+  // the explicit money-path gate with the tick's configured max. It runs on the
+  // FROZEN rate: that is the one that will be posted.
+  assertFundingRateWithinBound(rate, deps.maxAbsRate);
 
   const legs = planFundingSettlement({
     periodId: quote.periodId,
     marketId: quote.marketId,
-    rate: quote.rate,
+    rate,
     maxAbsRate: deps.maxAbsRate,
     positions: members,
   });
@@ -265,7 +283,7 @@ export async function runFundingTick(deps: FundingTickDeps, marketId: string): P
     status: 'settled',
     periodId: quote.periodId,
     marketId: quote.marketId,
-    rate: quote.rate,
+    rate,
     legCount: legs.length,
     summary: summarizeFundingPlan(legs),
   };
@@ -353,6 +371,7 @@ export function memoryFundingPeriodStore(): FundingPeriodStore {
   const settled = new Map<string, number>();
   const skips = new Map<string, { reason: FundingSkipReason; marketId: string }>();
   const membership = new Map<string, readonly FundingOpenPosition[]>();
+  const rates = new Map<string, string>();
   return {
     async isSettled(periodId) {
       return settled.has(periodId);
@@ -376,6 +395,10 @@ export function memoryFundingPeriodStore(): FundingPeriodStore {
         );
       }
       return membership.get(periodId)!;
+    },
+    async freezeRate(periodId, rate) {
+      if (!rates.has(periodId)) rates.set(periodId, rate);
+      return rates.get(periodId)!;
     },
     async recordSkip(periodId, meta) {
       skips.set(periodId, { reason: meta.reason, marketId: meta.marketId });
