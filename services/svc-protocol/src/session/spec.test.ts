@@ -18,6 +18,7 @@ import {
   MAX_SELECTORS,
   MAX_TARGETS,
   RECIPIENT_SCOPED_CALLS,
+  TARGET_ARG_CALLS,
   sessionSpecInputSchema,
   SessionScopeError,
   type SessionSpec,
@@ -379,11 +380,26 @@ describe('the Solidity library refuses the same selectors', () => {
       expect(body.match(/return /g)).toHaveLength(RECIPIENT_SCOPED_CALLS.length + 1); // +1 for the `return 0` default
     });
 
+    it.each([...TARGET_ARG_CALLS])(
+      'targetArgOffset returns the byte offset of arg $targetArg for $signature',
+      ({ signature, targetArg }) => {
+        const tbody = source.slice(source.indexOf('function targetArgOffset'), source.indexOf('function assertTargetArgAllowed'));
+        const selector = toFunctionSelector(signature).toLowerCase();
+        const name = constants.find(([, , value]) => value?.toLowerCase() === selector)?.[1];
+        expect(name, `no constant in SessionKeyLib.sol for ${signature}`).toBeDefined();
+        expect(tbody).toContain(`if (selector == ${name}) return ${4 + 32 * targetArg};`);
+        expect(tbody.match(/return /g)).toHaveLength(TARGET_ARG_CALLS.length + 1);
+      },
+    );
+
     it('is enforced by SmartAccount.executeWithSession after the selector checks and before value is counted', () => {
       const account = readFileSync(join(contractsDir, 'SmartAccount.sol'), 'utf8');
       const at = account.indexOf('SessionKeyLib.assertRecipientIsAccount(selector, data, address(this));');
       expect(at).toBeGreaterThan(account.indexOf('SessionKeyLib.SessionOutboundTransferForbidden(selector)'));
       expect(at).toBeLessThan(account.indexOf('record.spentWei = uint128(attempted);'));
+      const targetArg = account.indexOf('SessionKeyLib.assertTargetArgAllowed(spec, selector, data);');
+      expect(targetArg).toBeGreaterThan(at);
+      expect(targetArg).toBeLessThan(account.indexOf('record.spentWei = uint128(attempted);'));
     });
   });
 
