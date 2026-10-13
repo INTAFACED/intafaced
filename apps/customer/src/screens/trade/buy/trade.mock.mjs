@@ -4,7 +4,8 @@
 //  - /api/trade/trpc/convert.quote (GET), convert.accept (POST)            (tool client)
 // The mock keeps a small world (balances) that an accepted order or conversion really changes, so the balance the
 // screen shows after "Done" is what the mock now holds. Overrides replace one answer: a JSON body, a function of the
-// request, 'error' (500), 'hang' (held until release()), or { status, json, headers }.
+// request, 'error' (500), 'hang' (held until release()), or { status, json, headers }. `oldServer: true` makes convert.quote
+// refuse `quoteQty` the way an older trade service does.
 import {
   book,
   fillFor,
@@ -61,7 +62,24 @@ export async function mock(page, overrides = {}) {
     orders: () => world.orders,
     trades: () => world.trades,
     quote: ({ input }) => {
+      // `oldServer: true` plays an older trade service: it drops `quoteQty` and refuses for the missing `qty` (a plain BAD_REQUEST).
+      if (overrides.oldServer && input.quoteQty !== undefined)
+        return {
+          status: 400,
+          json: { error: { message: 'Invalid input: expected string, received undefined', code: -32600, data: { code: 'BAD_REQUEST' } } },
+        };
       const quote = quoteFor(input);
+      if (!quote)
+        return {
+          status: 400,
+          json: {
+            error: {
+              message: 'convert takes exactly one of qty or quoteQty',
+              code: -32600,
+              data: { intafacedCode: 'trade.convert_invalid_qty' },
+            },
+          },
+        };
       world.quotes.set(quote.quoteId, quote);
       return trpc(quote);
     },

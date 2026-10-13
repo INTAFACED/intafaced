@@ -14,6 +14,8 @@ export type RefusalKind =
   | 'convertSpreadUnset'
   | 'slippageCapUnset'
   | 'noBook'
+  | 'insufficientDepth'
+  | 'quoteFailed'
   | 'marketNotOpen'
   | 'insufficient'
   | 'destMissing'
@@ -86,7 +88,9 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.convert_price_moved': 'priceMoved',
   'trade.price_not_accepted': 'priceMoved',
   'trade.convert_quote_expired': 'quoteExpired',
-  'trade.convert_insufficient_depth': 'noBook',
+  'trade.convert_insufficient_depth': 'insufficientDepth',
+  // A size the screen should never send (both or neither of qty and quoteQty): an internal mistake, not the customer's.
+  'trade.convert_invalid_qty': 'quoteFailed',
 
   'ledger.insufficient_funds': 'insufficient',
   'market.insufficient_funds': 'insufficient',
