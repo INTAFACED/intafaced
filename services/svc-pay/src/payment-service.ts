@@ -2750,7 +2750,12 @@ export class PayService {
    * one. `createPayment` and public checkout already refuse non-active; until
    * this gate, a suspended merchant could still settle captured volume and take
    * it out via `payoutSettlement` — suspension that stopped inbound only.
-   * Re-reading an already-posted settlement is still fine (no value moves).
+   * The credit itself is authorized inside the posting transaction:
+   * `lockMerchantEligibility` then `assertMerchantActive`, on that
+   * transaction, before the ledger post. A suspend after the freeze refuses
+   * `pay.merchant_inactive`, leaves the window pending, and does not credit
+   * available. Re-reading an already-posted settlement is still fine (no
+   * value moves).
    */
   async settleWindow(input: {
     merchantId: string;
