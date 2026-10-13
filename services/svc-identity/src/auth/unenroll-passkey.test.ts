@@ -9,6 +9,7 @@ import { unenrollPasskey } from './unenroll-passkey.js';
 function fakeSql(rows: unknown[] = []) {
   const fn = async () => rows;
   (fn as unknown as { json: (v: unknown) => unknown }).json = (v: unknown) => v;
+  (fn as unknown as { begin: unknown }).begin = (_o: string, cb: (t: unknown) => unknown) => cb(fn);
   return fn as unknown as Parameters<typeof unenrollPasskey>[0];
 }
 
@@ -21,7 +22,7 @@ function trackingSql(selectRows: unknown[]) {
       written.push(values);
       return [];
     },
-    { json: (v: unknown) => v },
+    { json: (v: unknown) => v, begin: (_o: string, cb: (t: unknown) => unknown) => cb(sql as never) },
   );
   return { sql: sql as unknown as Parameters<typeof unenrollPasskey>[0], written };
 }
