@@ -16,7 +16,7 @@ import type { EventBus } from '@intafaced/events';
 import type { MatchingClient } from '../spot/matching-client.js';
 import { createJobHost, type JobHost } from './job-host.js';
 import { runFundingTick } from './funding-tick.js';
-import { runLiquidationTick, type LiquidationTickResult, type MarkSource } from './liquidation-tick.js';
+import { ABANDONED_PARKED, runLiquidationTick, type LiquidationTickResult, type MarkSource } from './liquidation-tick.js';
 import { depthNotionalSourceFromDepth, markSourceFromDepth } from './mark-from-depth.js';
 import { markSourcePrefer } from './mark-from-venue.js';
 import { memoryFundingRateBook, type FundingRateEntry } from './funding-rate-source.js';
@@ -158,11 +158,21 @@ export interface FuturesJobsHandle {
  *   rung is replayed), so this is a closing rung claimed by the code that
  *   predates rung ids and parked after a crash — only an operator can clear it.
  *   It is logged EVERY tick so it cannot be scrolled past.
+ *   The same item with reason `trade.liquidation_abandoned_parked` is a position
+ *   whose latest rung was abandoned: its loss is booked and the row could not be
+ *   reconciled, so nothing more is planned for it until an operator resolves it.
  */
 export function reportLiquidationTick(tick: LiquidationTickResult, onError: (name: string, err: unknown) => void): void {
   for (const item of tick.items) {
     if (item.outcome === 'errored') {
       onError('futures.liquidation', new Error(`position ${item.positionId} errored (${item.reason}): ${item.summary ?? ''}`));
+    } else if (item.outcome === 'skipped_already' && item.reason === ABANDONED_PARKED) {
+      onError(
+        'futures.liquidation',
+        new Error(
+          `liquidation parked: the latest rung was abandoned after its loss was booked (operator must reconcile, then mark the rung resolved) positionId=${item.positionId}`,
+        ),
+      );
     } else if (item.outcome === 'skipped_already') {
       onError(
         'futures.liquidation',

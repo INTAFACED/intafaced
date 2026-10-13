@@ -363,6 +363,7 @@ export function sqlPositionCloser(sql: Sql, bus: EventBus | null = null): Positi
 interface RungRow {
   rung_id: string;
   position_id: string;
+  liquidation_id: string;
   kind: RungKind;
   from_size: string;
   from_margin: string;
@@ -374,6 +375,7 @@ function rungFromRow(row: RungRow): RungRecord {
   return {
     rungId: row.rung_id,
     positionId: row.position_id,
+    liquidationId: row.liquidation_id,
     kind: row.kind,
     fromSize: parseAmount(row.from_size),
     fromMargin: parseAmount(row.from_margin),
@@ -392,14 +394,14 @@ function rungFromRow(row: RungRow): RungRecord {
  * COMMITTED is correct here for the reason `transaction` documents: the lock
  * establishes the total order, so transactions queue instead of aborting.
  *
- * The partial unique index `liquidation_rung_plans_one_live_idx` is the backstop
+ * The partial unique index `liquidation_rungs_one_live_idx` is the backstop
  * (a second live rung for one position cannot exist whatever the code does).
  */
 export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
   async function liveIn(tx: Sql, positionId: string): Promise<RungRecord | null> {
     const rows = await tx<RungRow[]>`
-      SELECT rung_id, position_id, kind, from_size, from_margin, plan, state
-        FROM trade.liquidation_rung_plans
+      SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state
+        FROM trade.liquidation_rungs
        WHERE position_id = ${positionId} AND state IN ('planned', 'posted')
        LIMIT 1
     `;
@@ -411,13 +413,13 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
       sql,
       async (tx) => {
         const locked = await tx<{ status: string; size_ok: boolean; margin_ok: boolean }[]>`
-            SELECT status,
-                   size = ${formatAmount(input.fromSize)}::numeric AS size_ok,
-                   margin_current = ${formatAmount(input.fromMargin)}::numeric AS margin_ok
-              FROM trade.positions
-             WHERE id = ${input.positionId}
-               FOR UPDATE
-          `;
+          SELECT status,
+                 size = ${formatAmount(input.fromSize)}::numeric AS size_ok,
+                 margin_current = ${formatAmount(input.fromMargin)}::numeric AS margin_ok
+            FROM trade.positions
+           WHERE id = ${input.positionId}
+             FOR UPDATE
+        `;
         // A live rung wins whatever the row looks like now: it is the one that
         // may already have booked a loss, and it is what must be finished.
         const existing = await liveIn(tx, input.positionId);
@@ -427,14 +429,14 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
         if (!row || row.status !== 'open' || !row.size_ok || !row.margin_ok) return { status: 'changed' as const };
 
         const inserted = await tx<RungRow[]>`
-            INSERT INTO trade.liquidation_rung_plans (rung_id, position_id, kind, from_size, from_margin, plan, state)
-            VALUES (
-              ${input.rungId}, ${input.positionId}, ${input.kind},
-              ${formatAmount(input.fromSize)}::numeric, ${formatAmount(input.fromMargin)}::numeric,
-              ${tx.json(encodeRungPlan(input.plan) as never)}, 'planned'
-            )
-            RETURNING rung_id, position_id, kind, from_size, from_margin, plan, state
-          `;
+          INSERT INTO trade.liquidation_rungs (rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state)
+          VALUES (
+            ${input.rungId}, ${input.positionId}, ${input.liquidationId}, ${input.kind},
+            ${formatAmount(input.fromSize)}::numeric, ${formatAmount(input.fromMargin)}::numeric,
+            ${tx.json(encodeRungPlan(input.plan) as never)}, 'planned'
+          )
+          RETURNING rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state
+        `;
         return { status: 'created' as const, rung: rungFromRow(inserted[0]!) };
       },
       { isolation: 'read committed' },
@@ -462,7 +464,7 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
 
     async markPosted(rungId) {
       await sql`
-        UPDATE trade.liquidation_rung_plans
+        UPDATE trade.liquidation_rungs
            SET state = 'posted', updated_at = now()
          WHERE rung_id = ${rungId} AND state = 'planned'
       `;
@@ -473,71 +475,103 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
         sql,
         async (tx): Promise<ApplyRungResult> => {
           // The position row first: that is the order every writer takes.
-          const locked = await tx<{ status: string }[]>`
-            SELECT status FROM trade.positions WHERE id = ${positionId} FOR UPDATE
+          const locked = await tx<{ status: string; size: string; margin_current: string }[]>`
+            SELECT status, size, margin_current FROM trade.positions WHERE id = ${positionId} FOR UPDATE
           `;
           // Read AFTER the lock, so a concurrent apply's 'applied' is visible here.
           const found = await tx<RungRow[]>`
-            SELECT rung_id, position_id, kind, from_size, from_margin, plan, state
-              FROM trade.liquidation_rung_plans
+            SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state
+              FROM trade.liquidation_rungs
              WHERE rung_id = ${rungId} AND position_id = ${positionId}
           `;
           const rungRow = found[0];
           if (!rungRow) return { status: 'not_live' };
           if (rungRow.state === 'applied') return { status: 'already_applied' };
-          if (rungRow.state === 'abandoned') return { status: 'not_live' };
+          if (rungRow.state === 'abandoned' || rungRow.state === 'resolved') return { status: 'not_live' };
           const rung = rungFromRow(rungRow);
 
           const abandon = async (reason: 'row_changed' | 'row_missing' | 'reduction_no_op'): Promise<ApplyRungResult> => {
             await tx`
-              UPDATE trade.liquidation_rung_plans SET state = 'abandoned', updated_at = now() WHERE rung_id = ${rungId}
+              UPDATE trade.liquidation_rungs SET state = 'abandoned', updated_at = now() WHERE rung_id = ${rungId}
             `;
             return { status: 'abandoned', reason };
           };
 
-          if (!locked[0]) return abandon('row_missing');
-          const fromSize = formatAmount(rung.fromSize);
-          const fromMargin = formatAmount(rung.fromMargin);
+          const row = locked[0];
+          if (!row) return abandon('row_missing');
+          if (row.status !== 'open') return abandon('row_changed');
 
           if (rung.kind === 'partial') {
             const sizeClosed = formatAmount(rung.plan.sizeClosed);
-            const marginRemaining = formatAmount(rung.plan.marginRemaining < 0n ? 0n : rung.plan.marginRemaining);
-            // The guards ARE the WHERE: still open, still exactly the size and
-            // margin the rung was planned against, and strictly larger than the
-            // tranche (a partial rung must never take a row to zero).
+            const marginTaken = formatAmount(rung.plan.marginTaken);
+            // THE LOSS IS BOOKED, SO THE ROW MOVES BY A DELTA. Funding, the trader
+            // adding or taking margin, a partial close — any of them may have moved
+            // the row since the decision, and none of them un-books the loss. The
+            // only guard is the one `positions_size_positive_ck` needs: the tranche
+            // must be strictly smaller than what is left.
             const moved = await tx`
               UPDATE trade.positions
                  SET size = size - ${sizeClosed}::numeric,
-                     margin_current = ${marginRemaining}::numeric,
+                     margin_current = GREATEST(margin_current - ${marginTaken}::numeric, 0),
                      updated_at = now()
                WHERE id = ${positionId}
                  AND status = 'open'
-                 AND size = ${fromSize}::numeric
-                 AND margin_current = ${fromMargin}::numeric
                  AND size > ${sizeClosed}::numeric
                RETURNING id
             `;
-            if (moved.length === 0) return abandon('row_changed');
+            if (moved.length === 0) return abandon('reduction_no_op');
           } else {
+            // The stored residual release was computed from THIS size and margin. A
+            // row that has moved makes the release wrong; closing it anyway would
+            // hand back margin the ledger does not hold (or keep margin it should
+            // release). Not ours to guess: abandon and park.
             const closed = await tx`
               UPDATE trade.positions
                  SET status = 'liquidated', closed_at = now(), updated_at = now()
                WHERE id = ${positionId}
                  AND status = 'open'
-                 AND size = ${fromSize}::numeric
-                 AND margin_current = ${fromMargin}::numeric
+                 AND size = ${formatAmount(rung.fromSize)}::numeric
+                 AND margin_current = ${formatAmount(rung.fromMargin)}::numeric
                RETURNING id
             `;
             if (closed.length === 0) return abandon('row_changed');
           }
 
           await tx`
-            UPDATE trade.liquidation_rung_plans SET state = 'applied', updated_at = now() WHERE rung_id = ${rungId}
+            UPDATE trade.liquidation_rungs SET state = 'applied', updated_at = now() WHERE rung_id = ${rungId}
           `;
           return { status: 'applied' };
         },
         { isolation: 'read committed' },
       );
+    },
+
+    async isParked(positionId) {
+      const rows = await sql<{ state: string }[]>`
+        SELECT state FROM trade.liquidation_rungs
+         WHERE position_id = ${positionId}
+         ORDER BY created_at DESC, rung_id DESC
+         LIMIT 1
+      `;
+      return rows[0]?.state === 'abandoned';
+    },
+
+    async listUnannounced(limit) {
+      const rows = await sql<RungRow[]>`
+        SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state
+          FROM trade.liquidation_rungs
+         WHERE kind = 'closing' AND state = 'applied' AND announced_at IS NULL
+         ORDER BY created_at
+         LIMIT ${limit}
+      `;
+      return rows.map(rungFromRow);
+    },
+
+    async markAnnounced(rungId) {
+      await sql`
+        UPDATE trade.liquidation_rungs SET announced_at = now(), updated_at = now()
+         WHERE rung_id = ${rungId} AND announced_at IS NULL
+      `;
     },
   };
 }

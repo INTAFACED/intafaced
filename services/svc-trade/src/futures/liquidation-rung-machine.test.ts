@@ -13,9 +13,17 @@
  * against a real database.
  */
 import { describe, expect, it } from 'vitest';
-import { formatAmount, parseAmount as amt, type AccountRef, type Amount, type PostRequest } from '@intafaced/ledger-client';
+import {
+  formatAmount,
+  InsufficientFundsError,
+  parseAmount as amt,
+  type AccountRef,
+  type Amount,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import { memoryAcceptedMarkStore } from './accepted-mark.js';
 import {
+  ABANDONED_PARKED,
   memoryLiquidationAttemptStore,
   runLiquidationTick,
   type LiquidationPositionRow,
@@ -61,10 +69,10 @@ function harness(opts: { insurance?: Amount } = {}) {
 
   const book: RungRowBook = {
     read: (id) => (id === row.positionId ? { status: row.status, size: row.size, margin: row.margin } : null),
-    reduce: (_id, closed, remaining) => {
-      reduces.push({ sizeClosed: formatAmount(closed), marginRemaining: formatAmount(remaining) });
+    reduce: (_id, closed, newMargin) => {
+      reduces.push({ sizeClosed: formatAmount(closed), marginRemaining: formatAmount(newMargin) });
       row.size -= closed;
-      row.margin = remaining;
+      row.margin = newMargin;
     },
     close: () => {
       row.status = 'liquidated';
@@ -107,6 +115,18 @@ function harness(opts: { insurance?: Amount } = {}) {
     ledger: {
       async post(req) {
         await hooks.beforePost?.(req);
+        // The real ledger refuses an insurance leg the fund cannot cover.
+        const insuranceLeg = req.entries.find(
+          (e) => e.direction === 'credit' && e.account.ownerType === 'house' && e.account.ownerId === 'insurance-fund',
+        );
+        if (insuranceLeg && !booked.has(req.idempotencyKey) && insuranceLeg.amount > insurance.available) {
+          throw new InsufficientFundsError(
+            'house:insurance-fund',
+            'USDT',
+            formatAmount(insuranceLeg.amount),
+            formatAmount(insurance.available),
+          );
+        }
         posts.push(req);
         const old = booked.get(req.idempotencyKey);
         if (old && body(old) !== body(req)) {
@@ -121,10 +141,11 @@ function harness(opts: { insurance?: Amount } = {}) {
         const amount = ref.ownerType === 'house' && ref.ownerId === 'insurance-fund' ? insurance.available : amt('1000000');
         return { account: ref, accountId: 'x', amount };
       },
-      async getTxByKey(key: string) {
-        return booked.has(key) ? ({ id: `tx:${key}`, idempotencyKey: key } as never) : null;
+      // The production client cannot answer this (services/svc-trade/src/ledger-client.ts). Nothing may ask.
+      async getTxByKey() {
+        throw new Error('getTxByKey is not exposed over the internal ledger API — query svc-ledger directly');
       },
-    },
+    } as LiquidationTickDeps['ledger'],
     now: () => AT,
     ladder: {
       depth: {
@@ -282,11 +303,11 @@ describe('probe A: a stale unfinished plan must never cut a healthy position', (
 });
 
 describe('probe B: a reduction that moved no row is never success', () => {
-  it('the row changed between the post and the apply: rung abandoned, outcome errored with the distinct code, not counted partial', async () => {
+  it('a row that cannot be reconciled (no larger than the tranche) abandons the rung, errors loudly, and PARKS the position', async () => {
     const h = harness();
     h.hooks.beforePost = () => {
-      // The trader's own change lands while the loss is being booked.
-      h.row.size = amt('9');
+      // The trader's own partial close lands while the loss is being booked: what is left is smaller than the tranche.
+      h.row.size = amt('0.1');
     };
     const t = await runLiquidationTick(h.deps);
     expect(t.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_row_changed_after_post' });
@@ -294,7 +315,19 @@ describe('probe B: a reduction that moved no row is never success', () => {
     expect(t.partial).toBe(0);
     expect(h.reduces).toHaveLength(0);
     expect(h.rungs.all().map((r) => r.state)).toEqual(['abandoned']);
-    expect(h.row.size).toBe(amt('9')); // the rung did not touch a row it was not planned against
+    expect(h.row.size).toBe(amt('0.1')); // the rung did not touch a row it could not reconcile with
+
+    // The next ticks do not plan the same tranche again: parked, counted, same code every tick.
+    h.hooks.beforePost = undefined;
+    h.price.current = '91';
+    const postsBefore = h.posts.length;
+    for (let i = 0; i < 2; i++) {
+      const t2 = await runLiquidationTick(h.deps);
+      expect(t2.items[0]).toMatchObject({ outcome: 'skipped_already', reason: ABANDONED_PARKED });
+      expect(t2.parked).toBe(1);
+    }
+    expect(h.posts.length).toBe(postsBefore);
+    expect(h.rungs.all()).toHaveLength(1);
   });
 
   it('the claim-based path (no rung store) treats a reducer that reports false as errored, not success', async () => {
@@ -406,6 +439,153 @@ describe('probe D: a failed closing rung is replayed, not parked', () => {
   });
 });
 
+describe('probe F / H: ordinary writers move the row after the loss is booked', () => {
+  it('F: the trader adds 50 margin while the loss posts: the rung applies as a delta, ledger and row agree, loss booked once', async () => {
+    const h = harness();
+    let once = true;
+    h.hooks.beforePost = () => {
+      if (once) {
+        once = false;
+        h.row.margin += amt('50');
+      }
+    };
+    const t1 = await runLiquidationTick(h.deps);
+    expect(t1.items.map((i) => i.outcome)).toEqual(['partially_liquidated']);
+    expect(h.rungs.all().map((r) => r.state)).toEqual(['applied']);
+    const taken = h.marginTaken();
+    expect(h.row.margin).toBe(amt('150') - taken); // the 50 the trader added is theirs
+    expect(h.row.size).toBeLessThan(amt('10'));
+    expect(h.lossKeys()).toEqual(['futures.loss:liq:pos-1:rung:rung-1:loss']);
+  });
+
+  it('H: crash after the post, funding takes 1 before the restart: the replay reduces by the delta, loss booked once, ledger and row agree', async () => {
+    const h = harness();
+    const realApply = h.rungs.apply;
+    let crash = true;
+    h.rungs.apply = async (...args) => {
+      if (crash) {
+        crash = false;
+        throw new Error('died before apply');
+      }
+      return realApply(...args);
+    };
+    await runLiquidationTick(h.deps);
+    h.row.margin -= amt('1'); // funding
+    const t2 = await runLiquidationTick(h.deps);
+    expect(t2.items.map((i) => i.outcome)).toEqual(['partially_liquidated']);
+    expect(h.lossKeys()).toHaveLength(1);
+    expect(h.rungs.all().map((r) => r.state)).toEqual(['applied']);
+    expect(h.marginTaken() + h.row.margin).toBe(amt('99'));
+  });
+
+  it('a closing rung whose margin moved after the post (its stored release is now wrong) is abandoned and parks the position', async () => {
+    const h = harness();
+    h.price.current = '60';
+    const realApply = h.rungs.apply;
+    let crash = true;
+    h.rungs.apply = async (...args) => {
+      if (crash) {
+        crash = false;
+        throw new Error('died before apply');
+      }
+      return realApply(...args);
+    };
+    await runLiquidationTick(h.deps);
+    h.row.margin -= amt('1'); // funding
+    const t2 = await runLiquidationTick(h.deps);
+    expect(t2.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_row_changed_after_post' });
+    expect(h.row.status).toBe('open');
+    const t3 = await runLiquidationTick(h.deps);
+    expect(t3.items[0]).toMatchObject({ outcome: 'skipped_already', reason: ABANDONED_PARKED });
+  });
+});
+
+describe('probe G: the production ledger client cannot look keys up', () => {
+  it('a bankrupt closing rung (insurance leg) that crashes before its first post is replayed to completion', async () => {
+    const h = harness();
+    h.price.current = '84';
+    let crash = true;
+    h.hooks.beforePost = () => {
+      if (crash) {
+        crash = false;
+        throw new Error('process died');
+      }
+    };
+    const t1 = await runLiquidationTick(h.deps);
+    expect(t1.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_tick_error' });
+    const planned = (await h.rungs.findLive('pos-1'))!;
+    expect(planned.state).toBe('planned');
+    expect(planned.plan.fromInsurance).toBeGreaterThan(0n);
+
+    const t2 = await runLiquidationTick(h.deps);
+    expect(t2.items.map((i) => i.outcome)).toEqual(['liquidated']);
+    expect(h.row.status).toBe('liquidated');
+    expect(h.lossKeys()).toHaveLength(1);
+  });
+
+  it("the race loser replays the winner's planned insurance rung without a key lookup", async () => {
+    const h = harness();
+    h.price.current = '84';
+    const stale = h.snapshot();
+    let crash = true;
+    h.hooks.beforePost = () => {
+      if (crash) {
+        crash = false;
+        throw new Error('winner died before posting');
+      }
+    };
+    await runLiquidationTick(h.deps);
+    const loser = {
+      ...h.deps,
+      positions: {
+        async listOpen() {
+          return [stale];
+        },
+      },
+    };
+    // The live rung is found before anything is decided, whatever the snapshot.
+    const t = await runLiquidationTick(loser);
+    expect(t.items.map((i) => i.outcome)).toEqual(['liquidated']);
+  });
+});
+
+describe('the close announcement is at-least-once', () => {
+  it('a crash after the close commits but before the bus publish: the next tick re-publishes once, then stops', async () => {
+    const h = harness();
+    h.price.current = '60';
+    let fail = true;
+    const published: string[] = [];
+    h.deps.closer.announceLiquidated = async (id, meta) => {
+      if (fail) {
+        fail = false;
+        throw new Error('bus down');
+      }
+      published.push(`${id}:${meta.liquidationId}`);
+    };
+    const t1 = await runLiquidationTick(h.deps);
+    expect(t1.items[0]).toMatchObject({ outcome: 'errored' });
+    expect(h.row.status).toBe('liquidated');
+    expect(published).toEqual([]);
+
+    const t2 = await runLiquidationTick(h.deps);
+    expect(t2.errored).toBe(0);
+    expect(published).toEqual(['pos-1:liq:pos-1']);
+    await runLiquidationTick(h.deps);
+    expect(published).toHaveLength(1); // recorded as announced
+  });
+
+  it('a bus that stays down is reported on its own item every tick', async () => {
+    const h = harness();
+    h.price.current = '60';
+    h.deps.closer.announceLiquidated = async () => {
+      throw new Error('bus down');
+    };
+    await runLiquidationTick(h.deps);
+    const t2 = await runLiquidationTick(h.deps);
+    expect(t2.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_announce_failed' });
+  });
+});
+
 describe('in-flight rungs from before rung ids', () => {
   it('an existing claim on a still-open position keeps the old behaviour: parked, nothing planned, nothing posted', async () => {
     const h = harness();
@@ -441,7 +621,7 @@ describe('insurance on a replay', () => {
     expect(rung.plan.fromInsurance).toBeGreaterThan(0n);
     h.hooks.beforePost = undefined;
 
-    h.insurance.available = 0n;
+    h.insurance.available = 0n; // the ledger now refuses the insurance leg
     const t2 = await runLiquidationTick(h.deps);
     expect(t2.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_insurance_underfunded_on_replay' });
     expect(t2.errored).toBe(1);
@@ -478,6 +658,7 @@ describe('the memory store models the lock and the one-live-rung rule', () => {
     recipes: [],
     sizeClosed: amt('1'),
     marginRemaining: amt('90'),
+    marginTaken: amt('10'),
     reason: 'ladder_partial',
     fromInsurance: 0n,
     marginAsset: 'USDT',
@@ -485,7 +666,14 @@ describe('the memory store models the lock and the one-live-rung rule', () => {
 
   it('a second begin on a position with a live rung gets the first rung back, whatever the row looks like', async () => {
     const h = harness();
-    const input = { positionId: 'pos-1', kind: 'partial' as const, fromSize: amt('10'), fromMargin: amt('100'), plan: plan() };
+    const input = {
+      positionId: 'pos-1',
+      liquidationId: 'liq:pos-1',
+      kind: 'partial' as const,
+      fromSize: amt('10'),
+      fromMargin: amt('100'),
+      plan: plan(),
+    };
     const a = await h.rungs.begin({ ...input, rungId: 'r-a' });
     const b = await h.rungs.begin({ ...input, rungId: 'r-b' });
     expect(a.status).toBe('created');
@@ -494,7 +682,14 @@ describe('the memory store models the lock and the one-live-rung rule', () => {
 
   it('begin refuses a snapshot that is not the row, a closed row, and a missing row', async () => {
     const h = harness();
-    const input = { rungId: 'r-1', kind: 'partial' as const, fromSize: amt('10'), fromMargin: amt('100'), plan: plan() };
+    const input = {
+      rungId: 'r-1',
+      liquidationId: 'liq:pos-1',
+      kind: 'partial' as const,
+      fromSize: amt('10'),
+      fromMargin: amt('100'),
+      plan: plan(),
+    };
     expect(await h.rungs.begin({ ...input, positionId: 'pos-1', fromSize: amt('9') })).toEqual({ status: 'changed' });
     expect(await h.rungs.begin({ ...input, positionId: 'pos-1', fromMargin: amt('99') })).toEqual({ status: 'changed' });
     expect(await h.rungs.begin({ ...input, positionId: 'nope' })).toEqual({ status: 'changed' });
@@ -530,6 +725,7 @@ describe('plan codec', () => {
       ],
       sizeClosed: huge,
       marginRemaining: big,
+      marginTaken: huge,
       reason: 'ladder_partial',
       fromInsurance: huge,
       marginAsset: 'USDT',

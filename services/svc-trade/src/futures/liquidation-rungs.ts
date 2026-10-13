@@ -5,7 +5,7 @@
  * rung. It is written down BEFORE its first ledger post and walks one way:
  *
  *     planned ──post every recipe──▶ posted ──row moves, same tx──▶ applied
- *        └───────────── row changed under it ───────────────────▶ abandoned
+ *        └──── a row that cannot be reconciled with a booked loss ──▶ abandoned ──operator──▶ resolved
  *
  * WHY THE RUNG IS STORED, NOT RE-DERIVED. The ledger dedupes on a recipe's
  * idempotency key, and the key does not carry the amounts (soon the ledger will
@@ -19,6 +19,19 @@
  * (size, mark) then collide with an old rung's booked key: the ledger returns the
  * OLD transaction, no new loss is booked and the row is reduced anyway. A rung id
  * minted per rung removes the collision.
+ *
+ * ONCE THE LOSS IS BOOKED, THE ROW MOVES BY A DELTA, NOT BY A SNAPSHOT. `begin`
+ * compares the row with what the decision read BEFORE any money moves — a stale
+ * snapshot is refused there. After the posts, ordinary writers (funding takes
+ * margin, the trader adds or withdraws margin, closes part of the position) can
+ * legitimately move the row, and refusing the rung because they did would leave a
+ * booked loss the row never reflects and invite a re-plan that books the same
+ * tranche again. So a partial rung applies `size - sizeClosed` and
+ * `margin_current - marginTaken` (floored at zero) to whatever the row is now. Only
+ * what cannot be reconciled is abandoned — a row that is closed, or no larger than
+ * the tranche, or a closing rung whose stored residual release no longer matches
+ * the row's margin — and an abandoned rung PARKS the position: no new rung is
+ * planned until an operator has reconciled it and marked it `resolved`.
  *
  * WHY EVERY ROW-STATE CHECK IS UNDER A ROW LOCK. Deciding on a snapshot read
  * earlier by `listOpen` and then writing is how a stale replica books a second
@@ -34,7 +47,7 @@
 import { type Amount, type EntryInput, type PostRequest } from '@intafaced/ledger-client';
 
 export type RungKind = 'partial' | 'closing';
-export type RungState = 'planned' | 'posted' | 'applied' | 'abandoned';
+export type RungState = 'planned' | 'posted' | 'applied' | 'abandoned' | 'resolved';
 
 /** What the rung committed to, fixed before its first post. */
 export interface RungPlan {
@@ -42,8 +55,10 @@ export interface RungPlan {
   recipes: PostRequest[];
   /** Leaves the position (a partial rung) — the whole row on a closing rung. */
   sizeClosed: Amount;
-  /** What `margin_current` becomes. Zero on a closing rung. */
+  /** What `margin_current` becomes. Zero on a closing rung. Informational: a partial rung applies `marginTaken` as a delta. */
   marginRemaining: Amount;
+  /** The margin this rung's loss took out of the position's pot (the loss recipe's `fromMargin`). */
+  marginTaken: Amount;
   reason: string;
   /** The insurance leg of the loss: re-checked before a replay that has not booked it. */
   fromInsurance: Amount;
@@ -53,6 +68,8 @@ export interface RungPlan {
 export interface RungRecord {
   rungId: string;
   positionId: string;
+  /** The lifecycle id the closing announcement is keyed on. */
+  liquidationId: string;
   kind: RungKind;
   /** The row this rung was planned against: it applies only to a row still exactly like this. */
   fromSize: Amount;
@@ -64,6 +81,7 @@ export interface RungRecord {
 export interface BeginRungInput {
   rungId: string;
   positionId: string;
+  liquidationId: string;
   kind: RungKind;
   fromSize: Amount;
   fromMargin: Amount;
@@ -84,9 +102,10 @@ export type ApplyRungResult =
   /** Another call already did. */
   | { status: 'already_applied' }
   /**
-   * The row no longer matches the rung (or the reduction matched no row). The
-   * rung is now 'abandoned'. If the loss was booked, it is booked against a row
-   * that did not move by it — an operator's problem, never a success.
+   * The row cannot be reconciled with the booked loss (closed or gone, no larger
+   * than the tranche, or a closing rung whose stored release no longer matches the
+   * row). The rung is now 'abandoned' and the position is parked — an operator's
+   * problem, never a success.
    */
   | { status: 'abandoned'; reason: 'row_changed' | 'row_missing' | 'reduction_no_op' }
   /** The rung was abandoned earlier (or never existed): nothing to apply. */
@@ -104,11 +123,19 @@ export interface LiquidationRungStore {
   /** Every recipe of the rung is booked. Idempotent. */
   markPosted(rungId: string): Promise<void>;
   /**
-   * Under a row lock, in ONE transaction: if the row still matches the rung,
-   * apply its reduction (partial) or close it (closing) AND set the rung
-   * 'applied'. A row that no longer matches abandons the rung instead.
+   * Under a row lock, in ONE transaction: apply the rung to the row AND set it
+   * 'applied'. Partial: size and margin move by the stored DELTA on whatever the
+   * row is now (open, and larger than the tranche). Closing: the row closes only
+   * if it is still the size and margin the stored release was computed from.
+   * Anything else abandons the rung.
    */
   apply(positionId: string, rungId: string): Promise<ApplyRungResult>;
+  /** The position's LATEST rung is 'abandoned': no new rung may be planned until an operator marks it 'resolved'. */
+  isParked(positionId: string): Promise<boolean>;
+  /** Applied closing rungs whose bus announcement has not been recorded as published. Oldest first. */
+  listUnannounced(limit: number): Promise<RungRecord[]>;
+  /** The announcement went out (the publish key makes a repeat harmless). */
+  markAnnounced(rungId: string): Promise<void>;
 }
 
 /** A mint of rung ids. Injected so tests can pin them; production uses `crypto.randomUUID`. */
@@ -123,6 +150,7 @@ export interface EncodedRungPlan {
   })[];
   sizeClosed: string;
   marginRemaining: string;
+  marginTaken: string;
   reason: string;
   fromInsurance: string;
   marginAsset: string;
@@ -136,6 +164,7 @@ export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
     })),
     sizeClosed: plan.sizeClosed.toString(),
     marginRemaining: plan.marginRemaining.toString(),
+    marginTaken: plan.marginTaken.toString(),
     reason: plan.reason,
     fromInsurance: plan.fromInsurance.toString(),
     marginAsset: plan.marginAsset,
@@ -150,6 +179,7 @@ export function decodeRungPlan(encoded: EncodedRungPlan): RungPlan {
     })),
     sizeClosed: BigInt(encoded.sizeClosed),
     marginRemaining: BigInt(encoded.marginRemaining),
+    marginTaken: BigInt(encoded.marginTaken),
     reason: encoded.reason,
     fromInsurance: BigInt(encoded.fromInsurance),
     marginAsset: encoded.marginAsset,
@@ -165,8 +195,8 @@ export function decodeRungPlan(encoded: EncodedRungPlan): RungPlan {
  */
 export interface RungRowBook {
   read(positionId: string): { status: 'open' | 'closed' | 'liquidated' | 'closing'; size: Amount; margin: Amount } | null;
-  /** Called only for a row that is open and larger than `sizeClosed`. */
-  reduce(positionId: string, sizeClosed: Amount, marginRemaining: Amount): void;
+  /** Called only for a row that is open and larger than `sizeClosed`; `newMargin` is already `max(margin - marginTaken, 0)`. */
+  reduce(positionId: string, sizeClosed: Amount, newMargin: Amount): void;
   close(positionId: string): void;
 }
 
@@ -182,8 +212,9 @@ export interface RungRowBook {
  * runs the same round trip production does rather than sharing object identity.
  */
 export function memoryLiquidationRungStore(rows: RungRowBook): LiquidationRungStore & { all(): RungRecord[] } {
-  const rungs = new Map<string, { rec: Omit<RungRecord, 'plan'>; plan: EncodedRungPlan }>();
-  const view = (e: { rec: Omit<RungRecord, 'plan'>; plan: EncodedRungPlan }): RungRecord => ({ ...e.rec, plan: decodeRungPlan(e.plan) });
+  type Entry = { rec: Omit<RungRecord, 'plan'>; plan: EncodedRungPlan; announced: boolean };
+  const rungs = new Map<string, Entry>();
+  const view = (e: Entry): RungRecord => ({ ...e.rec, plan: decodeRungPlan(e.plan) });
   const live = (positionId: string) =>
     [...rungs.values()].find((e) => e.rec.positionId === positionId && (e.rec.state === 'planned' || e.rec.state === 'posted'));
 
@@ -198,16 +229,18 @@ export function memoryLiquidationRungStore(rows: RungRowBook): LiquidationRungSt
       if (existing) return { status: 'live', rung: view(existing) };
       const row = rows.read(input.positionId);
       if (!row || row.status !== 'open' || row.size !== input.fromSize || row.margin !== input.fromMargin) return { status: 'changed' };
-      const entry = {
+      const entry: Entry = {
         rec: {
           rungId: input.rungId,
           positionId: input.positionId,
+          liquidationId: input.liquidationId,
           kind: input.kind,
           fromSize: input.fromSize,
           fromMargin: input.fromMargin,
-          state: 'planned' as RungState,
+          state: 'planned',
         },
         plan: encodeRungPlan(input.plan),
+        announced: false,
       };
       rungs.set(input.rungId, entry);
       return { status: 'created', rung: view(entry) };
@@ -220,28 +253,41 @@ export function memoryLiquidationRungStore(rows: RungRowBook): LiquidationRungSt
       const e = rungs.get(rungId);
       if (!e || e.rec.positionId !== positionId) return { status: 'not_live' };
       if (e.rec.state === 'applied') return { status: 'already_applied' };
-      if (e.rec.state === 'abandoned') return { status: 'not_live' };
+      if (e.rec.state === 'abandoned' || e.rec.state === 'resolved') return { status: 'not_live' };
+      const abandon = (reason: 'row_changed' | 'row_missing' | 'reduction_no_op'): ApplyRungResult => {
+        e.rec.state = 'abandoned';
+        return { status: 'abandoned', reason };
+      };
       const row = rows.read(positionId);
-      if (!row) {
-        e.rec.state = 'abandoned';
-        return { status: 'abandoned', reason: 'row_missing' };
-      }
-      if (row.status !== 'open' || row.size !== e.rec.fromSize || row.margin !== e.rec.fromMargin) {
-        e.rec.state = 'abandoned';
-        return { status: 'abandoned', reason: 'row_changed' };
-      }
+      if (!row) return abandon('row_missing');
+      if (row.status !== 'open') return abandon('row_changed');
       const plan = decodeRungPlan(e.plan);
       if (e.rec.kind === 'partial') {
-        if (plan.sizeClosed <= 0n || row.size <= plan.sizeClosed) {
-          e.rec.state = 'abandoned';
-          return { status: 'abandoned', reason: 'reduction_no_op' };
-        }
-        rows.reduce(positionId, plan.sizeClosed, plan.marginRemaining < 0n ? 0n : plan.marginRemaining);
+        if (plan.sizeClosed <= 0n || row.size <= plan.sizeClosed) return abandon('reduction_no_op');
+        const margin = row.margin - plan.marginTaken;
+        rows.reduce(positionId, plan.sizeClosed, margin < 0n ? 0n : margin);
       } else {
+        // The stored residual release was computed from this row's margin; a row
+        // that has since moved makes the release wrong, and that is not ours to guess.
+        if (row.size !== e.rec.fromSize || row.margin !== e.rec.fromMargin) return abandon('row_changed');
         rows.close(positionId);
       }
       e.rec.state = 'applied';
       return { status: 'applied' };
+    },
+    async isParked(positionId) {
+      const mine = [...rungs.values()].filter((e) => e.rec.positionId === positionId);
+      return mine.length > 0 && mine[mine.length - 1]!.rec.state === 'abandoned';
+    },
+    async listUnannounced(limit) {
+      return [...rungs.values()]
+        .filter((e) => e.rec.kind === 'closing' && e.rec.state === 'applied' && !e.announced)
+        .slice(0, limit)
+        .map(view);
+    },
+    async markAnnounced(rungId) {
+      const e = rungs.get(rungId);
+      if (e) e.announced = true;
     },
   };
 }

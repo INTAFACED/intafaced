@@ -38,6 +38,19 @@ describe('reportLiquidationTick', () => {
   });
 });
 
+describe('reportLiquidationTick: an abandoned rung', () => {
+  it('logs a position parked behind an abandoned rung at error level, with its own message', () => {
+    const logged: string[] = [];
+    reportLiquidationTick(
+      tick([{ positionId: 'pos-x', outcome: 'skipped_already', reason: 'trade.liquidation_abandoned_parked' }]),
+      (_n, err) => logged.push((err as Error).message),
+    );
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toContain('latest rung was abandoned');
+    expect(logged[0]).toContain('pos-x');
+  });
+});
+
 describe('startFuturesJobs wiring', () => {
   it('hands the liquidation tick the SQL rung store (a rung that is not stored cannot be replayed)', () => {
     const src = readFileSync(fileURLToPath(new URL('./futures-jobs.ts', import.meta.url)), 'utf8');
