@@ -32,7 +32,6 @@ const migrations = readdirSync(drizzleDir)
 const PAGER = '71111111-1111-4111-8111-111111111111';
 const OTHER = '72222222-2222-4222-8222-222222222222';
 const EMPTY = '73333333-3333-4333-8333-333333333333';
-const TIED_AT = '2026-03-01T12:00:00.000Z';
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -62,6 +61,8 @@ describe('PostgresLedger.historyPage', () => {
   let engine: PostgresLedger;
   /** txIds of the 7 tied USDT entries, in entry-id order. */
   let tiedTxIds: string[] = [];
+  /** Shared timestamp of the tied block: after the real postings, as inserted last (ids and times agree). */
+  let TIED_AT = '';
 
   const move = (userId: string, key: string, asset: string, value: string) => ({
     idempotencyKey: key,
@@ -85,6 +86,8 @@ describe('PostgresLedger.historyPage', () => {
     await engine.post(move(PAGER, 'pg-usdt-2', 'USDT', '3'));
     // Another user in the same asset: must never appear.
     await engine.post(move(OTHER, 'pg-other-1', 'USDT', '999'));
+
+    TIED_AT = new Date(Date.now() + 60_000).toISOString();
 
     // Seven entries on the pager's USDT account sharing ONE timestamp. Posted
     // rows are bulk-inserted: the chain is deliberately not extended (this
@@ -149,6 +152,18 @@ describe('PostgresLedger.historyPage', () => {
     expect(tied).toEqual([...tiedTxIds].reverse());
   });
 
+  it('id order and time order agree: the id-keyed page equals ORDER BY posted_at DESC, id DESC', async () => {
+    const expected = await db!.sql<Array<{ tx_id: string }>>`
+      SELECT e.tx_id FROM ledger_entries e
+        JOIN ledger_tx t ON t.id = e.tx_id
+        JOIN accounts a ON a.id = e.account_id
+       WHERE a.owner_id = ${PAGER} AND a.kind = 'available'::account_kind
+       ORDER BY t.posted_at DESC, e.id DESC
+    `;
+    const { seen } = await walk({}, 4);
+    expect(seen.map((e) => e.txId)).toEqual(expected.map((r) => r.tx_id));
+  });
+
   it('filters by asset and the cursor stays inside that filter', async () => {
     const usd = await engine.historyPage(scope({ assetId: 'USD' }));
     expect(usd.entries).toHaveLength(1);
@@ -162,10 +177,10 @@ describe('PostgresLedger.historyPage', () => {
 
   it('`before` bounds the first page (strictly before)', async () => {
     const page = await engine.historyPage(scope({ before: TIED_AT, limit: 200 }));
-    // Real postings are "now", after TIED_AT; nothing is strictly before it.
-    expect(page.entries).toEqual([]);
+    // The 3 real postings are earlier than the tied block; the tied block is not strictly before itself.
+    expect(page.entries).toHaveLength(3);
     const page2 = await engine.historyPage(scope({ before: new Date(Date.parse(TIED_AT) + 1).toISOString(), limit: 200 }));
-    expect(page2.entries).toHaveLength(7);
+    expect(page2.entries).toHaveLength(10);
   });
 
   it('answers an empty history, and an account that never existed, as empty with no cursor (and creates nothing)', async () => {
@@ -190,7 +205,7 @@ describe('PostgresLedger.historyPage', () => {
          WHERE a.owner_id = ${OTHER} AND a.asset_id = 'USDT' LIMIT 1
       `
     )[0]!.id;
-    const forged = encodeHistoryCursor({ postedAt: new Date('2099-01-01T00:00:00Z'), entryId: otherId });
+    const forged = encodeHistoryCursor({ entryId: String(BigInt(otherId) + 1000n) });
 
     const page = await engine.historyPage(scope({ cursor: forged, limit: 200 }));
     expect(page.entries).toHaveLength(10);
@@ -201,10 +216,10 @@ describe('PostgresLedger.historyPage', () => {
   it('REFUSES garbage cursors with a typed error instead of answering page one', async () => {
     const bad = [
       'not-a-cursor!',
-      Buffer.from('v1.abc.def').toString('base64url'),
-      Buffer.from('v2.1.1').toString('base64url'),
-      Buffer.from("v1.1.1'; DROP TABLE accounts;--").toString('base64url'),
-      Buffer.from('v1.1.99999999999999999999').toString('base64url'),
+      Buffer.from('v2.abc').toString('base64url'),
+      Buffer.from('v1.1.1').toString('base64url'),
+      Buffer.from("v2.1'; DROP TABLE accounts;--").toString('base64url'),
+      Buffer.from('v2.99999999999999999999').toString('base64url'),
     ];
     for (const cursor of bad) {
       await expect(engine.historyPage(scope({ cursor }))).rejects.toMatchObject({ code: 'ledger.history_cursor_invalid' });

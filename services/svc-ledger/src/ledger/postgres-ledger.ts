@@ -389,23 +389,25 @@ export class PostgresLedger implements LedgerClient {
   }
 
   /**
-   * One page of entries, newest first, over `(posted_at DESC, entry id DESC)`.
+   * One page of entries, newest first, keyed on the entry id.
    *
    * A READ, like `history()`: no lock, no write, no path into `post()`. Keyset
-   * paging (row comparison against the cursor position), never OFFSET, so page N
-   * costs the same as page 1 and a movement posted mid-browse cannot shift a
-   * boundary. The accounts come from `input` alone — owner, kind, purpose, and
-   * optionally one asset — and the cursor contributes only a position inside
-   * that set, so a forged cursor cannot widen what is readable.
+   * paging, never OFFSET, so page N costs the same as page 1 and a movement
+   * posted mid-browse cannot shift a boundary. The accounts come from `input`
+   * alone — owner, kind, purpose, and optionally one asset — and the cursor
+   * contributes only an entry id to start below, so a forged cursor cannot widen
+   * what is readable.
+   *
+   * WHY ID ORDER IS TIME ORDER. `post()` takes the `chain_tip ... FOR UPDATE`
+   * lock first, then stamps `posted_at = new Date()` and inserts the entries
+   * (bigserial `ledger_entries.id`) inside that same transaction. Posts are
+   * therefore serialised: a later id has a later-or-equal `posted_at`. So the
+   * page walks each account's `ledger_entries_account_idx (account_id, id)`
+   * backwards, `LIMIT n+1` per account (LATERAL), and merges the accounts —
+   * bounded work per page however long the history, no sort of the whole set.
+   * `before` is a time filter applied inside that walk.
    *
    * LIMIT + 1 tells us whether a next page exists without a count.
-   *
-   * INDEX NOTE. `posted_at` lives on `ledger_tx`, so no single index can cover
-   * `(account_id, posted_at, id)`. The plan is `accounts_owner_idx` then
-   * `ledger_entries_account_idx (account_id, id)` plus a sort of that account's
-   * entries; fine at current account sizes. Making it a pure index walk would
-   * mean copying `posted_at` onto `ledger_entries`, a change to the money table
-   * and the posting path that this read-only change deliberately does not make.
    */
   async historyPage(input: HistoryPageInput): Promise<HistoryPage> {
     const cursor = input.cursor === undefined ? undefined : decodeHistoryCursor(input.cursor);
@@ -413,23 +415,28 @@ export class PostgresLedger implements LedgerClient {
     const limit = input.limit;
     const before = input.before === undefined ? null : new Date(input.before);
     const assetId = input.assetId ?? null;
-    const cursorAt = cursor?.postedAt ?? null;
     const cursorId = cursor?.entryId ?? null;
 
     const rows = await this.sql<Array<HistoryRow & { entry_id: string; asset_id: string }>>`
-      SELECT e.id::text AS entry_id, t.id AS tx_id, t.module, t.reason, e.direction, e.amount,
-             e.asset_id, t.posted_at
+      SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at
         FROM accounts a
-        JOIN ledger_entries e ON e.account_id = a.id
-        JOIN ledger_tx t ON t.id = e.tx_id
+        CROSS JOIN LATERAL (
+          SELECT e.id AS entry_id, e.tx_id, e.direction, e.amount, e.asset_id
+            FROM ledger_entries e
+            JOIN ledger_tx lt ON lt.id = e.tx_id
+           WHERE e.account_id = a.id
+             AND (${cursorId}::bigint IS NULL OR e.id < ${cursorId}::bigint)
+             AND (${before}::timestamptz IS NULL OR lt.posted_at < ${before}::timestamptz)
+           ORDER BY e.id DESC
+           LIMIT ${limit + 1}
+        ) x
+        JOIN ledger_tx t ON t.id = x.tx_id
        WHERE a.owner_type = ${input.ownerType}::owner_type
          AND a.owner_id   = ${input.ownerId}
          AND a.kind       = ${input.kind}::account_kind
          AND a.purpose    = ${purpose}
          AND (${assetId}::text IS NULL OR a.asset_id = ${assetId}::text)
-         AND (${before}::timestamptz IS NULL OR t.posted_at < ${before}::timestamptz)
-         AND (${cursorAt}::timestamptz IS NULL OR (t.posted_at, e.id) < (${cursorAt}::timestamptz, ${cursorId}::bigint))
-       ORDER BY t.posted_at DESC, e.id DESC
+       ORDER BY x.entry_id DESC
        LIMIT ${limit + 1}
     `;
 
@@ -445,7 +452,7 @@ export class PostgresLedger implements LedgerClient {
         postedAt: r.posted_at,
         assetId: r.asset_id,
       })),
-      nextCursor: rows.length > limit && last ? encodeHistoryCursor({ postedAt: last.posted_at, entryId: last.entry_id }) : null,
+      nextCursor: rows.length > limit && last ? encodeHistoryCursor({ entryId: last.entry_id }) : null,
     };
   }
 

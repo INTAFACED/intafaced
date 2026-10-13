@@ -220,9 +220,12 @@ export function parseHistoryDoorInput(body: unknown): HistoryInput {
  * The scope comes ONLY from this input, which only a service can send. The
  * cursor carries a position, never an account.
  *
- * ORDER. `(posted_at DESC, entry id DESC)`. The entry id is a global bigserial,
- * so the pair is unique and a page boundary can fall between two entries with
- * the same timestamp without skipping or repeating either.
+ * ORDER. Newest first by entry id (`ledger_entries.id`, a global bigserial).
+ * That IS time order: `post()` takes the chain-tip lock, stamps `posted_at` and
+ * inserts the entries under it, so a later id always has a later-or-equal
+ * `posted_at`. Ids are unique, so a page boundary can fall between two entries
+ * with the same timestamp without skipping or repeating either, and the read can
+ * walk `ledger_entries_account_idx (account_id, id)` instead of sorting.
  */
 export const HISTORY_PAGE_DEFAULT_LIMIT = 50;
 export const HISTORY_PAGE_MAX_LIMIT = 200;
@@ -260,7 +263,6 @@ export interface HistoryPage {
 }
 
 export interface HistoryCursorPosition {
-  readonly postedAt: Date;
   /** `ledger_entries.id` (bigserial) as a decimal string. */
   readonly entryId: string;
 }
@@ -275,19 +277,18 @@ export class HistoryCursorInvalidError extends LedgerError {
 
 const BIGINT_MAX = 9223372036854775807n;
 
-/** Opaque to callers: base64url of `v1.<posted_at epoch ms>.<entry id>`. */
+/** Opaque to callers: base64url of `v2.<entry id>`. */
 export function encodeHistoryCursor(pos: HistoryCursorPosition): string {
-  return Buffer.from(`v1.${pos.postedAt.getTime()}.${pos.entryId}`, 'utf8').toString('base64url');
+  return Buffer.from(`v2.${pos.entryId}`, 'utf8').toString('base64url');
 }
 
 export function decodeHistoryCursor(cursor: string): HistoryCursorPosition {
   if (!/^[A-Za-z0-9_-]+$/.test(cursor)) throw new HistoryCursorInvalidError();
-  const m = /^v1\.(\d{1,15})\.(\d{1,19})$/.exec(Buffer.from(cursor, 'base64url').toString('utf8'));
+  const m = /^v2\.(\d{1,19})$/.exec(Buffer.from(cursor, 'base64url').toString('utf8'));
   if (!m) throw new HistoryCursorInvalidError();
-  const postedAt = new Date(Number(m[1]));
-  const id = BigInt(m[2]!);
-  if (Number.isNaN(postedAt.getTime()) || id < 1n || id > BIGINT_MAX) throw new HistoryCursorInvalidError();
-  return { postedAt, entryId: id.toString() };
+  const id = BigInt(m[1]!);
+  if (id < 1n || id > BIGINT_MAX) throw new HistoryCursorInvalidError();
+  return { entryId: id.toString() };
 }
 
 /** Door parse. Does NOT call `refuseHistoryCursor`: here `cursor` is the field. */

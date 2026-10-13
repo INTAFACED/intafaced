@@ -128,10 +128,9 @@ describe('history page cursor and input (pure)', () => {
   const base = { ownerType: 'user', ownerId: USER, kind: 'available' };
 
   it('round-trips a position and is opaque base64url', () => {
-    const postedAt = new Date('2026-03-01T12:00:00.123Z');
-    const cursor = encodeHistoryCursor({ postedAt, entryId: '42' });
+    const cursor = encodeHistoryCursor({ entryId: '42' });
     expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(decodeHistoryCursor(cursor)).toEqual({ postedAt, entryId: '42' });
+    expect(decodeHistoryCursor(cursor)).toEqual({ entryId: '42' });
   });
 
   it('refuses anything this door did not issue', () => {
@@ -139,8 +138,9 @@ describe('history page cursor and input (pure)', () => {
       '',
       '!!',
       'AAAA',
-      Buffer.from('v1.1.0').toString('base64url'),
-      Buffer.from('v1.1.9223372036854775808').toString('base64url'),
+      Buffer.from('v2.0').toString('base64url'),
+      Buffer.from('v2.9223372036854775808').toString('base64url'),
+      Buffer.from('v1.1.5').toString('base64url'),
     ]) {
       expect(() => decodeHistoryCursor(bad)).toThrow(HistoryCursorInvalidError);
     }
