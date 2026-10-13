@@ -396,7 +396,9 @@ export class OutreachCrm {
         AND (${input.ownerUserId ?? null}::uuid IS NULL OR o.owner_user_id=${input.ownerUserId ?? null}::uuid)
         AND (${input.query ?? null}::text IS NULL OR strpos(lower(c.record->>'name'),lower(${input.query ?? ''}))>0 OR strpos(lower(c.record->>'email'),lower(${input.query ?? ''}))>0
           OR EXISTS(SELECT 1 FROM ops.crm_contact_aliases al JOIN ops.crm_contacts ac ON ac.id=al.contact_id
-            WHERE al.canonical_contact_id=o.contact_id AND (strpos(lower(ac.record->>'name'),lower(${input.query ?? ''}))>0 OR strpos(lower(ac.record->>'email'),lower(${input.query ?? ''}))>0)))
+            WHERE al.canonical_contact_id=o.contact_id
+            AND NOT EXISTS(SELECT 1 FROM ops.crm_erasure_intents e WHERE ac.id = ANY(e.contact_ids))
+            AND (strpos(lower(ac.record->>'name'),lower(${input.query ?? ''}))>0 OR strpos(lower(ac.record->>'email'),lower(${input.query ?? ''}))>0)))
         AND (${cursor?.at ?? null}::timestamptz IS NULL OR (o.created_at,o.id)<(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
         ORDER BY o.created_at DESC,o.id DESC LIMIT ${input.limit + 1}`;
       const items = rows.slice(0, input.limit).map((r) => crmOpportunitySchema.parse(r.record));
@@ -413,6 +415,7 @@ export class OutreachCrm {
             JOIN ops.crm_contact_aliases al ON al.canonical_contact_id=o.contact_id JOIN ops.crm_contacts ac ON ac.id=al.contact_id
             WHERE o.id = ANY(${tx.array(items.map((item) => item.id))}::uuid[])
             AND NOT (strpos(lower(c.record->>'name'),lower(${input.query}))>0 OR strpos(lower(c.record->>'email'),lower(${input.query}))>0)
+            AND NOT EXISTS(SELECT 1 FROM ops.crm_erasure_intents e WHERE ac.id = ANY(e.contact_ids))
             AND (strpos(lower(ac.record->>'name'),lower(${input.query}))>0 OR strpos(lower(ac.record->>'email'),lower(${input.query}))>0)
             ORDER BY o.id,al.created_at,ac.id`
           : [];
@@ -541,10 +544,12 @@ export class OutreachCrm {
   async updateNextAction(raw: CrmNextActionInput, actorUserId: string) {
     actorUserId = uuidSchema.parse(actorUserId).toLowerCase();
     const input = normalizeIds(crmNextActionInputSchema.parse(raw));
+    // One instant has one spelling, so a retry that writes the same moment in another offset replays instead of conflicting.
+    input.dueAt = new Date(input.dueAt).toISOString();
     return this.mutate(actorUserId, input, 'updateNextAction', async (tx, old) => {
       if (old.revision !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
       if (old.stage === 'closed') throw new OutreachError('ops.crm.opportunity_closed');
-      const dueAt = new Date(input.dueAt).toISOString();
+      const dueAt = input.dueAt;
       const row = await this.saveOpportunity(tx, {
         ...old,
         nextAction: { description: input.description, dueAt },

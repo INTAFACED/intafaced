@@ -5,7 +5,7 @@ import { CrmMetrics, CrmTasks, CrmCampaigns, CrmDuplicates, CrmExports, CrmEnqui
 import { CrmMessages } from './crm-messages';
 import { CrmPrivacy } from './crm-privacy';
 import { crmDate, crmLocalDate, crmOverdueCalendarDays, crmRelative, crmTime } from '@/lib/crm-browser';
-import { createOpenGate, draftOf } from '@/lib/crm-open-gate';
+import { createOpenGate, draftOf, followRecord } from '@/lib/crm-open-gate';
 import type {
   CrmActivity,
   CrmContact,
@@ -266,6 +266,8 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
   // The header's next-action editor has its own fields, so typing there never edits the stage form's follow-up.
   const [editDescription, setEditDescription] = useState('');
   const [editDue, setEditDue] = useState('');
+  // What the four next-action fields were last set from the record, so a same-enquiry refresh can tell untouched fields from typed ones.
+  const loadedAction = useRef({ description: '', due: '' });
   const [disposition, setDisposition] = useState('proceeded');
   const [evidence, setEvidence] = useState('');
   const pending = useRef(new Map<string, { inputKey: string; requestId: string }>());
@@ -367,9 +369,9 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
           detailHeading.current?.focus({ preventScroll: phone || !stacked });
         });
       }
+      const draft = draftOf(result, crmLocalDate);
       // A refresh of the same record with nothing typed also re-bases the form, so a change made elsewhere does not read as an unsaved edit.
       if (changedRecord || rebase || (silent && !live.current.dirty)) {
-        const draft = draftOf(result, crmLocalDate);
         setNewOwner(draft.newOwner);
         setNewStage(draft.newStage);
         setActionDescription(draft.actionDescription);
@@ -379,7 +381,16 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
         setReason('');
         setEvidence('');
         setNote('');
+      } else {
+        // Same enquiry after a write made here or elsewhere: untouched next-action fields follow the record, typed ones stay.
+        // Updater form, so the comparison sees what is in the field now, not what it held when this call started.
+        const loaded = loadedAction.current;
+        setEditDescription((value) => followRecord(value, loaded.description, draft.actionDescription));
+        setEditDue((value) => followRecord(value, loaded.due, draft.actionDue));
+        setActionDescription((value) => followRecord(value, loaded.description, draft.actionDescription));
+        setActionDue((value) => followRecord(value, loaded.due, draft.actionDue));
       }
+      loadedAction.current = { description: draft.actionDescription, due: draft.actionDue };
       return true;
     } catch (failure) {
       // A newer open owns the screen now; this older call's failure must not clear or alert over it.
@@ -406,7 +417,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       newStage !== detail.opportunity.stage ||
       actionDescription !== (detail.opportunity.nextAction?.description ?? '') ||
       actionDue !== originalDue ||
-      editDescription !== (detail.opportunity.nextAction?.description ?? '') ||
+      editDescription.trim() !== (detail.opportunity.nextAction?.description ?? '') ||
       editDue !== originalDue ||
       Boolean(reason.trim() || evidence.trim() || note.trim()) ||
       messageDraftDirty ||
@@ -476,10 +487,10 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
         setEvidence('');
       }
       if (action === 'updateNextAction') {
-        // The saved values are now the record's, so the stage form's follow-up fields must not read as unsaved edits.
-        setActionDescription(String(input.description));
-        setActionDue(crmLocalDate(String(input.dueAt)));
+        // The editor's own fields now hold the saved (trimmed) values. The stage form's follow-up is left alone: an unsaved
+        // draft there is kept, and an untouched one follows the record when the refresh below re-bases it.
         setEditDescription(String(input.description));
+        setEditDue(crmLocalDate(String(input.dueAt)));
       }
       const refreshed = await open(detail.opportunity.id, false);
       await load();
@@ -943,7 +954,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                         description={editDescription}
                         due={editDue}
                         unchanged={
-                          editDescription === detail.opportunity.nextAction.description &&
+                          editDescription.trim() === detail.opportunity.nextAction.description &&
                           editDue === crmLocalDate(detail.opportunity.nextAction.dueAt)
                         }
                         busy={busy}

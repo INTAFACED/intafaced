@@ -451,7 +451,10 @@ describe('outreach and CRM boundary contracts', () => {
     };
     expect(crmMessageSchema.parse(message).staffText).toBe('Thanks for your interest. Are you free on Friday?');
     expect(crmMessageSchema.parse({ ...message, staffText: null }).staffText).toBeNull();
-    expect(crmMessageSchema.safeParse({ ...message, staffText: undefined }).success).toBe(false);
+    // Saved before the field existed: absent reads as null, so an old message or idempotency receipt still parses.
+    const { staffText: _absent, ...beforeStaffText } = message;
+    expect(crmMessageSchema.parse(beforeStaffText).staffText).toBeNull();
+    expect(crmMessageSchema.parse({ ...message, staffText: undefined }).staffText).toBeNull();
     expect(crmMessageSchema.safeParse({ ...message, staffText: 'x'.repeat(2001) }).success).toBe(false);
     expect(crmMessagePageSchema.safeParse({ items: [message], nextCursor: null }).success).toBe(true);
   });

@@ -527,11 +527,13 @@ describe('protected founder CRM workflows', () => {
     const url = `/api/crm/workflows?view=listMessages&opportunityId=${opportunityId}&limit=1`;
     const page = await GET(request(url));
     expect(page.status).toBe(200);
-    // The founder's own text reaches the console; a page without the field is a service fault, not a silent blank.
+    // The founder's own text reaches the console; a message saved before the field existed reads as null, not as a fault.
     expect((await page.json()).items[0].staffText).toBe('Are you free on Friday?');
     const { staffText: _omitted, ...withoutText } = message;
     upstream({ listMessages: { items: [withoutText], nextCursor: null } });
-    expect((await GET(request(url))).status).toBe(502);
+    const old = await GET(request(url));
+    expect(old.status).toBe(200);
+    expect((await old.json()).items[0].staffText).toBeNull();
     upstream({ listMessages: { items: [{ ...message, staffText: null }], nextCursor: null } });
     expect((await (await GET(request(url))).json()).items[0].staffText).toBeNull();
     upstream({ listMessages: { items: [{ ...message, opportunityId: randomUUID() }], nextCursor: null } });

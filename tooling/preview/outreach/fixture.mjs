@@ -281,9 +281,11 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
   // Like svc-ops listOpportunities: the search is literal, case-insensitive, on name or email.
   const hit = (who, query) => who.name.toLowerCase().includes(query) || who.email.toLowerCase().includes(query);
   // The contacts merged into this one, oldest merge first (svc-ops orders by alias created_at).
+  // A contact in any erasure intent (pending or complete) is never found or named through an alias, like the svc-ops NOT EXISTS clause.
+  const inErasureIntent = (contactId) => [...erasureScopes.values()].some((scope) => scope.contactIds.includes(contactId));
   const mergedAway = (canonicalContactId) =>
     [...aliases]
-      .filter(([, to]) => to === canonicalContactId)
+      .filter(([from, to]) => to === canonicalContactId && !inErasureIntent(from))
       .map(([from]) => contact(from))
       .filter(Boolean);
   const matches = (row, input) => {

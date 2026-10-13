@@ -214,6 +214,38 @@ describe('outreach preview fixture, founder CRM wave 2', { skip: built ? false :
     assert.equal(list('%').items.length, 0);
   });
 
+  it('does not find or name a merged-away contact once its cluster is under erasure (pending_notify)', () => {
+    const { f, enquire, list } = setup();
+    const keep = enquire('Yara Keep', 'yara@example.invalid');
+    const gone = enquire('Zelda Old', 'zelda@old.example.invalid');
+    const contactOf = (row) => f['outreach.getContactProvenance']({ contactId: row.contactId }).canonicalContact;
+    const [target, source] = [contactOf(keep), contactOf(gone)];
+    f['outreach.mergeContacts']({
+      requestId: randomUUID(),
+      sourceContactId: source.id,
+      targetContactId: target.id,
+      sourceExpectedRevision: 1,
+      targetExpectedRevision: 1,
+      confirmed: true,
+      reason: 'Founder confirmed one person',
+    });
+    assert.equal(list('zelda').items.length, 2);
+    assert.equal(list('zelda').aliasMatches.length, 2);
+    const preview = f['outreach.privacyPreview']({ canonicalContactId: target.id });
+    const intent = f['outreach.privacyBegin']({
+      requestId: randomUUID(),
+      canonicalContactId: preview.canonicalContactId,
+      expectedCanonicalRevision: preview.canonicalRevision,
+      snapshot: preview.snapshot,
+      confirmedEntireCluster: true,
+      reason: 'confirmed_privacy_request',
+    });
+    assert.equal(intent.status, 'pending_notify');
+    const page = list('zelda');
+    assert.equal(page.items.length, 0);
+    assert.equal(page.aliasMatches, undefined);
+  });
+
   it('every reply it gives is parsed with the shared contract', () => {
     const { f, enquire, list } = setup();
     const opportunity = enquire('Ada', 'ada@example.invalid');

@@ -24,9 +24,10 @@ export const crmMessageSchema = z
     kind: crmQueueMessageInputSchema.shape.kind,
     /**
      * What the founder wrote, for founders only. Null once the stored text is gone. Never copy this field into a public,
-     * guest or prospect-facing schema.
+     * guest or prospect-facing schema. Defaults to null when absent, so a message or idempotency receipt saved before this
+     * field existed still parses (a replay of an old queueMessage request must not fail output validation).
      */
-    staffText: crmQueueMessageInputSchema.shape.staffText.nullable(),
+    staffText: crmQueueMessageInputSchema.shape.staffText.nullable().default(null),
     actorUserId: id,
     status: z.enum(['pending', 'unconfigured', 'accepted', 'failed', 'unresolved']),
     createdAt: timestamp,

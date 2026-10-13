@@ -235,6 +235,13 @@ describe.runIf(enabled)('durable outreach PostgreSQL boundary', () => {
     await expect(crm.updateNextAction({ ...edit, description: 'Changed' }, founders[1]!)).rejects.toMatchObject({
       code: 'ops.crm.idempotency_conflict',
     });
+    // The same instant written with another offset is the same request: it replays instead of conflicting.
+    expect(await crm.updateNextAction({ ...edit, dueAt: '2026-10-14T01:00:00Z' }, founders[1]!)).toEqual(saved);
+    expect(await crm.updateNextAction({ ...edit, dueAt: '2026-10-14T01:00:00.000Z' }, founders[1]!)).toEqual(saved);
+    // A different instant is still a different request.
+    await expect(crm.updateNextAction({ ...edit, dueAt: '2026-10-14T02:00:00Z' }, founders[1]!)).rejects.toMatchObject({
+      code: 'ops.crm.idempotency_conflict',
+    });
     const detail = (await crm.getOpportunity({ opportunityId: opportunity.id }))!;
     const pending = detail.tasks.filter((task) => task.status === 'pending');
     expect(pending).toHaveLength(1);
