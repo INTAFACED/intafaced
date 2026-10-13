@@ -26,6 +26,14 @@ customer_csp_origins() {
   csp_connect="'self'"
 
   for origin in ${CUSTOMER_STORAGE_ORIGIN:-} ${CUSTOMER_MEDIA_ORIGINS:-}; do
+    # Character whitelist FIRST: grep matches line by line, so a value with a newline would pass if any one line
+    # matched; nothing outside these characters can ever reach the header.
+    case "$origin" in
+      *[!A-Za-z0-9.:/*-]*)
+        echo "customer csp: '$origin' contains a character that is not allowed in an origin (CUSTOMER_STORAGE_ORIGIN / CUSTOMER_MEDIA_ORIGINS)" >&2
+        exit 1
+        ;;
+    esac
     case "$origin" in
       https://*) host="${origin#https://}" ;;
       *) host="" ;;
@@ -38,6 +46,12 @@ customer_csp_origins() {
   done
 
   if [ -n "${CUSTOMER_LIVEKIT_ORIGIN:-}" ]; then
+    case "$CUSTOMER_LIVEKIT_ORIGIN" in
+      *[!A-Za-z0-9.:/-]*)
+        echo "customer csp: CUSTOMER_LIVEKIT_ORIGIN contains a character that is not allowed in an origin (newline, space, ';', '*' ...)" >&2
+        exit 1
+        ;;
+    esac
     case "$CUSTOMER_LIVEKIT_ORIGIN" in
       wss://*) host="${CUSTOMER_LIVEKIT_ORIGIN#wss://}"; secure=1 ;;
       https://*) host="${CUSTOMER_LIVEKIT_ORIGIN#https://}"; secure=1 ;;

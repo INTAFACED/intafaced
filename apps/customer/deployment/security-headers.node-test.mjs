@@ -172,6 +172,12 @@ test('an invalid origin stops rendering instead of widening the policy', () => {
     { CUSTOMER_LIVEKIT_ORIGIN: 'wss://lk.example.com/path' },
     { CUSTOMER_LIVEKIT_ORIGIN: 'ftp://lk.example.com' },
     { CUSTOMER_LIVEKIT_ORIGIN: 'wss:' },
+    // A newline lets a second line smuggle directives past a line-by-line grep; the character whitelist refuses it.
+    { CUSTOMER_LIVEKIT_ORIGIN: 'lk.example.com\nevil.example; worker-src *; report-uri /r' },
+    { CUSTOMER_LIVEKIT_ORIGIN: 'lk.example.com\n' },
+    { CUSTOMER_LIVEKIT_ORIGIN: 'wss://lk.example.com extra.example.com' },
+    { CUSTOMER_STORAGE_ORIGIN: 'https://s3.example.com\nx; worker-src *' },
+    { CUSTOMER_MEDIA_ORIGINS: 'https://a.example.com\nhttps://b.example.com;x' },
   ]) {
     assert.throws(() => renderSecurityHeaders(env), /customer csp/, JSON.stringify(env));
   }
