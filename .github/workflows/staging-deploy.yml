@@ -555,6 +555,17 @@ jobs:
           # in the fleet to get.
           [ "${APP_ENV}" = "staging" ] || { echo "APP_ENV is ${APP_ENV}, not staging"; exit 1; }
 
+          echo "── INTERNAL_SERVICE_BODY_BIND is require"
+          # APP_ENV=staging is production posture, and in production posture
+          # every service holding INTERNAL_SERVICE_SECRET refuses to boot unless
+          # INTERNAL_SERVICE_BODY_BIND=require (config.s2s_body_bind_not_required).
+          # The compose file defaults it to accept-both for local dev, so a host
+          # `.env` without the line would crash-loop the fleet. Forced from the
+          # shell for the same reason as APP_ENV: the posture is the workflow's
+          # to set, not the host's to forget. `require` is the only value a
+          # production-posture fleet will start with, so there is nothing to choose.
+          export INTERNAL_SERVICE_BODY_BIND=require
+
           echo "── up"
           APP_ENV=staging docker compose -f docker-compose.apps.yml up -d --no-build --remove-orphans
 
@@ -575,6 +586,14 @@ jobs:
       # exit, and it is supposed to exit ZERO. A migration that failed and left
       # the fleet waiting is the single most important thing for this step to
       # catch, and "exited" alone cannot tell the two apart.
+      #
+      # A container that refuses to boot (a config guard exiting 1) is put back
+      # by `restart: unless-stopped`, so it shows as `restarting` or `running`
+      # between attempts and never reaches `exited`. Three restarts counts as a
+      # crash loop and fails the step at once, instead of waiting out the full
+      # timeout. Container logs are NOT printed: this repository's Actions logs
+      # are public (threat model §4), and a boot error can echo config. Read
+      # them on the host with `docker compose -f docker-compose.apps.yml logs`.
       - name: Every container is healthy
         env:
           STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
@@ -592,7 +611,7 @@ jobs:
           report() {
             for id in $(docker compose -f docker-compose.apps.yml ps -aq); do
               docker inspect "$id" --format \
-                '{{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'
+                '{{.Name}} restarts={{.RestartCount}} status={{.State.Status}} exit={{.State.ExitCode}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'
             done
           }
 
@@ -602,6 +621,7 @@ jobs:
             while read -r line; do
               [ -n "$line" ] || continue
               case "$line" in
+                *' restarts='[3-9]' '*|*' restarts='[1-9][0-9]*) broken="${broken}${line}"$'\n' ;;
                 *' status=running '*' health=healthy') ;;
                 *' status=running '*' health=none') ;;
                 *' status=exited exit=0 '*) ;;
