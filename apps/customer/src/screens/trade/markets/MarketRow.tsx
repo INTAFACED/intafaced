@@ -15,6 +15,8 @@ import {
   type MarketData,
   type TickerRow,
 } from './deps';
+import { partialWindowStart, sinceLabel } from './window';
+import { usePreferences } from '../../../shared/preferences';
 import { ALL_COLUMNS, marketTarget, priceText, rangePosition, volumeText, type MarketColumn, type Mode } from './select';
 
 /**
@@ -122,6 +124,10 @@ export function MarketRow({
   const dir = direction(ticker?.changePct24h) ?? 'flat';
   const price = priceText(market, ticker?.last);
   const change = fmtPct(ticker?.changePct24h);
+  const { timeZone } = usePreferences();
+  // A market younger than a day: its "24h" figures start later. Said on its own row, so the headers stay true for the rest.
+  const start = partialWindowStart(ticker, Date.now());
+  const since = start === null ? null : t('since {time}', { time: sinceLabel(start, timeZone) });
   const coinPath = `/coin/${encodeURIComponent(market.base)}`;
   const showDetails = !isHiddenPath(coinPath);
   const rowProps = {
@@ -154,6 +160,7 @@ export function MarketRow({
         <div role="cell" className="mkt-panel__figures">
           <Price className="mkt-panel__price" value={price} />
           <Pct value={change} />
+          {since ? <span className="mkt-since">{since}</span> : null}
         </div>
       </div>
     );
@@ -181,7 +188,10 @@ export function MarketRow({
     ),
     change: (
       <div role="cell" className="mkt-cell mkt-cell--num" data-col="change" key="change">
-        <Pct value={change} arrow />
+        <span className="mkt-stack">
+          <Pct value={change} arrow />
+          {since ? <span className="mkt-since">{since}</span> : null}
+        </span>
       </div>
     ),
     spark: (
@@ -196,8 +206,11 @@ export function MarketRow({
     ),
     volume: (
       <div role="cell" className="mkt-cell mkt-cell--num" data-col="volume" key="volume">
-        <span className="mkt-volume" data-slot="volume">
-          {volumeText(market, ticker)}
+        <span className="mkt-stack">
+          <span className="mkt-volume" data-slot="volume">
+            {volumeText(market, ticker)}
+          </span>
+          {since ? <span className="mkt-since">{since}</span> : null}
         </span>
       </div>
     ),

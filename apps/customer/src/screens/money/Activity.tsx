@@ -22,7 +22,7 @@ import {
   tabFromSearch,
   tabHref,
   titleOf,
-  tradeDetail,
+  type Money,
   TABS,
   type ActivityGroup,
   type LedgerTab,
@@ -92,13 +92,17 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
   const { timeZone } = usePreferences();
   const item = group.main;
   const Icon = ICON[item.kind];
-  const title = titleOf(item, t, (key, handle) => t(key, { handle }));
+  const cancelled = group.kind === 'cancelled';
+  const title = cancelled ? t('Order cancelled · nothing spent') : titleOf(item, t, (key, handle) => t(key, { handle }));
   const up = item.direction === 'in';
   const amount = fmtAmount(item.amount);
   const holding = item.kind === 'order_hold';
+  const places = (money: { asset: string; amount: string }) => fmtAmount(money.amount, { places: quotePlaces(money.asset), fixed: true });
+  const say = (money: Money, key: 'Fee {amount} {asset}' | 'Set aside {amount} {asset}' | 'Returned {amount} {asset}') =>
+    t(key, { amount: places(money), asset: money.asset });
   let sub: string | null = item.spaceName ? t('In account {name}', { name: item.spaceName }) : null;
-  if (item.kind === 'trade') {
-    const { counter, fees } = tradeDetail(group);
+  if (group.kind === 'trade') {
+    const { counter } = group;
     const parts = [
       counter
         ? t(
@@ -107,15 +111,11 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
                 ? 'Paid {amount} {asset}'
                 : 'Gave {amount} {asset}'
               : 'Got {amount} {asset}',
-            {
-              amount: fmtAmount(counter.amount, { places: quotePlaces(counter.asset), fixed: true }),
-              asset: counter.asset,
-            },
+            { amount: places(counter), asset: counter.asset },
           )
         : null,
-      ...fees.map((fee) =>
-        t('Fee {amount} {asset}', { amount: fmtAmount(fee.amount, { places: quotePlaces(fee.asset), fixed: true }), asset: fee.asset }),
-      ),
+      ...group.notes.map((note) => say(note, note.direction === 'out' ? 'Set aside {amount} {asset}' : 'Returned {amount} {asset}')),
+      ...group.fees.map((fee) => say(fee, 'Fee {amount} {asset}')),
     ].filter((part): part is string => part !== null);
     sub = parts.length > 0 ? parts.join(' · ') : null;
   }
@@ -137,9 +137,9 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
       </td>
       <td className="money-num">
         <Amount
-          value={`${up ? '+' : '−'}${amount} ${item.asset}`}
+          value={cancelled ? `${amount} ${item.asset}` : `${up ? '+' : '−'}${amount} ${item.asset}`}
           hidden={hidden}
-          className={holding ? undefined : up ? 'text-up-text' : 'text-down-text'}
+          className={holding || cancelled ? undefined : up ? 'text-up-text' : 'text-down-text'}
           data-direction={item.direction}
         />
       </td>

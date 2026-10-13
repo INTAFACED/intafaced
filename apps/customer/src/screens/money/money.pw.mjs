@@ -13,6 +13,7 @@ import {
   emptySummary,
   fills,
   holdLines,
+  olderServerLines,
   hourlyCandles,
   markets,
   openOrders,
@@ -606,41 +607,45 @@ test('every link that means "my orders" lands on the Orders tab', async ({ page 
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Trades');
 });
 
-test('All: the legs of one buy are one Trade row with what was paid; nothing else is hidden (critic H2, N2)', async ({ page }) => {
+test('All: the lines of one order share an orderId and are one row; a cancelled order is one row (critic H2, N2)', async ({ page }) => {
   await mock(page, {
     bank: { 'activity.list': () => ({ items: [...holdLines(), ...buyLines()], nextCursor: null }) },
   });
   await open(page, ALL);
-  // The buy is one row; the resting order's hold and release (minutes away, kind `other` on an older bank) are listed with their real amounts.
-  await expect(page.locator('.money-act')).toHaveCount(3);
-  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade', 'Other activity', 'Other activity']);
-  expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual(['+0.0000999 BTC', '+5 USDT', '−5 USDT']);
-  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 6.508366 USDT']);
+  await expect(page.locator('.money-act')).toHaveCount(2);
+  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade', 'Order cancelled · nothing spent']);
+  expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual(['+0.0000999 BTC', '5 USDT']);
+  // No Paid: a hold minus a release is never turned into a price. The set-aside and returned money is shown as it is.
+  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Set aside 6.540908 USDT · Returned 0.032542 USDT']);
   await expect(page.locator('.money-act-note')).toHaveCount(0);
   expect(await page.locator('.if-money').innerText()).not.toContain('not listed');
   await snap(page, 'activity-all-trade-1440x900');
 });
 
-test('All: a labelled hold and release are ordinary rows, and inside the trade they belong to', async ({ page }) => {
-  const label = (line) => (line.kind === 'other' ? { ...line, kind: line.direction === 'out' ? 'order_hold' : 'order_release' } : line);
-  await mock(page, {
-    bank: { 'activity.list': () => ({ items: [...holdLines(), ...buyLines()].map(label), nextCursor: null }) },
-  });
+test('All: an older server with no orderId shows every line as its own row, with its real amount', async ({ page }) => {
+  await mock(page, { bank: { 'activity.list': () => ({ items: olderServerLines(), nextCursor: null }) } });
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(3);
-  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade', 'Returned from an order', 'Set aside for an order']);
-  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 6.508366 USDT']);
-  expect(await texts(page.locator('.money-act__hold'))).toEqual(['Set aside']);
+  await expect(page.locator('.money-act')).toHaveCount(5);
+  expect(await texts(page.locator('.money-act__title'))).toEqual([
+    'Other activity',
+    'Trade',
+    'Other activity',
+    'Other activity',
+    'Other activity',
+  ]);
+  expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual([
+    '+0.032542 USDT',
+    '+0.0000999 BTC',
+    '−6.540908 USDT',
+    '+5 USDT',
+    '−5 USDT',
+  ]);
+  await expect(page.locator('.money-act__sub')).toHaveCount(0);
 });
 
-test('All shows a hold the server has labelled as "Set aside", never as completed money gone', async ({ page }) => {
+test('All shows a resting order as one "Set aside" row, never as completed money gone', async ({ page }) => {
   await mock(page, {
-    bank: {
-      'activity.list': () => ({
-        items: [{ ...holdLines()[1], kind: 'order_hold', id: 'oh1', txId: 'oh1' }],
-        nextCursor: null,
-      }),
-    },
+    bank: { 'activity.list': () => ({ items: [holdLines()[1]], nextCursor: null }) },
   });
   await open(page, ALL);
   expect(await texts(page.locator('.money-act__title'))).toEqual(['Set aside for an order']);

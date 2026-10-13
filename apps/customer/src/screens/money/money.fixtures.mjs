@@ -89,9 +89,9 @@ const row = (id, kind, direction, asset, amount, postedAt, extra = {}) => ({
 export const activityPage1 = () => ({
   items: [
     row('a1', 'transfer_in', 'in', 'USDT', '50', '2026-10-14T09:15:00.000Z', { counterparty: { handle: 'maya' } }),
-    row('a2', 'trade', 'out', 'USDT', '678.1240', '2026-10-14T08:02:00.000Z'),
-    row('a3', 'trade', 'in', 'BTC', '0.01', '2026-10-14T08:02:00.000Z'),
-    row('a4', 'fee', 'out', 'USDT', '0.6781', '2026-10-14T08:02:00.000Z'),
+    row('a2', 'trade', 'out', 'USDT', '678.1240', '2026-10-14T08:02:00.000Z', { orderId: 'ord-1' }),
+    row('a3', 'trade', 'in', 'BTC', '0.01', '2026-10-14T08:02:00.000Z', { orderId: 'ord-1' }),
+    row('a4', 'fee', 'out', 'USDT', '0.6781', '2026-10-14T08:02:00.000Z', { orderId: 'ord-1' }),
     row('a5', 'transfer_out', 'out', 'USDT', '20', '2026-10-13T17:40:00.000Z', { counterparty: { handle: 'ola' } }),
     row('a6', 'transfer_in', 'in', 'USDT', '15', '2026-10-13T12:00:00.000Z'),
     row('a7', 'space_move', 'out', 'USDT', '300', '2026-10-12T20:30:00.000Z', { spaceName: 'Rent' }),
@@ -167,14 +167,20 @@ export const closedOrders = () => [
   order('o3', '2026-10-13T17:00:00.000Z', 'buy', '60000.00', '0.0001', 'canceled', '0'),
 ];
 
-/** A real buy as the server files it (critic round 1): three ledger lines, a few ms apart, each with its own id. */
+/** A real buy as the server files it: the money set aside, the coin, the unused part returned. One `orderId`. */
 export const buyLines = () => [
-  row('h3', 'other', 'in', 'USDT', '0.032542', '2026-10-14T09:30:00.115Z'),
-  row('h2', 'trade', 'in', 'BTC', '0.0000999', '2026-10-14T09:30:00.093Z'),
-  row('h1', 'other', 'out', 'USDT', '6.540908', '2026-10-14T09:30:00.072Z'),
+  row('h3', 'order_release', 'in', 'USDT', '0.032542', '2026-10-14T09:30:00.115Z', { orderId: 'ord-buy' }),
+  row('h2', 'trade', 'in', 'BTC', '0.0000999', '2026-10-14T09:30:00.093Z', { orderId: 'ord-buy' }),
+  row('h1', 'order_hold', 'out', 'USDT', '6.540908', '2026-10-14T09:30:00.072Z', { orderId: 'ord-buy' }),
 ];
-/** A resting order's hold and its release: the server calls both `other`. */
+/** A resting order that was cancelled: 5 USDT set aside, the same 5 returned. */
 export const holdLines = () => [
-  row('r2', 'other', 'in', 'USDT', '5', '2026-10-14T09:10:00.000Z'),
-  row('r1', 'other', 'out', 'USDT', '5', '2026-10-14T09:05:00.000Z'),
+  row('r2', 'order_release', 'in', 'USDT', '5', '2026-10-14T09:10:00.000Z', { orderId: 'ord-cancel' }),
+  row('r1', 'order_hold', 'out', 'USDT', '5', '2026-10-14T09:05:00.000Z', { orderId: 'ord-cancel' }),
 ];
+/** The same lines as a server that does not send `orderId` yet files them: holds and releases are `other`. */
+export const olderServerLines = () =>
+  [...holdLines(), ...buyLines()].map(({ orderId: _orderId, ...line }) => ({
+    ...line,
+    kind: line.kind === 'order_hold' || line.kind === 'order_release' ? 'other' : line.kind,
+  }));

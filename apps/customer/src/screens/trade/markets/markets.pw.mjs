@@ -493,19 +493,21 @@ test('responsive: no horizontal page scroll at 1280x800 and below', async ({ pag
   }
 });
 
-test('a market younger than a day: the headers say "since HH:MM", never "24h" next to the same figures (critic M2)', async ({ page }) => {
+test('a market younger than a day: its own row says "since HH:MM"; the headers stay "24h" for every other market (review M2)', async ({
+  page,
+}) => {
   const started = Date.now() - 3 * 3_600_000;
   await mock(page, {
-    tickers: () => Object.fromEntries(Object.entries(tickers()).map(([symbol, row]) => [symbol, { ...row, windowStart: started }])),
+    tickers: () => ({ ...tickers(), 'BTC/USDT': { ...tickers()['BTC/USDT'], windowStart: started } }),
   });
   await open(page);
   await ready(page);
   const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).format(started);
   const heads = await texts(page.locator('.mkt-header [role="columnheader"]'));
-  expect(heads.join(' | ')).toContain(`Change since ${clock}`);
-  expect(heads.join(' | ')).toContain(`Range since ${clock}`);
-  expect(heads.join(' | ')).toContain(`Volume since ${clock}`);
-  expect(heads.join(' | ')).not.toContain('24h change');
+  expect(heads.join(' | ')).toContain('24h change');
+  expect(heads.join(' | ')).not.toContain('since');
+  await expect(page.locator('[data-symbol="BTC/USDT"] .mkt-since').first()).toHaveText(`since ${clock}`);
+  await expect(page.locator('[data-symbol="ETH/USDT"] .mkt-since')).toHaveCount(0);
 });
 
 test('with two top cards, the two share the row (no empty third) (critic M8)', async ({ page }) => {

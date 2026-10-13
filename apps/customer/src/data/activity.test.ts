@@ -128,6 +128,26 @@ describe('createActivityFeed', () => {
     stops.forEach((stop) => stop());
   });
 
+  it('reads orderId when the server sends it, and leaves it out when it does not (or sends null or an empty string)', async () => {
+    const { api } = fakeApi([
+      {
+        ok: true,
+        data: {
+          items: [item('a', { orderId: 'ord-1' }), item('b'), item('c', { orderId: null }), item('d', { orderId: '' })],
+          nextCursor: null,
+        },
+      },
+    ]);
+    const stops: Array<() => void> = [];
+    expect(ready(await settled(createActivityFeed(api), stops)).items.map((row) => row.orderId)).toEqual([
+      'ord-1',
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    stops.forEach((stop) => stop());
+  });
+
   it('keeps one snapshot object until something changes', async () => {
     const { api } = fakeApi([{ ok: true, data: { items: [item('a')], nextCursor: null } }]);
     const stops: Array<() => void> = [];

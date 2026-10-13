@@ -351,6 +351,25 @@ test('the switch is hidden below 1000px, where the top bar has no room for it', 
   await expect(page.getByRole('group', { name: 'Simple or Pro layout' })).toBeVisible();
 });
 
+test('below 1000px the same switch is in the account menu, so Pro can always be left (review M2)', async ({ page }) => {
+  await mock(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page);
+  await expect(page.locator('.if-home')).toBeVisible();
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  const group = page.getByRole('group', { name: 'Simple or Pro layout' });
+  await expect(group).toBeVisible();
+  await group.getByRole('button', { name: 'Pro' }).click();
+  await expect(page.locator('.if-home-pro')).toBeVisible();
+  await expect(group.getByRole('button', { name: 'Pro' })).toHaveAttribute('aria-pressed', 'true');
+  await group.getByRole('button', { name: 'Simple' }).click();
+  await expect(page.locator('.if-home')).toBeVisible();
+  // On a wide bar the menu does not repeat it: the bar's own switch is the only one.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await expect(page.getByRole('group', { name: 'Simple or Pro layout' })).toHaveCount(1);
+});
+
 test('hidden balances show bullets and prices stay', async ({ page }) => {
   await mock(page);
   await openPro(page);

@@ -23,7 +23,7 @@ export const ACTIVITY_KINDS = [
   'payment',
   'withdrawal',
   'space_move',
-  // Not sent by the server yet (it files holds and releases under `other`): the screen is ready for the day it does.
+  // Order holds (and amends) and releases. An older server files them under `other`.
   'order_hold',
   'order_release',
   'other',
@@ -46,6 +46,11 @@ export interface ActivityItem {
   counterparty: { handle: string } | null;
   /** The named account it moved in or out of, when there is one. */
   spaceName: string | null;
+  /**
+   * The signed-in person's own trade order this line belongs to: its holds, releases and fills. Absent on every other
+   * line, and on every line from a server that does not send it yet (those lines then simply never group).
+   */
+  orderId?: string;
 }
 
 const itemSchema = z.object({
@@ -64,6 +69,10 @@ const itemSchema = z.object({
     .string()
     .nullish()
     .transform((value) => value ?? null),
+  orderId: z
+    .string()
+    .nullish()
+    .transform((value) => (value ? value : undefined)),
 });
 
 const pageShape = z.object({ items: z.array(itemSchema), nextCursor: z.string().nullable() });

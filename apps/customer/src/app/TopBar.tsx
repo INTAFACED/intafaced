@@ -182,6 +182,7 @@ function AccountButton({ onSignOut }: { onSignOut: () => void }) {
                 </a>
               </li>
             ))}
+            {isFeatureLive('pro-mode-switch') && <ModeRow />}
             <li className="tb-account-divider" role="separator" />
             <li>
               <button
@@ -204,25 +205,43 @@ function AccountButton({ onSignOut }: { onSignOut: () => void }) {
 
 /**
  * "Simple · Pro" segmented control (UI-SPEC 3.1 point 4). Registry-gated. It writes the `layoutMode` preference, so
- * Home and the Trade list change at once; a tooltip says what changes. The bar hides it below 1000 px: the tabs, a 240 px search, bell and account already fill a narrower bar.
+ * Home and the Trade list change at once; a tooltip says what changes. The bar hides it below 1000 px: the tabs, a 240 px search, bell and account already fill a narrower bar. There the same control sits in the account menu (`ModeRow`), so a person who picked Pro on a laptop can still go back to Simple on a phone.
  */
-function ModeSwitch() {
+function ModeControl() {
   const { t } = shellCopy.useCopy();
   const { t: tp } = proCopy.useCopy();
   const { layoutMode } = usePreferences();
   return (
+    <SegmentedControl
+      size={28}
+      aria-label={tp('Switch name')}
+      value={layoutMode}
+      onValueChange={(value) => savePreferences({ layoutMode: value === 'pro' ? 'pro' : 'simple' })}
+      items={[
+        { value: 'simple', label: t('Simple') },
+        { value: 'pro', label: t('Pro') },
+      ]}
+    />
+  );
+}
+
+/** The same switch inside the account menu, shown only where the bar hides it (below 1000 px). */
+function ModeRow() {
+  const { t: tp } = proCopy.useCopy();
+  return (
+    <li className="tb-account-mode min-[1000px]:hidden">
+      <span className="tb-account-mode__label">{tp('Switch name')}</span>
+      <ModeControl />
+    </li>
+  );
+}
+
+function ModeSwitch() {
+  const { t: tp } = proCopy.useCopy();
+  return (
     <Tooltip>
       <TooltipTrigger render={<span className="tb-mode max-[1000px]:hidden" />}>
-        <SegmentedControl
-          size={28}
-          aria-label={tp('Switch name')}
-          value={layoutMode}
-          onValueChange={(value) => savePreferences({ layoutMode: value === 'pro' ? 'pro' : 'simple' })}
-          items={[
-            { value: 'simple', label: t('Simple') },
-            { value: 'pro', label: t('Pro') },
-          ]}
-        />
+        <ModeControl />
       </TooltipTrigger>
       <TooltipContent side="bottom" align="end">
         {tp('Switch tip')}
