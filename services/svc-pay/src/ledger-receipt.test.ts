@@ -24,7 +24,9 @@ describe('payment ledger receipt identity', () => {
     const ack = await postPayLedger(ledger, request);
     expect(ack.entries).toHaveLength(0);
     expect(wire).toMatchObject({ idempotencyKey: request.idempotencyKey, entries: [{ amount: '40' }, { amount: '40' }] });
-    await expect(ledger.getTxByKey(request.idempotencyKey)).rejects.toThrow('not exposed');
+    // A lookup the ledger cannot answer stays a failure; it never reads as "not booked".
+    globalThis.fetch = async () => new Response('down', { status: 503 });
+    await expect(ledger.getTxByKey(request.idempotencyKey)).rejects.toThrow('/trpc/txByKey failed (503)');
   });
   it('refuses a malformed compact ACK without treating it as a no-effect receipt', async () => {
     globalThis.fetch = async () => new Response(JSON.stringify({ txId: '', postedAt: 'invalid' }));
