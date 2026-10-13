@@ -40,8 +40,6 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/uc/promotion',
       '/notice/42',
       '/partner',
-      '/trade/buy',
-      '/trade/convert',
     ])
       expect(isHiddenPath(path), path).toBe(true);
     for (const path of [
@@ -51,6 +49,8 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/coin/BTC',
       '/trade',
       '/trade/spot/BTC-USDT',
+      '/trade/buy',
+      '/trade/convert',
       '/pay',
       '/pay/send',
       '/pay/receive',
@@ -111,8 +111,8 @@ describe('top-bar menus list only live features', () => {
   it('matches the spec rows', () => {
     expect(titles('Home')).toEqual([]);
     expect(titles('Money')).toEqual(['Portfolio', 'Activity']);
-    // Buy and Convert come back with their M2 screens (B8); until then their old screens are hidden.
-    expect(titles('Trade')).toEqual(['Markets', 'Spot']);
+    // Buy and Convert are live with their M2 screens (B8, Opus money review PASS 2026-10-14).
+    expect(titles('Trade')).toEqual(['Markets', 'Spot', 'Buy and sell', 'Convert']);
     expect(titles('Pay')).toEqual(['Send', 'Receive']);
     expect(titles('More')).toEqual(['Help', 'Settings']);
   });
