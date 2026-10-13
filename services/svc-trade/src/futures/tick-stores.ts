@@ -151,6 +151,12 @@ export function sqlFundingPeriodStore(sql: Sql): FundingPeriodStore {
       }
       return row.rate;
     },
+    async peekRate(periodId) {
+      const rows = await sql<{ rate: string }[]>`
+        SELECT rate FROM trade.funding_period_rates WHERE period_id = ${periodId} LIMIT 1
+      `;
+      return rows[0]?.rate ?? null;
+    },
     async recordSkip(periodId, meta) {
       await sql`
         INSERT INTO trade.funding_period_skips (period_id, market_id, reason)

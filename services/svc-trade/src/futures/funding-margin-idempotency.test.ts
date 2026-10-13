@@ -249,7 +249,9 @@ describe('funding margin idempotency (Postgres)', () => {
   describe('funding period rate freeze', () => {
     it('keeps the first rate for a period; a second rate is ignored (race-safe insert)', async () => {
       const periods = sqlFundingPeriodStore(sql);
+      expect(await periods.peekRate(PERIOD)).toBeNull();
       expect(await periods.freezeRate(PERIOD, '0.0001')).toBe('0.0001');
+      expect(await periods.peekRate(PERIOD)).toBe('0.0001');
       expect(await periods.freezeRate(PERIOD, '0.0003')).toBe('0.0001');
       // Concurrent first writers converge on one stored rate.
       const racing = 'BTC/USDT-PERP:2026-08-08T08:00:00.000Z';

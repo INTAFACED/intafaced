@@ -111,6 +111,8 @@ export interface FundingPeriodStore {
    * key and the period can never settle.
    */
   freezeRate(periodId: string, rate: string): Promise<string>;
+  /** The rate already frozen for this period, or null when none has been. Read only; never freezes. */
+  peekRate(periodId: string): Promise<string | null>;
   /**
    * Record a skip that is NOT a settled zero-leg period.
    * Optional on older stores — tick still returns skipped; production wires it.
@@ -237,8 +239,11 @@ export async function runFundingTick(deps: FundingTickDeps, marketId: string): P
   // posted is frozen. An over-bound first quote (a fat-finger publish) posts no
   // legs, so freezing it would protect no ledger body and would wedge the period
   // after the publisher corrects the rate.
-  assertFundingRateWithinBound(quote.rate, deps.maxAbsRate);
-  const rate = await deps.periods.freezeRate(quote.periodId, quote.rate);
+  // When a rate is already frozen the quote is irrelevant (the frozen one is what posts), so a later over-bound
+  // republish cannot block a period whose legs are already in the ledger at a valid rate.
+  const prior = await deps.periods.peekRate(quote.periodId);
+  if (prior === null) assertFundingRateWithinBound(quote.rate, deps.maxAbsRate);
+  const rate = prior ?? (await deps.periods.freezeRate(quote.periodId, quote.rate));
 
   // Bound check before plan so an absurd rate never reaches leg construction
   // or postLegs. assert is also inside planFundingSettlement (belt); this is
@@ -405,6 +410,9 @@ export function memoryFundingPeriodStore(): FundingPeriodStore {
     async freezeRate(periodId, rate) {
       if (!rates.has(periodId)) rates.set(periodId, rate);
       return rates.get(periodId)!;
+    },
+    async peekRate(periodId) {
+      return rates.get(periodId) ?? null;
     },
     async recordSkip(periodId, meta) {
       skips.set(periodId, { reason: meta.reason, marketId: meta.marketId });

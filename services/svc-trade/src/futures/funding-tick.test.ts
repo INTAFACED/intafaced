@@ -504,6 +504,21 @@ describe('runFundingTick', () => {
     expect(margins.paidByPosition('plong')).toBe(frozenAmount * 2n);
   });
 
+  it('a period already frozen at a valid rate settles at it even if the oracle later republishes an over-bound rate', async () => {
+    const periods = memoryFundingPeriodStore();
+    const periodId = 'm1:period-frozen-then-overbound-republish';
+    await periods.freezeRate(periodId, '0.0001'); // legs may already be in the ledger at this rate
+    const { ledger, posts } = recordingLedger();
+    const margins = memoryFundingMarginApplier();
+    const result = await runFundingTick(
+      { rates: fixedRate('0.5', periodId), positions: positionsOf(longShort()), periods, margins, ledger, maxAbsRate: '0.001' },
+      'm1',
+    );
+    expect(result.status).toBe('settled');
+    if (result.status === 'settled') expect(result.rate).toBe('0.0001');
+    expect(posts.length).toBeGreaterThan(0);
+  });
+
   it('an over-bound first quote is refused and NOT frozen: the corrected quote settles', async () => {
     const periods = memoryFundingPeriodStore();
     const periodId = 'm1:period-over-bound-then-corrected';
