@@ -298,7 +298,7 @@ export const ledgerTx = ledger.table(
 );
 
 /**
- * The posted idempotency claim (0017, 0018). Not a second book: no balance.
+ * The posted idempotency claim (0017, 0018, 0021). Not a second book: no balance.
  *
  * `posted_hash` and `posted_meta` are the hash and meta stored at insert.
  * Append-only is a trigger (`ledger_posted_keys_immutable`), not a CHECK.
@@ -310,6 +310,8 @@ export const ledgerPostedKeys = ledger.table(
     txId: uuid('tx_id').notNull(),
     postedHash: text('posted_hash').notNull(),
     postedMeta: jsonb('posted_meta').notNull(),
+    /** 0021: digest of what the post moved (null for rows booked before 0021). */
+    requestFingerprint: text('request_fingerprint'),
   },
   (t) => [
     uniqueIndex('ledger_posted_keys_tx_idx').on(t.txId),

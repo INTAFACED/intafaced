@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { formatAmount, isNegative, isZero, sum, type Amount } from './money.js';
 import {
   UnbalancedTransactionError,
@@ -299,6 +300,35 @@ export function assertIdempotencyKey(idempotencyKey: string | undefined): void {
   if (!idempotencyKey || idempotencyKey.length < 8) {
     throw new InvalidEntryError('An idempotency key of at least 8 characters is required on every post');
   }
+}
+
+/** The refusal for a reused idempotency key whose body differs from what that key booked. */
+export const IDEMPOTENCY_CONFLICT_CODE = 'ledger.idempotency_conflict' as const;
+
+/**
+ * What a post MOVES, as one digest: module, reason, and each entry's account,
+ * direction and amount (entries sorted, so order does not matter). Meta and
+ * correlation id are deliberately out: they describe a post, they do not move
+ * money, and a retry may legitimately carry a fresh trace id.
+ *
+ * It exists so a reused key can be told apart from a retry. Before it, "same
+ * key" meant "same post": a different body under a booked key silently returned
+ * the OLD transaction while the caller recorded success for money that never
+ * moved (#4414 was exactly that). Never throws; a body that cannot be read
+ * (a JS number amount, a missing account) gets a digest nothing else matches,
+ * so the caller is refused rather than told the old booking is its own.
+ */
+export function postFingerprint(request: Pick<PostRequest, 'module' | 'reason' | 'entries'>): string {
+  let canonical: string;
+  try {
+    const entries = request.entries
+      .map((e) => `${accountKey(e.account)}|${e.direction}|${typeof e.amount === 'bigint' ? e.amount.toString() : `!${String(e.amount)}`}`)
+      .sort();
+    canonical = JSON.stringify([request.module, request.reason, entries]);
+  } catch {
+    canonical = `unreadable:${Math.random()}`;
+  }
+  return createHash('sha256').update('ledger-post-body-v1\0').update(canonical).digest('hex');
 }
 
 export function assertValidPost(request: PostRequest): void {

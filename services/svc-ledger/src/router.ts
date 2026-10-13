@@ -47,6 +47,9 @@ function toTrpcError(err: unknown): TRPCError {
     // A malformed transaction is a bug in the calling service, not user error.
     return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: userCopy(err.code), cause: err });
   }
+  if (err instanceof LedgerError && err.code === 'ledger.idempotency_conflict') {
+    return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+  }
   if (err instanceof LedgerError && err.code === 'ledger.frozen') {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(err.code), cause: err });
   }

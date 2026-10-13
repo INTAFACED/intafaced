@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 import { formatAmount, type Amount } from './money.js';
-import { accountKey, assertIdempotencyKey, assertValidPost, signedDelta, type LedgerClient } from './client.js';
+import {
+  IDEMPOTENCY_CONFLICT_CODE,
+  accountKey,
+  assertIdempotencyKey,
+  assertValidPost,
+  postFingerprint,
+  signedDelta,
+  type LedgerClient,
+} from './client.js';
 import {
   InsufficientFundsError,
   LedgerError,
@@ -34,6 +42,7 @@ export class MemoryLedger implements LedgerClient {
   private readonly balancesByAccountId = new Map<string, Amount>();
   private readonly txs = new Map<string, LedgerTx>();
   private readonly txByKey = new Map<string, string>();
+  private readonly fingerprintByKey = new Map<string, string>();
   private readonly txOrder: string[] = [];
   private tip: string | null = null;
   private readonly assetTips = new Map<string, string>();
@@ -63,6 +72,12 @@ export class MemoryLedger implements LedgerClient {
     if (existingId) {
       const existing = this.txs.get(existingId);
       if (!existing) throw new LedgerError('Idempotency index corrupted', 'ledger.corrupt_index');
+      if (this.fingerprintByKey.get(request.idempotencyKey) !== postFingerprint(request)) {
+        throw new LedgerError(
+          `Idempotency key ${request.idempotencyKey} already booked a different movement; a retry must carry the same body`,
+          IDEMPOTENCY_CONFLICT_CODE,
+        );
+      }
       return existing;
     }
 
@@ -147,6 +162,7 @@ export class MemoryLedger implements LedgerClient {
     for (const [accountId, balance] of staged) this.balancesByAccountId.set(accountId, balance);
     this.txs.set(tx.id, tx);
     this.txByKey.set(tx.idempotencyKey, tx.id);
+    this.fingerprintByKey.set(tx.idempotencyKey, postFingerprint(request));
     this.txOrder.push(tx.id);
     this.tip = tx.hash;
 

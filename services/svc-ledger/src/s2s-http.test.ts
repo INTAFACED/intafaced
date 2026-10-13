@@ -934,6 +934,13 @@ describe('s2s HTTP — service credentials', () => {
     await app.close();
   });
 
+  it('maps a reused idempotency key with a different body to 409, so a caller cannot record success', () => {
+    expect(httpError(new LedgerError('key taken by another movement', 'ledger.idempotency_conflict'))).toEqual({
+      status: 409,
+      body: { message: 'key taken by another movement', code: 'ledger.idempotency_conflict' },
+    });
+  });
+
   it('maps an unauthenticated caller to 401, distinct from 412 frozen and 400 funds', () => {
     expect(httpError(new LedgerError('no creds', 'ledger.unauthenticated')).status).toBe(401);
     expect(httpError(new LedgerError('frozen', 'ledger.frozen')).status).toBe(412);
