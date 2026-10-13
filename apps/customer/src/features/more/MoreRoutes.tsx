@@ -109,7 +109,12 @@ function MoreRooms({ path }: { path: string }) {
   }
   return (
     <div className={p === '/more' ? 'more-feature more-feature--discovery' : 'more-feature'}>
-      <Page key={userId ?? 'anonymous'} eyebrow={p === '/support' ? undefined : copyText('moreroutes.more')} title={title} description={description}>
+      <Page
+        key={userId ?? 'anonymous'}
+        eyebrow={p === '/support' ? undefined : copyText('moreroutes.more')}
+        title={title}
+        description={description}
+      >
         {content}
       </Page>
     </div>

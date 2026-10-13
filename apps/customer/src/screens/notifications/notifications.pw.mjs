@@ -138,10 +138,10 @@ test('bell: count, popover layout, words, and a click opens the trade in Activit
   for (const row of await page.locator('.nf-row').all()) expect((await size(row)).height).toBe(72);
   const first = page.locator('.nf-row').first();
   await expect(first.locator('.nf-title')).toHaveText('Order filled');
-  await expect(first.locator('.nf-body')).toHaveText('Bought 0.00015 BTC at $64,733.35');
+  await expect(first.locator('.nf-body')).toHaveText('Bought 0.00015 BTC at 64,733.35 USDT');
   await expect(first.locator('time')).toHaveText('2 min ago');
   await expect(first.locator('.nf-dot')).toHaveCount(1);
-  await expect(page.locator('.nf-row').nth(1).locator('.nf-body')).toHaveText('Buy 0.00017 BTC at $30,000.00');
+  await expect(page.locator('.nf-row').nth(1).locator('.nf-body')).toHaveText('Buy 0.00017 BTC at 30,000 USDT');
   await expect(page.locator('.nf-row[data-unread]')).toHaveCount(3);
   // Footer
   await expect(page.locator('.nf-pop__all')).toHaveText('See all');
@@ -155,7 +155,7 @@ test('bell: count, popover layout, words, and a click opens the trade in Activit
 
   // A fill opens the Trades tab of Activity, marks itself read and closes the popover; the count follows.
   await first.click();
-  await expect(page.getByTestId('standin')).toHaveText('Stand-in page /money/activity?tab=trades');
+  await expect(page.getByTestId('standin')).toHaveText('Stand-in page /money/activity?tab=trades&asset=BTC');
   await expect(popup(page)).toHaveCount(0);
   await expect.poll(() => api.calls('notify.markRead').length).toBe(1);
   expect(api.calls('notify.markRead')[0].input.ids).toHaveLength(1);
@@ -168,7 +168,7 @@ test('bell: cancelled order opens Orders; Mark all as read clears the dots and t
   await page.goto('/home');
   await bell(page).click();
   await page.locator('.nf-row').nth(1).click();
-  await expect(page.getByTestId('standin')).toHaveText('Stand-in page /money/activity?tab=orders');
+  await expect(page.getByTestId('standin')).toHaveText('Stand-in page /money/activity?tab=orders&asset=BTC');
 
   await bell(page).click();
   await expect(page.locator('.nf-row[data-unread]')).toHaveCount(2);
@@ -291,8 +291,8 @@ test('page: All and Unread tabs, rows, Load more by cursor, empty Unread, 1440 a
 
   // Links and times: a read fill still links to Trades; the time is shown in the viewer's zone (UTC here).
   await page.getByRole('tab', { name: 'All' }).click();
-  await expect(page.locator('.nf-row').first()).toHaveAttribute('href', '/money/activity?tab=orders');
-  await expect(page.locator('.nf-row').nth(1)).toHaveAttribute('href', '/money/activity?tab=trades');
+  await expect(page.locator('.nf-row').first()).toHaveAttribute('href', '/money/activity?tab=orders&asset=BTC');
+  await expect(page.locator('.nf-row').nth(1)).toHaveAttribute('href', '/money/activity?tab=trades&asset=BTC');
   await page.getByRole('button', { name: 'Load more' }).click();
   await expect(page.locator('.nf-row')).toHaveCount(31);
   const old = await page.locator('.nf-row time').last().textContent();
@@ -382,6 +382,6 @@ test('keyboard: Tab reaches the bell, Enter opens it, rows and See all are focus
 test('tied to market: a fill names its coin from the market list', async ({ page }) => {
   const api = await mock(page, { items: [{ ...fill(1, 1), params: { ...fill(1, 1).params, marketId: BTC_MARKET } }] });
   await page.goto('/notifications');
-  await expect(page.locator('.nf-body').first()).toHaveText('Bought 0.00015 BTC at $64,733.35');
+  await expect(page.locator('.nf-body').first()).toHaveText('Bought 0.00015 BTC at 64,733.35 USDT');
   expect(api.calls('notify.list').length).toBeGreaterThan(0);
 });

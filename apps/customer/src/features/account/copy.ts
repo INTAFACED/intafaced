@@ -106,8 +106,7 @@ const messages = {
   'accountroutes.verification.requests': 'Verification requests',
   'accountroutes.no.verification.requests.returned': 'No verification requests returned',
   'accountroutes.request.the.tier.needed.for.your.account': 'Request the tier needed for your account.',
-  'accountroutes.up.to.50.requests.document.uploads.and':
-    'Up to 50 requests. You can’t upload documents with this form yet.',
+  'accountroutes.up.to.50.requests.document.uploads.and': 'Up to 50 requests. You can’t upload documents with this form yet.',
   'accountroutes.request.verification': 'Request verification',
   'accountroutes.basic': 'Basic',
   'accountroutes.full': 'Full',

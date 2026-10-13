@@ -15,6 +15,7 @@ const defaults = {
   'rank.get': () => rank(),
   'rank.perks': () => perks(),
   'subAccounts.list': () => [],
+  me: () => ({ userId: '00000000-0000-4000-8000-000000000001', handle: 'test_friend' }),
   'webauthn.list': () => passkeys(),
   listSessions: () => sessions(),
   'kyc.status': () => kyc('basic', [kycRecord()]),
@@ -112,7 +113,9 @@ test('account: ID in mono with Copy, rank card, no old cross-links, plain words'
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await mock(page);
   await open(page, '/uc/account');
-  const id = page.locator('.subaccounts__identity');
+  const handle = page.locator('section[aria-label="Handle"]');
+  await expect(handle).toContainText('@test_friend');
+  const id = page.locator('section[aria-label="Account ID"]');
   await expect(id).toContainText('Account ID');
   await expect(id.locator('.subaccounts__ref')).toHaveText('00000000-0000-4000-8000-000000000001');
   expect(await id.locator('.subaccounts__ref').evaluate((node) => getComputedStyle(node).fontFamily)).toMatch(/mono/i);
@@ -120,7 +123,11 @@ test('account: ID in mono with Copy, rank card, no old cross-links, plain words'
   await expect(id.getByRole('button', { name: 'Copy account ID' })).toHaveText('Copied');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('00000000-0000-4000-8000-000000000001');
   await expect(page.locator('.rank-perks')).toContainText('Rank 2');
-  await expect(page.locator('.rank-perks')).toContainText('Card level');
+  // Perks of hidden features and the strategy subaccounts are not shown; the fee discount reads as a percent.
+  await expect(page.locator('.rank-perks')).toContainText('Trading fee discount');
+  await expect(page.locator('.rank-perks')).toContainText('0.5%');
+  await expect(page.locator('.rank-perks')).not.toContainText(/Card level|Copy follower cap|Lobby host|OTC access|Launchpad|P2P limit/);
+  await expect(page.locator('.subaccounts__list, .subaccounts__create')).toHaveCount(0);
   expect(await page.locator('.acct-body a[href="/uc/safe"], .acct-body a[href="/verification"]').count()).toBe(0);
   expect(await page.locator('.acct').innerText()).not.toMatch(forbidden);
   await shootBoth(page, 'account-loaded');
@@ -135,8 +142,8 @@ test('account: loading, error and empty states sit inside their cards', async ({
   await shootBoth(page, 'account-loading');
   await api.release();
   await expect(page.locator('.rank-perks')).toContainText('Rank 2');
-  // Empty: no strategy subaccounts yet.
-  await expect(page.locator('.subaccounts__list')).toContainText('No strategy subaccounts yet');
+  // Strategy subaccounts are a hidden feature, so there is no empty list to show.
+  await expect(page.locator('.subaccounts__list')).toHaveCount(0);
   await shootBoth(page, 'account-empty');
   // Error: the rank read fails; the rest of the page still works.
   const failed = await page.context().newPage();
@@ -144,7 +151,7 @@ test('account: loading, error and empty states sit inside their cards', async ({
   await failed.goto('/uc/account');
   await failed.locator('.acct').waitFor();
   await expect(failed.locator('.rank-perks')).toContainText('Couldn’t read your rank');
-  await expect(failed.locator('.subaccounts__identity')).toContainText('Account ID');
+  await expect(failed.locator('section[aria-label="Account ID"]')).toContainText('Account ID');
   await shootBoth(failed, 'account-error');
   expect(errors).toEqual([]);
 });
@@ -236,6 +243,11 @@ for (const [tier, tag, status] of [
       'Sending this asks for a review. It doesn’t change your level unless it’s approved.',
     );
     await expect(page.locator('.acct')).not.toContainText('Submitting does not approve');
+    // Only levels above the current one can be asked for, and the orphan "Read current records" button is gone.
+    const asks = { none: ['Basic', 'Full', 'Institutional'], basic: ['Full', 'Institutional'], full: ['Institutional'] };
+    expect(await page.locator('.verification__request select option').allTextContents()).toEqual(asks[tier]);
+    await expect(page.getByRole('button', { name: 'Read current records' })).toHaveCount(0);
+    await expect(page.locator('.verification__request a.text-link')).toHaveAttribute('href', '/support');
     expect(await page.locator('.acct').innerText()).not.toMatch(forbidden);
     await shootBoth(page, `verification-${tier}`);
     expect(errors).toEqual([]);
@@ -273,6 +285,12 @@ test('display: dark only, six choices that save to this device, no internal word
   await expect(body.getByLabel('Theme')).toHaveCount(0);
   await expect(body).not.toContainText('Light');
   await expect(body).not.toContainText('Match device');
+  // Settings that change nothing in the new screens are not offered.
+  await expect(body).not.toContainText(
+    /Display currency|Chart on phone|Daily chart|working orders|old fills|confirm before|Favorites view/i,
+  );
+  // Only languages with written copy are a real choice.
+  expect(await body.getByRole('combobox', { name: 'Language', exact: true }).locator('option').count()).toBeLessThanOrEqual(4);
   // The six choices.
   const language = body.getByRole('combobox', { name: 'Language', exact: true });
   const upColour = body.getByRole('combobox', { name: 'Up colour', exact: true });
