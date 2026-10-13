@@ -39,6 +39,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { marketStatus } from './local-test-market.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
@@ -1047,7 +1048,7 @@ function serviceNames() {
   return serviceDefs(PLAN_SECRETS).map((d) => d.name);
 }
 
-async function healthTable() {
+async function healthTable({ gateMarket = false } = {}) {
   const procs = readProcs();
   const rows = [];
   rows.push([
@@ -1079,10 +1080,14 @@ async function healthTable() {
     procs.customer?.pid ?? '-',
     cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
   ]);
+  // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
+  const mk = marketStatus();
+  rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
   const w = [14, 12, 8];
   say(`  ${'SERVICE'.padEnd(w[0])}${'PORT'.padEnd(w[1])}${'PID'.padEnd(w[2])}HEALTH`);
   for (const r of rows) say(`  ${String(r[0]).padEnd(w[0])}${String(r[1]).padEnd(w[1])}${String(r[2]).padEnd(w[2])}${r[3]}`);
-  return rows.every((r) => String(r[3]).startsWith('ok'));
+  const marketBad = mk.state === 'down' || mk.state === 'stale';
+  return rows.slice(0, -1).every((r) => String(r[3]).startsWith('ok')) && !(gateMarket && marketBad);
 }
 
 /** `--only a,b` -> ['a','b'] (validated against the services this script knows); null when absent. */
@@ -1148,6 +1153,7 @@ async function cmdStart(flags) {
   if (activeCustomerDist().error || !fs.existsSync(path.join(activeCustomerDist().dir, 'index.html')))
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
+  ensureMarket();
   say('');
   const allOk = await healthTable();
   say('');
@@ -1164,6 +1170,20 @@ async function cmdStart(flags) {
   say(`  Open: ${CUSTOMER_ORIGIN}   (register, sign in, then: pnpm local:fund <email> USDT 1000)`);
   say(`  Stop: pnpm local:stack:stop`);
   if (!allOk) process.exit(1);
+}
+
+/**
+ * Failure it prevents: the test market maker died overnight and prices froze unnoticed. If it was started before
+ * and is not running now, start it again (the market script holds a lock and a pid file, so never twice).
+ * A stack that never ran the market is left alone, and a failure here never fails the stack.
+ */
+function ensureMarket() {
+  const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-market.mjs'), 'ensure'], {
+    env: { PATH: process.env.PATH, HOME: os.homedir() },
+    encoding: 'utf8',
+  });
+  const text = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').filter(Boolean).join(' | ');
+  say(`  market maker: ${text || `ensure exited ${r.status}`}`);
 }
 
 async function cmdStop(names = []) {
@@ -1520,7 +1540,7 @@ else if (cmd === 'restart') await cmdRestart(rest);
 else if (cmd === 'fund') await cmdFund(rest);
 else if (cmd === 'customer-dist') cmdCustomerDist(rest);
 else if (cmd === 'status') {
-  const ok = await healthTable();
+  const ok = await healthTable({ gateMarket: true });
   say('');
   say(`  ${describeCustomerDist()}`);
   process.exit(ok ? 0 : 1);
