@@ -186,14 +186,18 @@ const txByIdWire = z.discriminatedUnion('found', [
     postedAt: z.string(),
     module: z.string(),
     reason: z.string(),
-    entries: z.array(
-      z.object({
-        accountId: z.string().min(1),
-        assetId: z.string().min(1),
-        direction: z.enum(['debit', 'credit']),
-        amount: z.string().min(1),
-      }),
-    ),
+    entries: z
+      .array(
+        z.object({
+          accountId: z.string().min(1),
+          assetId: z.string().min(1),
+          direction: z.enum(['debit', 'credit']),
+          amount: z.string().min(1),
+        }),
+        // The ledger never books fewer than two legs (assertBalanced): fewer is a partial or legacy answer, and a caller
+        // that skips its receipt check on an empty entry list would read it as a found, verified transaction.
+      )
+      .min(2),
   }),
 ]);
 
@@ -283,6 +287,7 @@ export function createHttpLedgerClient(options: HttpLedgerOptions): LedgerClient
     if (!parsed.success) throw lookupError('/trpc/txById', parsed.error.issues[0]?.message ?? 'invalid');
     const result = parsed.data;
     if (!result.found) return null;
+    if (result.txId !== txId) throw lookupError('/trpc/txById', 'answered a different txId');
     const postedAt = parseIsoInstant(result.postedAt);
     if (!postedAt) throw lookupError('/trpc/txById', 'postedAt is not an ISO instant');
     let entries: PostedEntry[];

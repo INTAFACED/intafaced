@@ -268,8 +268,15 @@ describe('getTx', () => {
     ['non-ISO postedAt', foundById({ postedAt: 'Tue Oct 13 2026' })],
     ['blank txId', foundById({ txId: ' ' })],
     ['blank hash', foundById({ hash: '' })],
+    ['no entries (a booked tx always has at least two legs)', foundById({ entries: [] })],
+    ['a single leg', foundById({ entries: [{ accountId: 'a', assetId: 'USDT', direction: 'debit', amount: '1' }] })],
   ])('throws, never null or a success, on a malformed answer (%s)', async (_label, body) => {
     await expect(harness([json(body)]).client.getTx(TX_ID)).rejects.toThrow();
+  });
+
+  it('refuses an answer for a different transaction than the one asked for', async () => {
+    const other = '22222222-2222-4222-8222-222222222222';
+    await expect(harness([json(foundById({ txId: other }))]).client.getTx(TX_ID)).rejects.toThrow(/different txId/);
   });
 });
 
