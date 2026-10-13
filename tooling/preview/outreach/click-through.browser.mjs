@@ -32,7 +32,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 900 } });
     const page = await context.newPage();
     const failures = [];
-    page.on('pageerror', (error) => failures.push(error.message));
+    page.on('pageerror', (error) => failures.push(`${new URL(page.url()).pathname}: ${error.message.slice(0, 120)}`));
 
     await page.goto(`${questionnaire}/invest`);
     await expect(page.locator('#intafaced-preview-label')).toHaveText(/test data/i);
@@ -68,6 +68,8 @@ try {
 
     await page.goto(`${crm}/crm`);
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+    // Wait for the sign-in form to hydrate; a click before that is a plain HTML form post.
+    await page.waitForLoadState('networkidle');
     await page.getByLabel('Email or handle').fill('nitro@example.invalid');
     await page.getByLabel('Password').fill('test-password');
     await page.getByLabel('Authenticator or recovery code').fill('123456');

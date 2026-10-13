@@ -17,10 +17,14 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
+import { networkInterfaces } from 'node:os';
 import { createOutreachFixture, seedTestEnquiries, FixtureError } from './fixture.mjs';
 
 const repo = resolve(import.meta.dirname, '../../..');
 const rebuild = process.argv.includes('--rebuild');
+// Opt-in: also serve the questionnaire to phones on the same Wi-Fi. The founder console stays
+// on localhost because it refuses plain-HTTP origins other than localhost by design.
+const lan = process.argv.includes('--lan');
 const PUBLIC_PORT = Number(process.env.PREVIEW_PUBLIC_PORT ?? 4400);
 const ADMIN_PORT = Number(process.env.PREVIEW_ADMIN_PORT ?? 4401);
 const invitationDist = join(repo, 'apps/invitation/dist');
@@ -34,8 +38,9 @@ const PUBLIC_NOTICE = {
 };
 
 // The questionnaire has its sticky action at the bottom; the console has its header at the top.
+// The label is added a second after load so it never races React hydration of the console.
 const LABEL = (edge) =>
-  `<script>(()=>{const show=()=>{if(document.getElementById('intafaced-preview-label'))return;const l=document.createElement('div');l.id='intafaced-preview-label';l.setAttribute('role','note');l.textContent='Local preview · test data · not live';l.style.cssText='position:fixed;${edge}:8px;left:50%;transform:translateX(-50%);z-index:2147483647;pointer-events:none;font:600 10px/1 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#C8F64A;background:rgba(12,14,13,.82);border:1px solid rgba(200,246,74,.35);padding:5px 10px;border-radius:999px;white-space:nowrap';document.body.appendChild(l);};document.readyState==='loading'?addEventListener('DOMContentLoaded',show):show();})();</script>`;
+  `<script>(()=>{const show=()=>{if(document.getElementById('intafaced-preview-label'))return;const l=document.createElement('div');l.id='intafaced-preview-label';l.setAttribute('role','note');l.textContent='Local preview · test data · not live';l.style.cssText='position:fixed;${edge}:8px;left:50%;transform:translateX(-50%);z-index:2147483647;pointer-events:none;font:600 10px/1 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#C8F64A;background:rgba(12,14,13,.82);border:1px solid rgba(200,246,74,.35);padding:5px 10px;border-radius:999px;white-space:nowrap';document.body.appendChild(l);};const later=()=>setTimeout(show,1000);document.readyState==='complete'?later():addEventListener('load',later);})();</script>`;
 const label = (html, edge) => (html.includes('</body>') ? html.replace('</body>', `${LABEL(edge)}</body>`) : html + LABEL(edge));
 
 function pnpm(args, env = {}) {
@@ -102,9 +107,9 @@ async function freePort() {
 }
 
 /** Listen on IPv4 and IPv6 loopback so http://localhost works in every browser. */
-async function listenLocal(handler, port) {
+async function listenLocal(handler, port, everywhere = false) {
   const servers = [];
-  for (const host of ['127.0.0.1', '::1']) {
+  for (const host of [everywhere ? '0.0.0.0' : '127.0.0.1', '::1']) {
     const server = createServer(handler);
     await new Promise((done, reject) => {
       server.once('error', (error) => (host === '::1' && error.code === 'EADDRNOTAVAIL' ? done() : reject(error)));
@@ -220,13 +225,22 @@ function consoleProxy(nextPort) {
   };
 }
 
+function phoneLines() {
+  if (!lan) return '';
+  const addresses = Object.values(networkInterfaces())
+    .flat()
+    .filter((address) => address?.family === 'IPv4' && !address.internal)
+    .map((address) => `\n  On your phone   http://${address.address}:${PUBLIC_PORT}/invest  (same Wi-Fi or VPN)`);
+  return addresses.join('') || '\n  On your phone   no Wi-Fi address found';
+}
+
 async function main() {
   ensureBuilt();
   const contracts = await import(pathToFileURL(join(repo, 'packages/contracts/dist/index.js')).href);
   const fixture = createOutreachFixture(contracts);
   seedTestEnquiries(fixture);
 
-  const servers = [...(await listenLocal(questionnaireServer(fixture), PUBLIC_PORT))];
+  const servers = [...(await listenLocal(questionnaireServer(fixture), PUBLIC_PORT, lan))];
   const edgePort = await freePort();
   const edge = createServer(edgeServer(fixture));
   await new Promise((done) => edge.listen(edgePort, '127.0.0.1', done));
@@ -275,7 +289,7 @@ async function main() {
   console.log(`
 INTAFACED local preview — test data, not live. Nothing is saved, emailed or deployed.
 
-  Questionnaire   http://localhost:${PUBLIC_PORT}/invest
+  Questionnaire   http://localhost:${PUBLIC_PORT}/invest${phoneLines()}
   Founder CRM     http://localhost:${ADMIN_PORT}/crm
                   sign in with any email and password, code 123456
 
