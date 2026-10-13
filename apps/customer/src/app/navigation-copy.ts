@@ -43,6 +43,7 @@ const messages = {
   Holdings: 'Holdings',
   'Your assets in one ledger': 'Your assets in one ledger',
   Holding: 'Holding',
+  Coin: 'Coin',
   'Asset details and actions': 'Asset details and actions',
   'Repeat buy': 'Repeat buy',
   'Scheduled asset purchases': 'Scheduled asset purchases',

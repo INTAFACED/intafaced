@@ -165,10 +165,11 @@ export function topCards(entries: readonly Entry[], size = 3): Card[] {
 }
 
 /**
- * Where a row (or its Buy/Trade button) goes. Simple opens the Buy card once it is live; Pro always opens the desk,
+ * Where a row (or its Buy/Trade button) goes. Simple opens the coin page (or the Buy card while it is hidden); Pro always opens the desk,
  * whose route writes the pair with a dash ("BTC-USDT") although the service names it "BTC/USDT".
  */
 export function marketTarget(market: MarketData, mode: Mode, isHidden: (path: string) => boolean): string {
+  if (mode === 'simple' && !isHidden('/coin/:asset')) return `/coin/${encodeURIComponent(market.base)}`;
   if (mode === 'simple' && !isHidden('/trade/buy')) return `/trade/buy?asset=${encodeURIComponent(market.base)}`;
   return `/trade/spot/${normalizePair(market.symbol)}`;
 }

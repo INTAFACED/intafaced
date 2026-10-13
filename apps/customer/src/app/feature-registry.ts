@@ -132,12 +132,13 @@ export const features: readonly Feature[] = [
   },
   {
     id: 'coin-page',
-    label: 'Coin page (old holding screen)',
+    label: 'Coin page',
     paths: ['/coin/:asset', '/portfolio/:asset'],
-    status: 'hidden',
-    reason: 'Coin page is redesigned in M3',
-    unlock: 'M3 coin page (UI-SPEC 5.5)',
+    status: 'live',
+    reason: 'M3 coin page (B13) reads the ticker, candles, balance and fills',
+    unlock: 'already live',
     tab: 'trade',
+    checked: '2026-10-14, local stack as test_friend: Home coin card to /coin/BTC, price, chart, ranges and Buy card.',
   },
   {
     id: 'simulated-markets',

@@ -180,11 +180,14 @@ describe('marketTarget', () => {
   it('writes the desk pair with a dash although the service names it with a slash', () => {
     expect(marketTarget(market('BTC', 'USDT', { symbol: 'BTC/USDT' }), 'pro', () => false)).toBe('/trade/spot/BTC-USDT');
   });
-  it('Simple opens the Buy card for the coin once it is live', () => {
-    expect(marketTarget(btc, 'simple', () => false)).toBe('/trade/buy?asset=BTC');
+  it('Simple opens the coin page once it is live', () => {
+    expect(marketTarget(btc, 'simple', () => false)).toBe('/coin/BTC');
   });
-  it('Simple falls back to the desk while the Buy card is hidden', () => {
-    expect(marketTarget(btc, 'simple', (path) => path === '/trade/buy')).toBe('/trade/spot/BTC-USDT');
+  it('Simple opens the Buy card while the coin page is hidden', () => {
+    expect(marketTarget(btc, 'simple', (path) => path === '/coin/:asset')).toBe('/trade/buy?asset=BTC');
+  });
+  it('Simple falls back to the desk while both are hidden', () => {
+    expect(marketTarget(btc, 'simple', (path) => path === '/coin/:asset' || path === '/trade/buy')).toBe('/trade/spot/BTC-USDT');
   });
 });
 
