@@ -36,6 +36,7 @@ import {
   fmtAmount,
   isHiddenPath,
   navigate,
+  quotePlaces,
   refusalCopy,
   Skeleton,
   StateBlock,
@@ -107,12 +108,14 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
                 : 'Gave {amount} {asset}'
               : 'Got {amount} {asset}',
             {
-              amount: fmtAmount(counter.amount),
+              amount: fmtAmount(counter.amount, { places: quotePlaces(counter.asset), fixed: true }),
               asset: counter.asset,
             },
           )
         : null,
-      ...fees.map((fee) => t('Fee {amount} {asset}', { amount: fmtAmount(fee.amount), asset: fee.asset })),
+      ...fees.map((fee) =>
+        t('Fee {amount} {asset}', { amount: fmtAmount(fee.amount, { places: quotePlaces(fee.asset), fixed: true }), asset: fee.asset }),
+      ),
     ].filter((part): part is string => part !== null);
     sub = parts.length > 0 ? parts.join(' · ') : null;
   }
@@ -180,7 +183,7 @@ function emptyAction(copy: Copy) {
 
 function Body({ feed, tab, copy, hidden }: { feed: ActivityFeed; tab: LedgerTab; copy: Copy; hidden: boolean }) {
   const { t } = copy;
-  const { groups, holdLines } = useMemo(() => groupActivity(feed.items), [feed.items]);
+  const { groups } = useMemo(() => groupActivity(feed.items), [feed.items]);
   const rows = groups.filter((group) => inTab(group.main, tab));
   const pages = useRef(0);
 
@@ -210,7 +213,6 @@ function Body({ feed, tab, copy, hidden }: { feed: ActivityFeed; tab: LedgerTab;
 
   return (
     <>
-      {tab === 'all' && holdLines > 0 ? <p className="money-act-note">{t('Holds not listed note')}</p> : null}
       <table className="money-table money-table--activity">
         <colgroup>
           <col className="money-act-col--what" />

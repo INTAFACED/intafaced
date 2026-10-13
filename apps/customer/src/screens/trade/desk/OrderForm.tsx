@@ -5,7 +5,7 @@ import { useSession } from '../../../features/session/session';
 import { draftSchema, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
-import { useDeskApi, useRefreshPrivate } from './data';
+import { useDeskApi, useOpenOrders, useRefreshPrivate } from './data';
 import {
   Amount,
   AlertDialog,
@@ -155,6 +155,10 @@ function SideForm({
   const [totalEdit, setTotalEdit] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // The id of the resting order that "Your order is in" is about; and whether the open list has shown it yet.
+  const [restingId, setRestingId] = useState<string | null>(null);
+  const restingSeen = useRef(false);
+  const openOrders = useOpenOrders();
   const [review, setReview] = useState<{ draft: Draft; preview: Preview; changed: boolean } | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
@@ -186,6 +190,18 @@ function SideForm({
     const timer = setTimeout(() => setStatus(null), 12_000);
     return () => clearTimeout(timer);
   }, [status]);
+
+  // ...and it goes as soon as that order leaves Open orders (cancelled or filled), so it never sits beside "No open orders".
+  useEffect(() => {
+    if (restingId === null || (openOrders.status !== 'ready' && openOrders.status !== 'empty')) return;
+    const open = openOrders.status === 'ready' ? openOrders.data : [];
+    if (open.some((order) => order.id === restingId)) restingSeen.current = true;
+    else if (restingSeen.current) {
+      setStatus(null);
+      setRestingId(null);
+      restingSeen.current = false;
+    }
+  }, [restingId, openOrders]);
 
   const edit = (apply: () => void) => {
     if (busyRef.current) return;
@@ -358,6 +374,8 @@ function SideForm({
         const done = result.data;
         const sideWord = side === 'buy' ? t('Order placed side buy') : t('Order placed side sell');
         const complete = scaled(done.remaining) === 0n && done.status === 'closed';
+        restingSeen.current = false;
+        setRestingId(done.status === 'open' ? done.id : null);
         setStatus(
           complete
             ? t('Order placed filled', { side: sideWord, amount: fmtAmount(done.filled, { places: amountPlaces }), asset: market.base })

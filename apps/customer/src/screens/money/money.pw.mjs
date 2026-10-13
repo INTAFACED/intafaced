@@ -606,20 +606,31 @@ test('every link that means "my orders" lands on the Orders tab', async ({ page 
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Trades');
 });
 
-test('All: the legs of one buy are one Trade row with what was paid; holds are left out with a note (critic H2)', async ({ page }) => {
+test('All: the legs of one buy are one Trade row with what was paid; nothing else is hidden (critic H2, N2)', async ({ page }) => {
   await mock(page, {
     bank: { 'activity.list': () => ({ items: [...holdLines(), ...buyLines()], nextCursor: null }) },
   });
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(1);
-  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade']);
-  expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual(['+0.0000999 BTC']);
+  // The buy is one row; the resting order's hold and release (minutes away, kind `other` on an older bank) are listed with their real amounts.
+  await expect(page.locator('.money-act')).toHaveCount(3);
+  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade', 'Other activity', 'Other activity']);
+  expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual(['+0.0000999 BTC', '+5 USDT', '−5 USDT']);
   expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 6.508366 USDT']);
-  const text = await page.locator('.if-money').innerText();
-  expect(text).not.toContain('Other activity');
-  expect(text).not.toContain('Completed −5');
-  await expect(page.locator('.money-act-note')).toContainText('Money set aside for your open orders isn’t listed here');
+  await expect(page.locator('.money-act-note')).toHaveCount(0);
+  expect(await page.locator('.if-money').innerText()).not.toContain('not listed');
   await snap(page, 'activity-all-trade-1440x900');
+});
+
+test('All: a labelled hold and release are ordinary rows, and inside the trade they belong to', async ({ page }) => {
+  const label = (line) => (line.kind === 'other' ? { ...line, kind: line.direction === 'out' ? 'order_hold' : 'order_release' } : line);
+  await mock(page, {
+    bank: { 'activity.list': () => ({ items: [...holdLines(), ...buyLines()].map(label), nextCursor: null }) },
+  });
+  await open(page, ALL);
+  await expect(page.locator('.money-act')).toHaveCount(3);
+  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade', 'Returned from an order', 'Set aside for an order']);
+  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 6.508366 USDT']);
+  expect(await texts(page.locator('.money-act__hold'))).toEqual(['Set aside']);
 });
 
 test('All shows a hold the server has labelled as "Set aside", never as completed money gone', async ({ page }) => {
@@ -641,7 +652,7 @@ test('Pro Activity rows are 40 px', async ({ page }) => {
   await mock(page);
   await pro(page);
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(9);
+  await expect(page.locator('.money-act')).toHaveCount(10);
   expect(Math.round((await page.locator('.money-act').first().boundingBox()).height)).toBe(40);
 });
 
@@ -653,8 +664,8 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
   await open(page, ALL);
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
   const rows = page.locator('.money-act');
-  // 12 ledger lines on page one are 9 rows: the fill's three lines are one Trade, and the loose "other" line is left out.
-  await expect(rows).toHaveCount(9);
+  // 12 ledger lines on page one are 10 rows: the fill's three lines are one Trade; the loose "other" line is listed.
+  await expect(rows).toHaveCount(10);
   expect(await texts(page.locator('.money-act__title'))).toEqual([
     'Received from @maya',
     'Trade',
@@ -665,8 +676,9 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
     'Welcome test funds',
     'Payment sent',
     'Withdrawal',
+    'Other activity',
   ]);
-  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 678.124 USDT · Fee 0.6781 USDT', 'Account: Rent']);
+  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 678.124000 USDT · Fee 0.678100 USDT', 'Account: Rent']);
   // Amounts carry their sign in text and their direction in colour.
   expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual([
     '+50 USDT',
@@ -678,6 +690,7 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
     '+4,000 USDT',
     '−12.5 USDT',
     '−100 USDT',
+    '+0.2 ETH',
   ]);
   const colour = (selector) =>
     page
@@ -697,6 +710,7 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
     '10 Oct, 06:00',
     '9 Oct, 15:00',
     '8 Oct, 11:11',
+    '7 Oct, 09:00',
   ]);
   expect(new Set(await texts(page.locator('.money-act__done')))).toEqual(new Set(['Completed']));
   expect(Math.round((await rows.first().boundingBox()).height)).toBe(48);
@@ -706,7 +720,7 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
   await expect(page.getByRole('button', { name: 'Load more' })).toBeVisible();
   await snap(page, 'activity-loaded-1440x900');
   await page.getByRole('button', { name: 'Load more' }).click();
-  await expect(rows).toHaveCount(12);
+  await expect(rows).toHaveCount(13);
   await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
   expect((await texts(page.locator('.money-act__time'))).at(-1)).toBe('30 Dec 2025, 10:00'); // another year shows the year
   // (React's dev double-mount may ask for page one twice; the second page is asked for once, with the cursor.)
@@ -719,7 +733,7 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
 test('activity screenshots at both sizes, and side by side with the OKX order centre', async ({ page }) => {
   await mock(page);
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(9);
+  await expect(page.locator('.money-act')).toHaveCount(10);
   await shootBoth(page, 'activity-loaded');
   await page.screenshot({ path: join(shots, 'activity-loaded-full-1440.png'), fullPage: true });
   if (referenceActivity && existsSync(referenceActivity)) {
@@ -740,7 +754,7 @@ test('activity screenshots at both sizes, and side by side with the OKX order ce
 test('activity tabs filter the rows, keep the address in step, and look further back when a tab is thin', async ({ page }) => {
   const api = await mock(page);
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(9);
+  await expect(page.locator('.money-act')).toHaveCount(10);
 
   await page.getByRole('tab', { name: 'Deposits' }).click();
   await expect(page).toHaveURL(/\/money\/activity\?tab=deposits$/);
@@ -806,7 +820,7 @@ test('activity error: inside the page with Try again; refusal in plain words', a
   await shootBoth(page, 'activity-error');
   fail = false;
   await block.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.locator('.money-act')).toHaveCount(9);
+  await expect(page.locator('.money-act')).toHaveCount(10);
 });
 
 test('activity refused: words and a reference, never the raw code', async ({ page }) => {
@@ -826,7 +840,7 @@ test('activity loading shows 8 final-size skeleton rows; a failed "load more" ke
   expect(Math.round((await page.locator('.money-act-skeleton__row').first().boundingBox()).height)).toBe(56);
   await shootBoth(page, 'activity-loading');
   await api.release();
-  await expect(page.locator('.money-act')).toHaveCount(9);
+  await expect(page.locator('.money-act')).toHaveCount(10);
 });
 
 test('a failed "load more" keeps what is on screen and offers to try again', async ({ page }) => {
@@ -840,16 +854,16 @@ test('a failed "load more" keeps what is on screen and offers to try again', asy
   await open(page, ALL);
   await page.getByRole('button', { name: 'Load more' }).click();
   await expect(page.locator('.money-more__note')).toHaveText('Couldn’t load more.');
-  await expect(page.locator('.money-act')).toHaveCount(9);
+  await expect(page.locator('.money-act')).toHaveCount(10);
   second = 'ok';
   await page.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.locator('.money-act')).toHaveCount(12);
+  await expect(page.locator('.money-act')).toHaveCount(13);
 });
 
 test('activity: hide balances masks the amounts; no horizontal scroll at narrow widths', async ({ page }) => {
   await mock(page);
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(9);
+  await expect(page.locator('.money-act')).toHaveCount(10);
   await page.evaluate(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ hideBalances: true })));
   for (const size of [
     { width: 1280, height: 800 },
@@ -859,7 +873,7 @@ test('activity: hide balances masks the amounts; no horizontal scroll at narrow 
   ]) {
     await page.setViewportSize(size);
     await open(page, ALL);
-    await expect(page.locator('.money-act')).toHaveCount(9);
+    await expect(page.locator('.money-act')).toHaveCount(10);
     expect([...new Set(await texts(page.locator('.money-act [data-slot="amount"]')))]).toEqual(['••••']);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     const wide = await page.evaluate(() =>

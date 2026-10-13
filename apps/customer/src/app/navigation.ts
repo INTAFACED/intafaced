@@ -343,6 +343,11 @@ export function searchRooms(query: string, mode: 'Personal' | 'Business', locale
 }
 
 export const defaultDeskPair = 'BTC-USDT';
+/** The pair of a desk path (`/trade/spot/ETH-USDT`, `/exchange/ETH_USDT`), as "ETH/USDT"; null for any other path. */
+export function deskPairLabel(path: string): string | null {
+  const match = /^\/(?:trade\/spot|exchange)\/([^/]+)$/.exec(path);
+  return match ? normalizePair(match[1]!).replace('-', '/') : null;
+}
 /** The Trade tab: the markets list in Simple, the desk in Pro. A link to a specific page ignores the mode. */
 export function tradeTabHref(layoutMode: 'simple' | 'pro', lastPair: string = defaultDeskPair): string {
   return layoutMode === 'pro' ? `/trade/spot/${normalizePair(lastPair)}` : '/trade';

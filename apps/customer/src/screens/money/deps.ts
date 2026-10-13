@@ -34,3 +34,4 @@ export { primarySymbolFor } from '../../data/derive';
 export { isHiddenPath } from '../../app/feature-registry';
 export { coinHref, defaultDeskPair } from '../../app/navigation';
 export { navigate } from '../../app/location';
+export { quotePlaces } from '../trade/desk/text';

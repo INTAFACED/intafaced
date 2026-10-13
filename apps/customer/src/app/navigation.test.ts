@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { customerRoomHref, findRoom, resolveAlias, rooms, safeReturnTo, searchRooms } from './navigation';
+import { customerRoomHref, deskPairLabel, findRoom, resolveAlias, rooms, safeReturnTo, searchRooms } from './navigation';
 import { screens } from './screens';
 import { isHiddenPath } from './feature-registry';
 
@@ -180,4 +180,12 @@ describe('route table', () => {
     expect(findRoom('/trade/buy')?.screen).toBe('trade/buy');
     expect(findRoom('/pay/send')?.screen).toBe('pay');
   });
+});
+
+it('titles each desk market by its pair, so desk tabs can be told apart', () => {
+  expect(deskPairLabel('/trade/spot/ETH-USDT')).toBe('ETH/USDT');
+  expect(deskPairLabel('/exchange/eth_usdc')).toBe('ETH/USDC');
+  expect(deskPairLabel('/trade/spot/BTC%2FUSDT')).toBe('BTC/USDT');
+  expect(deskPairLabel('/trade')).toBeNull();
+  expect(deskPairLabel('/trade/spot/BTC-USDT/extra')).toBeNull();
 });

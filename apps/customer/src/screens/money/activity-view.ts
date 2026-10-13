@@ -37,9 +37,9 @@ export function inTab(item: ActivityItem, tab: LedgerTab): boolean {
  */
 export interface ActivityGroup {
   id: string;
-  /** The line that names the group and is shown as its amount. */
+  /** The line that names the group and is shown as its amount. For a sweep (several fills) its amount is their exact sum. */
   main: ActivityItem;
-  /** Every line of the group, the main one included. */
+  /** Every line of the group (for a sweep, each fill: `main` carries their sum). */
   lines: ActivityItem[];
 }
 
@@ -61,7 +61,9 @@ const RANK: Readonly<Record<ActivityKind, number>> = {
 
 /**
  * The server posts the lines of one fill as separate entries, each with its own id and a few milliseconds apart (the
- * money set aside, the coin, the unused change). Lines of kind `other` or `fee` this close to a trade belong to it.
+ * money set aside, the coin, the unused change). Lines this close to a trade may belong to it. Every ledger line has its
+ * own `txId`, so the window does the grouping, and it can be wrong: a number is shown only when the lines prove it
+ * (see `tradeDetail`).
  */
 export const TRADE_WINDOW_MS = 500;
 
@@ -69,6 +71,47 @@ const at = (item: ActivityItem): number => Date.parse(item.postedAt);
 
 function mainOf(lines: ActivityItem[]): ActivityItem {
   return lines.reduce((best, line) => (RANK[line.kind] > RANK[best.kind] ? line : best), lines[0]!);
+}
+
+/**
+ * One order can fill against several makers: the server posts one `trade` line per maker, a few ms apart. Within the
+ * window, `trade` groups of the same asset and direction become one group whose main line holds the exact sum.
+ */
+function mergeSweeps(groups: ActivityGroup[]): ActivityGroup[] {
+  const byKey = new Map<string, ActivityGroup[]>();
+  for (const group of groups) {
+    if (group.main.kind !== 'trade') continue;
+    const key = `${group.main.asset}|${group.main.direction}`;
+    const list = byKey.get(key);
+    if (list) list.push(group);
+    else byKey.set(key, [group]);
+  }
+  const replaced = new Map<ActivityGroup, ActivityGroup>();
+  const dropped = new Set<ActivityGroup>();
+  for (const list of byKey.values()) {
+    list.sort((a, b) => at(a.main) - at(b.main));
+    let run: ActivityGroup[] = [];
+    const flush = () => {
+      if (run.length > 1) {
+        const newest = run[run.length - 1]!;
+        const total = run.reduce((sum, group) => sum + (dec(group.main.amount) ?? 0n), 0n);
+        replaced.set(newest, {
+          id: newest.id,
+          main: { ...newest.main, amount: str(total) },
+          lines: run.flatMap((group) => group.lines),
+        });
+        for (const group of run.slice(0, -1)) dropped.add(group);
+      }
+      run = [];
+    };
+    for (const group of list) {
+      const last = run[run.length - 1];
+      if (last && at(group.main) - at(last.main) > TRADE_WINDOW_MS) flush();
+      run.push(group);
+    }
+    flush();
+  }
+  return groups.flatMap((group) => (dropped.has(group) ? [] : [replaced.get(group) ?? group]));
 }
 
 /** Joins a `trade` line that takes an asset with the nearest one, within the window, that gives a different asset. */
@@ -94,15 +137,21 @@ function pairTradeLegs(groups: ActivityGroup[]): ActivityGroup[] {
 
 export interface Grouped {
   groups: ActivityGroup[];
-  /** Lines left out of the list: money set aside for orders, and returned from them, that the server files as `other`. */
-  holdLines: number;
 }
 
+/** Lines that may be the money set aside for, returned from, or charged on a trade. */
+const LOOSE: ReadonlySet<ActivityKind> = new Set<ActivityKind>(['other', 'fee', 'order_hold', 'order_release']);
+
+/** The time of the nearest `trade` line of a group to a moment, as a distance in ms. */
+const distanceTo = (trade: ActivityGroup, line: ActivityItem): number =>
+  Math.min(...trade.lines.filter((l) => l.kind === 'trade').map((l) => Math.abs(at(l) - at(line))));
+
 /**
- * Newest first. Lines of one ledger transaction (same `txId`) become one group; then loose `other`/`fee` lines within
- * `TRADE_WINDOW_MS` of a trade join the nearest trade. Loose `other` lines left over are holds and releases of resting
- * orders (the only things the server files under `other` for a customer); they are counted, not listed, until the server
- * labels them (`order_hold` / `order_release`, which this screen already shows).
+ * Newest first, and nothing is left out: every ledger line is shown, alone or inside a trade. Lines of one ledger
+ * transaction (same `txId`) become one group; `trade` lines of one order that filled against several makers become one
+ * group; then loose `fee`, `order_hold`, `order_release` and `other` lines within `TRADE_WINDOW_MS` of a trade, in a
+ * different asset than the coin it moved, join the nearest trade. What stays loose is listed as its own row (an `other`
+ * line is "Other activity" with its real amount).
  */
 export function groupActivity(items: readonly ActivityItem[]): Grouped {
   const byTx = new Map<string, ActivityItem[]>();
@@ -116,17 +165,18 @@ export function groupActivity(items: readonly ActivityItem[]): Grouped {
     return { id: main.id, main, lines };
   });
 
-  // The two legs of one fill (coin in, dollars out) are both `trade` lines, a few ms apart: they are one trade.
-  groups = pairTradeLegs(groups);
+  // Several fills of one order are one trade; then the two legs of one fill (coin in, dollars out) are one trade.
+  groups = pairTradeLegs(mergeSweeps(groups));
   const trades = groups.filter((group) => group.main.kind === 'trade');
   if (trades.length > 0) {
     const absorbed = new Set<ActivityGroup>();
     for (const group of groups) {
-      if (group.main.kind !== 'other' && group.main.kind !== 'fee') continue;
+      if (!LOOSE.has(group.main.kind)) continue;
       let nearest: ActivityGroup | null = null;
       let gap = TRADE_WINDOW_MS + 1;
       for (const trade of trades) {
-        const distance = Math.abs(at(trade.main) - at(group.main));
+        if (group.main.kind !== 'fee' && group.main.asset === trade.main.asset) continue;
+        const distance = distanceTo(trade, group.main);
         if (distance < gap) {
           gap = distance;
           nearest = trade;
@@ -139,15 +189,8 @@ export function groupActivity(items: readonly ActivityItem[]): Grouped {
     }
     groups = groups.filter((group) => !absorbed.has(group));
   }
-
-  let holdLines = 0;
-  groups = groups.filter((group) => {
-    if (group.main.kind !== 'other') return true;
-    holdLines += group.lines.length;
-    return false;
-  });
   groups.sort((a, b) => at(b.main) - at(a.main));
-  return { groups, holdLines };
+  return { groups };
 }
 
 export interface TradeDetail {
@@ -167,20 +210,48 @@ function net(lines: ActivityItem[], asset: string): bigint {
   return total;
 }
 
+const isHold = (line: ActivityItem): boolean => line.kind === 'order_hold' || line.kind === 'other';
+const isRelease = (line: ActivityItem): boolean => line.kind === 'order_release' || line.kind === 'other';
+
 /**
- * What a trade group says besides its main line: what was paid (or given) for it, net of the unused part returned, and
- * any fee lines. Null counter when the lines do not show it.
+ * What a trade group says besides its main line: what was paid (or given) for it, and any fee lines. Wrong numbers
+ * become no number: the counter is shown only when the lines prove it.
+ * - It must run the opposite way to the main line (a buy pays out, a sell receives).
+ * - From `trade` legs of the other asset: their exact net.
+ * - Otherwise from money set aside minus money returned, and only with exactly one of each (a hold out, a release in).
+ *   A hold alone is a resting or part-filled order, so it says nothing about the price; two releases mean another
+ *   order's cancel is in the window.
+ * - If two assets would both qualify, none is shown.
  */
 export function tradeDetail(group: ActivityGroup): TradeDetail {
-  const others = group.lines.filter((line) => line !== group.main && line.kind !== 'fee');
-  const assets = [...new Set(others.map((line) => line.asset).filter((asset) => asset !== group.main.asset))];
-  let counter: TradeDetail['counter'] = null;
+  const { main } = group;
+  const counterDirection = main.direction === 'in' ? 'out' : 'in';
+  const others = group.lines.filter((line) => line !== main && line.kind !== 'fee' && line.asset !== main.asset);
+  const assets = [...new Set(others.map((line) => line.asset))];
+  const found: Array<NonNullable<TradeDetail['counter']>> = [];
   for (const asset of assets) {
-    const value = net(others, asset);
+    const lines = others.filter((line) => line.asset === asset);
+    const legs = lines.filter((line) => line.kind === 'trade');
+    let value = 0n;
+    if (legs.length > 0) {
+      if (legs.length !== lines.length) continue;
+      value = net(legs, asset);
+      if ((counterDirection === 'out') !== value < 0n) continue;
+    } else {
+      if (main.direction !== 'in') continue; // money is set aside only to receive something
+      const holds = lines.filter((line) => isHold(line) && line.direction === counterDirection);
+      const releases = lines.filter((line) => isRelease(line) && line.direction === main.direction);
+      if (holds.length !== 1 || releases.length !== 1 || holds.length + releases.length !== lines.length) continue;
+      const set = dec(holds[0]!.amount) ?? 0n;
+      const back = dec(releases[0]!.amount) ?? 0n;
+      if (set <= back) continue;
+      value = set - back;
+      value = -value;
+    }
     if (value === 0n) continue;
-    counter = { direction: value < 0n ? 'out' : 'in', asset, amount: str(value < 0n ? -value : value) };
-    break;
+    found.push({ direction: counterDirection, asset, amount: str(value < 0n ? -value : value) });
   }
+  const counter = found.length === 1 ? found[0]! : null;
   const feeAssets = [...new Set(group.lines.filter((line) => line.kind === 'fee').map((line) => line.asset))];
   const fees = feeAssets.flatMap((asset) => {
     const value = net(

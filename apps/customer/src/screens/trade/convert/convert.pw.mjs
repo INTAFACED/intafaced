@@ -102,7 +102,7 @@ test('convert 10 USDT to ETH: quote, countdown, review, convert, receipt, new ba
   expect(await note(page)).toBeNull();
   await expect(page.getByTestId('cvt-receipt').locator('a', { hasText: 'View activity' })).toHaveAttribute(
     'href',
-    '/money/activity?tab=trades',
+    '/money/activity?tab=all',
   );
   await shot(page, 'convert-1440x900-success');
 

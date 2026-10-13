@@ -14,6 +14,7 @@ const item = (over: Partial<ActivityItem>): ActivityItem => ({
   spaceName: null,
   ...over,
 });
+const T0 = Date.parse('2026-10-14T10:00:00.000Z');
 const t = (key: string) => key;
 const withHandle = (key: string, handle: string) => key.replace('{handle}', `@${handle}`);
 
@@ -88,11 +89,10 @@ const hold = [
 
 describe('groupActivity', () => {
   it('turns the legs of one buy into a single Trade row with what was paid', () => {
-    const { groups, holdLines } = groupActivity(buy);
+    const { groups } = groupActivity(buy);
     expect(groups).toHaveLength(1);
     expect(groups[0]!.main.kind).toBe('trade');
     expect(groups[0]!.lines).toHaveLength(3);
-    expect(holdLines).toBe(0);
     // 6.540908 set aside - 0.032542 returned = 6.508366 paid
     expect(tradeDetail(groups[0]!)).toEqual({ counter: { direction: 'out', asset: 'USDT', amount: '6.508366' }, fees: [] });
   });
@@ -100,7 +100,8 @@ describe('groupActivity', () => {
   it('groups lines that share a txId, and puts a fee line in the detail', () => {
     const lines = [
       item({ id: '1', kind: 'trade', asset: 'BTC', amount: '0.001', txId: 'same' }),
-      item({ id: '2', kind: 'other', direction: 'out', asset: 'USDT', amount: '60', txId: 'same' }),
+      item({ id: '2', kind: 'other', direction: 'out', asset: 'USDT', amount: '61', txId: 'same' }),
+      item({ id: '2b', kind: 'other', direction: 'in', asset: 'USDT', amount: '1', txId: 'same' }),
       item({ id: '3', kind: 'fee', direction: 'out', asset: 'USDT', amount: '0.06', txId: 'same' }),
     ];
     const { groups } = groupActivity(lines);
@@ -126,9 +127,17 @@ describe('groupActivity', () => {
     });
   });
 
-  it('keeps two fills of the same coin apart', () => {
-    const fills = ['1', '2'].map((n, i) =>
-      item({ id: n, kind: 'trade', direction: 'in', asset: 'BTC', amount: '0.01', postedAt: `2026-10-14T08:02:00.00${i}Z`, txId: n }),
+  it('keeps two fills of the same coin apart when they are further apart than the window', () => {
+    const fills = [0, 2000].map((ms, i) =>
+      item({
+        id: `${i}`,
+        kind: 'trade',
+        direction: 'in',
+        asset: 'BTC',
+        amount: '0.01',
+        postedAt: new Date(T0 + ms).toISOString(),
+        txId: `${i}`,
+      }),
     );
     expect(groupActivity(fills).groups).toHaveLength(2);
   });
@@ -144,19 +153,124 @@ describe('groupActivity', () => {
     expect(groups.map((group) => group.lines.length)).toEqual([3, 3]);
   });
 
-  it('leaves out holds and releases of resting orders and counts them', () => {
-    const { groups, holdLines } = groupActivity([...hold, ...buy]);
-    expect(groups.map((group) => group.main.kind)).toEqual(['trade']);
-    expect(holdLines).toBe(2);
+  it('lists a hold and a release of resting orders as rows of their own, with their real amounts', () => {
+    const { groups } = groupActivity([...hold, ...buy]);
+    expect(groups.map((group) => group.main.kind)).toEqual(['other', 'other', 'trade']);
+    expect(groups.map((group) => [group.main.direction, group.main.amount])).toEqual([
+      ['in', '5'],
+      ['out', '5'],
+      ['in', '0.0000999'],
+    ]);
   });
 
   it('shows holds the server labels, and never a plain Completed -5 USDT', () => {
     const labelled = [item({ id: 'o', kind: 'order_hold', direction: 'out', amount: '5', txId: 'o' })];
-    const { groups, holdLines } = groupActivity(labelled);
+    const { groups } = groupActivity(labelled);
     expect(groups).toHaveLength(1);
-    expect(holdLines).toBe(0);
     expect(titleOf(groups[0]!.main, t, withHandle)).toBe('Set aside for an order');
     expect(titleOf(item({ kind: 'order_release' }), t, withHandle)).toBe('Returned from an order');
+  });
+
+  it('puts a labelled hold and release inside the trade they belong to, with the same Paid', () => {
+    const labelled = buy.map((line) =>
+      line.kind === 'other' ? { ...line, kind: line.direction === 'out' ? ('order_hold' as const) : ('order_release' as const) } : line,
+    );
+    const { groups } = groupActivity(labelled);
+    expect(groups).toHaveLength(1);
+    expect(tradeDetail(groups[0]!).counter).toEqual({ direction: 'out', asset: 'USDT', amount: '6.508366' });
+  });
+
+  // The cases the round-2 critic ran (grouping-sim.txt): wrong numbers must become no number.
+  describe('the 500 ms window never shows a wrong amount', () => {
+    let n = 0;
+    const L = (ms: number, kind: ActivityItem['kind'], direction: 'in' | 'out', asset: string, amount: string) =>
+      item({ id: `i${++n}`, txId: `t${n}`, kind, direction, asset, amount, postedAt: new Date(T0 + ms).toISOString() });
+    const detailOf = (lines: ActivityItem[]) => {
+      const { groups } = groupActivity(lines);
+      return groups.map((group) => ({
+        kind: group.main.kind,
+        direction: group.main.direction,
+        asset: group.main.asset,
+        amount: group.main.amount,
+        counter: group.main.kind === 'trade' ? tradeDetail(group).counter : undefined,
+      }));
+    };
+
+    it('A: a market buy that sweeps two makers is one row, and Paid is the hold minus the release', () => {
+      // hold 100.5 out, fills 0.0008 + 0.0007 BTC, release 2.1 in
+      const rows = detailOf([
+        L(0, 'other', 'out', 'USDT', '100.5'),
+        L(16, 'trade', 'in', 'BTC', '0.0008'),
+        L(20, 'trade', 'in', 'BTC', '0.0007'),
+        L(32, 'other', 'in', 'USDT', '2.1'),
+      ]);
+      expect(rows).toEqual([
+        { kind: 'trade', direction: 'in', asset: 'BTC', amount: '0.0015', counter: { direction: 'out', asset: 'USDT', amount: '98.4' } },
+      ]);
+    });
+
+    it('B: a crossing limit buy that half fills and rests shows no Paid (a hold alone proves no price)', () => {
+      const rows = detailOf([L(0, 'order_hold', 'out', 'USDT', '100'), L(15, 'trade', 'in', 'BTC', '0.00077')]);
+      expect(rows).toEqual([{ kind: 'trade', direction: 'in', asset: 'BTC', amount: '0.00077', counter: null }]);
+    });
+
+    it('C: a resting limit buy that fills an hour later is a trade with no number and a hold row of its own', () => {
+      const rows = detailOf([L(0, 'other', 'out', 'USDT', '50'), L(3_600_000, 'trade', 'in', 'BTC', '0.00077')]);
+      expect(rows).toEqual([
+        { kind: 'trade', direction: 'in', asset: 'BTC', amount: '0.00077', counter: null },
+        { kind: 'other', direction: 'out', asset: 'USDT', amount: '50', counter: undefined },
+      ]);
+    });
+
+    it('D: another order cancelled 300 ms before a market fill never turns the buy into "Got 40"', () => {
+      const rows = detailOf([
+        L(0, 'other', 'in', 'USDT', '50'),
+        L(300, 'other', 'out', 'USDT', '10.05'),
+        L(316, 'trade', 'in', 'BTC', '0.00015'),
+        L(332, 'other', 'in', 'USDT', '0.05'),
+      ]);
+      expect(rows).toEqual([{ kind: 'trade', direction: 'in', asset: 'BTC', amount: '0.00015', counter: null }]);
+    });
+
+    it('E: other lines with no trade near them are all listed, with their real amounts', () => {
+      const rows = detailOf([L(0, 'other', 'in', 'USDT', '12.5'), L(5000, 'other', 'out', 'USDT', '300')]);
+      expect(rows).toEqual([
+        { kind: 'other', direction: 'out', asset: 'USDT', amount: '300', counter: undefined },
+        { kind: 'other', direction: 'in', asset: 'USDT', amount: '12.5', counter: undefined },
+      ]);
+    });
+
+    it('sums fills as exact decimals, with no float noise', () => {
+      const rows = detailOf([L(0, 'trade', 'in', 'BTC', '0.1'), L(10, 'trade', 'in', 'BTC', '0.2')]);
+      expect(rows[0]!.amount).toBe('0.3');
+    });
+
+    it('does not join fills of different coins, or a buy with a sell', () => {
+      expect(detailOf([L(0, 'trade', 'in', 'BTC', '0.1'), L(10, 'trade', 'in', 'ETH', '0.2')])).toHaveLength(2);
+      expect(detailOf([L(0, 'trade', 'in', 'BTC', '0.1'), L(10, 'trade', 'out', 'BTC', '0.2')])).toHaveLength(2);
+    });
+
+    it('does not take an unrelated line in the coin the trade moved', () => {
+      const rows = detailOf([L(0, 'trade', 'in', 'BTC', '0.1'), L(10, 'other', 'in', 'BTC', '0.01')]);
+      expect(rows).toHaveLength(2);
+    });
+
+    it('shows no Got/Paid when two coins would both qualify', () => {
+      const { groups } = groupActivity([
+        L(0, 'order_hold', 'out', 'USDT', '10'),
+        L(5, 'order_hold', 'out', 'USDC', '10'),
+        L(10, 'trade', 'in', 'BTC', '0.001'),
+        L(15, 'order_release', 'in', 'USDT', '1'),
+        L(20, 'order_release', 'in', 'USDC', '1'),
+      ]);
+      expect(tradeDetail(groups[0]!).counter).toBeNull();
+    });
+
+    it('never reports a counter that runs the same way as the main line', () => {
+      const { groups } = groupActivity([L(0, 'trade', 'in', 'BTC', '0.001'), L(5, 'trade', 'in', 'USDT', '9')]);
+      expect(groups).toHaveLength(2);
+      expect(groups.every((group) => tradeDetail(group).counter === null)).toBe(true);
+    });
   });
 
   it('lists newest first and keeps deposits and transfers as their own rows', () => {

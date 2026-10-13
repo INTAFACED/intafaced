@@ -131,12 +131,13 @@
   .buy-form__amount [data-slot='amount-input'] > div:first-child {
     justify-content: flex-end !important;
   }
-  /* The kit's focus ring is a square box that sticks out past the card padding (critic L3). The kit sets it with utility
-     classes, which beat this layer, so these two declarations are !important (an earlier layer's important rule wins). */
-  .buy-form__amount [data-slot='amount-input'] {
+  /* The kit's focus ring is a square box that sticks out past the card padding (critic L3). The ring is an outline on the
+     field's first child div (not on the [data-slot] root), set by kit utility classes that beat this layer, so these two
+     declarations are !important (an earlier layer's important rule wins). */
+  .buy-form__amount [data-slot='amount-input'] > div:first-child {
     border-radius: var(--if-r-md) !important;
   }
-  .buy-form__amount [data-slot='amount-input']:has(input:focus-visible) {
+  .buy-form__amount [data-slot='amount-input'] > div:first-child:has(input:focus-visible) {
     outline-offset: -2px !important;
   }
   .buy-form__approx {

@@ -38,7 +38,7 @@ import { defaultPair, edgeFor, edges, fromAssets, planConvert, reviewAmount, spe
 import { acceptQuote, newClientConvertId, refOf, useQuote, type AcceptRef, type Fill, type Quote } from './convert-flow';
 import type { ScreenProps } from '../../../app/screen-types';
 
-const ACTIVITY_HREF = '/money/activity?tab=trades';
+const ACTIVITY_HREF = '/money/activity?tab=all';
 /** "Available" shows the whole balance, as Money does (up to 8 places); only Max rounds down to the lot (critic M5). */
 const BALANCE_PLACES = 8;
 const isDollar = (asset: string) => asset === 'USDT' || asset === 'USDC' || asset === 'USD';
@@ -510,11 +510,16 @@ function ConvertCard({
               <span>{to}</span>
               <ChevronDown size={16} aria-hidden="true" />
             </button>
-            <div className="cvt-to" data-loading={quoteLoading || undefined} data-testid="to-amount">
+            <div
+              className="cvt-to"
+              data-loading={quoteLoading || undefined}
+              data-testid="to-amount"
+              title={quote ? `${quote.outAmount} ${quote.outAsset}` : undefined}
+            >
               <AmountInput
                 size="hero"
                 aria-label={t('To')}
-                value={quote ? quote.outAmount : ''}
+                value={quote ? fmtAmount(quote.outAmount, { places: placesFor(quote.outAsset), round: 'down' }) : ''}
                 onValueChange={() => undefined}
                 precision={18}
                 placeholder="0"

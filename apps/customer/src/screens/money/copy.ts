@@ -101,7 +101,6 @@ const messages = {
   'Gave {amount} {asset}': 'Gave {amount} {asset}',
   'Got {amount} {asset}': 'Got {amount} {asset}',
   'Fee {amount} {asset}': 'Fee {amount} {asset}',
-  'Holds not listed note': 'Money set aside for your open orders isn’t listed here. Your orders are under Orders.',
   'In account {name}': 'Account: {name}',
 } as const;
 
