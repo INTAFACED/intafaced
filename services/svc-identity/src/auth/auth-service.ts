@@ -633,8 +633,10 @@ export class AuthService {
     } catch (err) {
       throw mapWebAuthnError(err);
     }
-    // Re-read under a row lock so two enrolments (or an enrol racing a login's
-    // counter write) cannot overwrite each other's credential list.
+    // Re-read under a row lock so this enrolment and a login's counter write in
+    // this service cannot overwrite each other's credential list. The writers in
+    // enroll-passkey.ts, verify-passkey.ts and unenroll-passkey.ts do not take
+    // this lock yet, so the guarantee holds only between locked writers.
     const existingCount = await transaction(this.sql, async (tx) => {
       const locked = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
       if (!locked[0]) throw new AuthError('User not found', 'auth.not_found');
@@ -697,9 +699,11 @@ export class AuthService {
    * Verify a passkey assertion and advance that credential's signature counter.
    *
    * Runs in one transaction under `SELECT … FOR UPDATE` on the user row, so two
-   * concurrent assertions (or an enrol/remove racing a login) cannot read the
+   * concurrent assertions (or a locked enrolment racing a login) cannot read the
    * same counter and both succeed, and cannot overwrite each other's credential
-   * list. `refuse` throws the caller's own AuthError for any refusal.
+   * list. The unlocked writers in enroll-passkey.ts, verify-passkey.ts and
+   * unenroll-passkey.ts are outside this guarantee until they take the same
+   * lock. `refuse` throws the caller's own AuthError for any refusal.
    */
   private async verifyAssertionAndAdvanceCounter(
     userId: string,
