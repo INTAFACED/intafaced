@@ -8,7 +8,7 @@ import { assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type Fact
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
-import { recordSuccess, reserveAttempt } from './attempt-lockout.js';
+import { recordSuccess, reserveAttempt, type AttemptKind } from './attempt-lockout.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
 import {
   b64urlDecode,
@@ -327,6 +327,12 @@ export class AuthService {
     this.log = log;
   }
 
+  /** Count a sign-in attempt (see attempt-lockout.ts); log once when this attempt is the one that sets a lock. */
+  private async reserve(userId: string, kind: AttemptKind): Promise<void> {
+    const { lockedForSeconds } = await reserveAttempt(this.sql, userId, kind);
+    if (lockedForSeconds !== null) this.log.warn({ userId, kind, lockedForSeconds }, 'identity.account_locked');
+  }
+
   /**
    * The user's TOTP secret in the clear, or null when the stored value cannot be
    * opened (key lost / rotated, corrupt ciphertext). Null makes the caller fall
@@ -403,7 +409,7 @@ export class AuthService {
     let locked: AuthError | undefined;
     if (user) {
       try {
-        await reserveAttempt(this.sql, user.id, 'password');
+        await this.reserve(user.id, 'password');
       } catch (err) {
         if (!(err instanceof AuthError) || err.code !== 'auth.too_many_attempts') throw err;
         locked = err;
@@ -418,7 +424,7 @@ export class AuthService {
     if (user.totp_secret) {
       if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
       // Counted before the code is looked at; a locked account is refused here without consuming a step or a recovery code.
-      await reserveAttempt(this.sql, user.id, 'mfa');
+      await this.reserve(user.id, 'mfa');
       await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
       mfa = true;
       await recordSuccess(this.sql, user.id, 'password', 'mfa');
@@ -1121,7 +1127,7 @@ export class AuthService {
         throw new AuthError('Enrol two-factor authentication before withdrawing', 'auth.mfa_not_enrolled');
       }
       // Same reserve-then-verify as login; the counter is shared with login's MFA step.
-      await reserveAttempt(this.sql, input.userId, 'mfa');
+      await this.reserve(input.userId, 'mfa');
       await this.verifyMfaCode(input.userId, user.totp_secret, input.totpCode!);
       await recordSuccess(this.sql, input.userId, 'mfa');
     } else {

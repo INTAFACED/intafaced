@@ -103,6 +103,12 @@ const sql = postgres(env.DATABASE_URL, {
 await sql`SELECT 1 FROM users LIMIT 1`.catch(() => {
   throw new Error('identity schema is missing — run migrations before starting svc-identity');
 });
+// Code-before-migration must fail here, not on the first login (0027 per-account lockout counters).
+await sql`SELECT 1 FROM auth_attempts LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: auth_attempts is missing — apply drizzle/0027_auth_attempt_lockouts.sql before starting svc-identity',
+  );
+});
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,

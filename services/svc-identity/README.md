@@ -275,5 +275,7 @@ ledger effect. Trading/payment enforcement belongs to their service consumers.
 Apply `drizzle/0027_auth_attempt_lockouts.sql` before deploying the per-account sign-in
 lockout (`src/auth/attempt-lockout.ts`): 10 wrong passwords in 15 minutes, or 5 wrong
 TOTP/recovery codes in 10 minutes, refuse that account with `auth.too_many_attempts`
-(HTTP 429) for 15 minutes. Counters live in Postgres, shared by every replica. Without
-the table, login and step-up fail closed.
+(HTTP 429, with `retryAfterSeconds` in the error data) for 15 minutes; 100 consecutive
+wrong passwords, or 20 consecutive wrong codes with no success in between, lock it for
+24 hours. Counters live in Postgres, shared by every replica. The service refuses to
+boot if the `auth_attempts` table is missing.

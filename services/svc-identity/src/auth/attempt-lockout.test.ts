@@ -116,8 +116,20 @@ if (!available) {
 
   describe('policy numbers', () => {
     it('are the documented ones', () => {
-      expect(ATTEMPT_POLICY.password).toEqual({ maxFailures: 10, windowSeconds: 900, lockSeconds: 900 });
-      expect(ATTEMPT_POLICY.mfa).toEqual({ maxFailures: 5, windowSeconds: 600, lockSeconds: 900 });
+      expect(ATTEMPT_POLICY.password).toEqual({
+        maxFailures: 10,
+        windowSeconds: 900,
+        lockSeconds: 900,
+        maxConsecutiveFailures: 100,
+        longLockSeconds: 86_400,
+      });
+      expect(ATTEMPT_POLICY.mfa).toEqual({
+        maxFailures: 5,
+        windowSeconds: 600,
+        lockSeconds: 900,
+        maxConsecutiveFailures: 20,
+        longLockSeconds: 86_400,
+      });
     });
   });
 
@@ -144,7 +156,7 @@ if (!available) {
       await expect(assertNotLocked(db.sql, userId, 'password', during)).resolves.toBeUndefined();
 
       const after = new Date(t0.getTime() + 4_000 + 901_000);
-      await expect(reserveAttempt(db.sql, userId, 'mfa', after)).resolves.toBeUndefined();
+      await expect(reserveAttempt(db.sql, userId, 'mfa', after)).resolves.toEqual({ lockedForSeconds: null });
       expect(await attempts(userId)).toMatchObject([{ kind: 'mfa', failures: 1, locked_until: null }]);
     });
 
@@ -156,12 +168,114 @@ if (!available) {
       expect(await attempts(userId)).toMatchObject([{ failures: 1, locked_until: null }]);
     });
 
+    it('reports lockedForSeconds only on the attempt that sets the lock', async () => {
+      const { userId } = await register();
+      const t0 = new Date('2030-01-01T00:00:00Z');
+      const seen: Array<number | null> = [];
+      for (let i = 0; i < 5; i++) seen.push((await reserveAttempt(db.sql, userId, 'mfa', t0)).lockedForSeconds);
+      expect(seen).toEqual([null, null, null, null, 900]);
+    });
+
+    it('defaults to the database clock', async () => {
+      const { userId } = await register();
+      await reserveAttempt(db.sql, userId, 'mfa');
+      const rows = await db.sql<Array<{ d: number }>>`
+        SELECT abs(extract(epoch FROM (window_started_at - now())))::float AS d FROM auth_attempts WHERE user_id = ${userId}`;
+      expect(rows[0]!.d).toBeLessThan(5);
+    });
+
     it('recordSuccess clears only the named kinds', async () => {
       const { userId } = await register();
       await reserveAttempt(db.sql, userId, 'mfa');
       await reserveAttempt(db.sql, userId, 'password');
       await recordSuccess(db.sql, userId, 'mfa');
       expect((await attempts(userId)).map((r) => r.kind)).toEqual(['password']);
+    });
+  });
+
+  describe('long-run cap on consecutive failures', () => {
+    const MIN = 60_000;
+    /** `perWindow` attempts, then a jump past the window so the window counter resets. */
+    const runAcrossWindows = async (
+      userId: string,
+      kind: 'mfa' | 'password',
+      total: number,
+      perWindow: number,
+      windowMs: number,
+      startMs = new Date('2030-01-01T00:00:00Z').getTime(),
+    ) => {
+      let at = startMs;
+      let last: Awaited<ReturnType<typeof reserveAttempt>> = { lockedForSeconds: null };
+      for (let i = 1; i <= total; i++) {
+        last = await reserveAttempt(db.sql, userId, kind, new Date(at));
+        if (i % perWindow === 0) at += windowMs + MIN;
+        else at += 1000;
+      }
+      return { last, at };
+    };
+
+    it('mfa: 4 guesses per window never trips the window lock, but the 20th consecutive failure locks for 24 h', async () => {
+      const { userId } = await register();
+      const { last: before } = await runAcrossWindows(userId, 'mfa', 19, 4, 600_000);
+      expect(before.lockedForSeconds).toBeNull();
+      expect((await attempts(userId))[0]).toMatchObject({ kind: 'mfa', locked_until: null });
+      const rows19 = await db.sql<
+        Array<{ c: number; f: number }>
+      >`SELECT consecutive_failures AS c, failures AS f FROM auth_attempts WHERE user_id = ${userId}`;
+      expect(rows19[0]).toEqual({ c: 19, f: 3 }); // window reset several times; consecutive never did
+
+      // The 20th attempt (verified as the last permitted guess) sets the long lock.
+      const t20 = new Date('2031-01-01T00:00:00Z');
+      const twentieth = await reserveAttempt(db.sql, userId, 'mfa', t20);
+      expect(twentieth.lockedForSeconds).toBe(86_400);
+
+      // Refused during the lock, and the lock is NOT extended by refused attempts.
+      const lockedUntil = (await attempts(userId))[0]!.locked_until!;
+      for (const dt of [MIN, 60 * MIN, 23 * 60 * MIN]) {
+        await expect(reserveAttempt(db.sql, userId, 'mfa', new Date(t20.getTime() + dt))).rejects.toMatchObject({
+          code: 'auth.too_many_attempts',
+        });
+      }
+      expect((await attempts(userId))[0]!.locked_until!.getTime()).toBe(lockedUntil.getTime());
+      const err = await reserveAttempt(db.sql, userId, 'mfa', new Date(t20.getTime() + 23 * 60 * MIN)).catch(
+        (e: unknown) => e as AuthError,
+      );
+      expect(err.details?.retryAfterSeconds).toBe(3600);
+
+      // After 24 h one more wrong guess is allowed through and re-locks for 24 h.
+      const t21 = new Date(t20.getTime() + 86_401_000);
+      expect((await reserveAttempt(db.sql, userId, 'mfa', t21)).lockedForSeconds).toBe(86_400);
+    });
+
+    it('a success resets the consecutive counter', async () => {
+      const { userId } = await register();
+      await runAcrossWindows(userId, 'mfa', 19, 4, 600_000);
+      await recordSuccess(db.sql, userId, 'mfa');
+      expect(await attempts(userId)).toEqual([]);
+      const { last } = await runAcrossWindows(userId, 'mfa', 19, 4, 600_000);
+      expect(last.lockedForSeconds).toBeNull();
+    });
+
+    it('password: 100 consecutive failures lock for 24 h; 20 do not (separate thresholds and counters)', async () => {
+      const { userId } = await register();
+      const { last: twenty, at } = await runAcrossWindows(userId, 'password', 20, 9, 900_000);
+      expect(twenty.lockedForSeconds).toBeNull();
+      // The mfa counter never moved.
+      expect((await attempts(userId)).map((r) => r.kind)).toEqual(['password']);
+      const { last } = await runAcrossWindows(userId, 'password', 80, 9, 900_000, at + 900_000 + MIN);
+      expect(last.lockedForSeconds).toBe(86_400);
+    });
+  });
+
+  describe('lock logging', () => {
+    it('warns identity.account_locked once, when the lock is set, with no more than user id, kind and duration', async () => {
+      const { userId, sessionId } = await register();
+      const { secret } = await enrolTotp(userId);
+      for (let i = 0; i < 5; i++) await auth.stepUp({ userId, sessionId, totpCode: wrongCode(secret) }).catch(() => undefined);
+      await auth.stepUp({ userId, sessionId, totpCode: wrongCode(secret) }).catch(() => undefined); // refused: no new log
+      const locked = warnings.filter((w) => w.msg === 'identity.account_locked');
+      expect(locked).toHaveLength(1);
+      expect(locked[0]!.obj).toEqual({ userId, kind: 'mfa', lockedForSeconds: 900 });
     });
   });
 

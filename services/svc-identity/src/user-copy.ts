@@ -24,7 +24,6 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'auth.session_invalid': 'auth.session.expired',
   'auth.session_reused': 'auth.session.expired',
   'auth.mfa_required': 'auth.twofa.title',
-  'auth.too_many_attempts': 'error.rateLimited',
   'auth.account_frozen': 'error.forbidden',
   'auth.sub_account_denied': 'error.forbidden',
   'auth.sub_account_revoked': 'error.forbidden',
