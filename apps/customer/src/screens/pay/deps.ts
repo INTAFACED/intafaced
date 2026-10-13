@@ -21,7 +21,6 @@ export {
   Tabs,
   TabsList,
   TabsTab,
-  ToastProvider,
   useToast,
 } from '@intafaced/ui';
 

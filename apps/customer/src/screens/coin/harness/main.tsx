@@ -9,7 +9,7 @@ import '../../../app/shell.css';
 import './harness-tokens.css';
 import { StrictMode, useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { HideBalancesProvider, TooltipProvider } from '@intafaced/ui';
+import { HideBalancesProvider, ToastProvider, TooltipProvider } from '@intafaced/ui';
 import { SessionProvider, useSession } from '../../../features/session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { TopBar } from '../../../app/TopBar';
@@ -45,18 +45,20 @@ function Page() {
   return (
     <HideBalancesProvider hidden={hideBalances}>
       <TooltipProvider>
-        <div className="if-app">
-          <TopBar door="Trade" path={path} onSignOut={() => undefined} />
-          <main id="main">
-            {asset !== undefined ? (
-              <Coin path={path} search={here.slice(path.length)} params={{ asset: decodeURIComponent(asset) }} />
-            ) : (
-              <p data-testid="elsewhere" style={{ padding: 24 }}>
-                Harness stand-in for {path}
-              </p>
-            )}
-          </main>
-        </div>
+        <ToastProvider>
+          <div className="if-app">
+            <TopBar door="Trade" path={path} onSignOut={() => undefined} />
+            <main id="main">
+              {asset !== undefined ? (
+                <Coin path={path} search={here.slice(path.length)} params={{ asset: decodeURIComponent(asset) }} />
+              ) : (
+                <p data-testid="elsewhere" style={{ padding: 24 }}>
+                  Harness stand-in for {path}
+                </p>
+              )}
+            </main>
+          </div>
+        </ToastProvider>
       </TooltipProvider>
     </HideBalancesProvider>
   );

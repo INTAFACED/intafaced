@@ -9,7 +9,7 @@ import '../../../app/shell.css';
 import './harness-tokens.css';
 import { StrictMode, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { HideBalancesProvider, TooltipProvider } from '@intafaced/ui';
+import { HideBalancesProvider, ToastProvider, TooltipProvider } from '@intafaced/ui';
 import { SessionProvider, useSession } from '../../../features/session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { useLocation } from '../../../app/location';
@@ -37,22 +37,24 @@ function Page() {
   return (
     <HideBalancesProvider hidden={hideBalances}>
       <TooltipProvider>
-        <div className="if-app">
-          <nav className="harness-bar" aria-label="Harness stand-in for the top bar">
-            <a href="/home">intafaced</a>
-            <a href="/home">Home</a>
-            <a href="/money">Money</a>
-            <a href="/trade">Trade</a>
-            <a href="/pay" aria-current="page">
-              Pay
-            </a>
-            <a href="/more">More</a>
-            <span>harness stand-in for the top bar</span>
-          </nav>
-          <main id="main">
-            {location.pathname.startsWith('/elsewhere') ? <p data-testid="elsewhere">Elsewhere in the app</p> : <Pay {...props} />}
-          </main>
-        </div>
+        <ToastProvider>
+          <div className="if-app">
+            <nav className="harness-bar" aria-label="Harness stand-in for the top bar">
+              <a href="/home">intafaced</a>
+              <a href="/home">Home</a>
+              <a href="/money">Money</a>
+              <a href="/trade">Trade</a>
+              <a href="/pay" aria-current="page">
+                Pay
+              </a>
+              <a href="/more">More</a>
+              <span>harness stand-in for the top bar</span>
+            </nav>
+            <main id="main">
+              {location.pathname.startsWith('/elsewhere') ? <p data-testid="elsewhere">Elsewhere in the app</p> : <Pay {...props} />}
+            </main>
+          </div>
+        </ToastProvider>
       </TooltipProvider>
     </HideBalancesProvider>
   );
