@@ -3,8 +3,11 @@
  * LOCAL TEST MARKET — makes Trade look alive on the LOCAL test stack only.
  *
  *   pnpm local:market                start (background, safe to re-run); prints what it found
- *   pnpm local:market:stop           stop it and cancel the test market-maker's resting orders
- *   node tooling/scripts/local-test-market.mjs status | check
+ *   pnpm local:market status         pid, ok / STALE / DOWN, and the age of its last log line
+ *   pnpm local:market ensure          start it again only if it was started before and is not running now
+ *   pnpm local:market stop           stop it, cancel its resting orders, and forget it (ensure then leaves it off)
+ *                                    (pnpm local:market:stop is the same as stop)
+ *   node tooling/scripts/local-test-market.mjs check
  *
  * What it does, every few seconds, for each published market it has a TEST PRICE for:
  *   1. moves a deterministic, seedable synthetic price (integer arithmetic, no float money);
@@ -235,7 +238,45 @@ function log(line) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function die(msg, code = 1) {
   process.stderr.write(`\nlocal-test-market: ${msg}\n`);
+  if (LOG_FILE) {
+    EXIT.reason ??= msg;
+    log(`exiting: ${msg}`);
+  }
   process.exit(code);
+}
+
+// ── Exit logging ────────────────────────────────────────────────────────────
+// Failure it prevents: the market stopped twice overnight and the second time the log ended with no
+// word on why (a stop nobody noticed for 30+ minutes). Every exit path now writes one EXIT line.
+// SIGKILL and a power cut cannot be caught; for those the log simply ends and `status` shows STALE.
+
+export const STOP = { requested: false };
+const EXIT = { reason: null };
+
+/** Route every way this process can end into the log. Pass the log file; echo to the console is switched off. */
+export function installExitLogging(logFile, { echo = false } = {}) {
+  LOG_FILE = logFile;
+  ECHO = echo;
+  fs.mkdirSync(path.dirname(logFile), { recursive: true, mode: 0o700 });
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'])
+    process.on(sig, () => {
+      EXIT.reason ??= `received ${sig}`;
+      STOP.requested = true;
+      log(`received ${sig}; stopping`);
+    });
+  process.on('uncaughtException', (err) => {
+    EXIT.reason = `uncaught exception: ${err?.stack ?? err}`;
+    log(`FATAL ${EXIT.reason}`);
+    process.exit(70);
+  });
+  process.on('unhandledRejection', (err) => {
+    EXIT.reason = `unhandled rejection: ${err?.stack ?? err}`;
+    log(`FATAL ${EXIT.reason}`);
+    process.exit(71);
+  });
+  process.on('exit', (code) => {
+    log(`EXIT pid ${process.pid} code ${code}: ${EXIT.reason ?? (code === 0 ? 'normal stop' : 'no reason recorded')}`);
+  });
 }
 
 // ── Edge client (the real customer-facing front door) ───────────────────────
@@ -417,6 +458,9 @@ function parseArgs(argv) {
     else if (a === '--markets') opts.symbols = argv[++i] === 'all' ? Object.keys(TEST_PRICES) : argv[i].split(',');
     else if (a === '--edge-url') opts.edge = argv[++i];
     else if (a === '--foreground') opts.foreground = true;
+    else if (!a.startsWith('--'))
+      // Failure it prevents: `pnpm local:market status` used to be `start status` and started a second copy.
+      die(`unexpected argument "${a}". Commands: start | stop | status | ensure | check (for example: pnpm local:market ${a})`, 2);
   }
   if (!Number.isInteger(opts.seconds) || opts.seconds < 2) die('--interval must be a whole number of seconds, at least 2', 2);
   if (!Number.isInteger(opts.levels) || opts.levels < 1 || opts.levels > 10) die('--levels must be 1..10', 2);
@@ -441,8 +485,7 @@ async function discoverMarkets(edge, wanted) {
 
 async function runLoop(opts, home) {
   const { paths: p } = assertLocalTarget({ home, urls: [opts.edge] });
-  LOG_FILE = p.log;
-  fs.mkdirSync(path.dirname(p.log), { recursive: true, mode: 0o700 });
+  installExitLogging(p.log, { echo: ECHO });
   const accounts = loadAccounts(p);
   const maker = new EdgeClient(opts.edge, accounts.maker);
   const taker = new EdgeClient(opts.edge, accounts.taker);
@@ -458,6 +501,7 @@ async function runLoop(opts, home) {
     markets.map((m) => m.symbol),
   );
   if (blockers.length) {
+    EXIT.reason = 'preflight refused (services refuse orders on this stack)';
     log('NOT QUOTING. The services refuse orders on this stack for these reasons:');
     for (const b of blockers) log(`  - ${b}`);
     return 3;
@@ -481,12 +525,6 @@ async function runLoop(opts, home) {
     log(`${m.symbol}: TEST PRICE reference ${cfg.start} ${m.quote}, walking from step ${walk.steps} at ${fromScaled(walk.current())}`);
   }
 
-  let stopping = false;
-  const stop = () => {
-    stopping = true;
-  };
-  process.on('SIGTERM', stop);
-  process.on('SIGINT', stop);
   const runId = crypto.randomBytes(3).toString('hex');
   let counter = 0;
   let cycle = 0;
@@ -502,7 +540,7 @@ async function runLoop(opts, home) {
       clientOrderId: `LTEST-${runId}-${(counter += 1)}`,
     });
 
-  while (!stopping) {
+  while (!STOP.requested) {
     cycle += 1;
     for (const m of markets) {
       const walk = walks.get(m.symbol);
@@ -549,8 +587,9 @@ async function runLoop(opts, home) {
     fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps: Object.fromEntries([...walks].map(([k, w]) => [k, w.steps])) }), {
       mode: 0o600,
     });
-    for (let waited = 0; waited < opts.seconds * 1000 && !stopping; waited += 250) await sleep(250);
+    for (let waited = 0; waited < opts.seconds * 1000 && !STOP.requested; waited += 250) await sleep(250);
   }
+  EXIT.reason ??= 'stop requested';
   log('stopping: cancelling the test market-maker orders');
   for (const m of markets) await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`).catch(() => null);
   return 0;
@@ -558,15 +597,100 @@ async function runLoop(opts, home) {
 
 // ── Process control ─────────────────────────────────────────────────────────
 
+export const STALE_AFTER_MS = 2 * 60 * 1000;
 const psCommand = (pid) => spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
-function runningPid(p) {
+// Matched on the file name, not the full path: a copy started from another checkout or worktree is still the market.
+const isMarketCommand = (cmd) => cmd.includes('local-test-market.mjs') && cmd.includes('__run');
+function readRecord(p) {
   try {
     const rec = JSON.parse(fs.readFileSync(p.pidFile, 'utf8'));
-    const cmd = psCommand(rec.pid);
-    return cmd.includes(SCRIPT) && cmd.includes('__run') ? rec.pid : null;
+    return Number.isInteger(rec?.pid) ? rec : null;
   } catch {
     return null;
   }
+}
+function runningPid(p) {
+  const rec = readRecord(p);
+  return rec && isMarketCommand(psCommand(rec.pid)) ? rec.pid : null;
+}
+
+/**
+ * What `status` and `local:stack status` show. The pid file is the record of "it should be running": start writes
+ * it, only an explicit `stop` removes it. So a record whose process is gone means it died on its own.
+ *   state: 'ok' | 'stale' (alive, but no log line for 2+ minutes) | 'down' (should run, does not) | 'off' (never started or stopped)
+ */
+export function marketStatus({ home = os.homedir(), now = Date.now() } = {}) {
+  const p = stackPaths(home);
+  const rec = readRecord(p);
+  if (!rec) return { state: 'off', pid: null, ageMs: null, text: 'not started (pnpm local:market)' };
+  let ageMs = null;
+  try {
+    ageMs = Math.max(0, now - fs.statSync(p.log).mtimeMs);
+  } catch {
+    /* no log yet */
+  }
+  const ago = ageMs === null ? 'no log yet' : `last log ${fmtAge(ageMs)} ago`;
+  const pid = runningPid(p);
+  if (!pid)
+    return { state: 'down', pid: rec.pid, ageMs, text: `DOWN (was running, ${ago}; pnpm local:market ensure restarts it; why: ${p.log})` };
+  if (ageMs === null || ageMs > STALE_AFTER_MS) return { state: 'stale', pid, ageMs, text: `STALE (${ago}; log ${p.log})` };
+  return { state: 'ok', pid, ageMs, text: `ok (${ago})` };
+}
+function fmtAge(ms) {
+  const s = Math.round(ms / 1000);
+  return s < 120 ? `${s}s` : s < 7200 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`;
+}
+
+/** One start at a time (failure it prevents: two copies quoting over each other). Stale if its holder is gone or it is over a minute old. */
+function acquireStartLock(p) {
+  const lock = path.join(p.runDir, 'market.lock');
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      fs.writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 });
+      return () => fs.rmSync(lock, { force: true });
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      let holderAlive = false;
+      try {
+        const holder = Number(fs.readFileSync(lock, 'utf8'));
+        process.kill(holder, 0);
+        holderAlive = holder !== process.pid && Date.now() - fs.statSync(lock).mtimeMs < 60_000;
+      } catch {
+        /* holder gone or lock unreadable */
+      }
+      if (holderAlive) return null;
+      fs.rmSync(lock, { force: true });
+    }
+  }
+  return null;
+}
+
+async function startBackground(p, args, { wait }) {
+  fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(path.dirname(p.log), { recursive: true, mode: 0o700 });
+  const release = acquireStartLock(p);
+  if (!release) return console.log('another start is in progress; not starting a second copy');
+  try {
+    if (runningPid(p)) return console.log(`already running (pid ${runningPid(p)}); log ${p.log}`);
+    const fd = fs.openSync(p.log, 'a', 0o600);
+    const child = spawn(process.execPath, [SCRIPT, '__run', ...args], {
+      cwd: REPO,
+      detached: true,
+      stdio: ['ignore', fd, fd],
+      env: { PATH: process.env.PATH, HOME: os.homedir() },
+    });
+    child.unref();
+    fs.closeSync(fd);
+    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), args }), { mode: 0o600 });
+    console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);
+  } finally {
+    release();
+  }
+  if (!wait) return;
+  await sleep(6000);
+  const tail = fs.readFileSync(p.log, 'utf8').trim().split('\n').slice(-6).join('\n');
+  console.log(tail);
+  if (!runningPid(p)) console.log('(it exited; the lines above say why)');
 }
 
 async function main() {
@@ -582,42 +706,48 @@ async function main() {
   const p = guard.paths;
   if (cmd === '__run') {
     ECHO = false;
-    process.exit(await runLoop(opts, os.homedir()));
+    let code = 1;
+    try {
+      code = await runLoop(opts, os.homedir());
+    } catch (err) {
+      EXIT.reason = `crashed: ${err?.stack ?? err}`;
+      log(`FATAL ${EXIT.reason}`);
+    }
+    process.exit(code);
   }
   if (cmd === 'stop') {
     const pid = runningPid(p);
-    if (!pid) return console.log('test market is not running');
+    if (!pid) {
+      const had = readRecord(p);
+      fs.rmSync(p.pidFile, { force: true });
+      return console.log(had ? 'test market was already down; forgot it, so ensure will not restart it' : 'test market is not running');
+    }
     process.kill(pid, 'SIGTERM');
     for (let i = 0; i < 40 && runningPid(p); i += 1) await sleep(500);
-    return console.log(
-      runningPid(p) ? `pid ${pid} is still cancelling orders; check ${p.log}` : 'test market stopped, resting test orders cancelled',
-    );
+    if (runningPid(p)) return console.log(`pid ${pid} is still cancelling orders; check ${p.log}`);
+    fs.rmSync(p.pidFile, { force: true });
+    return console.log('test market stopped, resting test orders cancelled');
   }
   if (cmd === 'status') {
-    const pid = runningPid(p);
-    console.log(pid ? `running (pid ${pid}); log ${p.log}` : 'not running');
+    const st = marketStatus();
+    console.log(`test market: ${st.text}${st.pid ? `; pid ${st.pid}` : ''}`);
+    process.exitCode = st.state === 'down' || st.state === 'stale' ? 1 : 0;
     return;
   }
-  if (cmd === 'check' || opts.foreground)
+  if (cmd === 'check' || opts.foreground) {
+    // Failure it prevents: a foreground run cancels and re-places the same account's orders as the background copy.
+    if (runningPid(p)) die(`the background test market is running (pid ${runningPid(p)}); stop it first (pnpm local:market stop)`);
     process.exit(await runLoop({ ...opts, ...(cmd === 'check' ? { seconds: 2 } : {}) }, os.homedir()));
-  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | check`, 2);
-  if (runningPid(p)) return console.log(`already running (pid ${runningPid(p)}); log ${p.log}`);
-  fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
-  fs.mkdirSync(path.dirname(p.log), { recursive: true, mode: 0o700 });
-  const fd = fs.openSync(p.log, 'a', 0o600);
-  const child = spawn(process.execPath, [SCRIPT, '__run', ...rest], {
-    cwd: REPO,
-    detached: true,
-    stdio: ['ignore', fd, fd],
-    env: { PATH: process.env.PATH, HOME: os.homedir() },
-  });
-  child.unref();
-  fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso() }), { mode: 0o600 });
-  console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);
-  await sleep(6000);
-  const tail = fs.readFileSync(p.log, 'utf8').trim().split('\n').slice(-6).join('\n');
-  console.log(tail);
-  if (!runningPid(p)) console.log('(it exited; the lines above say why)');
+  }
+  if (cmd === 'ensure') {
+    const rec = readRecord(p);
+    if (runningPid(p)) return console.log(`already running (pid ${runningPid(p)})`);
+    if (!rec) return console.log('not started; leaving it off (pnpm local:market starts it)');
+    console.log(`was running (pid ${rec.pid}) and is not now; starting it again with the same options`);
+    return startBackground(p, rec.args ?? [], { wait: false });
+  }
+  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check`, 2);
+  await startBackground(p, rest, { wait: true });
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) await main();
