@@ -328,3 +328,32 @@ describe('svc-trade PX-S01 lifecycle authority', () => {
     await expect(store.publish(child)).rejects.toMatchObject({ code: 'trade.lifecycle_publication_chain_conflict' });
   });
 });
+
+describe('svc-trade lifecycle evidence SQL (postgres.js jsonb binding)', () => {
+  it('binds pre-serialised JSON through ::text::jsonb so the driver cannot store it as a JSON string', async () => {
+    const queries: string[] = [];
+    const sql = ((strings: TemplateStringsArray) => {
+      queries.push(strings.join('?'));
+      return Promise.resolve([]);
+    }) as never;
+    const store = new SqlMarketLifecycleEvidenceStore(sql);
+    // The read-back finds nothing in this stub, so publish refuses after the insert; the insert is what is asserted.
+    await store.publish(publication('market-jsonb')).catch(() => undefined);
+    await store.appendCorrection({
+      correctionId: 'c-1',
+      originalRecordId: 'o-1',
+      causalPredecessorId: 'p-1',
+      reasonCode: 'r',
+      authorityRef: 'a',
+      correctedAt: '2026-08-24T12:00:00.000Z',
+      valueImpact: 'NONE',
+      ledgerTransactionId: null,
+    });
+    const inserts = queries.filter((q) => q.includes('INSERT INTO trade.market_lifecycle_evidence'));
+    expect(inserts).toHaveLength(2);
+    for (const q of inserts) {
+      expect(q).toContain('::text::jsonb');
+      expect(q).not.toMatch(/\?::jsonb/);
+    }
+  });
+});
