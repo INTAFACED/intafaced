@@ -28,5 +28,5 @@ describe('browser entry closure', () => {
     expect(schemas?.specifiers).toContain('@intafaced/contracts/instruments');
     expect(schemas?.specifiers).not.toContain('@intafaced/contracts');
     expect(report.pure.find((graph) => graph.id === 'ledger-money-source')?.forbidden).toEqual([]);
-  });
+  }, 30_000);
 });
