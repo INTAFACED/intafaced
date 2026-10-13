@@ -595,6 +595,14 @@ function serviceDefs(secrets) {
         TRADE_MAX_ORDER: '1000000',
         TRADE_MAX_POSITION: '5000000',
         TRADE_MAX_LOSS: '100000',
+        // LOCAL TEST, not an owner decision (option B, 2026-10-13): realistic retail-exchange commercial values.
+        // Market buys are funded at bestAsk x (1 + cap) and refuse trade.slippage_cap_unset without it
+        // (services/svc-trade/src/env.ts TRADE_MARKET_SLIPPAGE_CAP_BPS): 50 bps.
+        TRADE_MARKET_SLIPPAGE_CAP_BPS: '50',
+        // House edge on Convert quotes; convert.quote refuses trade.convert_spread_unset without it: 20 bps.
+        TRADE_CONVERT_SPREAD_BPS: '20',
+        // How long a firm Convert quote binds; refuses trade.convert_quote_ttl_unset without it: 15 s.
+        TRADE_CONVERT_QUOTE_TTL_MS: '15000',
         // LOCAL TEST, not an owner decision (option B, 2026-10-13). Fee schedule reference: OKX's public
         // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
         // Without it trade refuses every order with 400 trade.fee_schedule_blank
