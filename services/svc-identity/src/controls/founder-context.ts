@@ -86,8 +86,12 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
       const service = secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null;
       return { ...context, service };
     }
+    // `actionApproval.consume` is called by matching (and any other target service) with body-bound v2
+    // headers. Without the exact request text the retained bytes are empty under the tRPC adapter, the
+    // digest never matches, and every consume answers 401 — so no two-person approval could ever be used.
     const requiresBody = procedures.some(
-      (name) => name === 'accountControls.operatorEntitlement' || name === 'accountControls.currentAuthority',
+      (name) =>
+        name === 'accountControls.operatorEntitlement' || name === 'accountControls.currentAuthority' || name === 'actionApproval.consume',
     );
     if (!requiresBody) return context;
     // The tRPC Fastify adapter replaces the shared JSON parser and preserves
