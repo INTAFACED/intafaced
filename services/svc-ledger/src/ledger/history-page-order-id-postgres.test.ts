@@ -185,6 +185,16 @@ describe('PostgresLedger.historyPage orderId', () => {
     expect(own.find((e) => e.assetId === 'USDT')?.orderId).toBe(SELF_SELL); // sold BTC with the sell order
   });
 
+  it("on an order-hold account page the id is that account's own order, even when the owner traded with themselves", async () => {
+    for (const orderId of [SELF_BUY, SELF_SELL]) {
+      const entries = (await engine.historyPage(scope(SELF, { kind: 'hold', purpose: `order:${orderId}` }))).entries;
+      expect(entries.length).toBeGreaterThanOrEqual(2); // the hold and the fill
+      // Every line on this order's hold names this order, never the owner's other order from the same fill.
+      for (const e of entries) expect(e.orderId).toBe(orderId);
+      expect(entries.some((e) => e.reason === 'trade.fill')).toBe(true);
+    }
+  });
+
   it('a line with no order (a deposit) has orderId null, and the wire form carries null', async () => {
     const page = await engine.historyPage(scope(TAKER));
     const dep = page.entries.filter((e) => e.reason === 'deposit.credited');

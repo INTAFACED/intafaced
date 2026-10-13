@@ -422,45 +422,54 @@ export class PostgresLedger implements LedgerClient {
     const cursorId = cursor?.entryId ?? null;
 
     const rows = await this.sql<Array<HistoryRow & { entry_id: string; asset_id: string; rail: unknown; order_purpose: unknown }>>`
-      SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
-             t.meta -> 'rail' AS rail, o.purpose AS order_purpose
-        FROM accounts a
-        CROSS JOIN LATERAL (
-          SELECT e.id AS entry_id, e.tx_id, e.direction, e.amount, e.asset_id
-            FROM ledger_entries e
-           WHERE e.account_id = a.id
-             AND (${cursorId}::bigint IS NULL OR e.id < ${cursorId}::bigint)
-           ORDER BY e.id DESC
+      SELECT p.entry_id, p.tx_id, p.module, p.reason, p.direction, p.amount, p.asset_id, p.posted_at, p.rail,
+             o.purpose AS order_purpose
+        FROM (
+          SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
+                 t.meta -> 'rail' AS rail, a.id AS account_id, a.owner_type, a.owner_id, a.kind
+            FROM accounts a
+            CROSS JOIN LATERAL (
+              SELECT e.id AS entry_id, e.tx_id, e.direction, e.amount, e.asset_id
+                FROM ledger_entries e
+               WHERE e.account_id = a.id
+                 AND (${cursorId}::bigint IS NULL OR e.id < ${cursorId}::bigint)
+               ORDER BY e.id DESC
+               LIMIT ${limit + 1}
+            ) x
+            JOIN ledger_tx t ON t.id = x.tx_id
+           WHERE a.owner_type = ${input.ownerType}::owner_type
+             AND a.owner_id   = ${input.ownerId}
+             AND a.kind       = ${input.kind}::account_kind
+             AND a.purpose    = ${purpose}
+             AND (${assetId}::text IS NULL OR a.asset_id = ${assetId}::text)
+           ORDER BY x.entry_id DESC
            LIMIT ${limit + 1}
-        ) x
-        JOIN ledger_tx t ON t.id = x.tx_id
+        ) p
         -- The page owner's own order, for a trade line only (see orderIdFromHoldPurpose in history.ts): the order-hold
-        -- account of the SAME owner that this transaction also moves. Never another owner's hold. On a fill the
-        -- owner's line receives the asset the other side paid, so the owner's order is the hold in the OTHER asset.
+        -- account of the SAME owner that this transaction also moves. Never another owner's hold. Looked up AFTER the
+        -- page LIMIT, so it runs for at most limit + 1 rows however many candidate rows the accounts offer.
+        -- On a hold-account page the id comes only from that account itself (h.id = p.account_id): the owner's OTHER
+        -- order in a self-trade fill is never read. Elsewhere, on a fill the owner's line receives the asset the other
+        -- side paid, so the owner's order is the hold in the OTHER asset.
         LEFT JOIN LATERAL (
           SELECT h.purpose
             FROM ledger_entries he
             JOIN accounts h ON h.id = he.account_id
-           WHERE he.tx_id = x.tx_id
-             AND t.module = 'trade'
-             AND h.owner_type = a.owner_type
-             AND h.owner_id = a.owner_id
+           WHERE he.tx_id = p.tx_id
+             AND p.module = 'trade'
+             AND h.owner_type = p.owner_type
+             AND h.owner_id = p.owner_id
              AND h.kind = 'hold'
              AND h.purpose LIKE 'order:%'
+             AND (p.kind <> 'hold' OR h.id = p.account_id)
              AND (
-               t.reason IN ('order.hold', 'order.hold.amend', 'order.hold.released')
-               OR (t.reason IN ('trade.fill', 'trade.fill.mm_maker') AND h.asset_id <> x.asset_id)
+               p.reason IN ('order.hold', 'order.hold.amend', 'order.hold.released')
+               OR (p.reason IN ('trade.fill', 'trade.fill.mm_maker') AND (p.kind = 'hold' OR h.asset_id <> p.asset_id))
              )
            ORDER BY he.id
            LIMIT 1
         ) o ON true
-       WHERE a.owner_type = ${input.ownerType}::owner_type
-         AND a.owner_id   = ${input.ownerId}
-         AND a.kind       = ${input.kind}::account_kind
-         AND a.purpose    = ${purpose}
-         AND (${assetId}::text IS NULL OR a.asset_id = ${assetId}::text)
-       ORDER BY x.entry_id DESC
-       LIMIT ${limit + 1}
+       ORDER BY p.entry_id DESC
     `;
 
     const page = rows.slice(0, limit);
