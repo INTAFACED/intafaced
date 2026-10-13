@@ -11,7 +11,7 @@
  * The door is strict where svc-ledger is strict: it refuses any request whose
  * service signature does not verify against the exact bytes received
  * (`INTERNAL_SERVICE_BODY_BIND=require`), and `/trpc/txById` refuses a non-uuid
- * id. Answers match `services/svc-ledger/src/s2s-http.ts`.
+ * id. Answers match `services/svc-ledger/src/s2s-http.ts`, including the booked entries on a post receipt.
  */
 import { formatAmount, parseAmount, type MemoryLedger, type PostRequest } from '@intafaced/ledger-client';
 import { verifyServiceHeaders } from '@intafaced/contracts';
@@ -77,7 +77,21 @@ export function fakeLedgerDoor(ledger: MemoryLedger, secret: string, calls: Door
           ...request,
           entries: request.entries.map((e) => ({ account: e.account, direction: e.direction, amount: parseAmount(e.amount) })),
         });
-        return json({ txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() });
+        // As `postAcknowledgement` in svc-ledger: the entries the ledger actually booked ride on the receipt.
+        return json({
+          txId: tx.id,
+          hash: tx.hash,
+          postedAt: tx.postedAt.toISOString(),
+          entries: (tx.entries ?? []).map((e) => ({
+            id: e.id,
+            txId: e.txId,
+            accountId: e.accountId,
+            assetId: e.assetId,
+            direction: e.direction,
+            amount: formatAmount(e.amount),
+            balanceAfter: formatAmount(e.balanceAfter),
+          })),
+        });
       } catch (err) {
         return json({ message: (err as Error).message, code: (err as { code?: string }).code }, 400);
       }
@@ -89,7 +103,13 @@ export function fakeLedgerDoor(ledger: MemoryLedger, secret: string, calls: Door
     if (path === '/trpc/balances') {
       const list = await ledger.balances(body.ownerType as 'user', String(body.ownerId));
       return json(
-        list.map((b) => ({ accountId: b.accountId, assetId: b.account.assetId, kind: b.account.kind, amount: formatAmount(b.amount) })),
+        list.map((b) => ({
+          accountId: b.accountId,
+          assetId: b.account.assetId,
+          kind: b.account.kind,
+          purpose: b.account.purpose ?? '',
+          amount: formatAmount(b.amount),
+        })),
       );
     }
     return json({ message: `no route ${path}` }, 404);

@@ -31,7 +31,8 @@ describe('payment ledger receipt identity', () => {
   it('refuses a malformed compact ACK without treating it as a no-effect receipt', async () => {
     globalThis.fetch = async () => new Response(JSON.stringify({ txId: '', postedAt: 'invalid' }));
     const ledger = createLedgerClient('http://ledger.test', 'fixture-internal-service-secret-32-chars');
-    await expect(postPayLedger(ledger, request)).rejects.toMatchObject({ code: 'pay.ledger_receipt_mismatch' });
+    // The shared client refuses it before the receipt check: a malformed acknowledgement is "outcome unknown", never a success.
+    await expect(postPayLedger(ledger, request)).rejects.toThrow('svc-ledger invalid post acknowledgement; outcome unknown');
   });
   it('refuses rich receipts with changed original key or legs even when current balances differ', async () => {
     const book = new MemoryLedger();
