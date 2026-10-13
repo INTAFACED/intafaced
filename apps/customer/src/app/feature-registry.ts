@@ -243,9 +243,9 @@ export const features: readonly Feature[] = [
     id: 'pro-mode-switch',
     label: 'Simple / Pro switch',
     paths: [],
-    status: 'hidden',
-    reason: 'Pro screens land in M2',
-    unlock: 'M2',
+    status: 'live',
+    reason: 'Pro screens landed in M2',
+    unlock: 'already live',
     tab: 'home',
   },
 ];

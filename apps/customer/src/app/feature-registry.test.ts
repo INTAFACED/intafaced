@@ -88,8 +88,8 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       expect(featureById(id)?.checked, id).toMatch(/2026-10-13/);
     }
   });
-  it('keeps the Pro switch hidden in M1', () => {
-    expect(isFeatureLive('pro-mode-switch')).toBe(false);
+  it('shows the Pro switch from M2', () => {
+    expect(isFeatureLive('pro-mode-switch')).toBe(true);
   });
 });
 

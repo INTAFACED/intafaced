@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { ChevronDown } from 'lucide-react';
-import { Wordmark } from '@intafaced/ui';
+import { SegmentedControl, Tooltip, TooltipContent, TooltipTrigger, Wordmark } from '@intafaced/ui';
 import { useSession } from '../features/session/session';
 import { usePreferences, savePreferences } from '../shared/preferences';
+import { proCopy } from '../screens/home/pro-copy';
 import { currentReturnLocation } from './location';
 import { doorLabel, safeReturnTo, type Door } from './navigation';
 import { isFeatureLive } from './feature-registry';
@@ -201,25 +202,32 @@ function AccountButton({ onSignOut }: { onSignOut: () => void }) {
   );
 }
 
-/** Simple / Pro segmented control. Registry-gated: hidden until Pro screens land (M2). TODO(B1): swap to SegmentedControl. */
+/**
+ * "Simple · Pro" segmented control (UI-SPEC 3.1 point 4). Registry-gated. It writes the `layoutMode` preference, so
+ * Home and the Trade list change at once; a tooltip says what changes. The bar hides it below 1000 px: the tabs, a 240 px search, bell and account already fill a narrower bar.
+ */
 function ModeSwitch() {
   const { t } = shellCopy.useCopy();
+  const { t: tp } = proCopy.useCopy();
   const { layoutMode } = usePreferences();
   return (
-    <div className="tb-segmented" role="radiogroup" aria-label={t('Layout')}>
-      {(['simple', 'pro'] as const).map((value) => (
-        <button
-          key={value}
-          type="button"
-          role="radio"
-          aria-checked={layoutMode === value}
-          className={layoutMode === value ? 'tb-segment tb-segment--on' : 'tb-segment'}
-          onClick={() => savePreferences({ layoutMode: value })}
-        >
-          {value === 'simple' ? t('Simple') : t('Pro')}
-        </button>
-      ))}
-    </div>
+    <Tooltip>
+      <TooltipTrigger render={<span className="tb-mode max-[1000px]:hidden" />}>
+        <SegmentedControl
+          size={28}
+          aria-label={tp('Switch name')}
+          value={layoutMode}
+          onValueChange={(value) => savePreferences({ layoutMode: value === 'pro' ? 'pro' : 'simple' })}
+          items={[
+            { value: 'simple', label: t('Simple') },
+            { value: 'pro', label: t('Pro') },
+          ]}
+        />
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="end">
+        {tp('Switch tip')}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
