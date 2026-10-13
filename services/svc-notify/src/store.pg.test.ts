@@ -222,4 +222,72 @@ describe.skipIf(!available)('PostgresNotifyStore — the inbox, executed', () =>
       expect(await store().unreadCount(BOB)).toBe(1);
     });
   });
+
+  describe('params — stored as a jsonb object, legacy string rows still read', () => {
+    const PARAMS = { amount: '1250.00', asset: 'USDT', nested: { ratio: '0.85', flags: ['a', 'b'] }, count: 3 };
+
+    /** Raw insert that bypasses the store, for shapes only an older build (or a hand edit) could write. */
+    async function insertRawParams(key: string, fragment: postgres.PendingQuery<postgres.Row[]>): Promise<string> {
+      const [row] = await sql!<{ id: string }[]>`
+        INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, severity, source_subject, source_idempotency_key)
+        VALUES (${ALICE}, 'bank.margin_call', 'notify.bank.margin_call.title', 'notify.bank.margin_call.body',
+                ${fragment}, 'critical', ${SUBJECT}, ${key})
+        RETURNING id
+      `;
+      return row!.id;
+    }
+
+    it('insert writes a jsonb OBJECT (not a JSON string) and every read path returns the same object', async () => {
+      const created = await insert({ params: PARAMS });
+      expect(created.notification!.params).toEqual(PARAMS);
+
+      // The bug this pins: a bare `::jsonb` let postgres.js encode the string a second time, so
+      // the column held a jsonb STRING and `params->>'amount'` was NULL.
+      const [shape] = await sql!<{ kind: string; amount: string | null }[]>`
+        SELECT jsonb_typeof(params) AS kind, params->>'amount' AS amount
+          FROM notify.notifications WHERE id = ${created.notification!.id}
+      `;
+      expect(shape).toEqual({ kind: 'object', amount: '1250.00' });
+
+      expect((await store().findById(ALICE, created.notification!.id))?.params).toEqual(PARAMS);
+      expect((await store().findBySource(ALICE, SUBJECT, 'loan-1:1'))?.params).toEqual(PARAMS);
+      const page = await store().list({ userId: ALICE, limit: 5, unreadOnly: false });
+      expect(page.items.map((n) => n.params)).toEqual([PARAMS]);
+    });
+
+    it('omitted params are stored and read back as an empty object', async () => {
+      const created = await insert();
+      expect(created.notification!.params).toEqual({});
+      const [shape] = await sql!<{ kind: string }[]>`
+        SELECT jsonb_typeof(params) AS kind FROM notify.notifications WHERE id = ${created.notification!.id}
+      `;
+      expect(shape?.kind).toBe('object');
+    });
+
+    it('a legacy double-encoded row (jsonb string holding the object) reads back as the object', async () => {
+      // Exactly what the pre-fix insert wrote: JSON.stringify(params) sent as a bare `::jsonb` parameter.
+      const id = await insertRawParams('legacy:double', sql!`${JSON.stringify(PARAMS)}::jsonb`);
+      const [shape] = await sql!<{ kind: string }[]>`SELECT jsonb_typeof(params) AS kind FROM notify.notifications WHERE id = ${id}`;
+      expect(shape?.kind).toBe('string');
+
+      expect((await store().findById(ALICE, id))?.params).toEqual(PARAMS);
+      const page = await store().list({ userId: ALICE, limit: 5, unreadOnly: false });
+      expect(page.items.find((n) => n.id === id)?.params).toEqual(PARAMS);
+    });
+
+    it('malformed legacy strings read as an empty object instead of crashing the inbox', async () => {
+      // jsonb strings whose content is not a JSON object: not JSON at all, an array, null, a number.
+      const notJson = await insertRawParams('legacy:not-json', sql!`to_jsonb(${'{not json'}::text)`);
+      const array = await insertRawParams('legacy:array', sql!`to_jsonb(${'["a","b"]'}::text)`);
+      const nul = await insertRawParams('legacy:null', sql!`to_jsonb(${'null'}::text)`);
+      const num = await insertRawParams('legacy:number', sql!`to_jsonb(${'42'}::text)`);
+
+      for (const id of [notJson, array, nul, num]) {
+        expect((await store().findById(ALICE, id))?.params).toEqual({});
+      }
+      const page = await store().list({ userId: ALICE, limit: 10, unreadOnly: false });
+      expect(page.items).toHaveLength(4);
+      expect(page.items.every((n) => JSON.stringify(n.params) === '{}')).toBe(true);
+    });
+  });
 });
