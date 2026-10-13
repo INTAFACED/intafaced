@@ -49,6 +49,7 @@
     "scan:secrets": "node tooling/ci/secret-scan.mjs",
     "scan:gitleaks": "gitleaks detect --source . --no-git --config .gitleaks.toml",
     "scan:deps": "node tooling/ci/dependency-audit.mjs",
+    "scan:deps:test": "node --test tooling/ci/dependency-audit.test.mjs",
     "scan:wallet-rpc-auth": "node tooling/ci/wallet-rpc-auth-scan.mjs",
     "scan:wallet-rpc-mainnet": "node tooling/ci/wallet-rpc-mainnet-scan.mjs",
     "scan:wallet-rpc-perimeter": "node tooling/ci/wallet-rpc-perimeter-refuse.mjs",

@@ -52,7 +52,14 @@ jobs:
         with:
           node-version: 22
 
+      # Unit test for the allowlist expiry rule. Pure Node, no network, ~3s. It
+      # runs first and the audit runs even if it fails (`if: always()`), so one
+      # red step never hides the other.
+      - name: Test the allowlist expiry rule
+        run: node --test tooling/ci/dependency-audit.test.mjs
+
       # No `--frozen-lockfile` install: the audit reads the lockfile, and a full
       # workspace install would spend minutes to tell us nothing extra.
       - name: Audit dependencies against the frozen advisory list
+        if: always()
         run: node tooling/ci/dependency-audit.mjs
