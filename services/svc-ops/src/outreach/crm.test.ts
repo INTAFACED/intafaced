@@ -212,6 +212,82 @@ describe.runIf(enabled)('durable outreach PostgreSQL boundary', () => {
     expect(detail?.tasks.every((t) => t.status !== 'pending')).toBe(true);
     expect(detail?.activities.at(-1)?.actor).toEqual({ kind: 'operator', userId: founders[1] });
   });
+  it('edits only the next action: no stage change, no reason, replaced task, own history entry, revision-checked and founder-only', async () => {
+    await crm.capture(captureInput(), 'ip');
+    const opportunity = (await crm.listOpportunities({ limit: 10 })).items[0]!;
+    const edit = {
+      requestId: randomUUID(),
+      opportunityId: opportunity.id,
+      expectedRevision: opportunity.revision,
+      description: 'Send the deck',
+      dueAt: '2026-10-14T09:00:00+08:00',
+    };
+    const saved = await crm.updateNextAction(edit, founders[1]!);
+    expect(saved).toMatchObject({
+      stage: opportunity.stage,
+      ownerUserId: opportunity.ownerUserId,
+      revision: opportunity.revision + 1,
+      nextAction: { description: 'Send the deck', dueAt: '2026-10-14T01:00:00.000Z' },
+    });
+    // The same request replays the stored result and writes nothing new.
+    expect(await crm.updateNextAction(edit, founders[1]!)).toEqual(saved);
+    await expect(crm.updateNextAction(edit, founders[0]!)).rejects.toMatchObject({ code: 'ops.crm.idempotency_conflict' });
+    await expect(crm.updateNextAction({ ...edit, description: 'Changed' }, founders[1]!)).rejects.toMatchObject({
+      code: 'ops.crm.idempotency_conflict',
+    });
+    // The same instant written with another offset is the same request: it replays instead of conflicting.
+    expect(await crm.updateNextAction({ ...edit, dueAt: '2026-10-14T01:00:00Z' }, founders[1]!)).toEqual(saved);
+    expect(await crm.updateNextAction({ ...edit, dueAt: '2026-10-14T01:00:00.000Z' }, founders[1]!)).toEqual(saved);
+    // A different instant is still a different request.
+    await expect(crm.updateNextAction({ ...edit, dueAt: '2026-10-14T02:00:00Z' }, founders[1]!)).rejects.toMatchObject({
+      code: 'ops.crm.idempotency_conflict',
+    });
+    const detail = (await crm.getOpportunity({ opportunityId: opportunity.id }))!;
+    const pending = detail.tasks.filter((task) => task.status === 'pending');
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      description: 'Send the deck',
+      dueAt: '2026-10-14T01:00:00.000Z',
+      ownerUserId: opportunity.ownerUserId,
+    });
+    expect(detail.tasks.filter((task) => task.status === 'cancelled')).toHaveLength(1);
+    const entries = detail.activities.filter((activity) => activity.kind === 'next_action_changed');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      actor: { kind: 'operator', userId: founders[1] },
+      note: 'Send the deck',
+      referenceId: '2026-10-14T01:00:00.000Z',
+    });
+    expect(detail.activities.some((activity) => activity.kind === 'stage_changed')).toBe(false);
+    const audits = await db.sql`SELECT kind FROM ops.crm_workflow_audit WHERE request_id=${edit.requestId} ORDER BY kind`;
+    expect(audits.map((row) => row.kind)).toEqual(['task_created', 'task_transitioned']);
+    // A stale revision, an unknown founder and a closed enquiry are all refused.
+    await expect(crm.updateNextAction({ ...edit, requestId: randomUUID(), description: 'Stale' }, founders[0]!)).rejects.toMatchObject({
+      code: 'ops.crm.revision_conflict',
+    });
+    await expect(
+      crm.updateNextAction({ ...edit, requestId: randomUUID(), expectedRevision: saved.revision }, randomUUID()),
+    ).rejects.toMatchObject({ code: 'ops.crm.operator_forbidden' });
+    await expect(
+      crm.updateNextAction({ ...edit, requestId: randomUUID(), opportunityId: randomUUID(), expectedRevision: 1 }, founders[0]!),
+    ).rejects.toMatchObject({ code: 'ops.crm.opportunity_not_found' });
+    const closed = await crm.changeStage(
+      {
+        requestId: randomUUID(),
+        opportunityId: opportunity.id,
+        expectedRevision: saved.revision,
+        stage: 'closed',
+        reason: 'Declined',
+        nextAction: null,
+        closedDisposition: 'declined',
+        closingEvidenceRef: 'review-note',
+      },
+      founders[0]!,
+    );
+    await expect(
+      crm.updateNextAction({ ...edit, requestId: randomUUID(), expectedRevision: closed.revision }, founders[0]!),
+    ).rejects.toMatchObject({ code: 'ops.crm.opportunity_closed' });
+  });
   it('concurrent notes produce monotonic immutable history without duplicate retry effects', async () => {
     await crm.capture(captureInput(), 'ip');
     const opportunity = (await crm.listOpportunities({ limit: 10 })).items[0]!;

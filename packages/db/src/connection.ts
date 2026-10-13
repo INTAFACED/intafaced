@@ -23,6 +23,17 @@ export interface DbOptions {
   ssl?: boolean;
   /** Statement timeout in ms. Money paths should fail fast, not hang. */
   statementTimeoutMs?: number;
+  /**
+   * How long a session may sit idle INSIDE an open transaction before Postgres ends it (ms; 0 disables).
+   *
+   * Names the failure it prevents: a transaction that holds a pooled connection while it waits on something
+   * else (an HTTP call, or another query that needs a second connection from the same pool) never finishes,
+   * pins its row locks, and starves the pool until the whole service stops answering. With a bound the
+   * session is killed, the lock is released and the caller sees an error instead of a hang. The default is a
+   * safety bound, not a product number: it is longer than any bounded outbound call made inside a
+   * transaction (the shared ledger client's timeout and retries stay under it).
+   */
+  idleInTransactionTimeoutMs?: number;
   onNotice?: (notice: unknown) => void;
 }
 
@@ -42,6 +53,7 @@ export function createDb<TSchema extends Record<string, unknown>>(options: DbOpt
       search_path: `${options.schema},public`,
       application_name: options.schema,
       statement_timeout: options.statementTimeoutMs ?? 15_000,
+      idle_in_transaction_session_timeout: options.idleInTransactionTimeoutMs ?? 60_000,
     },
     connect_timeout: 10,
     onnotice: options.onNotice ?? (() => undefined),

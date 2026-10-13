@@ -429,6 +429,139 @@ describe('runFundingTick', () => {
     expect(attempts.length).toBeGreaterThan(seen.size);
   });
 
+  it('freezeRate is first-writer: a second rate for the same period is ignored', async () => {
+    const periods = memoryFundingPeriodStore();
+    expect(await periods.freezeRate('m1:p', '0.0001')).toBe('0.0001');
+    expect(await periods.freezeRate('m1:p', '0.0003')).toBe('0.0001');
+    expect(await periods.freezeRate('m1:other', '0.0003')).toBe('0.0003');
+  });
+
+  /**
+   * Rate was the one plan input NOT frozen with the period. Legs 1..k post at
+   * r1, the run dies before the settle marker, the oracle republishes the same
+   * periodId at r2: leg 1 would re-post under the same key with another amount
+   * (ledger.idempotency_conflict once the ledger refuses it, so the period never
+   * settles and applyFundingNets never runs).
+   */
+  it('a retry after the oracle republishes the period at a new rate re-posts every leg at the FROZEN rate', async () => {
+    const long = {
+      positionId: 'plong',
+      userId: A,
+      side: 'long' as const,
+      size: amt('2'),
+      entryPrice: amt('50000'),
+      marginAsset: 'USDT',
+    };
+    const shortX = { ...long, positionId: 'pshortX', userId: B, side: 'short' as const, size: amt('1') };
+    const shortY = { ...long, positionId: 'pshortY', userId: B, side: 'short' as const, size: amt('1') };
+    const book = positionsOf([long, shortX, shortY]);
+
+    // Run 1: the 2nd ledger.post throws once, after leg 1 landed.
+    const run1: PostRequest[] = [];
+    let calls = 0;
+    const flaky = {
+      async post(req: PostRequest) {
+        run1.push(req);
+        calls += 1;
+        if (calls === 2) throw new Error('ledger 503');
+        return { id: req.idempotencyKey, idempotencyKey: req.idempotencyKey } as never;
+      },
+    };
+    const periods = memoryFundingPeriodStore();
+    const markSettled = vi.spyOn(periods, 'markSettled');
+    const margins = memoryFundingMarginApplier();
+    const applyFundingNets = vi.spyOn(margins, 'applyFundingNets');
+    const periodId = 'm1:period-rate-republish';
+
+    await expect(
+      runFundingTick(
+        { rates: fixedRate('0.0001', periodId), positions: book, periods, margins, ledger: flaky, maxAbsRate: FIXTURE_FUNDING_MAX_ABS },
+        'm1',
+      ),
+    ).rejects.toThrow(/ledger 503/);
+    expect(run1).toHaveLength(2);
+    expect(markSettled).not.toHaveBeenCalled();
+    expect(applyFundingNets).not.toHaveBeenCalled();
+
+    // Run 2: oracle now quotes the SAME period at 0.0003.
+    const run2 = recordingLedger();
+    const result = await runFundingTick(
+      { rates: fixedRate('0.0003', periodId), positions: book, periods, margins, ledger: run2.ledger, maxAbsRate: FIXTURE_FUNDING_MAX_ABS },
+      'm1',
+    );
+
+    // Every leg posted in both runs is byte-identical (same key, same amount).
+    expect(run2.posts).toHaveLength(2);
+    expect(run2.posts[0]).toEqual(run1[0]);
+    expect(run2.posts[1]).toEqual(run1[1]);
+    const frozenAmount = (amt('0.0001') * ((amt('1') * amt('50000')) / 10n ** 18n)) / 10n ** 18n;
+    expect(run2.posts[0]!.entries[0]!.amount).toBe(frozenAmount);
+
+    expect(result.status).toBe('settled');
+    if (result.status === 'settled') expect(result.rate).toBe('0.0001');
+    expect(applyFundingNets).toHaveBeenCalledTimes(1);
+    expect(markSettled).toHaveBeenCalledTimes(1);
+    expect(margins.paidByPosition('plong')).toBe(frozenAmount * 2n);
+  });
+
+  it('a period already frozen at a valid rate settles at it even if the oracle later republishes an over-bound rate', async () => {
+    const periods = memoryFundingPeriodStore();
+    const periodId = 'm1:period-frozen-then-overbound-republish';
+    await periods.freezeRate(periodId, '0.0001'); // legs may already be in the ledger at this rate
+    const { ledger, posts } = recordingLedger();
+    const margins = memoryFundingMarginApplier();
+    const result = await runFundingTick(
+      { rates: fixedRate('0.5', periodId), positions: positionsOf(longShort()), periods, margins, ledger, maxAbsRate: '0.001' },
+      'm1',
+    );
+    expect(result.status).toBe('settled');
+    if (result.status === 'settled') expect(result.rate).toBe('0.0001');
+    expect(posts.length).toBeGreaterThan(0);
+  });
+
+  it('an over-bound first quote is refused and NOT frozen: the corrected quote settles', async () => {
+    const periods = memoryFundingPeriodStore();
+    const periodId = 'm1:period-over-bound-then-corrected';
+    const { ledger, posts } = recordingLedger();
+    const margins = memoryFundingMarginApplier();
+    const deps = (rate: string) => ({
+      rates: fixedRate(rate, periodId),
+      positions: positionsOf(longShort()),
+      periods,
+      margins,
+      ledger,
+      maxAbsRate: '0.001',
+    });
+
+    await expect(runFundingTick(deps('0.5'), 'm1')).rejects.toMatchObject({ code: 'trade.funding_rate_exceeds_max' });
+    expect(posts).toHaveLength(0);
+    expect(await periods.freezeRate(periodId, '0.00001')).toBe('0.00001'); // nothing was frozen by the refusal
+    const settled = await runFundingTick(deps('0.00001'), 'm1');
+    expect(settled.status).toBe('settled');
+    expect(posts.length).toBeGreaterThan(0);
+  });
+
+  it('the bound still applies to the frozen rate (a store that froze a larger one earlier)', async () => {
+    const periods = memoryFundingPeriodStore();
+    const periodId = 'm1:period-frozen-over-bound';
+    await periods.freezeRate(periodId, '0.5'); // e.g. frozen before the bound was configured
+    const { ledger, posts } = recordingLedger();
+    await expect(
+      runFundingTick(
+        {
+          rates: fixedRate('0.00001', periodId),
+          positions: positionsOf(longShort()),
+          periods,
+          margins: memoryFundingMarginApplier(),
+          ledger,
+          maxAbsRate: '0.001',
+        },
+        'm1',
+      ),
+    ).rejects.toMatchObject({ code: 'trade.funding_rate_exceeds_max' });
+    expect(posts).toHaveLength(0);
+  });
+
   it('zero rate: no legs, marks settled so cron does not invent retry money', async () => {
     const periods = memoryFundingPeriodStore();
     const { ledger, posts } = recordingLedger();

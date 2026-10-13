@@ -87,6 +87,10 @@ This service _is_ the ledger, so rather than recipes it invokes, here is what it
 
 Enforced in three layers on purpose: shared pure validation, the transaction, and database CHECK constraints. **A bug in this service still cannot create money.** There is a test that proves it, by trying to write a negative balance with raw SQL.
 
+### A reused idempotency key with a different body
+
+A retry returns the original transaction. If the retry's body (module, reason, entries) differs from what that key booked, the engine either refuses it (`ledger.idempotency_conflict`, 409 over S2S) or, in `detect` mode, returns the original anyway and logs one JSON line `ledger.idempotency_mismatch` (key, module, reason). `LEDGER_IDEMPOTENCY_CONFLICT_MODE` is `detect` (default) or `refuse`; flip to `refuse` once every call site that rebuilds a body on replay is fixed and the log has been quiet for a day. The fingerprint lives in the nullable `ledger_posted_keys.request_fingerprint` (migration 0021, run before the new code); rows booked before it have none and keep the old behaviour.
+
 ### Who an account belongs to
 
 `owner_type` says what role an owner plays. It now also fixes which **identifier space** `owner_id` is drawn from, because it was the only thing in the row that could:

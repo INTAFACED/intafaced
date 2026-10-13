@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import { router, scopedProcedure, publicProcedure, TRPCError } from '@intafaced/contracts';
 import { credentialAuthority } from './payment-authority.js';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, LedgerError, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
@@ -35,7 +35,7 @@ import { evaluateFraud } from './fraud/evaluate.js';
 import { describeFraudPolicy } from './fraud/fraud-policy.js';
 import { describeRoutingPolicy } from './routing/routing-policy.js';
 import { defaultFraudReviewQueue, FraudReviewError } from './fraud/review-queue.js';
-import { defaultDisputeCaseStore, DisputeCaseError } from './fraud/dispute-case.js';
+import { defaultDisputeCaseStore, DisputeCaseError, refuseChargebackUncovered, type ChargebackLedgerRefuse } from './fraud/dispute-case.js';
 import { describeCmsPluginStatus } from './plugins/cms-status.js';
 import { describePluginsPolicy } from './plugins/plugins-policy.js';
 import {
@@ -660,15 +660,26 @@ export function createPayRouter(
 
       /** Its own scope. Refunding is not the same authority as taking payment. */
       refund: scopedProcedure('pay:refund', { module: 'pay' })
-        .input(z.object({ paymentId: z.string().uuid(), amount: amountSchema, refundId: z.string().optional() }))
+        // refundId is the caller's idempotency key. Without it the service invented
+        // `${paymentId}:${count + 1}`, so a client retry of a PARTIAL refund that had
+        // already succeeded booked a second refund. A retry must carry the same id.
+        .input(
+          z.object({
+            paymentId: z.string().uuid(),
+            amount: amountSchema,
+            refundId: z
+              .string()
+              .min(1)
+              .max(200)
+              .refine((id) => id.trim().length > 0, 'refundId must not be blank'),
+          }),
+        )
         .output(paymentView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.refund');
-            return toPaymentOut(
-              await pay.refund(input.paymentId, parseAmount(input.amount), input.refundId ? { refundId: input.refundId } : {}),
-            );
+            return toPaymentOut(await pay.refund(input.paymentId, parseAmount(input.amount), { refundId: input.refundId }));
           }),
         ),
 
@@ -1232,16 +1243,30 @@ export function createPayRouter(
             // Lightweight router fixtures may omit the money port; production
             // PayService posts via ledger-client. No port → named refuse, never
             // a hardcoded `posted`.
-            const posted =
-              typeof pay.openChargeback === 'function'
-                ? await pay.openChargeback({
-                    disputeId: input.disputeId,
-                    paymentId: input.paymentId,
-                    merchantId: input.merchantId,
-                    amount: input.amount,
-                    assetId: input.assetId,
-                  })
-                : undefined;
+            let ledgerRefuse: ChargebackLedgerRefuse | undefined;
+            let posted: { txId: string } | undefined;
+            if (typeof pay.openChargeback === 'function') {
+              try {
+                posted = await pay.openChargeback({
+                  disputeId: input.disputeId,
+                  paymentId: input.paymentId,
+                  merchantId: input.merchantId,
+                  amount: input.amount,
+                  assetId: input.assetId,
+                });
+              } catch (e) {
+                // The ledger refused for funds (money moved since the plan). A named error, NOT a recorded case: the case
+                // store keeps its first answer, so a recorded refusal would be returned for a later retry that does post.
+                if (e instanceof LedgerError && e.code === 'ledger.insufficient_funds') {
+                  throw new TRPCError({
+                    code: 'PRECONDITION_FAILED',
+                    message: 'pay.chargeback_uncovered: clearing and available cannot cover the chargeback right now; nothing was booked',
+                    cause: e,
+                  });
+                }
+                throw e;
+              }
+            }
             const ledgerPost = posted?.txId?.trim() ? { txId: posted.txId.trim() } : undefined;
             const c = defaultDisputeCaseStore.open({
               disputeId: input.disputeId,
@@ -1252,6 +1277,7 @@ export function createPayRouter(
               reasonCode: input.reasonCode,
               paymentMarkedDisputed: marked,
               ledgerPost,
+              ledgerRefuse,
             });
             return {
               disputeId: c.disputeId,
@@ -1267,6 +1293,8 @@ export function createPayRouter(
             if (e instanceof DualControlError || e instanceof ActionApprovalConsumeError) {
               throw new TRPCError({ code: 'PRECONDITION_FAILED', message: e.message, cause: e });
             }
+            // A redelivered open for another amount is a state conflict (retrying cannot fix it), not a malformed request.
+            if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') throw toTrpcError(e);
             if (e instanceof DisputeCaseError || e instanceof PayError) {
               throw new TRPCError({
                 code: 'BAD_REQUEST',
@@ -1774,6 +1802,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.refund_in_flight':
       case 'pay.refund_id_spent':
       case 'pay.refund_id_conflict':
+      case 'pay.chargeback_plan_conflict':
       case 'pay.settlement_in_flight':
       case 'pay.settlement_desynced':
       case 'pay.settlement_not_pending':

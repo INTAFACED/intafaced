@@ -24,7 +24,7 @@ import {
   readApprovalIds,
   unwiredApprovalConsumer,
 } from './ledger/action-approval-consume.js';
-import { parseHistoryDoorInput, parseHistoryRange } from './ledger/history.js';
+import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
 import type { LedgerService } from './service.js';
@@ -70,6 +70,7 @@ function toTrpcError(err: unknown): TRPCError {
     (err.code === 'ledger.history_range_invalid' ||
       err.code === 'ledger.history_range_too_large' ||
       err.code === 'ledger.history_page_socket' ||
+      err.code === 'ledger.history_cursor_invalid' ||
       err.code === RECIPE_REQUIRED_CODE)
   ) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -322,6 +323,44 @@ export function createLedgerRouter(
             amount: formatAmount(e.amount),
             postedAt: e.postedAt.toISOString(),
           }));
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    /**
+     * One page of entry history, newest first (U5a). Sibling of `history`, which
+     * is unchanged. Same `serviceProcedure` guard and the same reasoning: the
+     * account scope comes from this input, which only a service can send, and
+     * the cursor is a position inside that scope, never an account. Served,
+     * like `history`, through `registerS2sHttp` (`/trpc/historyPage`).
+     */
+    historyPage: serviceProcedure
+      .input(z.unknown())
+      .output(
+        z.object({
+          entries: z.array(
+            z.object({
+              txId: z.string(),
+              module: z.string(),
+              reason: z.string(),
+              direction: z.enum(['debit', 'credit']),
+              /** Decimal string. Money never crosses as a `number`. */
+              amount: z.string(),
+              postedAt: z.string(),
+              assetId: z.string(),
+              /** `ledger_entries.id` (bigserial) as a decimal string. */
+              entryId: z.string(),
+              /** `meta.rail` when allow-listed (see `HISTORY_RAILS`), else null. */
+              rail: z.enum(HISTORY_RAILS).nullable(),
+            }),
+          ),
+          nextCursor: z.string().nullable(),
+        }),
+      )
+      .query(async ({ input }) => {
+        try {
+          return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(input)));
         } catch (err) {
           throw toTrpcError(err);
         }

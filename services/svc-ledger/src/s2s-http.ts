@@ -23,7 +23,7 @@ import { z } from 'zod';
 import { composePortfolioView } from '@intafaced/portfolio-view';
 import { handleCustody } from './ledger/custody-adapters.js';
 import { handleFinanceClose } from './ledger/finance-close.js';
-import { parseHistoryDoorInput, parseHistoryRange } from './ledger/history.js';
+import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { handleReportExport } from './ledger/report-export.js';
 import { handleResilience } from './ledger/resilience-gate.js';
 import { handleStatementPnlHappyOrRefuse } from './ledger/statement-pnl-reproduce.js';
@@ -88,6 +88,7 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
     (err.code === 'ledger.history_range_invalid' ||
       err.code === 'ledger.history_range_too_large' ||
       err.code === 'ledger.history_page_socket' ||
+      err.code === 'ledger.history_cursor_invalid' ||
       err.code === RECIPE_REQUIRED_CODE)
   ) {
     return { status: 400, body: { message: err.message, code: err.code } };
@@ -197,6 +198,16 @@ export async function handleS2sHistory(ledger: LedgerService, body: unknown) {
     amount: formatAmount(e.amount),
     postedAt: e.postedAt.toISOString(),
   }));
+}
+
+/**
+ * Paged history (U5a). `/trpc/history` is unchanged and still refuses a cursor;
+ * this is the sibling that serves one. Scope (owner, kind, purpose, optional
+ * asset) comes from the body, which only an authenticated service can send; the
+ * cursor is a position inside that scope and is never read for an account.
+ */
+export async function handleS2sHistoryPage(ledger: LedgerService, body: unknown) {
+  return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(body)));
 }
 
 export async function handleS2sBalances(ledger: LedgerService, body: unknown) {
@@ -369,6 +380,8 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   // would have been unauthenticated exactly as the money plane once was. There
   // is one door, and every route goes through it.
   app.post('/trpc/history', guarded(handleS2sHistory));
+  // Paged sibling, same `guarded` door (U5a).
+  app.post('/trpc/historyPage', guarded(handleS2sHistoryPage));
   app.post(
     '/trpc/portfolio',
     guarded((svc, body) => handleS2sPortfolio(svc, body, { url: options.indexerUrl, fetch: options.indexerFetch })),

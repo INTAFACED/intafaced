@@ -278,6 +278,16 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
 
   // Newest first; reversing insertion order first keeps same-millisecond seeds newest first too.
   const visible = () => [...opportunities.values()].reverse().sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  // Like svc-ops listOpportunities: the search is literal, case-insensitive, on name or email.
+  const hit = (who, query) => who.name.toLowerCase().includes(query) || who.email.toLowerCase().includes(query);
+  // The contacts merged into this one, oldest merge first (svc-ops orders by alias created_at).
+  // A contact in any erasure intent (pending or complete) is never found or named through an alias, like the svc-ops NOT EXISTS clause.
+  const inErasureIntent = (contactId) => [...erasureScopes.values()].some((scope) => scope.contactIds.includes(contactId));
+  const mergedAway = (canonicalContactId) =>
+    [...aliases]
+      .filter(([from, to]) => to === canonicalContactId && !inErasureIntent(from))
+      .map(([from]) => contact(from))
+      .filter(Boolean);
   const matches = (row, input) => {
     const who = contact(row.contactId);
     const query = input.query?.toLowerCase();
@@ -285,8 +295,15 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
       (!input.audience || row.audience === input.audience) &&
       (!input.stage || row.stage === input.stage) &&
       (!input.ownerUserId || row.ownerUserId === input.ownerUserId) &&
-      (!query || who.name.toLowerCase().includes(query) || who.email.toLowerCase().includes(query))
+      // A merged-away contact's name or email finds the enquiry that now sits under the surviving contact.
+      (!query || hit(who, query) || mergedAway(row.contactId).some((old) => hit(old, query)))
     );
+  };
+  // Only when the visible contact does not match itself: the old name the search came through, so the row can say "also: ...".
+  const aliasMatch = (row, query) => {
+    if (!query || hit(contact(row.contactId), query.toLowerCase())) return null;
+    const old = mergedAway(row.contactId).find((value) => hit(value, query.toLowerCase()));
+    return old ? { opportunityId: row.id, name: old.name } : null;
   };
   const summary = (submissionId) => {
     const saved = submissions.get(submissionId);
@@ -333,6 +350,34 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
       aliases.delete(id);
     }
     reviews.delete(scope.contactIds[0]);
+  }
+
+  // svc-ops task(): cancel the pending next-action task, then open one for the opportunity's current next action and owner.
+  function replaceNextActionTask(opportunity, replace) {
+    for (const row of tasks)
+      if (row.task.opportunityId === opportunity.id && row.kind === 'next_action' && row.task.status === 'pending') {
+        row.revision += 1;
+        row.task = { ...row.task, status: 'cancelled', updatedAt: iso() };
+        audit(replace, 'task', row.task.id, 'task_transitioned', NITRO);
+      }
+    if (opportunity.nextAction) {
+      const at = iso();
+      const created = c.crmWorkflowTaskSchema.parse({
+        task: {
+          id: randomUUID(),
+          opportunityId: opportunity.id,
+          ownerUserId: opportunity.ownerUserId,
+          ...opportunity.nextAction,
+          status: 'pending',
+          updatedAt: at,
+        },
+        revision: 1,
+        kind: 'next_action',
+        createdAt: at,
+      });
+      tasks.push(created);
+      audit(replace, 'task', created.task.id, 'task_created', NITRO);
+    }
   }
 
   // Founder procedures, keyed by the edge path after /api/<module>/trpc/.
@@ -389,10 +434,12 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
       const items = visible()
         .filter((row) => matches(row, input))
         .slice(0, input.limit);
+      const aliasMatches = items.map((row) => aliasMatch(row, input.query)).filter(Boolean);
       return c.crmOpportunityPageSchema.parse({
         items,
         contacts: [...new Set(items.map((row) => row.contactId))].map(contact),
         submissions: [...new Set(items.map((row) => row.submissionId))].map(summary),
+        ...(aliasMatches.length ? { aliasMatches } : {}),
         nextCursor: null,
       });
     },
@@ -431,32 +478,27 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
         activity(next.id, { kind: 'operator', userId: NITRO }, 'assigned', null, input.ownerUserId);
         const reassigned = saveOpportunity({ ...next, ownerUserId: input.ownerUserId });
         // Like svc-ops assign: the pending next-action task is replaced by one owned by the new owner.
-        const replace = { requestId: input.requestId, reason: 'Founder reassigned the opportunity' };
-        for (const row of tasks)
-          if (row.task.opportunityId === next.id && row.kind === 'next_action' && row.task.status === 'pending') {
-            row.revision += 1;
-            row.task = { ...row.task, status: 'cancelled', updatedAt: iso() };
-            audit(replace, 'task', row.task.id, 'task_transitioned', NITRO);
-          }
-        if (reassigned.nextAction) {
-          const at = iso();
-          const created = c.crmWorkflowTaskSchema.parse({
-            task: {
-              id: randomUUID(),
-              opportunityId: reassigned.id,
-              ownerUserId: reassigned.ownerUserId,
-              ...reassigned.nextAction,
-              status: 'pending',
-              updatedAt: at,
-            },
-            revision: 1,
-            kind: 'next_action',
-            createdAt: at,
-          });
-          tasks.push(created);
-          audit(replace, 'task', created.task.id, 'task_created', NITRO);
-        }
+        replaceNextActionTask(reassigned, { requestId: input.requestId, reason: 'Founder reassigned the opportunity' });
         return reassigned;
+      });
+    },
+    // Like svc-ops updateNextAction: only the next action changes. No stage, no reason; the pending task is replaced.
+    'outreach.updateNextAction': (raw) => {
+      const input = c.crmNextActionInputSchema.parse(raw);
+      return remember(NITRO, input.requestId, input, () => {
+        const current = opportunities.get(input.opportunityId);
+        if (!current) throw new FixtureError('ops.crm.not_found', 404);
+        if (current.revision !== input.expectedRevision) throw new FixtureError('ops.crm.revision_conflict', 409);
+        if (current.stage === 'closed') throw new FixtureError('ops.crm.opportunity_closed', 409);
+        const dueAt = new Date(input.dueAt).toISOString();
+        const saved = saveOpportunity({
+          ...current,
+          nextAction: { description: input.description, dueAt },
+          revision: current.revision + 1,
+        });
+        replaceNextActionTask(saved, { requestId: input.requestId, reason: 'Founder edited the next action' });
+        activity(saved.id, { kind: 'operator', userId: NITRO }, 'next_action_changed', input.description, dueAt);
+        return saved;
       });
     },
     'outreach.changeStage': (raw) => {
@@ -622,7 +664,10 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
     },
     'outreach.listMessages': (raw) => {
       const input = c.crmMessageListInputSchema.parse(raw);
-      return c.crmMessagePageSchema.parse({ items: messages.filter((row) => row.opportunityId === input.opportunityId), nextCursor: null });
+      return c.crmMessagePageSchema.parse({
+        items: messages.filter((row) => row.opportunityId === input.opportunityId).reverse(),
+        nextCursor: null,
+      });
     },
     'outreach.queueMessage': (raw) => {
       const input = c.crmQueueMessageInputSchema.parse(raw);
@@ -634,6 +679,8 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
           opportunityId: opportunity.id,
           submissionId: opportunity.submissionId,
           kind: input.kind,
+          // Founder-only, like svc-ops: served by outreach.listMessages and the queue receipt, never by a public route.
+          staffText: input.staffText,
           actorUserId: NITRO,
           status: 'unconfigured',
           createdAt: iso(),

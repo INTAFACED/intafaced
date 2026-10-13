@@ -10,6 +10,8 @@ import { CardService, type CardServiceOptions } from './cards/card-service.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
+import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
+import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
 
 /**
@@ -31,6 +33,8 @@ export interface BankServices {
   readonly transfers: TransferService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
+  readonly portfolio: PortfolioService;
+  readonly activity: ActivityService;
   readonly loans: LoanService;
   readonly cards: CardService;
   readonly ramps: RampService;
@@ -81,6 +85,14 @@ export interface BankServiceOptions {
    * sweeps need no convert (same-asset earn deposit).
    */
   autoInvest?: AutoInvestServiceOptions;
+  /**
+   * Portfolio valuation: where prices come from (svc-trade's public tickers).
+   * Not defaulted. Without a source, `portfolio.summary` answers users who hold
+   * only USDT/USDC/USD and refuses `bank.prices_unavailable` for anyone else.
+   */
+  portfolio?: PortfolioServiceOptions;
+  /** Merged money history: the ledger page port and the cursor secret. Unset = `bank.activity.list` refuses, never answers empty. */
+  activity?: ActivityServiceOptions;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
@@ -88,6 +100,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const transfers = new TransferService(sql, ledger, spaces);
   const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
   const analytics = new SpendAnalytics(spaces, history);
+  const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
+  const activity = new ActivityService(spaces, options.activity ?? {});
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
@@ -106,9 +120,11 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const ramps = new RampService(sql, ledger, options.ramps ?? {});
   const business = new BusinessService(sql, ledger, spaces, transfers);
 
-  return { spaces, transfers, earn, analytics, loans, cards, ramps, autoInvest, business };
+  return { spaces, transfers, earn, analytics, portfolio, activity, loans, cards, ramps, autoInvest, business };
 }
 
+export { PortfolioService, httpTickerSource, type TickerSource } from './portfolio/portfolio-service.js';
+export { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 export {
   SpaceService,
   TransferService,

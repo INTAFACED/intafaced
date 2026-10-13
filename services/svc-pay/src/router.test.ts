@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { INTERACTIVE_ONLY_SCOPES, SESSION_SCOPES, assertKeyScopesAllowed, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
-import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
+import { formatAmount, InsufficientFundsError, parseAmount as amt } from '@intafaced/ledger-client';
 import { createPayRouter } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
@@ -470,7 +470,7 @@ describe('a caller can tell the failures apart', () => {
     ] as const) {
       stub.fail(new PayError('nope', code));
       const api = await caller(['pay:refund']);
-      const err = await api.payment.refund({ paymentId: PAYMENT, amount: '1' }).catch((e: unknown) => e);
+      const err = await api.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-test-1' }).catch((e: unknown) => e);
       expect(await codeOf(err)).toBe('CONFLICT');
     }
   });
@@ -506,12 +506,36 @@ describe('a caller can tell the failures apart', () => {
     expect(await codeOf(err)).toBe('UNAUTHORIZED');
   });
 
+  it('refuses a refund with no refundId and never reaches the service (a retry must carry the same id)', async () => {
+    const api = await caller(['pay:refund']);
+    // @ts-expect-error — refundId is required on the tRPC door; this is the retry-pays-twice input.
+    const err = await api.payment.refund({ paymentId: PAYMENT, amount: '1' }).catch((e: unknown) => e);
+    expect(await codeOf(err)).toBe('BAD_REQUEST');
+    expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(0);
+  });
+
+  it('refuses a whitespace-only refundId, as the REST door treats it as absent', async () => {
+    const api = await caller(['pay:refund']);
+    const err = await api.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: '   ' }).catch((e: unknown) => e);
+    expect(await codeOf(err)).toBe('BAD_REQUEST');
+    expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(0);
+  });
+
+  it('passes the caller refundId to the service verbatim, so a retry is the same refund', async () => {
+    const api = await caller(['pay:refund']);
+    await api.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'biz-refund-9' });
+    await api.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'biz-refund-9' });
+    const calls = stub.calls.filter((c) => c.method === 'refund');
+    expect(calls).toHaveLength(2);
+    for (const c of calls) expect(c.args[2]).toEqual({ refundId: 'biz-refund-9' });
+  });
+
   it('lets a non-PayError through untranslated rather than mislabelling it', async () => {
     // An InsufficientFundsError from the ledger is not a bad request; dressing
     // it up as one would tell a merchant to retry something that cannot succeed.
     stub.fail(new Error('ledger.insufficient_funds'));
     const api = await caller(['pay:refund']);
-    const err = await api.payment.refund({ paymentId: PAYMENT, amount: '1' }).catch((e: unknown) => e);
+    const err = await api.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-test-1' }).catch((e: unknown) => e);
     expect((err as Error).message).toContain('ledger.insufficient_funds');
   });
 });
@@ -534,7 +558,7 @@ describe('authority', () => {
     const api = await caller(['pay:write']);
     // `pay:write` implies `pay:read` and nothing else. Money going back out is
     // its own authority.
-    await expect(api.payment.refund({ paymentId: PAYMENT, amount: '1' })).rejects.toThrow(/pay:refund/);
+    await expect(api.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-test-1' })).rejects.toThrow(/pay:refund/);
     expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(0);
   });
 
@@ -585,7 +609,7 @@ describe('authority', () => {
           railAdapter: 'card-sandbox',
         }),
       ).rejects.toThrow(/pay:write/);
-      await expect(api.payment.refund({ paymentId: PAYMENT, amount: '1' })).rejects.toThrow(/pay:refund/);
+      await expect(api.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-test-1' })).rejects.toThrow(/pay:refund/);
       await expect(
         api.settlement.payout({
           settlementId: SETTLEMENT,
@@ -1151,6 +1175,34 @@ describe('leftover treasury mutates consume identity approval', () => {
       status: 'declined',
       confirmOperatorId: CONFIRM,
     });
+  });
+
+  it('openDispute answers a named precondition error, not a 500 and not a recorded case, when the ledger refuses the opening for funds', async () => {
+    const service = stub.service as unknown as { openChargeback: unknown };
+    service.openChargeback = async () => {
+      throw new InsufficientFundsError('acct', 'USDT', '40.5', '0');
+    };
+    const api = await caller(['admin:treasury']);
+    const disputeId = `dsp-uncovered-${Date.now()}`;
+    const input = {
+      disputeId,
+      paymentId: PAYMENT,
+      merchantId: MERCHANT,
+      amount: '40.50',
+      assetId: 'USDT',
+      confirmOperatorId: CONFIRM,
+      ...APPROVED,
+    };
+    await expect(api.fraud.openDispute(input)).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('pay.chargeback_uncovered'),
+    });
+    // Nothing was recorded: the case store keeps its first answer, so a recorded refusal would mask a later retry that posts.
+    expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
+
+    service.openChargeback = async () => ({ txId: 'tx-after-topup' });
+    const retried = await api.fraud.openDispute(input);
+    expect(retried).toMatchObject({ disputeId, ledgerWire: 'posted', ledgerTxId: 'tx-after-topup' });
   });
 
   it('openDispute and contestDispute refuse missing approval ids without mutating', async () => {
