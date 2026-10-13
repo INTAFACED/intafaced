@@ -1,6 +1,15 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { LedgerError, formatAmount, parseAmount, recipes, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
+import {
+  IDEMPOTENCY_CONFLICT_CODE,
+  LedgerError,
+  formatAmount,
+  parseAmount,
+  recipes,
+  type Amount,
+  type LedgerClient,
+  type LedgerTx,
+} from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertBusinessListLimit, assertBusinessPendingListLimit } from '../owner-list-limit.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
@@ -532,13 +541,22 @@ export class BusinessService {
       'bank.business.payroll',
       { operation: 'business-payroll', userId: input.actorUserId, amount: formatAmount(total) },
       async () => {
-        const posted = await this.ledger.post(
-          recipes.businessPayroll({
-            payrollId: input.payrollId,
-            from: fromAcct,
-            recipients: resolved.map((line) => ({ to: line.acct, amount: line.amount })),
-          }),
-        );
+        const posted = await this.ledger
+          .post(
+            recipes.businessPayroll({
+              payrollId: input.payrollId,
+              from: fromAcct,
+              recipients: resolved.map((line) => ({ to: line.acct, amount: line.amount })),
+            }),
+          )
+          .catch((error: unknown) => {
+            // The ledger now refuses a reused key whose body differs: this payroll id already booked
+            // other terms (for example a dropped recipient). Same answer the entries check below gives.
+            if (error instanceof LedgerError && error.code === IDEMPOTENCY_CONFLICT_CODE) {
+              throw new BankError(`Payroll ${input.payrollId} already exists on different terms`, 'bank.business_request_conflict');
+            }
+            throw error;
+          });
         // Empty entries: this client did not return the book. That is not a
         // different instruction, and it is not a reason to invent a recipient.
         const agreed = await this.payrollEntriesAgree(posted, fromAcct, resolved);

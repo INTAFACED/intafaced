@@ -159,7 +159,9 @@ describe('native recovery integration with the actual ledger service', () => {
         if (outcome.kind === 'refused') expect(outcome.error).toMatchObject({ code: 'ledger.frozen' });
         expect(emitted).toEqual([true]);
         expect(await db.sql`SELECT * FROM balance_snapshots`).toHaveLength(0);
-        const replay = await ledger.post({ ...deposit('max1-failure'), entries: [] });
+        // The SAME body: a retry of a committed post returns it even while frozen. (A different
+        // body under this key is a conflict now, see the conformance suite.)
+        const replay = await ledger.post(deposit('max1-failure'));
         expect(replay.idempotencyKey).toBe(deposit('max1-failure').idempotencyKey);
         expect(await db.sql`SELECT * FROM ledger_tx`).toHaveLength(1);
       } finally {
