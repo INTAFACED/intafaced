@@ -610,6 +610,10 @@ export class SqlMarketLifecycleEvidenceStore {
     const parsed = marketLifecyclePublicationSchema.parse(publication);
     assertPublicationNotFuture(parsed);
     const evidenceId = lifecyclePublicationId(parsed.marketId, parsed.idempotencyKey);
+    // `::text::jsonb`, not `::jsonb`: postgres.js serialises a string bound to a jsonb parameter as a JSON
+    // string, so the row would store the text of the object instead of the object. Read-back then failed
+    // the schema and every publish answered `trade.lifecycle_publication_conflict`. The fakes in the tests
+    // never saw it; the real driver does.
     const payload = JSON.stringify(parsed);
     const [existing] = await this.sql<Array<{ publication: unknown }>>`
       SELECT publication FROM trade.market_lifecycle_evidence WHERE evidence_id = ${evidenceId} LIMIT 1
@@ -646,7 +650,7 @@ export class SqlMarketLifecycleEvidenceStore {
       await this.sql`
         INSERT INTO trade.market_lifecycle_evidence
           (evidence_id, market_id, evidence_kind, publication, causal_predecessor_id, reconciliation_key, observed_at)
-        VALUES (${evidenceId}, ${parsed.marketId}, 'AUTHORITY_DOSSIER', ${payload}::jsonb,
+        VALUES (${evidenceId}, ${parsed.marketId}, 'AUTHORITY_DOSSIER', ${payload}::text::jsonb,
           ${parsed.causalPredecessorId}, ${evidenceId}, ${parsed.observedAt}::timestamptz)
         ON CONFLICT (evidence_id) DO NOTHING
       `;
@@ -676,7 +680,7 @@ export class SqlMarketLifecycleEvidenceStore {
       INSERT INTO trade.market_lifecycle_evidence
         (evidence_id, market_id, evidence_kind, transition, correction, causal_predecessor_id, reconciliation_key, observed_at)
       VALUES
-        (${parsed.transitionId}, ${parsed.marketId}, 'TRANSITION', ${JSON.stringify(parsed)}::jsonb, NULL,
+        (${parsed.transitionId}, ${parsed.marketId}, 'TRANSITION', ${JSON.stringify(parsed)}::text::jsonb, NULL,
          ${parsed.authorityRef}, ${reconciliationKey}, ${parsed.requestedAt}::timestamptz)
       ON CONFLICT (evidence_id) DO NOTHING
     `;
@@ -689,7 +693,7 @@ export class SqlMarketLifecycleEvidenceStore {
       INSERT INTO trade.market_lifecycle_evidence
         (evidence_id, market_id, evidence_kind, transition, correction, causal_predecessor_id, reconciliation_key, observed_at)
       VALUES
-        (${parsed.correctionId}, NULL, 'CORRECTION', NULL, ${JSON.stringify(parsed)}::jsonb,
+        (${parsed.correctionId}, NULL, 'CORRECTION', NULL, ${JSON.stringify(parsed)}::text::jsonb,
          ${parsed.causalPredecessorId}, NULL, ${parsed.correctedAt}::timestamptz)
       ON CONFLICT (evidence_id) DO NOTHING
     `;
