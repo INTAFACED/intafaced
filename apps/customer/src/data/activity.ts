@@ -23,6 +23,9 @@ export const ACTIVITY_KINDS = [
   'payment',
   'withdrawal',
   'space_move',
+  // Not sent by the server yet (it files holds and releases under `other`): the screen is ready for the day it does.
+  'order_hold',
+  'order_release',
   'other',
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];

@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { changeLine, dollarPrice, partialWindowStart, placesOf, signedPrice, turnoverText } from './text';
 
 describe('desk text', () => {
-  it('puts "$" on dollar-quoted prices and keeps the tick decimals', () => {
-    expect(dollarPrice('65000', { quote: 'USDT', tickSize: '0.01' })).toBe('$65,000.00');
-    expect(dollarPrice('0.4120', { quote: 'USDT', tickSize: '0.0001' })).toBe('$0.4120');
+  it('shows plain quote prices (no "$") and keeps the tick decimals (critic L8)', () => {
+    expect(dollarPrice('65000', { quote: 'USDT', tickSize: '0.01' })).toBe('65,000.00');
+    expect(dollarPrice('0.4120', { quote: 'USDT', tickSize: '0.0001' })).toBe('0.4120');
     expect(dollarPrice('2', { quote: 'BTC', tickSize: '0.0001' })).toBe('2.0000');
     expect(dollarPrice(null, { quote: 'USDT', tickSize: '0.01' })).toBe('—');
   });

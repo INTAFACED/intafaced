@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   ArrowDownLeft,
   ArrowDownToLine,
@@ -9,11 +9,26 @@ import {
   CreditCard,
   Check,
   Gift,
+  Lock,
+  LockOpen,
   Receipt,
   Repeat,
   type LucideIcon,
 } from 'lucide-react';
-import { inTab, tabFromSearch, tabHref, titleOf, TABS, type Tab } from './activity-view';
+import {
+  groupActivity,
+  inTab,
+  isLedgerTab,
+  tabFromSearch,
+  tabHref,
+  titleOf,
+  tradeDetail,
+  TABS,
+  type ActivityGroup,
+  type LedgerTab,
+  type Tab,
+} from './activity-view';
+import { OrdersPanel, TradesPanel } from './TradeTabs';
 import { moneyCopy } from './copy';
 import {
   Amount,
@@ -35,7 +50,7 @@ import {
 } from './deps';
 import { buyHref } from './links';
 import { stamp } from './time';
-import { usePreferences } from '../../shared/preferences';
+import { currentPreferences, usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -49,6 +64,8 @@ const ICON: Record<ActivityKind, LucideIcon> = {
   payment: CreditCard,
   withdrawal: ArrowUpFromLine,
   space_move: ArrowLeftRight,
+  order_hold: Lock,
+  order_release: LockOpen,
   other: CircleDot,
 };
 
@@ -57,25 +74,48 @@ const WANT_ROWS = 10;
 /** ...and looks back at most this many extra pages by itself; after that the person presses "Load more". */
 const AUTO_PAGES = 4;
 
-const TAB_LABEL: Record<Tab, 'All' | 'Deposits' | 'Transfers' | 'Trades'> = {
+const TAB_LABEL: Record<Tab, 'All' | 'Deposits' | 'Transfers' | 'Trades' | 'Orders'> = {
+  trades: 'Trades',
+  orders: 'Orders',
   all: 'All',
   deposits: 'Deposits',
   transfers: 'Transfers',
-  trades: 'Trades',
 };
-const TAB_EMPTY: Record<Exclude<Tab, 'all'>, 'No deposits yet' | 'No transfers yet' | 'No trades yet'> = {
+const TAB_EMPTY: Record<Exclude<LedgerTab, 'all'>, 'No deposits yet' | 'No transfers yet'> = {
   deposits: 'No deposits yet',
   transfers: 'No transfers yet',
-  trades: 'No trades yet',
 };
 
-function Row({ item, copy, hidden }: { item: ActivityItem; copy: Copy; hidden: boolean }) {
+function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden: boolean }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
+  const item = group.main;
   const Icon = ICON[item.kind];
   const title = titleOf(item, t, (key, handle) => t(key, { handle }));
   const up = item.direction === 'in';
   const amount = fmtAmount(item.amount);
+  const holding = item.kind === 'order_hold';
+  let sub: string | null = item.spaceName ? t('In account {name}', { name: item.spaceName }) : null;
+  if (item.kind === 'trade') {
+    const { counter, fees } = tradeDetail(group);
+    const parts = [
+      counter
+        ? t(
+            counter.direction === 'out'
+              ? counter.asset === 'USDT' || counter.asset === 'USDC'
+                ? 'Paid {amount} {asset}'
+                : 'Gave {amount} {asset}'
+              : 'Got {amount} {asset}',
+            {
+              amount: fmtAmount(counter.amount),
+              asset: counter.asset,
+            },
+          )
+        : null,
+      ...fees.map((fee) => t('Fee {amount} {asset}', { amount: fmtAmount(fee.amount), asset: fee.asset })),
+    ].filter((part): part is string => part !== null);
+    sub = parts.length > 0 ? parts.join(' · ') : null;
+  }
   return (
     <tr className="money-act" data-kind={item.kind}>
       <td>
@@ -85,7 +125,7 @@ function Row({ item, copy, hidden }: { item: ActivityItem; copy: Copy; hidden: b
           </span>
           <span className="money-act__text">
             <span className="money-act__title">{title}</span>
-            {item.spaceName ? <span className="money-act__sub">{t('In account {name}', { name: item.spaceName })}</span> : null}
+            {sub ? <span className="money-act__sub">{sub}</span> : null}
           </span>
         </div>
       </td>
@@ -96,15 +136,19 @@ function Row({ item, copy, hidden }: { item: ActivityItem; copy: Copy; hidden: b
         <Amount
           value={`${up ? '+' : '−'}${amount} ${item.asset}`}
           hidden={hidden}
-          className={up ? 'text-up-text' : 'text-down-text'}
+          className={holding ? undefined : up ? 'text-up-text' : 'text-down-text'}
           data-direction={item.direction}
         />
       </td>
       <td className="money-act__status money-cell--status">
-        <span className="money-act__done">
-          <Check size={14} aria-hidden="true" />
-          {t('Completed')}
-        </span>
+        {holding ? (
+          <span className="money-act__hold">{t('On hold')}</span>
+        ) : (
+          <span className="money-act__done">
+            <Check size={14} aria-hidden="true" />
+            {t('Completed')}
+          </span>
+        )}
       </td>
     </tr>
   );
@@ -129,14 +173,15 @@ function SkeletonRows({ count, label }: { count: number; label: string }) {
 
 function emptyAction(copy: Copy) {
   const { t } = copy;
-  const buy = buyHref(null, null, false);
+  const buy = buyHref(null, null, false, currentPreferences().layoutMode === 'pro' ? 'pro' : 'simple');
   if (buy) return { label: t('Buy crypto'), href: buy };
   return isHiddenPath('/pay/receive') ? undefined : { label: t('Receive'), href: '/pay/receive' };
 }
 
-function Body({ feed, tab, copy, hidden }: { feed: ActivityFeed; tab: Tab; copy: Copy; hidden: boolean }) {
+function Body({ feed, tab, copy, hidden }: { feed: ActivityFeed; tab: LedgerTab; copy: Copy; hidden: boolean }) {
   const { t } = copy;
-  const rows = feed.items.filter((item) => inTab(item, tab));
+  const { groups, holdLines } = useMemo(() => groupActivity(feed.items), [feed.items]);
+  const rows = groups.filter((group) => inTab(group.main, tab));
   const pages = useRef(0);
 
   // The server has no kind filter, so a narrow tab may be thin: look further back a few pages, then ask.
@@ -165,6 +210,7 @@ function Body({ feed, tab, copy, hidden }: { feed: ActivityFeed; tab: Tab; copy:
 
   return (
     <>
+      {tab === 'all' && holdLines > 0 ? <p className="money-act-note">{t('Holds not listed note')}</p> : null}
       <table className="money-table money-table--activity">
         <colgroup>
           <col className="money-act-col--what" />
@@ -185,8 +231,8 @@ function Body({ feed, tab, copy, hidden }: { feed: ActivityFeed; tab: Tab; copy:
           </tr>
         </thead>
         <tbody>
-          {rows.map((item) => (
-            <Row key={item.id} item={item} copy={copy} hidden={hidden} />
+          {rows.map((group) => (
+            <Row key={group.id} group={group} copy={copy} hidden={hidden} />
           ))}
         </tbody>
       </table>
@@ -202,7 +248,7 @@ function Body({ feed, tab, copy, hidden }: { feed: ActivityFeed; tab: Tab; copy:
   );
 }
 
-function Content({ activity, tab, copy, hidden }: { activity: Loadable<ActivityFeed>; tab: Tab; copy: Copy; hidden: boolean }) {
+function Content({ activity, tab, copy, hidden }: { activity: Loadable<ActivityFeed>; tab: LedgerTab; copy: Copy; hidden: boolean }) {
   const { t } = copy;
   switch (activity.status) {
     case 'loading':
@@ -245,14 +291,19 @@ function Content({ activity, tab, copy, hidden }: { activity: Loadable<ActivityF
   }
 }
 
+/** The ledger-based tabs (All, Deposits, Transfers). Mounted only on those tabs, so the other two never read the ledger. */
+function LedgerTabs({ tab, copy, hidden }: { tab: LedgerTab; copy: Copy; hidden: boolean }) {
+  const activity = useActivity();
+  return <Content activity={activity} tab={tab} copy={copy} hidden={hidden} />;
+}
+
 export default function Activity({ search }: { search: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
-  const { hideBalances } = usePreferences();
+  const { hideBalances, layoutMode } = usePreferences();
   const tab = tabFromSearch(search);
-  const activity = useActivity();
   return (
-    <div className="if-money if-money--activity">
+    <div className="if-money if-money--activity" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
       <h1 className="money-title">{t('Activity')}</h1>
       <Tabs value={tab} onValueChange={(next) => navigate(tabHref(next as Tab))}>
         <TabsList divider aria-label={t('Activity filters')} className="money-tabs">
@@ -264,7 +315,13 @@ export default function Activity({ search }: { search: string }) {
         </TabsList>
       </Tabs>
       <section className="money-card money-card--activity" aria-label={t('Activity')}>
-        <Content activity={activity} tab={tab} copy={copy} hidden={hideBalances} />
+        {tab === 'trades' ? (
+          <TradesPanel />
+        ) : tab === 'orders' ? (
+          <OrdersPanel />
+        ) : isLedgerTab(tab) ? (
+          <LedgerTabs tab={tab} copy={copy} hidden={hideBalances} />
+        ) : null}
       </section>
     </div>
   );
