@@ -212,6 +212,7 @@ jobs:
       TEST_DATABASE_URL_AGENTS: postgres://svc_agents:svc_agents@127.0.0.1:5432/intafaced_test
       TEST_DATABASE_URL_NOTIFY: postgres://svc_notify:svc_notify@127.0.0.1:5432/intafaced_test
       TEST_DATABASE_URL_SUPPORT: postgres://svc_support:svc_support@127.0.0.1:5432/intafaced_test
+      TEST_DATABASE_URL_SUPPORT_ADMIN: postgres://intafaced:intafaced@127.0.0.1:5432/postgres
       REDIS_URL: redis://127.0.0.1:6379
       NATS_URL: nats://127.0.0.1:4222
       # Same bargain as REQUIRE_POSTGRES, for the same reason. svc-protocol's
@@ -500,7 +501,7 @@ jobs:
       - name: Build protocol test dependencies
         run: pnpm --filter @intafaced/svc-protocol... --filter @intafaced/svc-dex... --filter @intafaced/svc-indexer... build
       - name: Protocol package tests
-        run: pnpm --filter @intafaced/svc-protocol... --filter @intafaced/svc-dex... --filter @intafaced/svc-indexer... test
+        run: pnpm --no-bail --filter @intafaced/svc-protocol... --filter @intafaced/svc-dex... --filter @intafaced/svc-indexer... test
       - name: Annotate shard failure
         if: failure()
         run: echo "::error title=Tests (protocol)::Read this job log, not the merge seal. Fix this shard and re-push."
@@ -600,7 +601,7 @@ jobs:
       - name: Build money test dependencies
         run: pnpm --filter @intafaced/ledger-client... --filter @intafaced/svc-ledger... --filter @intafaced/svc-identity... --filter @intafaced/svc-token... --filter @intafaced/config... build
       - name: Money package tests
-        run: pnpm --filter @intafaced/ledger-client --filter @intafaced/svc-ledger --filter @intafaced/svc-identity --filter @intafaced/svc-token --filter @intafaced/config test
+        run: pnpm --no-bail --filter @intafaced/ledger-client --filter @intafaced/svc-ledger --filter @intafaced/svc-identity --filter @intafaced/svc-token --filter @intafaced/config test
       - name: Annotate shard failure
         if: failure()
         run: echo "::error title=Tests (money)::Read this job log, not the merge seal. Fix this shard and re-push."
@@ -699,7 +700,7 @@ jobs:
       - run: pnpm build
 
       - name: Trade package tests
-        run: pnpm --filter @intafaced/svc-trade --filter @intafaced/svc-matching --filter @intafaced/svc-execution --filter @intafaced/venue-adapter --filter @intafaced/svc-ws test
+        run: pnpm --no-bail --filter @intafaced/svc-trade --filter @intafaced/svc-matching --filter @intafaced/svc-execution --filter @intafaced/venue-adapter --filter @intafaced/svc-ws test
       - name: Annotate shard failure
         if: failure()
         run: echo "::error title=Tests (trade)::Read this job log, not the merge seal. Fix this shard and re-push."
@@ -798,7 +799,7 @@ jobs:
       - run: pnpm build
 
       - name: Pay/bank package tests
-        run: pnpm turbo run test --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-p2p
+        run: pnpm turbo run test --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-p2p --continue
       - name: Annotate shard failure
         if: failure()
         run: echo "::error title=Tests (pay-bank)::Read this job log, not the merge seal. Fix this shard and re-push."
