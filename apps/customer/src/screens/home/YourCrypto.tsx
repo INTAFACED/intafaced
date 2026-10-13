@@ -38,7 +38,7 @@ export function YourCrypto({ holdings, hidden }: { holdings: Holding[]; hidden: 
                 <CoinIcon asset={holding.asset} size={28} />
                 <span className="home-watch__name">
                   <span className="home-watch__ticker">{name ? `${holding.asset} · ${name}` : holding.asset}</span>
-                  <Amount className="home-yours__amount" value={`${fmtAmount(holding.total)} ${holding.asset}`} hidden={hidden} />
+                  <Amount className="home-yours__amount" value={`${fmtAmount(holding.total, { round: 'down' })} ${holding.asset}`} hidden={hidden} />
                 </span>
                 <span className="home-watch__figures">
                   <Money

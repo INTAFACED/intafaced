@@ -100,11 +100,23 @@ describe('parseTyped (typing)', () => {
     expect(parseTyped('$ 5', p2)).toBe('5');
   });
 
-  it('uses the locale decimal mark and treats the other mark as noise', () => {
+  it('reads the other decimal mark as the decimal point when the own mark is absent, never as noise', () => {
+    expect(parseTyped('0,5', p2)).toBe('0.5');
+    expect(parseTyped('1,', p2)).toBe('1.');
+    expect(parseTyped(',5', p2)).toBe('0.5');
+    expect(parseTyped('0,50', p2)).toBe('0.50');
+    expect(parseTyped('1,2,3', p2)).toBeNull();
+    expect(parseTyped('1.2,3', p2)).toBeNull();
+    expect(parseTyped('1,2.3', p2)).toBeNull();
+    expect(parseTyped('1,234', p2)).toBeNull(); // too many decimals, refused, not read as 1234
+  });
+
+  it('uses the locale decimal mark', () => {
     const de = { precision: 2, decimalSeparator: ',' as const };
     expect(parseTyped('1,5', de)).toBe('1.5');
     expect(parseTyped('1,5,', de)).toBeNull();
-    expect(parseTyped('1.5', de)).toBe('15');
+    expect(parseTyped('1.5', de)).toBe('1.5');
+    expect(parseTyped('1,5.', de)).toBeNull();
     expect(toDisplay('1.5', ',')).toBe('1,5');
     expect(toDisplay('1.5', '.')).toBe('1.5');
   });
@@ -241,5 +253,22 @@ describe('amount predicates', () => {
     expect(isPositiveAmount('0.05')).toBe(true);
     expect(isPositiveAmount('0')).toBe(false);
     expect(isPositiveAmount('0.000')).toBe(false);
+  });
+
+});
+
+describe('parsePasted (no silent misreads)', () => {
+  it('reads grouped and locale amounts without losing a separator', () => {
+    expect(parsePasted('1,234.5', { precision: 8 })).toBe('1234.5');
+    expect(parsePasted('1.234,5', { precision: 8, decimalSeparator: ',' })).toBe('1234.5');
+  });
+
+  it('rejects exponent notation and letters between digits instead of misreading them', () => {
+    const p8 = { precision: 8 };
+    expect(parsePasted('1e5', p8)).toBeNull();
+    expect(parsePasted('1E5', p8)).toBeNull();
+    expect(parsePasted('1.5e-3', p8)).toBeNull();
+    expect(parsePasted('1.5 BTC (2 orders)', p8)).toBeNull();
+    expect(parsePasted('1x2', p8)).toBeNull();
   });
 });

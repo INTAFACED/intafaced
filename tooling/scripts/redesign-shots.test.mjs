@@ -95,7 +95,7 @@ try {
       'http://evil.com@127.0.0.1.evil.com',
       'http://user:pw@127.0.0.1:3210',
       'https://example.com',
-      'https://claude.ai',
+      'https://example.org',
       'ftp://127.0.0.1',
       'file:///etc/passwd',
       'http://127.0.0.1:3210/login',

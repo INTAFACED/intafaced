@@ -65,15 +65,20 @@ export interface TypedOptions {
 /**
  * Reads what is in the input box after a keystroke and returns the canonical
  * value, or null to reject the keystroke (a second decimal mark, or more
- * decimals than `precision`). Letters and symbols are dropped.
+ * decimals than `precision`, or both "." and ","). The other decimal mark counts as the
+ * decimal point when the person's own is absent. Letters and symbols are dropped.
  * An in-progress "12." is kept so the person can keep typing.
  */
 export function parseTyped(raw: string, { precision, decimalSeparator = '.' }: TypedOptions): string | null {
   const sep = decimalSeparator;
+  const other = sep === '.' ? ',' : '.';
+  // The other decimal mark is a decimal point if the person's own mark is not in the box yet
+  // ("0,5" typed on a "." keyboard is 0.5, never 5); if both marks are there, refuse the keystroke.
+  if (raw.includes(sep) && raw.includes(other)) return null;
   let out = '';
   for (const ch of raw) {
     if (ch >= '0' && ch <= '9') out += ch;
-    else if (ch === sep) out += '.';
+    else if (ch === sep || ch === other) out += '.';
   }
   const dots = out.split('.').length - 1;
   if (dots > 1) return null;
@@ -102,7 +107,12 @@ const count = (text: string, ch: string) => text.split(ch).length - 1;
  * Decimals beyond `precision` are cut off (toward zero), never rounded up.
  */
 export function parsePasted(text: string, { precision, decimalSeparator = '.' }: TypedOptions): string | null {
-  const t = text.replace(/[\s   '’]/g, '').replace(/[^0-9.,]/g, '');
+  // Only leading and trailing text ("$", "BTC", "USDT ") is stripped. A letter or symbol left between
+  // digits ("1e5", "1.5e-3", "1.5 BTC (2 orders)") is not an amount we can read: reject, never guess.
+  const compact = text.replace(/[\s   '’]/g, '');
+  const core = compact.replace(/^[^0-9.,]+/, '').replace(/[^0-9.,]+$/, '');
+  if (/[^0-9.,]/.test(core)) return null;
+  const t = core;
   if (!/\d/.test(t)) return null;
 
   const dots = count(t, '.');
