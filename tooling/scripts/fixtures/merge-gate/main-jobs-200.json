@@ -1,0 +1,58 @@
+[
+  {
+    "name": "Doctrine gates",
+    "conclusion": "failure",
+    "status": "completed",
+    "databaseId": 141503417,
+    "url": "https://github.com/x/y/actions/runs/1/job/1"
+  },
+  {
+    "name": "Affected shards",
+    "conclusion": "success",
+    "status": "completed",
+    "databaseId": 292098587,
+    "url": "https://github.com/x/y/actions/runs/1/job/1"
+  },
+  {
+    "name": "Format",
+    "conclusion": "success",
+    "status": "completed",
+    "databaseId": 444661821,
+    "url": "https://github.com/x/y/actions/runs/1/job/1"
+  },
+  {
+    "name": "Typecheck & build",
+    "conclusion": "success",
+    "status": "completed",
+    "databaseId": 290368336,
+    "url": "https://github.com/x/y/actions/runs/1/job/1"
+  },
+  {
+    "name": "Tests (full)",
+    "conclusion": "failure",
+    "status": "completed",
+    "databaseId": 303101549,
+    "url": "https://github.com/x/y/actions/runs/1/job/1"
+  },
+  {
+    "name": "Tests (money)",
+    "conclusion": "skipped",
+    "status": "completed",
+    "databaseId": 722972028,
+    "url": "https://github.com/x/y/actions/runs/1/job/1"
+  },
+  {
+    "name": "CI merge seal",
+    "conclusion": "failure",
+    "status": "completed",
+    "databaseId": 153561585,
+    "url": "https://github.com/x/y/actions/runs/1/job/1"
+  },
+  {
+    "name": "Definition of Done",
+    "conclusion": "skipped",
+    "status": "completed",
+    "databaseId": 402034079,
+    "url": "https://github.com/x/y/actions/runs/1/job/1"
+  }
+]
