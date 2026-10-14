@@ -5,7 +5,7 @@ import { createEdgeContext, retainRawBody } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { formatAmount } from '@intafaced/ledger-client';
 import { env } from './env.js';
-import { TokenService } from './token-service.js';
+import { TokenError, TokenService } from './token-service.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { createTokenRouter, type TokenRouter } from './router.js';
@@ -13,7 +13,7 @@ import { registerInternalStake } from './internal-stake.js';
 import { registerInternalEmissions } from './internal-emissions.js';
 import { registerInternalYield } from './internal-yield.js';
 import { registerInternalBuyback } from './internal-buyback.js';
-import { requireEmissionsTickMsForAutoTick } from './emissions-tick.js';
+import { defaultEmissionsTickMs, requireEmissionsTickMsForAutoTick } from './emissions-tick.js';
 import { tokenReadyHonesty } from './ready-honesty.js';
 import { readYieldDistributionCronHours, runYieldWindow } from './yield-job.js';
 import { runBuybackWindow } from './buyback-job.js';
@@ -80,6 +80,8 @@ const token = new TokenService(sql, ledger, bus, {
   // Blank env stays undefined — close refuses token.governance_quorum_unset.
   governanceQuorumBps: governanceBps.quorumBps,
   governanceThresholdBps: governanceBps.thresholdBps,
+  // One-day default (owner-present 2026-10-14): a new epoch cannot start sooner than this after the last claim.
+  emissionEpochMs: env.EMISSIONS_EPOCH_MS,
 });
 
 const yieldJob = {
@@ -193,7 +195,21 @@ async function emissionsTick(): Promise<void> {
   } catch (err) {
     // Never let a tick failure kill the interval. Closed/exhausted epochs are
     // expected once the schedule ends; log and wait for the next tick.
-    app.log.error({ err }, 'emission auto-tick failed');
+    if (err instanceof TokenError && err.code === 'token.epoch_too_early') {
+      // Normal between epochs: the time gate says the next one is not due yet. A wait LONGER than one epoch cannot
+      // happen on a sane clock (database clock stepped back, or a row with a future created_at): minting would stop
+      // silently, so that case is a warning.
+      if (err.retryAfterMs !== undefined && err.retryAfterMs > env.EMISSIONS_EPOCH_MS) {
+        app.log.warn(
+          { retryAfterMs: err.retryAfterMs, epochMs: env.EMISSIONS_EPOCH_MS },
+          'emission auto-tick: gate wait exceeds one epoch (clock step or future-dated epoch row?)',
+        );
+      } else {
+        app.log.debug({ retryAfterMs: err.retryAfterMs }, 'emission auto-tick: next epoch not due yet');
+      }
+    } else {
+      app.log.error({ err }, 'emission auto-tick failed');
+    }
   } finally {
     minting = false;
   }
@@ -201,11 +217,11 @@ async function emissionsTick(): Promise<void> {
 
 let emissionsTimer: ReturnType<typeof setInterval> | undefined;
 if (env.EMISSIONS_AUTO_TICK) {
-  const emissionsTickMs = requireEmissionsTickMsForAutoTick(true, env.EMISSIONS_TICK_MS);
+  const emissionsTickMs = requireEmissionsTickMsForAutoTick(true, env.EMISSIONS_TICK_MS, defaultEmissionsTickMs(env.EMISSIONS_EPOCH_MS));
   if (env.EMISSIONS_ENABLED) {
     emissionsTimer = setInterval(() => void emissionsTick(), emissionsTickMs);
     emissionsTimer.unref();
-    app.log.info({ tickMs: emissionsTickMs }, 'emission auto-tick enabled');
+    app.log.info({ tickMs: emissionsTickMs, epochMs: env.EMISSIONS_EPOCH_MS }, 'emission auto-tick enabled');
   }
 }
 

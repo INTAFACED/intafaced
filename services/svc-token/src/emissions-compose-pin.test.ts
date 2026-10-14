@@ -7,6 +7,7 @@
  *    a no-op and the container keeps schema defaults forever.
  * 3. Done bar: docker-compose.apps.yml svc-token has
  *    EMISSIONS_ENABLED: ${EMISSIONS_ENABLED:-true}
+ *    EMISSIONS_EPOCH_MS: ${EMISSIONS_EPOCH_MS:-86400000}   (owner-present 1 day, 2026-10-14)
  *    EMISSIONS_AUTO_TICK: ${EMISSIONS_AUTO_TICK:-false}
  *    EMISSIONS_TICK_MS: ${EMISSIONS_TICK_MS:-}
  * 4. Class N
@@ -30,6 +31,7 @@ function tokenServiceBlock(source: string): string {
 
 const ENABLED = /EMISSIONS_ENABLED:\s*\$\{EMISSIONS_ENABLED:-true\}/;
 const AUTO_TICK = /EMISSIONS_AUTO_TICK:\s*\$\{EMISSIONS_AUTO_TICK:-false\}/;
+const EPOCH_MS = /EMISSIONS_EPOCH_MS:\s*\$\{EMISSIONS_EPOCH_MS:-86400000\}/;
 const TICK_MS = /EMISSIONS_TICK_MS:\s*\$\{EMISSIONS_TICK_MS:-\}/;
 
 describe('compose emissions kill and auto-tick for svc-token', () => {
@@ -40,6 +42,10 @@ describe('compose emissions kill and auto-tick for svc-token', () => {
     expect(envTs).toMatch(/EMISSIONS_ENABLED:\s*z/);
     expect(envTs).toMatch(/EMISSIONS_AUTO_TICK:\s*z/);
     expect(envTs).toMatch(/EMISSIONS_TICK_MS:\s*z/);
+    expect(envTs).toMatch(/EMISSIONS_EPOCH_MS:/);
+    // Owner-present 1 day (Nitro, 2026-10-14) is the ONLY emission magnitude defaulted here.
+    const epochFrom = envTs.indexOf('EMISSIONS_EPOCH_MS:');
+    expect(envTs.slice(epochFrom, envTs.indexOf('EMISSIONS_TICK_MS:', epochFrom))).toMatch(/\.default\(\s*86_400_000\s*\)/);
     expect(envTs).toMatch(/YIELD_JOB_ENABLED:\s*z/);
     expect(envTs).toMatch(/BUYBACK_JOB_ENABLED:\s*z/);
     const autoSlice = envTs.slice(envTs.indexOf('EMISSIONS_AUTO_TICK:'));
@@ -61,6 +67,8 @@ describe('compose emissions kill and auto-tick for svc-token', () => {
     expect(block).toMatch(ENABLED);
     expect(block).toMatch(AUTO_TICK);
     expect(block).toMatch(TICK_MS);
+    expect(block).toMatch(EPOCH_MS);
+    expect(block.match(/^\s+EMISSIONS_EPOCH_MS:\s*\$\{EMISSIONS_EPOCH_MS:-86400000\}\s*$/gm)).toHaveLength(1);
     expect(block.match(/^\s+EMISSIONS_ENABLED:\s*\$\{EMISSIONS_ENABLED:-true\}\s*$/gm)).toHaveLength(1);
     expect(block.match(/^\s+EMISSIONS_AUTO_TICK:\s*\$\{EMISSIONS_AUTO_TICK:-false\}\s*$/gm)).toHaveLength(1);
     expect(block.match(/^\s+EMISSIONS_TICK_MS:\s*\$\{EMISSIONS_TICK_MS:-\}\s*$/gm)).toHaveLength(1);
