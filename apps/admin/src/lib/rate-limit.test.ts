@@ -17,7 +17,8 @@ describe('rate limiter', () => {
     const limiter = createRateLimiter({ limit: 10, windowMs: 15 * 60_000 });
     const started = performance.now();
     for (let i = 0; i < 100_000; i += 1) limiter.hit('flood', 1_000 + i);
-    expect(performance.now() - started).toBeLessThan(500);
+    // Generous: the old list-per-client version took minutes for this; the bound only has to catch that, not time a busy Mac.
+    expect(performance.now() - started).toBeLessThan(5_000);
     expect(limiter.size()).toBe(1);
     expect(limiter.hit('flood', 2_000)).toBe(false);
   });
@@ -26,9 +27,18 @@ describe('rate limiter', () => {
     const limiter = createRateLimiter({ limit: 1, windowMs: 1_000_000, maxKeys: 100 });
     for (let i = 0; i < 100; i += 1) limiter.hit(`k${i}`, 0);
     expect(limiter.hit('founder', 1)).toBe(true);
-    expect(limiter.size()).toBe(100);
-    expect(limiter.hit('k0', 2)).toBe(true); // the oldest was forgotten
+    expect(limiter.size()).toBe(91); // the oldest tenth went in one pass
+    expect(limiter.hit('k0', 2)).toBe(true); // the oldest tenth was forgotten
     expect(limiter.hit('k50', 2)).toBe(false); // the rest are still counted
+    expect(limiter.size()).toBeLessThanOrEqual(100);
+  });
+
+  it('keeps the table bounded under a flood of new clients, and never refuses one', () => {
+    const limiter = createRateLimiter({ limit: 10, windowMs: 15 * 60_000 });
+    let refused = 0;
+    for (let i = 0; i < 80_000; i += 1) if (!limiter.hit(`c${i}`, 1_000)) refused += 1;
+    expect(refused).toBe(0);
+    expect(limiter.size()).toBeLessThanOrEqual(10_000);
   });
 });
 
@@ -54,6 +64,8 @@ describe('client key', () => {
     expect(key('2001:db8::1')).toBe('v6:2001:db8:0:0');
     expect(key('2001:0db8:0001:0002::9')).toBe('v6:2001:db8:1:2');
     expect(key('::1')).toBe('v6:0:0:0:0');
+    expect(key('::ffff:203.0.113.9')).toBe('203.0.113.9');
+    expect(key('fe80::1%en0')).toBe('v6:fe80:0:0:0');
   });
 
   it('answers 429 admin.rate_limited with a Retry-After', async () => {

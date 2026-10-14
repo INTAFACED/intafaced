@@ -41,7 +41,7 @@ export function createRateLimiter({
   windowMs: number;
   maxKeys?: number;
 }): RateLimiter {
-  const windows = new Map<string, { count: number; resetAt: number }>();
+  let windows = new Map<string, { count: number; resetAt: number }>();
   const live = (key: string, now: number) => {
     const entry = windows.get(key);
     if (entry && entry.resetAt > now) return entry;
@@ -57,8 +57,10 @@ export function createRateLimiter({
         return true;
       }
       if (windows.size >= maxKeys) {
-        const oldest = windows.keys().next().value;
-        if (oldest !== undefined) windows.delete(oldest);
+        // Rebuild once into a fresh Map: expired clients go, then the oldest tenth of the live ones. A fresh Map carries none of
+        // the deleted slots V8 keeps at the front of a Map after deletes, so the next ~1,000 newcomers cost nothing extra.
+        const kept = [...windows].filter(([, entry]) => entry.resetAt > now);
+        windows = new Map(kept.slice(Math.max(0, kept.length - Math.floor(maxKeys * 0.9))));
       }
       windows.set(key, { count: 1, resetAt: now + windowMs });
       return limit >= 1;
@@ -82,7 +84,9 @@ export function createRateLimiter({
  */
 export function clientKey(request: Request, env: Record<string, string | undefined> = process.env): string | null {
   if (env.ADMIN_TRUST_PROXY !== '1') return null;
-  const first = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim().toLowerCase() ?? '';
+  const raw = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim().toLowerCase() ?? '';
+  // An IPv4 peer written as IPv6 (`::ffff:1.2.3.4`) is that IPv4 client; a zone suffix (`%en0`) is not part of the address.
+  const first = raw.replace(/%.*$/, '').replace(/^::ffff:(?=\d{1,3}(\.\d{1,3}){3}$)/, '');
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(first)) return first;
   if (!/^[0-9a-f:]{2,39}$/.test(first) || !first.includes(':')) return null;
   return `v6:${ipv6Prefix64(first)}`;
