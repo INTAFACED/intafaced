@@ -59,7 +59,7 @@ describe('the deployed svc-ledger entrypoint wires /metrics', () => {
   it('calls registerMetrics(app, { service: env.SERVICE_NAME }) before listen', () => {
     const src = indexSource();
     const live = liveLines(src);
-    const call = live.find((l) => /registerMetrics\(\s*app\s*,\s*\{\s*service:\s*env\.SERVICE_NAME\s*\}\s*\)/.test(l.line));
+    const call = live.find((l) => /registerMetrics\(\s*app\s*,\s*\{\s*service:\s*env\.SERVICE_NAME\s*(?:,\s*gauges:[^}]*)?\}\s*\)/.test(l.line));
     expect(call, 'index.ts must call registerMetrics(app, { service: env.SERVICE_NAME }) on a live line').toBeDefined();
 
     const listen = live.find((l) => /app\.listen\s*\(/.test(l.line));
