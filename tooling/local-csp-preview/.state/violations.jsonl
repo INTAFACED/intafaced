@@ -1,0 +1,4 @@
+{"at":"2026-10-14T01:27:36.898Z","directive":"script-src","blocked":"wasm-eval","document":"http://localhost:18080/__csp-preview/","source":"chrome-extension","line":1,"disposition":"report","sample":""}
+{"at":"2026-10-14T01:49:16.428Z","directive":"script-src","blocked":"wasm-eval","document":"http://localhost:18080/__csp-preview/","source":"chrome-extension","line":1,"disposition":"report","sample":""}
+{"at":"2026-10-14T01:49:21.599Z","directive":"font-src","blocked":"data","document":"http://localhost:18080/login","source":"http://localhost:18080/login","line":13,"disposition":"report","sample":""}
+{"at":"2026-10-14T01:49:21.802Z","directive":"script-src","blocked":"wasm-eval","document":"http://localhost:18080/login","source":"chrome-extension","line":1,"disposition":"report","sample":""}
