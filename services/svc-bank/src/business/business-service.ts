@@ -573,13 +573,15 @@ export class BusinessService {
             }
             throw error;
           });
-        // Empty entries: this client did not return the book. That is not a
-        // different instruction, and it is not a reason to invent a recipient.
-        const agreed = await this.payrollEntriesAgree(posted, fromAcct, resolved);
-        if (agreed === false) {
+        // A receipt with no entries did not show the book. Read it back by id.
+        // If it is still empty, do not record a run and do not store this tx id:
+        // a hidden body can be a different payroll under the same key.
+        const shown = await this.withEntries(posted);
+        const agreed = await this.payrollEntriesAgree(shown, fromAcct, resolved);
+        if (agreed !== true) {
           throw new BankError(`Payroll ${input.payrollId} already exists on different terms`, 'bank.business_request_conflict');
         }
-        if (existing && existing.ledgerTxId !== posted.id) {
+        if (existing && existing.ledgerTxId !== shown.id) {
           throw new BankError(`Payroll ${input.payrollId} already exists on different terms`, 'bank.business_request_conflict');
         }
         // Equal stored and requested counts are the same instruction only when
@@ -910,11 +912,20 @@ export class BusinessService {
     } catch (error) {
       // A lost acknowledgement is not proof of a missing post. A failed lookup
       // or transport error leaves approved/null recoverable on this same key.
-      const committed = await this.ledger.getTxByKey(request.idempotencyKey);
+      let committed: LedgerTx | null;
+      try {
+        committed = await this.ledger.getTxByKey(request.idempotencyKey);
+      } catch (lookupError) {
+        throw lookupError;
+      }
       if (committed) {
         settled = committed;
+      } else if (error instanceof LedgerError && error.code !== 'ledger.insufficient_funds') {
+        throw error;
       } else {
-        if (!(error instanceof LedgerError) || error.code !== 'ledger.insufficient_funds') throw error;
+        // The settle left no receipt: insufficient funds, or a throw before any
+        // post. Reject first so a release that itself throws cannot leave the
+        // row approved. The caller hears that release, not the settle error.
         const rejected = await this.sql<Array<{ id: string }>>`
           UPDATE bank.business_approvals
              SET status = 'rejected', rejection_code = ${'bank.business_settle_unposted'}, decided_at = now()

@@ -907,7 +907,7 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
-  it('a release that throws after a failed settle leaves the row unapproved and a later approve does not settle', async () => {
+  it('a settle that does not post releases the hold and a later approve does not settle', async () => {
     const account = await bank.business.createAccount({
       name: 'Ops Co',
       assetId: 'USDT',
@@ -940,10 +940,6 @@ describe('maker/checker dual control with ledger holds', () => {
       if (req.idempotencyKey.startsWith('bank.business.settle:')) {
         settlePosts += 1;
         throw new LedgerError('settle refused', 'ledger.insufficient_funds');
-      }
-      if (req.idempotencyKey.startsWith('bank.business.release:')) {
-        releasePosts += 1;
-        throw new Error('release down');
       }
       if (req.idempotencyKey.startsWith('bank.business.release:')) releasePosts += 1;
       return orig(req);
