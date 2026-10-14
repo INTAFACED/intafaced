@@ -61,7 +61,7 @@ function fakeIdentity() {
       seen.push({ url: req.url ?? '', headers: req.headers, body: text });
       let out: { status: number; body: unknown };
       if (state.down) out = { status: 503, body: { error: 'down' } };
-      else if (req.url?.startsWith('/trpc/auth.login')) out = ok(session(newToken()));
+      else if (req.url?.startsWith('/trpc/auth.login') || req.url?.startsWith('/trpc/webauthn.authVerify')) out = ok(session(newToken()));
       else if (req.url?.startsWith('/trpc/auth.refresh')) {
         const { refreshToken } = JSON.parse(text) as { refreshToken: string };
         if (retired.has(refreshToken)) {
@@ -230,6 +230,15 @@ describe('sign-in through the edge, cookie transport', () => {
     const other: Record<string, string> = {};
     jar.attachTo(`${base}/api/trade/trpc/orders.list`, other);
     expect(other.cookie).toBeUndefined();
+  });
+
+  it('passkey sign-in (webauthn.authVerify) uses the same transport', async () => {
+    const jar = new Jar();
+    const r = await call('/api/identity/trpc/webauthn.authVerify', { headers: withCookie, body: {}, jar });
+    expect(r.status).toBe(200);
+    expect(r.json.result.data.refreshToken).toBeUndefined();
+    expect(jar.token).not.toBeNull();
+    expect((await call(REFRESH, { headers: asApp, jar })).status).toBe(200);
   });
 
   it('without the opt-in header every other caller still gets the refresh token in the body', async () => {

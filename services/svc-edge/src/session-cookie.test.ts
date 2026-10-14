@@ -57,7 +57,7 @@ describe('planning', () => {
     expect(plan('/trpc/auth.login', {}).kind).toBe('none');
     expect(plan('/trpc/auth.login', { 'x-session-transport': 'cookie' }).kind).toBe('mint');
     expect(plan('/trpc/auth.register', { 'x-session-transport': 'cookie' }).kind).toBe('mint');
-    expect(plan('/trpc/auth.authVerify', { 'x-session-transport': 'cookie' }).kind).toBe('mint');
+    expect(plan('/trpc/webauthn.authVerify', { 'x-session-transport': 'cookie' }).kind).toBe('mint');
     expect(plan('/trpc/auth.changePassword', { 'x-session-transport': 'cookie' }).kind).toBe('none');
   });
 

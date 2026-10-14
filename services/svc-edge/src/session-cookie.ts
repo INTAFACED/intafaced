@@ -45,7 +45,7 @@ export const TRANSPORT_HEADER = 'x-session-transport';
 export const SESSION_REQUEST_HEADER = 'x-session-request';
 
 /** tRPC procedures whose answer carries a session (`sessionOutput` in svc-identity's router). */
-const MINT_PATHS: ReadonlySet<string> = new Set(['/trpc/auth.login', '/trpc/auth.register', '/trpc/auth.authVerify']);
+const MINT_PATHS: ReadonlySet<string> = new Set(['/trpc/auth.login', '/trpc/auth.register', '/trpc/webauthn.authVerify']);
 
 /** Opaque token the identity service generates (base64url). Anything else never reaches a header. */
 const TOKEN_SHAPE = /^[A-Za-z0-9_-]{16,512}$/;
