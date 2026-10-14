@@ -6,6 +6,7 @@ import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
 import { PlaceDoor } from './auth/place-door.js';
+import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { assertProdTotpKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -107,6 +108,13 @@ await sql`SELECT 1 FROM users LIMIT 1`.catch(() => {
 await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: auth_attempts (with consecutive_failures) is missing — apply drizzle/0027_auth_attempt_lockouts.sql before starting svc-identity',
+  );
+});
+
+// Same for 0028: registerFounder would otherwise fail on the first invite, not at boot.
+await sql`SELECT hash FROM founder_invites_used LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: founder_invites_used is missing — apply drizzle/0028_founder_invites_used.sql before starting svc-identity',
   );
 });
 
@@ -212,6 +220,7 @@ installLimitFeeTierDualControl(rank, sql, actionApprovals);
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
     referral,
     share,
