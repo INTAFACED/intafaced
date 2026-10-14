@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { MODULE_ROUTES, type ModuleId } from '@/lib/modules';
+import { MODULE_ROUTES, navNeeded, type ModuleId } from '@/lib/modules';
 
 /**
  * `modules` is the server-resolved list of enabled module ids (ADMIN_MODULES);
@@ -21,6 +21,8 @@ export function Nav({ modules }: { modules?: readonly ModuleId[] }) {
       </Link>
     );
   });
+  // With a single module enabled there is nowhere to go, so the bar (and the phone's "Menu · CRM") stays out of the way.
+  if (!navNeeded(ROUTES.length)) return null;
   const current = ROUTES.find((route) => (route.href === '/' ? pathname === '/' : pathname.startsWith(route.href)))?.label ?? 'Console';
   return (
     <>

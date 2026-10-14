@@ -302,7 +302,7 @@ test('Holding detail labels fallback availability without inventing a total or h
   await expect(page.getByText('Available projection only', { exact: true })).toBeVisible();
   await expect(page.locator('.money-holding-quantity')).toHaveText('0.200000000000000001 BTC');
   await expect(page.locator('.money-holding-restrictions .numeric')).toHaveText(['0.200000000000000001 BTC', 'Unavailable']);
-  await expect(page.getByRole('heading', { name: 'Connection unavailable' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Can’t connect right now' })).toBeVisible();
 });
 
 test('An absent holding is not zero and retains its asset-specific task destinations', async ({ page }) => {

@@ -311,6 +311,16 @@ export type BankErrorCode =
   | 'bank.withdraw_destination_missing'
   /** Dest user has no primary space — refuse before ledger-client posts. */
   | 'bank.dest_user_missing'
+  /**
+   * The recipient cannot be credited. Identity says they are frozen, closed, or
+   * unknown, and bank says only that — one code, one message, no state named, so
+   * it matches identity's uniform `{ found: false }`. Refused before any posting.
+   */
+  | 'bank.recipient_cannot_receive'
+  /** Identity could not answer the recipient check (outage, timeout, bad reply). Nothing posted; retry with the same id. */
+  | 'bank.recipient_check_unavailable'
+  /** No IDENTITY_URL: this deployment cannot check recipients, so it refuses to credit another user. A deployment gap, not an outage. */
+  | 'bank.recipient_check_unset'
   /** Same (rail, railRef), (user, clientRef), or offramp id already booked with different facts. */
   | 'bank.ramp_conflict'
   /**

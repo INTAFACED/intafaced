@@ -12,7 +12,8 @@ import {
   isProductionPosture,
   loadEnv,
   productionPostureIssues,
-  productionPostureWarnings,
+  productionPostureS2sIssues,
+  S2S_BODY_BIND_REFUSE_CODE,
 } from './index.js';
 
 type Env = Record<string, string | undefined>;
@@ -22,6 +23,7 @@ const REAL = 'q8Vx2mZr7LpT4nBw9KcYh3JdFgA6sUeO1iRtXvNzMoE';
 const realProd = (extra: Env = {}): Env => ({
   APP_ENV: 'prod',
   INTERNAL_SERVICE_SECRET: REAL,
+  INTERNAL_SERVICE_BODY_BIND: 'require',
   DATABASE_URL: cred('postgres', 'svc', 'Zr7LpT4nBw9K', 'db.internal:5432/app'),
   ...extra,
 });
@@ -182,27 +184,92 @@ describe('productionPostureIssues', () => {
     expect(productionPostureIssues(realProd({ TEST_FLAG: 'dev-only-x' })).length).toBe(1);
   });
 
-  it('warns (does not refuse) when S2S body binding is not "require" where the shared secret is held', () => {
+  it('does not count S2S body binding as development material (it has its own check)', () => {
     expect(productionPostureIssues(realProd({ INTERNAL_SERVICE_BODY_BIND: undefined }))).toEqual([]);
-    expect(productionPostureWarnings(realProd({ INTERNAL_SERVICE_BODY_BIND: undefined })).length).toBe(1);
-    expect(productionPostureWarnings(realProd({ INTERNAL_SERVICE_BODY_BIND: 'accept-both' })).length).toBe(1);
-    expect(productionPostureWarnings(realProd({ INTERNAL_SERVICE_BODY_BIND: 'require' }))).toEqual([]);
-    // A process with no shared secret does not speak S2S, and dev stays on the migration default.
-    expect(productionPostureWarnings({ APP_ENV: 'prod' })).toEqual([]);
-    expect(productionPostureWarnings({ APP_ENV: 'dev', INTERNAL_SERVICE_SECRET: REAL })).toEqual([]);
+    expect(productionPostureIssues(realProd({ INTERNAL_SERVICE_BODY_BIND: 'accept-both' }))).toEqual([]);
   });
 
-  it('loadEnv logs that warning once and still boots', () => {
-    const logged: string[] = [];
-    const spy = vi.spyOn(console, 'warn').mockImplementation((line: string) => void logged.push(line));
+  it('boots a production-posture process that says INTERNAL_SERVICE_BODY_BIND=require', () => {
+    expect(productionPostureS2sIssues(realProd())).toEqual([]);
+    expect(() => assertProductionPosture(realProd())).not.toThrow();
+    expect(loadEnv(baseEnvSchema, { ...realProd(), SERVICE_NAME: 'svc-x' }).APP_ENV).toBe('prod');
+  });
+
+  describe('refuses a production-posture process that holds the service secret without require', () => {
+    it.each([
+      ['unset', undefined],
+      ['accept-both (the migration setting)', 'accept-both'],
+      ['empty', ''],
+      ['a typo', 'requre'],
+      ['a different case', 'Require'],
+      ['padded with whitespace', ' require '],
+      ['the unrelated word "required"', 'required'],
+    ] as const)('%s', (_label, value) => {
+      const env = realProd({ INTERNAL_SERVICE_BODY_BIND: value });
+      expect(productionPostureS2sIssues(env)).toHaveLength(1);
+      try {
+        assertProductionPosture(env);
+        expect.unreachable();
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProductionPostureError);
+        expect((e as ProductionPostureError).code).toBe(S2S_BODY_BIND_REFUSE_CODE);
+        expect((e as ProductionPostureError).issues).toHaveLength(1);
+        const message = (e as ProductionPostureError).message;
+        expect(message).toContain('config.s2s_body_bind_not_required');
+        expect(message).toContain('INTERNAL_SERVICE_BODY_BIND=require');
+        expect(message).toContain('Refusing to start');
+        expect(message).not.toContain(REAL);
+      }
+      expect(() => loadEnv(baseEnvSchema, { ...env, SERVICE_NAME: 'svc-x' })).toThrow(ProductionPostureError);
+    });
+
+    it('in staging, in an unset-APP_ENV production container, and under a typo like "production"', () => {
+      for (const extra of [{ APP_ENV: 'staging' }, { APP_ENV: undefined, NODE_ENV: 'production' }, { APP_ENV: 'production' }]) {
+        expect(
+          productionPostureS2sIssues(realProd({ INTERNAL_SERVICE_BODY_BIND: undefined, ...extra })),
+          JSON.stringify(extra),
+        ).toHaveLength(1);
+      }
+    });
+
+    it('lists every problem in one error: development material first, the S2S line riding along', () => {
+      try {
+        assertProductionPosture(realProd({ JWT_ACCESS_SECRET: 'dev-only-a', INTERNAL_SERVICE_BODY_BIND: 'accept-both' }));
+        expect.unreachable();
+      } catch (e) {
+        expect((e as ProductionPostureError).code).toBe(PRODUCTION_POSTURE_REFUSE_CODE);
+        expect((e as ProductionPostureError).issues).toHaveLength(2);
+        expect((e as ProductionPostureError).message).toContain('JWT_ACCESS_SECRET');
+        expect((e as ProductionPostureError).message).toContain('INTERNAL_SERVICE_BODY_BIND');
+      }
+    });
+  });
+
+  it('does not touch a process with no service secret, or any non-production posture', () => {
+    // A process with no shared secret does not speak S2S (svc-edge, svc-notify and apps/admin hold none).
+    expect(productionPostureS2sIssues({ APP_ENV: 'prod' })).toEqual([]);
+    expect(productionPostureS2sIssues({ APP_ENV: 'prod', INTERNAL_SERVICE_SECRET: '   ' })).toEqual([]);
+    expect(() => assertProductionPosture({ APP_ENV: 'prod' })).not.toThrow();
+    expect(() => loadEnv(baseEnvSchema, { APP_ENV: 'prod', SERVICE_NAME: 'svc-x' })).not.toThrow();
+    // Dev and test stay on the migration default, whatever the value.
+    for (const value of [undefined, 'accept-both', 'garbage']) {
+      expect(productionPostureS2sIssues({ APP_ENV: 'dev', INTERNAL_SERVICE_SECRET: REAL, INTERNAL_SERVICE_BODY_BIND: value })).toEqual([]);
+      expect(productionPostureS2sIssues({ APP_ENV: 'test', INTERNAL_SERVICE_SECRET: REAL, INTERNAL_SERVICE_BODY_BIND: value })).toEqual([]);
+      expect(productionPostureS2sIssues({ INTERNAL_SERVICE_SECRET: REAL, INTERNAL_SERVICE_BODY_BIND: value })).toEqual([]);
+    }
+  });
+
+  it('no longer logs a posture warning: the old soft path is gone', () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
-      loadEnv(baseEnvSchema, { APP_ENV: 'prod', SERVICE_NAME: 'svc-x', INTERNAL_SERVICE_SECRET: REAL });
+      expect(() => loadEnv(baseEnvSchema, { APP_ENV: 'prod', SERVICE_NAME: 'svc-x', INTERNAL_SERVICE_SECRET: REAL })).toThrow(
+        ProductionPostureError,
+      );
+      loadEnv(baseEnvSchema, { ...realProd(), SERVICE_NAME: 'svc-x' });
+      expect(spy).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();
     }
-    expect(logged).toHaveLength(1);
-    expect(JSON.parse(logged[0]!)).toMatchObject({ event: 'config.production_posture_warning', service: 'svc-x' });
-    expect(logged[0]).not.toContain(REAL);
   });
 
   it('keeps the published-password list in step with the init SQL that creates the roles', () => {

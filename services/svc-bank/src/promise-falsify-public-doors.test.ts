@@ -200,7 +200,7 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
       trpcOptions: {
         router,
         createContext: ({ req }) => {
-          const ctx = edgeContext({ headers: req.headers, id: req.id });
+          const ctx = edgeContext(req);
           const rawBody = typeof req.body === 'string' ? { retained: true as const, bytes: Buffer.from(req.body, 'utf8') } : rawBodyOf(req);
           const { service } = verifyServiceHeaders(req.headers, SECRET, {
             rawBody,

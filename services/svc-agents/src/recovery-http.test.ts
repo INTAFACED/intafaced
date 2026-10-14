@@ -50,7 +50,7 @@ async function mount() {
     prefix: '/trpc',
     trpcOptions: {
       router: createAgentsRouter(deps),
-      createContext: ({ req }: { req: FastifyRequest }) => edge({ headers: req.headers, id: req.id }),
+      createContext: ({ req }: { req: FastifyRequest }) => edge(req),
     },
   });
   return { app, downstream };

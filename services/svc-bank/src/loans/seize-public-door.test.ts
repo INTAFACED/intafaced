@@ -128,7 +128,7 @@ async function mountDoors(bank: ReturnType<typeof createBankServices>): Promise<
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<BankRouter>['trpcOptions'],
   });
   await app.ready();
