@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../../features/session/session';
 import { useResource } from '../../shared/resource';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
-import { identitySessionCopy as copy } from './identity-session-copy';
 import {
   finishRevoke,
   readRevoke,
@@ -14,18 +12,23 @@ import {
   type IdentitySeat,
   type RevokeMarker,
   type StoredRevoke,
-} from './identity-session-guards';
-import { stamp } from '../../screens/money/time';
-import { usePreferences } from '../../shared/preferences';
-import './identity-session.css';
-export type { PrivateSessionSource } from './identity-session-guards';
-type Review = { owner: string; seat: IdentitySeat; limit: number; client: ApiClient };
-type Response = { original: Review; marker?: RevokeMarker; answer: ApiResult<{ userId: string; sessionId: string; revoked: boolean }> };
-type Problem = 'changed' | 'seatChanged' | 'storage' | 'another' | 'locks';
-export function IdentitySessions() {
+} from '../../features/account/identity-session-guards';
+
+/*
+ * The session list and sign-out-one-session logic of the old IdentitySessions view, moved here unchanged: the note kept on this
+ * device while a sign-out is in flight, the Web Lock, and the fresh re-read that proves the session is still the one reviewed.
+ * Only the markup moved out (SessionsCard.tsx).
+ */
+export type Review = { owner: string; seat: IdentitySeat; limit: number; client: ApiClient };
+export type Response = {
+  original: Review;
+  marker?: RevokeMarker;
+  answer: ApiResult<{ userId: string; sessionId: string; revoked: boolean }>;
+};
+export type Problem = 'changed' | 'seatChanged' | 'storage' | 'another' | 'locks';
+
+export function useSessions() {
   const { api, userId } = useSession();
-  const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
-  const { timeZone } = usePreferences();
   const [limit, setLimit] = useState(50);
   const { resource, reload } = useResource(
     (signal) =>
@@ -174,153 +177,29 @@ export function IdentitySessions() {
       if (mounted.current) setBusy(false);
     }
   }
-  function references(owner: string, seatId: string) {
-    return (
-      <dl className="identity-sessions__context">
-        <div>
-          <dt>
-            <Copy k="owner" />
-          </dt>
-          <dd lang="zxx">{owner}</dd>
-        </div>
-        <div>
-          <dt>
-            <Copy k="original" />
-          </dt>
-          <dd lang="zxx">{seatId}</dd>
-        </div>
-      </dl>
-    );
-  }
   const result = response?.original.owner === userId ? response : null;
   const knownGuard =
     result && result.marker?.requestId === journal.marker?.requestId && (result.answer.ok || result.answer.reason !== 'uncertain');
-  return (
-    <section className="stack identity-sessions" aria-label={t('title')} lang={languageFor('title')}>
-      <h3>
-        <Copy k="title" />
-      </h3>
-      <p className="muted">
-        <Copy k="scope" />
-      </p>
-      {journal.marker && (
-        <section className="stack identity-sessions__unknown" aria-label={t(knownGuard ? 'guardRetained' : 'unknown')}>
-          <h3>
-            <Copy k={busy ? 'sending' : knownGuard ? 'guardRetained' : 'unknown'} />
-          </h3>
-          <p>
-            <Copy k={knownGuard ? 'guardBody' : 'unknownBody'} />
-          </p>
-          {references(journal.marker.owner, journal.marker.seat.id)}
-          <p className="muted">
-            <Copy k="lookup" />
-          </p>
-          <a className="text-link identity-sessions__support" href="/support">
-            <Copy k="support" />
-          </a>
-        </section>
-      )}
-      {(problem || journal.failed) && (
-        <p role="status" className="notice">
-          <Copy k={journal.failed ? 'storage' : problem!} />
-        </p>
-      )}
-      {resource.status === 'loading' ? (
-        <Loading />
-      ) : resource.status === 'failed' ? (
-        <div lang="und">
-          <Failure result={resource.failure} retry={reload} />
-        </div>
-      ) : !resource.data || resource.data.sessions.length === 0 ? (
-        <EmptyState title={<Copy k="empty" />}>
-          <Copy k="emptyBody" />
-        </EmptyState>
-      ) : (
-        <ul className="identity-sessions__rows" aria-label={t('table')}>
-          {resource.data.sessions.map((seat) => (
-            <li className="identity-sessions__row" key={seat.id}>
-              <div>
-                <time dateTime={seat.createdAt} lang={requestedLocale}>
-                  {t('createdLabel', { time: stamp(seat.createdAt, timeZone) })}
-                </time>
-                <span className="identity-sessions__ref" lang="zxx">
-                  {seat.id}
-                </span>
-              </div>
-              <Button variant="secondary" disabled={blocked} aria-label={t('reviewSeat', { id: seat.id })} onClick={() => open(seat)}>
-                <Copy k="reviewAction" />
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="muted">
-        <Copy k="window" params={{ limit }} />
-      </p>
-      {journal.marker && (
-        <p className="muted">
-          <Copy k="readOnly" />
-        </p>
-      )}
-      <div className="actions">
-        <Button variant="secondary" disabled={busy} onClick={reload}>
-          <Copy k="refresh" />
-        </Button>
-        {limit < 200 ? (
-          <Button variant="ghost" disabled={busy} onClick={() => setLimit((value) => Math.min(200, value + 50))}>
-            <Copy k="more" />
-          </Button>
-        ) : (
-          <p className="muted">
-            <Copy k="maximumBoundary" />
-          </p>
-        )}
-      </div>
-      {result &&
-        (result.answer.ok ? (
-          <section className="stack notice" aria-label={t('receipt')}>
-            <h3>
-              <Copy k="receipt" />
-            </h3>
-            <p role="status">
-              <Copy k={result.answer.data.revoked ? 'revoked' : 'unchanged'} />
-            </p>
-            {references(result.original.owner, result.original.seat.id)}
-            {!result.answer.data.revoked && (
-              <p>
-                <Copy k="falseBoundary" />
-              </p>
-            )}
-          </section>
-        ) : (
-          <div lang="und">
-            <Failure result={result.answer} />
-          </div>
-        ))}
-      {review && review.owner === userId && (
-        <Dialog
-          title={<Copy k="review" />}
-          onClose={() => {
-            if (!busy) {
-              originalReview.current = null;
-              setReview(null);
-            }
-          }}
-        >
-          <div className="stack">
-            <p>
-              <Copy k="reviewBody" />
-            </p>
-            <p className="muted">
-              <Copy k="scope" />
-            </p>
-            {references(review.owner, review.seat.id)}
-            <Button variant="danger" disabled={blocked} onClick={() => void revoke()}>
-              <Copy k="confirm" />
-            </Button>
-          </div>
-        </Dialog>
-      )}
-    </section>
-  );
+  return {
+    userId,
+    limit,
+    setLimit,
+    resource,
+    reload,
+    review,
+    busy,
+    journal,
+    blocked,
+    problem,
+    result,
+    knownGuard,
+    open,
+    revoke,
+    cancelReview: () => {
+      if (!busy) {
+        originalReview.current = null;
+        setReview(null);
+      }
+    },
+  };
 }

@@ -2,8 +2,6 @@ import { copy, t as copyText, Text } from './copy';
 import { EmptyState, Failure, Page } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { View } from './View';
-import { Verification } from './Verification';
-import { Security } from './Security';
 import { Account } from './Account';
 import { Notifications } from './Notifications';
 import { Promotions } from './Promotions';
@@ -20,8 +18,6 @@ export function AccountRoutes({ path }: { path: string }) {
 function AccountRooms({ path }: { path: string }) {
   const clean = path.split('?')[0];
   if (clean === '/view') return <View />;
-  if (clean === '/uc/safe') return <Security />;
-  if (clean === '/verification') return <Verification />;
   if (clean === '/notifications') return <Notifications />;
   if (clean === '/identbusiness')
     return (

@@ -1,0 +1,176 @@
+/*
+ * Security (UI-SPEC 5.13). Only --if-* tokens: no colour values live here. Whole file in `@layer components`.
+ * The cards, rows, fields and notes come from screens/settings-kit.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .sec {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .sec * {
+    box-sizing: border-box;
+  }
+  .sec-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .sec-h1 {
+    margin: 0;
+    font: 700 28px/36px var(--if-font-ui);
+    letter-spacing: -0.02em;
+    color: var(--if-fg);
+  }
+  .sec :focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+
+  /* The session list scrolls inside its card (an account used by agents can have dozens) */
+  .sec-fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .sec-scroll {
+    position: relative;
+    max-height: 360px;
+    overflow-y: auto;
+    border-block: 1px solid var(--if-line);
+    padding-inline: 0;
+  }
+  .sec-scroll .sk-row {
+    min-height: 64px;
+    padding-block: 12px;
+  }
+  .sec-scroll .sk-rows > li:first-child > .sk-row {
+    padding-top: 12px;
+  }
+  .sec-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .sec-everywhere {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--if-line);
+  }
+
+  /* Passkeys listed under their row */
+  .sec-subrows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .sec-subrow {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-height: 32px;
+  }
+  .sec-soon {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-3);
+  }
+  .sec-textbtn {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--if-fg);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+
+  /* Authenticator setup, opened under the sign-in rows */
+  .sec-setup {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px;
+    border: 1px solid var(--if-line-strong);
+    border-radius: var(--if-r-md);
+    background: var(--if-field);
+  }
+  .sec-setup h3:focus {
+    outline: none;
+  }
+  .sec-live:empty {
+    display: none;
+  }
+  .sec-live {
+    margin: 0;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .sec-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding-left: 20px;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .sec-key {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .sec-code {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .sec-code .sk-field {
+    flex: 1 1 200px;
+  }
+  .sec-codes summary {
+    cursor: pointer;
+    margin-bottom: 8px;
+  }
+  .sec-codelist {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 16px;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+    font: 400 14px/20px var(--if-font-mono);
+    color: var(--if-fg);
+  }
+
+  .sec-keys {
+    min-width: 0;
+  }
+  @media (max-width: 639px) {
+    .sec-everywhere {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .sec-codelist {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}

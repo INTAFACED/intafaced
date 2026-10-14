@@ -1,13 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../../features/session/session';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Dialog, Failure, Field, Loading, Page } from '../../shared/ui';
-import { IdentitySessions } from './IdentitySessions';
-import { ApiKeyRecords } from './ApiKeyRecords';
-import { securityCopy as copy } from './security-copy';
 import {
   credentialId,
   familyBlocked,
@@ -25,16 +21,19 @@ import {
   type SecurityJournal,
   type SecurityKind,
   type SecurityRecord,
-} from './security-guards';
-import { nativeRegistration, registrationFor, registrationPayload } from './security-webauthn';
-import { stamp } from '../../screens/money/time';
-import { usePreferences } from '../../shared/preferences';
-import './security.css';
+} from '../../features/account/security-guards';
+import { nativeRegistration, registrationFor, registrationPayload } from '../../features/account/security-webauthn';
 
-type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
-type Original = { owner: string; client: ApiClient; kind: SecurityKind; credential?: Passkey; limit: number; requestId: string };
-type Setup = { original: Original; record: SecurityRecord; data: z.infer<typeof setupResponse>; confirmed: boolean };
-type Response = {
+/*
+ * The passkey, authenticator and sign-out-everywhere logic of the old Security view, moved here unchanged so the screen can be
+ * redrawn without touching it: the note kept on this device for every sent action, the Web Lock that stops a second tab,
+ * the exact-actor checks around every await, and "an unqualified failure stays unknown". Only the markup moved out (index.tsx).
+ */
+export type Problem =
+  'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
+export type Original = { owner: string; client: ApiClient; kind: SecurityKind; credential?: Passkey; limit: number; requestId: string };
+export type Setup = { original: Original; record: SecurityRecord; data: z.infer<typeof setupResponse>; confirmed: boolean };
+export type Response = {
   original: Original;
   record?: SecurityRecord;
   answer: ApiResult<unknown>;
@@ -44,10 +43,8 @@ type Response = {
 };
 const emptyJournal: SecurityJournal = { records: [], failed: false };
 
-export function Security() {
+export function useSecurityFlows() {
   const { api, userId, clear } = useSession();
-  const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
-  const { timeZone } = usePreferences();
   const [limit, setLimit] = useState(50),
     [busy, setBusy] = useState(false),
     [review, setReview] = useState<Original | null>(null);
@@ -431,356 +428,44 @@ export function Security() {
             : logoutAll(intent),
     );
   }
-  function references(owner: string, request?: string, credential?: string) {
-    return (
-      <dl className="security__context">
-        <div>
-          <dt>
-            <Copy k="owner" />
-          </dt>
-          <dd lang="zxx">{owner}</dd>
-        </div>
-        {credential && (
-          <div>
-            <dt>
-              <Copy k="credential" />
-            </dt>
-            <dd lang="zxx">{credential}</dd>
-          </div>
-        )}
-        {request && (
-          <div>
-            <dt>
-              <Copy k="request" />
-            </dt>
-            <dd lang="zxx">{request}</dd>
-          </div>
-        )}
-      </dl>
-    );
-  }
-  const kindLabel = (kind: SecurityKind) =>
-    kind === 'remove' ? 'removeKind' : kind === 'confirm' ? 'confirmKind' : kind === 'logout' ? 'logoutKind' : kind;
   const currentResponse = response && sameActor(response.original) ? response : null;
   const sessionBlocked = familyBlocked(journal, 'sessions');
   const uncertainty = journal.records.filter((row) => row.state === 'sent');
-  return (
-    <div lang={languageFor('title')} className="security">
-      <Page title={<Copy k="title" />} description={<Copy k="description" />}>
-        {uncertainty.map((record) => {
-          const preparation = record.kind === 'options' || record.kind === 'setup';
-          const retained = currentResponse?.guardRetained && currentResponse.record?.requestId === record.requestId;
-          const sending =
-            busy &&
-            activeStage !== null &&
-            sameActor(activeStage.intent) &&
-            activeStage.record.owner === record.owner &&
-            activeStage.record.requestId === record.requestId &&
-            activeStage.record.kind === record.kind;
-          const heading = sending ? 'sent' : retained ? 'guardRetained' : preparation ? 'preparationUnknown' : 'unknown';
-          return (
-            <section key={record.requestId} className="security__unknown stack" aria-label={t(heading)}>
-              <h2>
-                <Copy k={heading} />
-              </h2>
-              <p>
-                <Copy k={kindLabel(record.kind)} />
-              </p>
-              <p>
-                <Copy
-                  k={
-                    retained
-                      ? 'guardBody'
-                      : record.kind === 'options'
-                        ? 'optionsBoundary'
-                        : record.kind === 'setup'
-                          ? 'setupBoundary'
-                          : 'unknownBody'
-                  }
-                />
-              </p>
-              {references(record.owner, record.requestId, record.credential)}
-              {!preparation && (
-                <p className="muted">
-                  <Copy k="lookup" />
-                </p>
-              )}
-              <a href="/support" className="text-link security__support">
-                <Copy k="support" />
-              </a>
-            </section>
-          );
-        })}
-        {(problem || journal.failed) && (
-          <p className="notice" role="status">
-            <Copy k={journal.failed ? 'storage' : problem!} />
-          </p>
-        )}
-        <div className="security__layout">
-          <section className="security__passkeys security__card" aria-label={t('passkeys')}>
-            <div className="section-heading">
-              <h2>
-                <Copy k="passkeys" />
-              </h2>
-              <Button variant="secondary" disabled={blocked('options')} onClick={() => open('options')}>
-                <Copy k="add" />
-              </Button>
-            </div>
-            {resource.status === 'ready' && resource.data.length >= limit && (
-              <p className="muted">
-                <Copy k="window" params={{ limit }} />
-              </p>
-            )}
-            {resource.status === 'loading' ? (
-              <Loading />
-            ) : resource.status === 'failed' ? (
-              <div lang="und">
-                <Failure result={resource.failure} retry={reload} />
-              </div>
-            ) : resource.data.length === 0 ? (
-              <div className="security__empty">
-                <h3>
-                  <Copy k="empty" />
-                </h3>
-                <p className="muted">
-                  <Copy k="emptyBody" />
-                </p>
-              </div>
-            ) : (
-              <ul className="security__rows">
-                {resource.data.map((key) => (
-                  <li key={key.credentialId} className="security__row">
-                    <div>
-                      <time dateTime={key.createdAt} lang={requestedLocale}>
-                        {t('added', { time: stamp(key.createdAt, timeZone) })}
-                      </time>
-                      <span className="security__ref" lang="zxx">
-                        {key.credentialId}
-                      </span>
-                      {key.transports && (
-                        <span className="security__ref" lang="zxx">
-                          {key.transports.join(', ')}
-                        </span>
-                      )}
-                    </div>
-                    <Button
-                      variant="secondary"
-                      disabled={blocked('remove')}
-                      aria-label={t('reviewCredential', { id: key.credentialId })}
-                      onClick={() => open('remove', key)}
-                    >
-                      <Copy k="reviewRemoval" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="actions">
-              <Button variant="secondary" onClick={reload}>
-                <Copy k="refresh" />
-              </Button>
-              {resource.status === 'ready' && resource.data.length >= limit ? (
-                limit < 200 ? (
-                  <Button variant="ghost" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
-                    <Copy k="expand" />
-                  </Button>
-                ) : (
-                  <p className="muted">
-                    <Copy k="maximum" />
-                  </p>
-                )
-              ) : null}
-            </div>
-          </section>
-          <section className="security__authenticator security__card" aria-label={t('authenticator')}>
-            <h2>
-              <Copy k="authenticator" />
-            </h2>
-            <p>
-              <Copy k="authenticatorBody" />
-            </p>
-            <p className="security__announcement" role="status" aria-live="polite" aria-atomic="true">
-              {visibleSetup && !visibleSetup.confirmed ? <Copy k="setupReady" /> : null}
-            </p>
-            {visibleSetup ? (
-              <div className="stack">
-                <div className="security__setup-intro">
-                  <h3 className="security__setup-heading" ref={setupHeading} tabIndex={-1}>
-                    <Copy k="continue" />
-                  </h3>
-                  {!visibleSetup.confirmed && (
-                    <p className="security__setup-ready" aria-hidden="true">
-                      <Copy k="setupReady" />
-                    </p>
-                  )}
-                </div>
-                {!visibleSetup.confirmed && (
-                  <>
-                    <p>
-                      <Copy k="setupBody" />
-                    </p>
-                    <Button variant="secondary" onClick={() => setShowKey((value) => !value)}>
-                      <Copy k={showKey ? 'hideKey' : 'showKey'} />
-                    </Button>
-                    {showKey && (
-                      <div data-security-sensitive="true">
-                        <Field label={<Copy k="setupKey" />} lang="zxx" readOnly autoComplete="off" value={visibleSetup.data.secret} />
-                        <details>
-                          <summary>
-                            <Copy k="uri" />
-                          </summary>
-                          <code className="security__ref" lang="zxx">
-                            {visibleSetup.data.uri}
-                          </code>
-                        </details>
-                      </div>
-                    )}
-                    <form className="stack" onSubmit={(event) => void confirmSetup(event)}>
-                      <Field
-                        label={<Copy k="code" />}
-                        name="security-totp-confirm"
-                        inputMode="numeric"
-                        pattern="[0-9]{6}"
-                        required
-                        autoComplete="one-time-code"
-                        value={code}
-                        onChange={(event) => setCode(event.target.value)}
-                        data-security-sensitive="true"
-                      />
-                      <Button type="submit" disabled={blocked('confirm')}>
-                        <Copy k="confirm" />
-                      </Button>
-                    </form>
-                  </>
-                )}
-                {visibleSetup.confirmed && (
-                  <p className="notice" role="status">
-                    <Copy k="confirmationAccepted" />
-                  </p>
-                )}
-                <details data-security-sensitive="true">
-                  <summary>
-                    <Copy k="recoveryCodes" />
-                  </summary>
-                  <ul className="recovery-codes">
-                    {visibleSetup.data.recoveryCodes.map((value) => (
-                      <li key={value} lang="zxx">
-                        {value}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-                <Button variant="secondary" disabled={blocked('setup')} onClick={() => open('setup')}>
-                  <Copy k="newSetup" />
-                </Button>
-              </div>
-            ) : (
-              <Button disabled={blocked('setup')} onClick={() => open('setup')}>
-                <Copy k="start" />
-              </Button>
-            )}
-            <p className="muted">
-              <Copy k="memory" />
-            </p>
-          </section>
-          <section className="security__sessions security__card">
-            {sessionBlocked && (
-              <p className="muted">
-                <Copy k="blockedSessions" />
-              </p>
-            )}
-            <fieldset className="security__session-inspection" disabled={sessionBlocked}>
-              <IdentitySessions key={`${userId}:${seatVersion}:${sessionBlocked ? 'readonly' : 'writable'}`} />
-            </fieldset>
-            {sessionBlocked && (
-              <Button variant="secondary" onClick={() => setSeatVersion((value) => value + 1)}>
-                <Copy k="inspectSessions" />
-              </Button>
-            )}
-            <div className="security__global stack">
-              <p className="muted">
-                <Copy k="globalBody" />
-              </p>
-              <Button variant="secondary" disabled={blocked('logout')} onClick={() => open('logout')}>
-                <Copy k="globalReview" />
-              </Button>
-            </div>
-          </section>
-        </div>
-        {currentResponse &&
-          (currentResponse.answer.ok ? (
-            currentResponse.receipt && (
-              <section className="notice stack" aria-label={t('receipt')}>
-                <h2>
-                  <Copy k="receipt" />
-                </h2>
-                <p role="status">
-                  <Copy k={currentResponse.receipt} />
-                </p>
-                {references(currentResponse.original.owner, currentResponse.record?.requestId, currentResponse.record?.credential)}
-              </section>
-            )
-          ) : (
-            <div lang="und">
-              <Failure result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer} />
-              {currentResponse.answer.code && (
-                <p className="security__ref" lang="zxx">
-                  {currentResponse.answer.code}
-                </p>
-              )}
-            </div>
-          ))}
-        <ApiKeyRecords />
-        {review && sameActor(review) && (
-          <Dialog
-            title={
-              <Copy
-                k={
-                  review.kind === 'remove'
-                    ? 'removeTitle'
-                    : review.kind === 'setup'
-                      ? 'startReview'
-                      : review.kind === 'logout'
-                        ? 'globalTitle'
-                        : 'add'
-                }
-              />
-            }
-            onClose={() => {
-              if (!busy) {
-                original.current = null;
-                setReview(null);
-              }
-            }}
-          >
-            <div className="stack">
-              <p>
-                <Copy
-                  k={
-                    review.kind === 'remove'
-                      ? 'removeBody'
-                      : review.kind === 'setup'
-                        ? 'replacement'
-                        : review.kind === 'logout'
-                          ? 'globalConsequence'
-                          : 'addBody'
-                  }
-                />
-              </p>
-              {references(review.owner, undefined, review.credential?.credentialId)}
-              <Button
-                variant={review.kind === 'remove' || review.kind === 'logout' ? 'danger' : 'primary'}
-                disabled={blocked(review.kind)}
-                onClick={confirmReview}
-              >
-                <Copy
-                  k={review.kind === 'remove' ? 'remove' : review.kind === 'setup' ? 'start' : review.kind === 'logout' ? 'logout' : 'add'}
-                />
-              </Button>
-            </div>
-          </Dialog>
-        )}
-      </Page>
-    </div>
-  );
+  return {
+    api,
+    userId,
+    limit,
+    setLimit,
+    busy,
+    review,
+    problem,
+    response,
+    currentResponse,
+    setup,
+    visibleSetup,
+    code,
+    setCode,
+    showKey,
+    setShowKey,
+    seatVersion,
+    setSeatVersion,
+    activeStage,
+    journal,
+    setupHeading,
+    resource,
+    reload,
+    sessionBlocked,
+    uncertainty,
+    blocked,
+    open,
+    confirmSetup,
+    confirmReview,
+    sameActor,
+    cancelReview: () => {
+      if (!busy) {
+        original.current = null;
+        setReview(null);
+      }
+    },
+  };
 }

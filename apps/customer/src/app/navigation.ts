@@ -224,7 +224,6 @@ export const rooms: readonly Room[] = [
       ['mining', 'Mining', 'Pool activity and payouts'],
       ['token', 'Token', 'Access and staking'],
       ['blueprint', 'Identity Blueprint', 'Your profile and connected intelligence'],
-      ['support', 'Support', 'Tickets and published answers'],
       ['campaigns', 'Activities', 'Signed-in campaigns'],
     ] as const
   ).map(([slug, title, description]) => ({
@@ -234,6 +233,7 @@ export const rooms: readonly Room[] = [
     door: 'More' as const,
     area: 'more' as const,
   })),
+  { path: '/support', title: 'Support', description: 'Tickets and published answers', door: 'More', area: 'more', screen: 'support' },
   { path: '/uc/innovation/myorders', title: 'Launch orders', description: 'Your asset launch orders', door: 'More', area: 'more' },
   { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },

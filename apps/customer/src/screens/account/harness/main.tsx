@@ -14,12 +14,16 @@ import { usePreferences } from '../../../shared/preferences';
 import { useLocation } from '../../../app/location';
 import Account from '../index';
 
+// A made-up token that only carries a session id (`sid`), so the Security screen can tag "This device". Not a credential.
+const b64url = (value: unknown) => btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const harnessToken = `${b64url({ alg: 'none' })}.${b64url({ sid: '11111111-1111-4111-8111-111111111111' })}.harness`;
+
 // Fake sign-in for the test only: a made-up user id and token, never a real credential.
 function SignedIn({ children }: { children: ReactNode }) {
   const { session, commit } = useSession();
   useEffect(() => {
     commit({
-      accessToken: 'harness-token',
+      accessToken: harnessToken,
       refreshToken: 'harness-refresh',
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       userId: '00000000-0000-4000-8000-000000000001',

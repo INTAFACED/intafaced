@@ -33,13 +33,20 @@ async function mock(page, overrides = {}) {
   await page.route('**/api/identity/trpc/**', async (route) => {
     const url = new URL(route.request().url());
     const procedure = decodeURIComponent(url.pathname.split('/trpc/')[1]);
-    const input = url.searchParams.get('input') ? JSON.parse(url.searchParams.get('input')) : undefined;
+    const input =
+      route.request().method() === 'POST'
+        ? route.request().postDataJSON()
+        : url.searchParams.get('input')
+          ? JSON.parse(url.searchParams.get('input'))
+          : undefined;
     seen.push({ procedure, input, method: route.request().method() });
     if (!(procedure in served)) return route.fulfill({ status: 404, json: { error: { message: 'not mocked' } } });
     const value = served[procedure];
     if (value === null) return void held.push({ route, procedure, input });
     if (value === 'refuse') return route.fulfill({ status: failure.status, json: failure.json });
-    return route.fulfill({ status: 200, json: trpc(typeof value === 'function' ? value(input) : value) });
+    const answer = typeof value === 'function' ? value(input) : value;
+    if (answer && answer.__error) return route.fulfill(answer.__error);
+    return route.fulfill({ status: 200, json: trpc(answer) });
   });
   return {
     seen,
@@ -156,32 +163,220 @@ test('account: loading, error and empty states sit inside their cards', async ({
   expect(errors).toEqual([]);
 });
 
-test('security: passkeys visible, sessions with Sign out, Sign out everywhere, no empty two-factor status line', async ({ page }) => {
+test('security: sign-in methods, sessions with "This device", API keys link, "Coming soon" rows, plain words', async ({ page }) => {
   const errors = watch(page);
   await mock(page);
   await open(page, '/uc/safe');
-  const keys = page.getByRole('region', { name: 'Passkeys', exact: true });
-  await expect(keys.getByRole('button', { name: 'Add passkey', exact: true })).toBeVisible();
-  await expect(keys).toContainText('Added');
-  await expect(keys.getByRole('button', { name: /^Remove passkey / })).toHaveCount(1);
+  await expect(page.getByRole('heading', { level: 1, name: 'Security' })).toBeVisible();
+  const methods = page.getByRole('region', { name: 'How you sign in', exact: true });
+  for (const name of ['Password', 'Authenticator app', 'Passkeys', 'Recovery codes']) await expect(methods).toContainText(name);
+  await expect(methods.getByRole('button', { name: 'Change', exact: true })).toBeVisible();
+  await expect(methods.getByRole('button', { name: 'Set up', exact: true })).toBeVisible();
+  await expect(methods.getByRole('button', { name: 'Add passkey', exact: true })).toBeVisible();
+  await expect(methods).toContainText('1 on this account');
+  await expect(methods).toContainText('Added 9 Oct, 10:00');
+  // What the service can't do yet says so, instead of looking broken: its name and a "Coming soon" chip, no button to press.
+  await expect(methods.locator('.sec-soon')).toHaveText(['Replace or removeComing soon', 'Get new codesComing soon']);
+  await expect(methods.getByRole('button', { name: /Replace or remove|Get new codes/ })).toHaveCount(0);
   const seats = page.getByRole('region', { name: 'Where you’re signed in', exact: true });
-  await expect(seats.getByRole('button', { name: /^Sign out session / })).toHaveCount(2);
-  await expect(page.getByRole('button', { name: 'Sign out everywhere', exact: true })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Authenticator app', exact: true })).toBeVisible();
-  await expect(page.locator('.acct')).not.toContainText('Status is not available here');
-  expect(await page.locator('.acct').innerText()).not.toMatch(forbidden);
-  // Raw session and passkey codes are not drawn on screen (they stay in the accessible names).
-  const visibleIds = await page
-    .locator('.identity-sessions__ref, .security__rows .security__ref')
-    .evaluateAll((nodes) => nodes.filter((node) => node.getBoundingClientRect().width > 2).length);
-  expect(visibleIds).toBe(0);
+  await expect(seats.locator('.sk-row')).toHaveCount(2);
+  await expect(seats.locator('.sk-row').first()).toContainText('Signed in 10 Oct, 09:41');
+  await expect(seats.locator('.sk-row').first()).toContainText('This device');
+  await expect(seats.locator('.sk-row').nth(1)).not.toContainText('This device');
+  await expect(seats.getByRole('button', { name: 'Sign out everywhere', exact: true })).toBeVisible();
+  const keys = page.getByRole('region', { name: 'API keys', exact: true });
+  await expect(keys.getByRole('button', { name: 'View keys' })).toHaveAttribute('href', '/uc/safe?view=api-keys');
+  await expect(keys).toContainText('Creating keys');
+  const text = await page.locator('.acct').innerText();
+  expect(text).not.toMatch(forbidden);
+  // Raw session and passkey codes are not drawn on screen.
+  expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i);
+  expect(text).not.toContain('dGVzdC1rZXktMQ');
+  expect(await noOverflow(page)).toBe(true);
   await shootBoth(page, 'security-loaded');
-  // Per-session sign-out asks first.
-  await seats.getByRole('button', { name: /^Sign out session 1111/ }).click();
-  await expect(page.getByRole('dialog')).toContainText('Sign out this session?');
-  await page.getByRole('dialog').getByRole('button', { name: 'Sign out this session' }).waitFor();
-  await snap(page, 'security-dialog');
   expect(errors).toEqual([]);
+});
+
+test('security: change password — checks first, then one call, then says so', async ({ page }) => {
+  const errors = watch(page);
+  const api = await mock(page, { 'auth.changePassword': () => ({ ok: true }) });
+  await open(page, '/uc/safe');
+  await page.getByRole('button', { name: 'Change', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Change password');
+  await dialog.getByLabel('Current password').fill('old-password-123');
+  await dialog.getByLabel('New password', { exact: true }).fill('short');
+  await dialog.getByLabel('New password', { exact: true }).blur();
+  await expect(dialog).toContainText('Use at least 12 characters.');
+  await dialog.getByLabel('Repeat new password').fill('different');
+  await expect(dialog).toContainText('The two passwords don’t match.');
+  await expect(dialog.getByRole('button', { name: 'Save password' })).toBeDisabled();
+  expect(api.calls('auth.changePassword')).toHaveLength(0);
+  await dialog.getByLabel('New password', { exact: true }).fill('a-much-longer-passphrase');
+  await dialog.getByLabel('Repeat new password').fill('a-much-longer-passphrase');
+  await snap(page, 'security-password-dialog');
+  await dialog.getByRole('button', { name: 'Save password' }).click();
+  await expect(dialog).toContainText('Your password is changed. We signed you out of your other devices.');
+  expect(api.calls('auth.changePassword')).toHaveLength(1);
+  expect(api.calls('auth.changePassword')[0].input).toEqual({
+    currentPassword: 'old-password-123',
+    newPassword: 'a-much-longer-passphrase',
+  });
+  // Nothing about the passwords is kept on this device.
+  const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }));
+  expect(stored).not.toContain('a-much-longer-passphrase');
+  expect(stored).not.toContain('old-password-123');
+  await snap(page, 'security-password-done');
+  await dialog.getByRole('button', { name: 'Close', exact: true }).first().click();
+  await expect(dialog).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+const refusal = (status, cause) => ({
+  __error: { status, json: { error: { message: 'Refused', code: -32003, data: { code: 'FORBIDDEN', cause: { code: cause } } } } },
+});
+for (const [cause, status, words] of [
+  ['auth.invalid_credentials', 403, 'That isn’t your current password.'],
+  ['auth.mfa_required', 403, 'Sign in again with your passkey or authenticator code, then change your password.'],
+  ['auth.password_unchanged', 400, 'Choose a new password that is different from your current one.'],
+]) {
+  test(`security: change password refused (${cause}) says it in words and may be tried again`, async ({ page }) => {
+    const api = await mock(page, { 'auth.changePassword': () => refusal(status, cause) });
+    await open(page, '/uc/safe');
+    await page.getByRole('button', { name: 'Change', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Current password').fill('old-password-123');
+    await dialog.getByLabel('New password', { exact: true }).fill('a-much-longer-passphrase');
+    await dialog.getByLabel('Repeat new password').fill('a-much-longer-passphrase');
+    await dialog.getByRole('button', { name: 'Save password' }).click();
+    await expect(dialog).toContainText(words);
+    expect(await dialog.innerText()).not.toMatch(/auth\.|403|FORBIDDEN/);
+    // A plain refusal can be tried again; the old password field was cleared.
+    await expect(dialog.getByLabel('Current password')).toHaveValue('');
+    expect(api.calls('auth.changePassword')).toHaveLength(1);
+    await snap(page, `security-password-${cause.replace(/\W+/g, '-')}`);
+  });
+}
+
+test('security: change password with a lost answer is unknown and is not sent again', async ({ page }) => {
+  const api = await mock(page, { 'auth.changePassword': () => ({ __error: { status: 503, json: { error: { message: 'down' } } } }) });
+  await open(page, '/uc/safe');
+  await page.getByRole('button', { name: 'Change', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Current password').fill('old-password-123');
+  await dialog.getByLabel('New password', { exact: true }).fill('a-much-longer-passphrase');
+  await dialog.getByLabel('Repeat new password').fill('a-much-longer-passphrase');
+  await dialog.getByRole('button', { name: 'Save password' }).click();
+  await expect(dialog).toContainText('We couldn’t confirm the change. Don’t try again yet.');
+  await expect(dialog.getByRole('button', { name: 'Save password' })).toHaveCount(0);
+  await expect(dialog.getByRole('link', { name: 'Contact support' })).toHaveAttribute('href', '/support');
+  expect(api.calls('auth.changePassword')).toHaveLength(1);
+});
+
+const enrol = () => ({
+  secret: 'JBSWY3DPEHPK3PXP',
+  uri: 'otpauth://totp/INTAFACED:test_friend%40local.test?secret=JBSWY3DPEHPK3PXP&issuer=INTAFACED&algorithm=SHA1&digits=6&period=30',
+  recoveryCodes: Array.from({ length: 10 }, (_, i) => `ABCD${i}-1234${i}`),
+});
+
+test('security: authenticator setup — asks first, shows the key once, confirms with a code, then the recovery codes', async ({ page }) => {
+  const errors = watch(page);
+  const api = await mock(page, { 'totp.enrol': enrol, 'totp.confirm': () => ({ ok: true }) });
+  await open(page, '/uc/safe');
+  await page.getByRole('button', { name: 'Set up', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Set up an authenticator?');
+  expect(api.calls('totp.enrol')).toHaveLength(0);
+  await page.getByRole('dialog').getByRole('button', { name: 'Continue' }).click();
+  const panel = page.locator('.sec-setup');
+  await expect(panel).toContainText('Finish setting up your authenticator');
+  await expect(panel.getByLabel('Authenticator setup key')).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Show setup key' }).click();
+  await expect(panel.getByLabel('Authenticator setup key')).toHaveValue('JBSWY3DPEHPK3PXP');
+  await shootBoth(page, 'security-setup');
+  await panel.getByLabel('Six-digit code').fill('123456');
+  await panel.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(panel).toContainText('Your authenticator is on. Save your recovery codes before you leave.');
+  expect(api.calls('totp.confirm')[0].input).toEqual({ secret: 'JBSWY3DPEHPK3PXP', code: '123456' });
+  await expect(panel.locator('.sec-codelist li')).toHaveCount(10);
+  await snap(page, 'security-setup-done');
+  expect(errors).toEqual([]);
+});
+
+test('security: starting setup on an account that already has an authenticator says so', async ({ page }) => {
+  await mock(page, { 'totp.enrol': () => refusal(409, 'auth.mfa_already_enrolled') });
+  await open(page, '/uc/safe');
+  await page.getByRole('button', { name: 'Set up', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByText('An authenticator is already on this account. Replacing it is coming soon.')).toBeVisible();
+  await snap(page, 'security-already-on');
+});
+
+test('security: a session sign-out asks first and names the one in use; sign out everywhere asks first', async ({ page }) => {
+  const errors = watch(page);
+  const gone = [];
+  const api = await mock(page, {
+    listSessions: () => ({
+      userId: '00000000-0000-4000-8000-000000000001',
+      sessions: sessions().sessions.filter((row) => !gone.includes(row.id)),
+    }),
+    revokeSession: (input) => {
+      gone.push(input.sessionId);
+      return { userId: input.userId, sessionId: input.sessionId, revoked: true };
+    },
+    'auth.logoutAll': () => ({ revoked: 2 }),
+  });
+  await open(page, '/uc/safe');
+  const seats = page.getByRole('region', { name: 'Where you’re signed in', exact: true });
+  // This device first: the dialog warns.
+  await seats
+    .locator('.sk-row')
+    .first()
+    .getByRole('button', { name: /^Sign out/ })
+    .click();
+  await expect(page.getByRole('dialog')).toContainText('This is the device you’re using now. You’ll be signed out.');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  expect(api.calls('revokeSession')).toHaveLength(0);
+  // The other one goes after one more click.
+  await seats
+    .locator('.sk-row')
+    .nth(1)
+    .getByRole('button', { name: /^Sign out/ })
+    .click();
+  await expect(page.getByRole('dialog')).toContainText('Sign out this session?');
+  await snap(page, 'security-session-dialog');
+  await page.getByRole('dialog').getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(seats.locator('.sk-row')).toHaveCount(1);
+  expect(api.calls('revokeSession')[0].input).toEqual({
+    userId: '00000000-0000-4000-8000-000000000001',
+    sessionId: '22222222-2222-4222-8222-222222222222',
+  });
+  // Everywhere: asks, then one call.
+  await seats.getByRole('button', { name: 'Sign out everywhere', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('This ends every session, including this one.');
+  expect(api.calls('auth.logoutAll')).toHaveLength(0);
+  await page.getByRole('dialog').getByRole('button', { name: 'Sign out everywhere', exact: true }).click();
+  await expect.poll(() => api.calls('auth.logoutAll').length).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('security: removing a passkey asks first and calls remove for that one', async ({ page }) => {
+  const api = await mock(page, { 'webauthn.remove': () => ({ removed: true }) });
+  await open(page, '/uc/safe');
+  await page.getByRole('button', { name: /^Remove: Added 9 Oct/ }).click();
+  await expect(page.getByRole('dialog')).toContainText('Remove this passkey?');
+  expect(api.calls('webauthn.remove')).toHaveLength(0);
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect.poll(() => api.calls('webauthn.remove').length).toBe(1);
+  expect(api.calls('webauthn.remove')[0].input).toEqual({ credentialId: 'dGVzdC1rZXktMQ' });
+});
+
+test('security: API keys open on their own view with a way back', async ({ page }) => {
+  await mock(page);
+  await open(page, '/uc/safe?view=api-keys');
+  await expect(page.getByRole('heading', { level: 1, name: 'API keys' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Back to Security/ })).toHaveAttribute('href', '/uc/safe');
+  await expect(page.locator('.sec-keys')).not.toBeEmpty();
+  await snap(page, 'security-api-keys');
 });
 
 test('security: empty and error states', async ({ page }) => {
@@ -189,21 +384,17 @@ test('security: empty and error states', async ({ page }) => {
   await mock(page, {
     'webauthn.list': () => [],
     listSessions: () => ({ userId: '00000000-0000-4000-8000-000000000001', sessions: [] }),
-    'apiKeys.list': () => [],
   });
   await open(page, '/uc/safe');
-  const keys = page.getByRole('region', { name: 'Passkeys', exact: true });
-  await expect(keys).toContainText('No passkeys yet');
-  await expect(keys.getByRole('button', { name: 'Add passkey', exact: true })).toBeVisible();
-  await expect(page.locator('.identity-sessions')).toContainText('No active sessions');
+  await expect(page.getByRole('region', { name: 'How you sign in', exact: true })).toContainText('No passkeys yet.');
+  await expect(page.getByRole('region', { name: 'Where you’re signed in', exact: true })).toContainText('No active sessions');
   await shootBoth(page, 'security-empty');
   const failed = await page.context().newPage();
   await mock(failed, { 'webauthn.list': 'refuse', listSessions: 'refuse' });
   await failed.goto('/uc/safe');
   await failed.locator('.acct').waitFor();
-  await expect(
-    failed.getByRole('region', { name: 'Passkeys', exact: true }).getByRole('button', { name: /try again|retry/i }),
-  ).toBeVisible();
+  await expect(failed.getByRole('button', { name: 'Try again' }).first()).toBeVisible();
+  await expect(failed.getByRole('region', { name: 'How you sign in', exact: true })).toBeVisible();
   await shootBoth(failed, 'security-error');
   expect(errors).toEqual([]);
 });
@@ -211,68 +402,159 @@ test('security: empty and error states', async ({ page }) => {
 test('security: loading state', async ({ page }) => {
   const api = await mock(page, { 'webauthn.list': null, listSessions: null });
   await open(page, '/uc/safe');
-  await expect(page.getByRole('region', { name: 'Passkeys', exact: true })).toBeVisible();
+  await expect(page.locator('[data-slot="state-block"][data-kind="loading"]').first()).toBeVisible();
   await shootBoth(page, 'security-loading');
   await api.release();
-  await expect(page.getByRole('region', { name: 'Passkeys', exact: true })).toContainText('Added');
+  await expect(page.getByRole('region', { name: 'How you sign in', exact: true })).toContainText('Added');
 });
 
-for (const [tier, tag, status] of [
-  ['none', 'Not verified', 'working'],
-  ['basic', 'Basic', 'filled'],
-  ['full', 'Full', 'filled'],
-]) {
-  test(`verification: level "${tag}" as a big tag, then the request form, in plain words`, async ({ page }) => {
+const ladder = {
+  none: ['Not verified', 'working'],
+  basic: ['Basic', 'filled'],
+  full: ['Full', 'filled'],
+  institutional: ['Institutional', 'filled'],
+};
+for (const tier of ['none', 'basic', 'full', 'institutional']) {
+  test(`verification: level "${ladder[tier][0]}" — the level, every level's unlocks and limits, then what to ask for`, async ({ page }) => {
     const errors = watch(page);
     await mock(page, { 'kyc.status': () => kyc(tier, tier === 'none' ? [] : [kycRecord()]) });
     await open(page, '/verification');
-    const level = page.locator('[data-slot="status-tag"].verification__level-tag');
-    await expect(level).toHaveText(tag);
-    await expect(level).toHaveAttribute('data-status', status);
+    await expect(page.getByRole('heading', { level: 1, name: 'Verification' })).toBeVisible();
+    const level = page.locator('.vf-level [data-slot="status-tag"]');
+    await expect(level).toHaveText(ladder[tier][0]);
+    await expect(level).toHaveAttribute('data-status', ladder[tier][1]);
     expect(Math.round((await level.boundingBox()).height)).toBe(40);
-    // Order: level, then the request form, then the requests.
-    const top = async (selector) => Math.round((await page.locator(selector).boundingBox()).y);
-    const [tierTop, formTop, recordsTop] = [
-      await top('.verification__tier'),
-      await top('.verification__request'),
-      await top('.verification__records'),
-    ];
-    expect(tierTop).toBeLessThan(formTop);
-    expect(formTop).toBeLessThan(recordsTop);
-    await expect(page.locator('.verification__request')).toContainText(
-      'Sending this asks for a review. It doesn’t change your level unless it’s approved.',
-    );
-    await expect(page.locator('.acct')).not.toContainText('Submitting does not approve');
-    // Only levels above the current one can be asked for, and the orphan "Read current records" button is gone.
-    const asks = { none: ['Basic', 'Full', 'Institutional'], basic: ['Full', 'Institutional'], full: ['Institutional'] };
-    expect(await page.locator('.verification__request select option').allTextContents()).toEqual(asks[tier]);
-    await expect(page.getByRole('button', { name: 'Read current records' })).toHaveCount(0);
-    await expect(page.locator('.verification__request a.text-link')).toHaveAttribute('href', '/support');
-    expect(await page.locator('.acct').innerText()).not.toMatch(forbidden);
+    // The ladder: three levels, each with what it unlocks and its limits (not published yet, so a dash and a sentence).
+    const blocks = page.locator('.vf-level-block');
+    await expect(blocks).toHaveCount(3);
+    await expect(blocks.nth(0)).toContainText('Buy, sell and convert crypto');
+    await expect(blocks.nth(1)).toContainText('Banking and payment features, as each one opens');
+    await expect(blocks.nth(2)).toContainText('Company accounts, when they open');
+    for (let i = 0; i < 3; i += 1) await expect(blocks.nth(i)).toContainText('Not published yet');
+    const order = ['basic', 'full', 'institutional'];
+    const held = order.indexOf(tier);
+    for (let i = 0; i < 3; i += 1) {
+      const expected = i === held ? 'Current' : i < held ? 'Included' : null;
+      if (expected) await expect(blocks.nth(i)).toContainText(expected);
+      else await expect(blocks.nth(i).locator('.sk-chip')).toHaveCount(0);
+    }
+    // Only levels above the current one can be asked for; at the top there is nothing to ask.
+    const asks = { none: ['Basic', 'Full', 'Institutional'], basic: ['Full', 'Institutional'], full: ['Institutional'], institutional: [] };
+    await expect(page.getByRole('button', { name: /^Ask for / })).toHaveCount(asks[tier].length ? asks[tier].length + 1 : 0);
+    for (const name of asks[tier]) await expect(page.getByRole('button', { name: `Ask for ${name}` }).first()).toBeVisible();
+    await expect(page.getByRole('region', { name: 'How a review works' })).toContainText('You’re notified');
+    await expect(page.getByRole('link', { name: 'Contact support' })).toHaveAttribute('href', '/support');
+    const text = await page.locator('.acct').innerText();
+    expect(text).not.toMatch(forbidden);
+    expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i);
+    expect(await noOverflow(page)).toBe(true);
     await shootBoth(page, `verification-${tier}`);
     expect(errors).toEqual([]);
   });
 }
 
-test('verification: empty and error states', async ({ page }) => {
+test('verification: asking for a level — country, a check of the request, one call, then the new request shows', async ({ page }) => {
+  const errors = watch(page);
+  const state = { records: [] };
+  const api = await mock(page, {
+    'kyc.status': () => kyc('none', state.records),
+    'kyc.submit': (input) => {
+      const row = {
+        ...kycRecord(),
+        id: '44444444-4444-4444-8444-444444444444',
+        tier: input.tier,
+        jurisdiction: input.jurisdiction,
+        status: 'pending',
+        reviewedAt: null,
+        createdAt: '2026-10-14T01:00:00.000Z',
+      };
+      state.records = [row];
+      return row;
+    },
+  });
+  await open(page, '/verification');
+  await page.getByRole('button', { name: 'Ask for Basic' }).first().click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Ask for a review');
+  await dialog.getByLabel('Country code').fill('u1');
+  await dialog.getByRole('button', { name: 'Continue' }).click();
+  await expect(dialog).toContainText('Enter a two-letter country code, like US.');
+  await dialog.getByLabel('Country code').fill('us');
+  await snap(page, 'verification-ask');
+  await dialog.getByRole('button', { name: 'Continue' }).click();
+  await expect(dialog).toContainText('Check your request');
+  await expect(dialog.locator('.sk-facts')).toContainText('Basic');
+  await expect(dialog.locator('.sk-facts')).toContainText('US');
+  expect(api.calls('kyc.submit')).toHaveLength(0);
+  await snap(page, 'verification-review');
+  await dialog.getByRole('button', { name: 'Send request' }).click();
+  await expect(page.getByText('We got your request')).toBeVisible();
+  await expect(page.locator('.vf-outcomes')).toContainText('Your level only changes when a request is approved.');
+  expect(await page.locator('.vf').innerText()).not.toMatch(forbidden);
+  expect(api.calls('kyc.submit')).toHaveLength(1);
+  expect(api.calls('kyc.submit')[0].input).toEqual({ tier: 'basic', jurisdiction: 'US' });
+  // The list is read again, so the new request shows without a reload.
+  const requests = page.getByRole('region', { name: 'Your requests', exact: true });
+  await expect(requests).toContainText('Pending');
+  await expect(requests).toContainText('Country US');
+  await expect(page.locator('.vf-level-block').first()).toContainText('In review');
+  await expect(page.getByText('Your request for Basic is being reviewed.')).toBeVisible();
+  await shootBoth(page, 'verification-sent');
+  expect(errors).toEqual([]);
+});
+
+test('verification: a request details row shows when it was asked, reviewed and expires', async ({ page }) => {
+  await mock(page, { 'kyc.status': () => kyc('basic', [kycRecord()]) });
+  await open(page, '/verification');
+  const requests = page.getByRole('region', { name: 'Your requests', exact: true });
+  await expect(requests).toContainText('Basic');
+  await expect(requests).toContainText('Approved');
+  await requests.getByRole('button', { name: 'Details' }).click();
+  await expect(requests).toContainText(/Asked\s*8 Oct, 12:00/);
+  await expect(requests).toContainText(/Reviewed\s*9 Oct, 12:00/);
+  await expect(requests).toContainText('Doesn’t expire');
+  await snap(page, 'verification-details');
+});
+
+test('verification: a send whose answer was lost stays unknown and blocks another send', async ({ page }) => {
+  const owner = '00000000-0000-4000-8000-000000000001';
+  await mock(page, { 'kyc.status': () => kyc('none', []) });
+  await page.addInitScript(
+    ([key, value]) => localStorage.setItem(key, value),
+    [
+      `intafaced.customer.verification.v1:${owner}`,
+      JSON.stringify([{ owner, kind: 'submit', requestId: '55555555-5555-4555-8555-555555555555', createdAt: '2026-10-14T01:00:00.000Z' }]),
+    ],
+  );
+  await open(page, '/verification');
+  await expect(page.getByText('We couldn’t confirm your last request')).toBeVisible();
+  expect(await page.locator('.vf').innerText()).not.toMatch(forbidden);
+  await expect(page.getByRole('button', { name: 'Ask for Basic' }).first()).toBeDisabled();
+  await expect(page.locator('.vf-outcomes').getByRole('link', { name: 'Contact support' })).toHaveAttribute('href', '/support');
+  // The reference is there for support, but folded away.
+  await expect(page.locator('.vf-outcomes summary')).toContainText('Reference for support');
+  await shootBoth(page, 'verification-unknown');
+});
+
+test('verification: empty, error and loading states', async ({ page }) => {
   await mock(page, { 'kyc.status': () => kyc('none', []) });
   await open(page, '/verification');
-  await expect(page.locator('.verification__records')).toContainText('No requests yet');
+  await expect(page.getByRole('region', { name: 'Your requests', exact: true })).toContainText('No requests yet');
   await shootBoth(page, 'verification-empty');
   const failed = await page.context().newPage();
   await mock(failed, { 'kyc.status': 'refuse' });
   await failed.goto('/verification');
   await failed.locator('.acct').waitFor();
-  await expect(failed.locator('.verification__list')).toContainText(/Couldn.t|can.t|try again/i);
+  await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
   await shootBoth(failed, 'verification-error');
-});
-
-test('verification: loading state', async ({ page }) => {
-  const api = await mock(page, { 'kyc.status': null });
-  await open(page, '/verification');
-  await shootBoth(page, 'verification-loading');
+  const slow = await page.context().newPage();
+  const api = await mock(slow, { 'kyc.status': null });
+  await slow.goto('/verification');
+  await slow.locator('.acct').waitFor();
+  await expect(slow.locator('[data-slot="state-block"][data-kind="loading"]').first()).toBeVisible();
+  await shootBoth(slow, 'verification-loading');
   await api.release();
-  await expect(page.locator('.verification__level-tag')).toHaveText('Basic');
+  await expect(slow.locator('.vf-level [data-slot="status-tag"]')).toHaveText('Basic');
 });
 
 test('display: dark only, six choices that save to this device, no internal words', async ({ page }) => {
