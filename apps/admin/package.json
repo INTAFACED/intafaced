@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:bff-harness": "node ./scripts/bff-harness.mjs",
     "test:route-boundaries": "node ./scripts/route-boundaries-harness.mjs",
+    "test:hsts-runtime": "node ./scripts/hsts-runtime-harness.mjs",
     "clean": "rimraf .next .turbo"
   },
   "dependencies": {
