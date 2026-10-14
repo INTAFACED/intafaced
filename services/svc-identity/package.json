@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx scripts/migrate.ts",
+    "founder:invites": "tsx scripts/founder-invites.ts",
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {

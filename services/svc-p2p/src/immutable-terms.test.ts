@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
+  InsufficientFundsError,
   MemoryLedger,
   parseAmount,
   formatAmount,
@@ -200,7 +201,9 @@ describe('native P2P original terms and decisions', () => {
             '400.000000000000000000',
           );
         }
-        await expect(ledger.getTxByKey(`p2p.escrow.lock:${TRADE}`)).rejects.toThrow(/not exposed/);
+        // The shared client can ask the ledger by key now (it used to throw "not exposed"). What must stay true is that a
+        // failed transport, a 500, a malformed answer or a refusal is never read as "not booked": the lookup throws.
+        await expect(ledger.getTxByKey(`p2p.escrow.lock:${TRADE}`)).rejects.toThrow();
       } finally {
         vi.unstubAllGlobals();
       }
@@ -326,7 +329,14 @@ describe('native P2P original terms and decisions', () => {
       );
       try {
         const failed = await service.cancelTrade(TRADE, SELLER).catch((error) => error as Error);
-        expect(['TimeoutError', 'AbortError']).toContain((failed as Error).name);
+        if (held === 'error_body') {
+          // The 500's own body never finishes, so the shared transport cannot read a reason: the refusal is the plain
+          // "failed (500)" error (not a funds refusal, so nothing is voided), where the old client surfaced the abort itself.
+          expect((failed as Error).message).toMatch(/\/trpc\/post failed \(500\)/);
+          expect(failed).not.toBeInstanceOf(InsufficientFundsError);
+        } else {
+          expect(['TimeoutError', 'AbortError']).toContain((failed as Error).name);
+        }
         const original = await service.getTrade(TRADE);
         expect(original.status).toBe('created');
         expect(original.resolution).toBeNull();
