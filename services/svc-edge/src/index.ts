@@ -288,11 +288,7 @@ registerGeoBlockGuard(app);
 registerNetworkAccessGuard(app);
 registerAdminRoutes(app, admin);
 
-registerWidgetRampRoute(app, {
-  licence: env.INFRA_LICENCE,
-  accent: env.INFRA_WIDGET_ACCENT,
-  tenantCss: env.INFRA_WIDGET_CSS,
-});
+registerWidgetRampRoute(app);
 
 /**
  * The proxy.
