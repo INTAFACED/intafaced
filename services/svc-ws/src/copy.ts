@@ -29,6 +29,8 @@ export const WS_COPY = {
   muxMaxSubscriptionsUnset: 'ws.close.mux_max_subscriptions_unset',
   muxMaxOpsUnset: 'ws.close.mux_max_ops_per_second_unset',
   muxRateLimited: 'ws.close.mux_rate_limited',
+  muxIdle: 'ws.close.mux_idle',
+  muxMaxSeatsUnset: 'ws.close.mux_max_seats_unset',
   muxBacklog: 'ws.close.mux_backlog',
   muxSlowConsumer: 'ws.close.mux_slow_consumer',
 } as const;

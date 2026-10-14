@@ -95,11 +95,12 @@ interface Rig {
 }
 
 function rig(overrides: Partial<MuxSessionDeps> = {}, hubMax = 50, source: DepthSource = new StubSource()): Rig {
-  const depth = new DepthHub(source, { depthLimit: 50, highWaterBytes: 1000, maxLagTicks: 3, maxConnections: hubMax, marketsRefreshMs: 0 });
+  const depth = new DepthHub(source, { depthLimit: 50, highWaterBytes: 1000, maxLagTicks: 3, maxConnections: hubMax, muxMaxConnections: hubMax, marketsRefreshMs: 0 });
   const trades = new TradeHub({
     highWaterBytes: 1000,
     maxLagTicks: 3,
     maxConnections: hubMax,
+    muxMaxConnections: hubMax,
     recentLimit: 10,
     ensureKnownMarket: (id) => depth.ensureKnownMarket(id),
   });
@@ -116,6 +117,7 @@ function rig(overrides: Partial<MuxSessionDeps> = {}, hubMax = 50, source: Depth
     maxSubscriptions: 10,
     maxOpsPerSecond: 100,
     highWaterBytes: 1000,
+    idleMs: 30_000,
     log: { info: vi.fn(), warn: vi.fn() },
     clock: () => clock.now,
     ...overrides,
@@ -463,13 +465,30 @@ describe('limits', () => {
     expect(tight.socket.closed).toBeNull();
   });
 
-  it('charges a many-channel operation per channel, so one message cannot buy a flood of attaches', async () => {
-    const tight = rig({ maxOpsPerSecond: 4, maxSubscriptions: 50 });
+  it('charges a subscribe of N channels N tokens: 64 channels against a budget of 2 is refused outright', async () => {
+    const tight = rig({ maxOpsPerSecond: 2, maxSubscriptions: 100 });
     await tight.depth.refreshMarkets();
     tight.session.start();
-    const six = Array.from({ length: 6 }, () => ({ ch: 'ticker' }));
-    tight.session.onMessage(JSON.stringify({ op: 'subscribe', channels: six })); // costs the whole budget (4)
-    tight.session.onMessage(JSON.stringify({ op: 'subscribe', channels: six }));
+    const sixtyFour = Array.from({ length: 64 }, () => ({ ch: 'ticker' }));
+    tight.session.onMessage(JSON.stringify({ op: 'subscribe', channels: sixtyFour }));
+    await settle();
+    expect(tight.socket.closed).toMatchObject({ code: 1008 });
+    expect(tight.socket.acks()).toEqual([]);
+    expect(tight.tickers.connections).toBe(0);
+  });
+
+  it('spends exactly N tokens on N channels, then refuses the next large operation until the bucket refills', async () => {
+    const tight = rig({ maxOpsPerSecond: 10, maxSubscriptions: 100 });
+    await tight.depth.refreshMarkets();
+    tight.session.start();
+    const six = (market: string) => Array.from({ length: 6 }, (_, i) => ({ ch: 'candles', market, interval: (['1m', '5m', '15m', '1h', '4h', '1d'] as const)[i] }));
+    await tight.send({ op: 'subscribe', channels: six(BTC) }); // 6 of 10 tokens
+    expect(tight.socket.closed).toBeNull();
+    expect(tight.session.subscriptions).toBe(6);
+    tight.clock.now += 400; // +4 tokens → 8
+    await tight.send({ op: 'subscribe', channels: six(ETH) }); // needs 6 → ok, 2 left
+    expect(tight.socket.closed).toBeNull();
+    await tight.send({ op: 'unsubscribe', channels: six(ETH).slice(0, 3) }); // needs 3 of 2 → closed
     expect(tight.socket.closed).toMatchObject({ code: 1008 });
   });
 
@@ -572,5 +591,35 @@ describe('backpressure — slow clients are dropped with a clear close code', ()
     expect(r.socket.closed).toBeNull();
     expect(r.socket.errors().at(-1)).toMatchObject({ op: 'error', code: 'unavailable', ch: 'trades', market: ETH });
     expect(r.session.subscriptions).toBe(1);
+  });
+});
+
+describe('idle sockets', () => {
+  it('a connection with no subscription expires after idleMs; a subscription resets it; dropping the last starts it again', async () => {
+    const idle = rig({ idleMs: 5_000 });
+    await idle.depth.refreshMarkets();
+    idle.session.start();
+    expect(idle.session.idleExpired(idle.clock.now + 4_999)).toBe(false);
+    expect(idle.session.idleExpired(idle.clock.now + 5_000)).toBe(true);
+
+    await idle.send({ op: 'subscribe', channels: [{ ch: 'ticker' }] });
+    expect(idle.session.idleExpired(idle.clock.now + 60_000)).toBe(false);
+
+    idle.clock.now += 20_000;
+    await idle.send({ op: 'unsubscribe', channels: [{ ch: 'ticker' }] });
+    expect(idle.session.idleExpired(idle.clock.now + 4_999)).toBe(false);
+    expect(idle.session.idleExpired(idle.clock.now + 5_000)).toBe(true);
+
+    idle.session.closeIdle();
+    expect(idle.socket.closed?.code).toBe(1008);
+    expect(idle.socket.closed?.reason).toContain('mux_idle');
+    expect(idle.session.idleExpired(idle.clock.now + 60_000)).toBe(false); // already closed
+  });
+
+  it('does not expire while an operation is still in flight', async () => {
+    const hang = rig({ idleMs: 1_000, resolver: { resolve: () => new Promise(() => undefined) } });
+    hang.session.start();
+    hang.session.onMessage(JSON.stringify({ op: 'subscribe', channels: [{ ch: 'book', market: BTC }] }));
+    expect(hang.session.idleExpired(hang.clock.now + 60_000)).toBe(false);
   });
 });

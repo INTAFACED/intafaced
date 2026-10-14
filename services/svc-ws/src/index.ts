@@ -145,6 +145,7 @@ const hub = new DepthHub(
     highWaterBytes: env.WS_HIGH_WATER_BYTES,
     maxLagTicks: env.WS_MAX_LAG_TICKS,
     maxConnections: env.WS_MAX_CONNECTIONS,
+    muxMaxConnections: env.WS_MUX_MAX_SEATS,
     marketsRefreshMs: env.WS_MARKETS_REFRESH_MS,
     registry,
     onMatchingAvailabilityChange: (available) => {
@@ -175,6 +176,7 @@ const tradeHub = new TradeHub(
     highWaterBytes: env.WS_HIGH_WATER_BYTES,
     maxLagTicks: env.WS_MAX_LAG_TICKS,
     maxConnections: env.WS_MAX_CONNECTIONS,
+    muxMaxConnections: env.WS_MUX_MAX_SEATS,
     recentLimit: env.WS_TRADE_RECENT_LIMIT,
     ensureKnownMarket: (marketId) => hub.ensureKnownMarket(marketId),
   },
@@ -197,9 +199,9 @@ const tickerHub = new TickerHub(
   {
     highWaterBytes: env.WS_HIGH_WATER_BYTES,
     maxLagTicks: env.WS_MAX_LAG_TICKS,
-    maxConnections: env.WS_MAX_CONNECTIONS,
+    maxConnections: env.WS_MUX_MAX_SEATS,
     throttleMs: env.WS_TICKER_THROTTLE_MS,
-    onDemand: () => void muxPoller.tickTickers(),
+    onDemand: () => void muxPoller.demandTickers(),
   },
   app.log,
 );
@@ -208,8 +210,8 @@ const candleHub = new CandleHub(
   {
     highWaterBytes: env.WS_HIGH_WATER_BYTES,
     maxLagTicks: env.WS_MAX_LAG_TICKS,
-    maxConnections: env.WS_MAX_CONNECTIONS,
-    onDemand: (marketId, interval) => void muxPoller.pollCandle(marketId, interval),
+    maxConnections: env.WS_MUX_MAX_SEATS,
+    onDemand: (marketId, interval) => void muxPoller.demandCandle(marketId, interval),
   },
   app.log,
 );
@@ -236,6 +238,7 @@ const muxGateway = createMuxGateway({
     maxSubscriptions: env.WS_MUX_MAX_SUBSCRIPTIONS,
     maxOpsPerSecond: env.WS_MUX_MAX_OPS_PER_SECOND,
     highWaterBytes: env.WS_HIGH_WATER_BYTES,
+    idleMs: env.WS_MUX_IDLE_MS,
     log: app.log,
   },
   maxConnections: env.WS_MAX_CONNECTIONS,

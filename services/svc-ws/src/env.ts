@@ -248,6 +248,26 @@ const schema = baseEnvSchema
       ),
 
       /**
+       * Owner-published SEAT POOL for multiplexed subscriptions, per hub (depth,
+       * trades, ticker, candles each get a pool of this size). Separate from
+       * `WS_MAX_CONNECTIONS`, the pool the original `?market=` sockets use, so
+       * anonymous multiplexed sockets can never lock out the original door.
+       * Blank / unset is unpublished — a multiplexed attach is refused
+       * `ws.close.mux_max_seats_unset`. Never invent a pool size.
+       */
+      WS_MUX_MAX_SEATS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1)]),
+      ),
+
+      /**
+       * A multiplexed socket that has held no subscription for this long is
+       * closed 1008 `ws.close.mux_idle`: it costs a heartbeat and a connection
+       * seat and gives nothing back.
+       */
+      WS_MUX_IDLE_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(30_000),
+
+      /**
        * Owner-published inbound operation budget per multiplexed connection
        * (a token bucket: a subscribe of N channels costs N). Over it the
        * connection is closed 1008 `ws.close.mux_rate_limited`. Blank / unset is
@@ -335,6 +355,8 @@ export const SVC_WS_OWN_ENV_KEYS = [
   'WS_GATEWAY_ENABLED',
   'WS_MUX_MAX_SUBSCRIPTIONS',
   'WS_MUX_MAX_OPS_PER_SECOND',
+  'WS_MUX_MAX_SEATS',
+  'WS_MUX_IDLE_MS',
   'WS_TICKER_THROTTLE_MS',
   'WS_TICKER_POLL_MS',
   'WS_CANDLE_POLL_MS',
