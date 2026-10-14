@@ -196,8 +196,17 @@ async function emissionsTick(): Promise<void> {
     // Never let a tick failure kill the interval. Closed/exhausted epochs are
     // expected once the schedule ends; log and wait for the next tick.
     if (err instanceof TokenError && err.code === 'token.epoch_too_early') {
-      // Normal between epochs: the time gate says the next one is not due yet.
-      app.log.debug({ retryAfterMs: err.retryAfterMs }, 'emission auto-tick: next epoch not due yet');
+      // Normal between epochs: the time gate says the next one is not due yet. A wait LONGER than one epoch cannot
+      // happen on a sane clock (database clock stepped back, or a row with a future created_at): minting would stop
+      // silently, so that case is a warning.
+      if (err.retryAfterMs !== undefined && err.retryAfterMs > env.EMISSIONS_EPOCH_MS) {
+        app.log.warn(
+          { retryAfterMs: err.retryAfterMs, epochMs: env.EMISSIONS_EPOCH_MS },
+          'emission auto-tick: gate wait exceeds one epoch (clock step or future-dated epoch row?)',
+        );
+      } else {
+        app.log.debug({ retryAfterMs: err.retryAfterMs }, 'emission auto-tick: next epoch not due yet');
+      }
     } else {
       app.log.error({ err }, 'emission auto-tick failed');
     }
