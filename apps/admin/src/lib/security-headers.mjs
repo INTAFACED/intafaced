@@ -131,10 +131,10 @@ const TWO_LABEL_PUBLIC_SUFFIXES = new Set([
  * last two labels are in a short built-in list of two-label public suffixes (co.uk, com.au, ...). It is not the Public Suffix List,
  * so private suffixes (`github.io`, `vercel.app`) and rarer ccTLD suffixes are NOT recognised: `x.vercel.app` passes as a leaf.
  *
- * @param {string} host a hostname (no port, no scheme); case and one trailing dot are ignored
+ * @param {string} host a hostname (no port, no scheme); case and trailing dots are ignored
  */
 export function isRegistrableDomain(host) {
-  const name = String(host).trim().toLowerCase().replace(/\.$/, '');
+  const name = String(host).trim().toLowerCase().replace(/\.+$/, '');
   if (name === '') return true;
   if (name.includes(':') || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(name)) return true;
   const labels = name.split('.');

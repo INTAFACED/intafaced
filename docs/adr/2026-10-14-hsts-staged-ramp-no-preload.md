@@ -62,7 +62,7 @@ Two variables per deployment, read from the environment of the running process:
 - Validation lives in `src/instrumentation.ts` `register()`, because middleware cannot exit and a throw there is a 500 on every request. The process refuses to boot (exit 1, code `config.hsts_invalid`, naming variables and never values) on:
   - `hsts.max_age_invalid`: not an integer 0..63072000;
   - `hsts.include_subdomains_invalid`: not exactly `true` or `false`;
-  - `hsts.max_age_above_non_production_cap`: more than 86400 outside production posture (`isProductionPosture` in `@intafaced/config`: `APP_ENV` anything but exactly `dev` or `test`), so a copied production `.env` cannot pin a staging or local host for a year;
+  - `hsts.max_age_above_non_production_cap`: more than 86400 outside production posture (`isProductionPosture` in `@intafaced/config`: `APP_ENV` anything but exactly `dev` or `test`), so a dev or test environment cannot pin more than a day (note: `APP_ENV=staging`, and an unset `APP_ENV` under `NODE_ENV=production` as `next start` sets, are production posture and CAN pin a year; no staging host exists yet);
   - `hsts.include_subdomains_on_registrable_domain` and `hsts.include_subdomains_host_unknown`: `HSTS_INCLUDE_SUBDOMAINS=true` while the host of `ADMIN_ORIGIN` is a registrable domain, or is not a readable URL. A "leaf" host that is not a leaf must not become a zone-wide policy.
 - `isRegistrableDomain(host)` is deliberately conservative and is **not** the Public Suffix List. It treats a host with two labels or fewer, an IP literal, or a three-label host whose last two labels are in a short built-in list (`co.uk`, `com.au`, `co.jp` and similar) as registrable. Limitation: private suffixes (`github.io`, `vercel.app`) and rarer public suffixes are not recognised, so `x.vercel.app` passes as a leaf. It catches the common mistake; it is not proof of leafness.
 - There is no `preload` token in any value this code can emit and no `HSTS_PRELOAD` variable. Tests ban the token in every admin-emitted value. The ban protects little on its own (browsers honour preload only through the list), but it is cheap and it keeps a future edit honest.
@@ -81,7 +81,7 @@ Stage values apply per host. `includeSubDomains` is added on leaf hosts (`admin.
 | S4    | `max-age=31536000; includeSubDomains` | about go-live + 60 to 65 days         | at least one **observed automated certificate renewal per host** (the monitor sees `notAfter` advance) |
 | S5    | `max-age=63072000; includeSubDomains` | S4 + 6 months                         | clean                                                                                                  |
 
-S3 is an interpolation I added so the jump from one month to one year is not a single step; it is the Mozilla six-month minimum. Skipping it is allowed if S2 has been clean for the full month and the S4 gate is met. The one-year step waits for a renewal because Let's Encrypt certificates last 90 days and the first renewal is the first moment an HSTS-pinned user could be locked out by a broken renewal job; the `www` expiry shows this failure is not hypothetical here.
+S3 lasts until the S4 gate is met, not its full max-age (the hstspreload.org wait-the-full-max-age rule exists for includeSubDomains discovery; nothing lives under these leaf hosts; the full-wait rule applies to the apex ramp). S3 is an interpolation I added so the jump from one month to one year is not a single step; it is the Mozilla six-month minimum. Skipping it is allowed if S2 has been clean for the full month and the S4 gate is met. The one-year step waits for a renewal because Let's Encrypt certificates last 90 days and the first renewal is the first moment an HSTS-pinned user could be locked out by a broken renewal job; the `www` expiry shows this failure is not hypothetical here.
 
 ### 3. Apex `intafaced.com` (Vercel, outside this repo)
 
@@ -97,7 +97,7 @@ Trade-off, stated: ramping the apex from host-only `63072000` down to `604800; i
 
 ### 4. Who owns the header
 
-- **Caddy** is the single HSTS owner for every host it terminates (join and admin at launch). It must emit the header from the same validated environment values. If an app also sends its own header, Caddy must replace or defer it: RFC 6797 section 8.1 says a user agent processes only the first header, so two different values are a silent bug. The exact `header` and `defer` semantics are unverified and must be tested when the config lands. Until then the admin's own header is what an `admin.` visitor sees.
+- **Caddy** is the single HSTS owner for every host it terminates (join and admin at launch). It must emit the header from the same validated environment values. If an app also sends its own header, Caddy must replace or defer it: RFC 6797 section 8.1 says a user agent processes only the first header, so two different values are a silent bug. The exact `header` and `defer` semantics are unverified and must be tested when the config lands. Until then the admin's own header is what an `admin.` visitor sees, and **join sends NO HSTS at all**: join does not go live without Caddy emitting the stage value (launch-checklist item for chat 4 1).
 - `svc-edge` keeps sending none.
 - Customer nginx moves to the same two variables later (phase 3, lower priority).
 
@@ -146,8 +146,10 @@ Unverified: OMB M-15-13 "at least one year" (search snippet only); NIST SP 800-5
 - Preload: only if, at S5 + 90 days, the apex has run at one year with `includeSubDomains` for 90 days without incident, the apex is under our control or its owner agrees, and a bank partner, regulator or penetration test requires it or hstspreload.org changes its stance. It needs a new ADR.
 - Immediately on any new subdomain, a new email or CDN provider, a change of TLS terminator, or any certificate-expiry alert.
 
-## Open items for Nitro (not done here)
+## Open items (tracked by chat 4 1, not by this PR)
 
-1. `https://www.intafaced.com` serves an expired certificate (since 2026-09-15). Whoever owns the Vercel project must re-add `www` as an explicit domain or move DNS to Vercel.
-2. A read-only export of the Hostinger DNS zone for `intafaced.com` (the gate for apex `includeSubDomains`).
-3. Final hostnames for admin, join and the customer app.
+Chat 4 1 owns these and has already drafted them (`~/.codex/context/intafaced/route-to-live/WWW-CERTIFICATE-FIX.md` and `CHECKLIST.md`, lines 83-88, 2026-10-14):
+
+1. `https://www.intafaced.com` serves an expired certificate (since 2026-09-15): the www fix (www redirects to the apex, the wildcard domain is removed) needs whoever holds the Vercel project and the DNS account.
+2. A read-only export of the Hostinger DNS zone for `intafaced.com` (the gate for apex `includeSubDomains`): already requested there.
+3. Final hostnames: admin and join behind Caddy; `app.` reserved and not in this launch; no `api.`/`edge.` host.
