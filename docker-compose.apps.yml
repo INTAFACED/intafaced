@@ -452,6 +452,11 @@ services:
       # Public rulebook version (M00 / R-A7). EMPTY default — do not invent a
       # string. Blank → GET /rulebook unpublished. Host `.env` can pin.
       MATCHING_RULEBOOK_VERSION: ${MATCHING_RULEBOOK_VERSION:-}
+      # Operators who may propose and approve venue actions (open, halt, ...).
+      # Comma-separated identity user ids; whitespace is trimmed. EMPTY default:
+      # blank refuses every approval-gated door (action_approval.operators_unset),
+      # matching does not guess who is an operator. Host `.env` publishes it.
+      MATCHING_OPERATOR_IDS: ${MATCHING_OPERATOR_IDS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4005']
     volumes:

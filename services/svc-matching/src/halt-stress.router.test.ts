@@ -79,7 +79,11 @@ function oid(n: number): string {
 
 async function mount(engine: MatchingEngine): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
-  registerRoutes(app, engine, SECRET, { bodyBind: 'require', approvals: stubApprovalConsumer('ops-confirm') });
+  registerRoutes(app, engine, SECRET, {
+    bodyBind: 'require',
+    approvals: stubApprovalConsumer('ops-confirm'),
+    operatorIds: new Set(['ops-1', 'ops-confirm']),
+  });
   await app.ready();
   return app;
 }

@@ -19,6 +19,8 @@ export const ACTION_APPROVAL_MISSING = 'action_approval.missing' as const;
 export const ACTION_APPROVAL_NOT_FOUNDERS = 'action_approval.not_founders' as const;
 /** The typed operatorId is not the person identity recorded as the requester. */
 export const ACTION_APPROVAL_OPERATOR_MISMATCH = 'action_approval.operator_not_requester' as const;
+/** The approval identity returned is for another action, service or target than this door. */
+export const ACTION_APPROVAL_WRONG_ACTION = 'action_approval.wrong_action' as const;
 /** Proposer or approver does not hold an operator seat on this venue. */
 export const ACTION_APPROVAL_NOT_OPERATOR = 'action_approval.not_operator' as const;
 /** The venue has published no operator list, so no one may open. */
@@ -33,6 +35,7 @@ export class ActionApprovalConsumeError extends Error {
       | typeof ACTION_APPROVAL_NOT_FOUNDERS
       | typeof ACTION_APPROVAL_OPERATOR_MISMATCH
       | typeof ACTION_APPROVAL_NOT_OPERATOR
+      | typeof ACTION_APPROVAL_WRONG_ACTION
       | typeof ACTION_APPROVAL_OPERATORS_UNSET
       | 'action_approval.consume_failed',
   ) {
@@ -100,6 +103,7 @@ export function stubApprovalConsumer(approverId: string, requesterId = 'ops-1'):
       const parsed = actionApprovalConsumeInputSchema.parse(input);
       return actionApprovalSchema.parse({
         ...parsed,
+        // `halt:BTC-USDT` → `matching.halt`, `halt_all` → `matching.halt_all`, like the real doors.
         actionType: matchingActionTypeForTarget(parsed.targetId),
         requesterId,
         approverId,

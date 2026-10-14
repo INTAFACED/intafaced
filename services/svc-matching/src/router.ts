@@ -31,11 +31,13 @@ import { operatorRefuse, readConfirmOperatorId, readOperatorId } from './engine/
 import {
   ActionApprovalConsumeError,
   ACTION_APPROVAL_MISSING,
+  assertFounderAudienceAttestation,
   matchingActionPayloadHash,
   readApprovalIds,
   unwiredApprovalConsumer,
   sameUser,
   ACTION_APPROVAL_NOT_OPERATOR,
+  ACTION_APPROVAL_WRONG_ACTION,
   ACTION_APPROVAL_OPERATORS_UNSET,
   ACTION_APPROVAL_OPERATOR_MISMATCH,
   type ActionApprovalConsumer,
@@ -542,7 +544,6 @@ export function registerRoutes(
     actionType: string,
     fields: Record<string, string>,
     targetId: string,
-    guard: { readonly requireOperatorRole?: boolean } = {},
   ): Promise<
     | { readonly ok: true; readonly operatorId: string; readonly confirmOperatorId: string }
     | {
@@ -565,16 +566,11 @@ export function registerRoutes(
       const ids = readApprovalIds(parsed);
       // Stop early, before the single-use approval is spent: no operator list,
       // or a typed name that is not on it.
-      if (guard.requireOperatorRole) {
-        if (operatorIds.size === 0) {
-          return refuse(
-            ACTION_APPROVAL_OPERATORS_UNSET,
-            'MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator',
-          );
-        }
-        if (!isOperator(operatorId)) {
-          return refuse(ACTION_APPROVAL_NOT_OPERATOR, 'the requester is not an operator of this venue');
-        }
+      if (operatorIds.size === 0) {
+        return refuse(ACTION_APPROVAL_OPERATORS_UNSET, 'MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator');
+      }
+      if (!isOperator(operatorId)) {
+        return refuse(ACTION_APPROVAL_NOT_OPERATOR, 'the requester is not an operator of this venue');
       }
       const consumed = await approvals.consume({
         approvalId: ids.approvalId,
@@ -584,6 +580,17 @@ export function registerRoutes(
         targetId,
         expectedVersion: '1',
       });
+      // The approval must be for exactly this door and target. Identity stores the
+      // action label the proposer typed, so matching checks it rather than trusting
+      // the hash alone; a mislabelled approval for another action never runs here.
+      if (
+        consumed.actionType !== actionType ||
+        consumed.targetService !== 'svc-matching' ||
+        consumed.targetId !== targetId ||
+        consumed.status !== 'CONSUMED'
+      ) {
+        return refuse(ACTION_APPROVAL_WRONG_ACTION, `the approval is not for ${actionType} on ${targetId}`);
+      }
       // The body's operatorId is a claim. Identity recorded who actually
       // proposed; the two must be the same person.
       if (!sameUser(consumed.requesterId, operatorId)) {
@@ -594,9 +601,11 @@ export function registerRoutes(
       if (approverId === null || sameUser(approverId, consumed.requesterId)) {
         return refuse(ACTION_APPROVAL_MISSING, 'the approval has no distinct approver');
       }
-      if (guard.requireOperatorRole && (!isOperator(consumed.requesterId) || !isOperator(approverId))) {
+      if (!isOperator(consumed.requesterId) || !isOperator(approverId)) {
         return refuse(ACTION_APPROVAL_NOT_OPERATOR, 'both the proposer and the approver must be operators of this venue');
       }
+      // #4790 kept the founder-only audience for matching.* (protective brakes skip it).
+      assertFounderAudienceAttestation(consumed, { actionType, targetService: 'svc-matching', targetId });
       return { ok: true, operatorId: consumed.requesterId, confirmOperatorId: approverId };
     } catch (err) {
       if (err instanceof ActionApprovalConsumeError) {
@@ -1177,9 +1186,7 @@ export function registerRoutes(
       return reply.code(400).send({ code: 'BadRequest', issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
     }
 
-    const authz = await consumeVenueKill(parsed.data, 'matching.open', { marketId }, `open:${marketId}`, {
-      requireOperatorRole: true,
-    });
+    const authz = await consumeVenueKill(parsed.data, 'matching.open', { marketId }, `open:${marketId}`);
     if (!authz.ok && authz.status === 400) return reply.code(400).send(authz.body);
     if (!authz.ok) {
       return reply.code(200).send({
