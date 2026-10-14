@@ -37,12 +37,17 @@ export const LEDGER_STATEMENT_TIMEOUT_MS = 15_000;
  * session after this long and rolls the transaction back, which releases the
  * lock.
  *
- * It is also what makes the in-flight bound of a lost-reply post a number
- * rather than a hope. svc-bank refuses to release collateral for a pending loan
- * until 7 minutes after its last attempt: a signed call is refused after
- * SERVICE_CALL_MAX_SKEW_SECONDS (300 s), plus one 15 s statement, plus this 60 s
- * of idle time, plus the caller's 25 s retry deadline. Without this setting the
- * last term has no limit (docs/runbooks/bank-recovery-ops.md).
+ * It is also one term of the in-flight estimate for a lost-reply post. svc-bank
+ * refuses to release collateral for a pending loan until 7 minutes after its
+ * last attempt: a signed call is refused after SERVICE_CALL_MAX_SKEW_SECONDS
+ * (300 s), plus one 15 s statement, plus this 60 s of idle time, plus the
+ * caller's 25 s retry deadline. Without this setting the last term has no limit.
+ *
+ * It is evidence, NOT proof: it bounds each gap, not the whole posting
+ * transaction, and it does not bound time an accepted request spends queued in
+ * this pool (postgres.js has no acquire deadline, Fastify no request timeout).
+ * A ledger without this setting (mixed deploy) lacks the term entirely. See
+ * docs/runbooks/bank-recovery-ops.md and the ADR's phase 2.
  *
  * Same value as `packages/db`'s default, on purpose.
  */

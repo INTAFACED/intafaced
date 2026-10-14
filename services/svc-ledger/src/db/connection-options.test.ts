@@ -1,3 +1,4 @@
+import postgres from 'postgres';
 import { describe, expect, it } from 'vitest';
 import {
   LEDGER_CONNECT_TIMEOUT_S,
@@ -62,5 +63,18 @@ describe('ledger connection options', () => {
       ssl: 'require',
     });
     expect(ledgerPostgresOptions(ENV).ssl).toBe(false);
+  });
+
+  it('a real connection opened with these options runs with the 60 s idle-in-transaction limit', async () => {
+    const url = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
+    const sql = postgres(url, ledgerPostgresOptions({ ...ENV, DATABASE_POOL_MAX: 1 }));
+    try {
+      const [idle] = await sql<Array<{ idle_in_transaction_session_timeout: string }>>`SHOW idle_in_transaction_session_timeout`;
+      const [stmt] = await sql<Array<{ statement_timeout: string }>>`SHOW statement_timeout`;
+      expect(idle!.idle_in_transaction_session_timeout).toBe('1min');
+      expect(stmt!.statement_timeout).toBe('15s');
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
   });
 });

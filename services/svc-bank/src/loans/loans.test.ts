@@ -1690,6 +1690,73 @@ describe('svc-bank loans PG-hard', () => {
         expect(ok[0]!.outcome).toBe('completed');
       });
 
+      it('addCollateral refuses a PENDING loan: a top-up is for a drawn loan', async () => {
+        await fund(BORROWER, 'BTC', '2');
+        const product = await makeProduct();
+        await loans
+          .open({ loanId: LOAN_ID, productId: product.id, userId: BORROWER, collateralAmount: amt('1'), principal: amt('5000'), now })
+          .catch(() => undefined);
+
+        await expect(loans.addCollateral({ loanId: LOAN_ID, eventId: randomUUID(), amount: amt('1'), now })).rejects.toMatchObject({
+          code: 'bank.loan_not_drawable',
+        });
+        // Nothing moved: only the original 1 BTC is locked, the other 1 BTC is still the borrower's.
+        expect(formatAmount(await loans.collateralOf(await loans.loan(LOAN_ID)))).toBe('1');
+        expect(formatAmount((await ledger.balance(userAvailable(BORROWER, 'BTC'))).amount)).toBe('1');
+      });
+
+      it('abandon BLOCKS while a resume is inside its draw post, then sees the loan active', async () => {
+        await fund(BORROWER, 'BTC', '1');
+        const product = await makeProduct();
+        await loans
+          .open({ loanId: LOAN_ID, productId: product.id, userId: BORROWER, collateralAmount: amt('1'), principal: amt('5000'), now })
+          .catch(() => undefined);
+        await fundReserve('USDT', '100000');
+        // Old enough that the bound alone would let an abandon through.
+        await ageLastAttempt(LOAN_ID, LOAN_ATTEMPT_IN_FLIGHT_BOUND_SECONDS + 60);
+
+        // Park the resume inside its draw post.
+        const original = ledger.post.bind(ledger);
+        let entered!: () => void;
+        const inDraw = new Promise<void>((resolve) => (entered = resolve));
+        let open!: () => void;
+        const gate = new Promise<void>((resolve) => (open = resolve));
+        ledger.post = async (request) => {
+          if (request.idempotencyKey.startsWith('bank.loan.draw:')) {
+            entered();
+            await gate;
+          }
+          return original(request);
+        };
+
+        try {
+          const resume = loans.resumePending(100, now);
+          await inDraw;
+
+          const abandon = loans.abandonPending(LOAN_ID);
+          const settled = Symbol('settled');
+          const early = await Promise.race([
+            abandon.then(
+              () => settled,
+              () => settled,
+            ),
+            new Promise((r) => setTimeout(() => r('blocked'), 500)),
+          ]);
+          expect(early).toBe('blocked');
+          // Nothing was released while the draw was in flight.
+          expect(formatAmount(await loans.collateralOf(await loans.loan(LOAN_ID)))).toBe('1');
+
+          open();
+          expect(await resume).toEqual([{ loanId: LOAN_ID, outcome: 'completed' }]);
+          await expect(abandon).rejects.toThrow(/secures drawn principal/);
+        } finally {
+          open();
+          ledger.post = original;
+        }
+        expect((await loans.loan(LOAN_ID)).status).toBe('active');
+        expect(formatAmount(await loans.collateralOf(await loans.loan(LOAN_ID)))).toBe('1');
+      });
+
       it('resume treats a REJECTED collateral lock as final and does not post it again', async () => {
         // The borrower cannot fund the lock: the ledger definitely refuses it.
         const product = await makeProduct();

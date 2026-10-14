@@ -9,7 +9,7 @@ A bank money path writes a **claim row** first (`pending`), then posts to the le
 ## 1. The rule
 
 1. **Look the key up first.** A booked key is adopted at any age: the record catches up, nothing is re-posted.
-2. **Only an unbooked key may be re-sent or released**, and a release is allowed only when the ledger can no longer commit the original call (section 2.3).
+2. **Only an unbooked key may be re-sent or released**, and a release is allowed only once the original call is very unlikely to commit any more (section 2.3). That is evidence, not proof.
 3. **A definite refusal is final** (`ledger.insufficient_funds`, `ledger.invalid_entry`, `ledger.unbalanced`, `ledger.owner_identity_space`). Anything else (a timeout, a 5xx, an untyped body, `ledger.idempotency_conflict`) is an unknown outcome: the row stays `pending`, never `rejected`.
 
 ## 2. A pending loan (`bank.loans.status = 'pending'`)
@@ -44,7 +44,9 @@ A loan that fails step 3 stays pending. It is the borrower's collateral price th
 
 ### 2.2 Abandon: `ops.abandonPendingLoan` (scope `admin:treasury`, action approval required)
 
-Gives the collateral back and closes the loan, **only if the draw never booked**. In order:
+Gives the collateral back and closes the loan, **only if the draw never booked**.
+
+**Always, before every abandon: check svc-ledger health.** No posting backlog (requests queued or slow posts in svc-ledger), and no long sessions in the ledger database (`pg_stat_activity`, any `state` of `active` or `idle in transaction` older than a minute). If the ledger is overloaded or recovering, do not abandon yet: that is exactly when an accepted post can still be waiting in its queue (2.3). If a late draw lands after an abandon, the borrower keeps the principal, gets the collateral back, and the loan is marked `repaid`: a platform loss. In order:
 
 1. **The draw key is looked up.** If it is **booked**, the loan is **adopted**: it becomes `active` with the draw's transaction, **no collateral moves**, and the loan is never marked repaid. The answer says `adopted: true` and `drawLedgerTxId`. (Before this change the door released the collateral anyway, which left the drawn principal unsecured.)
 2. **Not booked, and the last attempt is less than 7 minutes old** (database clock): refused with **HTTP 409 / tRPC `CONFLICT`, code `bank.loan_attempt_too_recent`**, and the message says how many seconds to wait. Nothing moved. Retry after that time. As the door is written today it consumes the action approval before it calls the service, so a refused attempt uses its approval up: get a new one for the retry.
@@ -54,7 +56,7 @@ An `abandon` and a `resume` of the same loan cannot run at the same time: both t
 
 ### 2.3 Why 7 minutes
 
-The ledger can still commit a call after the caller gave up on it. "The key is not booked" is therefore only safe to act on once the original call can no longer arrive or finish. Four limits add up:
+The ledger can still commit a call after the caller gave up on it. "The key is not booked" is therefore only reasonably safe to act on once the original call has had time to arrive and finish. Four limits add up:
 
 | Term                                                                                                  | Value | Where it lives                                                                                               |
 | ----------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------ |
@@ -66,7 +68,13 @@ The ledger can still commit a call after the caller gave up on it. "The key is n
 
 The last three alone (300 s + 15 s + 60 s = 375 s) already exceed six minutes, which is why the bound is seven and not six. If any of the four limits changes, change the constant with it. A test pins the ledger's idle limit and a test per side of the bound pins the behaviour.
 
-**Until svc-ledger with the idle-in-transaction limit is deployed, the 60 s term is a hope, not a limit.** Do not abandon a loan on the bound alone in that window if the ledger is unhealthy: check the ledger for long-running transactions (`pg_stat_activity` where `state = 'idle in transaction'` in the ledger database) first.
+**The 7 minutes is strong evidence, not proof.** The sum leaves out time a request can spend inside svc-ledger after its signature check:
+
+- Fastify has no request timeout (`services/svc-ledger/src/index.ts`), and postgres.js queues queries with no acquire deadline when the pool is busy. An overloaded ledger, which is exactly when replies get lost, can hold an accepted post in its pool queue for more than 7 minutes.
+- `statement_timeout` and the idle limit bound each statement and each gap, not the whole multi-statement posting transaction.
+- Until svc-ledger with the idle-in-transaction limit is deployed (a mixed deploy, or an old ledger), the 60 s term does not exist at all.
+
+If a late draw lands after an abandon, the borrower keeps the principal, the collateral is returned and the loan is marked `repaid`: a platform loss. That is why the health check in 2.2 is an always-on step. The real fence is phase 2 of the ADR: inside the chain-tip lock, refuse a post whose signed timestamp is older than N seconds, read by `clock_timestamp()` (small and stateless).
 
 ## 3. A pending earn deposit (`bank.earn_positions.status = 'pending'`)
 
@@ -92,6 +100,11 @@ SELECT 'auto_invest_run', id::text, status::text, created_at FROM bank.auto_inve
 ORDER BY created_at;
 ```
 
-## 5. Not decided here
+## 5. Known follow-ups (no code yet)
+
+- **Earn: resume against a customer's same-id deposit.** `resumePending` deletes a claim on a definite refusal. If the customer's own same-id `deposit` re-drive commits its post after that delete, the stake exists in the ledger with no position row. Fix: a per-position lock, or have `activatePending` re-insert the row. Rare, but real.
+- **Loan adoption `drawn_at`** is the adoption time, not the ledger's booking time. Optionally take it from the booked transaction's `postedAt`.
+
+## 6. Not decided here
 
 Whether an old, unbooked request may still be booked is **not** limited by age in this change, apart from the loan draw's price check. The ADR records why expiry windows were dropped for now, what is next (a fence for price-dependent system posts, then scheduled recovery jobs with age alerts), and when to revisit.

@@ -134,8 +134,9 @@ import {
  */
 
 /**
- * How long after its last post attempt a pending loan's ledger call may still
- * commit, in seconds. Used by `abandonPending` before it releases collateral.
+ * How long after its last post attempt a pending loan's ledger call is
+ * expected to be able to commit, in seconds. Used by `abandonPending` before it
+ * releases collateral.
  *
  *   - 25 s   the caller's retry deadline: the last signed attempt starts up to
  *            25 s after `touchAttempt` wrote the timestamp
@@ -143,11 +144,23 @@ import {
  *            older than that, so a delayed request can start up to 300 s late
  *   - 15 s   `statement_timeout` on svc-ledger's pool
  *   - 60 s   `idle_in_transaction_session_timeout` on svc-ledger's pool (the
- *            ledger posting transaction cannot sit open longer than this
+ *            ledger posting transaction cannot sit idle longer than this
  *            between statements)
  *
  * 400 s, rounded up to 7 minutes. docs/runbooks/bank-recovery-ops.md. If any of
  * the four moves, this moves with it.
+ *
+ * RESIDUAL, STATED HONESTLY: this is strong evidence, not proof. The sum leaves
+ * out time a request can spend inside svc-ledger AFTER its signature check:
+ * Fastify has no request timeout (`svc-ledger/src/index.ts`), and postgres.js
+ * queues queries with no acquire deadline when the pool is busy, so an
+ * overloaded ledger (exactly when replies get lost) can hold an accepted post
+ * in its pool queue past 7 minutes. `statement_timeout` and the idle limit bound
+ * each statement and each gap, not the whole multi-statement posting
+ * transaction. A late draw that lands after an abandon leaves the borrower with
+ * the principal AND the collateral back, and the loan marked repaid: a platform
+ * loss. Check svc-ledger health before every abandon (runbook 2.2). The real
+ * fence is phase 2 of the ADR.
  */
 export const LOAN_ATTEMPT_IN_FLIGHT_BOUND_SECONDS = 7 * 60;
 
@@ -1009,6 +1022,15 @@ export class LoanService {
     const loan = await this.loan(input.loanId);
     if (loan.status === 'repaid' || loan.status === 'liquidated') {
       throw new BankError(`Loan ${loan.id} is ${loan.status}`, 'bank.loan_closed');
+    }
+    if (loan.status === 'pending') {
+      // A top-up is for a drawn loan. On a pending one it would take neither the
+      // open lock nor move the last-attempt time, so it could land beside an
+      // abandon and strand the borrower's funds. Same code as releaseExcess.
+      throw new BankError(
+        `Loan ${loan.id} is pending — it has no drawn principal to secure; resume or abandon it rather than topping it up`,
+        'bank.loan_not_drawable',
+      );
     }
     if (input.amount <= 0n) throw new BankError('Collateral top-up must be positive', 'bank.below_minimum');
 
