@@ -155,7 +155,11 @@ function EarnBody() {
               <TabsTab value="redeem">{t('Redeem')}</TabsTab>
             </TabsList>
             <TabsPanel value="subscribe" className="ern-ticket__body">
-              {selected ? <SubscribeForm key={selected.id} product={selected} /> : <p className="if-preview__note">{t('Pick a product')}</p>}
+              {selected ? (
+                <SubscribeForm key={selected.id} product={selected} />
+              ) : (
+                <p className="if-preview__note">{t('Pick a product')}</p>
+              )}
             </TabsPanel>
             <TabsPanel value="redeem" className="ern-ticket__body">
               <RedeemForm />
