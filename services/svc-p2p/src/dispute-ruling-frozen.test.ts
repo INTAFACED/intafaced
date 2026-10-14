@@ -180,18 +180,34 @@ describe('a resolved dispute ruling cannot change', () => {
     expect(trades[0]?.amount).toBe(ORIGINAL_AMOUNT);
     expect(trades[0]?.escrow_amount).toBe(ORIGINAL_AMOUNT);
 
-    await sql`
-      UPDATE p2p.p2p_disputes
-         SET resolution_notes = 'ruling stands'
-       WHERE trade_id = ${TRADE}
-    `;
+    let notesRefusal: string | null = null;
+    try {
+      await sql`
+        UPDATE p2p.p2p_disputes
+           SET resolution_notes = 'ruling stands'
+         WHERE trade_id = ${TRADE}
+      `;
+    } catch (err) {
+      notesRefusal = err instanceof Error ? err.message : String(err);
+    }
+
+    expect(notesRefusal ?? 'UPDATE was allowed').toMatch(/p2p_disputes_resolved_ruling_frozen/);
+
     const noted = await sql<Array<{ resolution: string | null; resolution_notes: string | null }>>`
       SELECT resolution::text AS resolution, resolution_notes
         FROM p2p.p2p_disputes
        WHERE trade_id = ${TRADE}
     `;
     expect(noted[0]?.resolution).toBe('release');
-    expect(noted[0]?.resolution_notes).toBe('ruling stands');
+    expect(noted[0]?.resolution_notes).toBeNull();
+
+    const stillLocked = await sql<Array<{ amount: string; escrow_amount: string | null }>>`
+      SELECT amount::text AS amount, escrow_amount::text AS escrow_amount
+        FROM p2p.p2p_trades
+       WHERE id = ${TRADE}
+    `;
+    expect(stillLocked[0]?.amount).toBe(ORIGINAL_AMOUNT);
+    expect(stillLocked[0]?.escrow_amount).toBe(ORIGINAL_AMOUNT);
   });
 
   it('refuses to rewrite refund to release after escrow moved and leaves the ruling and the locked amount', async () => {

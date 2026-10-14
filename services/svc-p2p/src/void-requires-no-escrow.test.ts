@@ -126,7 +126,7 @@ describe('a voided trade cannot already be escrowed', () => {
       refusal = err instanceof Error ? err.message : String(err);
     }
 
-    expect(refusal ?? 'UPDATE was allowed').toMatch(/p2p_trades_voided_requires_no_escrow_ck/);
+    expect(refusal ?? 'UPDATE was allowed').toMatch(/unresolved escrow lock attempts cannot be voided/);
 
     const rows = await sql<
       Array<{
@@ -169,7 +169,7 @@ describe('a voided trade cannot already be escrowed', () => {
       refusal = err instanceof Error ? err.message : String(err);
     }
 
-    expect(refusal ?? 'UPDATE was allowed').toMatch(/p2p_trades_voided_requires_no_escrow_ck/);
+    expect(refusal ?? 'UPDATE was allowed').toMatch(/unresolved escrow lock attempts cannot be voided/);
 
     const rows = await sql<Array<{ amount: string; escrow_amount: string | null; escrowed_at: Date | null; resolution: string | null }>>`
       SELECT amount::text AS amount,
@@ -186,13 +186,20 @@ describe('a voided trade cannot already be escrowed', () => {
   });
 
   it('refuses a void after an earlier statement cleared escrowed_at', async () => {
-    await sql`
-      UPDATE p2p.p2p_trades
-         SET status = 'created',
-             escrowed_at = NULL,
-             deadline_at = now() + interval '15 minutes'
-       WHERE id = ${TRADE}
-    `;
+    let cleared: string | null = null;
+    try {
+      await sql`
+        UPDATE p2p.p2p_trades
+           SET status = 'created',
+               escrowed_at = NULL,
+               deadline_at = now() + interval '15 minutes'
+         WHERE id = ${TRADE}
+      `;
+    } catch (err) {
+      cleared = err instanceof Error ? err.message : String(err);
+    }
+
+    expect(cleared ?? 'UPDATE was allowed').toMatch(/escrow stamp cannot change or be cleared/);
 
     let refusal: string | null = null;
     try {
@@ -208,7 +215,7 @@ describe('a voided trade cannot already be escrowed', () => {
       refusal = err instanceof Error ? err.message : String(err);
     }
 
-    expect(refusal ?? 'UPDATE was allowed').toMatch(/p2p_trades_voided_requires_no_escrow_ck/);
+    expect(refusal ?? 'UPDATE was allowed').toMatch(/unresolved escrow lock attempts cannot be voided/);
 
     const rows = await sql<Array<{ amount: string; escrow_amount: string | null; resolution: string | null }>>`
       SELECT amount::text AS amount,

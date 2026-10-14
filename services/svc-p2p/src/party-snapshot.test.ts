@@ -94,10 +94,10 @@ describe('p2p trade party snapshot', () => {
 
   it('refuses to re-point seller_id or buyer_id on an open trade', async () => {
     await expect(sql`UPDATE p2p.p2p_trades SET seller_id = ${OTHER} WHERE id = ${TRADE}`).rejects.toThrow(
-      /snapshotted at take/,
+      /immutable original terms cannot change/,
     );
     await expect(sql`UPDATE p2p.p2p_trades SET buyer_id = ${OTHER} WHERE id = ${TRADE}`).rejects.toThrow(
-      /snapshotted at take/,
+      /immutable original terms cannot change/,
     );
 
     const parties = await sql<Array<{ seller_id: string; buyer_id: string }>>`
