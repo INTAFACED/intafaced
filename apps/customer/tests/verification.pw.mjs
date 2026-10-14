@@ -99,18 +99,18 @@ async function login(page, path = '/verification') {
   await expect(page).toHaveURL(new URL(path, test.info().project.use.baseURL).href);
 }
 async function signOut(page) {
-  await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
 }
 async function nativeReturn(page) {
   await page.goBack();
   await expect(page).toHaveURL(/\/verification$/);
 }
-const records = (page) => page.getByRole('region', { name: 'Verification records', exact: true });
+const records = (page) => page.getByRole('region', { name: 'Your requests', exact: true });
 const originals = (page) => page.getByRole('region', { name: 'Original verification requests', exact: true });
 const count = (s) => s.writes.filter((w) => w.procedure === 'kyc.submit').length;
 async function review(page, tier = 'full', country = 'de') {
-  await page.getByRole('combobox', { name: 'Requested tier', exact: true }).selectOption(tier);
+  await page.getByRole('combobox', { name: 'Level to request', exact: true }).selectOption(tier);
   await page.getByRole('textbox', { name: 'Country code', exact: true }).fill(country);
   await page.locator('form').getByRole('button', { name: 'Review request', exact: true }).click();
 }
@@ -189,8 +189,8 @@ test('50 full rows increment 100/150/200 and narrow form/selected record remain 
   const s = await network(context, { rows });
   await page.setViewportSize({ width: 320, height: 760 });
   await login(page);
-  await page.getByRole('button', { name: 'Request review', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'Country code', exact: true })).toBeFocused();
+  // The request form sits directly under the level, so there is no jump button; it is reachable as it is.
+  await expect(page.getByRole('textbox', { name: 'Country code', exact: true })).toBeVisible();
   for (const limit of [100, 150, 200]) {
     await page.getByRole('button', { name: `Load up to ${limit} records`, exact: true }).click();
     await expect(records(page).locator('li')).toHaveCount(limit);
@@ -507,7 +507,7 @@ test('late owned GET cannot contaminate a new owner', async ({ context, page }) 
   s.owner = other;
   await login(page);
   hold.release();
-  await expect(records(page)).toContainText('No verification records returned');
+  await expect(records(page)).toContainText('No requests yet');
   await expect(page.locator('#main')).not.toContainText(a);
   expect(count(s)).toBe(0);
 });

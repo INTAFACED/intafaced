@@ -62,7 +62,7 @@ export async function createSupportHttpApp(deps: SupportHttpAppDeps): Promise<Fa
     prefix: '/trpc',
     trpcOptions: {
       router: deps.router,
-      createContext: ({ req }) => deps.edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => deps.edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<SupportRouter>['trpcOptions'],
   });
 

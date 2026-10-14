@@ -1,0 +1,527 @@
+/*
+ * The signed-in shell: top bar (UI-SPEC 3.1), phone tab bar and the dev ribbon.
+ * Colours read the --if-* tokens from @intafaced/ui (imported in main.tsx via app/redesign.css).
+ *
+ * Everything sits in `@layer components`. Unlayered CSS beats every layer whatever its specificity, so an
+ * unlayered rule here would override the kit's Tailwind utilities (critic H1: `:where(.tb) button{padding:0}`
+ * would break any kit Button placed in the bar). The order is declared again so it holds in any bundle order.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .if-app {
+    --tb-bg: var(--if-bg);
+    --tb-panel: var(--if-panel);
+    --tb-field: var(--if-field);
+    --tb-hover: var(--if-hover);
+    --tb-raised: var(--if-raised);
+    --tb-line: var(--if-line);
+    --tb-fg: var(--if-fg);
+    --tb-fg-2: var(--if-fg-2);
+    --tb-fg-3: var(--if-fg-3);
+    --tb-lime: var(--if-lime);
+    --tb-on-lime: var(--if-on-lime);
+    --tb-ease: var(--if-ease);
+    min-height: 100dvh;
+    background: var(--tb-bg);
+    color: var(--tb-fg);
+  }
+  .if-app *,
+  .if-app *::before,
+  .if-app *::after {
+    box-sizing: border-box;
+  }
+  .if-app > main {
+    min-width: 0;
+  }
+  .if-app > main:focus,
+  .if-app > main:focus-visible {
+    /* main only takes focus when the room arrives (room-arrival.ts), never from the keyboard */
+    outline: none;
+  }
+
+  /* Top bar */
+  .tb {
+    position: sticky;
+    top: var(--if-banner-offset, 0px);
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    height: 48px;
+    padding: 0 24px;
+    background: var(--tb-bg);
+    border-bottom: 1px solid var(--tb-line);
+  }
+  :where(.tb) a,
+  :where(.tb) button {
+    color: inherit;
+    text-decoration: none;
+    font: inherit;
+  }
+  :where(.tb) button {
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+  .tb a:focus-visible,
+  .tb button:focus-visible,
+  .tb input:focus-visible {
+    outline: 2px solid var(--tb-lime);
+    outline-offset: 2px;
+  }
+  .tb ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .tb-brand {
+    display: inline-flex;
+    align-items: center;
+  }
+  .tb-nav {
+    align-self: stretch;
+  }
+  .tb-nav > ul {
+    display: flex;
+    gap: 24px;
+    height: 100%;
+  }
+  .tb-item {
+    position: relative;
+    display: flex;
+    height: 100%;
+  }
+  .tb-tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 100%;
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 500;
+    color: var(--tb-fg-2);
+  }
+  .tb-chev {
+    flex: none;
+    transition: transform var(--if-t-fast) var(--tb-ease);
+  }
+  .tb-item--open .tb-chev {
+    transform: rotate(180deg);
+  }
+  .tb-tab:hover,
+  .tb-item--open .tb-tab,
+  .tb-tab[aria-current='page'] {
+    color: var(--tb-fg);
+  }
+  .tb-tab[aria-current='page']::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background: var(--tb-lime);
+  }
+
+  /* Popovers: dark panel, 1 px line, one shadow */
+  .tb-popover {
+    position: absolute;
+    z-index: 50;
+    background: var(--tb-panel);
+    border: 1px solid var(--if-line-popup);
+    border-radius: 16px;
+    box-shadow: var(--if-shadow-menu);
+    padding: 8px;
+    animation: tb-pop var(--if-t-menu, 160ms) var(--tb-ease);
+  }
+  @keyframes tb-pop {
+    from {
+      opacity: 0;
+      transform: scale(0.98);
+    }
+  }
+  .tb-menu {
+    top: calc(100% - 4px);
+    left: -16px;
+    width: 340px;
+  }
+  .tb-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 56px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    color: var(--tb-fg);
+  }
+  .tb-menu-item:hover,
+  .tb-menu-item:focus-visible {
+    background: var(--tb-hover);
+  }
+  .tb-menu-item > svg {
+    flex: none;
+    color: var(--tb-fg-2);
+  }
+  .tb-menu-item span {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .tb-menu-item strong {
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 500;
+  }
+  .tb-menu-item small {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--tb-fg-2);
+  }
+
+  /* Right cluster */
+  .tb-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+  }
+  .tb-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 240px;
+    height: 32px;
+    padding: 0 12px;
+    background: var(--tb-field);
+    border-radius: 999px;
+    color: var(--tb-fg-2);
+  }
+  .tb-search:focus-within {
+    outline: 2px solid var(--tb-lime);
+    outline-offset: 2px;
+  }
+  .tb-search input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--tb-fg);
+    font: inherit;
+    font-size: 13px;
+  }
+  .tb-search input:focus-visible {
+    outline: none;
+  }
+  .tb-search input::placeholder {
+    color: var(--tb-fg-3);
+  }
+  .tb-search svg {
+    flex: none;
+  }
+  .tb-search kbd {
+    flex: none;
+    font: inherit;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--tb-fg-3);
+  }
+  .tb-search-panel {
+    top: calc(100% + 8px);
+    right: 0;
+    width: 480px;
+    max-height: min(70vh, 520px);
+    overflow-y: auto;
+  }
+  .tb-search-panel ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .tb-group-title {
+    padding: 8px 12px 4px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--tb-fg-2);
+  }
+  .tb-option {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--tb-fg);
+    cursor: pointer;
+  }
+  .tb-option[aria-selected='true'] {
+    background: var(--tb-hover);
+  }
+  .tb-option-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .tb-option .tb-option-name {
+    text-align: left;
+  }
+  .tb-option-price {
+    font-variant-numeric: tabular-nums;
+  }
+  .tb-option small {
+    font-size: 12px;
+    color: var(--tb-fg-2);
+    text-align: right;
+  }
+  .tb-empty {
+    margin: 0;
+    padding: 16px 12px;
+    font-size: 14px;
+    color: var(--tb-fg-2);
+  }
+  .tb-icon-button {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    color: var(--tb-fg-2);
+  }
+  .tb-icon-button:hover,
+  .tb-icon-button[aria-expanded='true'] {
+    color: var(--tb-fg);
+    background: var(--tb-hover);
+  }
+  .tb-badge {
+    position: absolute;
+    top: -2px;
+    right: -4px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--tb-lime);
+    color: var(--tb-on-lime);
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .tb-account {
+    position: relative;
+  }
+  .tb-account-menu {
+    top: calc(100% + 8px);
+    right: 0;
+    width: 200px;
+  }
+  .tb-account-item {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 20px;
+    text-align: left;
+    color: var(--tb-fg);
+  }
+  .tb-account-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+  .tb-account-mode__label {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--tb-fg-2);
+  }
+  .tb-account-divider {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--tb-line);
+  }
+  .tb-account-item:hover,
+  .tb-account-item:focus-visible {
+    background: var(--tb-hover);
+  }
+  .tb-login {
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .tb-signup {
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 16px;
+    border: 1px solid var(--tb-fg);
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .tb-note {
+    margin: 0;
+    padding: 12px 24px;
+    font-size: 14px;
+    color: var(--tb-fg-2);
+  }
+
+  /* Old screens inside the new shell */
+  .legacy-room {
+    min-width: 0;
+  }
+
+  /* Dev builds: why a hidden screen is open */
+  .dev-ribbon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    margin: 8px 24px 0;
+    border: 1px solid var(--tb-lime);
+    border-radius: 4px;
+    color: var(--tb-lime);
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .tb-dev {
+    max-width: 1224px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+  }
+  .tb-dev h1 {
+    margin: 0 0 8px;
+    font-size: 28px;
+    line-height: 36px;
+    letter-spacing: -0.02em;
+  }
+  .tb-dev p {
+    margin: 0 0 24px;
+    color: var(--tb-fg-2);
+  }
+  .tb-dev-scroll {
+    overflow-x: auto;
+  }
+  .tb-dev table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    line-height: 18px;
+  }
+  .tb-dev th,
+  .tb-dev td {
+    padding: 10px 12px 10px 0;
+    border-top: 1px solid var(--tb-line);
+    text-align: left;
+    vertical-align: top;
+  }
+  .tb-dev thead th {
+    border-top: 0;
+    font-weight: 400;
+    color: var(--tb-fg-2);
+    white-space: nowrap;
+  }
+  .tb-dev tbody th small {
+    display: block;
+    font-weight: 400;
+    color: var(--tb-fg-2);
+  }
+  .tb-dev code {
+    display: block;
+    font-family: var(--if-font-mono, ui-monospace, monospace);
+    font-size: 12px;
+  }
+  .tb-tag {
+    display: inline-block;
+    padding: 0 8px;
+    border: 1px solid var(--tb-line);
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: 500;
+  }
+  .tb-tag--live {
+    border-color: var(--tb-lime);
+    color: var(--tb-lime);
+  }
+  .tb-tag--hidden {
+    color: var(--tb-fg-2);
+  }
+
+  /* Below 1000 px the 240 px search shrinks to an icon button: tabs, search, bell and account no longer fit side by side (768 px overflowed by 75 px). The input stays in place, transparent, so a tap still opens the results and Cmd+K still focuses it. */
+  @media (max-width: 999px) {
+    .tb-search kbd {
+      display: none;
+    }
+    .tb-search {
+      width: 32px;
+      padding: 0;
+      justify-content: center;
+      background: none;
+    }
+    .tb-search input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+    }
+  }
+
+  /* Phone */
+  .mobile-doors {
+    display: none;
+  }
+  @media (max-width: 767px) {
+    .tb {
+      gap: 12px;
+      padding: 0 16px;
+    }
+    .tb-nav {
+      display: none;
+    }
+    .if-app {
+      padding-bottom: 64px;
+    }
+    .mobile-doors {
+      display: flex;
+      position: fixed;
+      inset: auto 0 0;
+      z-index: 40;
+      background: var(--tb-bg);
+      border-top: 1px solid var(--tb-line);
+      padding: 6px 8px max(6px, env(safe-area-inset-bottom));
+    }
+    .mobile-doors a {
+      flex: 1;
+      min-height: 48px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      color: var(--tb-fg-2);
+      font-size: 12px;
+      text-decoration: none;
+    }
+    .mobile-doors a[aria-current='page'] {
+      color: var(--tb-lime);
+    }
+    .tb-search-panel {
+      position: fixed;
+      top: calc(48px + var(--if-banner-offset, 0px));
+      left: 8px;
+      right: 8px;
+      width: auto;
+    }
+    .tb-menu {
+      display: none;
+    }
+  }
+}

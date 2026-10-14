@@ -44,6 +44,13 @@ export interface ActivityItem {
   readonly txId: string;
   readonly counterparty: { readonly handle: string } | null;
   readonly spaceName: string | null;
+  /**
+   * The user's own trade order this line belongs to, only when the ledger links the posting to one:
+   * a fill leg, an order hold, a hold amend or a release. Omitted for every other line. A fill carries
+   * the order of the user whose line it is (never the counterparty's), so a screen can group one
+   * order's lines exactly instead of guessing by time.
+   */
+  readonly orderId?: string;
 }
 
 export interface ActivityPage {
@@ -64,6 +71,8 @@ export interface LedgerPageEntry {
   readonly entryId?: string;
   /** Allow-listed rail of a deposit posting, else null. Absent until svc-ledger sends it. */
   readonly rail?: string | null;
+  /** The page owner's own trade order this posting belongs to, else null. Absent until svc-ledger sends it. */
+  readonly orderId?: string | null;
 }
 
 export interface LedgerPageRequest {
@@ -298,6 +307,7 @@ export class ActivityService {
         txId: entry.txId,
         counterparty: null,
         spaceName: queue.owner.spaceName,
+        ...(typeof entry.orderId === 'string' && entry.orderId !== '' ? { orderId: entry.orderId } : {}),
       };
     });
 

@@ -335,7 +335,7 @@ const SOURCE_DECLARATION =
  * auth file. `authToken`/`apiToken`-shaped names still match.
  */
 const SECRET_IDENTIFIER =
-  /(?:^|[._$-])(?:pass(?:word|wd|phrase)|secret|secretkey|privatekey|apikey|api_key|accesskey|access_key|credential|authtoken|auth_token|apitoken|api_token)s?$|^(?:secret|password|passphrase|privatekey|private_key|apikey|api_key|accesskey|access_key)[a-z0-9_$]*$/i;
+  /(?:^|[._$-])(?:pass(?:word|wd|phrase)|secret|secretkey|privatekey|apikey|api_key|accesskey|access_key|credential|authtoken|auth_token|apitoken|api_token)s?$|^(?:secret|password|passphrase|privatekey|private_key|apikey|api_key|accesskey|access_key|apitoken|api_token|authtoken|auth_token)[a-z0-9_$]*$/i;
 
 /**
  * Minimum literal length before a credential-named identifier is a finding.
@@ -580,6 +580,60 @@ const isAttributeNameField = (key, value) => key === 'key' && ATTRIBUTE_NAME_VAL
  */
 const isMatchedDevPair = (user, password) => user.toLowerCase() === password.toLowerCase();
 
+/**
+ * A config value that is a list of relative FILE PATHS under a key literally
+ * named `tokens`: `"tokens": ["src/app/globals.css", "../ui/tokens.css"]`.
+ *
+ * `apps/admin/.21st/design.json` (the 21st design-context file) names its
+ * design-token SOURCES under a key called `tokens`. The key reads as a
+ * credential; the value is where the design tokens are defined. Three things
+ * must ALL hold, so the carve-out cannot hide a credential:
+ *   · the key is exactly `tokens` (`"password": ["p@ss/x.k9"]` and
+ *     `api_key: ["x/y.abc"]` are still findings);
+ *   · every element is a quoted string that contains a `/` AND ends in a file
+ *     extension, so a list holding one real secret (`["MUTANT-..."]`,
+ *     `["hunter2"]`, a base64 blob) is still a finding;
+ *   · no element contains `:` or `@`, so a URL with credentials in it
+ *     (`https://user:pw@host/a.json`) is still a finding.
+ * A scalar is never matched.
+ * @param {string} key the assignment key, unquoted
+ * @param {string} rawValue the text after the `:` / `=`, trailing comma allowed
+ */
+const FILE_PATH_ELEMENT = String.raw`"[^"\s:@]*\/[^"\s:@]*\.[A-Za-z0-9]{1,8}"`;
+const FILE_PATH_LIST = new RegExp(String.raw`^\[\s*${FILE_PATH_ELEMENT}(?:\s*,\s*${FILE_PATH_ELEMENT})*\s*\]\s*,?$`);
+const isFilePathList = (key, rawValue) => /^tokens$/i.test(key) && FILE_PATH_LIST.test(rawValue.trim());
+
+/**
+ * A source constant that holds the NAME of an environment variable, or a URL
+ * route, not a credential.
+ *
+ *   public static final String SECRET_ENV = "INTERNAL_SERVICE_SECRET";   // the env var's name
+ *   export const API_KEY_OWNERSHIP_PATH = '/internal/api-keys';           // an HTTP route
+ *
+ * Both identifiers START with a credential word, so the identifier rule fires.
+ * Both are told apart by BOTH halves matching, never by the value alone:
+ *   · the identifier ENDS in `_ENV`/`_ENV_NAME`/`_ENV_VAR` and the value is an
+ *     UPPER_SNAKE_CASE name made of LETTERS ONLY with at least one underscore
+ *     (no digits: `PROD_ADMIN_PW_2026_XK9Q` is a password, not a name); or
+ *   · the identifier ENDS in `_PATH`/`_ROUTE`/`_ENDPOINT`/`_URL`/`_URI` and the
+ *     value is a route: `/`-rooted segments that are lowercase words (hyphens
+ *     allowed), `v1`-style versions, `{param}` or `:param`. Upper-case letters,
+ *     digits inside a word, `_`, `.` and `~` are not route segments, so
+ *     `/MUTANT-...`, `/services/T0AAAA/B0BBBB/<token>` and `/v1/sk_live_...`
+ *     are still findings.
+ * `SECRET_ENV = "hunter2xyz"` and `API_KEY_PATH = "Zm9vYmFy"` are still findings.
+ * @param {string} normalisedName identifier after camelCase to snake_case
+ * @param {string} value
+ */
+const ENV_NAME_VALUE = /^[A-Z]+(?:_[A-Z]+)+$/;
+const ROUTE_VALUE = /^(?:\/(?:[a-z]+(?:-[a-z]+)*|v\d+|\{[A-Za-z]+\}|:[A-Za-z]+))+\/?$/;
+const isPointerNotSecret = (normalisedName, value) => {
+  const v = value.trim();
+  if (/(?:^|_)ENV(?:_NAME|_VAR)?$/i.test(normalisedName) && ENV_NAME_VALUE.test(v)) return true;
+  if (/_(?:PATH|ROUTE|ENDPOINT|URL|URI)$/i.test(normalisedName) && ROUTE_VALUE.test(v)) return true;
+  return false;
+};
+
 const violations = [];
 let filesScanned = 0;
 let sourceFilesScanned = 0;
@@ -674,7 +728,7 @@ for (const rel of tracked()) {
         assignmentsChecked++;
         if (declaredUsernames.has(value.toLowerCase()) && value.trim() !== '') {
           // password === a username declared in this same file: the dev convention.
-        } else if (!isPlaceholder(value)) {
+        } else if (!isPlaceholder(value) && !isFilePathList(key, rawValue)) {
           violations.push({
             check: 'committed-credential',
             file: rel,
@@ -735,6 +789,7 @@ for (const rel of tracked()) {
         if (!SECRET_IDENTIFIER.test(normalised) && !SECRET_IDENTIFIER.test(name)) continue;
         if (value.trim().length < MIN_SOURCE_LITERAL_LENGTH) continue;
         if (isPlaceholder(value)) continue;
+        if (isPointerNotSecret(normalised, value)) continue;
         assignmentsChecked++;
         violations.push({
           check: 'source-credential-literal',

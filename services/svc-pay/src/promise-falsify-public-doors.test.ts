@@ -274,7 +274,7 @@ async function mountDoors(opts: { pay?: PayStubs; subs?: SubStubs; trees?: SubMe
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
   });
   registerSubscriptionCycleRoutes(app, {
@@ -467,7 +467,7 @@ describe('D26-P2-01b public doors — mandate refuse invent rails / rates', () =
       prefix: '/trpc',
       trpcOptions: {
         router,
-        createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+        createContext: ({ req }) => edgeContext(req),
       } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
     });
     await app.ready();
@@ -515,7 +515,7 @@ describe('D26-P2-01b public doors — mandate refuse invent rails / rates', () =
       prefix: '/trpc',
       trpcOptions: {
         router,
-        createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+        createContext: ({ req }) => edgeContext(req),
       } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
     });
     await app.ready();
