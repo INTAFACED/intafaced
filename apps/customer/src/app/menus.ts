@@ -29,7 +29,10 @@ type PlainKey =
   | 'Display, language and notifications'
   | 'Account'
   | 'Security'
-  | 'Verification';
+  | 'Verification'
+  | 'API keys'
+  | 'Sub-accounts'
+  | 'Fees';
 export interface MenuItem {
   id: string;
   href: string;
@@ -106,5 +109,8 @@ export const accountMenu: ReadonlyArray<{ href: string; title: PlainKey }> = [
   { href: '/uc/account', title: 'Account' },
   { href: '/uc/safe', title: 'Security' },
   { href: '/verification', title: 'Verification' },
+  { href: '/uc/api', title: 'API keys' },
+  { href: '/uc/sub-accounts', title: 'Sub-accounts' },
+  { href: '/uc/fees', title: 'Fees' },
   { href: '/view', title: 'Settings' },
 ];

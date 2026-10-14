@@ -21,4 +21,7 @@ export const screens: Record<ScreenId, ScreenComponent> = {
   more: lazy(() => import('../screens/more')),
   notifications: lazy(() => import('../screens/notifications')),
   account: lazy(() => import('../screens/account')),
+  'account-tools/api-keys': lazy(() => import('../screens/account-tools/api-keys')),
+  'account-tools/sub-accounts': lazy(() => import('../screens/account-tools/sub-accounts')),
+  'account-tools/fees': lazy(() => import('../screens/account-tools/fees')),
 };

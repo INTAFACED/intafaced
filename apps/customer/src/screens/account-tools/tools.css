@@ -1,0 +1,476 @@
+/*
+ * Account tools (M9): API keys, Sub-accounts, Fees. Only --if-* tokens: no colour values live here.
+ *
+ * The whole file is in `@layer components`. The Account frame (`screens/account/account.css`, imported by the frame)
+ * gives the 220 px sub-nav; `.acct--tools` widens the column because these pages hold tables. Dialogs render in a
+ * portal outside `.acct`, so their rules are not nested under it. Sizes are px so the legacy 14 px root can't shrink them.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .acct.acct--tools {
+    grid-template-columns: 220px minmax(0, 1fr);
+    justify-content: stretch;
+  }
+  .tools {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+  .tools :where(h1, h2, p, dl, dd, ul) {
+    margin: 0;
+  }
+  .tools :focus-visible,
+  .tools-dialog :focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+
+  /* Heading row: title and one line on the left, the one main action on the right */
+  .tools-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 8px;
+  }
+  .tools-head__text {
+    min-width: 0;
+  }
+  .tools-head__action {
+    flex-shrink: 0;
+  }
+  .tools-h1 {
+    font: 700 28px/36px var(--if-font-ui);
+    letter-spacing: -0.02em;
+    color: var(--if-fg);
+  }
+  .tools-h2 {
+    font: 600 20px/28px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .tools-line {
+    margin-top: 4px;
+    max-width: 640px;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
+  /* Cards */
+  .tools-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+    padding: 24px;
+    border: 1px solid var(--if-line);
+    border-radius: 16px;
+    background: var(--if-panel);
+  }
+  .tools-foot {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .tools-foot--tight {
+    margin-top: -12px;
+  }
+
+  /* Notes and call-outs */
+  .tools-callout {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 16px;
+    border: 1px solid var(--if-line-strong);
+    border-radius: 12px;
+    background: var(--if-field);
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .tools-callout__title {
+    font: 600 14px/20px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .tools-callout--warn {
+    border-color: var(--if-warn);
+  }
+  .tools-callout--warn .tools-callout__title {
+    color: var(--if-warn-text);
+  }
+  .tools-callout--quiet {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
+    background: var(--if-panel);
+    border-color: var(--if-line);
+  }
+  .tools-callout--quiet > svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--if-lime);
+  }
+  .tools-note {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .tools-note--warn {
+    color: var(--if-warn-text);
+  }
+  .tools-note--bad {
+    color: var(--if-down-text);
+  }
+
+  /* Tables */
+  .tools-scroll {
+    overflow-x: auto;
+    margin: -8px -8px 0;
+    padding: 0 8px;
+  }
+  .tools-scroll--tall {
+    max-height: 520px;
+    overflow-y: auto;
+  }
+  .tools-table {
+    width: 100%;
+    border-collapse: collapse;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .tools-table :where(th, td) {
+    height: 56px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--if-line);
+    text-align: left;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .tools-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 40px;
+    background: var(--if-panel);
+    font: 500 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .tools-table tbody th {
+    font-weight: 500;
+  }
+  .tools-table tbody tr:last-child :where(th, td) {
+    border-bottom: 0;
+  }
+  .tools-table tr[data-revoked] :where(th, td):not(.tools-table__end) {
+    color: var(--if-fg-3);
+  }
+  .tools-table__end {
+    width: 1%;
+    text-align: right !important;
+  }
+  .tools-table__num {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
+  }
+  .tools-table__name {
+    display: table-cell;
+    max-width: 220px;
+  }
+  .tools-table__name > .tools-ellipsis {
+    display: inline-block;
+    max-width: 180px;
+    vertical-align: middle;
+  }
+  .tools-table__name > .tools-tag {
+    margin-left: 8px;
+  }
+  .tools-table__wide {
+    max-width: 280px;
+  }
+  .tools-table__wide > .tools-ellipsis {
+    display: inline-block;
+    max-width: 260px;
+    vertical-align: middle;
+  }
+  .tools-ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tools-mono {
+    font-family: var(--if-font-mono);
+    font-size: 13px;
+  }
+  .tools-num {
+    font-variant-numeric: tabular-nums;
+    color: var(--if-fg-2);
+  }
+  .tools-table--levels tbody :where(th, td) {
+    color: var(--if-fg-2);
+  }
+
+  /* Chips, tags and states */
+  .tools-chips {
+    display: inline-flex;
+    gap: 6px;
+  }
+  .tools-chip,
+  .tools-tag {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line-strong);
+    border-radius: 4px;
+    font: 500 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .tools-chip--lime,
+  .tools-tag--lime {
+    border-color: transparent;
+    background: var(--if-lime-soft);
+    color: var(--if-lime);
+  }
+  .tools-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font: 500 13px/18px var(--if-font-ui);
+  }
+  .tools-state::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .tools-state--on {
+    color: var(--if-up-text);
+  }
+  .tools-state--off {
+    color: var(--if-fg-3);
+  }
+
+  /* Stat cards (Fees) */
+  .tools-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .tools-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    padding: 20px;
+    border: 1px solid var(--if-line);
+    border-radius: 16px;
+    background: var(--if-panel);
+  }
+  .tools-stat__label {
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .tools-stat__value {
+    font: 700 28px/36px var(--if-font-ui);
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--if-fg);
+  }
+  .tools-stat__value--lime {
+    color: var(--if-lime);
+  }
+  .tools-stat__caption {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .tools-stat__state {
+    padding: 8px 0;
+  }
+
+  /* Preview card (sub-accounts: move money) */
+  .tools-preview {
+    border-style: dashed;
+  }
+  .tools-preview__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .tools-rows {
+    display: flex;
+    flex-direction: column;
+    max-width: 420px;
+  }
+  .tools-rows > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 40px;
+    border-bottom: 1px solid var(--if-line);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .tools-rows dt {
+    color: var(--if-fg-2);
+  }
+  .tools-rows dd {
+    color: var(--if-fg-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Forms (inside dialogs, which live in a portal) */
+  .tools-dialog {
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+  }
+  .tools-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 0 16px;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+  .tools-label {
+    padding: 0;
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .tools-input {
+    box-sizing: border-box;
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--if-line-strong);
+    border-radius: 8px;
+    background: var(--if-field);
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .tools-input--area {
+    height: auto;
+    min-height: 76px;
+    padding: 10px 12px;
+    resize: vertical;
+  }
+  .tools-input::placeholder {
+    color: var(--if-fg-3);
+  }
+  .tools-input:hover {
+    border-color: var(--if-line-stronger);
+  }
+  .tools-input:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 0;
+    border-color: transparent;
+  }
+  .tools-input[aria-invalid='true'] {
+    border-color: var(--if-down);
+  }
+  .tools-hint {
+    min-height: 18px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .tools-hint--bad {
+    color: var(--if-down-text);
+  }
+  .tools-access {
+    gap: 4px;
+  }
+  .tools-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 0;
+    cursor: pointer;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .tools-check--block {
+    align-items: center;
+    margin-top: 16px;
+  }
+  .tools-check > :first-child {
+    margin-top: 0;
+  }
+  .tools-check__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tools-check__title {
+    font-weight: 500;
+  }
+  .tools-check--locked {
+    cursor: not-allowed;
+    color: var(--if-fg-3);
+  }
+  .tools-check--locked .tools-check__title {
+    color: var(--if-fg-3);
+  }
+  .tools-lock {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--if-line-strong);
+    border-radius: 4px;
+    color: var(--if-fg-3);
+  }
+  .tools-dialog .tools-callout {
+    margin: 0 0 16px;
+  }
+
+  .tools-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  /* The secret, once */
+  .tools-secret {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .tools-secret__label {
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .tools-secret__row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--if-line-strong);
+    border-radius: 8px;
+    background: var(--if-field);
+  }
+  .tools-secret__key {
+    flex: 1;
+    min-width: 0;
+    font: 400 13px/20px var(--if-font-mono);
+    color: var(--if-fg);
+    overflow-wrap: anywhere;
+    user-select: all;
+  }
+
+  @media (max-width: 1100px) {
+    .acct.acct--tools {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 24px;
+    }
+    .acct--tools .acct-nav {
+      position: static;
+    }
+    .tools-stats {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}

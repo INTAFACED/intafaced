@@ -8,9 +8,20 @@ describe('account sections', () => {
     expect(sectionFor('/verification')).toBe('verification');
     expect(sectionFor('/view')).toBe('display');
     expect(sectionFor('/verification?x=1')).toBe('verification');
+    expect(sectionFor('/uc/api')).toBe('api-keys');
+    expect(sectionFor('/uc/sub-accounts')).toBe('sub-accounts');
+    expect(sectionFor('/uc/fees')).toBe('fees');
   });
-  it('links only to the four routes, once each', () => {
-    expect(sections.map((section) => section.href)).toEqual(['/uc/account', '/uc/safe', '/verification', '/view']);
+  it('links only to the live routes, once each', () => {
+    expect(sections.map((section) => section.href)).toEqual([
+      '/uc/account',
+      '/uc/safe',
+      '/verification',
+      '/uc/api',
+      '/uc/sub-accounts',
+      '/uc/fees',
+      '/view',
+    ]);
     expect(sections.map((section) => sectionFor(section.href))).toEqual(sections.map((section) => section.id));
   });
 });

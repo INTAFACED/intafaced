@@ -86,14 +86,17 @@ test('layout: 220 px sub-nav, 760 px content, current link marked, links stay on
   expect(Math.round((await nav.boundingBox()).width)).toBe(220);
   expect(Math.round((await page.locator('.acct-body').boundingBox()).width)).toBe(760);
   const links = page.locator('.acct-nav a');
-  expect(await links.allTextContents()).toEqual(['Account', 'Security', 'Verification', 'Display']);
+  expect(await links.allTextContents()).toEqual(['Account', 'Security', 'Verification', 'API keys', 'Sub-accounts', 'Fees', 'Display']);
   expect(await links.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)))).toEqual([
-    40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40,
   ]);
   expect(await links.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('href')))).toEqual([
     '/uc/account',
     '/uc/safe',
     '/verification',
+    '/uc/api',
+    '/uc/sub-accounts',
+    '/uc/fees',
     '/view',
   ]);
   await expect(page.locator('.acct-nav a[aria-current="page"]')).toHaveText('Account');
@@ -101,7 +104,7 @@ test('layout: 220 px sub-nav, 760 px content, current link marked, links stay on
   await links.nth(1).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Security' })).toBeVisible();
   await expect(page.locator('.acct-nav a[aria-current="page"]')).toHaveText('Security');
-  await links.nth(3).click();
+  await links.nth(6).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Display' })).toBeVisible();
   await expect(page.locator('.acct-nav a[aria-current="page"]')).toHaveText('Display');
   expect(await noOverflow(page)).toBe(true);
