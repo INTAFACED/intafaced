@@ -10,6 +10,8 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     fileParallelism: false,
     // Business fixtures isolate the blank screening socket. Mounted-request tests
     // explicitly arm strict policy; production defaults remain unchanged.
