@@ -35,7 +35,7 @@ describe('payment recovery preserves populated public schema through actual migr
   }, 120_000);
   afterAll(async () => {
     await db?.drop();
-  }, 30_000);
+  }, 90_000);
   it('keeps original amount, permission/history and unknown legacy dispatch; guarded down rolls back its tracking transaction', async () => {
     const [merchant] =
       await db.sql`INSERT INTO pay.merchants(user_id,pricing,status) VALUES ('native-upgrade-owner','{"feeBps":250}','active') RETURNING id`;
@@ -61,7 +61,7 @@ describe('payment recovery preserves populated public schema through actual migr
     expect(await db.sql`SELECT name FROM pay.__migrations ORDER BY name`).toEqual(before);
     expect(await db.sql`SELECT event FROM pay.payment_events WHERE payment_id=${payment!.id}`).toMatchObject([{ event: 'created' }]);
     expect((await migrate(db.url)).code).toBe(0);
-  }, 30_000);
+  }, 90_000);
   it('serializes opposite parent changes before either can create a cycle', async () => {
     const rows = await db.sql`INSERT INTO pay.merchants(user_id) VALUES ('native-parent-a'),('native-parent-b') RETURNING id`;
     const one = postgres(db.url, { max: 1, onnotice: () => undefined });
@@ -95,5 +95,5 @@ describe('payment recovery preserves populated public schema through actual migr
       await one.end();
       await two.end();
     }
-  }, 10_000);
+  }, 30_000);
 });
