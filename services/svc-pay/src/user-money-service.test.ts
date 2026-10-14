@@ -8,6 +8,7 @@ import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import {
   MemoryLedger,
   LedgerError,
+  add,
   formatAmount,
   parseAmount as amt,
   railBoundary,

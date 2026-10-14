@@ -406,8 +406,18 @@ export class UserMoneyService {
         //
         // A ledger throw can follow a remote commit. Preserve the original
         // pending claim and key; a retry posts only those same immutable terms.
-        // A held row already has an acknowledged hold and does not post again.
-        if (claimed.status !== 'held') {
+        // A held row re-posts the same attempt key. That post is idempotent when
+        // the hold is already on the book. If it throws, the funds have already
+        // left available: release that attempt before the row is failed. A
+        // release that does not land leaves the row held.
+        if (claimed.status === 'held') {
+          try {
+            await postPayLedger(this.ledger, recipes.withdrawHold(ledgerInput));
+          } catch (error) {
+            await this.finalizeRailRefusal(claimed, 'rail.failed', connection);
+            throw error;
+          }
+        } else {
           // A missing ACK never proves that a remote post did not commit. Keep
           // the original pending claim and business key on every ledger throw.
           try {
@@ -444,18 +454,39 @@ export class UserMoneyService {
         VALUES (${claimed.id}, ${attempt}, 'requested') ON CONFLICT DO NOTHING
       `;
         const accepted = prior[0]?.outcome === 'accepted' && prior[0].rail_ref;
+        // The advisory lock serializes the book. It must not be held across the
+        // rail call: two submissions of one clientRef both have to reach the
+        // provider, and each waits until the other has entered. The lock is
+        // back before any settle or reverse, so those posts stay one at a time.
+        const payoutLockKey = `withdraw:${JSON.stringify([input.userId, input.clientRef])}`.toLowerCase();
         const result = accepted
           ? { ok: true, railRef: accepted }
-          : await withRailSpan(adapter.id, 'payout', async () =>
-              adapter.payout({
-                settlementId: ledgerInput.withdrawalId,
-                merchantId: claimed.userId,
-                amount: claimed.amount,
-                assetId: claimed.assetId,
-                window: 'user-withdrawal',
-                destination: claimed.destination,
-              }),
-            );
+          : await (async () => {
+              await connection`SELECT pg_advisory_unlock(hashtext('pay.payout:'||${payoutLockKey}))`;
+              try {
+                return await withRailSpan(adapter.id, 'payout', async () =>
+                  adapter.payout({
+                    settlementId: ledgerInput.withdrawalId,
+                    merchantId: claimed.userId,
+                    amount: claimed.amount,
+                    assetId: claimed.assetId,
+                    window: 'user-withdrawal',
+                    destination: claimed.destination,
+                  }),
+                );
+              } finally {
+                await connection`SELECT pg_advisory_lock(hashtext('pay.payout:'||${payoutLockKey}))`;
+              }
+            })();
+        const currentWithdrawal = async (): Promise<WithdrawalRecord> => {
+          const rows = await connection<WithdrawalRow[]>`
+            SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+              FROM pay.withdrawals WHERE id = ${claimed.id}
+          `;
+          const row = rows[0];
+          if (!row) throw new PayError(`Withdrawal ${claimed.id} not found`, 'pay.withdrawal_not_found');
+          return toWithdrawal(row);
+        };
         if (!accepted && (!('amount' in result) || result.amount !== claimed.amount || result.assetId !== claimed.assetId))
           throw new PayError('Rail result does not identify the original withdrawal', 'pay.rail_outcome_unknown');
         if (result.ok && !accepted) {
@@ -474,6 +505,14 @@ export class UserMoneyService {
         // re-enters finalizeRailRefusal (idempotent reverse) and marks failed.
         // `attempts` advances only on finalization.
         if (!result.ok) {
+          const latest = await currentWithdrawal();
+          if (latest.status === 'sent') return latest;
+          if (latest.status === 'failed') {
+            throw new PayError('Rail refused the withdrawal', 'pay.rail_failed', {
+              failureCode: latest.failureCode,
+              withdrawalId: latest.id,
+            });
+          }
           if (!firstDispatch)
             throw new PayError('Earlier rail result is unknown; original withdrawal remains held', 'pay.rail_outcome_unknown');
           const code = 'failureCode' in result ? (result.failureCode ?? 'rail.failed') : 'rail.failed';
@@ -505,6 +544,15 @@ export class UserMoneyService {
         // settle is keyed on the same attempt, so repeating the call posts it
         // once and squares the book. The rail is not asked again, because its
         // own idempotency key is the same string.
+        const beforeSettle = await currentWithdrawal();
+        if (beforeSettle.status === 'sent') return beforeSettle;
+        if (beforeSettle.status === 'failed' || beforeSettle.failureCode) {
+          throw new PayError('Rail refused the withdrawal', 'pay.rail_failed', {
+            failureCode: beforeSettle.failureCode,
+            withdrawalId: beforeSettle.id,
+          });
+        }
+
         try {
           await postPayLedger(this.ledger, recipes.withdrawSettle(ledgerInput));
         } catch (error) {

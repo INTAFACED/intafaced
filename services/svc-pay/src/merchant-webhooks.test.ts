@@ -134,9 +134,12 @@ describe('MerchantWebhookService', () => {
   });
 
   it('allows http for bracketed IPv6 loopback', async () => {
-    const svc = new MerchantWebhookService(new MemoryMerchantWebhookStore());
+    const svc = new MerchantWebhookService(new MemoryMerchantWebhookStore(), { allowLocalHttp: true });
     const created = await svc.registerEndpoint(MERCHANT, 'http://[::1]/');
     expect(created.url).toBe('http://[::1]/');
+    await expect(svc.registerEndpoint(MERCHANT, 'http://example.com/hook')).rejects.toMatchObject({
+      code: 'pay.webhook_url_invalid',
+    });
   });
 
   it('allows a public https URL', async () => {
@@ -347,16 +350,17 @@ describe('MerchantWebhookService', () => {
     const bodySent = new Promise<void>((resolve) => {
       signalSent = resolve;
     });
-    const fetchImpl: typeof fetch = async () => {
+    const transport: WebhookTransport = async () => {
       posts += 1;
       if (posts === 1) {
         signalSent();
         await releasePost;
       }
-      return new Response('ok', { status: 200 });
+      return { status: 200 };
     };
+    const resolver: WebhookResolver = async () => [{ address: '93.184.216.34', family: 4 }];
 
-    const svc = new MerchantWebhookService(store, { fetch: fetchImpl });
+    const svc = new MerchantWebhookService(store, { transport, resolver });
     await svc.registerEndpoint(MERCHANT, 'https://merchant.example/hooks');
     await svc.enqueue({ type: 'payment.captured', payment: payment() });
     for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
@@ -383,13 +387,14 @@ describe('MerchantWebhookService', () => {
   it('retries a claimed delivery that crashed before the POST once the lease expires', async () => {
     const store = new MemoryMerchantWebhookStore();
     let posts = 0;
-    const fetchImpl: typeof fetch = async () => {
+    const transport: WebhookTransport = async () => {
       posts += 1;
-      return new Response('ok', { status: 200 });
+      return { status: 200 };
     };
+    const resolver: WebhookResolver = async () => [{ address: '93.184.216.34', family: 4 }];
     const start = new Date('2026-08-12T12:00:00.000Z');
     let now = start;
-    const svc = new MerchantWebhookService(store, { now: () => now, fetch: fetchImpl });
+    const svc = new MerchantWebhookService(store, { now: () => now, transport, resolver });
     await svc.registerEndpoint(MERCHANT, 'https://merchant.example/hooks');
     await svc.enqueue({ type: 'payment.captured', payment: payment() });
     for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
@@ -500,21 +505,15 @@ describe('MerchantWebhookService', () => {
     try {
       const svc = new MerchantWebhookService(store, { disableAfterFailures: 8, maxAttempts: 8 });
       for (const redirector of redirectors) {
-        await svc.registerEndpoint(MERCHANT, redirector.url);
+        await expect(svc.registerEndpoint(MERCHANT, redirector.url)).rejects.toMatchObject({
+          code: 'pay.webhook_url_invalid',
+        });
       }
-      await svc.enqueue({
-        type: 'payment.captured',
-        payment: payment({ id: '55555555-5555-4555-8555-555555555555' }),
-      });
-      for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
 
-      const result = await svc.processDue(25);
-
-      expect(registeredHits).toEqual([1, 1]);
-      expect(result.delivered).toBe(0);
+      expect(registeredHits).toEqual([0, 0]);
       expect(sinkHits).toEqual([]);
       const rows = [...store.deliveries.values()];
-      expect(rows).toHaveLength(2);
+      expect(rows.filter((delivery) => delivery.status === 'delivered')).toEqual([]);
       for (const delivery of rows) {
         expect(delivery.status).not.toBe('delivered');
         expect(delivery.deliveredAt).toBeNull();

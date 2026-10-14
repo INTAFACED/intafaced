@@ -431,19 +431,37 @@ export class SubscriptionService {
 
     const nextRunAt = occurrenceStart(mandate.startsAt, mandate.cadence, 0);
     const path = normaliseSubscriptionPath(input.path);
+    // The mandate is the business subject. The key is fixed before insert so
+    // the NOT NULL column is never null, and a retry of this mandate does not
+    // open a second schedule. The amount stays the mandate's amount.
+    const idempotencyKey = `pay.subscription:${mandate.id}`;
 
     const rows = await this.sql<SubRow[]>`
       INSERT INTO pay.subscriptions (
-        mandate_id, merchant_id, customer_id, next_run_at, status, path
+        mandate_id, merchant_id, customer_id, next_run_at, status, path, idempotency_key
       ) VALUES (
         ${mandate.id}, ${mandate.merchantId}, ${mandate.customerId},
-        ${nextRunAt}, 'active', ${path}
+        ${nextRunAt}, 'active', ${path}, ${idempotencyKey}
       )
+      ON CONFLICT (idempotency_key) DO NOTHING
       RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
                 paused_at, resumed_at, stalled_at, stall_reason
     `;
-    return toSub(rows[0]!);
+    if (rows[0]) return toSub(rows[0]);
+
+    const existing = await this.sql<SubRow[]>`
+      SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
+             cancelled_at, path, created_at, anchor_at, anchor_occurrence,
+             paused_at, resumed_at, stalled_at, stall_reason
+        FROM pay.subscriptions
+       WHERE idempotency_key = ${idempotencyKey}
+    `;
+    const row = existing[0];
+    if (!row || row.mandate_id !== mandate.id) {
+      throw new PayError(`Subscription create key ${idempotencyKey} is already in use`, 'pay.subscription_invalid');
+    }
+    return toSub(row);
   }
 
   async getSubscription(subscriptionId: string): Promise<SubscriptionRecord> {

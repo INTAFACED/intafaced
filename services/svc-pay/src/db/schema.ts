@@ -753,6 +753,11 @@ export const subscriptions = pay.table(
     status: subscriptionStatusEnum('status').notNull().default('active'),
     cancelledAt: tstz('cancelled_at'),
     path: text('path').notNull().default('crypto_invoice'),
+    /**
+     * Create identity for this mandate. Required before insert. Not an amount.
+     * Unique so a retried create cannot open a second schedule.
+     */
+    idempotencyKey: text('idempotency_key').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -760,6 +765,7 @@ export const subscriptions = pay.table(
     index('subscriptions_due_idx').on(t.status, t.nextRunAt),
     index('subscriptions_merchant_idx').on(t.merchantId),
     index('subscriptions_mandate_idx').on(t.mandateId),
+    uniqueIndex('subscriptions_idempotency_key_uq').on(t.idempotencyKey),
   ],
 );
 

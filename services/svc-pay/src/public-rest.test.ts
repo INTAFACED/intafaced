@@ -544,8 +544,9 @@ describe('step 2 — mutating paths + Idempotency-Key (ADR §2.2)', () => {
 
   /**
    * The live parser is `retainRawBody` (`JSON.parse`), which keeps a top-level
-   * `__proto__` member as an own property. Ajv then deletes it. These two
-   * cases are that path: the member is part of the fingerprint.
+   * `__proto__` member as an own property. Schema validation refuses that body
+   * with 400 before the idempotency store. It is not a stored success, and it
+   * is not a second charge. The member is not stripped.
    */
   async function buildLiveParser(pay: PayService): Promise<FastifyInstance> {
     const instance = Fastify({ logger: false });
@@ -576,8 +577,8 @@ describe('step 2 — mutating paths + Idempotency-Key (ADR §2.2)', () => {
     const second = await app.inject({ method: 'POST', url: '/v1/payments', headers, payload: withProto });
 
     expect(first.statusCode).toBe(200);
-    expect(second.statusCode).toBe(409);
-    expect(second.json().error.code).toBe('pay.idempotency_conflict');
+    expect(second.statusCode).toBe(400);
+    expect(second.json().error.code).toBe('pay.validation');
     expect(second.json()).not.toEqual(first.json());
     expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(1);
   });
@@ -591,10 +592,11 @@ describe('step 2 — mutating paths + Idempotency-Key (ADR §2.2)', () => {
     const first = await app.inject({ method: 'POST', url: '/v1/payments', headers, payload });
     const second = await app.inject({ method: 'POST', url: '/v1/payments', headers, payload });
 
-    expect(first.statusCode).toBe(200);
-    expect(second.statusCode).toBe(200);
-    expect(second.json()).toEqual(first.json());
-    expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(1);
+    expect(first.statusCode).toBe(400);
+    expect(second.statusCode).toBe(400);
+    expect(first.json().error.code).toBe('pay.validation');
+    expect(second.json().error.code).toBe('pay.validation');
+    expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(0);
   });
 
   it('REFUSES create/capture/authorize on another merchant BEFORE the service mutates', async () => {
