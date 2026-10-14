@@ -17,9 +17,11 @@ installCollateralHaircut();
  * Until the shared client, svc-trade's own copy had NO timeout at all: one hung ledger held a request, a pooled
  * Postgres connection and (inside a transaction) the row locks for as long as it stayed hung. Now every call is bounded.
  *
- * `post` is called while a trade transaction is open in these places (Postgres sees the connection as idle-in-transaction
- * while trade waits on HTTP, and this service's own pool sets no idle bound of its own, so the 60s `createDb` default
- * in packages/db is the budget to stay under):
+ * `post` is called while a trade transaction is open in these places. Postgres sees the connection as idle-in-transaction
+ * while trade waits on HTTP, and nothing on the server side bounds that: this service's pool is a raw `postgres()` (see
+ * `index.ts`), so the 60s idle-in-transaction limit that `createDb` in packages/db applies does NOT reach it. The
+ * client deadlines below are the ONLY bound on how long a row lock is held across a ledger call; 60s is just the
+ * ceiling the arithmetic is kept under, as a convention:
  *
  *   - `finalize` (order release) and `applyNativeAmendHold`: one post;
  *   - margin adjust / leverage change (`position-service`): one `balance` read, then one post;
@@ -34,7 +36,7 @@ installCollateralHaircut();
  *   - reads (`balance`, `balances`, `getTx`, `getTxByKey`): 3s per attempt, 1 retry, 5s for the whole call. `getTxByKey`
  *     chains to `getTx`, so it can take two reads.
  *
- * Worst case for a close transaction: 5s + 2 x 20s = 45s, under the 60s bound with 15s left for SQL. A leverage or
+ * Worst case for a close transaction: 5s + 2 x 20s = 45s, under that 60s ceiling with 15s left for SQL. A leverage or
  * margin change: 5s + 20s = 25s. Everything else in a transaction is one post, 20s.
  *
  * Outside a transaction (order placement hold, fills, liquidation rungs, funding, OTC and Convert settle) the same

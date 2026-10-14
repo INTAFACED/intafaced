@@ -41,7 +41,7 @@ import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE } from './fee-schedule.j
 import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
 import { readyTestAdmission } from '../controls/test-admission.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
-import { loadTradeOrderClaims, planLocalActions } from './engine-ledger-reconcile.js';
+import { loadTradeOrderClaims, planLocalActions, runEngineLedgerReconcileTick } from './engine-ledger-reconcile.js';
 
 // #4494: scopes are explicit now - trade:write no longer implies trade:read.
 const TRADE_READ = ['trade:read'] as const;
@@ -737,6 +737,90 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
         new Map(claims.map((c) => [c.orderId, c])),
       );
       expect(plan.deleteUnfundedPendingIds).toEqual([pending!.id]);
+    });
+
+    /** One reconcile sweep over the real tables, with the engine saying every order is missing and unfunded. */
+    const reconcileSweep = () =>
+      runEngineLedgerReconcileTick({
+        sql,
+        ledger,
+        matching: {
+          listMarkets: async () => ({ markets: [btcusdt.id] }),
+          reconcile: async (orders) => ({
+            checked: orders.length,
+            agreed: 0,
+            refusals: 0,
+            ok: true,
+            findings: orders.map((o) => ({
+              orderId: o.orderId,
+              case: 'counterpart_unfunded_engine_missing' as const,
+              verdict: 'auto' as const,
+              engine: 'engine: NOT LIVE',
+              counterpart: 'counterpart: PENDING funded=false',
+              reason: 'intent',
+            })),
+          }),
+        },
+      });
+
+    it('reconcile leaves a young unfunded pending row alone (its hold may still be in flight) and deletes an old one', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      vi.spyOn(ledger, 'post').mockRejectedValueOnce(deadline());
+      await expect(place('young-pending')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+
+      const young = await reconcileSweep();
+      expect(young.deleted).toEqual([]);
+      expect(await rows()).toHaveLength(1);
+
+      await sql`UPDATE trade.orders SET updated_at = now() - interval '3 minutes'`;
+      const old = await reconcileSweep();
+      expect(old.deleted).toHaveLength(1);
+      expect(await rows()).toHaveLength(0);
+    });
+
+    it('a re-driven retry refreshes the row clock BEFORE it posts, so reconcile cannot delete it mid-flight', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      vi.spyOn(ledger, 'post').mockRejectedValueOnce(deadline());
+      await expect(place('refresh-first')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+      await sql`UPDATE trade.orders SET updated_at = now() - interval '3 minutes'`;
+
+      const real = ledger.post.bind(ledger);
+      let ageSecondsAtPost: number | null = null;
+      vi.spyOn(ledger, 'post').mockImplementationOnce(async (request) => {
+        const [row] = await sql<Array<{ age: string }>>`SELECT extract(epoch FROM now() - updated_at)::text AS age FROM trade.orders`;
+        ageSecondsAtPost = Number(row!.age);
+        // a sweep running while this hold is in flight finds nothing to delete
+        expect((await reconcileSweep()).deleted).toEqual([]);
+        return real(request);
+      });
+
+      const order = await place('refresh-first');
+
+      expect(ageSecondsAtPost).not.toBeNull();
+      expect(ageSecondsAtPost!).toBeLessThan(60);
+      expect(order.status).toBe('open');
+      expect(holdPosts()).toHaveLength(1);
+    });
+
+    it('a re-drive finding the pending row gone throws the retryable error instead of posting a hold for nothing', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      vi.spyOn(ledger, 'post').mockRejectedValueOnce(deadline());
+      await expect(place('vanished')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+      // Reproduce the window: the row is read as pending by the retry, then removed before the refresh.
+      const host = retryTrade as unknown as { findOrder: (id: string) => Promise<{ status: string } | null> };
+      const original = host.findOrder.bind(retryTrade);
+      let calls = 0;
+      // findOrder runs three times on this path (retry identity, the engine-sequence guard, the re-drive read): the row is
+      // removed right after the third read, the one that sees it `pending`.
+      vi.spyOn(host, 'findOrder').mockImplementation(async (id: string) => {
+        const found = await original(id);
+        calls += 1;
+        if (calls === 3) await sql`DELETE FROM trade.orders WHERE id = ${id}`;
+        return found;
+      });
+
+      await expect(place('vanished')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+      expect(holdPosts()).toHaveLength(0);
     });
 
     it('a hold that DID land keeps the pending row out of the delete list (alert only, never a silent delete)', async () => {

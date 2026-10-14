@@ -154,9 +154,13 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
       );
     } catch (err) {
       // Delete the intent row only on a typed refusal made before anything committed. Any other ending (timeout,
-      // deadline, network, 5xx, malformed acknowledgement) can follow a booked hold: the row stays `pending` so the
-      // hold is never orphaned, and the engine-ledger reconcile job clears it if the hold never landed.
-      if (!isDefiniteLedgerRefusal(err)) throw ledgerOutcomeUnknown(orderId, err);
+      // deadline, network, 5xx, malformed acknowledgement) can follow a booked hold, and the engine has ALREADY executed
+      // this flatten, so the row is kept and marked `recovery_required`: it is never auto-deleted by reconcile, a retry
+      // returns it as it stands, and an operator sees the order instead of a silent pending row.
+      if (!isDefiniteLedgerRefusal(err)) {
+        await host.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
+        throw ledgerOutcomeUnknown(orderId, err);
+      }
       await host.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
       throw err;
     }

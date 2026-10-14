@@ -291,12 +291,16 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
         expect(await flattenRows()).toHaveLength(0);
       });
 
-      it('a timeout keeps the pending row (the hold may be booked) and answers with a retryable error', async () => {
+      it('a timeout keeps the row, marks it recovery_required (the hold may be booked; reconcile never deletes it) and answers with a retryable error', async () => {
         await restBid();
         await fund(ALICE, 'BTC', '2');
         vi.spyOn(ledger, 'post').mockRejectedValueOnce(new Error('svc-ledger call to /trpc/post exceeded its 20000ms deadline'));
         await expect(close()).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
-        expect(await flattenRows()).toEqual([{ status: 'pending' }]);
+        expect(await flattenRows()).toEqual([{ status: 'recovery_required' }]);
+        const [row] = await sql<
+          Array<{ recovery_reason: string }>
+        >`SELECT recovery_reason FROM trade.orders WHERE client_order_id = 'close-verdict'`;
+        expect(row?.recovery_reason).toBe('SUBMIT_UNKNOWN');
         expect(postsWithReason('order.hold')).toHaveLength(1); // only Bob's bid
       });
     });

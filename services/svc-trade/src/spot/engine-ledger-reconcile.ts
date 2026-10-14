@@ -266,11 +266,16 @@ export async function runEngineLedgerReconcileTick(deps: EngineLedgerReconcileTi
 
   if (doDelete) {
     for (const orderId of plan.deleteUnfundedPendingIds) {
-      // Re-check: still pending. DELETE is free of ledger movement.
+      // Re-check: still pending, and not young. DELETE is free of ledger movement, but a hold post still in flight is not
+      // yet visible in the balance this plan read: a hold post is bounded at 20s plus backoff (ledger-client.ts), and a
+      // re-driven retry refreshes `updated_at` before it posts. Deleting a pending row inside that window would leave a
+      // hold that lands against an order id that no longer exists. Two minutes is well past the call's deadline; the
+      // clock is the database's, the same one that stamped `updated_at`.
       const rows = await deps.sql<{ id: string }[]>`
         DELETE FROM trade.orders
          WHERE id = ${orderId}
            AND status = 'pending'
+           AND updated_at < now() - interval '2 minutes'
         RETURNING id
       `;
       if (rows.length > 0) deleted.push(orderId);

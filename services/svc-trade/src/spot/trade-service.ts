@@ -1594,6 +1594,17 @@ export class TradeService {
       const same = assertSamePlaceCommand(raced, input, orderType, tif, seeded);
       // Anything past `pending` is owned by whoever funded it: return what it wrote.
       if (same.status !== 'pending') return same;
+      // Refresh the row's clock BEFORE posting: reconcile only deletes an unfunded pending row older than two minutes, and
+      // this re-drive is about to put a hold in flight for it. No row back means it was deleted or moved on meanwhile.
+      const refreshed = await this.sql<Array<{ id: string }>>`
+        UPDATE trade.orders SET updated_at = now() WHERE id = ${orderId} AND status = 'pending' RETURNING id
+      `;
+      if (refreshed.length === 0) {
+        const current = await this.findOrder(orderId);
+        if (current && current.status !== 'pending') return current;
+        // Gone: nothing to re-drive. The client retries and takes the fresh-insert path.
+        throw ledgerOutcomeUnknown(orderId, new Error(`pending order ${orderId} was removed while its hold was being re-driven`));
+      }
       // Still `pending`: its hold has no verdict yet (the first attempt is in flight, or ended unknown and left the row).
       // Re-drive the SAME hold key below. The ledger answers a reused key with the original booking, so this never holds
       // twice; the compare-and-set to `open` decides which caller submits to the engine.
