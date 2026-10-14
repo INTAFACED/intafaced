@@ -25,7 +25,8 @@ const session: FounderSession = {
 };
 const enabled = { status: 'enabled', userId, version: '1', changedAt: now.toISOString() };
 const ok = (data: unknown) => Response.json({ result: { data } });
-const refused = (status: number, intafacedCode: string) => Response.json({ error: { json: { data: { intafacedCode } } } }, { status });
+const refused = (status: number, intafacedCode: string) =>
+  Response.json({ error: { message: 'x', code: 'BAD_REQUEST', data: { httpStatus: status, intafacedCode } } }, { status });
 const proof = { totpCode: '123456' };
 const assertion = {
   id: 'cred',
@@ -174,7 +175,7 @@ describe('GET /api/security', () => {
         passkeys: 0,
         passwordChangedAt: '2026-10-03T00:00:00.000Z',
       }),
-      Response.json({ error: { json: {} } }, { status: 403 }),
+      Response.json({ error: { message: 'x', code: 'FORBIDDEN', data: {} } }, { status: 403 }),
     );
     const body = await (await overviewGet(request('/api/security', 'GET'))).json();
     expect(body).toMatchObject({ passkeys: [], passkeysAvailable: false, passwordChangedAt: '2026-10-03T00:00:00.000Z' });
@@ -308,11 +309,11 @@ describe('POST /api/security/authenticator/replace-confirm', () => {
     expect(bearer(fetcher, 1)).toBe('Bearer founder-access-token');
     expect(sentBody(fetcher, 1)).toEqual({ code: '654321' });
   });
-  it('carries the upstream reason when the code is wrong', async () => {
+  it('refuses a wrong code, passing on no reason the page has no copy for', async () => {
     upstream(refused(400, 'auth.invalid_totp'));
     const result = await replaceConfirm(request('/api/security/authenticator/replace-confirm', 'POST', { code: '000000' }));
     expect(result.status).toBe(400);
-    expect(await result.json()).toMatchObject({ upstreamCode: 'auth.invalid_totp' });
+    expect(await result.json()).toEqual({ code: 'admin.upstream_refused' });
   });
   it.each([
     ['a recovery code', { code: 'ABCDE-12345' }],
@@ -327,7 +328,7 @@ describe('POST /api/security/authenticator/replace-confirm', () => {
 
 describe('POST /api/security/recovery-codes', () => {
   it('steps up, then returns the ten new codes', async () => {
-    const codes = Array.from({ length: 10 }, (_, index) => `TESTB-${String(index).padStart(5, '0')}`);
+    const codes = Array.from({ length: 10 }, (_, index) => `FACED-1${String(index).padStart(5, '0')}`);
     const fetcher = upstream(ok({ accessToken: 'step-up-token', expiresAt: 'x', scopes: [] }), ok({ recoveryCodes: codes }));
     const result = await recoveryCodes(request('/api/security/recovery-codes', 'POST', { proof }));
     expect(result.headers.get('cache-control')).toBe('no-store');
@@ -425,11 +426,11 @@ describe('passkeys', () => {
     expect(result.status).toBe(401);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it("passes on identity's refusal, such as removing the last passkey", async () => {
+  it('refuses when identity does, such as removing the last passkey, without passing on a code the page has no copy for', async () => {
     upstream(ok({ accessToken: 't', expiresAt: 'x', scopes: [] }), refused(409, 'auth.last_factor'));
     const result = await remove('abc');
     expect(result.status).toBe(409);
-    expect(await result.json()).toMatchObject({ upstreamCode: 'auth.last_factor' });
+    expect(await result.json()).toEqual({ code: 'admin.upstream_refused' });
   });
   it('refuses an id that is not base64url without asking identity', async () => {
     const fetcher = upstream();
@@ -450,5 +451,30 @@ describe('passkeys', () => {
     });
     expect((await passkeyRemove(bad, { params: Promise.resolve({ id: 'abc' }) })).status).toBe(403);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+});
+
+describe('upstream codes are opt-in', () => {
+  it.each([
+    ['auth.too_many_attempts', 429],
+    ['auth.password_unchanged', 400],
+    ['auth.password_policy', 400],
+    ['auth.mfa_required', 403],
+    ['auth.invalid_credentials', 401],
+  ])('passes on %s, which the page has copy for', async (code, status) => {
+    upstream(refused(status, code));
+    const result = await changePassword(
+      request('/api/security/password', 'POST', { currentPassword: 'old-password', newPassword: 'a-new-password-1' }),
+    );
+    expect(await result.json()).toMatchObject({ upstreamCode: code });
+  });
+  it('drops any code the page has no copy for', async () => {
+    for (const code of ['auth.mfa_not_enrolled', 'auth.user_not_found', 'auth.reset_refused']) {
+      upstream(refused(400, code));
+      const result = await changePassword(
+        request('/api/security/password', 'POST', { currentPassword: 'old-password', newPassword: 'a-new-password-1' }),
+      );
+      expect(await result.json()).toEqual({ code: 'admin.upstream_refused' });
+    }
   });
 });

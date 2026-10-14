@@ -60,7 +60,7 @@ describe('founder security preview handlers', () => {
     assert.equal(h['auth.stepUp']({ totpCode: '123456' }).accessToken, 'test-step-up-token');
     const { recoveryCodes } = h['totp.regenerateRecoveryCodes']({});
     assert.equal(recoveryCodes.length, 10);
-    assert.match(recoveryCodes[0], /^TESTB-\d{5}$/);
+    assert.match(recoveryCodes[0], /^FACED-1\d{4}$/);
     refused(() => h['totp.regenerateRecoveryCodes']({}), 'auth.mfa_required', 403);
   });
   it('expires a step-up after five minutes', () => {
@@ -71,9 +71,9 @@ describe('founder security preview handlers', () => {
   });
   it('steps up with a recovery code, which is then used up, and refuses a passkey proof in the preview', () => {
     const { h, state } = setup();
-    h['auth.stepUp']({ totpCode: 'TESTA-00001' });
+    h['auth.stepUp']({ totpCode: 'FACED-00001' });
     assert.equal(state.recoveryCodes.length, 9);
-    refused(() => h['auth.stepUp']({ totpCode: 'TESTA-00001' }), 'auth.invalid_credentials', 401);
+    refused(() => h['auth.stepUp']({ totpCode: 'FACED-00001' }), 'auth.invalid_credentials', 401);
     refused(() => h['auth.stepUp']({ webauthn: {} }), 'auth.invalid_credentials', 401);
     assert.ok(h['auth.stepUpOptions']({}).challenge);
   });
@@ -95,9 +95,9 @@ describe('founder security preview handlers', () => {
   });
   it('resets a password with the app code and an unused recovery code, and refuses everything else the same way', () => {
     const { h, state } = setup();
-    const good = { identifier: 'test-nitro', totpCode: '123456', recoveryCode: 'TESTA-00002', newPassword: 'a-new-password-1' };
+    const good = { identifier: 'test-nitro', totpCode: '123456', recoveryCode: 'FACED-00002', newPassword: 'a-new-password-1' };
     refused(() => h['auth.resetPassword']({ ...good, totpCode: '000000' }), 'auth.reset_refused', 400);
-    refused(() => h['auth.resetPassword']({ ...good, recoveryCode: 'TESTA-99999' }), 'auth.reset_refused', 400);
+    refused(() => h['auth.resetPassword']({ ...good, recoveryCode: 'FACED-99999' }), 'auth.reset_refused', 400);
     assert.deepEqual(h['auth.resetPassword'](good), { ok: true });
     assert.equal(state.password, 'a-new-password-1');
     refused(() => h['auth.resetPassword'](good), 'auth.reset_refused', 400);

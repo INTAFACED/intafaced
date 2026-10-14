@@ -154,6 +154,23 @@ describe('enrolment session', () => {
     expect(openEnrolmentSession(header(ENROL_COOKIE, sealed), config(), NOW).stepUpToken).toBe('step-up-token');
   });
 
+  it('fits in a cookie with realistic token sizes', () => {
+    // A real access token measured at about 907 characters and a step-up token at about 929 (26 session scopes). Use a little more.
+    const real = session({
+      accessToken: 'a'.repeat(960),
+      refreshToken: 'r'.repeat(64),
+      stepUpToken: 's'.repeat(960),
+      stepUpExpiresAt: new Date(NOW.getTime() + 5 * 60_000).toISOString(),
+      totpConfirmed: true,
+    });
+    const sealed = sealEnrolmentSession(real, config(), NOW);
+    const margin = 3800 - sealed.length;
+    // Measured at roughly 3050 of 3800: well over 600 characters to spare, room for around 20 more scopes.
+    expect(sealed.length).toBeLessThan(3800);
+    expect(margin).toBeGreaterThan(600);
+    expect(enrolmentCookie(sealed, 1800).length).toBeLessThan(4096);
+  });
+
   it('refuses a half-set or over-long step-up on seal', () => {
     expect(() => sealEnrolmentSession(session({ stepUpToken: 't' }), config(), NOW)).toThrow();
     expect(() => sealEnrolmentSession(session({ stepUpExpiresAt: NOW.toISOString() }), config(), NOW)).toThrow();

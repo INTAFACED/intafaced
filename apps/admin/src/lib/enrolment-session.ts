@@ -41,6 +41,26 @@ export interface EnrolmentSession {
   stepUpExpiresAt: string | null;
 }
 
+/**
+ * The identity refusal codes the enrolment page has copy for, and so the only ones its routes pass on. Anything else is reported
+ * as this server's own code alone. (The invite codes are an oracle on purpose: the real founder must see "already used".)
+ */
+export const ENROLMENT_UPSTREAM = [
+  'auth.invite_invalid',
+  'auth.invite_used',
+  'auth.invite_expired',
+  'auth.founder_enrolment_closed',
+  'auth.handle_taken',
+  'auth.email_taken',
+  'auth.mfa_invalid',
+  'auth.mfa_required',
+  'auth.mfa_already_enrolled',
+  'auth.too_many_attempts',
+  'auth.password_policy',
+  'auth.webauthn_invalid',
+  'auth.passkey_preview_unavailable',
+] as const;
+
 /** Everything is off unless this is exactly `open`. */
 export function enrolmentIsOpen(env: Record<string, string | undefined> = process.env): boolean {
   return env.ADMIN_FOUNDER_ENROLMENT === 'open';
@@ -268,7 +288,7 @@ export async function handleEnrolment(
     else if (stored) headers['set-cookie'] = enrolmentSetCookie(stored, config);
     return Response.json(result.body, { headers });
   } catch (error) {
-    const response = adminSessionErrorResponse(error);
+    const response = adminSessionErrorResponse(error, ENROLMENT_UPSTREAM);
     if (stored && config) response.headers.set('set-cookie', enrolmentSetCookie(stored, config));
     return response;
   }

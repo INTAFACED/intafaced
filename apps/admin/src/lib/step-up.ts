@@ -73,7 +73,8 @@ export function parseStepUpProof(value: unknown): StepUpProof {
   if (row) {
     const keys = Object.keys(row);
     if (keys.length === 1 && keys[0] === 'totpCode' && typeof row.totpCode === 'string' && TOTP_OR_RECOVERY.test(row.totpCode))
-      return { totpCode: row.totpCode };
+      // Recovery codes are stored upper case and matched exactly; a lower-case entry would be refused and burn an attempt.
+      return { totpCode: row.totpCode.toUpperCase() };
     if (keys.length === 1 && keys[0] === 'webauthn') {
       const webauthn = parseAssertion(row.webauthn);
       if (webauthn) return { webauthn };

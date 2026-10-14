@@ -2,7 +2,7 @@
  * In-memory stand-in for svc-identity's founder enrolment, for the local click-through preview only.
  *
  * Every value is an obvious test value: invites TEST-INVITE-NITRO and TEST-INVITE-PHANTOM (each works once), authenticator code
- * 123456, recovery codes TESTA-00001 to TESTA-00010. Nothing is stored beyond this process, and nothing is a real credential.
+ * 123456, recovery codes FACED-00001 to FACED-00010. Nothing is stored beyond this process, and nothing is a real credential.
  *
  * Usage: `const handlers = fixtureFounderEnrolmentHandlers(state)`, then merge into `founderApi`. Pass the same `state` object
  * to keep one enrolment across calls. Set `state.pinned = true` to see the closed path.
@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 
 export const TEST_INVITES = ['TEST-INVITE-NITRO', 'TEST-INVITE-PHANTOM'];
 export const TEST_TOTP_CODE = '123456';
-export const TEST_RECOVERY_CODES = Array.from({ length: 10 }, (_, index) => `TESTA-${String(index + 1).padStart(5, '0')}`);
+export const TEST_RECOVERY_CODES = Array.from({ length: 10 }, (_, index) => `FACED-${String(index + 1).padStart(5, '0')}`);
 const TEST_SECRET = 'JBSWY3DPEHPK3PXP';
 const MAX_WRONG_CODES = 5;
 const ACCESS_TTL_MS = 15 * 60_000; // identity's default access TTL is 900 s

@@ -54,6 +54,8 @@ export function securityErrorMessage(
       return 'This needs a sign-in with your authenticator code or a passkey. Sign out, sign in that way, then try again.';
     case 'auth.invalid_credentials':
       return context === 'password' ? 'Your current password is wrong.' : "That code or passkey wasn't accepted. Check it and try again.";
+    case 'auth.mfa_invalid':
+      return "That code wasn't accepted. Wait for the next code in your app and try again.";
   }
   switch (failure.code) {
     case 'network':

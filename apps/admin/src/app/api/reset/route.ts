@@ -6,6 +6,7 @@ import {
   founderEdgeCall,
 } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
+import { limitedResponse, resetLimiter } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,9 @@ export async function POST(request: Request) {
   try {
     const config = adminSessionConfig();
     assertAdminOrigin(request, config, true);
+    // Public and unauthenticated: count every attempt per client before doing anything else (see lib/rate-limit).
+    const limited = limitedResponse(resetLimiter, request);
+    if (limited) return limited;
     const input = await readAdminJson(request);
     if (
       Object.keys(input).some((key) => !['identifier', 'totpCode', 'recoveryCode', 'newPassword'].includes(key)) ||
@@ -39,14 +43,15 @@ export async function POST(request: Request) {
     await founderEdgeCall(config, 'identity', 'auth.resetPassword', 'POST', {
       identifier: input.identifier,
       totpCode: input.totpCode,
-      recoveryCode: input.recoveryCode,
+      // Identity stores recovery codes in upper case and matches them exactly, so a lower-case entry would burn an attempt.
+      recoveryCode: input.recoveryCode.toUpperCase(),
       newPassword: input.newPassword,
     });
     return Response.json({ reset: true }, { headers: HEADERS });
   } catch (error) {
     if (error instanceof AdminSessionError) {
       if (error.upstreamCode === 'auth.too_many_attempts')
-        return Response.json({ code: 'admin.reset_rate_limited', upstreamCode: error.upstreamCode }, { status: 429, headers: HEADERS });
+        return Response.json({ code: 'admin.reset_rate_limited' }, { status: 429, headers: HEADERS });
       // Not configured, or the edge is unreachable: nothing to do with the details, and says nothing about any account.
       if (error.code === 'admin.session_unconfigured' || error.code === 'admin.upstream_unavailable')
         return adminSessionErrorResponse(error);

@@ -1,6 +1,6 @@
 import { adminSessionErrorResponse, founderEdgeCall } from '@/lib/founder-session';
 import { parseStepUpProof, withStepUp } from '@/lib/step-up';
-import { authorizedInput, NO_STORE } from '../../guard';
+import { authorizedInput, NO_STORE, SECURITY_UPSTREAM } from '../../guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +17,6 @@ export async function POST(request: Request) {
     );
     return Response.json(options, { headers: NO_STORE });
   } catch (error) {
-    return adminSessionErrorResponse(error);
+    return adminSessionErrorResponse(error, SECURITY_UPSTREAM);
   }
 }

@@ -25,10 +25,32 @@ export function POST(request: Request) {
       (response.transports !== undefined &&
         (!Array.isArray(response.transports) || response.transports.length > 8 || !response.transports.every((item) => text(item, 32)))) ||
       (input.clientExtensionResults !== undefined &&
-        (!input.clientExtensionResults || typeof input.clientExtensionResults !== 'object' || Array.isArray(input.clientExtensionResults)))
+        (!input.clientExtensionResults ||
+          typeof input.clientExtensionResults !== 'object' ||
+          Array.isArray(input.clientExtensionResults) ||
+          JSON.stringify(input.clientExtensionResults).length > 2048))
     )
       throw new AdminSessionError('admin.enrol_input', 400);
-    await founderEdgeCall(config, 'identity', 'webauthn.registerVerify', 'POST', input, liveStepUpToken(session) ?? session.accessToken);
+    // Rebuilt field by field, so nothing but what is checked above reaches identity.
+    const credential = {
+      id: input.id,
+      rawId: input.rawId,
+      type: 'public-key',
+      response: {
+        clientDataJSON: response.clientDataJSON,
+        attestationObject: response.attestationObject,
+        ...(response.transports !== undefined ? { transports: response.transports } : {}),
+      },
+      ...(input.clientExtensionResults !== undefined ? { clientExtensionResults: input.clientExtensionResults } : {}),
+    };
+    await founderEdgeCall(
+      config,
+      'identity',
+      'webauthn.registerVerify',
+      'POST',
+      credential,
+      liveStepUpToken(session) ?? session.accessToken,
+    );
     return { body: { registered: true }, session: withoutStepUp(session) };
   });
 }

@@ -1,5 +1,5 @@
 import { adminSessionErrorResponse, founderEdgeCall } from '@/lib/founder-session';
-import { authorizedInput, currentPasswordInput, newPasswordInput, signedOutResponse } from '../guard';
+import { authorizedInput, currentPasswordInput, newPasswordInput, signedOutResponse, SECURITY_UPSTREAM } from '../guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +12,6 @@ export async function POST(request: Request) {
     await founderEdgeCall(config, 'identity', 'auth.changePassword', 'POST', { currentPassword, newPassword }, session.accessToken);
     return await signedOutResponse(config, session);
   } catch (error) {
-    return adminSessionErrorResponse(error);
+    return adminSessionErrorResponse(error, SECURITY_UPSTREAM);
   }
 }

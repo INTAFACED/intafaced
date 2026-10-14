@@ -191,15 +191,14 @@ function edgeServer(fixture) {
     const url = new URL(request.url, 'http://edge');
     const procedure = /^\/api\/(?:identity|ops)\/trpc\/(.+)$/.exec(url.pathname)?.[1];
     const handler = procedure && fixture.founderApi[procedure];
-    if (!handler)
-      return reply(response, 404, { error: { json: { message: 'not available in the local preview', data: { path: url.pathname } } } });
+    if (!handler) return reply(response, 404, { error: { message: 'not available in the local preview', data: { path: url.pathname } } });
     try {
       const input = request.method === 'POST' ? await readJson(request) : JSON.parse(url.searchParams.get('input') ?? '{}');
       return reply(response, 200, { result: { data: { json: handler(input) } } });
     } catch (error) {
       const { status, code } = failure(error);
       // intafacedCode is where the real services put their typed code, and where the console reads it.
-      return reply(response, status, { error: { json: { message: code, data: { httpStatus: status, intafacedCode: code } } } });
+      return reply(response, status, { error: { message: code, code: 'BAD_REQUEST', data: { httpStatus: status, intafacedCode: code } } });
     }
   };
 }
@@ -313,7 +312,7 @@ INTAFACED local preview — test data, not live. Nothing is saved, emailed or de
                   sign in with any email and password, code 123456
   Founder sign-up http://localhost:${ADMIN_PORT}/enroll   invite TEST-INVITE-NITRO, code 123456
   Security        http://localhost:${ADMIN_PORT}/security (after signing in)
-  Forgot password http://localhost:${ADMIN_PORT}/reset    code 123456 + recovery code TESTA-00001
+  Forgot password http://localhost:${ADMIN_PORT}/reset    code 123456 + recovery code FACED-00001
 
 An enquiry sent from the questionnaire appears in the CRM. Restarting resets everything.
 Press Ctrl+C to stop.

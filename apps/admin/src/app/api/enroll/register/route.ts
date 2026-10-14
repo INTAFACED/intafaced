@@ -6,6 +6,7 @@ import {
   founderEdgeCall,
 } from '@/lib/founder-session';
 import {
+  ENROLMENT_UPSTREAM,
   enrolmentCookie,
   enrolmentCookieAge,
   enrolmentIsOpen,
@@ -14,6 +15,7 @@ import {
   sealEnrolmentSession,
 } from '@/lib/enrolment-session';
 import { readAdminJson } from '@/lib/admin-json';
+import { limitedResponse, registerLimiter } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +30,9 @@ export async function POST(request: Request) {
   try {
     const config = adminSessionConfig();
     assertAdminOrigin(request, config, true);
+    // Public and unauthenticated: count every attempt per client before doing anything else (see lib/rate-limit).
+    const limited = limitedResponse(registerLimiter, request);
+    if (limited) return limited;
     const input = await readAdminJson(request);
     const { invite, handle, email, password } = input;
     if (
@@ -69,6 +74,6 @@ export async function POST(request: Request) {
       { headers: { 'cache-control': 'no-store', 'set-cookie': enrolmentCookie(cookie, enrolmentCookieAge(session)) } },
     );
   } catch (error) {
-    return adminSessionErrorResponse(error);
+    return adminSessionErrorResponse(error, ENROLMENT_UPSTREAM);
   }
 }

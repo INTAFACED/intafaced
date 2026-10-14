@@ -45,7 +45,11 @@ export async function POST(request: Request) {
       !/^(\d{6}|[0-9A-Fa-f]{5}-[0-9A-Fa-f]{5})$/.test(input.totpCode)
     )
       throw new AdminSessionError('admin.login_input', 400);
-    const raw = await founderEdgeCall(config, 'identity', 'auth.login', 'POST', input);
+    // Recovery codes are stored upper case and matched exactly; a lower-case entry would be refused and burn an MFA attempt.
+    const raw = await founderEdgeCall(config, 'identity', 'auth.login', 'POST', {
+      ...input,
+      totpCode: String(input.totpCode).toUpperCase(),
+    });
     const session = newFounderSession(raw);
     try {
       await assertCurrentFounder(session, config);

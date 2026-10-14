@@ -39,7 +39,7 @@ export const firstResetError = (errors: ResetFieldErrors): keyof ResetValues | n
 
 /** One message for every refusal, so the page tells nobody whether an account exists. Only the wait message differs. */
 export function resetMessage(code: string): string {
-  return code === 'admin.reset_rate_limited' ? RESET_WAIT : RESET_REFUSED;
+  return code === 'admin.reset_rate_limited' || code === 'admin.rate_limited' ? RESET_WAIT : RESET_REFUSED;
 }
 
 export function FounderReset() {

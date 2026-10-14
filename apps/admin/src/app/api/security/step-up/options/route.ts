@@ -1,5 +1,5 @@
 import { adminSessionErrorResponse, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
-import { NO_STORE } from '../../guard';
+import { NO_STORE, SECURITY_UPSTREAM } from '../../guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +10,6 @@ export async function POST(request: Request) {
     const options = await founderEdgeCall(config, 'identity', 'auth.stepUpOptions', 'POST', {}, session.accessToken);
     return Response.json(options, { headers: NO_STORE });
   } catch (error) {
-    return adminSessionErrorResponse(error);
+    return adminSessionErrorResponse(error, SECURITY_UPSTREAM);
   }
 }

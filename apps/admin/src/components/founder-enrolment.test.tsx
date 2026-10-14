@@ -21,7 +21,7 @@ import {
 } from './founder-enrolment';
 
 const USER_ID = '8f14e45f-ceea-467a-9575-9a8e5f9c1b27';
-const CODES = Array.from({ length: 10 }, (_, i) => `TESTA-${String(i + 1).padStart(5, '0')}`);
+const CODES = Array.from({ length: 10 }, (_, i) => `FACED-${String(i + 1).padStart(5, '0')}`);
 const noop = () => undefined;
 const values = { invite: '', email: '', handle: '', password: '', again: '' };
 

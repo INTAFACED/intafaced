@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetLimiter } from '@/lib/rate-limit';
 import { POST } from './route';
 
 const original = { ...process.env };
 const good = { identifier: 'founder@example.invalid', totpCode: '123456', recoveryCode: 'ABCDE-12345', newPassword: 'a-new-password-1' };
 const ok = (data: unknown) => Response.json({ result: { data } });
-const refused = (status: number, intafacedCode: string) => Response.json({ error: { json: { data: { intafacedCode } } } }, { status });
+const refused = (status: number, intafacedCode: string) =>
+  Response.json({ error: { message: 'x', code: 'BAD_REQUEST', data: { httpStatus: status, intafacedCode } } }, { status });
 const post = (input: unknown, headers: Record<string, string> = {}) =>
   POST(
     new Request('https://admin.example/api/reset', {
@@ -16,6 +18,7 @@ const post = (input: unknown, headers: Record<string, string> = {}) =>
   );
 
 beforeEach(() => {
+  resetLimiter.reset();
   process.env.ADMIN_ORIGIN = 'https://admin.example';
   process.env.EDGE_URL = 'http://edge:4000';
   process.env.ADMIN_SESSION_SECRET = randomBytes(32).toString('base64url');
@@ -57,7 +60,42 @@ describe('POST /api/reset (public)', () => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValueOnce(refused(429, 'auth.too_many_attempts')));
     const result = await post(good);
     expect(result.status).toBe(429);
-    expect(await result.json()).toEqual({ code: 'admin.reset_rate_limited', upstreamCode: 'auth.too_many_attempts' });
+    // No upstream code is passed on: the page needs only to be told to wait.
+    expect(await result.json()).toEqual({ code: 'admin.reset_rate_limited' });
+  });
+  it('sends the recovery code upper-cased, because identity matches it exactly', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(ok({ ok: true }));
+    vi.stubGlobal('fetch', fetcher);
+    expect((await post({ ...good, recoveryCode: 'abcde-1f2e3' })).status).toBe(200);
+    expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body)).recoveryCode).toBe('ABCDE-1F2E3');
+  });
+  it('limits each client to 10 attempts in 15 minutes, and answers 429 admin.rate_limited without calling identity', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => refused(400, 'auth.reset_refused'));
+    vi.stubGlobal('fetch', fetcher);
+    for (let i = 0; i < 10; i += 1) expect((await post(good)).status).toBe(400);
+    const blocked = await post(good);
+    expect(blocked.status).toBe(429);
+    expect(await blocked.json()).toEqual({ code: 'admin.rate_limited' });
+    expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(fetcher).toHaveBeenCalledTimes(10);
+  });
+  it('counts bad input against the limit too', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    for (let i = 0; i < 10; i += 1) expect((await post({ nope: 1 })).status).toBe(400);
+    expect((await post({ nope: 1 })).status).toBe(429);
+  });
+  it('shares one bucket unless ADMIN_TRUST_PROXY=1, then counts by the first x-forwarded-for entry', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => refused(400, 'auth.reset_refused')),
+    );
+    for (let i = 0; i < 10; i += 1) await post(good, { 'x-forwarded-for': `203.0.113.${i}` });
+    expect((await post(good, { 'x-forwarded-for': '203.0.113.99' })).status).toBe(429);
+    resetLimiter.reset();
+    process.env.ADMIN_TRUST_PROXY = '1';
+    for (let i = 0; i < 10; i += 1) await post(good, { 'x-forwarded-for': '203.0.113.1, 10.0.0.2' });
+    expect((await post(good, { 'x-forwarded-for': '203.0.113.1' })).status).toBe(429);
+    expect((await post(good, { 'x-forwarded-for': '203.0.113.2' })).status).toBe(400);
   });
   it.each([
     ['no identifier', { ...good, identifier: ' ' }],

@@ -1,6 +1,6 @@
 import { AdminSessionError, adminSessionErrorResponse, founderEdgeCall } from '@/lib/founder-session';
 import { boundedString } from '@/lib/step-up';
-import { authorizedInput, NO_STORE } from '../../guard';
+import { authorizedInput, NO_STORE, SECURITY_UPSTREAM } from '../../guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +50,6 @@ export async function POST(request: Request) {
       throw new AdminSessionError('admin.upstream_invalid', 502);
     return Response.json({ credentialId }, { headers: NO_STORE });
   } catch (error) {
-    return adminSessionErrorResponse(error);
+    return adminSessionErrorResponse(error, SECURITY_UPSTREAM);
   }
 }

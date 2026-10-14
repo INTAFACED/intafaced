@@ -83,7 +83,7 @@ describe('the four Security cards', () => {
     expect(cards()).not.toContain('data-primary="true"');
   });
   it('holds no secret in the markup', () => {
-    expect(cards()).not.toMatch(/secret|otpauth|TESTB|value="[^"]/i);
+    expect(cards()).not.toMatch(/secret|otpauth|FACED-|value="[^"]/i);
   });
 });
 

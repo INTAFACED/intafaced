@@ -62,6 +62,8 @@ export function enrolmentErrorMessage(failure: { code: string; upstreamCode?: st
       return "Couldn't reach the server. Check your connection and try again.";
     case 'admin.enrolment_off':
       return 'Enrolment is closed.';
+    case 'admin.rate_limited':
+      return 'Too many attempts from this connection. Wait a few minutes, then try again.';
     case 'admin.enrol_input':
     case 'admin.json_required':
       return 'Check the details you entered and try again.';

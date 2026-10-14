@@ -15,6 +15,19 @@ import { readAdminJson } from '@/lib/admin-json';
 
 export const NO_STORE = { 'cache-control': 'no-store' } as const;
 
+/**
+ * The identity refusal codes the Security page has copy for (see `securityErrorMessage`), and so the only ones its routes pass
+ * on. Everything else goes out as this server's own code alone.
+ */
+export const SECURITY_UPSTREAM = [
+  'auth.too_many_attempts',
+  'auth.password_unchanged',
+  'auth.password_policy',
+  'auth.mfa_required',
+  'auth.invalid_credentials',
+  'auth.mfa_invalid',
+] as const;
+
 /** Authorises the request, then reads a JSON body that may only carry `keys`. */
 export async function authorizedInput(
   request: Request,

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ADMIN_COOKIE, adminSessionConfig } from '@/lib/founder-session';
 import { ENROL_COOKIE, openEnrolmentSession, sealEnrolmentSession, type EnrolmentSession } from '@/lib/enrolment-session';
+import { registerLimiter } from '@/lib/rate-limit';
 import { DELETE } from './route';
 import { GET as status } from './status/route';
 import { POST as register } from './register/route';
@@ -13,7 +14,7 @@ import { POST as finish } from './finish/route';
 const ORIGIN = 'https://admin.example.test';
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const SECRET = 'JBSWY3DPEHPK3PXP';
-const CODES = Array.from({ length: 10 }, (_, i) => `TESTA-${String(i + 1).padStart(5, '0')}`);
+const CODES = Array.from({ length: 10 }, (_, i) => `FACED-${String(i + 1).padStart(5, '0')}`);
 const ENV = {
   ADMIN_ORIGIN: ORIGIN,
   EDGE_URL: 'https://edge.example.test',
@@ -42,7 +43,10 @@ function stubEdge() {
       const configured = replies[procedure];
       const reply = (typeof configured === 'function' ? configured(call) : configured) ?? { data: {} };
       if (reply.status && reply.status >= 400)
-        return Response.json({ error: { json: { data: { intafacedCode: reply.upstreamCode } } } }, { status: reply.status });
+        return Response.json(
+          { error: { message: 'x', code: 'BAD_REQUEST', data: { httpStatus: reply.status, intafacedCode: reply.upstreamCode } } },
+          { status: reply.status },
+        );
       return Response.json({ result: { data: { json: reply.data ?? {} } } });
     }),
   );
@@ -83,6 +87,7 @@ function request(
 }
 
 beforeEach(() => {
+  registerLimiter.reset();
   Object.assign(process.env, ENV);
   calls = [];
   replies = {};
@@ -303,7 +308,7 @@ describe('authenticator', () => {
   it.each([
     ['letters', { code: 'abcdef', secret: SECRET }],
     ['five digits', { code: '12345', secret: SECRET }],
-    ['a recovery code', { code: 'TESTA-00001', secret: SECRET }],
+    ['a recovery code', { code: 'FACED-00001', secret: SECRET }],
     ['no secret', { code: '123456' }],
     ['a short secret', { code: '123456', secret: 'ABC' }],
     ['an extra key', { code: '123456', secret: SECRET, userId: USER_ID }],
@@ -415,7 +420,7 @@ describe('passkey', () => {
   it.each([
     ['letters', { code: 'abcdef' }],
     ['five digits', { code: '12345' }],
-    ['a recovery code', { code: 'TESTA-00001' }],
+    ['a recovery code', { code: 'FACED-00001' }],
     ['a number', { code: 123456 }],
     ['an extra key', { code: '123456', token: 'x' }],
   ])('options refuses %s', async (_name, payload) => {
@@ -588,5 +593,91 @@ describe('finish and abandon', () => {
   it('abandon works at any stage, including after the authenticator', async () => {
     const response = await DELETE(request('/api/enroll', 'DELETE', { session: live({ totpConfirmed: true }) }));
     expect(response.status).toBe(200);
+  });
+});
+
+describe('upstream codes are opt-in', () => {
+  const input = { invite: 'ABCD-EFGH', handle: 'test-one', email: 'one@example.test', password: 'a-test-password-1' };
+
+  it("drops a code the page has no copy for, keeping only this server's code", async () => {
+    for (const upstreamCode of ['auth.invalid_credentials', 'auth.user_not_found', 'auth.reset_refused']) {
+      replies['auth.registerFounder'] = { status: 400, upstreamCode };
+      const response = await register(request('/api/enroll/register', 'POST', { session: null, body: input }));
+      expect(await body(response)).toEqual({ code: 'admin.upstream_refused' });
+    }
+    replies['totp.confirm'] = { status: 400, upstreamCode: 'auth.session_denied' };
+    const confirm = await authConfirm(request('/api/enroll/authenticator/confirm', 'POST', { body: { code: '123456', secret: SECRET } }));
+    expect(await body(confirm)).toEqual({ code: 'admin.upstream_refused' });
+  });
+
+  it('passes on the passkey-preview code and the codes the page has copy for', async () => {
+    for (const upstreamCode of ['auth.passkey_preview_unavailable', 'auth.mfa_invalid', 'auth.mfa_required', 'auth.too_many_attempts']) {
+      replies['auth.stepUp'] = { status: 400, upstreamCode };
+      const response = await passkeyOptions(
+        request('/api/enroll/passkey/options', 'POST', { session: live({ totpConfirmed: true }), body: { code: '123456' } }),
+      );
+      expect(await body(response)).toMatchObject({ upstreamCode });
+    }
+  });
+});
+
+describe('register is rate limited per client', () => {
+  const input = { invite: 'ABCD-EFGH', handle: 'test-one', email: 'one@example.test', password: 'a-test-password-1' };
+
+  it('allows 10 attempts, then answers 429 admin.rate_limited without calling identity', async () => {
+    replies['auth.registerFounder'] = { status: 409, upstreamCode: 'auth.invite_used' };
+    for (let i = 0; i < 10; i += 1)
+      expect((await register(request('/api/enroll/register', 'POST', { session: null, body: input }))).status).toBe(409);
+    const blocked = await register(request('/api/enroll/register', 'POST', { session: null, body: input }));
+    expect(blocked.status).toBe(429);
+    expect(await body(blocked)).toEqual({ code: 'admin.rate_limited' });
+    expect(calls).toHaveLength(10);
+  });
+
+  it('keeps clients apart only when ADMIN_TRUST_PROXY=1, by the first x-forwarded-for entry', async () => {
+    process.env.ADMIN_TRUST_PROXY = '1';
+    replies['auth.registerFounder'] = { status: 409, upstreamCode: 'auth.invite_used' };
+    const from = (ip: string) => {
+      const asked = request('/api/enroll/register', 'POST', { session: null, body: input });
+      const headers = new Headers(asked.headers);
+      headers.set('x-forwarded-for', ip);
+      return new Request(asked.url, { method: 'POST', headers, body: JSON.stringify(input) });
+    };
+    for (let i = 0; i < 10; i += 1) await register(from('203.0.113.1, 10.0.0.9'));
+    expect((await register(from('203.0.113.1'))).status).toBe(429);
+    expect((await register(from('203.0.113.2'))).status).toBe(409);
+  });
+
+  it('does not limit the routes that already have a session', async () => {
+    for (let i = 0; i < 12; i += 1) expect((await authStart(request('/api/enroll/authenticator/start', 'POST'))).status).not.toBe(429);
+  });
+});
+
+describe('passkey verify forwards only what it has checked', () => {
+  const confirmed = () =>
+    live({ totpConfirmed: true, stepUpToken: 'stepup-token', stepUpExpiresAt: new Date(Date.now() + 240_000).toISOString() });
+  const attestation = {
+    id: 'abc',
+    rawId: 'abc',
+    type: 'public-key',
+    response: { clientDataJSON: 'cd', attestationObject: 'ao', transports: ['internal'] },
+    clientExtensionResults: { credProps: { rk: true } },
+  };
+
+  it('rebuilds the credential field by field', async () => {
+    replies['webauthn.registerVerify'] = { data: { credentialId: 'abc' } };
+    await passkeyVerify(request('/api/enroll/passkey/verify', 'POST', { session: confirmed(), body: attestation }));
+    expect(calls[0]!.body).toEqual(attestation);
+    expect(Object.keys(calls[0]!.body as object)).toEqual(['id', 'rawId', 'type', 'response', 'clientExtensionResults']);
+  });
+
+  it('caps clientExtensionResults at 2048 characters', async () => {
+    const big = { ...attestation, clientExtensionResults: { blob: 'x'.repeat(2100) } };
+    const response = await passkeyVerify(request('/api/enroll/passkey/verify', 'POST', { session: confirmed(), body: big }));
+    expect(response.status).toBe(400);
+    const edge = { ...attestation, clientExtensionResults: { blob: 'x'.repeat(2030) } };
+    expect(JSON.stringify(edge.clientExtensionResults).length).toBeLessThan(2048);
+    replies['webauthn.registerVerify'] = { data: { credentialId: 'abc' } };
+    expect((await passkeyVerify(request('/api/enroll/passkey/verify', 'POST', { session: confirmed(), body: edge }))).status).toBe(200);
   });
 });

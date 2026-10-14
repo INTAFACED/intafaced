@@ -2,13 +2,13 @@
  * Preview stand-in for svc-identity's founder Security procedures (password change and reset, step-up, replace authenticator,
  * recovery codes, passkeys). `fixtureFounderSecurityHandlers(state)` returns `{ 'auth.x': (input) => … }` for `fixture.founderApi`.
  *
- * Everything is TEST data and obviously so: TOTP code 123456, recovery codes TESTA-00001…10 (new ones are TESTB-…), a fake
+ * Everything is TEST data and obviously so: TOTP code 123456, recovery codes FACED-00001…10 (regenerated ones are FACED-10001…10010), a fake
  * authenticator secret under the issuer "INTAFACED TEST". Nothing here is a credential for anything.
  *
  * `state` is a plain object the other founder handlers can share. Missing keys are created on first use:
  *   state.password          current password (default 'TEST-founder-password')
  *   state.totpCode          the code that the "authenticator app" shows (default '123456')
- *   state.recoveryCodes     unused recovery codes (default TESTA-00001 … TESTA-00010)
+ *   state.recoveryCodes     unused recovery codes (default FACED-00001 … FACED-00010)
  *   state.totpEnrolledAt, state.passwordChangedAt, state.passkeys, state.pendingSecret, state.stepUpAt, state.failures
  *
  * Handlers get only the request body, not the Bearer token, so "needs a step-up token" is modelled as "a successful
@@ -21,12 +21,13 @@ import { FixtureError } from './fixture.mjs';
 const STEP_UP_MS = 5 * 60_000;
 const MAX_FAILURES = 5;
 const TEST_SECRET = 'TESTTESTTESTTEST';
-const codes = (prefix) => Array.from({ length: 10 }, (_, index) => `${prefix}-${String(index + 1).padStart(5, '0')}`);
+// Hex like the real ones (XXXXX-XXXXX, 0-9 A-F), because the console only accepts that form. FACED is hex.
+const codes = (prefix, offset = 0) => Array.from({ length: 10 }, (_, index) => `${prefix}-${String(offset + index + 1).padStart(5, '0')}`);
 
 export function fixtureFounderSecurityHandlers(state, clock = () => Date.now()) {
   state.password ??= 'TEST-founder-password';
   state.totpCode ??= '123456';
-  state.recoveryCodes ??= codes('TESTA');
+  state.recoveryCodes ??= codes('FACED');
   state.totpEnrolledAt ??= new Date(clock() - 20 * 86_400_000).toISOString();
   state.passwordChangedAt ??= null;
   state.passkeys ??= [{ credentialId: 'TEST-passkey-1', createdAt: new Date(clock() - 10 * 86_400_000).toISOString() }];
@@ -131,7 +132,7 @@ export function fixtureFounderSecurityHandlers(state, clock = () => Date.now()) 
     },
     'totp.regenerateRecoveryCodes': () => {
       consumeStepUp();
-      state.recoveryCodes = codes('TESTB');
+      state.recoveryCodes = codes('FACED', 10000);
       return { recoveryCodes: [...state.recoveryCodes] };
     },
     'auth.resetPassword': ({ identifier, totpCode, recoveryCode, newPassword }) => {

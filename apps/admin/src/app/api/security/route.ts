@@ -1,5 +1,5 @@
 import { AdminSessionError, adminSessionErrorResponse, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
-import { NO_STORE } from './guard';
+import { NO_STORE, SECURITY_UPSTREAM } from './guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,6 +68,6 @@ export async function GET(request: Request) {
       { headers: NO_STORE },
     );
   } catch (error) {
-    return adminSessionErrorResponse(error);
+    return adminSessionErrorResponse(error, SECURITY_UPSTREAM);
   }
 }

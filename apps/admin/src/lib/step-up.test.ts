@@ -64,7 +64,12 @@ describe('withStepUp', () => {
   it('never runs the action when the proof is refused, and carries the upstream code', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ error: { json: { data: { intafacedCode: 'auth.invalid_credentials' } } } }, { status: 401 }));
+      .mockResolvedValueOnce(
+        Response.json(
+          { error: { message: 'x', code: 'UNAUTHORIZED', data: { httpStatus: 401, intafacedCode: 'auth.invalid_credentials' } } },
+          { status: 401 },
+        ),
+      );
     vi.stubGlobal('fetch', fetcher);
     const action = vi.fn();
     const failure = await withStepUp(config, session, { totpCode: '000000' }, action).catch((error: unknown) => error);
@@ -77,6 +82,11 @@ describe('withStepUp', () => {
     const action = vi.fn();
     await expect(withStepUp(config, session, { totpCode: '123456' }, action)).rejects.toMatchObject({ code: 'admin.upstream_invalid' });
     expect(action).not.toHaveBeenCalled();
+  });
+  it('sends a recovery code upper-cased, and leaves a 6-digit code alone', () => {
+    expect(parseStepUpProof({ totpCode: 'abcde-1f2e3' })).toEqual({ totpCode: 'ABCDE-1F2E3' });
+    expect(parseStepUpProof({ totpCode: 'ABCDE-12345' })).toEqual({ totpCode: 'ABCDE-12345' });
+    expect(parseStepUpProof({ totpCode: '123456' })).toEqual({ totpCode: '123456' });
   });
   it('passes a passkey assertion through unchanged', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(reply({ accessToken: 't', expiresAt: 'x', scopes: [] }));
