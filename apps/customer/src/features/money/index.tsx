@@ -24,6 +24,7 @@ import { Withdrawal } from './Withdrawal';
 import { withdrawalCopy } from './withdrawal-copy';
 import { hierarchyCopy } from './hierarchy-copy';
 import { pendingKey, pendingOutcomes, restorePendingOutcomes } from './pending-outcomes';
+import { isHiddenPath } from '../../app/feature-registry';
 import './money.css';
 
 const coverage = () => copyText('index.user.ledger.accounts.are.shown.by.asset');
@@ -125,9 +126,11 @@ function HoldingActionSection({ asset }: { asset: string }) {
       </a>
       <p className="money-caption">{copyText('holding.send.source', { asset })}</p>
       <div className="money-holding-secondary">
-        <a className="text-link" href={`/trade/convert?asset=${encodeURIComponent(asset)}`}>
-          <span>{copyText('holding.convert.asset', { asset })} ↗</span>
-        </a>
+        {isHiddenPath('/trade/convert') ? null : (
+          <a className="text-link" href={`/trade/convert?asset=${encodeURIComponent(asset)}`}>
+            <span>{copyText('holding.convert.asset', { asset })} ↗</span>
+          </a>
+        )}
         <a className="text-link" href={`/portfolio/${encodeURIComponent(asset)}/repeat-buy`}>
           <span>
             <Text k="index.repeat.buy" /> ↗

@@ -319,7 +319,8 @@ describe('execution boot trpc mount complete (D70)', () => {
     expect(src).toContain("prefix: '/trpc'");
     expect(src).toContain('fastifyTRPCPlugin');
     expect(src).toContain('createEdgeContext({');
-    expect(src).toContain('edgeContext({ headers: req.headers');
+    // Whole request, not `{ headers, id }`: the S2S body-bind needs req.body.
+    expect(src).toContain('edgeContext(req)');
     expect(src).toContain('EDGE_PRINCIPAL_SECRET');
     expect(src).toContain('SIGTERM');
     expect(src).toContain('SIGINT');

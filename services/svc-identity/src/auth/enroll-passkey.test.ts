@@ -8,11 +8,15 @@ import {
   toRegistrationResponseJSON,
   type PasskeyCeremony,
 } from './enroll-passkey.js';
+import type { FactorActor } from './factor-gate.js';
 import type { ChallengeStorePort } from './webauthn.js';
+
+const mfaActor: FactorActor = { mfa: true, privileged: false };
 
 function fakeSql(rows: unknown[] = []) {
   const fn = async () => rows;
   (fn as unknown as { json: (v: unknown) => unknown }).json = (v: unknown) => v;
+  (fn as unknown as { begin: unknown }).begin = (_o: string, cb: (t: unknown) => unknown) => cb(fn);
   return fn as unknown as Parameters<typeof enrollPasskey>[0];
 }
 
@@ -101,6 +105,7 @@ describe('enrollPasskey', () => {
           response: { clientDataJSON: clientData('x'), attestationObject: 'a' },
         }),
         memChallenges(),
+        mfaActor,
         ceremony,
       ),
     ).rejects.toMatchObject({ code: 'auth.origin_missing' });
@@ -115,7 +120,7 @@ describe('enrollPasskey', () => {
         written.push(values);
         return [];
       },
-      { json: (v: unknown) => v },
+      { json: (v: unknown) => v, begin: (_o: string, cb: (t: unknown) => unknown) => cb(sql as never) },
     );
 
     const started = await beginEnrollPasskey(sql as never, 'user-1', rp, memChallenges(), ceremony);
@@ -134,6 +139,7 @@ describe('enrollPasskey', () => {
         response: { clientDataJSON: clientData('lib-challenge'), attestationObject: 'a' },
       }),
       challenges,
+      mfaActor,
       ceremony,
     );
     expect(out).toEqual({ credentialId: 'cred-1' });

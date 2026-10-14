@@ -14,6 +14,7 @@ import {
   type EntryInput,
   type OwnerType,
 } from '@intafaced/ledger-client';
+import { postAcknowledgement } from './s2s-http.js';
 import { composePortfolioView, portfolioViewSchema } from '@intafaced/portfolio-view';
 import { DualControlError } from './ledger/dual-control.js';
 import {
@@ -23,7 +24,7 @@ import {
   readApprovalIds,
   unwiredApprovalConsumer,
 } from './ledger/action-approval-consume.js';
-import { parseHistoryDoorInput, parseHistoryRange } from './ledger/history.js';
+import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
 import type { LedgerService } from './service.js';
@@ -47,6 +48,9 @@ function toTrpcError(err: unknown): TRPCError {
     // A malformed transaction is a bug in the calling service, not user error.
     return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: userCopy(err.code), cause: err });
   }
+  if (err instanceof LedgerError && err.code === 'ledger.idempotency_conflict') {
+    return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+  }
   if (err instanceof LedgerError && err.code === 'ledger.frozen') {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(err.code), cause: err });
   }
@@ -66,6 +70,7 @@ function toTrpcError(err: unknown): TRPCError {
     (err.code === 'ledger.history_range_invalid' ||
       err.code === 'ledger.history_range_too_large' ||
       err.code === 'ledger.history_page_socket' ||
+      err.code === 'ledger.history_cursor_invalid' ||
       err.code === RECIPE_REQUIRED_CODE)
   ) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -135,7 +140,24 @@ export function createLedgerRouter(
      */
     post: serviceProcedure
       .input(postRequestSchema)
-      .output(z.object({ txId: z.string(), hash: z.string(), postedAt: z.string() }))
+      .output(
+        z.object({
+          txId: z.string(),
+          hash: z.string(),
+          postedAt: z.string(),
+          entries: z.array(
+            z.object({
+              id: z.string(),
+              txId: z.string(),
+              accountId: z.string(),
+              assetId: z.string(),
+              direction: z.enum(['debit', 'credit']),
+              amount: z.string(),
+              balanceAfter: z.string(),
+            }),
+          ),
+        }),
+      )
       .mutation(async ({ input }) => {
         try {
           // Same gate as the mounted s2s door. An assembled body is not a
@@ -155,7 +177,7 @@ export function createLedgerRouter(
             ...(input.meta ? { meta: input.meta } : {}),
             ...(input.correlationId ? { correlationId: input.correlationId } : {}),
           });
-          return { txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() };
+          return postAcknowledgement(tx);
         } catch (err) {
           throw toTrpcError(err);
         }
@@ -301,6 +323,46 @@ export function createLedgerRouter(
             amount: formatAmount(e.amount),
             postedAt: e.postedAt.toISOString(),
           }));
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    /**
+     * One page of entry history, newest first (U5a). Sibling of `history`, which
+     * is unchanged. Same `serviceProcedure` guard and the same reasoning: the
+     * account scope comes from this input, which only a service can send, and
+     * the cursor is a position inside that scope, never an account. Served,
+     * like `history`, through `registerS2sHttp` (`/trpc/historyPage`).
+     */
+    historyPage: serviceProcedure
+      .input(z.unknown())
+      .output(
+        z.object({
+          entries: z.array(
+            z.object({
+              txId: z.string(),
+              module: z.string(),
+              reason: z.string(),
+              direction: z.enum(['debit', 'credit']),
+              /** Decimal string. Money never crosses as a `number`. */
+              amount: z.string(),
+              postedAt: z.string(),
+              assetId: z.string(),
+              /** `ledger_entries.id` (bigserial) as a decimal string. */
+              entryId: z.string(),
+              /** `meta.rail` when allow-listed (see `HISTORY_RAILS`), else null. */
+              rail: z.enum(HISTORY_RAILS).nullable(),
+              /** The page owner's own trade order this line belongs to (hold, amend, release, fill), else null. */
+              orderId: z.string().min(1).max(128).nullable(),
+            }),
+          ),
+          nextCursor: z.string().nullable(),
+        }),
+      )
+      .query(async ({ input }) => {
+        try {
+          return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(input)));
         } catch (err) {
           throw toTrpcError(err);
         }

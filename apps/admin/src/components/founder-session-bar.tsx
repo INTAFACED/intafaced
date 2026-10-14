@@ -1,15 +1,17 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { crmTime } from '@/lib/crm-browser';
+import { browserDraftStorage, clearAllDrafts, keptEnquiryId } from '@/lib/crm-drafts';
+import { enquiryIdFromSearch, signInHref } from '@/lib/crm-return';
 import { founderName, useFounderOwners } from './founder-names';
 
 const WARN_MS = 10 * 60_000;
 /** What the bar says about the session clock. `now` is null until the browser has mounted, so server and browser markup match. */
-export function sessionStatus(expiresAt: string, now: number | null): { text: string; warning: boolean } | null {
+export function sessionStatus(expiresAt: string, now: number | null): { text: string; warning: boolean; expired?: boolean } | null {
   if (now === null) return null;
   const left = Date.parse(expiresAt) - now;
   if (!Number.isFinite(left)) return null;
-  if (left <= 0) return { text: 'Session ended: sign in again', warning: true };
+  if (left <= 0) return { text: 'Session ended: sign in again', warning: true, expired: true };
   if (left <= WARN_MS) return { text: `Session ends in ${Math.max(1, Math.ceil(left / 60_000))} min — save your work`, warning: true };
   return { text: `Session ends ${crmTime(expiresAt)}`, warning: false };
 }
@@ -30,13 +32,23 @@ export function FounderSessionBar({ csrf, userId, expiresAt }: { csrf: string; u
       <span title={userId}>{founderName(owners, userId)}</span>
       {status && (
         <small className={status.warning ? 'adm-session-note is-warning' : 'adm-session-note'} role={status.warning ? 'status' : undefined}>
-          {status.text}
+          {status.expired ? (
+            <a href={signInHref(enquiryIdFromSearch(window.location.search) ?? keptEnquiryId(browserDraftStorage(), userId))}>
+              {status.text}
+            </a>
+          ) : (
+            status.text
+          )}
         </small>
       )}
       <button
+        type="button"
+        className="adm-quiet-button"
         disabled={busy}
         onClick={async () => {
           setBusy(true);
+          // Signing out is explicit intent: nothing typed in this tab is kept for the next person, even if the server call fails.
+          clearAllDrafts(browserDraftStorage());
           try {
             const response = await fetch('/api/session', { method: 'DELETE', headers: { 'x-intafaced-csrf': csrf } });
             if (!response.ok) {

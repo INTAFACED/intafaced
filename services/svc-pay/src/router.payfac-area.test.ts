@@ -146,7 +146,9 @@ describe('tRPC PayFac area map on gateway money doors', () => {
     expect(codeOf(await api.payment.capture({ paymentId: PAYMENT }).catch((e: unknown) => e))).toBe('FORBIDDEN');
     expect(stub.calls.filter((c) => c.method === 'capture')).toHaveLength(0);
 
-    expect(codeOf(await api.payment.refund({ paymentId: PAYMENT, amount: '10' }).catch((e: unknown) => e))).toBe('FORBIDDEN');
+    expect(codeOf(await api.payment.refund({ paymentId: PAYMENT, amount: '10', refundId: 'r-test-1' }).catch((e: unknown) => e))).toBe(
+      'FORBIDDEN',
+    );
     expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(0);
   });
 
@@ -158,7 +160,9 @@ describe('tRPC PayFac area map on gateway money doors', () => {
 
     await expect(withPayment.payment.create(createBody)).resolves.toMatchObject({ merchantId: LEAF });
     await expect(withPayment.payment.capture({ paymentId: PAYMENT })).resolves.toMatchObject({ status: 'captured' });
-    expect(codeOf(await withPayment.payment.refund({ paymentId: PAYMENT, amount: '10' }).catch((e: unknown) => e))).toBe('FORBIDDEN');
+    expect(
+      codeOf(await withPayment.payment.refund({ paymentId: PAYMENT, amount: '10', refundId: 'r-test-1' }).catch((e: unknown) => e)),
+    ).toBe('FORBIDDEN');
     expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(0);
 
     const withRefund = createPayRouter(stub.service, rails, money, fence(['payment.refund'])).createCaller(

@@ -16,7 +16,7 @@ import type { EventBus } from '@intafaced/events';
 import type { MatchingClient } from '../spot/matching-client.js';
 import { createJobHost, type JobHost } from './job-host.js';
 import { runFundingTick } from './funding-tick.js';
-import { runLiquidationTick, type MarkSource } from './liquidation-tick.js';
+import { ABANDONED_PARKED, runLiquidationTick, type LiquidationTickResult, type MarkSource } from './liquidation-tick.js';
 import { depthNotionalSourceFromDepth, markSourceFromDepth } from './mark-from-depth.js';
 import { markSourcePrefer } from './mark-from-venue.js';
 import { memoryFundingRateBook, type FundingRateEntry } from './funding-rate-source.js';
@@ -31,6 +31,7 @@ import {
   sqlFundingMarginApplier,
   sqlFundingPeriodStore,
   sqlLiquidationAttemptStore,
+  sqlLiquidationRungStore,
   sqlPositionCloser,
   sqlPositionReducer,
 } from './tick-stores.js';
@@ -147,6 +148,65 @@ export interface FuturesJobsHandle {
 }
 
 /**
+ * Surface what a liquidation tick would otherwise swallow, at error level, once
+ * per position per tick, through the sink a failed job uses.
+ *
+ * - `errored`: that position threw; the tick scanned the rest (see
+ *   `runLiquidationTick`), so without this line the failure would vanish.
+ * - `skipped_already` on an open position: a claim exists yet the position is
+ *   still open. Rungs that run through the rung store never leave one (a failed
+ *   rung is replayed), so this is a closing rung claimed by the code that
+ *   predates rung ids and parked after a crash — only an operator can clear it.
+ *   It is logged EVERY tick so it cannot be scrolled past.
+ *   The same item with reason `trade.liquidation_abandoned_parked` is a position
+ *   whose latest rung was abandoned: its loss is booked and the row could not be
+ *   reconciled, so nothing more is planned for it until an operator resolves it.
+ */
+export function reportLiquidationTick(tick: LiquidationTickResult, onError: (name: string, err: unknown) => void): void {
+  for (const item of tick.items) {
+    // An applied rung whose margin did not reconcile is a success AND an alert: the loss is
+    // booked and the row moved, but ledger and row disagree by this amount (see the runbook).
+    if (item.alert) {
+      onError(
+        'futures.liquidation',
+        new Error(`${item.alert.code} positionId=${item.positionId} rungId=${item.alert.rungId} amount=${item.alert.amount}`),
+      );
+    }
+    if (item.lossShort) {
+      onError(
+        'futures.liquidation',
+        new Error(
+          `${item.lossShort.code} positionId=${item.positionId} rungId=${item.lossShort.rungId} amount=${item.lossShort.amount} (the loss was booked for less than planned: the pot held less)`,
+        ),
+      );
+    }
+    if (item.releaseShort) {
+      onError(
+        'futures.liquidation',
+        new Error(
+          `${item.releaseShort.code} positionId=${item.positionId} rungId=${item.releaseShort.rungId} amount=${item.releaseShort.amount} (the margin release was amended down to what the pot held)`,
+        ),
+      );
+    }
+    if (item.outcome === 'errored') {
+      onError('futures.liquidation', new Error(`position ${item.positionId} errored (${item.reason}): ${item.summary ?? ''}`));
+    } else if (item.outcome === 'skipped_already' && item.reason === ABANDONED_PARKED) {
+      onError(
+        'futures.liquidation',
+        new Error(
+          `liquidation parked: the latest rung was abandoned after its loss was booked (operator must reconcile, then mark the rung resolved) positionId=${item.positionId}`,
+        ),
+      );
+    } else if (item.outcome === 'skipped_already') {
+      onError(
+        'futures.liquidation',
+        new Error(`liquidation rung parked: claim exists but position still open (operator action needed) positionId=${item.positionId}`),
+      );
+    }
+  }
+}
+
+/**
  * Assemble futures jobs. Does not invent markets or rates.
  * When disabled, returns a stopped host (list empty) but still exposes markPrice.
  */
@@ -201,6 +261,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
 
   const liqLoader = sqlLiquidationPositionLoader(deps.sql);
   const attempts = sqlLiquidationAttemptStore(deps.sql);
+  const rungs = sqlLiquidationRungStore(deps.sql);
   const closer = sqlPositionCloser(deps.sql, deps.bus);
   const fundLoader = sqlFundingPositionLoader(deps.sql);
   const periods = sqlFundingPeriodStore(deps.sql);
@@ -253,11 +314,14 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
   });
 
   host.every('futures.liquidation', deps.config.liqIntervalMs, async () => {
-    await runLiquidationTick({
+    const tick = await runLiquidationTick({
       marks,
       positions: liqLoader,
       closer,
       attempts,
+      // Rungs are a state machine on the position row (liquidation-rungs.ts): a failed
+      // rung is replayed from its stored bodies, never re-planned at a new mark.
+      rungs,
       acceptedMarks,
       ladder,
       ledger: deps.ledger,
@@ -266,6 +330,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       // ADL omitted: owner policy unset. Tick defaults policy null →
       // trade.adl_unconfigured. Do not invent last-resort reduce magnitudes.
     });
+    reportLiquidationTick(tick, deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)));
   });
 
   const fundingIntervalMs = deps.config.fundingIntervalMs;

@@ -19,6 +19,8 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { navigate } from '../../app/location';
+import { hiddenFeatureFor, isHiddenPath } from '../../app/feature-registry';
+import { fmtPctPoints } from '../../data';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, DataTable, Dialog, EmptyState, Field, Loading, Tabs } from '../../shared/ui';
 import { unavailable, type ApiResult } from '../../shared/api';
@@ -57,6 +59,21 @@ const modeRoutes: Record<string, string> = {
   'Quote desk': '/otc',
 };
 let catalogueIdentity = 0;
+/**
+ * The market a bare /trade or /exchange opens: BTC/USDT when it can take orders,
+ * else the first market that is active and orderable, else the first active one.
+ * Never a market that only shows "Entry restricted" when an orderable one exists.
+ */
+export function defaultListing<T extends { symbol: string; active: boolean; orderable: boolean }>(visible: readonly T[]): T | undefined {
+  const usable = (value: T) => value.active && value.orderable;
+  return (
+    visible.find((value) => value.symbol === 'BTC/USDT' && usable(value)) ??
+    visible.find(usable) ??
+    visible.find((value) => value.active) ??
+    visible[0]
+  );
+}
+
 export function TradeRoutes({ path }: { path: string }) {
   const route = new URL(path, location.origin),
     pathname = route.pathname;
@@ -109,7 +126,8 @@ export function TradeRoutes({ path }: { path: string }) {
   );
   const assetSymbol = asset ? visible.find((value) => value.base === asset)?.symbol : null;
   const requested = selected ?? routePair ?? assetSymbol;
-  const market = visible.find((value) => value.symbol === requested) ?? ((routePair || asset) && !selected ? undefined : visible[0]);
+  const market =
+    visible.find((value) => value.symbol === requested) ?? ((routePair || asset) && !selected ? undefined : defaultListing(visible));
   useEffect(() => {
     if (favoritesKey !== `trade-favorites:${userId ?? 'guest'}`) return;
     try {
@@ -164,21 +182,24 @@ export function TradeRoutes({ path }: { path: string }) {
             ))}
           </div>
         )}
-        <label className="trade-simulation">
-          <input
-            type="checkbox"
-            checked={simulation}
-            onChange={(event) => {
-              setSimulation(event.target.checked);
-              setSelected(null);
-              const target = new URL(location.href);
-              if (event.target.checked) target.searchParams.set('simulated', 'true');
-              else target.searchParams.delete('simulated');
-              navigate(`${target.pathname}${target.search}${target.hash}`, true);
-            }}
-          />
-          <CopyText k="simulated" />
-        </label>
+        {/* The feature registry hides simulated markets from customers; the switch only shows once that row goes live. */}
+        {hiddenFeatureFor(pathname, '?simulated=true') ? null : (
+          <label className="trade-simulation">
+            <input
+              type="checkbox"
+              checked={simulation}
+              onChange={(event) => {
+                setSimulation(event.target.checked);
+                setSelected(null);
+                const target = new URL(location.href);
+                if (event.target.checked) target.searchParams.set('simulated', 'true');
+                else target.searchParams.delete('simulated');
+                navigate(`${target.pathname}${target.search}${target.hash}`, true);
+              }}
+            />
+            <CopyText k="simulated" />
+          </label>
+        )}
       </nav>
       {activeMode !== 'Spot' ? (
         <TradingTools
@@ -470,7 +491,7 @@ function MarketFacts({ api, market }: { api: TradeApi; market: Listing }) {
         <span>
           <CopyText k="hChange" />
         </span>
-        <strong>{ticker.resource.status === 'ready' ? displayAmount(ticker.resource.data.percentage) : '—'}</strong>
+        <strong>{ticker.resource.status === 'ready' ? fmtPctPoints(ticker.resource.data.percentage) : '—'}</strong>
       </div>
       <div>
         <span>
@@ -1897,13 +1918,15 @@ function OrderTicket({
             <Button disabled={blocked || busy} onClick={preview}>
               {busy ? <CopyText k={'checkingOrder'} /> : <CopyText k={side === 'buy' ? 'reviewBuy' : 'reviewSell'} />}
             </Button>
-            <a
-              className="text-link"
-              href={`/trade/convert?asset=${encodeURIComponent(market.base)}${market.paper ? '&simulated=true' : ''}`}
-            >
-              <CopyText k="convert" />
-              {market.base} ↗
-            </a>
+            {isHiddenPath('/trade/convert') ? null : (
+              <a
+                className="text-link"
+                href={`/trade/convert?asset=${encodeURIComponent(market.base)}${market.paper ? '&simulated=true' : ''}`}
+              >
+                <CopyText k="convert" />
+                {market.base} ↗
+              </a>
+            )}
             <small className="muted">
               <CopyText k="ctrlEnterReviewsFromAReviewedTicketItSendsOrderType" />
             </small>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { StatusTag } from '@intafaced/ui';
 import { useSession } from '../session/session';
 import type { ApiClient } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -20,6 +21,8 @@ import {
   type VerificationOriginal,
   type VerificationRecord,
 } from './verification-guards';
+import { stamp } from '../../screens/money/time';
+import { usePreferences } from '../../shared/preferences';
 import './verification.css';
 
 type Original = { owner: string; client: ApiClient; token: string; tier: RequestedTier; country: string; mount: object; path: string };
@@ -33,10 +36,12 @@ type Known = {
 };
 type Problem = 'storage' | 'locks' | 'another' | 'changed' | 'invalidCountry';
 const emptyJournal: VerificationJournal = { records: [], failed: false };
+const levelOrder = ['none', 'basic', 'full', 'institutional'] as const;
 
 export function Verification() {
   const { api, userId, session } = useSession();
   const { t, Copy, requestedLocale, languageFor } = copy.useCopy();
+  const { timeZone } = usePreferences();
   const [limit, setLimit] = useState(50),
     [tier, setTier] = useState<RequestedTier>('basic'),
     [country, setCountry] = useState('');
@@ -68,6 +73,10 @@ export function Verification() {
         : Promise.resolve({ ok: true as const, data: { tier: 'none' as const, records: [] } }),
     `verification:${userId}:${clientVersion.current.value}:${limit}`,
   );
+  // Only levels above the current one are worth asking for; the first of them is the default.
+  const heldLevel = resource.status === 'ready' ? resource.data.tier : 'none';
+  const offeredTiers = levelOrder.slice(levelOrder.indexOf(heldLevel) + 1) as RequestedTier[];
+  const chosenTier = offeredTiers.includes(tier) ? tier : (offeredTiers[0] ?? tier);
   useEffect(() => {
     mounted.current = true;
     const changed = (event: StorageEvent) => {
@@ -128,7 +137,7 @@ export function Verification() {
       owner: userId,
       client: api,
       token: session.accessToken,
-      tier,
+      tier: chosenTier,
       country: normalized,
       mount: mount.current,
       path: location.pathname,
@@ -243,7 +252,7 @@ export function Verification() {
   function time(value: string | null) {
     return value ? (
       <time dateTime={value} lang={requestedLocale}>
-        {new Intl.DateTimeFormat(requestedLocale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value))} UTC
+        {stamp(value, timeZone)}
       </time>
     ) : (
       <Copy k="noneRecorded" />
@@ -432,81 +441,89 @@ export function Verification() {
                   <span className="eyebrow">
                     <Copy k="current" />
                   </span>
-                  <h2>
-                    <Copy k={resource.data.tier} />
+                  <h2 className="verification__level">
+                    <StatusTag
+                      className="verification__level-tag h-10 rounded-sm px-5 text-lg font-semibold"
+                      status={resource.data.tier === 'none' ? 'working' : 'filled'}
+                      label={t(resource.data.tier)}
+                    />
                   </h2>
                   <p className="muted">
                     <Copy k="currentBody" />
                   </p>
                 </div>
-                <div className="verification__heading">
-                  <h2>
-                    <Copy k="records" />
-                  </h2>
-                  <Button variant="secondary" onClick={reload}>
-                    <Copy k="refresh" />
-                  </Button>
-                </div>
-                <p className="muted">
-                  <Copy k="window" params={{ limit }} />
-                </p>
-                <Button className="verification__jump" variant="secondary" disabled={blocked} onClick={jump}>
-                  <Copy k="jump" />
-                </Button>
-                {resource.data.records.length ? (
-                  <ul className="verification__rows">
-                    {resource.data.records.map((row) => (
-                      <li key={row.id}>
-                        <div className="verification__row">
-                          <strong>
-                            <Copy k={row.tier} />
-                          </strong>
-                          <span lang="zxx">{row.jurisdiction}</span>
-                          <span className={row.status === 'approved' ? 'verification__approved' : 'muted'}>
-                            <Copy k={row.status} />
-                          </span>
-                          {time(row.createdAt)}
-                          <Button variant="ghost" aria-label={t('inspectId', { id: row.id })} onClick={() => setSelected({ ...row })}>
-                            <Copy k="inspect" /> →
-                          </Button>
-                        </div>
-                        <p className="verification__ref muted" lang="zxx">
-                          {row.id}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState title={t('empty')}>
-                    <Copy k="emptyBody" />
-                  </EmptyState>
-                )}
-                {limit < 200 && resource.data.records.length === limit && (
-                  <Button variant="secondary" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
-                    <Copy k="expand" params={{ limit: limit + 50 }} />
-                  </Button>
-                )}
-                {limit === 200 && (
-                  <p className="muted">
-                    <Copy k="maximum" />
-                  </p>
-                )}
-                {privateVisible && selected && (
-                  <section className="verification__selection" aria-label={t('selected')}>
+                <div className="verification__records">
+                  <div className="verification__heading">
                     <h2>
-                      <Copy k="selected" />
+                      <Copy k="records" />
                     </h2>
-                    {!resource.data.records.some((row) => row.id === selected.id) && (
-                      <p>
-                        <Copy k="selectionMissing" />
-                      </p>
-                    )}
-                    {record(selected)}
+                    <Button variant="secondary" onClick={reload}>
+                      <Copy k="refresh" />
+                    </Button>
+                  </div>
+                  <p className="muted">
+                    <Copy k="window" params={{ limit }} />
+                  </p>
+                  {offeredTiers.length > 0 && (
+                    <Button className="verification__jump" variant="secondary" disabled={blocked} onClick={jump}>
+                      <Copy k="jump" />
+                    </Button>
+                  )}
+                  {resource.data.records.length ? (
+                    <ul className="verification__rows">
+                      {resource.data.records.map((row) => (
+                        <li key={row.id}>
+                          <div className="verification__row">
+                            <strong>
+                              <Copy k={row.tier} />
+                            </strong>
+                            <span lang="zxx">{row.jurisdiction}</span>
+                            <span className={row.status === 'approved' ? 'verification__approved' : 'muted'}>
+                              <Copy k={row.status} />
+                            </span>
+                            {time(row.createdAt)}
+                            <Button variant="ghost" aria-label={t('inspectId', { id: row.id })} onClick={() => setSelected({ ...row })}>
+                              <Copy k="inspect" /> →
+                            </Button>
+                          </div>
+                          <p className="verification__ref muted" lang="zxx">
+                            {row.id}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <EmptyState title={t('empty')}>
+                      <Copy k="emptyBody" />
+                    </EmptyState>
+                  )}
+                  {limit < 200 && resource.data.records.length === limit && (
+                    <Button variant="secondary" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
+                      <Copy k="expand" params={{ limit: limit + 50 }} />
+                    </Button>
+                  )}
+                  {limit === 200 && (
                     <p className="muted">
-                      <Copy k="recordBoundary" />
+                      <Copy k="maximum" />
                     </p>
-                  </section>
-                )}
+                  )}
+                  {privateVisible && selected && (
+                    <section className="verification__selection" aria-label={t('selected')}>
+                      <h2>
+                        <Copy k="selected" />
+                      </h2>
+                      {!resource.data.records.some((row) => row.id === selected.id) && (
+                        <p>
+                          <Copy k="selectionMissing" />
+                        </p>
+                      )}
+                      {record(selected)}
+                      <p className="muted">
+                        <Copy k="recordBoundary" />
+                      </p>
+                    </section>
+                  )}
+                </div>
               </>
             )}
           </section>
@@ -517,62 +534,62 @@ export function Verification() {
             <p className="muted">
               <Copy k="requestBody" />
             </p>
-            <form
-              ref={form}
-              className="form-stack"
-              onSubmit={(event) => {
-                event.preventDefault();
-                open();
-              }}
-            >
-              <label className="field">
-                <span>
-                  <Copy k="tier" />
-                </span>
-                <select
-                  value={privateVisible ? tier : 'basic'}
+            {offeredTiers.length > 0 ? (
+              <form
+                ref={form}
+                className="form-stack"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  open();
+                }}
+              >
+                <label className="field">
+                  <span>
+                    <Copy k="tier" />
+                  </span>
+                  <select
+                    value={privateVisible ? chosenTier : (offeredTiers[0] ?? 'basic')}
+                    disabled={blocked}
+                    onChange={(event) => {
+                      const parsed = requestedTier.safeParse(event.target.value);
+                      if (parsed.success) setTier(parsed.data);
+                    }}
+                  >
+                    {offeredTiers.map((level) => (
+                      <option key={level} value={level}>
+                        {t(level)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Field
+                  label={t('country')}
+                  name="kyc-country"
+                  required
+                  minLength={2}
+                  maxLength={2}
+                  pattern="[a-zA-Z]{2}"
+                  value={privateVisible ? country : ''}
                   disabled={blocked}
-                  onChange={(event) => {
-                    const parsed = requestedTier.safeParse(event.target.value);
-                    if (parsed.success) setTier(parsed.data);
-                  }}
-                >
-                  <option value="basic">{t('basic')}</option>
-                  <option value="full">{t('full')}</option>
-                  <option value="institutional">{t('institutional')}</option>
-                </select>
-              </label>
-              <Field
-                label={t('country')}
-                name="kyc-country"
-                required
-                minLength={2}
-                maxLength={2}
-                pattern="[a-zA-Z]{2}"
-                value={privateVisible ? country : ''}
-                disabled={blocked}
-                onChange={(event) => setCountry(event.target.value)}
-                hint={t('countryHint')}
-              />
-              <Button type="submit" disabled={blocked}>
-                <Copy k="review" />
-              </Button>
-            </form>
+                  onChange={(event) => setCountry(event.target.value)}
+                  hint={t('countryHint')}
+                />
+                <Button type="submit" disabled={blocked}>
+                  <Copy k="review" />
+                </Button>
+              </form>
+            ) : (
+              <p>
+                <Copy k="topLevel" />
+              </p>
+            )}
             <p className="muted">
               <Copy k="documentBoundary" />
             </p>
-            <a className="text-link" href="/help?search=verification">
+            <a className="text-link" href="/support">
               <Copy k="help" /> →
             </a>
           </section>
-        </div>
-        <div className="actions">
-          <Button variant="secondary" onClick={reload}>
-            <Copy k="readCurrent" />
-          </Button>
-          <a className="text-link" href="/uc/account">
-            <Copy k="account" /> →
-          </a>
         </div>
         {privateVisible && review && same(review) && (
           <Dialog title={t('reviewTitle')} onClose={close}>

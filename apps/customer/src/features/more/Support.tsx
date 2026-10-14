@@ -6,6 +6,7 @@ import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, useAction } from './common';
+import { isHiddenPath } from '../../app/feature-registry';
 import { SupportEvents } from './SupportEvents';
 import { supportEventsCopy } from './support-events-copy';
 const ticketSchema = z.object({
@@ -34,6 +35,18 @@ const kbSchema = z.object({
   version: z.number().int().positive().optional(),
   published: z.boolean().optional(),
 });
+/** Help articles that describe features this release does not offer (Deposits and withdrawals, Paper vs live). */
+const HIDDEN_FEATURE_ARTICLES: ReadonlySet<string> = new Set(['kb-deposit-withdraw-honest', 'kb-paper-vs-live']);
+const CATEGORY_VALUES = ['account', 'trading', 'deposit_withdraw', 'other'] as const;
+const CATEGORY_KEYS = {
+  account: 'support.category.account',
+  trading: 'support.category.trading',
+  deposit_withdraw: 'support.category.deposit_withdraw',
+  other: 'support.category.other',
+} as const;
+function categoryLabel(value: string): string {
+  return value in CATEGORY_KEYS ? copyText(CATEGORY_KEYS[value as keyof typeof CATEGORY_KEYS]) : value;
+}
 const unavailableArticleKey = 'support.published.article.text.is.unavailable.for';
 function text(key: string) {
   return publishedCopy(key) ?? copyText(unavailableArticleKey, { value1: key });
@@ -56,6 +69,7 @@ function SupportTextArea({
 }
 export function Support() {
   const { languageFor } = copy.useCopy();
+  const depositsHidden = isHiddenPath('/uc/recharge');
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('support');
@@ -104,16 +118,11 @@ export function Support() {
             {(rows) => (
               <div className="more-articles">
                 {rows
-                  .filter((r) => r.published !== false)
+                  .filter((r) => r.published !== false && !(depositsHidden && HIDDEN_FEATURE_ARTICLES.has(r.id)))
                   .map((r) => (
                     <details key={r.id}>
                       <summary lang={publishedLanguageFor(r.titleKey) ?? languageFor(unavailableArticleKey)}>{text(r.titleKey)}</summary>
                       <p lang={publishedLanguageFor(r.bodyKey) ?? languageFor(unavailableArticleKey)}>{text(r.bodyKey)}</p>
-                      <small>
-                        <Text k="support.article" />
-                        <span lang="zxx">{r.id}</span>
-                        {r.version ? copyText('support.version', { value1: r.version }) : ''}
-                      </small>
                     </details>
                   ))}
               </div>
@@ -171,7 +180,7 @@ export function Support() {
               content: () => (
                 <Details
                   items={[
-                    [copyText('support.category'), <span lang="zxx">{category}</span>],
+                    [copyText('support.category'), <span>{categoryLabel(category)}</span>],
                     [copyText('support.subject'), <span lang="und">{subject}</span>],
                     [copyText('support.message'), <span lang="und">{body}</span>],
                   ]}
@@ -200,7 +209,10 @@ export function Support() {
             label={copyText('support.category')}
             value={category}
             onChange={setCategory}
-            options={['account', 'trading', 'deposit_withdraw', 'other']}
+            options={CATEGORY_VALUES.filter((value) => !(depositsHidden && value === 'deposit_withdraw')).map((value) => ({
+              value,
+              label: categoryLabel(value),
+            }))}
           />
           <Field
             label={<Text k="support.subject" />}

@@ -10,6 +10,7 @@ import {
 } from '@intafaced/ledger-client';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import type { HistoryRange, LedgerEntryRecord, LedgerHistory } from './analytics/ledger-history.js';
+import type { LedgerHistoryPages, LedgerPageRequest } from './activity/activity-service.js';
 
 /**
  * HTTP client for svc-ledger.
@@ -86,12 +87,81 @@ export function createLedgerClient(baseUrl: string, internalSecret: string): Led
       }));
     },
 
-    async getTx(): Promise<LedgerTx | null> {
-      throw new Error('getTx is not exposed over the internal ledger API — query svc-ledger directly');
+    /**
+     * One booked transaction by its id, through svc-ledger's read-only
+     * `/trpc/txById` door. This used to throw, so any caller holding a ledger tx
+     * id (a business transfer receipt) failed on a real deployment while the
+     * in-memory ledger in the tests answered it. Same signing and transport as
+     * every other call; "not booked" is `null`, as in-process.
+     *
+     * The door carries each entry's account, asset, direction and amount, which
+     * is what a caller verifying a receipt reads. `meta`, the hash chain links
+     * and each entry's own id and running balance stay in the ledger.
+     */
+    async getTx(txId: string): Promise<LedgerTx | null> {
+      const result = await call<
+        | { found: false }
+        | {
+            found: true;
+            txId: string;
+            idempotencyKey: string;
+            hash: string;
+            postedAt: string;
+            module: string;
+            reason: string;
+            entries: Array<{ accountId: string; assetId: string; direction: 'debit' | 'credit'; amount: string }>;
+          }
+      >(url, '/trpc/txById', { txId }, authHeaders);
+      if (result.found === false) return null;
+      // Anything but an explicit `found` is not an answer: null would read as "never booked".
+      if (result.found !== true) throw new Error('svc-ledger answered a transaction lookup without a `found` verdict');
+      return {
+        id: result.txId,
+        idempotencyKey: result.idempotencyKey,
+        module: result.module,
+        reason: result.reason,
+        meta: {},
+        postedAt: new Date(result.postedAt),
+        hash: result.hash,
+        previousHash: null,
+        entries: result.entries.map((e) => ({
+          // Not carried by the door; no caller reads them.
+          id: '',
+          txId: result.txId,
+          accountId: e.accountId,
+          assetId: e.assetId,
+          direction: e.direction,
+          amount: parseAmount(e.amount),
+          balanceAfter: 0n,
+        })),
+      };
     },
 
-    async getTxByKey(): Promise<LedgerTx | null> {
-      throw new Error('getTxByKey is not exposed over the internal ledger API — query svc-ledger directly');
+    /**
+     * Existence check by idempotency key, through `/trpc/txByKey`. Money paths
+     * ask "was this already booked?" before they post; this used to throw, so a
+     * first payout, a card cashback settle and a business transfer proposal all
+     * failed on a real deployment. The door answers the identifying fields only;
+     * entries stay in svc-ledger. Not booked is `null`, as in-process.
+     */
+    async getTxByKey(idempotencyKey: string): Promise<LedgerTx | null> {
+      const result = await call<
+        { found: false } | { found: true; txId: string; hash: string; postedAt: string; module: string; reason: string }
+      >(url, '/trpc/txByKey', { idempotencyKey }, authHeaders);
+      if (result.found === false) return null;
+      // Anything but an explicit `found` is not an answer: null would read as "never booked".
+      if (result.found !== true) throw new Error('svc-ledger answered a transaction lookup without a `found` verdict');
+      return {
+        id: result.txId,
+        idempotencyKey,
+        module: result.module,
+        reason: result.reason,
+        meta: {},
+        postedAt: new Date(result.postedAt),
+        hash: result.hash,
+        previousHash: null,
+        entries: [],
+      };
     },
   };
 }
@@ -129,6 +199,67 @@ export function createLedgerHistory(baseUrl: string, internalSecret: string): Le
         amount: parseAmount(e.amount),
         postedAt: new Date(e.postedAt),
       }));
+    },
+  };
+}
+
+/**
+ * Paged history adapter for `bank.activity.list` — svc-ledger `/trpc/historyPage`.
+ *
+ * Same service credential and body-bound signing as every other call here. The
+ * ledger's schema is strict: this sends exactly `{ownerType, ownerId, kind,
+ * assetId?, limit, cursor?}` and never `purpose`, `before` or anything else. A
+ * failure is thrown, never turned into an empty page: "no activity" and "we
+ * could not ask" must not look alike.
+ */
+export function createLedgerHistoryPages(baseUrl: string, internalSecret: string): LedgerHistoryPages {
+  const url = baseUrl.replace(/\/$/, '');
+  const authHeaders = (payload: string) => serviceAuthHeadersForBody('svc-bank', internalSecret, payload);
+
+  return {
+    async page(request: LedgerPageRequest) {
+      const body = {
+        ownerType: request.ownerType,
+        ownerId: request.ownerId,
+        kind: request.kind,
+        ...(request.assetId === undefined ? {} : { assetId: request.assetId }),
+        limit: request.limit,
+        ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+      };
+      const result = await call<{
+        entries: Array<{
+          txId: string;
+          module: string;
+          reason: string;
+          direction: 'debit' | 'credit';
+          amount: string;
+          postedAt: string;
+          assetId: string;
+          entryId?: string;
+          rail?: string | null;
+          orderId?: string | null;
+        }>;
+        nextCursor: string | null;
+      }>(url, '/trpc/historyPage', body, authHeaders);
+
+      return {
+        entries: result.entries.map((e) => ({
+          txId: e.txId,
+          module: e.module,
+          reason: e.reason,
+          direction: e.direction,
+          // Round-trip through the scaled bigint so a malformed amount is refused here, not shown.
+          amount: formatAmount(parseAmount(e.amount)),
+          postedAt: new Date(e.postedAt),
+          assetId: e.assetId,
+          // Both arrive with svc-ledger's entry-id change; absent before it, and the feed copes.
+          ...(typeof e.entryId === 'string' && /^\d{1,19}$/.test(e.entryId) ? { entryId: e.entryId } : {}),
+          ...(typeof e.rail === 'string' || e.rail === null ? { rail: e.rail } : {}),
+          // The page owner's own order id (trade lines only). Absent from an older ledger; null or absent = none.
+          ...(typeof e.orderId === 'string' && e.orderId !== '' ? { orderId: e.orderId } : {}),
+        })),
+        nextCursor: result.nextCursor,
+      };
     },
   };
 }

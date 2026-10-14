@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assertProductionPosture } from './production-posture.js';
 
 /**
  * Typed environment loader.
@@ -99,6 +100,10 @@ export const internalServiceEnvSchema = z.object({
    * of `require` would 401 every caller still running the previous build the
    * moment the first service rolled, and every service here shares one secret.
    *
+   * In production posture (`APP_ENV` anything but exactly dev/test) the weaker value is refused at boot, not defaulted:
+   * a process that holds `INTERNAL_SERVICE_SECRET` must say `require` (`config.s2s_body_bind_not_required`, in
+   * `production-posture.ts`).
+   *
    * This mirrors `ServiceBodyBindMode` in `@intafaced/contracts`; it is restated
    * rather than imported because contracts depends on config and not the reverse.
    * The flip procedure and the signal that says it is safe are in
@@ -140,6 +145,8 @@ export class EnvError extends Error {
  * the whole picture in one run, not one variable per restart.
  */
 export function loadEnv<T extends z.ZodTypeAny>(schema: T, source: Record<string, unknown> = process.env): z.infer<T> {
+  // Before the schema: a server on dev keys must refuse with that reason, not a schema error.
+  assertProductionPosture(source);
   const result = schema.safeParse(source);
   if (result.success) return result.data;
 

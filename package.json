@@ -76,7 +76,7 @@
     "local:stack:plan": "node tooling/scripts/local-test-stack.mjs plan",
     "local:fund": "node tooling/scripts/local-test-stack.mjs fund",
     "local:stack:test": "node tooling/scripts/local-test-stack.test.mjs",
-    "local:market": "node tooling/scripts/local-test-market.mjs start",
+    "local:market": "node tooling/scripts/local-test-market.mjs",
     "local:market:stop": "node tooling/scripts/local-test-market.mjs stop",
     "local:market:test": "node tooling/scripts/local-test-market.test.mjs",
     "local:world": "node tooling/scripts/local-test-world.mjs watch",

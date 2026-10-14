@@ -8,7 +8,10 @@ import {
   assertValidPost,
   formatAmount,
   hashTx,
+  postFingerprint,
   signedDelta,
+  IDEMPOTENCY_CONFLICT_CODE,
+  type IdempotencyConflictOptions,
   InsufficientFundsError,
   LedgerError,
   type AccountRef,
@@ -19,7 +22,18 @@ import {
   type PostedEntry,
 } from '@intafaced/ledger-client';
 import { frozenMessage } from './freeze.js';
-import { HISTORY_MAX_ENTRIES, HistoryTooLargeError, type HistoryEntry, type HistoryRange } from './history.js';
+import {
+  HISTORY_MAX_ENTRIES,
+  HistoryTooLargeError,
+  allowedHistoryRail,
+  orderIdFromHoldPurpose,
+  decodeHistoryCursor,
+  encodeHistoryCursor,
+  type HistoryEntry,
+  type HistoryPage,
+  type HistoryPageInput,
+  type HistoryRange,
+} from './history.js';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
 
 /**
@@ -47,7 +61,10 @@ import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
  * worktrees cannot TRUNCATE each other into a false insufficient-funds failure.
  */
 export class PostgresLedger implements LedgerClient {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    private readonly options: IdempotencyConflictOptions = {},
+  ) {}
 
   async post(request: PostRequest): Promise<LedgerTx> {
     // The shared order, documented at `assertIdempotencyKey`: key, then
@@ -71,8 +88,8 @@ export class PostgresLedger implements LedgerClient {
     assertIdempotencyKey(request.idempotencyKey);
 
     // Fast path — a retry that has already committed needs no lock at all.
-    const existing = await this.getTxByKey(request.idempotencyKey);
-    if (existing) return existing;
+    const existing = await this.loadClaimedTxByKey(this.sql, request.idempotencyKey);
+    if (existing) return this.replayOf(existing, request);
 
     // A JS-number amount is a TypeError inside bigint math —
     // refuse it as invalid money, not a crash that looks like our bug.
@@ -109,8 +126,8 @@ export class PostgresLedger implements LedgerClient {
         // frozen: the value moved, and telling a caller otherwise would have it
         // retry a movement that already happened. The freeze stops new writes,
         // not the truth about old ones.
-        const inTx = await this.loadTxByKey(tx, request.idempotencyKey);
-        if (inTx) return inTx;
+        const inTx = await this.loadClaimedTxByKey(tx, request.idempotencyKey);
+        if (inTx) return this.replayOf(inTx, request);
 
         const freezeRows = await tx<Array<{ frozen: boolean; reason: string | null }>>`
           SELECT frozen, reason FROM posting_freeze WHERE id = true
@@ -189,8 +206,8 @@ export class PostgresLedger implements LedgerClient {
         // hash, and the meta from this insert. Rewriting the journal row does
         // not free the key and does not move this copy.
         await tx`
-          INSERT INTO ledger_posted_keys (idempotency_key, tx_id, posted_hash, posted_meta)
-          VALUES (${request.idempotencyKey}, ${txId}, ${hash}, ${tx.json(meta as never)})
+          INSERT INTO ledger_posted_keys (idempotency_key, tx_id, posted_hash, posted_meta, request_fingerprint)
+          VALUES (${request.idempotencyKey}, ${txId}, ${hash}, ${tx.json(meta as never)}, ${postFingerprint(request)})
         `;
         const seq = insertedTx[0]!.seq;
 
@@ -379,6 +396,102 @@ export class PostgresLedger implements LedgerClient {
     }));
   }
 
+  /**
+   * One page of entries, newest first, keyed on the entry id.
+   *
+   * A READ, like `history()`: no lock, no write, no path into `post()`. Keyset
+   * paging, never OFFSET, so page N costs the same as page 1 and a movement
+   * posted mid-browse cannot shift a boundary. The accounts come from `input`
+   * alone — owner, kind, purpose, and optionally one asset — and the cursor
+   * contributes only an entry id to start below, so a forged cursor cannot widen
+   * what is readable.
+   *
+   * ORDER. Newest first by posting sequence (entry id; posts are serialised
+   * under the global chain_tip lock). The page walks each account's `ledger_entries_account_idx (account_id, id)`
+   * backwards, `LIMIT n+1` per account (LATERAL), and merges the accounts —
+   * bounded work per page however long the history, no sort of the whole set.
+   * There is deliberately no time filter (see `historyPageInputSchema`).
+   *
+   * LIMIT + 1 tells us whether a next page exists without a count.
+   */
+  async historyPage(input: HistoryPageInput): Promise<HistoryPage> {
+    const cursor = input.cursor === undefined ? undefined : decodeHistoryCursor(input.cursor);
+    const purpose = (input.purpose ?? '').trim(); // same canonical trim as `accountPurpose`
+    const limit = input.limit;
+    const assetId = input.assetId ?? null;
+    const cursorId = cursor?.entryId ?? null;
+
+    const rows = await this.sql<Array<HistoryRow & { entry_id: string; asset_id: string; rail: unknown; order_purpose: unknown }>>`
+      SELECT p.entry_id, p.tx_id, p.module, p.reason, p.direction, p.amount, p.asset_id, p.posted_at, p.rail,
+             o.purpose AS order_purpose
+        FROM (
+          SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
+                 t.meta -> 'rail' AS rail, a.id AS account_id, a.owner_type, a.owner_id, a.kind
+            FROM accounts a
+            CROSS JOIN LATERAL (
+              SELECT e.id AS entry_id, e.tx_id, e.direction, e.amount, e.asset_id
+                FROM ledger_entries e
+               WHERE e.account_id = a.id
+                 AND (${cursorId}::bigint IS NULL OR e.id < ${cursorId}::bigint)
+               ORDER BY e.id DESC
+               LIMIT ${limit + 1}
+            ) x
+            JOIN ledger_tx t ON t.id = x.tx_id
+           WHERE a.owner_type = ${input.ownerType}::owner_type
+             AND a.owner_id   = ${input.ownerId}
+             AND a.kind       = ${input.kind}::account_kind
+             AND a.purpose    = ${purpose}
+             AND (${assetId}::text IS NULL OR a.asset_id = ${assetId}::text)
+           ORDER BY x.entry_id DESC
+           LIMIT ${limit + 1}
+        ) p
+        -- The page owner's own order, for a trade line only (see orderIdFromHoldPurpose in history.ts): the order-hold
+        -- account of the SAME owner that this transaction also moves. Never another owner's hold. Looked up AFTER the
+        -- page LIMIT, so it runs for at most limit + 1 rows however many candidate rows the accounts offer.
+        -- On a hold-account page the id comes only from that account itself (h.id = p.account_id): the owner's OTHER
+        -- order in a self-trade fill is never read. Elsewhere, on a fill the owner's line receives the asset the other
+        -- side paid, so the owner's order is the hold in the OTHER asset.
+        LEFT JOIN LATERAL (
+          SELECT h.purpose
+            FROM ledger_entries he
+            JOIN accounts h ON h.id = he.account_id
+           WHERE he.tx_id = p.tx_id
+             AND p.module = 'trade'
+             AND h.owner_type = p.owner_type
+             AND h.owner_id = p.owner_id
+             AND h.kind = 'hold'
+             AND h.purpose LIKE 'order:%'
+             AND (p.kind <> 'hold' OR h.id = p.account_id)
+             AND (
+               p.reason IN ('order.hold', 'order.hold.amend', 'order.hold.released')
+               OR (p.reason IN ('trade.fill', 'trade.fill.mm_maker') AND (p.kind = 'hold' OR h.asset_id <> p.asset_id))
+             )
+           ORDER BY he.id
+           LIMIT 1
+        ) o ON true
+       ORDER BY p.entry_id DESC
+    `;
+
+    const page = rows.slice(0, limit);
+    const last = page[page.length - 1];
+    return {
+      entries: page.map((r) => ({
+        txId: r.tx_id,
+        module: r.module,
+        reason: r.reason,
+        direction: r.direction,
+        amount: parseStoredAmount(r.amount, 'ledger_entries.amount'),
+        postedAt: r.posted_at,
+        assetId: r.asset_id,
+        entryId: r.entry_id,
+        // Only the one key, and only if allow-listed: meta is free-form.
+        rail: allowedHistoryRail(r.rail),
+        orderId: orderIdFromHoldPurpose(r.order_purpose),
+      })),
+      nextCursor: rows.length > limit && last ? encodeHistoryCursor({ entryId: last.entry_id }) : null,
+    };
+  }
+
   async getTx(txId: string): Promise<LedgerTx | null> {
     const rows = await this.sql<ClaimRow[]>`
       SELECT t.*,
@@ -468,7 +581,35 @@ export class PostgresLedger implements LedgerClient {
     return { id: row.id, balance: parseStoredAmount(row.balance, 'accounts.balance') };
   }
 
+  /**
+   * A key that already booked a movement. A retry of the SAME body gets the
+   * original back; a different body under that key is refused, because
+   * answering it with the old booking told the caller its new movement had
+   * happened. Rows booked before migration 0021 have no stored fingerprint and
+   * keep the old behaviour (nothing to compare against).
+   */
+  private replayOf(claimed: { tx: LedgerTx; fingerprint: string | null }, request: PostRequest): LedgerTx {
+    if (claimed.fingerprint !== null && claimed.fingerprint !== postFingerprint(request)) {
+      if ((this.options.idempotencyConflict ?? 'refuse') === 'refuse') {
+        throw new LedgerError(
+          `Idempotency key ${request.idempotencyKey} already booked a different movement; a retry must carry the same body`,
+          IDEMPOTENCY_CONFLICT_CODE,
+        );
+      }
+      try {
+        this.options.onIdempotencyMismatch?.({ idempotencyKey: request.idempotencyKey, module: request.module, reason: request.reason });
+      } catch {
+        // Reporting a mismatch must never change the answer: detect mode returns the original, always.
+      }
+    }
+    return claimed.tx;
+  }
+
   private async loadTxByKey(tx: Sql, key: string): Promise<LedgerTx | null> {
+    return (await this.loadClaimedTxByKey(tx, key))?.tx ?? null;
+  }
+
+  private async loadClaimedTxByKey(tx: Sql, key: string): Promise<{ tx: LedgerTx; fingerprint: string | null } | null> {
     // One statement snapshot: separate claim/journal probes can straddle a
     // concurrent commit and falsely call the just-committed row unclaimed.
     const rows = await tx<ClaimRow[]>`
@@ -480,13 +621,14 @@ export class PostgresLedger implements LedgerClient {
       SELECT t.*,
              (k.idempotency_key IS NOT DISTINCT FROM t.idempotency_key
               AND k.posted_hash IS NOT DISTINCT FROM t.hash
-              AND k.posted_meta IS NOT DISTINCT FROM t.meta) AS claim_matches
+              AND k.posted_meta IS NOT DISTINCT FROM t.meta) AS claim_matches,
+             k.request_fingerprint AS request_fingerprint
         FROM target JOIN ledger_tx t ON t.id = target.id
         LEFT JOIN ledger_posted_keys k ON k.tx_id = t.id
     `;
     if (rows.length === 0) return null;
     assertPostedClaim(rows);
-    return this.hydrate(tx, rows[0]!);
+    return { tx: await this.hydrate(tx, rows[0]!), fingerprint: rows[0]!.request_fingerprint ?? null };
   }
 
   private async hydrate(sql: Sql, row: TxRow): Promise<LedgerTx> {
@@ -578,6 +720,7 @@ export { hashTx };
 
 interface ClaimRow extends TxRow {
   claim_matches: boolean;
+  request_fingerprint?: string | null;
 }
 
 function assertPostedClaim(rows: ClaimRow[]): void {

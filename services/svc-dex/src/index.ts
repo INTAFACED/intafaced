@@ -91,7 +91,7 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+    createContext: ({ req }) => edgeContext(req),
   } satisfies FastifyTRPCPluginOptions<AppRouter>['trpcOptions'],
 });
 

@@ -23,6 +23,7 @@ function persistSql(initialCreds: unknown[]) {
   };
   return Object.assign(fn, {
     json: (v: unknown) => v,
+    begin: (_o: string, cb: (t: unknown) => unknown) => cb(fn as never),
     written,
     get creds() {
       return creds;
@@ -33,6 +34,7 @@ function persistSql(initialCreds: unknown[]) {
 function fakeSql(rows: unknown[] = []) {
   const fn = async () => rows;
   (fn as unknown as { json: (v: unknown) => unknown }).json = (v: unknown) => v;
+  (fn as unknown as { begin: unknown }).begin = (_o: string, cb: (t: unknown) => unknown) => cb(fn);
   return fn as unknown as Parameters<typeof mintApiKeyAfterPasskey>[1];
 }
 
@@ -43,7 +45,10 @@ function queuedSql(queue: unknown[][]) {
     i += 1;
     return rows;
   };
-  return Object.assign(fn, { json: (v: unknown) => v }) as unknown as Parameters<typeof rotateApiKeyAfterPasskey>[1];
+  return Object.assign(fn, {
+    json: (v: unknown) => v,
+    begin: (_o: string, cb: (t: unknown) => unknown) => cb(fn as never),
+  }) as unknown as Parameters<typeof rotateApiKeyAfterPasskey>[1];
 }
 
 function memChallenges(seed?: { challenge: string; userId: string }): ChallengeStorePort {
@@ -215,6 +220,7 @@ describe('enrollAfterLastUnenroll — enroll after last passkey was unenrolled',
         response: { clientDataJSON: clientData('lib-challenge'), attestationObject: 'a' },
       }),
       challenges,
+      { mfa: true, privileged: false },
       ceremony,
     );
     expect(out).toEqual({ credentialId: 'cred-3' });

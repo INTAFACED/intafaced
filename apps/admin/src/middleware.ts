@@ -8,6 +8,7 @@ import {
   moduleForPage,
   normalise,
 } from '@/lib/modules';
+import { contentSecurityPolicy, createNonce } from '@/lib/security-headers.mjs';
 
 /**
  * ADMIN_MODULES gate (see `lib/modules.ts`). A disabled module's API routes get
@@ -25,7 +26,8 @@ function publicOrigin(request: NextRequest): string {
   }
 }
 
-export function middleware(request: NextRequest) {
+/** The module gate. `forwarded` are the request headers that carry the CSP nonce on to the page render. */
+function gate(request: NextRequest, forwarded: Headers) {
   const { pathname } = request.nextUrl;
 
   // The gate matches the decoded path (see `lib/modules.ts`). A path it cannot decode could be anything once Next decodes it, so
@@ -41,7 +43,7 @@ export function middleware(request: NextRequest) {
     if (id && !isModuleEnabled(id)) {
       return NextResponse.json({ error: 'not_found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
     }
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: forwarded } });
   }
 
   const id = moduleForPage(pathname);
@@ -55,7 +57,24 @@ export function middleware(request: NextRequest) {
     }
     return new NextResponse('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
   }
-  return NextResponse.next();
+  return NextResponse.next({ request: { headers: forwarded } });
+}
+
+/**
+ * Every response this middleware produces (pass-through, redirect or 404) carries the page Content-Security-Policy. The
+ * nonce is also put on the forwarded REQUEST, as `x-nonce` and as the CSP itself: Next reads the nonce from the request's
+ * policy and stamps it on its own inline bootstrap and chunk scripts, which is what lets `script-src` drop 'unsafe-inline'.
+ * The other security headers do not vary per request and come from `headers()` in `next.config.mjs`.
+ */
+export function middleware(request: NextRequest) {
+  const nonce = createNonce();
+  const policy = contentSecurityPolicy(nonce);
+  const forwarded = new Headers(request.headers);
+  forwarded.set('x-nonce', nonce);
+  forwarded.set('content-security-policy', policy);
+  const response = gate(request, forwarded);
+  response.headers.set('content-security-policy', policy);
+  return response;
 }
 
 export const config = {

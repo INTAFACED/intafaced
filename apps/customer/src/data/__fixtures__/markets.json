@@ -1,0 +1,639 @@
+[
+  {
+    "id": "13c2bae1-1596-4145-aaa8-353cba962021",
+    "symbol": "BTC/USDC",
+    "base": "BTC",
+    "quote": "USDC",
+    "settle": null,
+    "baseId": "BTC",
+    "quoteId": "USDC",
+    "type": "spot",
+    "spot": true,
+    "swap": false,
+    "future": false,
+    "option": false,
+    "contract": false,
+    "linear": null,
+    "inverse": null,
+    "active": true,
+    "orderable": true,
+    "paper": false,
+    "assetClass": "crypto",
+    "schedule": "crypto-24x7",
+    "sessionOpen": true,
+    "nextSessionChange": null,
+    "hours": {
+      "kind": "continuous"
+    },
+    "lifecycle": {
+      "marketId": "13c2bae1-1596-4145-aaa8-353cba962021",
+      "ruleVersion": "local-test:rules",
+      "instrumentId": "13c2bae1-1596-4145-aaa8-353cba962021",
+      "instrumentVersion": "local-test:instrument:13c2bae1-1596-4145-aaa8-353cba962021",
+      "state": "OPEN",
+      "reasonCategory": "NORMAL",
+      "reasonCode": "trade.lifecycle.ready",
+      "effectiveAt": "2026-10-13T10:49:37.905Z",
+      "observedAt": "2026-10-13T13:18:57.447Z",
+      "lastGoodState": "OPEN",
+      "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
+      "transitionId": "trade.lifecycle.snapshot:a5af828f1b8f38300c745f97ebb34208",
+      "evidenceRefs": [
+        "local-test:approval: LOCAL TEST \u2014 not an owner or legal approval",
+        "trade.lifecycle.publication:829d12f0f991718eb59625511af120cc",
+        "trade.lifecycle.evidence:41c30f5be3325fc2285512acbc95706f",
+        "trade.lifecycle.evidence:fb7ad95d73f5fc8fb9b40e9eef14cb52",
+        "trade.lifecycle.evidence:9ee05bcde1044c961e3fa1405b17d46a",
+        "local-test:grant:13c2bae1-1596-4145-aaa8-353cba962021"
+      ]
+    },
+    "lifecycleReasonCode": "trade.lifecycle.ready",
+    "taker": "0.002",
+    "maker": "0.001",
+    "contractSize": null,
+    "expiry": null,
+    "expiryDatetime": null,
+    "strike": null,
+    "optionType": null,
+    "precisionMode": "TICK_SIZE",
+    "precision": {
+      "amount": "0.00001",
+      "price": "0.01"
+    },
+    "limits": {
+      "amount": {
+        "min": "0.00001",
+        "max": null
+      },
+      "price": {
+        "min": "0.01",
+        "max": null
+      },
+      "cost": {
+        "min": "5",
+        "max": null
+      },
+      "leverage": {
+        "min": null,
+        "max": null
+      }
+    }
+  },
+  {
+    "id": "0f7bf12e-3e49-4ad6-920f-25dc5c39e860",
+    "symbol": "BTC/USDT",
+    "base": "BTC",
+    "quote": "USDT",
+    "settle": null,
+    "baseId": "BTC",
+    "quoteId": "USDT",
+    "type": "spot",
+    "spot": true,
+    "swap": false,
+    "future": false,
+    "option": false,
+    "contract": false,
+    "linear": null,
+    "inverse": null,
+    "active": true,
+    "orderable": true,
+    "paper": false,
+    "assetClass": "crypto",
+    "schedule": "crypto-24x7",
+    "sessionOpen": true,
+    "nextSessionChange": null,
+    "hours": {
+      "kind": "continuous"
+    },
+    "lifecycle": {
+      "marketId": "0f7bf12e-3e49-4ad6-920f-25dc5c39e860",
+      "ruleVersion": "local-test:rules",
+      "instrumentId": "0f7bf12e-3e49-4ad6-920f-25dc5c39e860",
+      "instrumentVersion": "local-test:instrument:0f7bf12e-3e49-4ad6-920f-25dc5c39e860",
+      "state": "OPEN",
+      "reasonCategory": "NORMAL",
+      "reasonCode": "trade.lifecycle.ready",
+      "effectiveAt": "2026-10-13T10:56:17.393Z",
+      "observedAt": "2026-10-13T13:18:57.447Z",
+      "lastGoodState": "OPEN",
+      "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
+      "transitionId": "trade.lifecycle.snapshot:8df5bdd1e35d862d529d82a10b42e7f7",
+      "evidenceRefs": [
+        "local-test:approval: LOCAL TEST \u2014 not an owner or legal approval",
+        "trade.lifecycle.publication:42a6589e87ef7fc23ab4fa6dba36e1d7",
+        "trade.lifecycle.evidence:f49f99a8ecf287d2cfe30ccb656dfa51",
+        "trade.lifecycle.evidence:a7a273e2d1778ce96c1a7d40c01436b7",
+        "trade.lifecycle.evidence:0f64bdf9cd924fbf82306f4056fb4112",
+        "local-test:grant:0f7bf12e-3e49-4ad6-920f-25dc5c39e860"
+      ]
+    },
+    "lifecycleReasonCode": "trade.lifecycle.ready",
+    "taker": "0.002",
+    "maker": "0.001",
+    "contractSize": null,
+    "expiry": null,
+    "expiryDatetime": null,
+    "strike": null,
+    "optionType": null,
+    "precisionMode": "TICK_SIZE",
+    "precision": {
+      "amount": "0.00001",
+      "price": "0.01"
+    },
+    "limits": {
+      "amount": {
+        "min": "0.00001",
+        "max": null
+      },
+      "price": {
+        "min": "0.01",
+        "max": null
+      },
+      "cost": {
+        "min": "5",
+        "max": null
+      },
+      "leverage": {
+        "min": null,
+        "max": null
+      }
+    }
+  },
+  {
+    "id": "2eb23f10-1556-4374-b55d-0ff59301f028",
+    "symbol": "ETH/USDC",
+    "base": "ETH",
+    "quote": "USDC",
+    "settle": null,
+    "baseId": "ETH",
+    "quoteId": "USDC",
+    "type": "spot",
+    "spot": true,
+    "swap": false,
+    "future": false,
+    "option": false,
+    "contract": false,
+    "linear": null,
+    "inverse": null,
+    "active": true,
+    "orderable": true,
+    "paper": false,
+    "assetClass": "crypto",
+    "schedule": "crypto-24x7",
+    "sessionOpen": true,
+    "nextSessionChange": null,
+    "hours": {
+      "kind": "continuous"
+    },
+    "lifecycle": {
+      "marketId": "2eb23f10-1556-4374-b55d-0ff59301f028",
+      "ruleVersion": "local-test:rules",
+      "instrumentId": "2eb23f10-1556-4374-b55d-0ff59301f028",
+      "instrumentVersion": "local-test:instrument:2eb23f10-1556-4374-b55d-0ff59301f028",
+      "state": "OPEN",
+      "reasonCategory": "NORMAL",
+      "reasonCode": "trade.lifecycle.ready",
+      "effectiveAt": "2026-10-13T10:56:17.474Z",
+      "observedAt": "2026-10-13T13:18:57.447Z",
+      "lastGoodState": "OPEN",
+      "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
+      "transitionId": "trade.lifecycle.snapshot:00254773890845d5641d8922901db263",
+      "evidenceRefs": [
+        "local-test:approval: LOCAL TEST \u2014 not an owner or legal approval",
+        "trade.lifecycle.publication:cfe3f758bca1a38290847a32c1f1cc1c",
+        "trade.lifecycle.evidence:305faaee92f8751852c0a88ccce7100a",
+        "trade.lifecycle.evidence:6b0b6c9362cc19e6e05e6be196b3885b",
+        "trade.lifecycle.evidence:a9cb636861180111fde5ef71309a0342",
+        "local-test:grant:2eb23f10-1556-4374-b55d-0ff59301f028"
+      ]
+    },
+    "lifecycleReasonCode": "trade.lifecycle.ready",
+    "taker": "0.002",
+    "maker": "0.001",
+    "contractSize": null,
+    "expiry": null,
+    "expiryDatetime": null,
+    "strike": null,
+    "optionType": null,
+    "precisionMode": "TICK_SIZE",
+    "precision": {
+      "amount": "0.0001",
+      "price": "0.01"
+    },
+    "limits": {
+      "amount": {
+        "min": "0.0001",
+        "max": null
+      },
+      "price": {
+        "min": "0.01",
+        "max": null
+      },
+      "cost": {
+        "min": "5",
+        "max": null
+      },
+      "leverage": {
+        "min": null,
+        "max": null
+      }
+    }
+  },
+  {
+    "id": "a344d7b8-92ef-4c5e-8f2b-a3f2cee68ab6",
+    "symbol": "ETH/USDT",
+    "base": "ETH",
+    "quote": "USDT",
+    "settle": null,
+    "baseId": "ETH",
+    "quoteId": "USDT",
+    "type": "spot",
+    "spot": true,
+    "swap": false,
+    "future": false,
+    "option": false,
+    "contract": false,
+    "linear": null,
+    "inverse": null,
+    "active": true,
+    "orderable": true,
+    "paper": false,
+    "assetClass": "crypto",
+    "schedule": "crypto-24x7",
+    "sessionOpen": true,
+    "nextSessionChange": null,
+    "hours": {
+      "kind": "continuous"
+    },
+    "lifecycle": {
+      "marketId": "a344d7b8-92ef-4c5e-8f2b-a3f2cee68ab6",
+      "ruleVersion": "local-test:rules",
+      "instrumentId": "a344d7b8-92ef-4c5e-8f2b-a3f2cee68ab6",
+      "instrumentVersion": "local-test:instrument:a344d7b8-92ef-4c5e-8f2b-a3f2cee68ab6",
+      "state": "OPEN",
+      "reasonCategory": "NORMAL",
+      "reasonCode": "trade.lifecycle.ready",
+      "effectiveAt": "2026-10-13T10:56:17.506Z",
+      "observedAt": "2026-10-13T13:18:57.447Z",
+      "lastGoodState": "OPEN",
+      "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
+      "transitionId": "trade.lifecycle.snapshot:698840821eb4fd40838ce0e4ce10a55e",
+      "evidenceRefs": [
+        "local-test:approval: LOCAL TEST \u2014 not an owner or legal approval",
+        "trade.lifecycle.publication:9522981a5d8ce06c5074fa30e0aa4e1f",
+        "trade.lifecycle.evidence:559aa25a22a4ab0e45ddc6e4a0f7915c",
+        "trade.lifecycle.evidence:d66b9292fdede870d1f9a6a83efb5cf7",
+        "trade.lifecycle.evidence:b9974dca126a79034e6c45ea4af897cc",
+        "local-test:grant:a344d7b8-92ef-4c5e-8f2b-a3f2cee68ab6"
+      ]
+    },
+    "lifecycleReasonCode": "trade.lifecycle.ready",
+    "taker": "0.002",
+    "maker": "0.001",
+    "contractSize": null,
+    "expiry": null,
+    "expiryDatetime": null,
+    "strike": null,
+    "optionType": null,
+    "precisionMode": "TICK_SIZE",
+    "precision": {
+      "amount": "0.0001",
+      "price": "0.01"
+    },
+    "limits": {
+      "amount": {
+        "min": "0.0001",
+        "max": null
+      },
+      "price": {
+        "min": "0.01",
+        "max": null
+      },
+      "cost": {
+        "min": "5",
+        "max": null
+      },
+      "leverage": {
+        "min": null,
+        "max": null
+      }
+    }
+  },
+  {
+    "id": "5eb12025-b1c7-494d-9499-4cad6011e0ae",
+    "symbol": "EUR/USD",
+    "base": "EUR",
+    "quote": "USD",
+    "settle": null,
+    "baseId": "EUR",
+    "quoteId": "USD",
+    "type": "spot",
+    "spot": true,
+    "swap": false,
+    "future": false,
+    "option": false,
+    "contract": false,
+    "linear": null,
+    "inverse": null,
+    "active": true,
+    "orderable": false,
+    "paper": false,
+    "assetClass": "forex",
+    "product": "fx",
+    "degrade": {
+      "product": "fx",
+      "separateFromSpot": true,
+      "convert": "refused",
+      "matching": "not_spot_book",
+      "holidayCalendar": {
+        "published": false,
+        "residual": "owner FX holiday calendar unpublished \u2014 empty list is not \"no holidays\"; never invent days"
+      },
+      "rail": {
+        "published": false,
+        "socket": "socket.forex-settlement"
+      }
+    },
+    "schedule": "fx-global",
+    "sessionOpen": true,
+    "nextSessionChange": {
+      "open": false,
+      "timestamp": 1792184457447,
+      "datetime": "2026-10-16T21:00:57.447Z"
+    },
+    "hours": {
+      "kind": "sessions",
+      "timezone": "America/New_York",
+      "windows": [
+        {
+          "open": {
+            "day": 0,
+            "time": "17:00"
+          },
+          "close": {
+            "day": 5,
+            "time": "17:00"
+          }
+        }
+      ],
+      "holidays": []
+    },
+    "lifecycle": {
+      "marketId": "5eb12025-b1c7-494d-9499-4cad6011e0ae",
+      "ruleVersion": "trade.lifecycle.rules:5ed72d3e6dfe8395e03f8485862fffef",
+      "instrumentId": "5eb12025-b1c7-494d-9499-4cad6011e0ae",
+      "instrumentVersion": "trade.lifecycle.instrument:5ed72d3e6dfe8395e03f8485862fffef",
+      "state": "REFUSED",
+      "reasonCategory": "TECHNICAL",
+      "reasonCode": "trade.lifecycle_authority_unavailable",
+      "effectiveAt": "2026-10-13T13:18:57.447Z",
+      "observedAt": "2026-10-13T13:18:57.447Z",
+      "lastGoodState": null,
+      "allowedActions": [],
+      "transitionId": "trade.lifecycle.snapshot:384997d8f3c23d0f68b73826db285c73",
+      "evidenceRefs": ["trade.lifecycle.evidence:4df1fe861968afafe150d06e6081f20d"]
+    },
+    "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
+    "taker": "0.001",
+    "maker": "0.0005",
+    "contractSize": null,
+    "expiry": null,
+    "expiryDatetime": null,
+    "strike": null,
+    "optionType": null,
+    "precisionMode": "TICK_SIZE",
+    "precision": {
+      "amount": "1000",
+      "price": "0.00001"
+    },
+    "limits": {
+      "amount": {
+        "min": "1000",
+        "max": null
+      },
+      "price": {
+        "min": "0.00001",
+        "max": null
+      },
+      "cost": {
+        "min": "1000",
+        "max": null
+      },
+      "leverage": {
+        "min": null,
+        "max": null
+      }
+    }
+  },
+  {
+    "id": "8628fac9-c964-4fea-ae9b-fc16c5ab33af",
+    "symbol": "IFC/USDT",
+    "base": "IFC",
+    "quote": "USDT",
+    "settle": null,
+    "baseId": "IFC",
+    "quoteId": "USDT",
+    "type": "spot",
+    "spot": true,
+    "swap": false,
+    "future": false,
+    "option": false,
+    "contract": false,
+    "linear": null,
+    "inverse": null,
+    "active": true,
+    "orderable": true,
+    "paper": false,
+    "assetClass": "crypto",
+    "schedule": "crypto-24x7",
+    "sessionOpen": true,
+    "nextSessionChange": null,
+    "hours": {
+      "kind": "continuous"
+    },
+    "lifecycle": {
+      "marketId": "8628fac9-c964-4fea-ae9b-fc16c5ab33af",
+      "ruleVersion": "local-test:rules",
+      "instrumentId": "8628fac9-c964-4fea-ae9b-fc16c5ab33af",
+      "instrumentVersion": "local-test:instrument:8628fac9-c964-4fea-ae9b-fc16c5ab33af",
+      "state": "OPEN",
+      "reasonCategory": "NORMAL",
+      "reasonCode": "trade.lifecycle.ready",
+      "effectiveAt": "2026-10-13T10:56:17.565Z",
+      "observedAt": "2026-10-13T13:18:57.447Z",
+      "lastGoodState": "OPEN",
+      "allowedActions": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"],
+      "transitionId": "trade.lifecycle.snapshot:a3761b35541f3cd4a9633da323ce345f",
+      "evidenceRefs": [
+        "local-test:approval: LOCAL TEST \u2014 not an owner or legal approval",
+        "trade.lifecycle.publication:e3c4973fabf06caa7e40cb8ca7765ff1",
+        "trade.lifecycle.evidence:aeed050e2ad1899e8beb18ed5b5802ce",
+        "trade.lifecycle.evidence:d82c1210cbb6f91af47f5e5a569cd3df",
+        "trade.lifecycle.evidence:b36bfdb6bab8954141584ecd918a8e8b",
+        "local-test:grant:8628fac9-c964-4fea-ae9b-fc16c5ab33af"
+      ]
+    },
+    "lifecycleReasonCode": "trade.lifecycle.ready",
+    "taker": "0.002",
+    "maker": "0.001",
+    "contractSize": null,
+    "expiry": null,
+    "expiryDatetime": null,
+    "strike": null,
+    "optionType": null,
+    "precisionMode": "TICK_SIZE",
+    "precision": {
+      "amount": "0.01",
+      "price": "0.0001"
+    },
+    "limits": {
+      "amount": {
+        "min": "0.01",
+        "max": null
+      },
+      "price": {
+        "min": "0.0001",
+        "max": null
+      },
+      "cost": {
+        "min": "5",
+        "max": null
+      },
+      "leverage": {
+        "min": null,
+        "max": null
+      }
+    }
+  },
+  {
+    "id": "a9ef0b67-a261-46e4-a4df-58b79088d814",
+    "symbol": "WTI/USD",
+    "base": "WTI",
+    "quote": "USD",
+    "settle": null,
+    "baseId": "WTI",
+    "quoteId": "USD",
+    "type": "spot",
+    "spot": true,
+    "swap": false,
+    "future": false,
+    "option": false,
+    "contract": false,
+    "linear": null,
+    "inverse": null,
+    "active": true,
+    "orderable": true,
+    "paper": false,
+    "assetClass": "commodity",
+    "schedule": "cme-globex",
+    "sessionOpen": true,
+    "nextSessionChange": {
+      "open": false,
+      "timestamp": 1791925257447,
+      "datetime": "2026-10-13T21:00:57.447Z"
+    },
+    "hours": {
+      "kind": "sessions",
+      "timezone": "America/Chicago",
+      "windows": [
+        {
+          "open": {
+            "day": 0,
+            "time": "17:00"
+          },
+          "close": {
+            "day": 1,
+            "time": "16:00"
+          }
+        },
+        {
+          "open": {
+            "day": 1,
+            "time": "17:00"
+          },
+          "close": {
+            "day": 2,
+            "time": "16:00"
+          }
+        },
+        {
+          "open": {
+            "day": 2,
+            "time": "17:00"
+          },
+          "close": {
+            "day": 3,
+            "time": "16:00"
+          }
+        },
+        {
+          "open": {
+            "day": 3,
+            "time": "17:00"
+          },
+          "close": {
+            "day": 4,
+            "time": "16:00"
+          }
+        },
+        {
+          "open": {
+            "day": 4,
+            "time": "17:00"
+          },
+          "close": {
+            "day": 5,
+            "time": "16:00"
+          }
+        }
+      ],
+      "holidays": []
+    },
+    "lifecycle": {
+      "marketId": "a9ef0b67-a261-46e4-a4df-58b79088d814",
+      "ruleVersion": "trade.lifecycle.rules:184fbb75e4f49e0b09f32696b0a17a22",
+      "instrumentId": "a9ef0b67-a261-46e4-a4df-58b79088d814",
+      "instrumentVersion": "trade.lifecycle.instrument:184fbb75e4f49e0b09f32696b0a17a22",
+      "state": "REFUSED",
+      "reasonCategory": "TECHNICAL",
+      "reasonCode": "trade.lifecycle_authority_unavailable",
+      "effectiveAt": "2026-10-13T13:18:57.447Z",
+      "observedAt": "2026-10-13T13:18:57.447Z",
+      "lastGoodState": null,
+      "allowedActions": [],
+      "transitionId": "trade.lifecycle.snapshot:08ab20a8de63beceb993adf8f2229f2c",
+      "evidenceRefs": ["trade.lifecycle.evidence:db0fc55709ce0c48a4327f9286afface"]
+    },
+    "lifecycleReasonCode": "trade.lifecycle_authority_unavailable",
+    "taker": "0.0025",
+    "maker": "0.0015",
+    "contractSize": null,
+    "expiry": null,
+    "expiryDatetime": null,
+    "strike": null,
+    "optionType": null,
+    "precisionMode": "TICK_SIZE",
+    "precision": {
+      "amount": "1",
+      "price": "0.01"
+    },
+    "limits": {
+      "amount": {
+        "min": "1",
+        "max": null
+      },
+      "price": {
+        "min": "0.01",
+        "max": null
+      },
+      "cost": {
+        "min": "10",
+        "max": null
+      },
+      "leverage": {
+        "min": null,
+        "max": null
+      }
+    }
+  }
+]
