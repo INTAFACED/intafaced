@@ -26,12 +26,18 @@ describe('cookie attributes', () => {
     expect(clearedCookieValue(https)).toMatch(/Max-Age=0; Secure$/);
   });
 
-  it('is Secure on https and in hosted environments, not on the local http stack', () => {
+  it('is Secure on https, and on http unless APP_ENV is explicitly dev or test', () => {
     expect(cookieIsSecure('http', 'dev')).toBe(false);
     expect(cookieIsSecure('http', 'test')).toBe(false);
     expect(cookieIsSecure('https', 'dev')).toBe(true);
+    expect(cookieIsSecure('https', 'test')).toBe(true);
     expect(cookieIsSecure('http', 'staging')).toBe(true);
     expect(cookieIsSecure('http', 'prod')).toBe(true);
+    // A host that forgot APP_ENV (the parsed env would say "dev") or mistyped it is NOT treated as local.
+    expect(cookieIsSecure('http', undefined)).toBe(true);
+    expect(cookieIsSecure('http', '')).toBe(true);
+    expect(cookieIsSecure('http', 'production')).toBe(true);
+    expect(cookieIsSecure('http', 'DEV')).toBe(true);
   });
 });
 
@@ -154,6 +160,7 @@ describe('finishing', () => {
     expect(finishSessionCookie(refresh, { status: 401, text: '{}' }, http).setCookie[0]).toContain('Max-Age=0');
     expect(finishSessionCookie(refresh, { status: 403, text: '{}' }, http).setCookie[0]).toContain('Max-Age=0');
     expect(finishSessionCookie(refresh, { status: 503, text: '{}' }, http).setCookie).toEqual([]);
+    for (const status of [400, 409, 429]) expect(finishSessionCookie(refresh, { status, text: '{}' }, http).setCookie).toEqual([]);
     expect(finishSessionCookie(refresh, { status: 500, text: '{}' }, http).setCookie).toEqual([]);
   });
 

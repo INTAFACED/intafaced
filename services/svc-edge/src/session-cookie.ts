@@ -37,6 +37,8 @@
  * `session-cookie.e2e.test.ts`.
  */
 
+import { isExplicitDevOrTest } from '@intafaced/config';
+
 export const REFRESH_COOKIE = 'intafaced_rt';
 export const SESSION_COOKIE_PATH = '/api/identity/session';
 /** Sent by the app on sign-in calls that want the refresh token moved into the cookie. */
@@ -184,7 +186,7 @@ function sessionData(parsed: unknown): Array<Record<string, unknown>> {
  *
  * Cookie rules, chosen so a hiccup never silently signs someone out and a dead session never lingers:
  *   · mint/refresh success  → set the (rotated) cookie, remove `refreshToken` from the body.
- *   · refresh 4xx           → clear the cookie (expired, revoked, or REUSE DETECTED: identity has
+ *   · refresh 401/403       → clear the cookie (expired, revoked, or REUSE DETECTED: identity has
  *                             already revoked the family, a cookie for it is only a liability).
  *   · refresh 5xx / network → keep the cookie; the token is still valid, try again.
  *   · logout                → always clear the cookie, whatever identity answered; the status is
@@ -203,7 +205,8 @@ export function finishSessionCookie(
 
   const failed = upstream.status < 200 || upstream.status >= 300;
   if (failed) {
-    const clear = plan.kind === 'refresh' && upstream.status >= 400 && upstream.status < 500;
+    // Only a definite refusal of THIS token ends the session; a 400/409/429 is not one.
+    const clear = plan.kind === 'refresh' && (upstream.status === 401 || upstream.status === 403);
     return { status: upstream.status, body: upstream.text, setCookie: clear ? [clearedCookieValue(options)] : [] };
   }
 
@@ -245,7 +248,14 @@ export function answerRefusal(plan: Extract<SessionCookiePlan, { kind: 'refuse' 
   };
 }
 
-/** Secure on https, and always on hosted environments, where plain http can only be a misconfigured hop. */
-export function cookieIsSecure(protocol: string, appEnv: string): boolean {
-  return protocol === 'https' || appEnv === 'staging' || appEnv === 'prod';
+/**
+ * Secure on https, and everywhere that is not EXPLICITLY `dev` or `test`.
+ *
+ * `rawAppEnv` is the raw `process.env.APP_ENV`, not the parsed one: the env schema defaults an unset
+ * value to `dev`, so a production host that forgot APP_ENV, behind a TLS-terminating proxy the edge
+ * does not trust, would otherwise send a 30-day cookie without Secure. Unset, blank, a typo, staging
+ * and prod all get Secure. Only the local stack (APP_ENV=dev, plain http on 127.0.0.1) does not.
+ */
+export function cookieIsSecure(protocol: string, rawAppEnv: string | undefined): boolean {
+  return protocol === 'https' || !isExplicitDevOrTest(rawAppEnv);
 }

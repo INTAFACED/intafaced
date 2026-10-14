@@ -277,6 +277,18 @@ describe('reload keeps you signed in', () => {
   });
 });
 
+describe('the cookie only reaches the two doors', () => {
+  it('a path variant of a door is proxied without the cookie header', async () => {
+    const jar = new Jar();
+    await call(LOGIN, { headers: withCookie, body: {}, jar });
+    identity.seen.length = 0;
+    const r = await call('/api/identity/session/refresh/', { headers: { ...asApp, cookie: `${COOKIE}=${jar.token}` } });
+    void r;
+    expect(identity.seen.length).toBeGreaterThan(0);
+    for (const hop of identity.seen) expect(hop.headers.cookie).toBeUndefined();
+  });
+});
+
 describe('a stolen access token cannot refresh', () => {
   it('bearer token alone, or a body that names a refresh token, is refused without calling identity', async () => {
     const jar = new Jar();

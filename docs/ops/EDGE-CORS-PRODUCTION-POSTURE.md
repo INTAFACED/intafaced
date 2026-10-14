@@ -53,7 +53,7 @@ There is **no** `@fastify/cors`. The hook is hand-rolled. Fastify `onRequest` re
 
 The edge **never** emits `Access-Control-Allow-Credentials`. Callers send `Authorization: Bearer …` (not cookies). A credentialed response plus a wildcard is the CORS spec’s forbidden pair; this module makes **neither**.
 
-When (if) the §13 refresh-token **httpOnly cookie** lands, credentials + `svc-ws` origin check must be **re-taken in code** — named residual in `cors.ts` / edge README, not this docs mountain.
+The §13 refresh-token **httpOnly cookie** has landed (`session-cookie.ts`) and the decision was re-taken in `cors.ts`: still no `Allow-Credentials`. The cookie is host-only, `SameSite=Strict`, scoped to `/api/identity/session`, and the customer app reaches it same-origin, so no cross-origin page needs it and the `svc-ws` socket never receives it. Widening the cookie's path or allowing credentials re-opens this.
 
 ### Surface and methods (browser)
 
