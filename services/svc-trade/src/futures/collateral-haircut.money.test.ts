@@ -46,9 +46,10 @@ const CREDIT_KEYS = ['TRADE_MAX_ORDER', 'TRADE_MAX_POSITION', 'TRADE_MAX_LOSS'] 
 const H8A_IMAGE = 'postgres:16-alpine';
 
 function setCreditEnv(): void {
-  process.env.TRADE_MAX_ORDER = '3';
-  process.env.TRADE_MAX_POSITION = '5';
-  process.env.TRADE_MAX_LOSS = '8';
+  // Whole quote units (#4725 compares them): roomy enough for a 1 BTC open at 50,000.
+  process.env.TRADE_MAX_ORDER = '1000000';
+  process.env.TRADE_MAX_POSITION = '5000000';
+  process.env.TRADE_MAX_LOSS = '100000';
 }
 
 function clearHaircutEnv(): void {

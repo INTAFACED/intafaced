@@ -81,6 +81,7 @@ import {
   type ConvertQuoteResult,
   type ConvertTradeWire,
 } from '../convert/quote.js';
+import { checkMaxOrder, checkMaxOrderNotional, resolveAdmissionLimits } from '../futures/pretrade-limits.js';
 import { convertSettleIdsFor } from '../convert/ids.js';
 import { convertCustomerHoldKey, planConvertSettle, postConvertSettle, releaseStrandedHouseHold } from '../convert/settle.js';
 import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
@@ -1108,6 +1109,19 @@ export class TradeService {
             throw new TradeError('convert quote expired — refuse rather than requote', 'trade.convert_quote_expired');
           }
         }
+        // Owner pre-trade max-order limit (#4725) on a FRESH accept only: a
+        // bound or admitted original is a recovery and never creates new risk.
+        if (stored.lifecycle === 'open' && !original) {
+          const resolved = resolveAdmissionLimits();
+          if ('refusal' in resolved) throw new TradeError(resolved.refusal.message, resolved.refusal.code as TradeErrorCode);
+          const refusal = checkMaxOrderNotional({
+            limits: resolved.limits,
+            quoteAsset: bound.quote.quoteAsset,
+            notional: bound.fillNotional,
+            what: 'convert',
+          });
+          if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
+        }
         // The quote's immutable original bound is the business payload. A retry
         // recovers this decision rather than sampling a new price or quantity.
         if (stored.lifecycle === 'open' || original) {
@@ -1448,6 +1462,12 @@ export class TradeService {
       assertPrice(market, input.minProtectionPrice);
       protectionPrice = input.minProtectionPrice;
     }
+
+    // Owner pre-trade max-order limit (#4725): this is the one door every
+    // placed order passes (router, replace, copy mirror, algo child). Retries of
+    // an existing order returned above, so a retry is never newly refused. Paper
+    // markets returned above too (no real money), and seeded MM is a system action.
+    if (!seeded) await this.assertOwnerOrderLimit(market, input.qty, fundingPrice ?? protectionPrice);
 
     // A market SELL holds base quantity, so `holdFor` ignores the price on that
     // branch — the zero is never read, and passing one is what keeps the
@@ -4071,6 +4091,33 @@ export class TradeService {
     const market = input.marketId ? await this.marketById(input.marketId) : input.symbol ? await this.marketBySymbol(input.symbol) : null;
     if (!market) throw new TradeError(`market ${input.symbol ?? input.marketId ?? '(unspecified)'} not found`, 'trade.market_not_found');
     return market;
+  }
+
+  /**
+   * Owner max-order admission (#4725). `price` is the funding price (limit price
+   * or market-buy protection price). A market sell has none, so it is valued at
+   * the best bid and, with no bid, at its own floor; with neither the notional
+   * cannot be known and the order refuses rather than pass unmeasured.
+   */
+  private async assertOwnerOrderLimit(market: Market, qty: Amount, price: Amount | null): Promise<void> {
+    const resolved = resolveAdmissionLimits();
+    if ('refusal' in resolved) throw new TradeError(resolved.refusal.message, resolved.refusal.code as TradeErrorCode);
+    const { limits } = resolved;
+    if (limits.maxOrder == null) return;
+    let reference = price;
+    if (reference == null) {
+      const depth = await this.matching.depth(market.id, 1);
+      const bid = depth.bids[0];
+      reference = bid ? parseAmount(bid[0]) : null;
+    }
+    if (reference == null || reference <= 0n) {
+      throw new TradeError(
+        `order notional cannot be valued (no reference price) so it cannot be checked against the max-order limit of ${limits.maxOrder} ${market.quoteAsset}`,
+        'trade.limit_max_order',
+      );
+    }
+    const refusal = checkMaxOrder({ limits, quoteAsset: market.quoteAsset, price: reference, qty });
+    if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
   }
 
   private async bestAsk(marketId: string): Promise<Amount | null> {
