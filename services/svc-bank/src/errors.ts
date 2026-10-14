@@ -74,6 +74,16 @@ export type BankErrorCode =
   | 'bank.repayment_id_required'
   /** Draw refused because the loan is not in `pending` — the ordering guard. */
   | 'bank.loan_not_drawable'
+  /**
+   * Abandon refused: the last post attempt on this pending loan is inside the
+   * in-flight bound, so the ledger could still commit it. Wait, then retry.
+   */
+  | 'bank.loan_attempt_too_recent'
+  /**
+   * Recovery will not re-post a collateral lock the ledger definitely refused.
+   * Abandon the pending loan, or have the borrower open a new one.
+   */
+  | 'bank.loan_collateral_rejected'
   /** The requested principal puts the loan over the product's opening LTV. */
   | 'bank.ltv_exceeded'
   /**
