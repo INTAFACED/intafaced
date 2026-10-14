@@ -319,7 +319,15 @@ export const futuresFixture = definePreviewFixture<FuturesRows>(
     orderHistory: [
       { id: 'h1', contract: 'BTC-USDT', side: 'long', price: '63180.0', size: '0.250', status: 'filled', closedAt: '2026-10-13T14:12:00Z' },
       { id: 'h2', contract: 'ETH-USDT', side: 'short', price: '2361.20', size: '4.00', status: 'filled', closedAt: '2026-10-13T09:30:00Z' },
-      { id: 'h3', contract: 'SOL-USDT', side: 'short', price: '161.00', size: '20.0', status: 'cancelled', closedAt: '2026-10-12T18:47:00Z' },
+      {
+        id: 'h3',
+        contract: 'SOL-USDT',
+        side: 'short',
+        price: '161.00',
+        size: '20.0',
+        status: 'cancelled',
+        closedAt: '2026-10-12T18:47:00Z',
+      },
     ],
     fundingHistory: [
       { id: 'f1', contract: 'BTC-USDT', rate: '0.0001', amount: '-1.58', paidAt: '2026-10-14T00:00:00Z' },

@@ -19,7 +19,8 @@ export const futuresCopy = defineCopy('customer.preview.futures', {
   Chart: 'Chart',
   'Chart range': 'Chart range',
   'Chart label': 'Sample price chart for {contract}, last {hours}',
-  'Chart foot': 'Sample candles, last {hours}. Dashed lines show the mark price and, for the sample position, its entry and liquidation price.',
+  'Chart foot':
+    'Sample candles, last {hours}. Dashed lines show the mark price and, for the sample position, its entry and liquidation price.',
   Entry: 'Entry',
   Liquidation: 'Liquidation',
   'Order book': 'Order book',

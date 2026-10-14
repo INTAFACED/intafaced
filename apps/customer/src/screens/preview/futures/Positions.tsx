@@ -107,10 +107,20 @@ export function Positions({ rows, onPick }: { rows: FuturesRows; onPick: (id: Pe
                         {position.stopLoss ? priceCell(position.stopLoss, contract.tick) : t('None')}
                       </td>
                       <td className="fx-row-actions">
-                        <PreviewActionButton product="futures" variant="secondary" size={28} aria-label={t('Close at market', { contract: position.contract })}>
+                        <PreviewActionButton
+                          product="futures"
+                          variant="secondary"
+                          size={28}
+                          aria-label={t('Close at market', { contract: position.contract })}
+                        >
                           {t('Market')}
                         </PreviewActionButton>
-                        <PreviewActionButton product="futures" variant="ghost" size={28} aria-label={t('Close at limit', { contract: position.contract })}>
+                        <PreviewActionButton
+                          product="futures"
+                          variant="ghost"
+                          size={28}
+                          aria-label={t('Close at limit', { contract: position.contract })}
+                        >
                           {t('Limit')}
                         </PreviewActionButton>
                       </td>
@@ -157,7 +167,12 @@ export function Positions({ rows, onPick }: { rows: FuturesRows; onPick: (id: Pe
                       </td>
                       <td>{when(order.placedAt)}</td>
                       <td className="fx-row-actions">
-                        <PreviewActionButton product="futures" variant="secondary" size={28} aria-label={t('Cancel order', { contract: order.contract })}>
+                        <PreviewActionButton
+                          product="futures"
+                          variant="secondary"
+                          size={28}
+                          aria-label={t('Cancel order', { contract: order.contract })}
+                        >
                           {t('Cancel')}
                         </PreviewActionButton>
                       </td>

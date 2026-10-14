@@ -4,15 +4,7 @@ import { PreviewActionButton, PreviewChip } from '../../../preview';
 import { dec, ratio, str, times, SCALE, type Scaled } from '../../../data/decimal';
 import type { MarginMode, PerpContract, PerpPosition } from '../../../preview/fixtures/futures';
 import { futuresCopy } from './copy';
-import {
-  d,
-  liquidationPrice,
-  marginFor,
-  maxSize,
-  percentOfSize,
-  positionValue,
-  unrealisedPnl,
-} from './math';
+import { d, liquidationPrice, marginFor, maxSize, percentOfSize, positionValue, unrealisedPnl } from './math';
 import { pctPlain, places, price, priceCell, signedUsd, size as sizeText, tone, usd } from './show';
 
 type OrderType = 'limit' | 'market' | 'stop';
@@ -221,7 +213,9 @@ export function Ticket({ contract, available, position }: Props) {
           <div className="fx-field-static" data-testid="fx-close-size">
             <span>{t('Position to close')}</span>
             <span>
-              {position ? `${sizeText(position.size, contract.lot)} ${contract.base} ${t(position.side === 'long' ? 'Long' : 'Short')}` : t('No open position')}
+              {position
+                ? `${sizeText(position.size, contract.lot)} ${contract.base} ${t(position.side === 'long' ? 'Long' : 'Short')}`
+                : t('No open position')}
             </span>
           </div>
         )}

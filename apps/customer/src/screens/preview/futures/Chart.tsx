@@ -42,7 +42,15 @@ export function Chart({ contract, lines }: { contract: PerpContract; lines: read
       const x = i * step + step / 2;
       const top = y(c.o > c.c ? c.o : c.c);
       const bottom = y(c.o > c.c ? c.c : c.o);
-      return { x, w: Math.max(2, step * 0.62), up: c.c >= c.o, top, height: Math.max(1, bottom - top), wickTop: y(c.h), wickBottom: y(c.l) };
+      return {
+        x,
+        w: Math.max(2, step * 0.62),
+        up: c.c >= c.o,
+        top,
+        height: Math.max(1, bottom - top),
+        wickTop: y(c.h),
+        wickBottom: y(c.l),
+      };
     });
     const grid = Array.from({ length: 5 }, (_, i) => {
       const value = hi - (span * BigInt(i + 1)) / 6n;
