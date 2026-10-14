@@ -55,6 +55,14 @@ export function registerInternalEmissions(app: FastifyInstance, deps: InternalEm
     } catch (err) {
       const message = err instanceof Error ? err.message : 'mint failed';
       const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : 'token.mint_failed';
+      // Time gate: not an error to alarm on — the next epoch is simply not due.
+      // 429 + Retry-After (whole seconds, from the database clock) so a cron can back off.
+      if (code === 'token.epoch_too_early') {
+        const retryAfterMs = (err as { retryAfterMs?: unknown }).retryAfterMs;
+        const retryAfterSec = typeof retryAfterMs === 'number' && retryAfterMs > 0 ? Math.ceil(retryAfterMs / 1000) : undefined;
+        if (retryAfterSec !== undefined) reply.header('retry-after', String(retryAfterSec));
+        return reply.code(429).send({ error: message, code, ...(retryAfterSec !== undefined ? { retryAfterSeconds: retryAfterSec } : {}) });
+      }
       // Fail closed: never 200 on a mint that did not land.
       return reply.code(400).send({ error: message, code });
     }

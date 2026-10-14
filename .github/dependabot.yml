@@ -21,8 +21,10 @@ updates:
     # from no scanning at all.
     open-pull-requests-limit: 3
     commit-message:
-      prefix: 'chore(deps)'
-      prefix-development: 'chore(deps-dev)'
+      # `ci(deps)`, not `chore(deps)`: a bump edits the root package.json, a gate file, and the gate-file guard
+      # (tooling/scripts/gate-file-guard.mjs) passes a PR only when its title declares it (`ci:` / `ci(scope):`).
+      prefix: 'ci(deps)'
+      prefix-development: 'ci(deps-dev)'
     groups:
       # Security fixes travel alone and first — they are the ones worth
       # interrupting a week for, and mixing them into a 40-package bump is how
@@ -70,7 +72,9 @@ updates:
       day: 'wednesday'
     open-pull-requests-limit: 2
     commit-message:
-      prefix: 'chore(actions)'
+      # `ci`, not `chore(actions)`: the bump edits .github/workflows/**, a gate file, and the gate-file guard
+      # (tooling/scripts/gate-file-guard.mjs) passes a PR only when its title starts with `ci:`.
+      prefix: 'ci'
     groups:
       actions:
         patterns: ['*']

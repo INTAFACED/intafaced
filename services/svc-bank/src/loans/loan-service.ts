@@ -21,6 +21,7 @@ import { BankError } from '../errors.js';
 import { assertLoanProductsListLimit } from '../catalog-list-limit.js';
 import { assertLoansListLimit } from '../owner-list-limit.js';
 import { assertLoanAccrueBatchLimit, assertLoanResumePendingLimit, assertLoanRiskSweepLimit } from '../job-batch-limit.js';
+import { withSessionAdvisoryLock } from '../session-lock.js';
 import { withMoneySpan } from '../tracing.js';
 import {
   affiliateLegAfterLoanLiquidate,
@@ -2815,44 +2816,25 @@ export class LoanService {
    *
    * `pg_advisory_lock` is session-scoped, so it is still held while the ledger
    * post runs after the claim transaction commits. The connection is reserved
-   * so unlock hits the session that took the lock.
+   * so unlock hits the session that took the lock. The key is unchanged, so a
+   * replica on older code takes the same lock. See `session-lock.ts` for how the
+   * reserved connections are kept from starving the pool the body runs on.
    */
   private async withLiquidationLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
-    const reserved = await this.sql.reserve();
-    let locked = false;
-    try {
-      await reserved`SELECT pg_advisory_lock(hashtext('bank.loan.liquidate'), hashtext(${loanId}))`;
-      locked = true;
-      return await body();
-    } finally {
-      try {
-        if (locked) await reserved`SELECT pg_advisory_unlock(hashtext('bank.loan.liquidate'), hashtext(${loanId}))`;
-      } finally {
-        reserved.release();
-      }
-    }
+    return withSessionAdvisoryLock(this.sql, 'bank.loan.liquidate', loanId, body);
   }
 
   /**
    * One repayment at a time for a loan, from the debt re-read through settle.
    *
    * `pg_advisory_lock` is session-scoped, so it survives the claim commit. The
-   * connection is reserved so unlock hits the session that took the lock.
+   * connection is reserved so unlock hits the session that took the lock. The
+   * key is unchanged, so a replica on older code takes the same lock. See
+   * `session-lock.ts` for how the reserved connections are kept from starving
+   * the pool the body runs on.
    */
   private async withRepayLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
-    const reserved = await this.sql.reserve();
-    let locked = false;
-    try {
-      await reserved`SELECT pg_advisory_lock(hashtext('bank.loan.repay'), hashtext(${loanId}))`;
-      locked = true;
-      return await body();
-    } finally {
-      try {
-        if (locked) await reserved`SELECT pg_advisory_unlock(hashtext('bank.loan.repay'), hashtext(${loanId}))`;
-      } finally {
-        reserved.release();
-      }
-    }
+    return withSessionAdvisoryLock(this.sql, 'bank.loan.repay', loanId, body);
   }
 
   private async nextCollateralSequence(loanId: string): Promise<number> {
