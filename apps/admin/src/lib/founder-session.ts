@@ -219,10 +219,10 @@ export async function authorizeAdminRequest(request: Request): Promise<{ session
 
 export function adminSessionErrorResponse(error: unknown): Response {
   const known = error instanceof AdminSessionError ? error : new AdminSessionError('admin.request_failed', 500);
-  return Response.json(
-    known.upstreamCode ? { code: known.code, upstreamCode: known.upstreamCode } : { code: known.code },
-    { status: known.status, headers: { 'cache-control': 'no-store' } },
-  );
+  return Response.json(known.upstreamCode ? { code: known.code, upstreamCode: known.upstreamCode } : { code: known.code }, {
+    status: known.status,
+    headers: { 'cache-control': 'no-store' },
+  });
 }
 
 export function founderCookie(value: string, maxAge: number): string {
