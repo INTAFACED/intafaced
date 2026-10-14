@@ -266,19 +266,19 @@ describe('outreach preview fixture, founder inbox', { skip: built ? false : 'bui
     let now = T0;
     const fixture = createOutreachFixture(contracts, () => now);
     const f = fixture.founderApi;
-    const enquire = (audience = 'investor', stated) => {
+    const enquire = (audience = 'investor', stated, participation = 'direct', email) => {
       const continuationToken = token();
       const receipt = fixture.publicApi.capture({
         requestId: randomUUID(),
         continuationToken,
         contact: {
           name: `Person ${fixture.opportunities.size}`,
-          email: `p${fixture.opportunities.size}@example.invalid`,
+          email: email ?? `p${fixture.opportunities.size}@example.invalid`,
           interests: [audience],
           marketingOptIn: false,
         },
       });
-      if (audience === 'investor' && stated)
+      if (audience === 'investor' && stated !== undefined)
         fixture.publicApi.answer({
           requestId: randomUUID(),
           submissionId: receipt.submissionId,
@@ -289,9 +289,9 @@ describe('outreach preview fixture, founder inbox', { skip: built ? false : 'bui
             version: 1,
             answers: {
               investorType: 'individual',
-              participation: 'direct',
+              participation,
               decisionRole: 'decision_maker',
-              indicativeContribution: { status: 'stated', ...stated },
+              indicativeContribution: stated === 'undecided' ? { status: 'undecided' } : { status: 'stated', ...stated },
               timing: 'undecided',
             },
           },
@@ -315,7 +315,11 @@ describe('outreach preview fixture, founder inbox', { skip: built ? false : 'bui
         requestId: randomUUID(),
         opportunityId: opportunity.id,
         expectedRevision: fresh(opportunity).revision,
-        commitment,
+        // Committed means documented agreements, so the reference is required; tests not about that supply one.
+        commitment:
+          commitment?.tier === 'committed' && commitment.evidenceRef === undefined
+            ? { ...commitment, evidenceRef: 'signed agreement' }
+            : commitment,
         reason: 'After the call',
       });
     return { fixture, f, enquire, fresh, reply, commit, advance: (hours) => (now += hours * HOUR), clock: () => now };
@@ -554,7 +558,7 @@ describe('outreach preview fixture, founder inbox', { skip: built ? false : 'bui
     );
     assert.throws(() => commit(trader, null), throwsCode('ops.crm.commitment_investor_only'));
     const investor = enquire('investor');
-    const ok = { tier: 'committed', amount: '100', currency: 'EUR' };
+    const ok = { tier: 'committed', amount: '100', currency: 'EUR', evidenceRef: 'signed' };
     assert.throws(
       () =>
         f['outreach.setCommitment']({
@@ -686,7 +690,7 @@ describe('outreach preview fixture, founder inbox', { skip: built ? false : 'bui
       named.sort((a, b) => a.tier.localeCompare(b.tier)),
       [
         {
-          who: 'Test Investor B (introducer)',
+          who: 'Test Investor B',
           tier: 'committed',
           amount: '100000',
           currency: 'EUR',
@@ -695,6 +699,11 @@ describe('outreach preview fixture, founder inbox', { skip: built ? false : 'bui
         { who: 'Test Investor A', tier: 'soft_circled', amount: '250000', currency: 'EUR', evidence: 'Test data: sample call note' },
       ],
     );
+    // CONT:40: nobody who only introduces others is given a contribution.
+    for (const row of investors) {
+      const answers = fixture.submissions.get(row.submissionId).record.questionnaires[0].answers;
+      assert.notEqual(answers.participation, 'introduction');
+    }
     const raise = fixture.founderApi['outreach.metrics']({}).raise;
     assert.deepEqual(raise.softCircled, [{ currency: 'EUR', amount: '250000' }]);
     assert.deepEqual(raise.committed, [{ currency: 'EUR', amount: '100000' }]);
@@ -703,5 +712,182 @@ describe('outreach preview fixture, founder inbox', { skip: built ? false : 'bui
     const queue = fixture.founderApi['outreach.listOpportunities']({ limit: 50, queue: 'waiting' }).items;
     const all = fixture.founderApi['outreach.listOpportunities']({ limit: 50 }).items;
     assert.ok(queue.length > 0 && queue.length < all.length);
+  });
+  it('does not count a message whose delivery failed as a reply or a touch', () => {
+    const { f, fixture, enquire, fresh, advance } = setup();
+    const opportunity = enquire();
+    advance(1);
+    f['outreach.queueMessage']({
+      requestId: randomUUID(),
+      opportunityId: opportunity.id,
+      expectedRevision: fresh(opportunity).revision,
+      kind: 'information_request',
+      staffText: 'Could you share your timing?',
+      reason: 'Founder follow-up',
+    });
+    const read = () => f['outreach.getOpportunity']({ opportunityId: opportunity.id }).opportunity;
+    assert.equal(read().firstReplyAt, new Date(T0 + HOUR).toISOString());
+    fixture.messages[0].status = 'failed';
+    assert.deepEqual(
+      { first: read().firstReplyAt, last: read().lastTouchAt, since: read().waitingSince },
+      { first: null, last: null, since: opportunity.createdAt },
+    );
+    fixture.messages[0].status = 'unresolved';
+    assert.equal(read().firstReplyAt, new Date(T0 + HOUR).toISOString());
+  });
+
+  it('requires a reference to the documents for committed, and not for soft-circled', () => {
+    const { f, enquire, fresh } = setup();
+    const investor = enquire();
+    const base = () => ({
+      requestId: randomUUID(),
+      opportunityId: investor.id,
+      expectedRevision: fresh(investor).revision,
+      reason: 'Documents signed',
+    });
+    assert.throws(
+      () => f['outreach.setCommitment']({ ...base(), commitment: { tier: 'committed', amount: '5', currency: 'EUR' } }),
+      (e) => e.name === 'ZodError',
+    );
+    assert.equal(fresh(investor).commitment, null);
+    assert.equal(
+      f['outreach.setCommitment']({ ...base(), commitment: { tier: 'soft_circled', amount: '5', currency: 'EUR' } }).commitment.tier,
+      'soft_circled',
+    );
+  });
+
+  it('refuses a commitment for an introduction-only investor, allows direct, both and unanswered, and still allows clearing', () => {
+    const { f, enquire, fresh, commit } = setup();
+    const ask = { tier: 'soft_circled', amount: '5', currency: 'EUR' };
+    const introducer = enquire('investor', 'undecided', 'introduction');
+    assert.throws(() => commit(introducer, ask), throwsCode('ops.crm.commitment_introduction_only'));
+    assert.equal(fresh(introducer).commitment, null);
+    assert.equal(commit(introducer, null).commitment, null);
+    for (const participation of ['direct', 'both'])
+      assert.equal(commit(enquire('investor', 'undecided', participation), ask).commitment.tier, 'soft_circled');
+    assert.equal(commit(enquire('investor'), ask).commitment.tier, 'soft_circled');
+    assert.ok(f['outreach.setCommitment']);
+  });
+
+  it('lets the raise label any three-letter currency, survive more than 60 currencies and sum past one amount', () => {
+    const { f, enquire } = setup();
+    for (const currency of ['XCG', 'BTC', 'HRK', 'ZZZ']) enquire('investor', { amount: '5', currency });
+    const code = (i) => String.fromCharCode(65 + (i % 26), 65 + (Math.floor(i / 26) % 26), 66);
+    for (let i = 0; i < 62; i += 1) enquire('investor', { amount: '1', currency: code(i) });
+    const big = '999999999999999.999999999999999999';
+    for (let i = 0; i < 3; i += 1) enquire('investor', { amount: big, currency: 'EUR' });
+    const raise = f['outreach.metrics']({}).raise;
+    assert.equal(raise.indicated.length, 67);
+    assert.equal(raise.indicated.find((t) => t.currency === 'EUR').amount, '2999999999999999.999999999999999997');
+    assert.equal(raise.indicated.find((t) => t.currency === 'XCG').amount, '5');
+    assert.ok(contracts.crmMetricsSchema.safeParse(f['outreach.metrics']({})).success);
+    assert.throws(
+      () => enquire('investor', { amount: '1000000000000000', currency: 'EUR' }),
+      (e) => e.name === 'ZodError',
+    );
+  });
+
+  it('counts each person once, at their highest level and by their most recent enquiry', () => {
+    const { f, fixture, enquire, commit, advance } = setup();
+    const older = enquire('investor', { amount: '100', currency: 'EUR' }, 'direct', 'same@example.invalid');
+    advance(1);
+    const newer = enquire('investor', { amount: '200', currency: 'EUR' }, 'direct', 'same@example.invalid');
+    enquire('investor', { amount: '10', currency: 'EUR' });
+    assert.equal(f['outreach.metrics']({}).raise.counts.indicated, 3);
+    f['outreach.mergeContacts']({
+      requestId: randomUUID(),
+      sourceContactId: newer.contactId,
+      targetContactId: older.contactId,
+      sourceExpectedRevision: 1,
+      targetExpectedRevision: 1,
+      confirmed: true,
+      reason: 'Same person',
+    });
+    assert.deepEqual((({ indicated, counts }) => ({ indicated, counts: counts.indicated }))(f['outreach.metrics']({}).raise), {
+      indicated: [{ currency: 'EUR', amount: '210' }],
+      counts: 2,
+    });
+    commit(fixture.opportunities.get(older.id), { tier: 'soft_circled', amount: '50', currency: 'EUR' });
+    assert.deepEqual(f['outreach.metrics']({}).raise, {
+      indicated: [{ currency: 'EUR', amount: '10' }],
+      softCircled: [{ currency: 'EUR', amount: '50' }],
+      committed: [],
+      counts: { indicated: 1, softCircled: 1, committed: 0, undecided: 0 },
+    });
+  });
+
+  it('stores the next action to the millisecond and walks the queue one row at a time without looping', () => {
+    const { f, enquire, fresh, advance } = setup();
+    const rows = [enquire(), enquire(), enquire()];
+    advance(5);
+    ['2026-10-14T01:00:00.1231Z', '2026-10-14T01:00:00.1235Z', '2026-10-14T01:00:00.1239Z'].forEach((dueAt, i) =>
+      f['outreach.recordInteraction']({
+        requestId: randomUUID(),
+        opportunityId: rows[i].id,
+        expectedRevision: fresh(rows[i]).revision,
+        kind: 'reply_sent',
+        occurredAt: new Date(T0 + HOUR).toISOString(),
+        nextAction: { description: 'Check in', dueAt },
+        reason: 'Replied',
+      }),
+    );
+    assert.equal(fresh(rows[0]).nextAction.dueAt, '2026-10-14T01:00:00.123Z');
+    const seen = [];
+    let cursor;
+    for (let guard = 0; guard < 10; guard += 1) {
+      const page = f['outreach.listOpportunities']({ limit: 1, queue: 'waiting', ...(cursor ? { cursor } : {}) });
+      seen.push(...page.items.map((item) => item.id));
+      if (page.nextCursor === null) break;
+      cursor = page.nextCursor;
+    }
+    assert.deepEqual(
+      seen,
+      f['outreach.listOpportunities']({ limit: 50, queue: 'waiting' }).items.map((item) => item.id),
+    );
+    assert.equal(seen.length, 3);
+    assert.equal(new Set(seen).size, 3);
+  });
+
+  it('pages the default listing by its own cursor, and refuses a malformed or foreign cursor, like svc-ops', () => {
+    const { f, enquire, advance } = setup();
+    const made = [];
+    for (let i = 0; i < 5; i += 1) {
+      made.push(enquire().id);
+      advance(1);
+    }
+    const everything = f['outreach.listOpportunities']({ limit: 50 }).items.map((item) => item.id);
+    assert.equal(everything.length, 5);
+    const seen = [];
+    let cursor;
+    for (let guard = 0; guard < 10; guard += 1) {
+      const page = f['outreach.listOpportunities']({ limit: 2, ...(cursor ? { cursor } : {}) });
+      seen.push(...page.items.map((item) => item.id));
+      if (page.nextCursor === null) break;
+      cursor = page.nextCursor;
+    }
+    assert.deepEqual(seen, everything);
+    const queueCursor = f['outreach.listOpportunities']({ limit: 1, queue: 'waiting' }).nextCursor;
+    assert.ok(queueCursor);
+    assert.throws(() => f['outreach.listOpportunities']({ limit: 1, cursor: queueCursor }), throwsCode('ops.crm.cursor_invalid'));
+    assert.throws(() => f['outreach.listOpportunities']({ limit: 1, queue: 'waiting', cursor }), throwsCode('ops.crm.cursor_invalid'));
+    const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const good = { at: '2026-10-14T00:00:00.000Z', id: made[0] };
+    for (const bad of [
+      { ...good, extra: 1 },
+      { at: 'yesterday', id: made[0] },
+      { at: good.at, id: 'not-a-uuid' },
+      { at: good.at },
+      [],
+      'x',
+    ])
+      assert.throws(() => f['outreach.listOpportunities']({ limit: 1, cursor: encode(bad) }), throwsCode('ops.crm.cursor_invalid'));
+    assert.throws(
+      () => f['outreach.listOpportunities']({ limit: 1, queue: 'waiting', cursor: encode({ ...good, queue: 'waiting', extra: 1 }) }),
+      throwsCode('ops.crm.cursor_invalid'),
+    );
+    assert.throws(
+      () => f['outreach.listOpportunities']({ limit: 1, queue: 'waiting', cursor: encode(good) }),
+      throwsCode('ops.crm.cursor_invalid'),
+    );
   });
 });

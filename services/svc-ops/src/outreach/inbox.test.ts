@@ -28,12 +28,12 @@ const at = (hours: number) => new Date(T0 + hours * HOUR);
 const iso = (hours: number) => at(hours).toISOString();
 
 type Stated = { amount: string; currency: string } | 'undecided';
-const investorAnswers = (indicative: Stated) => ({
+const investorAnswers = (indicative: Stated, participation: 'direct' | 'introduction' | 'both' = 'direct') => ({
   audience: 'investor' as const,
   version: 1 as const,
   answers: {
     investorType: 'individual' as const,
-    participation: 'direct' as const,
+    participation,
     decisionRole: 'decision_maker' as const,
     indicativeContribution: indicative === 'undecided' ? { status: 'undecided' as const } : { status: 'stated' as const, ...indicative },
     timing: 'undecided' as const,
@@ -60,14 +60,19 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))(
       await db.drop();
     });
 
-    async function enquire(audience: OutreachAudience = 'investor', stated?: Stated): Promise<CrmOpportunityRow> {
+    async function enquire(
+      audience: OutreachAudience = 'investor',
+      stated?: Stated,
+      participation: 'direct' | 'introduction' | 'both' = 'direct',
+      email?: string,
+    ): Promise<CrmOpportunityRow> {
       n += 1;
       const continuationToken = randomBytes(32).toString('base64url');
       const receipt = await crm.capture(
         {
           requestId: randomUUID(),
           continuationToken,
-          contact: { name: `Prospect ${n}`, email: `prospect${n}@example.test`, interests: [audience], marketingOptIn: false },
+          contact: { name: `Prospect ${n}`, email: email ?? `prospect${n}@example.test`, interests: [audience], marketingOptIn: false },
         },
         `ip-${n}`,
       );
@@ -78,7 +83,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))(
             submissionId: receipt.submissionId,
             continuationToken,
             expectedRevision: 1,
-            questionnaire: investorAnswers(stated),
+            questionnaire: investorAnswers(stated, participation),
           },
           `ip-${n}`,
         );
@@ -124,12 +129,24 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))(
       actor = founders[0],
     ) => {
       const current = await reload(id);
+      // Committed means documented agreements, so the reference is required; tests not about that supply one.
+      const documented =
+        commitment?.tier === 'committed' && commitment.evidenceRef === undefined
+          ? { ...commitment, evidenceRef: 'signed agreement' }
+          : commitment;
       return crm.setCommitment(
-        { requestId: randomUUID(), opportunityId: id, expectedRevision: current.revision, commitment, reason: 'After the call' },
+        {
+          requestId: randomUUID(),
+          opportunityId: id,
+          expectedRevision: current.revision,
+          commitment: documented,
+          reason: 'After the call',
+        },
         actor,
       );
     };
     const metrics = (filters: Record<string, string> = {}) => crm.metrics(filters as never);
+    const raise = async (filters: Record<string, string> = {}) => crmMetricsSchema.shape.raise.parse((await metrics(filters)).raise);
 
     describe('reply state', () => {
       it('starts unreplied and waiting since it was created; notes and owner changes are not touches', async () => {
@@ -525,7 +542,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))(
           amount: '100000',
           recordedAt: iso(2),
         });
-        expect(upgraded.audience === 'investor' && upgraded.commitment && 'evidenceRef' in upgraded.commitment).toBe(false);
+        expect(upgraded.audience === 'investor' && upgraded.commitment && upgraded.commitment.evidenceRef).toBe('signed agreement');
         const cleared = await setCommitment(row.id, null);
         expect(cleared.audience === 'investor' && cleared.commitment).toBeNull();
         const detail = await crm.getOpportunity({ opportunityId: row.id });
@@ -556,7 +573,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))(
               requestId: randomUUID(),
               opportunityId: trader.id,
               expectedRevision: trader.revision,
-              commitment: { tier: 'committed', amount: '100', currency: 'EUR' },
+              commitment: { tier: 'committed', amount: '100', currency: 'EUR', evidenceRef: 'signed' },
               reason: 'Should not be possible',
             },
             founders[0],
@@ -592,7 +609,10 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))(
           code: 'ops.crm.revision_conflict',
         });
         await expect(
-          crm.setCommitment({ ...input, commitment: { tier: 'committed', amount: '1000', currency: 'USD' } }, founders[0]),
+          crm.setCommitment(
+            { ...input, commitment: { tier: 'committed', amount: '1000', currency: 'USD', evidenceRef: 'signed' } },
+            founders[0],
+          ),
         ).rejects.toMatchObject({ code: 'ops.crm.idempotency_conflict' });
         await expect(
           crm.setCommitment({ ...input, requestId: randomUUID(), expectedRevision: row.revision + 1 }, founders[1]),
@@ -611,7 +631,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))(
           requestId: randomUUID(),
           opportunityId: row.id,
           expectedRevision: row.revision,
-          commitment: { tier: 'committed' as const, amount: '100', currency: 'EUR' },
+          commitment: { tier: 'committed' as const, amount: '100', currency: 'EUR', evidenceRef: 'signed' },
           reason: 'After the call',
         };
         const refused = async (patch: Record<string, unknown>) =>
@@ -655,8 +675,6 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))(
     });
 
     describe('raise totals', () => {
-      const raise = async (filters: Record<string, string> = {}) => crmMetricsSchema.shape.raise.parse((await metrics(filters)).raise);
-
       it('is empty with no investors', async () => {
         await enquire('trader');
         expect(await raise()).toEqual({
@@ -820,6 +838,182 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))(
         now = at(1);
         await reply(row.id, iso(1), 24);
         expect((await reload(row.id)).firstReplyAt).toBe(iso(1));
+      });
+
+      describe('review fixes', () => {
+        it('does not count a message whose delivery failed as a reply or a touch', async () => {
+          const row = await enquire();
+          now = at(1);
+          const queued = await crm.queueMessage(
+            {
+              requestId: randomUUID(),
+              opportunityId: row.id,
+              expectedRevision: row.revision,
+              kind: 'information_request',
+              staffText: 'Could you share your timing?',
+              reason: 'Founder follow-up',
+            },
+            founders[0],
+          );
+          expect(await reload(row.id)).toMatchObject({ firstReplyAt: iso(1), lastTouchAt: iso(1) });
+          await db.sql`UPDATE ops.crm_outbox SET status='failed' WHERE id=${queued.message.id}`;
+          expect(await reload(row.id)).toMatchObject({ firstReplyAt: null, lastTouchAt: null, waitingSince: row.createdAt });
+          now = at(2);
+          expect((await crm.listOpportunities({ limit: 10, queue: 'waiting' })).items.map((item) => item.id)).toEqual([row.id]);
+          // Unresolved is not failed: delivery is unknown, so it still counts.
+          await db.sql`UPDATE ops.crm_outbox SET status='unresolved' WHERE id=${queued.message.id}`;
+          expect(await reload(row.id)).toMatchObject({ firstReplyAt: iso(1) });
+        });
+
+        it('requires a reference to the documents for committed, and not for soft-circled', async () => {
+          const row = await enquire();
+          const base = { requestId: randomUUID(), opportunityId: row.id, expectedRevision: row.revision, reason: 'Documents signed' };
+          await expect(
+            crm.setCommitment({ ...base, commitment: { tier: 'committed', amount: '5', currency: 'EUR' } }, founders[0]),
+          ).rejects.toMatchObject({ name: 'ZodError' });
+          expect(await reload(row.id)).toMatchObject({ revision: row.revision });
+          await expect(
+            crm.setCommitment(
+              { ...base, requestId: randomUUID(), commitment: { tier: 'soft_circled', amount: '5', currency: 'EUR' } },
+              founders[0],
+            ),
+          ).resolves.toBeTruthy();
+        });
+
+        it('accepts an ISO currency that replaced an older one, and still the older', async () => {
+          const row = await enquire();
+          await setCommitment(row.id, { tier: 'soft_circled', amount: '5', currency: 'XCG' });
+          await expect(setCommitment(row.id, { tier: 'soft_circled', amount: '5', currency: 'ANG' })).resolves.toBeTruthy();
+        });
+
+        it('refuses a commitment for an introduction-only investor (CONT:40), allows direct, both and unanswered, and still allows clearing', async () => {
+          const introducer = await enquire('investor', 'undecided', 'introduction');
+          const ask = { tier: 'soft_circled' as const, amount: '5', currency: 'EUR' };
+          await expect(setCommitment(introducer.id, ask)).rejects.toMatchObject({ code: 'ops.crm.commitment_introduction_only' });
+          expect(await reload(introducer.id)).toMatchObject({ revision: introducer.revision, commitment: null });
+          expect(await db.sql`SELECT id FROM ops.crm_workflow_audit WHERE kind='commitment_changed'`).toHaveLength(0);
+          await expect(setCommitment(introducer.id, null)).resolves.toBeTruthy();
+          await expect(setCommitment((await enquire('investor', 'undecided', 'direct')).id, ask)).resolves.toBeTruthy();
+          await expect(setCommitment((await enquire('investor', 'undecided', 'both')).id, ask)).resolves.toBeTruthy();
+          await expect(setCommitment((await enquire('investor')).id, ask)).resolves.toBeTruthy();
+        });
+
+        it('lets metrics label any three-letter currency a visitor stated, ISO or not', async () => {
+          await enquire('investor', { amount: '5', currency: 'XCG' });
+          await enquire('investor', { amount: '7', currency: 'BTC' });
+          await enquire('investor', { amount: '1', currency: 'ZZZ' });
+          await enquire('investor', { amount: '2', currency: 'HRK' });
+          const raise = (await metrics()).raise;
+          expect(raise.indicated).toEqual([
+            { currency: 'BTC', amount: '7' },
+            { currency: 'HRK', amount: '2' },
+            { currency: 'XCG', amount: '5' },
+            { currency: 'ZZZ', amount: '1' },
+          ]);
+        });
+
+        it('survives more than 60 currencies and sums longer than one amount', async () => {
+          const code = (i: number) => String.fromCharCode(65 + (i % 26), 65 + (Math.floor(i / 26) % 26), 65);
+          for (let i = 0; i < 62; i += 1) await enquire('investor', { amount: '1', currency: code(i) });
+          const big = '999999999999999.999999999999999999';
+          for (const _ of [1, 2, 3]) await enquire('investor', { amount: big, currency: 'EUR' });
+          const raise = (await metrics()).raise;
+          expect(raise.indicated).toHaveLength(63);
+          // 3 x (10^15 - 10^-18), exact.
+          expect(raise.indicated.find((t) => t.currency === 'EUR')!.amount).toBe('2999999999999999.999999999999999997');
+          expect(raise.counts.indicated).toBe(65);
+          await expect(enquire('investor', { amount: '1000000000000000', currency: 'EUR' })).rejects.toMatchObject({ name: 'ZodError' });
+        }, 60_000);
+
+        it('counts each person once, at their highest level and by their most recent enquiry, so a duplicate does not double the amount', async () => {
+          now = at(0);
+          const older = await enquire('investor', { amount: '100', currency: 'EUR' }, 'direct', 'same@example.test');
+          now = at(1);
+          const newer = await enquire('investor', { amount: '200', currency: 'EUR' }, 'direct', 'same@example.test');
+          await enquire('investor', { amount: '10', currency: 'EUR' });
+          expect((await raise()).counts).toMatchObject({ indicated: 3 });
+          await crm.mergeContacts(
+            {
+              requestId: randomUUID(),
+              sourceContactId: newer.contactId,
+              targetContactId: older.contactId,
+              sourceExpectedRevision: 1,
+              targetExpectedRevision: 1,
+              confirmed: true,
+              reason: 'Same person',
+            },
+            founders[0],
+          );
+          // One person with two enquiries: their most recent stated amount, once.
+          expect(await raise()).toMatchObject({ indicated: [{ currency: 'EUR', amount: '210' }], counts: { indicated: 2 } });
+          // The older enquiry gets a commitment: the person is now counted once, as soft-circled, and not as indicated too.
+          await setCommitment(older.id, { tier: 'soft_circled', amount: '50', currency: 'EUR' });
+          expect(await raise()).toMatchObject({
+            indicated: [{ currency: 'EUR', amount: '10' }],
+            softCircled: [{ currency: 'EUR', amount: '50' }],
+            counts: { indicated: 1, softCircled: 1, committed: 0, undecided: 0 },
+          });
+          // The unknown-amount duplicate of a person who has stated an amount does not count as undecided.
+          now = at(2);
+          const third = await enquire('investor', 'undecided', 'direct', 'same@example.test');
+          await crm.mergeContacts(
+            {
+              requestId: randomUUID(),
+              sourceContactId: third.contactId,
+              targetContactId: older.contactId,
+              sourceExpectedRevision: 1,
+              targetExpectedRevision: (await crm.getContactProvenance({ contactId: older.contactId }))!.canonicalRevision,
+              confirmed: true,
+              reason: 'Same person',
+            },
+            founders[0],
+          );
+          expect((await raise()).counts).toMatchObject({ undecided: 0 });
+        });
+
+        it('walks the waiting queue one row at a time over times finer than a millisecond, without looping or repeating', async () => {
+          now = at(0);
+          const rows = [await enquire(), await enquire(), await enquire(), await enquire()];
+          now = at(5);
+          const fine = ['2026-10-12T01:00:00.1231Z', '2026-10-12T01:00:00.1235Z', '2026-10-12T01:00:00.1239Z'];
+          for (const [i, dueAt] of fine.entries()) {
+            const row = rows[i]!;
+            await crm.recordInteraction(
+              {
+                requestId: randomUUID(),
+                opportunityId: row.id,
+                expectedRevision: (await reload(row.id)).revision,
+                kind: 'reply_sent',
+                occurredAt: iso(1),
+                nextAction: { description: 'Check in', dueAt },
+                reason: 'Replied',
+              },
+              founders[0],
+            );
+          }
+          // Stored to the millisecond, whatever finer time came in.
+          const stored = await db.sql`SELECT record->'nextAction'->>'dueAt' AS due FROM ops.crm_opportunities WHERE id=${rows[0]!.id}`;
+          expect(stored[0]!.due).toBe('2026-10-12T01:00:00.123Z');
+          const walk = async () => {
+            const seen: string[] = [];
+            let cursor: string | undefined;
+            for (let guard = 0; guard < 12; guard += 1) {
+              const page = await crm.listOpportunities({ limit: 1, queue: 'waiting', ...(cursor ? { cursor } : {}) });
+              seen.push(...page.items.map((item) => item.id));
+              if (page.nextCursor === null) return seen;
+              cursor = page.nextCursor;
+            }
+            throw new Error('the walk did not terminate');
+          };
+          const all = (await crm.listOpportunities({ limit: 50, queue: 'waiting' })).items.map((item) => item.id);
+          expect(all).toHaveLength(4);
+          expect(await walk()).toEqual(all);
+          // A record saved before the rule, with finer time already stored, pages exactly as well.
+          await db.sql`UPDATE ops.crm_opportunities SET record=jsonb_set(record,'{nextAction,dueAt}','"2026-10-12T01:00:00.1237Z"') WHERE id=${rows[1]!.id}`;
+          const legacy = (await crm.listOpportunities({ limit: 50, queue: 'waiting' })).items.map((item) => item.id);
+          expect(legacy).toHaveLength(4);
+          expect(await walk()).toEqual(legacy);
+        });
       });
     });
   },

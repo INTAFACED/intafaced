@@ -233,6 +233,22 @@ describe('protected founder CRM workflows', () => {
     // The raise reaches the console as exact decimal strings per currency, never summed across currencies.
     expect(body.raise.committed).toEqual([{ currency: 'EUR', amount: '100000' }]);
     expect(body.raise.indicated).toEqual([{ currency: 'EUR', amount: '350000.5' }]);
+    // A total labels whatever three-letter code a visitor stated, ISO or not, and a sum may be longer than one amount.
+    upstream({
+      metrics: {
+        ...metrics,
+        raise: {
+          ...metrics.raise,
+          indicated: [
+            { currency: 'BTC', amount: '1'.repeat(70) },
+            { currency: 'XCG', amount: '5' },
+          ],
+        },
+      },
+    });
+    const odd = await GET(request('/api/crm/workflows?view=metrics'));
+    expect(odd.status).toBe(200);
+    expect((await odd.json()).raise.indicated[0]).toEqual({ currency: 'BTC', amount: '1'.repeat(70) });
     // Upstream that sends the totals as numbers is not shown.
     upstream({ metrics: { ...metrics, raise: { ...metrics.raise, committed: [{ currency: 'EUR', amount: 100000 }] } } });
     expect((await GET(request('/api/crm/workflows?view=metrics'))).status).toBe(502);
@@ -725,7 +741,9 @@ describe('protected founder CRM workflows', () => {
     });
     const send = (body: unknown) => POST(request('/api/crm/workflows', 'POST', { action: 'setCommitment', input: body }));
     it('passes a commitment through, verifies the receipt and the founder audit, and keeps the amount a string', async () => {
-      const body = input({ commitment: { tier: 'committed', amount: '12345678901234567890.123456789', currency: 'EUR' } });
+      const body = input({
+        commitment: { tier: 'committed', amount: '12345678901234567890.123456789', currency: 'EUR', evidenceRef: 'signed agreement' },
+      });
       const fetcher = upstream({
         setCommitment: saved(body),
         listWorkflowAudit: audit(body, 'opportunity', opportunityId, 'commitment_changed'),
@@ -802,6 +820,22 @@ describe('protected founder CRM workflows', () => {
       incoming.headers.delete('x-intafaced-csrf');
       expect((await POST(incoming)).status).toBe(403);
       expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/'))).toHaveLength(0);
+    });
+    it('requires a reference to the documents for committed, in what is sent and in what comes back', async () => {
+      const fetcher = upstream({});
+      const committed = { tier: 'committed', amount: '100000', currency: 'EUR' };
+      expect((await send(input({ commitment: committed }))).status).toBe(400);
+      expect((await send(input({ commitment: { ...committed, evidenceRef: '  ' } }))).status).toBe(400);
+      expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/'))).toHaveLength(0);
+      const body = input({ commitment: { ...committed, evidenceRef: 'signed agreement' } });
+      upstream({ setCommitment: saved(body), listWorkflowAudit: audit(body, 'opportunity', opportunityId, 'commitment_changed') });
+      expect((await send(body)).status).toBe(200);
+      // An upstream receipt that says committed without the reference is not shown.
+      upstream({
+        setCommitment: saved(body, { commitment: { ...committed, recordedAt: now, recordedBy: userId } }),
+        listWorkflowAudit: audit(body, 'opportunity', opportunityId, 'commitment_changed'),
+      });
+      expect((await send(body)).status).toBe(502);
     });
     it('shows the service refusing a commitment on a non-investor as a refusal, with its status', async () => {
       vi.stubGlobal(

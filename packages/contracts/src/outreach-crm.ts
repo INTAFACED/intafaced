@@ -35,10 +35,11 @@ export const outreachIndicativeAmountSchema = z.discriminatedUnion('status', [
   z
     .object({
       status: z.literal('stated'),
+      // At most 15 integer digits and 18 decimals (about a thousand trillion), so every sum the CRM makes stays representable.
       amount: z
         .string()
-        .max(60)
-        .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/, 'Amount must be a non-negative decimal string'),
+        .max(34)
+        .regex(/^(?:0|[1-9]\d{0,14})(?:\.\d{1,18})?$/, 'Amount must be a non-negative decimal string of at most 15 integer digits'),
       currency,
     })
     .strict(),
@@ -257,7 +258,9 @@ export type CrmOrganisation = z.infer<typeof crmOrganisationSchema>;
 
 /**
  * Active ISO 4217 currency codes (funds and precious metals excluded). A static list, not Intl, so the browser and the
- * service always agree on what is a currency.
+ * service always agree on what is a currency. Source: the ISO 4217 maintenance agency's list of current codes, reviewed
+ * 2026-10-14. XCG (Caribbean guilder, active since 2025-03-31) replaced ANG; ANG stays so records that already carry it remain
+ * valid. This list only gates a founder's commitment: the totals label whatever three-letter code a visitor stated.
  */
 export const ISO_4217_CURRENCIES = [
   'AED',
@@ -409,6 +412,7 @@ export const ISO_4217_CURRENCIES = [
   'VUV',
   'WST',
   'XAF',
+  'XCG',
   'XCD',
   'XOF',
   'XPF',
@@ -433,6 +437,11 @@ export const crmPositiveDecimalSchema = crmDecimalAmountSchema.refine((value) =>
  * after a call. Committed: documents signed. Neither implies money received (SPEC:27).
  */
 export const crmCommitmentTierSchema = z.enum(['soft_circled', 'committed']);
+/** SPEC:27: committed means documented agreements, so the reference to them is not optional. Soft-circled may omit it. */
+function requireEvidenceWhenCommitted(value: { tier: string; evidenceRef?: string | undefined }, ctx: z.RefinementCtx): void {
+  if (value.tier === 'committed' && value.evidenceRef === undefined)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evidenceRef'], message: 'A committed amount needs a reference to the documents' });
+}
 export const crmCommitmentFieldsSchema = z
   .object({
     tier: crmCommitmentTierSchema,
@@ -440,7 +449,8 @@ export const crmCommitmentFieldsSchema = z
     currency: crmCurrencySchema,
     evidenceRef: z.string().trim().min(1).max(200).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(requireEvidenceWhenCommitted);
 export type CrmCommitmentFields = z.infer<typeof crmCommitmentFieldsSchema>;
 /** Stored on an investor opportunity. recordedAt and recordedBy are filled by the service, never accepted as input. */
 export const crmCommitmentSchema = z
@@ -452,7 +462,8 @@ export const crmCommitmentSchema = z
     recordedAt: timestamp,
     recordedBy: id,
   })
-  .strict();
+  .strict()
+  .superRefine(requireEvidenceWhenCommitted);
 export type CrmCommitment = z.infer<typeof crmCommitmentSchema>;
 /** The part of a commitment a history line needs: no evidence text, no author. */
 export const crmCommitmentSummarySchema = z

@@ -17,6 +17,9 @@
  * they answer.
  */
 export const AMOUNT_ERROR = 'Use digits, for example 150,000 or 150000.50';
+/** The CRM records at most 15 whole digits (the intake contract's cap); anything longer is refused here, before sending. */
+export const AMOUNT_MAX_WHOLE_DIGITS = 15;
+export const AMOUNT_TOO_LARGE = 'That is more digits than we can record. Use at most 15 digits before the decimal point.';
 
 // Same shape the journey contract validates: no leading zeros, optional decimal part.
 export const AMOUNT_DECIMAL = /^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/;
@@ -29,7 +32,7 @@ const AMOUNT_AMBIGUOUS = /^([1-9][0-9]{0,2})((?:\.[0-9]{3})+)(?:,([0-9]{1,2}))?$
 // A grouped number (one separator style) followed by "." and exactly three digits: "1,500.000", "150 000.000".
 const AMOUNT_MIXED = /^([1-9][0-9]{0,2})([, ])([0-9]{3}(?:\2[0-9]{3})*)\.([0-9]{3})$/;
 
-export type ParsedAmount = { kind: 'empty' | 'valid' | 'invalid' | 'ambiguous'; plain: string };
+export type ParsedAmount = { kind: 'empty' | 'valid' | 'invalid' | 'ambiguous'; plain: string; tooLarge?: true };
 
 /** A no-break or narrow no-break space (pasted from a formatted source) is the same separator as a space; spaces at either end are ignored. */
 const clean = (raw: string) => raw.replace(/[\u00a0\u202f]/g, ' ').trim();
@@ -40,9 +43,17 @@ export function parseAmount(raw: string): ParsedAmount {
   // A value of only spaces is not an amount.
   const text = clean(raw);
   if (AMOUNT_AMBIGUOUS.test(text) || AMOUNT_MIXED.test(text)) return { kind: 'ambiguous', plain: '' };
-  if (AMOUNT_DECIMAL.test(text)) return { kind: 'valid', plain: text };
-  if (AMOUNT_GROUPED.test(text)) return { kind: 'valid', plain: text.replace(/[, ]/g, '') };
-  return { kind: 'invalid', plain: '' };
+  const plain = AMOUNT_DECIMAL.test(text) ? text : AMOUNT_GROUPED.test(text) ? text.replace(/[, ]/g, '') : null;
+  if (plain === null) return { kind: 'invalid', plain: '' };
+  if (plain.split('.')[0]!.length > AMOUNT_MAX_WHOLE_DIGITS) return { kind: 'invalid', plain: '', tooLarge: true };
+  return { kind: 'valid', plain };
+}
+
+/** The message for a typed amount that is not valid, or '' when there is nothing to report. */
+export function amountError(raw: string): string {
+  const parsed = parseAmount(raw);
+  if (parsed.kind !== 'invalid') return '';
+  return parsed.tooLarge ? AMOUNT_TOO_LARGE : AMOUNT_ERROR;
 }
 
 /** What the journey stores: the plain string for a valid amount, the text as typed for anything else. */

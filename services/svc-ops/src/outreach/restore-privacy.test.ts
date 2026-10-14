@@ -62,7 +62,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('owned pg_dump/pg_restore
               investorType: 'individual',
               participation: 'direct',
               decisionRole: 'decision_maker',
-              indicativeContribution: { status: 'stated', amount: '9007199254740993.000000000000000001', currency: 'USD' },
+              indicativeContribution: { status: 'stated', amount: '999999999999999.000000000000000001', currency: 'USD' },
               timing: 'later',
             },
           },
@@ -112,7 +112,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('owned pg_dump/pg_restore
       expect(
         (await restored.resume({ submissionId: a.receipt.submissionId, continuationToken: a.input.continuationToken }, randomUUID()))
           .questionnaires[0],
-      ).toMatchObject({ answers: { indicativeContribution: { amount: '9007199254740993.000000000000000001', currency: 'USD' } } });
+      ).toMatchObject({ answers: { indicativeContribution: { amount: '999999999999999.000000000000000001', currency: 'USD' } } });
       const preview = await crm.privacy.preview({ canonicalContactId: b.opportunity.contactId }, founders[0]);
       let intent = await crm.privacy.begin(
         {

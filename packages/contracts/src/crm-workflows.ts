@@ -7,8 +7,6 @@ import {
   crmTaskSchema,
   crmActivitySchema,
   crmOpportunitySchema,
-  crmCurrencySchema,
-  crmDecimalAmountSchema,
   outreachContactCaptureSchema,
 } from './outreach-crm.js';
 
@@ -143,7 +141,19 @@ function validateCaptureInterval(value: { capturedFrom?: string; capturedBefore?
   if (value.capturedFrom && value.capturedBefore && Date.parse(value.capturedFrom) >= Date.parse(value.capturedBefore))
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Capture interval must be increasing' });
 }
-const crmMoneyTotalSchema = z.object({ currency: crmCurrencySchema, amount: crmDecimalAmountSchema }).strict();
+// A total only labels what was stated, so it takes any three-letter code intake accepted (not only ISO 4217: the public picker
+// offers more), and its amount is a sum of many amounts, so it is allowed to be longer than one amount.
+// 26^3: every possible three-letter code, so no public input can push the totals past their own bound.
+const MAX_TOTALS = 17576;
+const crmMoneyTotalSchema = z
+  .object({
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    amount: z
+      .string()
+      .max(120)
+      .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/, 'Amount must be a non-negative decimal string'),
+  })
+  .strict();
 /**
  * The raise as three honest levels, each currency summed on its own with exact decimal addition and never converted.
  * indicated: the stated indicativeContribution of open investor opportunities that have no commitment (self-reported).
@@ -151,10 +161,10 @@ const crmMoneyTotalSchema = z.object({ currency: crmCurrencySchema, amount: crmD
  */
 export const crmRaiseSchema = z
   .object({
-    indicated: z.array(crmMoneyTotalSchema).max(60),
-    softCircled: z.array(crmMoneyTotalSchema).max(60),
-    committed: z.array(crmMoneyTotalSchema).max(60),
-    /** People, not currencies: how many opportunities are in each level. undecided: open investors with no commitment and no stated amount. */
+    indicated: z.array(crmMoneyTotalSchema).max(MAX_TOTALS),
+    softCircled: z.array(crmMoneyTotalSchema).max(MAX_TOTALS),
+    committed: z.array(crmMoneyTotalSchema).max(MAX_TOTALS),
+    /** People, not currencies: each person counts once, at their highest level (committed, soft-circled, indicated, then undecided). undecided: open investors with no commitment and no stated amount. */
     counts: z.object({ indicated: count, softCircled: count, committed: count, undecided: count }).strict(),
   })
   .strict();

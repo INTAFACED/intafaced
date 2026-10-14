@@ -149,6 +149,28 @@ describe('owned CRM workflow boundaries', () => {
     expect(crmWorkflowAuditSchema.safeParse(audit).success).toBe(true);
     expect(crmWorkflowAuditSchema.safeParse({ ...audit, kind: 'commitment_deleted' }).success).toBe(false);
   });
+  it('lets a total label any three-letter currency a visitor stated, and sums longer than one amount', () => {
+    const counts = { indicated: 1, softCircled: 0, committed: 0, undecided: 0 };
+    const raise = (indicated: unknown) => crmRaiseSchema.safeParse({ indicated, softCircled: [], committed: [], counts }).success;
+    for (const currency of ['XCG', 'HRK', 'CUC', 'SLL', 'ZWL', 'XDR', 'XSU', 'BTC', 'ZZZ'])
+      expect(raise([{ currency, amount: '5' }]), currency).toBe(true);
+    for (const currency of ['eur', 'EU', 'EURO', '', 'E1R']) expect(raise([{ currency, amount: '5' }]), currency).toBe(false);
+    // Two 60-digit amounts sum to 61 digits; a total of many amounts may be much longer than one.
+    expect(raise([{ currency: 'EUR', amount: '1'.repeat(61) }])).toBe(true);
+    expect(raise([{ currency: 'EUR', amount: '1'.repeat(120) }])).toBe(true);
+    expect(raise([{ currency: 'EUR', amount: '1'.repeat(121) }])).toBe(false);
+    expect(raise([{ currency: 'EUR', amount: '1e6' }])).toBe(false);
+    // More than 60 distinct currencies, up to every possible three-letter code.
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        currency: String.fromCharCode(65 + (i % 26), 65 + (Math.floor(i / 26) % 26), 65 + Math.floor(i / 676)),
+        amount: '1',
+      }));
+    expect(raise(many(61))).toBe(true);
+    expect(raise(many(600))).toBe(true);
+    expect(raise(many(17576))).toBe(true);
+    expect(raise([...many(17576), { currency: 'AAA', amount: '1' }])).toBe(false);
+  });
   it('totals the raise per currency as exact decimal strings, with people counted separately', () => {
     const raise = {
       indicated: [
@@ -163,7 +185,6 @@ describe('owned CRM workflow boundaries', () => {
     expect(crmRaiseSchema.safeParse({ ...raise, indicated: [{ currency: 'EUR', amount: 1000000 }] }).success).toBe(false);
     expect(crmRaiseSchema.safeParse({ ...raise, indicated: [{ currency: 'EUR', amount: '-1' }] }).success).toBe(false);
     expect(crmRaiseSchema.safeParse({ ...raise, indicated: [{ currency: 'EUR', amount: '1e6' }] }).success).toBe(false);
-    expect(crmRaiseSchema.safeParse({ ...raise, indicated: [{ currency: 'ZZZ', amount: '1' }] }).success).toBe(false);
     expect(crmRaiseSchema.safeParse({ ...raise, converted: { currency: 'EUR', amount: '1' } }).success).toBe(false);
     const metrics = {
       observedAt: NOW,

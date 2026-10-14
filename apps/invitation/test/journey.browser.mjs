@@ -12,7 +12,7 @@ import { dirname, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { AMOUNT_ERROR, amountAmbiguity, parseAmount, spellAmount, storedAmount } from '../src/lib/amount.ts';
+import { AMOUNT_ERROR, AMOUNT_TOO_LARGE, amountAmbiguity, amountError, parseAmount, spellAmount, storedAmount } from '../src/lib/amount.ts';
 import { applyPlaywrightBrowsersEnv } from '../../../tooling/uiproof/playwright-browsers.mjs';
 
 const front = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -83,6 +83,13 @@ for (const typed of [
 ])
   assert.deepEqual(parseAmount(typed), { kind: 'invalid', plain: '' }, `invalid amount ${JSON.stringify(typed)}`);
 assert.equal(parseAmount('').kind, 'empty');
+// The CRM records at most 15 whole digits: 15 is accepted, 16 is refused here with its own message, never at capture.
+assert.deepEqual(parseAmount('999,999,999,999,999.5'), { kind: 'valid', plain: '999999999999999.5' });
+assert.deepEqual(parseAmount('1000000000000000'), { kind: 'invalid', plain: '', tooLarge: true });
+assert.deepEqual(parseAmount('1,000,000,000,000,000'), { kind: 'invalid', plain: '', tooLarge: true });
+assert.equal(amountError('1000000000000000'), AMOUNT_TOO_LARGE);
+assert.equal(amountError('1e5'), AMOUNT_ERROR);
+assert.equal(amountError('150000'), '');
 // Dots as thousands ("150.000" is 150,000 in Indonesian and 150 as a decimal) are ambiguous: asked about, never guessed.
 for (const typed of ['150.000', '1.500.000', '150.000,50', '2.000', '1.000,50', ' 150.000 ', '999.999', '1.500.000.000'])
   assert.deepEqual(parseAmount(typed), { kind: 'ambiguous', plain: '' }, `ambiguous amount ${JSON.stringify(typed)}`);

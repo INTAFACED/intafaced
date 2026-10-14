@@ -184,7 +184,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder CRM workflows on
             investorType: 'individual',
             participation: 'direct',
             decisionRole: 'decision_maker',
-            indicativeContribution: { status: 'stated', amount: '9007199254740993.000000000000000001', currency: 'USD' },
+            indicativeContribution: { status: 'stated', amount: '999999999999999.000000000000000001', currency: 'USD' },
             timing: 'later',
           },
         },
@@ -248,7 +248,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder CRM workflows on
     const originalA = exported.items.find((r) => r.submission.submissionId === a.submissionId)!;
     expect(originalA.submission.contactId).toBe(aContact);
     expect(originalA.submission.questionnaires[0]).toMatchObject({
-      answers: { indicativeContribution: { status: 'stated', amount: '9007199254740993.000000000000000001', currency: 'USD' } },
+      answers: { indicativeContribution: { status: 'stated', amount: '999999999999999.000000000000000001', currency: 'USD' } },
     });
     expect(
       (await crm.resume({ submissionId: a.submissionId, continuationToken: aInput.continuationToken }, 'merge-a')).questionnaires,

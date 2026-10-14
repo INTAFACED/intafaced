@@ -389,11 +389,11 @@ export class OutreachCrm {
    */
   private replyColumns(tx: Sql) {
     return tx`LEAST(
-        (SELECT min(m.created_at) FROM ops.crm_outbox m WHERE m.opportunity_id=b.id AND m.actor_user_id IS NOT NULL),
+        (SELECT min(m.created_at) FROM ops.crm_outbox m WHERE m.opportunity_id=b.id AND m.actor_user_id IS NOT NULL AND m.status<>'failed'),
         (SELECT min(i.occurred_at) FROM ops.crm_interactions i WHERE i.opportunity_id=b.id AND i.kind='reply_sent')
       ) AS first_reply_at,
       GREATEST(
-        (SELECT max(m.created_at) FROM ops.crm_outbox m WHERE m.opportunity_id=b.id AND m.actor_user_id IS NOT NULL),
+        (SELECT max(m.created_at) FROM ops.crm_outbox m WHERE m.opportunity_id=b.id AND m.actor_user_id IS NOT NULL AND m.status<>'failed'),
         (SELECT max(i.occurred_at) FROM ops.crm_interactions i WHERE i.opportunity_id=b.id),
         (SELECT max((a.record->>'occurredAt')::timestamptz) FROM ops.crm_activities a WHERE a.opportunity_id=b.id AND a.record->>'kind'='stage_changed')
       ) AS last_touch_at`;
@@ -444,12 +444,14 @@ export class OutreachCrm {
             AND (strpos(lower(ac.record->>'name'),lower(${input.query ?? ''}))>0 OR strpos(lower(ac.record->>'email'),lower(${input.query ?? ''}))>0)))`;
       // The waiting queue: open, and either nobody has replied yet or the next action is due now. Oldest waiting first, where
       // "waiting since" is the enquiry's creation until it is first replied to, and the next action's due time after that.
-      const waitingSince = tx`(CASE WHEN q.first_reply_at IS NULL THEN q.created_at ELSE (q.record->'nextAction'->>'dueAt')::timestamptz END)`;
+      // Truncated to the millisecond the cursor carries, so records saved with finer time (older ones) still page exactly.
+      const dueAt = tx`date_trunc('milliseconds',(q.record->'nextAction'->>'dueAt')::timestamptz)`;
+      const waitingSince = tx`(CASE WHEN q.first_reply_at IS NULL THEN date_trunc('milliseconds',q.created_at) ELSE ${dueAt} END)`;
       const rows = queue
         ? await tx`SELECT q.*,${waitingSince} AS waiting_since FROM (
             SELECT b.*,${this.replyColumns(tx)} FROM (${base}) b WHERE b.stage<>'closed'
           ) q
-          WHERE (q.first_reply_at IS NULL OR (q.record->'nextAction'->>'dueAt')::timestamptz<=${now}::timestamptz)
+          WHERE (q.first_reply_at IS NULL OR ${dueAt}<=${now}::timestamptz)
           AND (${cursor?.at ?? null}::timestamptz IS NULL OR (${waitingSince},q.id)>(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
           ORDER BY ${waitingSince},q.id LIMIT ${input.limit + 1}`
         : await tx`SELECT b.* FROM (${base}) b
@@ -662,6 +664,13 @@ export class OutreachCrm {
     return this.mutate(actorUserId, input, 'setCommitment', async (tx, old) => {
       if (old.revision !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
       if (old.audience !== 'investor') throw new OutreachError('ops.crm.commitment_investor_only');
+      // CONT:40: an investor who only introduces others is never given a contribution. "both" may still have one.
+      if (input.commitment !== null) {
+        const submissions = await tx`SELECT record FROM ops.crm_submissions WHERE id=${old.submissionId}`;
+        const investor = crmSubmissionSchema.parse(submissions[0]?.record).questionnaires.find((q) => q.audience === 'investor');
+        if (investor?.audience === 'investor' && investor.answers.participation === 'introduction')
+          throw new OutreachError('ops.crm.commitment_introduction_only');
+      }
       // A commitment on a closed enquiry would claim money for a record that has left the pipeline. Clearing one is still allowed.
       if (input.commitment !== null && old.stage === 'closed') throw new OutreachError('ops.crm.opportunity_closed');
       const at = this.now().toISOString();
@@ -956,7 +965,7 @@ export class OutreachCrm {
     const input = normalizeIds(workflow.crmMetricsInputSchema.parse(raw));
     return this.write(async (tx) => {
       const observedAt = this.now().toISOString();
-      const filtered = tx`SELECT o.id,o.submission_id,o.contact_id,o.audience,o.stage,o.record AS opp,s.record AS submission,s.attribution FROM ops.crm_opportunities o JOIN ops.crm_submissions s ON s.id=o.submission_id
+      const filtered = tx`SELECT o.id,o.created_at,o.submission_id,o.contact_id,o.audience,o.stage,o.record AS opp,s.record AS submission,s.attribution FROM ops.crm_opportunities o JOIN ops.crm_submissions s ON s.id=o.submission_id
         WHERE (${input.audience ?? null}::text IS NULL OR o.audience=${input.audience ?? null}) AND (${input.stage ?? null}::text IS NULL OR o.stage=${input.stage ?? null}) AND (${input.ownerUserId ?? null}::uuid IS NULL OR o.owner_user_id=${input.ownerUserId ?? null}::uuid)
         AND (${input.campaignId ?? null}::uuid IS NULL OR (s.attribution->'campaign'->>'id')::uuid=${input.campaignId ?? null}::uuid) AND (${input.sourceKey ?? null}::text IS NULL OR s.attribution->>'sourceHint'=${input.sourceKey ?? null})
         AND (${input.capturedFrom ?? null}::timestamptz IS NULL OR (s.record->>'capturedAt')::timestamptz>=${input.capturedFrom ?? null}::timestamptz) AND (${input.capturedBefore ?? null}::timestamptz IS NULL OR (s.record->>'capturedAt')::timestamptz<${input.capturedBefore ?? null}::timestamptz)`;
@@ -972,22 +981,26 @@ export class OutreachCrm {
       const sources =
         await tx`WITH filtered AS (${filtered}) SELECT attribution->>'sourceHint' AS source_key,attribution->'campaign'->>'id' AS campaign_id,count(*)::int AS count FROM filtered GROUP BY source_key,campaign_id ORDER BY count DESC,source_key NULLS LAST,campaign_id NULLS LAST LIMIT 201`;
       // The raise. Exact decimal addition in PostgreSQL numeric (never a float), one total per currency, nothing converted.
-      // A commitment is the founder's own record and counts while the enquiry is open or was closed as proceeded; the enquirer's
-      // stated amount counts only for open investors who have no commitment, so nobody is counted at two levels.
+      // Counted per person (the canonical contact), not per submission, so a duplicate enquiry cannot double an amount. Each
+      // person is counted once, at their highest level (committed, soft-circled, indicated, undecided), and within that level by
+      // their most recent qualifying investor opportunity. A commitment is the founder's own record and counts while the enquiry
+      // is open or was closed as proceeded; a stated amount counts only for open enquiries.
       const money = await tx`WITH filtered AS (${filtered}),
-        levels AS (
-          SELECT COALESCE(opp->'commitment'->>'tier','indicated') AS level,
-            CASE WHEN opp->'commitment'->>'tier' IS NULL THEN opp->'indicativeContribution'->>'currency' ELSE opp->'commitment'->>'currency' END AS currency,
-            CASE WHEN opp->'commitment'->>'tier' IS NULL THEN opp->'indicativeContribution'->>'amount' ELSE opp->'commitment'->>'amount' END AS amount
+        candidates AS (
+          SELECT contact_id,id,created_at,
+            CASE WHEN opp->'commitment'->>'tier' IS NOT NULL THEN opp->'commitment'->>'tier'
+              WHEN opp->'indicativeContribution'->>'status'='stated' THEN 'indicated' ELSE 'undecided' END AS level,
+            CASE WHEN opp->'commitment'->>'tier' IS NOT NULL THEN opp->'commitment'->>'currency' ELSE opp->'indicativeContribution'->>'currency' END AS currency,
+            CASE WHEN opp->'commitment'->>'tier' IS NOT NULL THEN opp->'commitment'->>'amount' ELSE opp->'indicativeContribution'->>'amount' END AS amount
           FROM filtered
           WHERE audience='investor'
-          AND (CASE WHEN opp->'commitment'->>'tier' IS NULL THEN stage<>'closed' ELSE stage<>'closed' OR opp->>'closedDisposition'='proceeded' END)
-          AND (opp->'commitment'->>'tier' IS NOT NULL OR opp->'indicativeContribution'->>'status'='stated')
+          AND (stage<>'closed' OR (opp->'commitment'->>'tier' IS NOT NULL AND opp->>'closedDisposition'='proceeded'))
+        ),
+        chosen AS (
+          SELECT DISTINCT ON (contact_id) * FROM candidates
+          ORDER BY contact_id,CASE level WHEN 'committed' THEN 1 WHEN 'soft_circled' THEN 2 WHEN 'indicated' THEN 3 ELSE 4 END,created_at DESC,id DESC
         )
-        SELECT level,currency,trim_scale(sum(amount::numeric))::text AS amount,count(*)::int AS count FROM levels GROUP BY level,currency ORDER BY level,currency`;
-      const undecided =
-        await tx`WITH filtered AS (${filtered}) SELECT count(*)::int AS count FROM filtered WHERE audience='investor' AND stage<>'closed'
-        AND opp->'commitment'->>'tier' IS NULL AND opp->'indicativeContribution'->>'status'<>'stated'`;
+        SELECT level,currency,trim_scale(sum(amount::numeric))::text AS amount,count(*)::int AS count FROM chosen GROUP BY level,currency ORDER BY level,currency`;
       const totalsOf = (level: string) => money.filter((r) => r.level === level).map((r) => ({ currency: r.currency, amount: r.amount }));
       const countOf = (level: string) => money.filter((r) => r.level === level).reduce((sum, r) => sum + Number(r.count), 0);
       const row = totals[0]!;
@@ -1016,7 +1029,7 @@ export class OutreachCrm {
             indicated: countOf('indicated'),
             softCircled: countOf('soft_circled'),
             committed: countOf('committed'),
-            undecided: undecided[0]?.count ?? 0,
+            undecided: countOf('undecided'),
           },
         },
       });
@@ -1343,7 +1356,14 @@ export class OutreachCrm {
   }
 
   private async saveOpportunity(tx: Sql, raw: unknown): Promise<CrmOpportunity> {
-    const row = crmOpportunitySchema.parse(raw);
+    const parsed = crmOpportunitySchema.parse(raw);
+    // One instant has one spelling, to the millisecond: the waiting queue's cursor compares it, and the contract accepts finer time.
+    const row = parsed.nextAction
+      ? crmOpportunitySchema.parse({
+          ...parsed,
+          nextAction: { ...parsed.nextAction, dueAt: new Date(parsed.nextAction.dueAt).toISOString() },
+        })
+      : parsed;
     await tx`UPDATE ops.crm_opportunities SET contact_id=${row.contactId},stage=${row.stage},owner_user_id=${row.ownerUserId},revision=${row.revision},record=${tx.json(row)} WHERE id=${row.id}`;
     return row;
   }

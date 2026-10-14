@@ -102,7 +102,9 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
   }
 
   function saveOpportunity(next) {
-    const parsed = c.crmOpportunitySchema.parse({ ...next, updatedAt: iso() });
+    // One instant has one spelling, to the millisecond, like svc-ops: the waiting queue's cursor compares it.
+    const nextAction = next.nextAction ? { ...next.nextAction, dueAt: new Date(next.nextAction.dueAt).toISOString() } : next.nextAction;
+    const parsed = c.crmOpportunitySchema.parse({ ...next, nextAction, updatedAt: iso() });
     opportunities.set(parsed.id, parsed);
     return parsed;
   }
@@ -118,7 +120,10 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
   // stage change (notes and owner changes are not). First reply is the first queued message or reply_sent interaction.
   const timeOf = (value) => Date.parse(value);
   function replyState(opportunity) {
-    const sent = messages.filter((row) => row.opportunityId === opportunity.id).map((row) => timeOf(row.createdAt));
+    // A message whose delivery failed reached nobody, so it is neither a reply nor a touch.
+    const sent = messages
+      .filter((row) => row.opportunityId === opportunity.id && row.status !== 'failed')
+      .map((row) => timeOf(row.createdAt));
     const recorded = interactions.filter((row) => row.opportunityId === opportunity.id);
     const staged = (activities.get(opportunity.id) ?? [])
       .filter((row) => row.kind === 'stage_changed')
@@ -156,19 +161,35 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
       levels[level].set(currency, (levels[level].get(currency) ?? 0n) + scaled(amount));
       counts[level] += 1;
     };
+    // Per person (the canonical contact), like svc-ops: each person once, at their highest level, and within it by their most
+    // recent qualifying investor opportunity. A commitment counts while open or closed as proceeded; a stated amount while open.
+    const rank = { committed: 1, soft_circled: 2, indicated: 3, undecided: 4 };
+    const best = new Map();
     for (const opportunity of rows) {
       if (opportunity.audience !== 'investor') continue;
       const open = opportunity.stage !== 'closed';
+      let candidate = null;
       if (opportunity.commitment) {
-        // A commitment counts while the enquiry is open, or when it was closed as proceeded.
         if (open || opportunity.closedDisposition === 'proceeded')
-          add(opportunity.commitment.tier, opportunity.commitment.currency, opportunity.commitment.amount);
+          candidate = { level: opportunity.commitment.tier, ...opportunity.commitment };
       } else if (open) {
-        // The enquirer's stated amount counts only for open investors without a commitment, so nobody is counted twice.
         const stated = opportunity.indicativeContribution;
-        if (stated.status === 'stated') add('indicated', stated.currency, stated.amount);
-        else counts.undecided += 1;
+        candidate = stated.status === 'stated' ? { level: 'indicated', ...stated } : { level: 'undecided' };
       }
+      if (!candidate) continue;
+      candidate = { ...candidate, createdAt: Date.parse(opportunity.createdAt), id: opportunity.id };
+      const prior = best.get(opportunity.contactId);
+      if (
+        !prior ||
+        rank[candidate.level] < rank[prior.level] ||
+        (rank[candidate.level] === rank[prior.level] &&
+          (candidate.createdAt > prior.createdAt || (candidate.createdAt === prior.createdAt && candidate.id > prior.id)))
+      )
+        best.set(opportunity.contactId, candidate);
+    }
+    for (const candidate of best.values()) {
+      if (candidate.level === 'undecided') counts.undecided += 1;
+      else add(candidate.level, candidate.currency, candidate.amount);
     }
     const totals = (level) =>
       [...levels[level]]
@@ -450,6 +471,28 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
     }
   }
 
+  // A list cursor is strict about its own shape, like svc-ops: exactly these keys, a real time and a real id (and, for the
+  // waiting queue, the queue name). Anything else, including a cursor from the other mode, is refused.
+  function decodeCursor(raw, keys) {
+    try {
+      const value = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+      const exact =
+        value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join() === [...keys].sort().join();
+      if (
+        !exact ||
+        typeof value.at !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(value.at) ||
+        Number.isNaN(Date.parse(value.at)) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.id) ||
+        (keys.includes('queue') && value.queue !== 'waiting')
+      )
+        throw new Error('shape');
+      return value;
+    } catch {
+      throw new FixtureError('ops.crm.cursor_invalid', 409);
+    }
+  }
+
   // Founder procedures, keyed by the edge path after /api/<module>/trpc/.
   const founderApi = {
     'auth.login': () => ({
@@ -509,15 +552,7 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
           .map((item) => row(item))
           .filter((item) => item.stage !== 'closed' && (item.firstReplyAt === null || Date.parse(item.nextAction.dueAt) <= clock()))
           .sort((a, b) => Date.parse(a.waitingSince) - Date.parse(b.waitingSince) || (a.id < b.id ? -1 : Number(a.id > b.id)));
-        let cursor = null;
-        if (input.cursor) {
-          try {
-            cursor = JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8'));
-            if (cursor.queue !== 'waiting' || typeof cursor.at !== 'string' || typeof cursor.id !== 'string') throw new Error('shape');
-          } catch {
-            throw new FixtureError('ops.crm.cursor_invalid', 409);
-          }
-        }
+        const cursor = input.cursor ? decodeCursor(input.cursor, ['at', 'id', 'queue']) : null;
         const after = cursor
           ? waiting.filter(
               (item) =>
@@ -531,9 +566,18 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
           nextCursor = Buffer.from(JSON.stringify({ at: last.waitingSince, id: last.id, queue: 'waiting' })).toString('base64url');
         rows = page;
       } else {
-        // A cursor from the waiting queue is not a default-listing cursor.
-        if (input.cursor) throw new FixtureError('ops.crm.cursor_invalid', 409);
-        rows = rows.slice(0, input.limit).map((item) => row(item));
+        // The default listing pages by (createdAt, id) as svc-ops does; a cursor from the waiting queue is not one of its cursors.
+        const cursor = input.cursor ? decodeCursor(input.cursor, ['at', 'id']) : null;
+        let after = rows;
+        if (cursor) {
+          const at = rows.findIndex((item) => item.id === cursor.id);
+          after = at >= 0 ? rows.slice(at + 1) : rows.filter((item) => Date.parse(item.createdAt) < Date.parse(cursor.at));
+        }
+        const page = after.slice(0, input.limit);
+        const last = page.at(-1);
+        if (after.length > input.limit && last)
+          nextCursor = Buffer.from(JSON.stringify({ at: last.createdAt, id: last.id })).toString('base64url');
+        rows = page.map((item) => row(item));
       }
       const items = rows;
       const aliasMatches = items.map((item) => aliasMatch(item, input.query)).filter(Boolean);
@@ -790,6 +834,11 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
         if (!current) throw new FixtureError('ops.crm.not_found', 404);
         if (current.revision !== input.expectedRevision) throw new FixtureError('ops.crm.revision_conflict', 409);
         if (current.audience !== 'investor') throw new FixtureError('ops.crm.commitment_investor_only', 409);
+        // CONT:40: an investor who only introduces others is never given a contribution. "both" may still have one.
+        if (input.commitment !== null) {
+          const answered = submissions.get(current.submissionId)?.record.questionnaires.find((q) => q.audience === 'investor');
+          if (answered?.answers.participation === 'introduction') throw new FixtureError('ops.crm.commitment_introduction_only', 409);
+        }
         if (input.commitment !== null && current.stage === 'closed') throw new FixtureError('ops.crm.opportunity_closed', 409);
         const commitment =
           input.commitment === null ? null : c.crmCommitmentSchema.parse({ ...input.commitment, recordedAt: iso(), recordedBy: NITRO });
@@ -1090,7 +1139,7 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
     },
   };
 
-  return { publicApi, founderApi, contacts, opportunities, submissions };
+  return { publicApi, founderApi, contacts, opportunities, submissions, messages };
 }
 
 /**
@@ -1174,24 +1223,36 @@ export function seedTestEnquiries(fixture) {
   // Test Investor A: soft-circled EUR 250,000 (confirmed by a founder after a call), and replied to.
   commit(investorA, 'soft_circled', '250000', 'EUR', 'Test data: sample call note');
   replied(investorA, 2 * DAY);
-  const [investorB] = enquire(
-    { name: 'Test Investor B (introducer)', email: 'test.introducer.b@example.invalid', interests: ['investor'] },
-    [
-      {
-        audience: 'investor',
-        answers: {
-          investorType: 'other',
-          participation: 'introduction',
-          decisionRole: 'introducer',
-          indicativeContribution: { status: 'undecided' },
-          timing: 'undecided',
-        },
+  const [investorB] = enquire({ name: 'Test Investor B', email: 'test.investor.b@example.invalid', interests: ['investor'] }, [
+    {
+      audience: 'investor',
+      answers: {
+        investorType: 'family_office',
+        participation: 'direct',
+        decisionRole: 'decision_maker',
+        indicativeContribution: { status: 'undecided' },
+        timing: 'within_three_months',
+        message: 'Test data. Direct investor.',
       },
-    ],
-  );
-  // Test Investor B: committed EUR 100,000 (documents signed), and replied to.
+    },
+  ]);
+  // Test Investor B: committed EUR 100,000 (documents signed), and replied to. A direct investor: an introduction-only
+  // investor is never given a contribution (CONT:40).
   commit(investorB, 'committed', '100000', 'EUR', 'Test data: sample signed agreement');
   replied(investorB, 3 * DAY);
+  // Test Investor D only introduces others, so no commitment can be recorded against them.
+  enquire({ name: 'Test Investor D (introducer)', email: 'test.introducer.d@example.invalid', interests: ['investor'] }, [
+    {
+      audience: 'investor',
+      answers: {
+        investorType: 'other',
+        participation: 'introduction',
+        decisionRole: 'introducer',
+        indicativeContribution: { status: 'undecided' },
+        timing: 'undecided',
+      },
+    },
+  ]);
   // Test Investor C: only an indicated amount (self-reported), nobody has replied yet.
   enquire({ name: 'Test Investor C (indicated only)', email: 'test.investor.c@example.invalid', interests: ['investor'] }, [
     {

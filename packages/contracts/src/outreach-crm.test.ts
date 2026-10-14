@@ -13,6 +13,7 @@ import {
   crmSetCommitmentInputSchema,
   ISO_4217_CURRENCIES,
   crmListInputSchema,
+  outreachIndicativeAmountSchema,
   crmStageChangeInputSchema,
   crmStageFitsAudience,
   crmSubmissionSchema,
@@ -513,8 +514,35 @@ describe('outreach and CRM boundary contracts', () => {
       expect(crmCommitmentSchema.safeParse({ ...commitment, amount: 250000 }).success).toBe(false);
     });
 
+    it('requires a reference to the documents for committed, and lets soft-circled go without one', () => {
+      const committed = { tier: 'committed', amount: '100000', currency: 'EUR' };
+      expect(crmCommitmentSchema.safeParse({ ...commitment, ...committed }).success).toBe(false);
+      expect(crmCommitmentSchema.safeParse({ ...commitment, ...committed, evidenceRef: 'signed agreement' }).success).toBe(true);
+      expect(crmCommitmentSchema.safeParse({ ...commitment, ...committed, evidenceRef: '   ' }).success).toBe(false);
+      const { evidenceRef: _unused, ...soft } = { ...commitment, evidenceRef: undefined };
+      expect(crmCommitmentSchema.safeParse(soft).success).toBe(true);
+      const input = { requestId: REQUEST_ID, opportunityId: OPPORTUNITY_ID, expectedRevision: 1, reason: 'Documents signed' };
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, commitment: committed }).success).toBe(false);
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, commitment: { ...committed, evidenceRef: 'signed' } }).success).toBe(true);
+      expect(
+        crmSetCommitmentInputSchema.safeParse({ ...input, commitment: { tier: 'soft_circled', amount: '5', currency: 'EUR' } }).success,
+      ).toBe(true);
+    });
+
+    it('caps an indicative amount at 15 integer digits and 18 decimals', () => {
+      const stated = (amount: string) => outreachIndicativeAmountSchema.safeParse({ status: 'stated', amount, currency: 'EUR' }).success;
+      expect(stated('999999999999999')).toBe(true);
+      expect(stated('999999999999999.123456789012345678')).toBe(true);
+      expect(stated('1000000000000000')).toBe(false);
+      expect(stated('1'.repeat(40))).toBe(false);
+      expect(stated('1.1234567890123456789')).toBe(false);
+      // Any three-letter code is still accepted at intake; the public picker offers more than ISO 4217.
+      expect(outreachIndicativeAmountSchema.safeParse({ status: 'stated', amount: '5', currency: 'XCG' }).success).toBe(true);
+      expect(outreachIndicativeAmountSchema.safeParse({ status: 'stated', amount: '5', currency: 'BTC' }).success).toBe(true);
+    });
+
     it('accepts only real ISO 4217 currencies', () => {
-      for (const currency of ['EUR', 'USD', 'GBP', 'IDR', 'JPY', 'CHF', 'SGD']) {
+      for (const currency of ['EUR', 'USD', 'GBP', 'IDR', 'JPY', 'CHF', 'SGD', 'XCG', 'ANG']) {
         expect(crmCommitmentSchema.safeParse({ ...commitment, currency }).success, currency).toBe(true);
       }
       for (const currency of ['ZZZ', 'XXX', 'XAU', 'BTC', 'eur', 'EU', 'EURO', '', 'ABC']) {

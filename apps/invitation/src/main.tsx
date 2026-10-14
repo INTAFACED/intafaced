@@ -13,7 +13,7 @@ import { CheckCard, ChoiceCards } from './components/choice-cards';
 import { SearchPicker, SearchPickerMulti, type PickerGroup, type PickerOption } from './components/search-picker';
 import { BlurFade } from './components/blur-fade';
 import { LivingBackdrop } from './components/living-backdrop';
-import { AMOUNT_ERROR, amountAmbiguity, groupAmount, parseAmount, storedAmount } from './lib/amount';
+import { amountAmbiguity, amountError, groupAmount, parseAmount, storedAmount } from './lib/amount';
 import heroPhone from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/outreach/graphite-fins-phone.webp';
 import logo from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/logo.svg';
 import './outreach.css';
@@ -121,7 +121,7 @@ function AmountField({
   }, [value]);
   // A remounted field (Back, forward, a returning visitor) must carry the message too, not only a field that was typed in.
   useEffect(() => {
-    input.current?.setCustomValidity(parseAmount(display).kind === 'invalid' ? AMOUNT_ERROR : '');
+    input.current?.setCustomValidity(amountError(display));
   }, [display]);
   // The question waits until typing has paused (or the field is left, or Continue is pressed), so "1.500" on its way to
   // "1.500.000" is never asked about, or announced, half way.
@@ -198,7 +198,7 @@ function AmountField({
         setSettled(false);
         window.clearTimeout(pause.current);
         pause.current = window.setTimeout(() => setSettled(true), 700);
-        event.target.setCustomValidity(parseAmount(typed).kind === 'invalid' ? AMOUNT_ERROR : '');
+        event.target.setCustomValidity(amountError(typed));
         onValue(storedAmount(typed));
       }}
       onBlur={(event: React.FocusEvent<HTMLInputElement>) => {
