@@ -1,10 +1,11 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import { PersonalPay } from './PersonalPay';
 import { P2P } from './P2P';
 import { BusinessPay } from './BusinessPay';
 import { Checkout } from './Checkout';
 import type { PayBusinessAuthority } from './pay-api';
-import { payCopy } from './copy';
+import { payCopy, PayCopy } from './copy';
+import { PayNotice } from './components';
+import { Page } from '../../shared/ui';
 import './pay.css';
 
 const BusinessContext = createContext<PayBusinessAuthority | null>(null);
@@ -40,8 +41,35 @@ function PayRooms({ path }: { path: string }) {
   )
     return <P2P key={path} path={path} />;
   if (current === '/pay' && authority) return <BusinessPay path="/pay/merchant" authority={authority} />;
-  if (['/pay', '/pay/send', '/pay/receive', '/pay/request', '/pay/bills', '/pay/global'].includes(current))
-    return <PersonalPay key={path} path={path} />;
+  if (current === '/pay/request' || current === '/pay/bills' || current === '/pay/global')
+    return <UnconnectedPersonalRoom current={current} />;
   return <BusinessPay key={path} path={path} authority={authority} />;
 }
 export type { PayBusinessAuthority } from './pay-api';
+
+/** Request, Bill pay and Send globally have no contract yet. The redesigned Pay screen (`screens/pay`) owns Send and Receive. */
+function UnconnectedPersonalRoom({ current }: { current: '/pay/request' | '/pay/bills' | '/pay/global' }) {
+  const title =
+    current === '/pay/request'
+      ? payCopy.t('requestAPayment')
+      : current === '/pay/bills'
+        ? payCopy.t('billPay')
+        : payCopy.t('sendToABankAbroad');
+  return (
+    <Page eyebrow={payCopy.t('personalAccount')} title={title}>
+      {current === '/pay/request' ? (
+        <PayNotice title={payCopy.t('paymentRequestsAreNotConnected')}>
+          <PayCopy k="thereIsNoPersonalRequestContractOr" />
+        </PayNotice>
+      ) : current === '/pay/bills' ? (
+        <PayNotice title={payCopy.t('billPaymentRailIsNotConnected')}>
+          <PayCopy k="billerDiscoveryInvoiceValidationAndABill" />
+        </PayNotice>
+      ) : (
+        <PayNotice title={payCopy.t('internationalBankSendingIsNotConnected')}>
+          <PayCopy k="theCorridorRecipientBankValidationExchangeQuote" />
+        </PayNotice>
+      )}
+    </Page>
+  );
+}

@@ -15,9 +15,10 @@
  *  - business approve of a held proposal (finishSettle, :896 on a lost acknowledgement)
  *  - card cashback settle (card-service.ts:1100)
  *
- * Receipts over HTTP carry no entries (`post` ack and `txByKey`), but
- * `postedPayrollMatches` reads them, so the business service re-reads the
- * transaction by id first (`withEntries`). The last describe covers that.
+ * The shared client's receipts carry the booked entries (a `post` acknowledgement,
+ * and `getTxByKey`, which chains to `/trpc/txById`), so `postedPayrollMatches`
+ * compares real legs on every path. The last describe covers the held and legacy
+ * proposals that depend on that.
  */
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -185,7 +186,7 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('an approval whose settle acknowledgement was lost recovers the booked transaction by key (finishSettle, :896)', async () => {
+    it('an approval whose settle acknowledgement was lost recovers the booked transaction by key when every retry is lost (finishSettle, :896)', async () => {
       // The hold is posted in-process here; the held proposal over HTTP is its own describe below.
       const direct = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
         nativeAssetId: 'IFC',
@@ -214,13 +215,14 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
       expect(proposed.kind).toBe('pending');
       expect(await availableOf(MAKER, 'USDT')).toBe('900');
 
-      // The settle commits in svc-ledger, then its acknowledgement is lost on the wire.
+      // The settle commits in svc-ledger, then EVERY acknowledgement of it is lost on the wire (the shared client retries a
+      // 502, so one lost ack no longer reaches the key lookup; losing all three attempts does).
       const door = globalThis.fetch;
-      let dropped = false;
+      let dropped = 0;
       globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
         const response = await door(input, init);
-        if (!dropped && String(input).endsWith('/trpc/post') && String(init?.body).includes('bank.business.settle:')) {
-          dropped = true;
+        if (String(input).endsWith('/trpc/post') && String(init?.body).includes('bank.business.settle:')) {
+          dropped += 1;
           return new Response('bad gateway', { status: 502 });
         }
         return response;
@@ -228,9 +230,63 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
 
       const settled = await bank.business.approve({ approvalId: clientId, checkerUserId: CHECKER });
 
-      expect(dropped).toBe(true);
+      expect(dropped).toBe(3);
       expect(settled.ledgerTxId).toBeTruthy();
       expect(asked('/trpc/txByKey').map((c) => c.body.idempotencyKey)).toContain(`bank.business.settle:${clientId}`);
+      expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('100');
+      expect(await availableOf(MAKER, 'USDT')).toBe('900');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('an approval whose settle acknowledgement was lost is healed by the client retry, with no second booking and no key lookup', async () => {
+      // The hold is posted in-process here; the held proposal over HTTP is its own describe below.
+      const direct = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+        nativeAssetId: 'IFC',
+        recipients: memoryRecipientState(),
+      });
+      const bank = bankOverHttp();
+      const account = await direct.business.createAccount({
+        name: 'Ops Co',
+        assetId: 'USDT',
+        spendThreshold: amt('50'),
+        creatorUserId: MAKER,
+      });
+      await direct.business.addMember({ accountId: account.id, actorUserId: MAKER, userId: CHECKER, role: 'checker' });
+      const primary = await direct.spaces.ensurePrimary(MAKER, 'USDT');
+      const pot = await direct.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Vendor' });
+      await fund(MAKER, 'USDT', '1000');
+      const clientId = randomUUID();
+      const proposed = await direct.business.proposeTransfer({
+        clientId,
+        accountId: account.id,
+        makerUserId: MAKER,
+        fromSpaceId: primary.id,
+        toSpaceId: pot.id,
+        amount: amt('100'),
+      });
+      expect(proposed.kind).toBe('pending');
+      expect(await availableOf(MAKER, 'USDT')).toBe('900');
+
+      // The settle commits in svc-ledger, then the first acknowledgement is lost on the wire. The shared client retries the
+      // same bytes and the ledger answers the original transaction.
+      const door = globalThis.fetch;
+      let dropped = 0;
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const response = await door(input, init);
+        if (dropped === 0 && String(input).endsWith('/trpc/post') && String(init?.body).includes('bank.business.settle:')) {
+          dropped += 1;
+          return new Response('bad gateway', { status: 502 });
+        }
+        return response;
+      }) as typeof fetch;
+
+      const settled = await bank.business.approve({ approvalId: clientId, checkerUserId: CHECKER });
+
+      expect(dropped).toBe(1);
+      expect(settled.ledgerTxId).toBeTruthy();
+      expect(asked('/trpc/post').filter((c) => String(c.body.idempotencyKey).startsWith('bank.business.settle:'))).toHaveLength(2);
+      expect(asked('/trpc/txByKey').map((c) => c.body.idempotencyKey)).not.toContain(`bank.business.settle:${clientId}`);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.settle:${clientId}`)).toHaveLength(1);
       expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('100');
       expect(await availableOf(MAKER, 'USDT')).toBe('900');
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -290,7 +346,7 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
     });
   });
 
-  describe('held and legacy business proposals over HTTP (entry-less receipts)', () => {
+  describe('held and legacy business proposals over HTTP', () => {
     async function fixture() {
       const bank = bankOverHttp();
       const account = await bank.business.createAccount({
@@ -330,7 +386,8 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
       expect(settled.ledgerTxId).toBeTruthy();
       expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('100');
       expect(await availableOf(MAKER, 'USDT')).toBe('900');
-      expect(asked('/trpc/txById').length).toBeGreaterThan(0);
+      // The hold's post receipt carries its entries, so the match runs on them and nothing is read back by id.
+      expect(asked('/trpc/txById')).toHaveLength(0);
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
@@ -383,14 +440,25 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
       expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${small.clientId}:0`)).toHaveLength(1);
     });
 
-    it('a receipt the ledger cannot show is unavailable, never a conflict', async () => {
+    it('a receipt the ledger cannot show fails closed, never a conflict', async () => {
       const { bank, input } = await fixture();
+      // A hold booked before any approval row: the retry finds it by key, then reads its entries by id.
+      await ledger.post(
+        recipes.businessApprovalHold({ approvalId: input.clientId, from: userAvailable(MAKER, 'USDT'), amount: input.amount }),
+      );
       const door = globalThis.fetch;
       globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) =>
         String(url).endsWith('/trpc/txById')
           ? new Response(JSON.stringify({ found: false }), { status: 200 })
           : door(url, init)) as typeof fetch;
-      await expect(bank.business.proposeTransfer(input)).rejects.toMatchObject({ code: 'ledger.unavailable' });
+      // The shared client refuses a key hit whose transaction it cannot then show (an inconsistent ledger). It is thrown,
+      // so it is neither booked nor read as a different instruction.
+      const refusal = await bank.business.proposeTransfer(input).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(Error);
+      expect((refusal as Error).message).toMatch(/inconsistent/);
+      expect(refusal).not.toMatchObject({ code: 'bank.business_request_conflict' });
+      expect(await sql`SELECT id FROM bank.business_approvals WHERE id = ${input.clientId}`).toHaveLength(0);
+      expect(holds(input.clientId)).toHaveLength(1);
     });
   });
 });

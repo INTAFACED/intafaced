@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { registerInternalEmissions } from './internal-emissions.js';
+import { TokenError } from './token-service.js';
 
 /**
  * Cron mint boundary — kill-switch + auth + money wire.
@@ -87,6 +88,41 @@ describe('POST /internal/emissions/mint-next', () => {
     const res = await post(app, s2s('svc-token'));
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe('token.supply_exhausted');
+    await app.close();
+  });
+
+  it('429 + Retry-After when the epoch time gate refuses — not a 400, nothing minted', async () => {
+    const { app } = await build({
+      emissionsEnabled: true,
+      mintNextEpoch: vi.fn(async () => {
+        throw new TokenError('Epoch 1 cannot start yet: wait 2h more', 'token.epoch_too_early', 7_200_500);
+      }),
+    });
+    const res = await post(app, s2s('svc-token'));
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['retry-after']).toBe('7201');
+    expect(res.json()).toEqual({ error: 'Epoch 1 cannot start yet: wait 2h more', code: 'token.epoch_too_early', retryAfterSeconds: 7201 });
+    await app.close();
+  });
+
+  it('429 without a Retry-After header when the error carries no wait time', async () => {
+    const { app } = await build({
+      emissionsEnabled: true,
+      mintNextEpoch: vi.fn(async () => {
+        throw new TokenError('too early', 'token.epoch_too_early');
+      }),
+    });
+    const res = await post(app, s2s('svc-token'));
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['retry-after']).toBeUndefined();
+    await app.close();
+  });
+
+  it('kill-switch still wins over the time gate: 503, mint never called', async () => {
+    const { app, mintNextEpoch } = await build({ emissionsEnabled: false });
+    const res = await post(app, s2s('svc-token'));
+    expect(res.statusCode).toBe(503);
+    expect(mintNextEpoch).not.toHaveBeenCalled();
     await app.close();
   });
 });

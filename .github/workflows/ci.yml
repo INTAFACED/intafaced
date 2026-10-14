@@ -30,6 +30,16 @@ on:
       - '!NOTICE'
       - '!LICENSE'
       - INTAFACED_DEFINITIVE_BUILD.md
+      # Agent-rule files are markdown but they ARE the law agents load: a change must run the doctrine gates, whose
+      # agent-autoload scan pins them. Listed after the markdown exclusion so they win (the last match decides).
+      # tooling/scripts/merge-gate.mjs mirrors this list (AGENT_RULE_PATTERNS) and its test fails on drift.
+      - '**/AGENTS.md'
+      - '**/CLAUDE.md'
+      - '**/AGENT_PROTOCOL.md'
+      - '**/SKILL.md'
+      - 'tooling/agent-protocol/**'
+      - '.agents/**'
+      - '.cursor/rules/**'
   workflow_dispatch:
 
 # CONCURRENCY — main vs PR (law 2026-08-09, Denon+Nitro greenlit)

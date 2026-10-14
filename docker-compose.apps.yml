@@ -401,6 +401,9 @@ services:
       # BUYBACK_SYMBOL / BUYBACK_QUOTE_ASSET stay blank — refuse-closed, never invent a listing.
       EMISSIONS_ENABLED: ${EMISSIONS_ENABLED:-true}
       EMISSIONS_AUTO_TICK: ${EMISSIONS_AUTO_TICK:-false}
+      # Epoch length: owner-present 1 day (Nitro, 2026-10-14). Time gate between NEW epochs; not the reward.
+      EMISSIONS_EPOCH_MS: ${EMISSIONS_EPOCH_MS:-86400000}
+      # Auto-tick poll only; blank = poll min(epoch length, 60s).
       EMISSIONS_TICK_MS: ${EMISSIONS_TICK_MS:-}
       YIELD_JOB_ENABLED: ${YIELD_JOB_ENABLED:-false}
       BUYBACK_JOB_ENABLED: ${BUYBACK_JOB_ENABLED:-false}
