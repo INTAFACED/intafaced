@@ -46,13 +46,30 @@ async function bounded<T>(operation: Promise<T>, ms = 1500): Promise<T> {
   return result.value;
 }
 
+/** Poll until the pool's own session is parked on a lock (the proof is waiting on the blocker). */
+async function waitUntilProofWaits(db: Awaited<ReturnType<typeof createTestDb>>): Promise<void> {
+  for (let i = 0; i < 400; i++) {
+    const [row] = await db.sql<Array<{ n: string }>>`
+      SELECT count(*)::text AS n
+        FROM pg_stat_activity
+       WHERE application_name = ${`ledger-repair-${process.pid}`} AND wait_event_type = 'Lock'
+    `;
+    if (row?.n !== '0') return;
+    await delay(5);
+  }
+  throw new Error('the proof never reached the blocked statement');
+}
+
 describe('native recovery integration with the actual ledger service', () => {
-  it('completes actual max:1 proof and snapshots without reacquiring its pool', async () =>
+  // Rewritten for #4755. The proof used to hold the chain_tip lock for its whole run, and these
+  // two tests pinned that ("waiting post" queued behind it). The proof now reads one REPEATABLE
+  // READ snapshot and takes NO tip lock; what they still pin is the max:1 pool property: a
+  // finished run, success or mismatch, gives its only connection back before anything else needs it.
+  it('completes actual max:1 proof and snapshots without reacquiring its pool, holding no tip lock while it waits', async () =>
     fixture(async (db, pool) => {
       const ledger = new LedgerService(pool, new MemoryEventBus('max1'));
       await ledger.post(deposit('max1-success'));
       const blocker = await db.sql.reserve();
-      const writer = postgres(db.url, { max: 1, onnotice: () => undefined, connection: { search_path: `${db.schema},public` } });
       try {
         await blocker.unsafe('BEGIN');
         await blocker.unsafe(`LOCK TABLE "${db.schema}".ledger_entries IN ACCESS EXCLUSIVE MODE`);
@@ -61,47 +78,26 @@ describe('native recovery integration with the actual ledger service', () => {
           (value) => ({ value }),
           (error: unknown) => ({ error }),
         );
-        let locked = false;
-        for (let i = 0; i < 100; i++) {
-          try {
-            await db.sql`SELECT id FROM chain_tip WHERE id = true FOR UPDATE NOWAIT`;
-          } catch (error) {
-            if ((error as { code?: string }).code === '55P03') {
-              locked = true;
-              break;
-            }
-            throw error;
-          }
-          await delay(5);
-        }
-        expect(locked).toBe(true);
-        const waiting = new LedgerService(writer, new MemoryEventBus('allowed-waiting')).post(deposit('waiting-after-success'));
-        const waitingObserved = waiting.then(
-          (value) => ({ value }),
-          (error: unknown) => ({ error }),
-        );
-        await delay(20);
-        expect(await Promise.race([waitingObserved, delay(10).then(() => 'waiting')])).toBe('waiting');
+        await waitUntilProofWaits(db);
+        // The proof is parked mid-run and the posting lock is NOT held.
+        await expect(db.sql`SELECT id FROM chain_tip WHERE id = true FOR UPDATE NOWAIT`).resolves.toHaveLength(1);
         await blocker.unsafe('ROLLBACK');
         const result = await bounded(observed);
         if ('error' in result) throw result.error;
-        expect(result.value).toMatchObject({ report: { ok: true }, snapshotted: true });
-        const posted = await bounded(waitingObserved);
-        if ('error' in posted) throw posted.error;
-        expect(posted.value.idempotencyKey).toBe(deposit('waiting-after-success').idempotencyKey);
+        expect(result.value).toMatchObject({ outcome: 'ok', report: { ok: true }, snapshotted: true });
         const rows = await db.sql`SELECT chain_tip_seq::text AS seq, balance::text AS balance FROM balance_snapshots`;
         expect(rows).toHaveLength(2);
         expect(rows.every((row) => row.seq === '1')).toBe(true);
         expect(rows.map((row) => row.balance).sort()).toEqual(['-1.000000000000000000', '1.000000000000000000']);
-        expect(await db.sql`SELECT * FROM ledger_tx`).toHaveLength(2);
+        // The single pool connection is free again.
+        await expect(bounded(ledger.post(deposit('after-success')))).resolves.toMatchObject({ module: 'ledger' });
       } finally {
         await blocker.unsafe('ROLLBACK').catch(() => undefined);
         blocker.release();
-        await writer.end({ timeout: 1 });
       }
     }));
 
-  it('commits actual max:1 mismatch freeze and intent before releasing a waiting post; bus observes only committed state', async () =>
+  it('commits actual max:1 mismatch freeze and intent after the proof releases the pool; bus observes only committed state', async () =>
     fixture(async (db, pool) => {
       const bus = new MemoryEventBus('max1-failure');
       const emitted: boolean[] = [];
@@ -120,45 +116,22 @@ describe('native recovery integration with the actual ledger service', () => {
       await ledger.post(deposit('max1-failure'));
       await db.sql`UPDATE accounts SET balance = balance + 1 WHERE owner_type = 'user'`;
       const blocker = await db.sql.reserve();
-      const writer = postgres(db.url, { max: 1, onnotice: () => undefined, connection: { search_path: `${db.schema},public` } });
       try {
         await blocker.unsafe('BEGIN');
         await blocker.unsafe(`LOCK TABLE "${db.schema}".ledger_entries IN ACCESS EXCLUSIVE MODE`);
-        const scheduled = runScheduledReconciliation(pool, ledger);
-        const scheduledObserved = scheduled.then(
+        const scheduledObserved = runScheduledReconciliation(pool, ledger).then(
           (value) => ({ value }),
           (error: unknown) => ({ error }),
         );
-        let locked = false;
-        for (let i = 0; i < 100; i++) {
-          try {
-            await db.sql`SELECT id FROM chain_tip WHERE id = true FOR UPDATE NOWAIT`;
-          } catch (error) {
-            if ((error as { code?: string }).code === '55P03') {
-              locked = true;
-              break;
-            }
-            throw error;
-          }
-          await delay(5);
-        }
-        expect(locked).toBe(true);
-        const post = new LedgerService(writer, new MemoryEventBus('waiting')).post(deposit('waiting-after-failure'));
-        const postObserved = post.then(
-          () => ({ kind: 'posted' as const }),
-          (error: unknown) => ({ kind: 'refused' as const, error }),
-        );
-        await delay(20);
-        expect(await Promise.race([postObserved, delay(10).then(() => 'waiting')])).toBe('waiting');
+        await waitUntilProofWaits(db);
         await blocker.unsafe('ROLLBACK');
         const result = await bounded(scheduledObserved);
         if ('error' in result) throw result.error;
-        expect(result.value).toMatchObject({ report: { ok: false }, snapshotted: false });
-        const outcome = await bounded(postObserved);
-        expect(outcome.kind).toBe('refused');
-        if (outcome.kind === 'refused') expect(outcome.error).toMatchObject({ code: 'ledger.frozen' });
+        expect(result.value).toMatchObject({ outcome: 'mismatch', report: { ok: false }, snapshotted: false });
+        await expect(ledger.post(deposit('waiting-after-failure'))).rejects.toMatchObject({ code: 'ledger.frozen' });
         expect(emitted).toEqual([true]);
         expect(await db.sql`SELECT * FROM balance_snapshots`).toHaveLength(0);
+        expect((await db.sql`SELECT outcome FROM reconcile_runs`).map((r) => r.outcome)).toEqual(['mismatch']);
         // The SAME body: a retry of a committed post returns it even while frozen. (A different
         // body under this key is a conflict now, see the conformance suite.)
         const replay = await ledger.post(deposit('max1-failure'));
@@ -167,25 +140,31 @@ describe('native recovery integration with the actual ledger service', () => {
       } finally {
         await blocker.unsafe('ROLLBACK').catch(() => undefined);
         blocker.release();
-        await writer.end({ timeout: 1 });
       }
     }));
 
-  it('rolls back a SQL proof error to the held savepoint, commits the halt, then publishes and rethrows', async () =>
+  // Was: "rolls back a SQL proof error to the held savepoint, commits the halt, then publishes and
+  // rethrows" (a proof error froze the book). A proof that cannot run is NOT a mismatch.
+  it('a SQL proof error is INCOMPLETE: nothing frozen, nothing snapshotted, the attempt recorded, no rethrow', async () =>
     fixture(async (db, pool) => {
       const bus = new MemoryEventBus('proof-error');
       const ledger = new LedgerService(pool, bus);
       await ledger.post(deposit('proof-error'));
       await db.sql`ALTER TABLE ledger_entries RENAME COLUMN amount TO hidden_amount`;
-      await expect(bounded(runScheduledReconciliation(pool, ledger))).rejects.toMatchObject({ code: '42703' });
-      expect(await readFreeze(pool)).toMatchObject({ frozen: true, actor: 'reconciliation' });
+      const result = await bounded(runScheduledReconciliation(pool, ledger));
+      expect(result).toMatchObject({ outcome: 'incomplete', report: null, snapshotted: false, run: { errorCode: '42703' } });
+      expect(await readFreeze(pool)).toMatchObject({ frozen: false });
       expect(await db.sql`SELECT * FROM balance_snapshots`).toHaveLength(0);
-      expect((await db.sql`SELECT published_at FROM ledger_freeze_outbox`)[0]?.published_at).toBeInstanceOf(Date);
-      expect(bus.emitted('ledgerFreezeUpdated')).toHaveLength(1);
+      expect(await db.sql`SELECT * FROM ledger_freeze_outbox`).toHaveLength(0);
+      expect((await db.sql`SELECT outcome, error_code FROM reconcile_runs`).map((r) => [r.outcome, r.error_code])).toEqual([
+        ['incomplete', '42703'],
+      ]);
+      expect(bus.emitted('ledgerFreezeUpdated')).toHaveLength(0);
       expect(bus.emitted('ledgerReconciliationFailed')).toHaveLength(0);
     }));
 
-  it('commits a halt before releasing the posting lock when actual snapshot DDL rejects the insert', async () =>
+  // Was: "commits a halt before releasing the posting lock when actual snapshot DDL rejects the insert".
+  it('a rejected snapshot insert is INCOMPLETE: rolled back together with the ok run row, nothing frozen', async () =>
     fixture(async (db, pool) => {
       const bus = new MemoryEventBus('snapshot-error');
       const ledger = new LedgerService(pool, bus);
@@ -193,10 +172,15 @@ describe('native recovery integration with the actual ledger service', () => {
       await db.sql.unsafe(
         `CREATE FUNCTION "${db.schema}".refuse_snapshot() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'native snapshot refusal'; END $$; CREATE TRIGGER refuse_snapshot BEFORE INSERT ON "${db.schema}".balance_snapshots FOR EACH ROW EXECUTE FUNCTION "${db.schema}".refuse_snapshot();`,
       );
-      await expect(bounded(runScheduledReconciliation(pool, ledger))).rejects.toThrow('native snapshot refusal');
-      expect(await readFreeze(pool)).toMatchObject({ frozen: true, actor: 'reconciliation' });
+      const result = await bounded(runScheduledReconciliation(pool, ledger));
+      expect(result).toMatchObject({
+        outcome: 'incomplete',
+        run: { phase: 'snapshot', error: expect.objectContaining({ message: 'native snapshot refusal' }) },
+      });
+      expect(await readFreeze(pool)).toMatchObject({ frozen: false });
       expect(await db.sql`SELECT * FROM balance_snapshots`).toHaveLength(0);
-      expect(bus.emitted('ledgerFreezeUpdated')).toHaveLength(1);
+      expect((await db.sql`SELECT outcome FROM reconcile_runs`).map((r) => r.outcome)).toEqual(['incomplete']);
+      expect(bus.emitted('ledgerFreezeUpdated')).toHaveLength(0);
       expect(bus.emitted('ledgerReconciliationFailed')).toHaveLength(0);
     }));
 

@@ -30,6 +30,18 @@ export interface MetricsOptions {
   readonly path?: string;
   /** Inject a registry in tests. Defaults to a fresh one. */
   readonly registry?: Metrics;
+  /**
+   * Extra gauges, read on each scrape and appended to the exposition. A provider that
+   * throws is skipped: a scrape must never fail because a database read did.
+   */
+  readonly gauges?: () => Promise<readonly GaugeSample[]>;
+}
+
+/** One gauge. `value` is exposition text so a bigint seq never passes through a JS number. */
+export interface GaugeSample {
+  readonly name: string;
+  readonly help: string;
+  readonly value: string;
 }
 
 /** The path this service serves the exposition on. The scrape config must agree. */
@@ -85,8 +97,46 @@ export function registerMetrics(app: FastifyInstance, options: MetricsOptions): 
     // The content type is not decoration. Prometheus negotiates on it, and a
     // payload served as `application/json` is a target that scrapes, parses
     // nothing and reports itself UP with zero series.
-    return reply.header('content-type', PROMETHEUS_CONTENT_TYPE).send(registry.render());
+    let extra = '';
+    if (options.gauges) {
+      try {
+        extra = renderGauges(await options.gauges(), options.service);
+      } catch {
+        extra = '';
+      }
+    }
+    return reply.header('content-type', PROMETHEUS_CONTENT_TYPE).send(registry.render() + extra);
   });
 
   return registry;
+}
+
+/** Prometheus text 0.0.4 for plain gauges. Names are the caller's constants, never request input. */
+function renderGauges(samples: readonly GaugeSample[], service: string): string {
+  let out = '';
+  for (const sample of samples) {
+    out += `# HELP ${sample.name} ${sample.help}\n`;
+    out += `# TYPE ${sample.name} gauge\n`;
+    out += `${sample.name}{service="${service.replace(/[\\"\n]/g, '')}"} ${sample.value}\n`;
+  }
+  return out;
+}
+
+/**
+ * The reconciliation gauges. 0 means "never proved", which an alert on
+ * `time() - ledger_reconcile_last_verified_timestamp_seconds` treats as stale.
+ */
+export function reconcileGauges(last: { at: Date | null; seq: string | null }): GaugeSample[] {
+  return [
+    {
+      name: 'ledger_reconcile_last_verified_timestamp_seconds',
+      help: 'Unix time of the last reconciliation run that proved the book consistent (0 = never).',
+      value: last.at ? String(Math.floor(last.at.getTime() / 1000)) : '0',
+    },
+    {
+      name: 'ledger_reconcile_last_verified_seq',
+      help: 'chain_tip seq the last ok reconciliation run covered (0 = never).',
+      value: last.seq ?? '0',
+    },
+  ];
 }
