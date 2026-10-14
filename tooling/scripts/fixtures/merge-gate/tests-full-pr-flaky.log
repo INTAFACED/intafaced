@@ -1,0 +1,44 @@
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:09.1000190Z ##[group]@intafaced/svc-edge:test
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:10.1000191Z > vitest run
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:11.1000192Z  [32m✓[39m src/ok.test.ts [2m([22m[2m3 tests[22m[2m)[22m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:12.1000193Z ##[endgroup]
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:13.1000194Z ##[group]@intafaced/svc-auth:test
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:14.1000195Z > vitest run
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:15.1000196Z  [32m✓[39m src/ok.test.ts [2m([22m[2m3 tests[22m[2m)[22m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:16.1000197Z ##[endgroup]
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:17.1000198Z [;31m@intafaced/svc-p2p:test[;0m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:18.1000199Z @intafaced/svc-p2p#test:  WARNING  command finished with error, but continuing...
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:19.1000200Z > @intafaced/svc-p2p@0.0.0 test
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:20.1000201Z > vitest run
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:21.1000202Z 
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:22.1000203Z [31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:23.1000204Z 
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:24.1000205Z  [41m[1m FAIL [22m[49m src/flaky.test.ts[2m > [22msome suite[2m > [22mdoes the thing
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:25.1000206Z [31m[1mAssertionError[22m: expected 1 to be 2[39m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:26.1000207Z 
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:27.1000208Z  [41m[1m FAIL [22m[49m src/flaky2.test.ts[2m > [22msome suite[2m > [22mdoes the thing
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:28.1000209Z [31m[1mAssertionError[22m: expected 1 to be 2[39m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:29.1000210Z 
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:30.1000211Z  ELIFECYCLE  Test failed. See above for more details.
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:31.1000212Z ##[endgroup]
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:32.1000213Z [;31m@intafaced/svc-ops:test[;0m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:33.1000214Z @intafaced/svc-ops#test:  WARNING  command finished with error, but continuing...
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:34.1000215Z > @intafaced/svc-ops@0.0.0 test
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:35.1000216Z > vitest run
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:36.1000217Z 
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:37.1000218Z [31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:38.1000219Z 
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:39.1000220Z  [41m[1m FAIL [22m[49m src/a.test.ts[2m > [22msome suite[2m > [22mdoes the thing
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:40.1000221Z [31m[1mAssertionError[22m: expected 1 to be 2[39m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:41.1000222Z 
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:42.1000223Z  [41m[1m FAIL [22m[49m src/c.test.ts[2m > [22msome suite[2m > [22mdoes the thing
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:43.1000224Z [31m[1mAssertionError[22m: expected 1 to be 2[39m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:44.1000225Z 
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:45.1000226Z  ELIFECYCLE  Test failed. See above for more details.
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:46.1000227Z ##[endgroup]
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:47.1000228Z 
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:48.1000229Z  Tasks:    73 successful, 75 total
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:49.1000230Z Cached:    24 cached, 75 total
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:50.1000231Z Failed:    @intafaced/svc-p2p#test, @intafaced/svc-ops#test
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:51.1000232Z  ELIFECYCLE  Test failed. See above for more details.
+Tests (full)	Run pnpm test --continue	2026-10-14T01:43:52.1000233Z ##[error]Process completed with exit code 1.

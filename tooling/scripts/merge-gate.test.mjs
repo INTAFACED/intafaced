@@ -5,7 +5,9 @@
  * Run: node --test tooling/scripts/merge-gate.test.mjs
  */
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { GitHubRefusalError } from './gate-gh.mjs';
@@ -13,16 +15,20 @@ import {
   AGENT_RULE_PATTERNS,
   CI_PR_PATHS,
   KNOWN_PR_ONLY_RED,
+  MAIN_WINDOW,
   collapseChecks,
   ciWouldRun,
   evaluate,
   mainCopyProblem,
+  makeLogStore,
   mergeCommand,
   parseDoctrineFailures,
+  parseFailedTestFiles,
   parseTurboFailures,
   renderComment,
   runGate,
   selectMainRun,
+  selectMainWindow,
 } from './merge-gate.mjs';
 
 const HEAD = 'a'.repeat(40);
@@ -620,4 +626,230 @@ test('a FAIL verdict never says the docs-only PR "passed"', () => {
   assert.match(text, /Merge gate: FAIL/);
   assert.doesNotMatch(text, /Passed on the checks/);
   assert.match(text, /Checks that reported/);
+});
+
+// ---- "Tests (full)": the file-level ratchet against a window of main's recent runs --------------------------------------
+// Fixtures tests-full-main-<run>.log and tests-full-pr-*.log are built in the shape of `gh run view --job <id> --log`
+// (turbo grouped output, ANSI colours, vitest FAIL lines). tests-full-real-excerpt.log is the header / FAIL / endgroup /
+// Failed lines of the real "Tests (full)" log of PR #4722 (2026-10-14), caret-form colour codes and BOM included.
+//   run 206 cancelled | 205 red: ops a,b  notify n  crash(svc-crash, no FAIL line) | 204 red: p2p flaky  ops a
+//   203 red: p2p flaky,flaky2 | 202 green | 201 red: ops c | 200 red: p2p old  (200 is outside the window of 5)
+const SEC = '@intafaced/';
+const T = (pkg) => `${SEC}${pkg}#test`;
+const MAIN_CONCLUSION = { 205: 'failure', 204: 'failure', 203: 'failure', 202: 'success', 201: 'failure', 200: 'failure' };
+const winJobId = (run) => 7000 + Number(run);
+
+function windowWorld(prLog, { conclusions = MAIN_CONCLUSION, extraRuns = [] } = {}) {
+  const w = logWorld({ checks: [chk('Tests (full)', 'fail')] });
+  const failStep = (run) => [
+    { name: 'Run pnpm test --continue', conclusion: conclusions[run] === 'failure' ? 'failure' : 'success' },
+    { name: 'Every infrastructure-backed suite actually ran', conclusion: conclusions[run] === 'failure' ? 'failure' : 'success' },
+  ];
+  const runs = [
+    { databaseId: 206, headSha: '6'.repeat(40), conclusion: 'cancelled', createdAt: '2026-10-14T06:00:00Z', url: 'https://x/runs/206' },
+    ...Object.keys(conclusions)
+      .sort((a, b) => b - a)
+      .map((id) => ({
+        databaseId: Number(id),
+        headSha: String(id).padEnd(40, '0'),
+        conclusion: conclusions[id],
+        createdAt: '2026-10-14T05:00:00Z',
+        url: `https://x/runs/${id}`,
+      })),
+    ...extraRuns,
+  ];
+  w.mainRuns = runs;
+  w.mainJobs = { 1: w.mainJobs[1] };
+  w.logs = { [prJobId('Tests (full)')]: log(prLog) };
+  for (const id of Object.keys(conclusions)) {
+    w.mainJobs[id] = [
+      { name: 'Format', databaseId: 6000 + Number(id), conclusion: 'success', steps: [] },
+      { name: 'Tests (full)', databaseId: winJobId(id), conclusion: conclusions[id], steps: failStep(id) },
+    ];
+    w.logs[winJobId(id)] = log(`tests-full-main-${id}`);
+  }
+  return w;
+}
+const runWin = (prLog, o) => {
+  const world = windowWorld(prLog, o);
+  const g = fakeGh(world);
+  return runGate(opts(), { gh: g.gh, ...clock() }).then((r) => ({ r, calls: g.calls, world }));
+};
+const comment = (calls) => calls.find((x) => x.args[1] === 'comment').input;
+
+test('parseFailedTestFiles: attributes vitest FAIL lines to the package block they sit in (real PR #4722 log excerpt)', () => {
+  const byTask = parseFailedTestFiles(log('tests-full-real-excerpt'));
+  assert.deepEqual([...byTask.keys()].sort(), [
+    T('svc-bank'),
+    T('svc-indexer'),
+    T('svc-market'),
+    T('svc-notify'),
+    T('svc-ops'),
+    T('svc-pay'),
+    T('svc-protocol'),
+    T('svc-support'),
+  ]);
+  assert.equal(byTask.get(T('svc-support')).size, 8, 'vitest said "Failed Suites 8" for svc-support');
+  assert.ok(byTask.get(T('svc-support')).has('scripts/migrate.one-tx.test.ts'), 'a suite that failed to load: FAIL file [ file ]');
+  assert.deepEqual([...byTask.get(T('svc-market'))], ['scripts/migrate.down.test.ts'], 'three failing tests, one file');
+  assert.deepEqual([...byTask.get(T('svc-ops'))].sort(), ['src/outreach/archive-receiver.boot.test.ts', 'src/outreach/privacy.test.ts']);
+  // svc-matching is on the `Failed:` line but printed no FAIL line (exit code only): no entry, so it is "unreadable"
+  assert.ok(parseTurboFailures(log('tests-full-real-excerpt')).has(T('svc-matching')));
+  assert.equal(byTask.has(T('svc-matching')), false);
+});
+
+test('parseFailedTestFiles: per-line prefixes win, project tags are dropped, unattributable lines are ignored', () => {
+  const lines = [
+    '@intafaced/svc-ops:test:  FAIL  src/a.test.ts > suite > test',
+    '@intafaced/svc-p2p:test: \u001b[41m FAIL \u001b[49m |unit| src/b.test.ts [ src/b.test.ts ]',
+    'mobile:test: FAIL app/c.test.tsx > x',
+    ' FAIL  src/orphan.test.ts > outside any block',
+    '##[group]@intafaced/svc-edge:build',
+    ' FAIL  src/not-a-test-run.ts > in a build block (still attributed to that task)',
+    '##[endgroup]',
+    ' FAIL  src/after.test.ts > outside again',
+    ' FAIL  not a file',
+  ].map((t) => `Tests (full)\tRun pnpm test --continue\t2026-10-14T01:00:00.0000000Z ${t}`);
+  const byTask = parseFailedTestFiles(lines.join('\n'));
+  assert.deepEqual([...byTask.get(T('svc-ops'))], ['src/a.test.ts']);
+  assert.deepEqual([...byTask.get(T('svc-p2p'))], ['src/b.test.ts']);
+  assert.deepEqual([...byTask.get('mobile#test')], ['app/c.test.tsx']);
+  assert.deepEqual([...byTask.get(`${SEC}svc-edge#build`)], ['src/not-a-test-run.ts']);
+  assert.equal(byTask.size, 4, 'orphan and after-block lines belong to no package');
+  assert.equal(parseFailedTestFiles('').size, 0);
+});
+
+test('selectMainWindow: the last MAIN_WINDOW runs in which Tests (full) ran; cancelled and green-less runs do not count', async () => {
+  assert.equal(MAIN_WINDOW, 5);
+  const world = windowWorld('tests-full-pr-flaky');
+  const { gh } = fakeGh(world);
+  const main = await selectMainRun(gh, REPO);
+  assert.equal(main.run.databaseId, 205);
+  const win = selectMainWindow(gh, REPO, { main });
+  assert.deepEqual(
+    win.map((w) => w.run.databaseId),
+    [205, 204, 203, 202, 201],
+  );
+  assert.equal(win[0].job.databaseId, winJobId(205));
+  // a run whose Tests (full) was skipped or cancelled is not in the window
+  const skipped = windowWorld('tests-full-pr-flaky');
+  skipped.mainJobs[203][1].conclusion = 'skipped';
+  const g2 = fakeGh(skipped);
+  const m2 = await selectMainRun(g2.gh, REPO);
+  assert.deepEqual(
+    selectMainWindow(g2.gh, REPO, { main: m2 }).map((w) => w.run.databaseId),
+    [205, 204, 202, 201, 200],
+  );
+});
+
+test('makeLogStore: a log is fetched once per gate run and cached in the temp dir', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mg-test-'));
+  try {
+    let n = 0;
+    const store = makeLogStore((args) => (n++, { status: 0, stdout: `log of ${args[3]}`, stderr: '' }), REPO, dir);
+    assert.equal(store(5), 'log of 5');
+    assert.equal(store(5), 'log of 5');
+    assert.equal(n, 1);
+    assert.deepEqual(readdirSync(dir), ['job-5.log']);
+    const mem = makeLogStore((args) => (n++, { status: 0, stdout: 'x', stderr: '' }), REPO);
+    mem(1);
+    mem(1);
+    assert.equal(n, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('file ratchet: files that flaked on main in the window are excused, even in a package main does not fail right now', async () => {
+  const { r, calls } = await runWin('tests-full-pr-flaky');
+  assert.equal(r.code, 0, r.evalResult.reasons.join());
+  const flaky = Object.fromEntries(r.evalResult.flaky.map((f) => [`${f.task} ${f.file}`, f.runs]));
+  assert.deepEqual(flaky, {
+    [`${T('svc-p2p')} src/flaky.test.ts`]: [204, 203], // svc-p2p is NOT failing in main's latest run (205)
+    [`${T('svc-p2p')} src/flaky2.test.ts`]: [203],
+    [`${T('svc-ops')} src/a.test.ts`]: [205, 204],
+    [`${T('svc-ops')} src/c.test.ts`]: [201], // only in the oldest run of the window
+  });
+  const text = comment(calls);
+  assert.match(text, /Merge gate: PASS/);
+  assert.match(text, /known flaky on main: @intafaced\/svc-p2p#test src\/flaky\.test\.ts \(runs 204, 203\)/);
+  assert.match(text, /known flaky on main: @intafaced\/svc-ops#test src\/a\.test\.ts \(runs 205, 204\)/);
+  assert.match(text, /all 4 readable failing file\(s\) failed on main in the last 5 run\(s\) \(205, 204, 203, 202, 201\)/);
+  // the run outside the window (200) was never fetched, and every window log once
+  const logCalls = calls.filter((x) => x.args[0] === 'run' && x.args[1] === 'view' && x.args[2] === '--job').map((x) => x.args[3]);
+  assert.equal(logCalls.includes(String(winJobId(200))), false);
+  assert.equal(logCalls.length, new Set(logCalls).size, 'no log fetched twice');
+  assert.equal(logCalls.length, 1 + MAIN_WINDOW, 'the PR log plus the five window logs');
+});
+
+test('file ratchet: a NEW test file inside a package that is red on main blocks, and the verdict names it', async () => {
+  const { r, calls } = await runWin('tests-full-pr-newfile');
+  assert.equal(r.code, 1);
+  const why = r.evalResult.reasons.join();
+  assert.match(why, /@intafaced\/svc-ops#test: 1 new failing test file\(s\).*: src\/new\.test\.ts/);
+  assert.doesNotMatch(why, /a\.test\.ts/, 'the file that did fail on main is not blamed');
+  assert.match(comment(calls), /NEW failures.*Tests \(full\).*src\/new\.test\.ts/);
+  assert.equal(r.evalResult.flaky.length, 0, 'a blocked job excuses nothing');
+});
+
+test("file ratchet: a new package with no FAIL lines blocks; one that is red in main's latest run is excused, and says so", async () => {
+  const fresh = await runWin('tests-full-pr-newpkg');
+  assert.equal(fresh.r.code, 1);
+  assert.match(
+    fresh.r.evalResult.reasons.join(),
+    /@intafaced\/svc-fresh#test: no failing test file could be read from the log, and the package is not failing on main's latest run/,
+  );
+  const known = await runWin('tests-full-pr-crash-known');
+  assert.equal(known.r.code, 0, known.r.evalResult.reasons.join());
+  assert.ok(
+    known.r.evalResult.logChecks.some((l) =>
+      /svc-crash#test has no readable FAIL line.*excused only because it also fails in main's latest run 205/.test(l),
+    ),
+  );
+  assert.match(
+    comment(known.calls),
+    /no readable FAIL line \(crash or exit code only\); excused only because it also fails in main's latest run 205/,
+  );
+});
+
+test('file ratchet: a file only seen on main OUTSIDE the window, or only in another package, is new', async () => {
+  const old = await runWin('tests-full-pr-outside-window'); // p2p src/old.test.ts failed in run 200 only
+  assert.equal(old.r.code, 1);
+  assert.match(old.r.evalResult.reasons.join(), /svc-p2p#test: 1 new failing test file\(s\).*src\/old\.test\.ts/);
+  const wrong = await runWin('tests-full-pr-wrong-package'); // flaky.test.ts is a svc-p2p file; here it fails in svc-ops
+  assert.equal(wrong.r.code, 1);
+  assert.match(wrong.r.evalResult.reasons.join(), /svc-ops#test: 1 new failing test file\(s\).*src\/flaky\.test\.ts/);
+});
+
+test("file ratchet: the job is still excused only if main's latest Tests (full) is red (job-level rule unchanged)", async () => {
+  const { r } = await runWin('tests-full-pr-flaky', { conclusions: { ...MAIN_CONCLUSION, 205: 'success' } });
+  assert.equal(r.code, 1);
+  assert.match(r.evalResult.reasons.join(), /new failing check\(s\).*Tests \(full\)/);
+});
+
+test('file ratchet: a window log that cannot be read is skipped; the remaining runs still decide', async () => {
+  const world = windowWorld('tests-full-pr-flaky');
+  delete world.logs[winJobId(204)];
+  const r = await runGate(opts(), { gh: fakeGh(world).gh, ...clock() });
+  assert.equal(r.code, 0, r.evalResult.reasons.join());
+  const flaky = Object.fromEntries(r.evalResult.flaky.map((f) => [`${f.task} ${f.file}`, f.runs]));
+  assert.deepEqual(flaky[`${T('svc-p2p')} src/flaky.test.ts`], [203], 'run 204 was unreadable, run 203 still shows the file');
+  assert.deepEqual(flaky[`${T('svc-ops')} src/a.test.ts`], [205]);
+  assert.match(r.evalResult.logChecks.join(), /in the last 4 run\(s\) \(205, 203, 202, 201\)/);
+  // a file seen only in the unreadable run is new
+  const p = windowWorld('tests-full-pr-flaky');
+  p.logs = { ...p.logs };
+  delete p.logs[winJobId(203)];
+  delete p.logs[winJobId(204)];
+  const r2 = await runGate(opts(), { gh: fakeGh(p).gh, ...clock() });
+  assert.equal(r2.code, 1);
+  assert.match(r2.evalResult.reasons.join(), /svc-p2p#test: 2 new failing test file\(s\).*src\/flaky\.test\.ts, src\/flaky2\.test\.ts/);
+});
+
+test('file ratchet: a 403 while fetching a window log stops the gate, never skipped', async () => {
+  const world = windowWorld('tests-full-pr-flaky');
+  await assert.rejects(
+    runGate(opts(), { gh: fakeGh({ ...world, refuse: `run view --job ${winJobId(203)}` }).gh, ...clock() }),
+    GitHubRefusalError,
+  );
 });
