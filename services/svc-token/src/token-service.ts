@@ -65,6 +65,13 @@ export class TokenError extends Error {
        */
       | 'token.stake_ledger_mismatch'
       | 'token.epoch_closed'
+      /**
+       * A NEW epoch was requested sooner than one epoch length (`EMISSIONS_EPOCH_MS`,
+       * default 1 day) after the previous epoch was claimed. Resuming an already
+       * claimed, unclosed epoch is never refused with this. `retryAfterMs` says
+       * how long to wait.
+       */
+      | 'token.epoch_too_early'
       | 'token.supply_exhausted'
       | 'token.nothing_to_distribute'
       /**
@@ -148,6 +155,8 @@ export class TokenError extends Error {
        * Grant / listing close tallied but did not execute. Value does not move.
        */
       | 'token.governance_execute_unwired',
+    /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'TokenError';
@@ -272,6 +281,32 @@ export interface TokenServiceOptions {
    * Owner for-threshold in bps of (for+against). Missing → same refuse.
    */
   governanceThresholdBps?: number;
+  /**
+   * Emission epoch length in ms — the minimum gap between one epoch being
+   * claimed and the next NEW epoch starting (`token.epoch_too_early`). Default
+   * one day (owner-present, Nitro's pick 2026-10-14). `0` switches the gate off:
+   * for tests that walk many epochs in a row, never for a deployment (env.ts
+   * only accepts positive integers). Reward, cap and halving are not set here.
+   */
+  emissionEpochMs?: number;
+}
+
+/** One day. Epoch length is owner-decided (2026-10-14); reward / cap / halving stay unset. */
+export const DEFAULT_EMISSION_EPOCH_MS = 86_400_000;
+
+/** "1d 2h 3m 4s" — whole units, largest non-zero first, for refusal copy. */
+function describeDuration(ms: number): string {
+  const total = Math.max(1, Math.ceil(ms / 1000));
+  const units: Array<[string, number]> = [
+    ['d', Math.floor(total / 86_400)],
+    ['h', Math.floor((total % 86_400) / 3_600)],
+    ['m', Math.floor((total % 3_600) / 60)],
+    ['s', total % 60],
+  ];
+  return units
+    .filter(([, n]) => n > 0)
+    .map(([u, n]) => `${n}${u}`)
+    .join(' ');
 }
 
 /** One frozen line of a yield window's plan: who is owed what, and whether it has posted. */
@@ -326,6 +361,7 @@ export class TokenService {
   private readonly loadParamsFromDb: boolean;
   private feeScheduleCache: { schedule: FeeDiscountSchedule; loadedAt: number } | null = null;
   private buybackParamsCache: { params: BuybackParams; loadedAt: number } | null = null;
+  private readonly emissionEpochMs: number;
   private emissionParamsCache: { params: EmissionParams; loadedAt: number } | null = null;
 
   constructor(
@@ -337,6 +373,10 @@ export class TokenService {
     this.assetId = options.assetId ?? 'IFC';
     this.feeScheduleTtlMs = options.feeScheduleTtlMs ?? 60_000;
     this.loadParamsFromDb = options.loadParamsFromDb !== false;
+    this.emissionEpochMs = options.emissionEpochMs ?? DEFAULT_EMISSION_EPOCH_MS;
+    if (!Number.isSafeInteger(this.emissionEpochMs) || this.emissionEpochMs < 0) {
+      throw new Error('TokenService emissionEpochMs must be a non-negative integer (0 = gate off, tests only)');
+    }
     if (!this.loadParamsFromDb) {
       if (!options.emission || !options.buyback) {
         throw new Error('TokenService test mode requires emission and buyback overrides when loadParamsFromDb is false');
@@ -1808,9 +1848,46 @@ export class TokenService {
           );
         }
 
+        /**
+         * TIME GATE — a NEW epoch may not start sooner than one epoch length
+         * after the previous one was claimed.
+         *
+         * Placed after the resume branch above (a claimed-but-unclosed epoch is a
+         * retry of the SAME epoch and is never refused here) and after the supply
+         * checks (an exhausted schedule should say so, not "wait"). It runs under
+         * the per-asset advisory lock taken at the top of this transaction, so two
+         * concurrent callers are serialised: the second sees the first's row.
+         *
+         * The clock is the DATABASE's: `created_at` is stamped with
+         * `clock_timestamp()` below and the elapsed time is measured with
+         * `clock_timestamp()` here, so app-server clock skew and restarts cannot
+         * move the gate. `clock_timestamp()` rather than `now()` because `now()` is
+         * the transaction start, which predates a wait on the advisory lock.
+         */
+        if (this.emissionEpochMs > 0) {
+          const [last] = await tx<Array<{ epoch: number; elapsed_ms: number | string }>>`
+            SELECT epoch, (EXTRACT(EPOCH FROM (clock_timestamp() - created_at)) * 1000)::float8 AS elapsed_ms
+              FROM token.emission_epochs
+             ORDER BY created_at DESC, epoch DESC
+             LIMIT 1
+          `;
+          if (last) {
+            const elapsedMs = Number(last.elapsed_ms);
+            const remainingMs = Math.ceil(this.emissionEpochMs - elapsedMs);
+            if (remainingMs > 0) {
+              throw new TokenError(
+                `Epoch ${epoch} cannot start yet: epochs are ${describeDuration(this.emissionEpochMs)} long and epoch ${last.epoch} ` +
+                  `was claimed ${describeDuration(Math.max(0, elapsedMs))} ago — wait ${describeDuration(remainingMs)} more`,
+                'token.epoch_too_early',
+                remainingMs,
+              );
+            }
+          }
+        }
+
         await tx`
-          INSERT INTO token.emission_epochs (epoch, scheduled_amount, mined_amount, closed)
-          VALUES (${epoch}, ${formatAmount(reward)}::numeric, ${formatAmount(reward)}::numeric, false)
+          INSERT INTO token.emission_epochs (epoch, scheduled_amount, mined_amount, closed, created_at)
+          VALUES (${epoch}, ${formatAmount(reward)}::numeric, ${formatAmount(reward)}::numeric, false, clock_timestamp())
         `;
 
         return { reward };

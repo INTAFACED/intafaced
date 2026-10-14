@@ -389,6 +389,24 @@ describe('svc-token mount — emissions', () => {
     expect(token.mintNextEpoch).not.toHaveBeenCalled();
   });
 
+  it('maps token.epoch_too_early to TOO_MANY_REQUESTS and keeps the wait-time message (next and explicit epoch)', async () => {
+    const early = () => new TokenError('Epoch 1 cannot start yet: wait 3h more', 'token.epoch_too_early', 10_800_000);
+    const token = stubToken({
+      mintNextEpoch: vi.fn(async () => {
+        throw early();
+      }),
+      mintEpoch: vi.fn(async () => {
+        throw early();
+      }),
+    });
+    const caller = createTokenRouter(token, { emissionsEnabled: true }).createCaller(jobCaller());
+    await expect(caller.mintEpoch({})).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+      message: 'Epoch 1 cannot start yet: wait 3h more',
+    });
+    await expect(caller.mintEpoch({ epoch: 1 })).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+  });
+
   it('refuses mintEpoch HMAC as svc-trade', async () => {
     const token = stubToken();
     await expect(

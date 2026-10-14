@@ -105,7 +105,12 @@ function databaseName(raw) {
   const afterHost = withoutQuery.replace(/^postgres(?:ql)?:\/\//, '');
   const slash = afterHost.indexOf('/');
   if (slash === -1) return null;
-  const db = afterHost.slice(slash + 1).trim();
+  // A URL quoted in a comment ends with the sentence's full stop: "postgres://h/postgres."
+  // is the database `postgres`, not one called `postgres.`.
+  const db = afterHost
+    .slice(slash + 1)
+    .trim()
+    .replace(/[.,;:)\]]+$/, '');
   if (db === '' || db.includes('${') || db.includes('{')) return null;
   return db;
 }
@@ -133,6 +138,174 @@ function walk(dir, out) {
   return out;
 }
 
+/**
+ * The Postgres maintenance database. `CREATE DATABASE` cannot run inside the
+ * database it creates, so a suite that builds its OWN throwaway `*_test`
+ * database has to connect to `postgres` first. That connection is the admin
+ * door, not the shared data: it never applies a migration or truncates a table.
+ */
+const MAINTENANCE_DB = 'postgres';
+
+/**
+ * Source with comments removed, so a guard named only in prose ("we check
+ * endsWith('_test')") cannot satisfy the scan. A `//` directly after `:` is the
+ * scheme of a URL (`postgres://`), not a comment.
+ * @param {string} content
+ */
+function stripComments(content) {
+  return content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\w'"`])\/\/.*$/gm, '$1');
+}
+
+/**
+ * A real runtime guard on the database being provisioned: the code asks
+ * Postgres `current_database()`, or tests the name with `endsWith('_test')` /
+ * `/_test$/`. A template literal that merely ENDS in `_test` is not a guard,
+ * it is a naming habit: nothing refuses to run when the name is wrong.
+ * @param {string} code comment-free source
+ */
+function hasTestNameGuard(code) {
+  return (
+    /\bcurrent_database\s*\(\s*\)/i.test(code) ||
+    /\.endsWith\(\s*['"]_test['"]\s*\)/.test(code) ||
+    /_test\$\/\s*\.test\(|\/_test\$\/\.test\(/.test(code)
+  );
+}
+
+/**
+ * A file that opens the maintenance database to provision a per-run
+ * database, and guards in code that the database it provisions ends in `_test`.
+ * Both halves are required: `postgres` alone stays a violation, so a suite
+ * cannot reach the maintenance database and then run its migrations there.
+ * @param {string} code comment-free source
+ */
+function provisionsOwnTestDatabase(code) {
+  return /\bCREATE\s+DATABASE\b/i.test(code) && hasTestNameGuard(code);
+}
+
+/**
+ * Every `DROP DATABASE` whose target is not a `${...}` interpolation. Dropping
+ * is irreversible and the maintenance connection can drop ANYTHING, so the
+ * target must be a variable the suite created itself (and guarded), never a
+ * literal name such as `intafaced`.
+ * @param {string} code comment-free source
+ * @returns {{index: number, target: string}[]}
+ */
+function literalDrops(code) {
+  const out = [];
+  const re = /\bDROP\s+DATABASE\s+(?:IF\s+EXISTS\s+)?[\\"'`]*([^\s;)]*)/gi;
+  let m;
+  while ((m = re.exec(code)) !== null) {
+    if (m[1].startsWith('${')) continue;
+    const target = m[1].replace(/[\\"'`]+$/, '');
+    out.push({ index: m.index, target: target === '' ? '(unreadable)' : target });
+  }
+  return out;
+}
+
+/**
+ * Every location in one test file that names a non-`*_test` database, or
+ * drops a database by a literal name.
+ * @param {string} content
+ * @returns {{line: number, db: string, snippet: string, kind: 'connect' | 'drop'}[]}
+ */
+function violationsIn(content) {
+  if (!content.includes('postgres') || !canConnect(content)) return [];
+  const code = stripComments(content);
+  const provisions = provisionsOwnTestDatabase(code);
+  const found = [];
+  content.split(/\r?\n/).forEach((text, i) => {
+    const matches = text.match(PG_URL);
+    if (!matches) return;
+    for (const raw of matches) {
+      const db = databaseName(raw);
+      if (db === null) continue;
+      if (db.endsWith('_test')) continue;
+      if (db === MAINTENANCE_DB && provisions) continue;
+      found.push({ line: i + 1, db, snippet: text.trim().slice(0, 160), kind: 'connect' });
+    }
+  });
+  const lines = code.split(/\r?\n/);
+  for (const d of literalDrops(code)) {
+    const line = code.slice(0, d.index).split(/\r?\n/).length;
+    found.push({ line, db: d.target, snippet: (lines[line - 1] ?? '').trim().slice(0, 160), kind: 'drop' });
+  }
+  return found;
+}
+
+/**
+ * The scan checks itself on every run. A narrowed scanner that stopped catching
+ * the real case would print the same green tick as one that never did.
+ */
+const SELF_TEST = [
+  {
+    why: 'the shared database is still a violation',
+    src: "import postgres from 'postgres';\nconst U = 'postgres://h:5432/intafaced';",
+    expect: ['intafaced'],
+  },
+  {
+    why: 'the maintenance database alone (no per-run provisioning) is still a violation',
+    src: "import postgres from 'postgres';\nconst U = 'postgres://h:5432/postgres';\nawait sql`TRUNCATE t`;",
+    expect: ['postgres'],
+  },
+  {
+    why: 'CREATE DATABASE without a _test guard is still a violation',
+    src: "import postgres from 'postgres';\nconst U = 'postgres://h:5432/postgres';\nawait a.unsafe(`CREATE DATABASE \"${name}\"`);",
+    expect: ['postgres'],
+  },
+  {
+    why: 'maintenance database used only to CREATE a per-run *_test database is clean',
+    src: "import postgres from 'postgres';\nconst U = 'postgres://h:5432/postgres';\nconst name = `svc_${process.pid}_test`;\nif (!name.endsWith('_test')) throw new Error('refusing');\nawait a.unsafe(`CREATE DATABASE \"${name}\"`);",
+    expect: [],
+  },
+  {
+    why: 'a per-run name that merely ends in `_test` (template only, no guard in code) is still a violation',
+    src: "import postgres from 'postgres';\nconst U = 'postgres://h:5432/postgres';\nconst name = `svc_${process.pid}_test`;\nawait a.unsafe(`CREATE DATABASE \"${name}\"`);",
+    expect: ['postgres'],
+  },
+  {
+    why: 'a guard that is only named in a comment is still a violation',
+    src: "import postgres from 'postgres';\n// we check name.endsWith('_test') before creating\nconst U = 'postgres://h:5432/postgres';\nawait a.unsafe(`CREATE DATABASE \"${name}\"`);",
+    expect: ['postgres'],
+  },
+  {
+    why: 'a current_database() check clears the maintenance connection',
+    src: "import postgres from 'postgres';\nconst U = 'postgres://h:5432/postgres';\nconst [live] = await s`SELECT current_database() AS db`;\nawait a.unsafe(`CREATE DATABASE \"${name}\"`);",
+    expect: [],
+  },
+  {
+    why: 'DROP DATABASE with a literal name is a violation even with a guard',
+    src: "import postgres from 'postgres';\nconst U = 'postgres://h:5432/postgres';\nif (!name.endsWith('_test')) throw new Error('x');\nawait a.unsafe(`CREATE DATABASE \"${name}\"`);\nawait a.unsafe('DROP DATABASE IF EXISTS intafaced WITH (FORCE)');",
+    expect: ['intafaced'],
+  },
+  {
+    why: 'DROP DATABASE of a literal quoted name is a violation',
+    src: "import postgres from 'postgres';\nawait a.unsafe('DROP DATABASE \"intafaced_test\"');",
+    expect: ['intafaced_test'],
+  },
+  {
+    why: 'DROP DATABASE of an interpolated, guarded name is clean',
+    src: "import postgres from 'postgres';\nconst U = 'postgres://h:5432/postgres';\nif (!name.endsWith('_test')) throw new Error('x');\nawait a.unsafe(`CREATE DATABASE \"${name}\"`);\nawait a.unsafe(`DROP DATABASE IF EXISTS \"${name}\" WITH (FORCE)`);\nawait a.unsafe(`DROP DATABASE IF EXISTS ${name}`);",
+    expect: [],
+  },
+  {
+    why: 'a full stop after a URL in a comment is not part of the database name',
+    src: "import postgres from 'postgres';\n// built from postgres://h:5432/postgres.\nconst name = `x_test`;\nif (!name.endsWith('_test')) throw new Error('refusing');\nawait a.unsafe(`CREATE DATABASE \"${name}\"`);",
+    expect: [],
+  },
+  {
+    why: 'a *_test database is clean',
+    src: "import postgres from 'postgres';\nconst U = 'postgres://h:5432/intafaced_test';",
+    expect: [],
+  },
+];
+for (const c of SELF_TEST) {
+  const got = violationsIn(c.src).map((v) => v.db);
+  if (JSON.stringify(got) !== JSON.stringify(c.expect)) {
+    console.error(`\n✖ TEST DB SCAN SELF-TEST FAILED — ${c.why}: expected [${c.expect}], got [${got}]\n`);
+    process.exit(1);
+  }
+}
+
 /** @type {string[]} */
 const files = [];
 for (const r of ROOTS) walk(join(ROOT, r), files);
@@ -151,35 +324,24 @@ for (const file of files) {
     continue;
   }
   if (!content.includes('postgres')) continue;
+  const rel = relative(ROOT, file).replace(/\\/g, '/');
   if (!canConnect(content)) {
-    skipped.push(relative(ROOT, file).replace(/\\/g, '/'));
+    skipped.push(rel);
     continue;
   }
-
   scanned++;
-  const lines = content.split(/\r?\n/);
-  lines.forEach((text, i) => {
-    const matches = text.match(PG_URL);
-    if (!matches) return;
-    for (const raw of matches) {
-      const db = databaseName(raw);
-      if (db === null) continue;
-      if (db.endsWith('_test')) continue;
-      violations.push({
-        file: relative(ROOT, file).replace(/\\/g, '/'),
-        line: i + 1,
-        db,
-        snippet: text.trim().slice(0, 160),
-      });
-    }
-  });
+  for (const v of violationsIn(content)) violations.push({ file: rel, ...v });
 }
 
 if (violations.length > 0) {
   console.error(`\n✖ TEST DB SCAN FAILED — ${violations.length} test file location(s) name a non-test database\n`);
   for (const v of violations) {
     console.error(`  ${v.file}:${v.line}`);
-    console.error(`    → connects to database "${v.db}", which does not end in "_test"`);
+    console.error(
+      v.kind === 'drop'
+        ? `    → DROP DATABASE targets the literal name "${v.db}"; the target must be a \${...} variable the suite created and guarded`
+        : `    → connects to database "${v.db}", which does not end in "_test"`,
+    );
     console.error(`      ${v.snippet}\n`);
   }
   console.error('  Test suites apply migrations and truncate tables. Pointed at the shared');
