@@ -311,11 +311,82 @@ test('api keys: create with Trade and an IP list, then the key is shown once and
   const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + location.href);
   expect(stored).not.toContain(FAKE_SECRET);
   expect(api.state.logs.join('\n')).not.toContain(FAKE_SECRET);
+  // Reopening starts from an empty form: the earlier key, name and addresses are not kept in the component.
+  await page.getByRole('button', { name: 'Create API key' }).first().click();
+  const again = page.getByRole('dialog');
+  await expect(again.getByRole('heading', { name: 'Create an API key' })).toBeVisible();
+  await expect(again.getByTestId('api-key-secret')).toHaveCount(0);
+  await expect(again.getByLabel('Name', { exact: true })).toHaveValue('');
+  await expect(again.getByLabel('Allowed IP addresses (optional)')).toHaveValue('');
+  await expect(again.getByRole('checkbox', { name: /^Trade/ })).not.toBeChecked();
+  expect(await page.content()).not.toContain(FAKE_SECRET);
+  await again.getByRole('button', { name: 'Cancel' }).last().click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   const first = page.getByRole('table').locator('tbody tr').first();
   await expect(first).toContainText('Market maker');
   await expect(first).toContainText('fake_new1…');
   await expect(first.locator('.tools-chip')).toHaveText(['Read', 'Trade']);
   expect(errors).toEqual([]);
+});
+
+test('api keys: nothing can be cancelled while a key is being made, and a key made after leaving is revoked', async ({ page }) => {
+  const api = await mock(page, { hold: ['apiKeys.create'] });
+  await open(page, '/uc/api');
+  await page.getByRole('button', { name: 'Create API key' }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Name', { exact: true }).fill('Slow bot');
+  await dialog.getByRole('button', { name: 'Create key' }).click();
+  await expect.poll(() => api.state.held.length).toBe(1);
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  // The close icon is gone too: only the (disabled) footer Cancel is left.
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await page.mouse.click(5, 5);
+  await expect(dialog.getByLabel('Name', { exact: true })).toBeVisible();
+  // The key arrives while the person is still here: it is shown, not dropped.
+  api.state.hold.clear();
+  await api.release();
+  await expect(dialog.getByTestId('api-key-secret')).toHaveText(FAKE_SECRET);
+  await dialog.getByRole('checkbox', { name: /I have saved this key/ }).click();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+
+  // Leaving the page mid-request: the key that gets made is revoked straight away, never left active and unseen.
+  api.state.hold.add('apiKeys.create');
+  await page.getByRole('button', { name: 'Create API key' }).first().click();
+  const next = page.getByRole('dialog');
+  await next.getByLabel('Name', { exact: true }).fill('Abandoned');
+  await next.getByRole('button', { name: 'Create key' }).click();
+  await expect.poll(() => api.state.held.length).toBe(1);
+  await page.evaluate(() => {
+    history.pushState(null, '', '/uc/fees');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.getByRole('heading', { level: 1, name: 'Fees' })).toBeVisible();
+  api.state.hold.clear();
+  await api.release();
+  await expect.poll(() => api.calls('apiKeys.revoke').length).toBe(1);
+  expect(api.calls('apiKeys.revoke')[0].input.keyId).toBe(api.state.keys.find((key) => key.name === 'Abandoned').id);
+  expect(await page.content()).not.toContain(FAKE_SECRET);
+});
+
+test('api keys: the passkey step cannot be cancelled mid-check, and addresses are sent in canonical form', async ({ page }) => {
+  await fakePasskey(page);
+  const api = await mock(page, { passkey: 'unconfirmed', hold: ['verifyPasskey'] });
+  await open(page, '/uc/api');
+  await page.getByRole('button', { name: 'Create API key' }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Name', { exact: true }).fill('Bot');
+  await dialog.getByLabel('Allowed IP addresses (optional)').fill('2001:DB8::1');
+  await dialog.getByRole('button', { name: 'Create key' }).click();
+  await dialog.getByRole('button', { name: 'Confirm passkey' }).click();
+  await expect.poll(() => api.state.held.length).toBe(1);
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog.getByLabel('Name', { exact: true })).toBeVisible();
+  api.state.hold.clear();
+  await api.release();
+  await expect(dialog.getByTestId('api-key-secret')).toHaveText(FAKE_SECRET);
+  expect(api.calls('mintApiKeyWithIpAllowlist').at(-1).input.ips).toEqual(['2001:db8::1']);
 });
 
 test('api keys: no IP list uses the plain create, and Read-only asks for read only', async ({ page }) => {
@@ -486,7 +557,7 @@ test('sub-accounts: create, refused until the owner opens them, and close', asyn
 
   await page.getByRole('button', { name: 'Close Weekend bot' }).click();
   const alert = page.getByRole('alertdialog');
-  await expect(alert.getByText('Money in it is not moved by closing.')).toBeVisible();
+  await expect(alert.getByText(/Any money and open orders in it stay there, and can’t be moved out yet\./)).toBeVisible();
   await alert.getByRole('button', { name: 'Close sub-account' }).click();
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
   expect(api.calls('subAccounts.revoke')[0].input).toEqual({ subAccountId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });

@@ -3,7 +3,16 @@ import { Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFoote
 import { Lock } from 'lucide-react';
 import { useSession } from '../../../features/session/session';
 import { apiKeysCopy } from './copy';
-import { classifyCreateFailure, createKey, nameError, NAME_MAX, parseAllowList, type CreateFailureKind, type Permission } from './model';
+import {
+  classifyCreateFailure,
+  createKey,
+  nameError,
+  revokeKey,
+  NAME_MAX,
+  parseAllowList,
+  type CreateFailureKind,
+  type Permission,
+} from './model';
 import { confirmPasskey } from './passkey-check';
 import { SecretOnce } from './SecretOnce';
 
@@ -67,8 +76,9 @@ export function CreateKeyDialog({
     setSaved(false);
   }
   function change(next: boolean) {
-    // The key is shown once, so the dialog cannot be dismissed by accident until the person says they saved it.
-    if (!next && secretOpen && !saved) return;
+    // Nothing closes while a request is in flight (a key could be made with nobody watching), and the key is shown
+    // once, so the dialog cannot be dismissed by accident until the person says they saved it.
+    if (!next && (busy !== null || (secretOpen && !saved))) return;
     if (!next) reset();
     onOpenChange(next);
   }
@@ -81,7 +91,11 @@ export function CreateKeyDialog({
     setNotice(null);
     const result = await createKey(api, { name, permissions, ips: allow.ips });
     working.current = false;
-    if (!alive.current) return;
+    if (!alive.current) {
+      // The person left the page mid-request: nobody can see this key, so it must not be left active.
+      if (result.ok) void revokeKey(api, result.data.id);
+      return;
+    }
     setBusy(null);
     if (result.ok) {
       setMade({
@@ -112,8 +126,8 @@ export function CreateKeyDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={change} disablePointerDismissal={secretOpen}>
-      <DialogContent className="tools-dialog max-w-lg" showCloseButton={!secretOpen} closeLabel={t('cancel')}>
+    <Dialog open={open} onOpenChange={change} disablePointerDismissal={secretOpen || busy !== null}>
+      <DialogContent className="tools-dialog max-w-lg" showCloseButton={!secretOpen && busy === null} closeLabel={t('cancel')}>
         {made ? (
           <>
             <DialogHeader>
@@ -221,7 +235,7 @@ export function CreateKeyDialog({
             <Notices notice={notice} busy={busy} onConfirm={() => void confirm()} />
 
             <DialogFooter>
-              <Button type="button" variant="secondary" onClick={() => change(false)}>
+              <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => change(false)}>
                 {t('cancel')}
               </Button>
               <Button type="submit" loading={busy === 'create'} disabled={busy !== null}>

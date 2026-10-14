@@ -36,10 +36,14 @@ describe('IP allow-list', () => {
   });
   it('splits on commas, spaces and lines, drops repeats, and lists the bad ones', () => {
     expect(parseAllowList('203.0.113.7, 203.0.113.8\n203.0.113.7  nope\n2001:DB8::1')).toEqual({
-      ips: ['203.0.113.7', '203.0.113.8', '2001:DB8::1'],
+      ips: ['203.0.113.7', '203.0.113.8', '2001:db8::1'],
       invalid: ['nope'],
     });
     expect(parseAllowList('  \n')).toEqual({ ips: [], invalid: [] });
+  });
+  it('sends IPv6 in the lower-case compressed form the service compares against', () => {
+    expect(parseAllowList('2001:0DB8:0000:0000:0000:0000:0000:0001, 2001:db8::1').ips).toEqual(['2001:db8::1']);
+    expect(parseAllowList('::1').ips).toEqual(['::1']);
   });
 });
 

@@ -100,6 +100,19 @@ export function isValidIp(value: string): boolean {
   }
 }
 
+/**
+ * The form the service will compare against: IPv4 as typed, IPv6 lower-case and compressed. The service matches
+ * the request address as an exact string, so `2001:DB8::1` typed here would never match and the key would be locked out.
+ */
+export function canonicalIp(value: string): string {
+  if (ipv4.test(value)) return value;
+  try {
+    return new URL(`http://[${value}]/`).hostname.replace(/^\[|\]$/g, '');
+  } catch {
+    return value;
+  }
+}
+
 export interface AllowList {
   ips: string[];
   invalid: string[];
@@ -111,10 +124,12 @@ export function parseAllowList(text: string): AllowList {
   const ips: string[] = [];
   const invalid: string[] = [];
   for (const raw of text.split(/[\s,;]+/)) {
-    const entry = raw.trim();
-    if (!entry || seen.has(entry.toLowerCase())) continue;
+    const typed = raw.trim();
+    if (!typed) continue;
+    const entry = isValidIp(typed) ? canonicalIp(typed) : typed;
+    if (seen.has(entry.toLowerCase())) continue;
     seen.add(entry.toLowerCase());
-    (isValidIp(entry) ? ips : invalid).push(entry);
+    (isValidIp(typed) ? ips : invalid).push(entry);
   }
   return { ips, invalid };
 }

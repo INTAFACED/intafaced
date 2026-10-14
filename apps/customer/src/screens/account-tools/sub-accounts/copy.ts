@@ -45,7 +45,8 @@ const messages = {
   'other failed': 'The sub-account wasn’t created. Try again in a moment.',
 
   'close title': 'Close this sub-account?',
-  'close body': '“{name}” is closed and can’t be used for orders. Money in it is not moved by closing.',
+  'close body':
+    'Closing “{name}” stops it being used for new orders. Any money and open orders in it stay there, and can’t be moved out yet.',
   'close submit': 'Close sub-account',
   closing: 'Closing',
   'close failed': 'It wasn’t closed. Try again in a moment.',
