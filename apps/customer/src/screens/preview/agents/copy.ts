@@ -15,7 +15,8 @@ export const agentsCopy = defineCopy('customer.preview.agents', {
   'Pause all': 'Pause all agents',
 
   'Navigator heading': 'Navigator',
-  'Navigator line': 'Ask a question or give a command, by text or voice. Navigator works through Sovereign Intelligence and reads your Identity Blueprint.',
+  'Navigator line':
+    'Ask a question or give a command, by text or voice. Navigator works through Sovereign Intelligence and reads your Identity Blueprint.',
   'Command label': 'Tell Navigator what to do',
   'Command placeholder': 'For example: Move half my USDT into Earn',
   Send: 'Send',
@@ -61,7 +62,7 @@ export const agentsCopy = defineCopy('customer.preview.agents', {
   'Ask above': 'Ask me first above',
   'Stop at loss': 'Pause for the day after a loss of',
   'Actions heading': 'Allowed actions',
-  'Locked': 'Locked',
+  Locked: 'Locked',
   'Markets heading': 'Coins it may use',
   'Reads only body': 'This agent only reads and suggests. It has no money limits to set, because it cannot move money.',
   'Test heading': 'Would this be allowed?',
@@ -75,7 +76,7 @@ export const agentsCopy = defineCopy('customer.preview.agents', {
   'Verdict blocked max': 'Blocked. It is more than the most per action, {limit}.',
   'Verdict blocked daily': 'Blocked. It would pass the daily limit of {limit}.',
   'Verdict blocked amount': 'Enter an amount to check.',
-  'Unsaved': 'Unsaved changes',
+  Unsaved: 'Unsaved changes',
   Save: 'Save guardrails',
   Reset: 'Reset',
   'Save note': 'Nothing is sent. Saving guardrails is not live yet.',

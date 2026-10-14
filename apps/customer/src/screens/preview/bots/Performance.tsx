@@ -59,7 +59,14 @@ export function Performance({ rows, empty }: { rows: SampleBotsRows; empty: bool
       </dl>
       {series.length > 1 ? (
         <figure className="bots-perf__chart">
-          <Sparkline values={series} width={760} height={150} endDot label={t('Perf chart label', { range: rangeText })} className="bots-perf__svg" />
+          <Sparkline
+            values={series}
+            width={760}
+            height={150}
+            endDot
+            label={t('Perf chart label', { range: rangeText })}
+            className="bots-perf__svg"
+          />
           <figcaption>
             <span className="if-num">{fmtUsd(first)}</span>
             <span className="if-num">{fmtUsd(last)}</span>

@@ -7,7 +7,11 @@ import { botRatio, elapsed } from './model';
 import { useSampleTime } from './time';
 
 const stateKind: Record<SampleBot['state'], StatusKind> = { running: 'filled', stopped: 'cancelled', finished: 'working' };
-const kindWord: Record<SampleBotKind, 'Grid short' | 'Dca short' | 'Twap short'> = { grid: 'Grid short', dca: 'Dca short', twap: 'Twap short' };
+const kindWord: Record<SampleBotKind, 'Grid short' | 'Dca short' | 'Twap short'> = {
+  grid: 'Grid short',
+  dca: 'Dca short',
+  twap: 'Twap short',
+};
 
 function Row({ bot, asOf }: { bot: SampleBot; asOf: string }) {
   const { t } = botsCopy.useCopy();
@@ -26,8 +30,17 @@ function Row({ bot, asOf }: { bot: SampleBot; asOf: string }) {
         </span>
       </th>
       <td>
-        <StatusTag status={stateKind[bot.state]} label={bot.state === 'running' ? t('State running') : bot.state === 'stopped' ? t('State stopped') : t('State finished')} />
-        <span className="bots-sub">{live ? (run.days > 0 ? t('Running for', { days: run.days, hours: run.hours }) : t('Running for hours', { hours: run.hours, minutes: run.minutes })) : time(bot.endedAt ?? bot.startedAt)}</span>
+        <StatusTag
+          status={stateKind[bot.state]}
+          label={bot.state === 'running' ? t('State running') : bot.state === 'stopped' ? t('State stopped') : t('State finished')}
+        />
+        <span className="bots-sub">
+          {live
+            ? run.days > 0
+              ? t('Running for', { days: run.days, hours: run.hours })
+              : t('Running for hours', { hours: run.hours, minutes: run.minutes })
+            : time(bot.endedAt ?? bot.startedAt)}
+        </span>
       </td>
       <td className="bots-num if-num">{fmtUsd(bot.invested)}</td>
       <td className="bots-num">

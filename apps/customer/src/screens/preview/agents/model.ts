@@ -33,7 +33,9 @@ export function waiting(log: readonly SampleLogEntry[]): readonly SampleLogEntry
 /** USD an agent has already used in the window: money from actions that were done. */
 export function usedBy(log: readonly SampleLogEntry[], agent: SampleAgentId): string {
   return toFixedString(
-    sumOf(log.filter((entry) => entry.agent === agent && entry.result === 'done' && entry.size !== null).map((entry) => dec(entry.size) ?? 0n)),
+    sumOf(
+      log.filter((entry) => entry.agent === agent && entry.result === 'done' && entry.size !== null).map((entry) => dec(entry.size) ?? 0n),
+    ),
     2,
   );
 }

@@ -69,7 +69,13 @@ export function Leaderboard({
           {t('Board heading')}
         </h2>
         <PreviewChip />
-        <ToggleGroup aria-label={t('Period label')} variant="pill" value={period} onValueChange={(next) => setPeriod(next as Period)} className="cp-board__period">
+        <ToggleGroup
+          aria-label={t('Period label')}
+          variant="pill"
+          value={period}
+          onValueChange={(next) => setPeriod(next as Period)}
+          className="cp-board__period"
+        >
           <ToggleGroupItem value="d7">{t('Period d7')}</ToggleGroupItem>
           <ToggleGroupItem value="d30">{t('Period d30')}</ToggleGroupItem>
           <ToggleGroupItem value="d90">{t('Period d90')}</ToggleGroupItem>
@@ -179,7 +185,13 @@ export function Leaderboard({
                     {fmtPct(trader.returns[period])}
                   </td>
                   <td className="cp-spark">
-                    <Sparkline values={trader.curve} width={88} height={28} baseline={false} label={t('Curve label', { name: trader.name })} />
+                    <Sparkline
+                      values={trader.curve}
+                      width={88}
+                      height={28}
+                      baseline={false}
+                      label={t('Curve label', { name: trader.name })}
+                    />
                   </td>
                   <td className="cp-num if-num">{fmtPct(trader.drawdown, { signed: false })}</td>
                   <td className="cp-num if-num">{fmtPct(trader.winRate, { signed: false })}</td>

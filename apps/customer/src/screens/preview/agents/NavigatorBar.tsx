@@ -77,7 +77,10 @@ export function NavigatorBar({ commands }: { commands: readonly SampleCommand[] 
             ))}
           </ol>
           <div className="ag-plan__foot">
-            <StatusTag status={shown.check === 'inside' ? 'filled' : shown.check === 'asked' ? 'pending' : 'failed'} label={t(planKey[shown.check])} />
+            <StatusTag
+              status={shown.check === 'inside' ? 'filled' : shown.check === 'asked' ? 'pending' : 'failed'}
+              label={t(planKey[shown.check])}
+            />
             <span className="ag-plan__size">
               {t('Plan size')}: <span className="if-num">{shown.size === null ? t('Plan none') : fmtUsd(shown.size)}</span>
             </span>

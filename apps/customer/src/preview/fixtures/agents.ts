@@ -5,16 +5,7 @@ import { definePreviewFixture } from './types';
  * Invented, never mixed with real data. Money is a decimal string; a count is a whole number. See ../README.md.
  */
 export type SampleAgentId =
-  | 'navigator'
-  | 'portfolio'
-  | 'scanner'
-  | 'copy-intel'
-  | 'risk'
-  | 'support'
-  | 'coach'
-  | 'launch'
-  | 'merchant'
-  | 'growth';
+  'navigator' | 'portfolio' | 'scanner' | 'copy-intel' | 'risk' | 'support' | 'coach' | 'launch' | 'merchant' | 'growth';
 /** On duty, paused by the person, or not set up yet. */
 export type SampleAgentState = 'on' | 'paused' | 'off';
 /** How much an agent may do alone: only suggest, ask before each action, or act inside the limits. */
@@ -228,7 +219,12 @@ const agents: readonly SampleAgent[] = [
     job: 'Guides token creators from tokenomics template to launch-day liquidity plan.',
     state: 'off',
     canMoveMoney: false,
-    guardrails: { mode: 'suggest', limits: null, markets: [], actions: [{ id: 'draft', label: 'Draft a launch checklist', allowed: false }] },
+    guardrails: {
+      mode: 'suggest',
+      limits: null,
+      markets: [],
+      actions: [{ id: 'draft', label: 'Draft a launch checklist', allowed: false }],
+    },
   },
   {
     id: 'merchant',
@@ -236,7 +232,12 @@ const agents: readonly SampleAgent[] = [
     job: 'For payment clients: watches approval rates, proposes routing changes and drafts dispute replies.',
     state: 'off',
     canMoveMoney: false,
-    guardrails: { mode: 'suggest', limits: null, markets: [], actions: [{ id: 'routing', label: 'Propose routing changes', allowed: false }] },
+    guardrails: {
+      mode: 'suggest',
+      limits: null,
+      markets: [],
+      actions: [{ id: 'routing', label: 'Propose routing changes', allowed: false }],
+    },
   },
   {
     id: 'growth',
@@ -249,18 +250,106 @@ const agents: readonly SampleAgent[] = [
 ];
 
 const log: readonly SampleLogEntry[] = [
-  { id: 'l1', at: '2026-10-14T08:41:00Z', agent: 'navigator', did: 'Converted USDT to BTC', size: '150.00', check: 'inside', result: 'done' },
-  { id: 'l2', at: '2026-10-14T08:12:00Z', agent: 'portfolio', did: 'Proposed selling part of ETH to ease concentration', size: '420.00', check: 'asked', result: 'waiting' },
-  { id: 'l3', at: '2026-10-14T07:55:00Z', agent: 'scanner', did: 'Flagged ETH volume up 2.1x', size: null, check: 'inside', result: 'done' },
-  { id: 'l4', at: '2026-10-14T07:30:00Z', agent: 'navigator', did: 'Tried to send USDT to a new address', size: '300.00', check: 'blocked', result: 'stopped' },
-  { id: 'l5', at: '2026-10-14T06:58:00Z', agent: 'copy-intel', did: 'Warned: Trader C drew down more than they report', size: null, check: 'inside', result: 'done' },
-  { id: 'l6', at: '2026-10-14T06:20:00Z', agent: 'portfolio', did: 'Rebalanced toward your targets', size: '85.00', check: 'inside', result: 'done' },
-  { id: 'l7', at: '2026-10-14T05:47:00Z', agent: 'risk', did: 'Flagged a sign-in from a new device', size: null, check: 'inside', result: 'done' },
+  {
+    id: 'l1',
+    at: '2026-10-14T08:41:00Z',
+    agent: 'navigator',
+    did: 'Converted USDT to BTC',
+    size: '150.00',
+    check: 'inside',
+    result: 'done',
+  },
+  {
+    id: 'l2',
+    at: '2026-10-14T08:12:00Z',
+    agent: 'portfolio',
+    did: 'Proposed selling part of ETH to ease concentration',
+    size: '420.00',
+    check: 'asked',
+    result: 'waiting',
+  },
+  {
+    id: 'l3',
+    at: '2026-10-14T07:55:00Z',
+    agent: 'scanner',
+    did: 'Flagged ETH volume up 2.1x',
+    size: null,
+    check: 'inside',
+    result: 'done',
+  },
+  {
+    id: 'l4',
+    at: '2026-10-14T07:30:00Z',
+    agent: 'navigator',
+    did: 'Tried to send USDT to a new address',
+    size: '300.00',
+    check: 'blocked',
+    result: 'stopped',
+  },
+  {
+    id: 'l5',
+    at: '2026-10-14T06:58:00Z',
+    agent: 'copy-intel',
+    did: 'Warned: Trader C drew down more than they report',
+    size: null,
+    check: 'inside',
+    result: 'done',
+  },
+  {
+    id: 'l6',
+    at: '2026-10-14T06:20:00Z',
+    agent: 'portfolio',
+    did: 'Rebalanced toward your targets',
+    size: '85.00',
+    check: 'inside',
+    result: 'done',
+  },
+  {
+    id: 'l7',
+    at: '2026-10-14T05:47:00Z',
+    agent: 'risk',
+    did: 'Flagged a sign-in from a new device',
+    size: null,
+    check: 'inside',
+    result: 'done',
+  },
   { id: 'l8', at: '2026-10-13T22:10:00Z', agent: 'navigator', did: 'Moved USDT into Earn', size: '500.00', check: 'asked', result: 'done' },
-  { id: 'l9', at: '2026-10-13T19:35:00Z', agent: 'navigator', did: 'Placed a limit buy of BTC', size: '200.00', check: 'inside', result: 'done' },
-  { id: 'l10', at: '2026-10-13T16:02:00Z', agent: 'portfolio', did: 'Proposed moving USDT into Earn', size: '1000.00', check: 'asked', result: 'declined' },
-  { id: 'l11', at: '2026-10-13T11:30:00Z', agent: 'support', did: 'Answered a question about card limits', size: null, check: 'inside', result: 'done' },
-  { id: 'l12', at: '2026-10-13T09:15:00Z', agent: 'navigator', did: 'Showed this month profit and loss', size: null, check: 'inside', result: 'done' },
+  {
+    id: 'l9',
+    at: '2026-10-13T19:35:00Z',
+    agent: 'navigator',
+    did: 'Placed a limit buy of BTC',
+    size: '200.00',
+    check: 'inside',
+    result: 'done',
+  },
+  {
+    id: 'l10',
+    at: '2026-10-13T16:02:00Z',
+    agent: 'portfolio',
+    did: 'Proposed moving USDT into Earn',
+    size: '1000.00',
+    check: 'asked',
+    result: 'declined',
+  },
+  {
+    id: 'l11',
+    at: '2026-10-13T11:30:00Z',
+    agent: 'support',
+    did: 'Answered a question about card limits',
+    size: null,
+    check: 'inside',
+    result: 'done',
+  },
+  {
+    id: 'l12',
+    at: '2026-10-13T09:15:00Z',
+    agent: 'navigator',
+    did: 'Showed this month profit and loss',
+    size: null,
+    check: 'inside',
+    result: 'done',
+  },
 ];
 
 const commands: readonly SampleCommand[] = [
@@ -287,10 +376,14 @@ const commands: readonly SampleCommand[] = [
   },
 ];
 
-export const agentsFixture = definePreviewFixture<SampleAgentsRows>('agents', 'Your agent fleet: sample agents, limits and activity. They suggest, you approve.', {
-  asOf: '2026-10-14T09:00:00Z',
-  agents,
-  log,
-  commands,
-  temperament: 'Balanced',
-});
+export const agentsFixture = definePreviewFixture<SampleAgentsRows>(
+  'agents',
+  'Your agent fleet: sample agents, limits and activity. They suggest, you approve.',
+  {
+    asOf: '2026-10-14T09:00:00Z',
+    agents,
+    log,
+    commands,
+    temperament: 'Balanced',
+  },
+);

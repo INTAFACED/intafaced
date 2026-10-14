@@ -112,12 +112,44 @@ export function CreatePanel({ rows, kind }: { rows: Rows; kind: SampleBotKind })
       {kind === 'grid' ? (
         <div className="bots-form" data-kind="grid">
           <PairSelect rows={rows} value={grid.pair} onChange={(pair) => setGrid({ ...grid, pair })} />
-          <AmountInput label={t('Lowest price')} unit="USDT" precision={2} tick="100" value={grid.low} onValueChange={(low) => setGrid({ ...grid, low })} />
-          <AmountInput label={t('Highest price')} unit="USDT" precision={2} tick="100" value={grid.high} onValueChange={(high) => setGrid({ ...grid, high })} />
-          <AmountInput label={t('Grids')} precision={0} tick="1" min="0" value={grid.grids} onValueChange={(grids) => setGrid({ ...grid, grids })} />
-          <AmountInput label={t('Investment')} unit="USDT" precision={2} tick="50" value={grid.invest} onValueChange={(invest) => setGrid({ ...grid, invest })} />
+          <AmountInput
+            label={t('Lowest price')}
+            unit="USDT"
+            precision={2}
+            tick="100"
+            value={grid.low}
+            onValueChange={(low) => setGrid({ ...grid, low })}
+          />
+          <AmountInput
+            label={t('Highest price')}
+            unit="USDT"
+            precision={2}
+            tick="100"
+            value={grid.high}
+            onValueChange={(high) => setGrid({ ...grid, high })}
+          />
+          <AmountInput
+            label={t('Grids')}
+            precision={0}
+            tick="1"
+            min="0"
+            value={grid.grids}
+            onValueChange={(grids) => setGrid({ ...grid, grids })}
+          />
+          <AmountInput
+            label={t('Investment')}
+            unit="USDT"
+            precision={2}
+            tick="50"
+            value={grid.invest}
+            onValueChange={(invest) => setGrid({ ...grid, invest })}
+          />
           <label className="bots-switch">
-            <Switch checked={grid.stopOutside} onCheckedChange={(stopOutside) => setGrid({ ...grid, stopOutside })} aria-label={t('Close outside range')} />
+            <Switch
+              checked={grid.stopOutside}
+              onCheckedChange={(stopOutside) => setGrid({ ...grid, stopOutside })}
+              aria-label={t('Close outside range')}
+            />
             <span>{t('Close outside range')}</span>
           </label>
           <h3 className="bots-h3">{t('Grid summary heading')}</h3>
@@ -140,7 +172,14 @@ export function CreatePanel({ rows, kind }: { rows: Rows; kind: SampleBotKind })
       {kind === 'dca' ? (
         <div className="bots-form" data-kind="dca">
           <PairSelect rows={rows} value={dca.pair} onChange={(pair) => setDca({ ...dca, pair })} />
-          <AmountInput label={t('Buy per time')} unit="USDT" precision={2} tick="5" value={dca.perBuy} onValueChange={(perBuy) => setDca({ ...dca, perBuy })} />
+          <AmountInput
+            label={t('Buy per time')}
+            unit="USDT"
+            precision={2}
+            tick="5"
+            value={dca.perBuy}
+            onValueChange={(perBuy) => setDca({ ...dca, perBuy })}
+          />
           <div className="bots-field bots-field--select">
             <span className="bots-field__label" id="bots-frequency-label">
               {t('Frequency')}
@@ -161,8 +200,21 @@ export function CreatePanel({ rows, kind }: { rows: Rows; kind: SampleBotKind })
               </SelectContent>
             </Select>
           </div>
-          <AmountInput label={t('Number of buys')} precision={0} tick="1" value={dca.buys} onValueChange={(buys) => setDca({ ...dca, buys })} />
-          <AmountInput label={t('Take profit')} unit="%" precision={0} tick="1" value={dca.takeProfit} onValueChange={(takeProfit) => setDca({ ...dca, takeProfit })} />
+          <AmountInput
+            label={t('Number of buys')}
+            precision={0}
+            tick="1"
+            value={dca.buys}
+            onValueChange={(buys) => setDca({ ...dca, buys })}
+          />
+          <AmountInput
+            label={t('Take profit')}
+            unit="%"
+            precision={0}
+            tick="1"
+            value={dca.takeProfit}
+            onValueChange={(takeProfit) => setDca({ ...dca, takeProfit })}
+          />
           <h3 className="bots-h3">{t('Dca summary heading')}</h3>
           {dcaPlan.problem === null ? (
             <Facts
@@ -190,12 +242,24 @@ export function CreatePanel({ rows, kind }: { rows: Rows; kind: SampleBotKind })
             ]}
           />
           <PairSelect rows={rows} value={twap.pair} onChange={(pair) => setTwap({ ...twap, pair })} />
-          <AmountInput label={t('Total size')} unit="USDT" precision={2} tick="100" value={twap.total} onValueChange={(total) => setTwap({ ...twap, total })} />
+          <AmountInput
+            label={t('Total size')}
+            unit="USDT"
+            precision={2}
+            tick="100"
+            value={twap.total}
+            onValueChange={(total) => setTwap({ ...twap, total })}
+          />
           <div className="bots-field bots-field--chips">
             <span className="bots-field__label" id="bots-hours-label">
               {t('Spread across')}
             </span>
-            <ToggleGroup aria-labelledby="bots-hours-label" variant="pill" value={twap.hours} onValueChange={(hours) => setTwap({ ...twap, hours })}>
+            <ToggleGroup
+              aria-labelledby="bots-hours-label"
+              variant="pill"
+              value={twap.hours}
+              onValueChange={(hours) => setTwap({ ...twap, hours })}
+            >
               {['1', '4', '12', '24'].map((hours) => (
                 <ToggleGroupItem key={hours} value={hours}>
                   {hours} {t('Hours unit')}
@@ -203,11 +267,30 @@ export function CreatePanel({ rows, kind }: { rows: Rows; kind: SampleBotKind })
               ))}
             </ToggleGroup>
           </div>
-          <AmountInput label={t('Slice every')} unit={t('Minutes unit')} precision={0} tick="1" value={twap.intervalMinutes} onValueChange={(intervalMinutes) => setTwap({ ...twap, intervalMinutes })} />
-          <AmountInput label={t('Max slippage')} unit="%" precision={2} tick="0.05" value={twap.slippage} onValueChange={(slippage) => setTwap({ ...twap, slippage })} />
+          <AmountInput
+            label={t('Slice every')}
+            unit={t('Minutes unit')}
+            precision={0}
+            tick="1"
+            value={twap.intervalMinutes}
+            onValueChange={(intervalMinutes) => setTwap({ ...twap, intervalMinutes })}
+          />
+          <AmountInput
+            label={t('Max slippage')}
+            unit="%"
+            precision={2}
+            tick="0.05"
+            value={twap.slippage}
+            onValueChange={(slippage) => setTwap({ ...twap, slippage })}
+          />
           <h3 className="bots-h3">{t('Twap summary heading')}</h3>
           {twapPlan.problem === null ? (
-            <Facts items={[[t('Slices'), String(twapPlan.slices)], [t('Each slice'), fmtUsd(twapPlan.perSlice)]]} />
+            <Facts
+              items={[
+                [t('Slices'), String(twapPlan.slices)],
+                [t('Each slice'), fmtUsd(twapPlan.perSlice)],
+              ]}
+            />
           ) : null}
         </div>
       ) : null}

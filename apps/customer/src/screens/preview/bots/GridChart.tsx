@@ -19,7 +19,9 @@ export function GridChart({ plan, priceText }: { plan: GridPlan; priceText: stri
             x2={WIDTH}
             y1={y(level.position)}
             y2={y(level.position)}
-            className={level.side === 'buy' ? 'bots-line bots-line--buy' : level.side === 'sell' ? 'bots-line bots-line--sell' : 'bots-line'}
+            className={
+              level.side === 'buy' ? 'bots-line bots-line--buy' : level.side === 'sell' ? 'bots-line bots-line--sell' : 'bots-line'
+            }
           />
         ))}
         {plan.pricePosition !== null ? (

@@ -16,7 +16,9 @@ export function ranked(
   traders: readonly SampleTrader[],
   options: { period: Period; sort: SortKey; risk: SampleRiskBand | 'all'; checkedOnly: boolean },
 ): readonly SampleTrader[] {
-  const kept = traders.filter((trader) => (options.risk === 'all' || trader.risk === options.risk) && (!options.checkedOnly || trader.check.status === 'verified'));
+  const kept = traders.filter(
+    (trader) => (options.risk === 'all' || trader.risk === options.risk) && (!options.checkedOnly || trader.check.status === 'verified'),
+  );
   const order = (a: SampleTrader, b: SampleTrader): number => {
     switch (options.sort) {
       case 'return':
@@ -46,7 +48,8 @@ export interface FollowPlan {
 export function planFollow(input: { amount: string; maxLoss: string; minCopy: string; balance: string }): FollowPlan {
   const amount = dec(input.amount);
   const loss = dec(input.maxLoss);
-  if (amount === null || amount <= 0n) return { lossRatio: null, belowMin: false, overBalance: false, lossTooBig: false, empty: true, total: null };
+  if (amount === null || amount <= 0n)
+    return { lossRatio: null, belowMin: false, overBalance: false, lossTooBig: false, empty: true, total: null };
   const r = loss === null ? null : ratio(loss, amount);
   return {
     lossRatio: r === null ? null : str(r),

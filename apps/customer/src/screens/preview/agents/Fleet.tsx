@@ -37,7 +37,13 @@ export function Fleet({
           const count = actionsBy(day, agent.id);
           const mode = agent.guardrails.mode;
           return (
-            <li key={agent.id} className="ag-agent" data-agent={agent.id} data-state={agent.state} data-selected={selected === agent.id || undefined}>
+            <li
+              key={agent.id}
+              className="ag-agent"
+              data-agent={agent.id}
+              data-state={agent.state}
+              data-selected={selected === agent.id || undefined}
+            >
               <button type="button" className="ag-agent__pick" aria-pressed={selected === agent.id} onClick={() => onSelect(agent.id)}>
                 <span className="ag-agent__icon" aria-hidden="true">
                   <Icon size={20} strokeWidth={1.75} />
@@ -55,7 +61,9 @@ export function Fleet({
                     {agent.state !== 'off' ? (
                       <>
                         <span aria-hidden="true">·</span>
-                        <span>{mode === 'suggest' ? t('Mode suggest short') : mode === 'ask' ? t('Mode ask short') : t('Mode act short')}</span>
+                        <span>
+                          {mode === 'suggest' ? t('Mode suggest short') : mode === 'ask' ? t('Mode ask short') : t('Mode act short')}
+                        </span>
                         <span aria-hidden="true">·</span>
                         <span className="if-num">{count === 1 ? t('One action') : t('Actions count', { count })}</span>
                       </>

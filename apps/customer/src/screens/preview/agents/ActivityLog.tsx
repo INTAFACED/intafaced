@@ -1,5 +1,16 @@
 import { useState } from 'react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StateBlock, StatusTag, ToggleGroup, ToggleGroupItem, type StatusKind } from '@intafaced/ui';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  StateBlock,
+  StatusTag,
+  ToggleGroup,
+  ToggleGroupItem,
+  type StatusKind,
+} from '@intafaced/ui';
 import { fmtUsd } from '../../../data/format';
 import { PreviewActionButton, PreviewChip } from '../../../preview';
 import type { SampleAgent, SampleCheck, SampleLogEntry, SampleResult } from '../../../preview/fixtures/agents';
@@ -55,7 +66,12 @@ export function ActivityLog({ agents, log }: { agents: readonly SampleAgent[]; l
               </SelectContent>
             </Select>
           </span>
-          <ToggleGroup aria-label={t('Filter outcome')} variant="pill" value={outcome} onValueChange={(next) => setOutcome(next as Outcome)}>
+          <ToggleGroup
+            aria-label={t('Filter outcome')}
+            variant="pill"
+            value={outcome}
+            onValueChange={(next) => setOutcome(next as Outcome)}
+          >
             <ToggleGroupItem value="all">{t('Out all')}</ToggleGroupItem>
             <ToggleGroupItem value="waiting">{t('Out waiting')}</ToggleGroupItem>
             <ToggleGroupItem value="done">{t('Out done')}</ToggleGroupItem>
@@ -100,7 +116,9 @@ export function ActivityLog({ agents, log }: { agents: readonly SampleAgent[]; l
                     {names[entry.agent]}
                   </th>
                   <td>{entry.did}</td>
-                  <td className="ag-num if-num">{entry.size === null ? <span className="ag-dim">{t('No size')}</span> : fmtUsd(entry.size)}</td>
+                  <td className="ag-num if-num">
+                    {entry.size === null ? <span className="ag-dim">{t('No size')}</span> : fmtUsd(entry.size)}
+                  </td>
                   <td>
                     <StatusTag status={checkKind[entry.check]} label={t(checkKey(entry.check))} />
                   </td>

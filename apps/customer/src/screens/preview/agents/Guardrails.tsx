@@ -1,15 +1,6 @@
 import { useState } from 'react';
 import { Lock } from 'lucide-react';
-import {
-  AmountInput,
-  Checkbox,
-  SegmentedControl,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@intafaced/ui';
+import { AmountInput, Checkbox, SegmentedControl, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@intafaced/ui';
 import { fmtUsd } from '../../../data/format';
 import { PreviewActionButton, PreviewChip } from '../../../preview';
 import type { SampleAgent, SampleAgentMode, SampleLogEntry } from '../../../preview/fixtures/agents';
@@ -49,7 +40,11 @@ function Tester({ agent, draft, day }: { agent: SampleAgent; draft: Draft; day: 
           <span className="ag-field__label" id="ag-test-action">
             {t('Test action')}
           </span>
-          <Select items={Object.fromEntries(rules.map((rule) => [rule.id, rule.label]))} value={actionId} onValueChange={(next) => next && setActionId(next)}>
+          <Select
+            items={Object.fromEntries(rules.map((rule) => [rule.id, rule.label]))}
+            value={actionId}
+            onValueChange={(next) => next && setActionId(next)}
+          >
             <SelectTrigger aria-labelledby="ag-test-action" size={32} className="ag-select">
               <SelectValue />
             </SelectTrigger>
@@ -93,7 +88,8 @@ export function Guardrails({
   const Icon = agentIcons[agent.id];
   const dirty = !sameDraft(draft, draftOf(agent.guardrails));
   const limits = draft.limits;
-  const setLimit = (key: keyof NonNullable<Draft['limits']>, value: string) => limits && onChange({ ...draft, limits: { ...limits, [key]: value } });
+  const setLimit = (key: keyof NonNullable<Draft['limits']>, value: string) =>
+    limits && onChange({ ...draft, limits: { ...limits, [key]: value } });
   const modeLine = draft.mode === 'suggest' ? t('Mode suggest line') : draft.mode === 'ask' ? t('Mode ask line') : t('Mode act line');
   return (
     <section className="if-preview__panel ag-guard" aria-labelledby="ag-guard-h" data-testid="agents-guardrails" data-agent={agent.id}>
@@ -127,10 +123,39 @@ export function Guardrails({
         <>
           <h3 className="ag-h3">{t('Limits heading')}</h3>
           <div className="ag-limits">
-            <AmountInput label={t('Max per action')} unit="USDT" precision={2} tick="25" value={limits.maxPerAction} onValueChange={(v) => setLimit('maxPerAction', v)} />
-            <AmountInput label={t('Daily limit')} unit="USDT" precision={2} tick="100" value={limits.dailyLimit} onValueChange={(v) => setLimit('dailyLimit', v)} />
-            <AmountInput label={t('Ask above')} unit="USDT" precision={2} tick="25" value={limits.askAbove} onValueChange={(v) => setLimit('askAbove', v)} disabled={draft.mode !== 'ask'} />
-            <AmountInput label={t('Stop at loss')} unit="%" precision={0} tick="1" value={limits.stopAtLoss} onValueChange={(v) => setLimit('stopAtLoss', v)} />
+            <AmountInput
+              label={t('Max per action')}
+              unit="USDT"
+              precision={2}
+              tick="25"
+              value={limits.maxPerAction}
+              onValueChange={(v) => setLimit('maxPerAction', v)}
+            />
+            <AmountInput
+              label={t('Daily limit')}
+              unit="USDT"
+              precision={2}
+              tick="100"
+              value={limits.dailyLimit}
+              onValueChange={(v) => setLimit('dailyLimit', v)}
+            />
+            <AmountInput
+              label={t('Ask above')}
+              unit="USDT"
+              precision={2}
+              tick="25"
+              value={limits.askAbove}
+              onValueChange={(v) => setLimit('askAbove', v)}
+              disabled={draft.mode !== 'ask'}
+            />
+            <AmountInput
+              label={t('Stop at loss')}
+              unit="%"
+              precision={0}
+              tick="1"
+              value={limits.stopAtLoss}
+              onValueChange={(v) => setLimit('stopAtLoss', v)}
+            />
           </div>
         </>
       ) : (

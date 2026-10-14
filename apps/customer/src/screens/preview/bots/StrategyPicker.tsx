@@ -2,7 +2,12 @@ import { Clock, Grid3x3, Repeat, type LucideIcon } from 'lucide-react';
 import type { SampleBotKind } from '../../../preview/fixtures/bots';
 import { botsCopy } from './copy';
 
-const kinds: ReadonlyArray<{ kind: SampleBotKind; icon: LucideIcon; name: 'Grid name' | 'Dca name' | 'Twap name'; line: 'Grid line' | 'Dca line' | 'Twap line' }> = [
+const kinds: ReadonlyArray<{
+  kind: SampleBotKind;
+  icon: LucideIcon;
+  name: 'Grid name' | 'Dca name' | 'Twap name';
+  line: 'Grid line' | 'Dca line' | 'Twap line';
+}> = [
   { kind: 'grid', icon: Grid3x3, name: 'Grid name', line: 'Grid line' },
   { kind: 'dca', icon: Repeat, name: 'Dca name', line: 'Dca line' },
   { kind: 'twap', icon: Clock, name: 'Twap name', line: 'Twap line' },
