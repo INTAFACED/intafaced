@@ -124,7 +124,15 @@ describe('the multiplexed door, over a real socket', () => {
   let base: string;
   const clients: Client[] = [];
 
-  async function boot(opts: { withMux: boolean; muxMax?: number | undefined; maxSubs?: number | undefined; maxOps?: number | undefined; idleMs?: number; legacyMax?: number; muxSeats?: number | undefined }) {
+  async function boot(opts: {
+    withMux: boolean;
+    muxMax?: number | undefined;
+    maxSubs?: number | undefined;
+    maxOps?: number | undefined;
+    idleMs?: number;
+    legacyMax?: number;
+    muxSeats?: number | undefined;
+  }) {
     app = Fastify({ logger: false });
     hub = new DepthHub(new StubSource(), {
       depthLimit: 50,
