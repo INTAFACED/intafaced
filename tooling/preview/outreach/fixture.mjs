@@ -8,6 +8,8 @@
  * send. Nothing here is persisted, emailed or deployed; all people are test data.
  */
 import { createHash, randomUUID } from 'node:crypto';
+import { fixtureFounderEnrolmentHandlers } from './fixture-founder-enrolment.mjs';
+import { fixtureFounderSecurityHandlers } from './fixture-founder-security.mjs';
 
 const DAY = 86_400_000;
 export const NITRO = '00000000-0000-4000-8000-000000000001';
@@ -943,6 +945,28 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
       return found;
     },
   };
+
+  // Founder sign-up (/enroll) and Security (/security, /reset). Security's auth.stepUp wins, because its actions spend the
+  // step-up it records; the enrolment step-up accepts the same test code. Signing in keeps the preview coherent: the
+  // password typed first becomes the test password, and after a change only the new one works.
+  const enrolment = fixtureFounderEnrolmentHandlers({});
+  const securityState = {};
+  const security = fixtureFounderSecurityHandlers(securityState, clock);
+  const baseLogin = founderApi['auth.login'];
+  const baseLogout = founderApi['auth.logout'];
+  Object.assign(founderApi, enrolment, security, {
+    'auth.login': (input) => {
+      if (securityState.passwordChangedAt && input?.password !== securityState.password) {
+        throw new FixtureError('auth.invalid_credentials', 401);
+      }
+      if (!securityState.passwordChangedAt && typeof input?.password === 'string' && input.password) securityState.password = input.password;
+      return baseLogin(input);
+    },
+    'auth.logout': (input) => {
+      enrolment['auth.logout'](input);
+      return baseLogout(input);
+    },
+  });
 
   return { publicApi, founderApi, contacts, opportunities, submissions };
 }

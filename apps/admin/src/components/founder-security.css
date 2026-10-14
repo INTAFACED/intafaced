@@ -1,0 +1,208 @@
+/*
+ * The founder Security page (/security). It sits inside the console shell, so it reuses .adm-workspace (buttons, amber
+ * .adm-irreversible), .adm-form (inputs) and .crm-callout (message boxes). Lime only marks the one active action per card,
+ * through data-primary on a submit button.
+ */
+.adm-sec {
+  display: grid;
+  gap: var(--s4);
+  max-width: 720px;
+}
+.adm-sec h1 {
+  margin: 0;
+}
+.adm-sec__lead {
+  color: var(--if-text-muted);
+  margin: 0;
+}
+.adm-sec-card {
+  display: grid;
+  gap: var(--s3);
+  padding: var(--s6);
+  background: var(--if-surface);
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-lg);
+}
+.adm-sec-card h2:focus {
+  outline: none;
+}
+.adm-sec-card h2:focus-visible {
+  outline: 2px solid var(--if-accent);
+  outline-offset: 3px;
+}
+.adm-sec-card > header {
+  display: grid;
+  gap: var(--s1);
+}
+.adm-sec-card .adm-form {
+  margin: 0;
+}
+.adm-sec__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+}
+.adm-sec__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.adm-sec-card button[data-primary='true']:not(:disabled) {
+  background: var(--if-accent);
+  color: var(--if-text-on-accent);
+  border-color: var(--if-accent);
+  font-weight: 600;
+}
+@media (hover: hover) {
+  .adm-sec-card button[data-primary='true']:hover:not(:disabled) {
+    background: var(--if-accent-bright);
+    border-color: var(--if-accent-bright);
+  }
+}
+.adm-sec-card button.adm-sec__quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--if-text-muted);
+}
+.adm-sec-card button.adm-sec__link {
+  min-height: 32px;
+  padding: var(--s1) 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--if-text-muted);
+  font-size: 13px;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.adm-sec__count {
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+.adm-sec__count[data-low='true'] {
+  color: var(--if-warn);
+}
+.adm-sec__forgot {
+  display: grid;
+  gap: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--if-border);
+}
+.adm-sec__qr {
+  justify-self: start;
+  width: 208px;
+  height: 208px;
+  border-radius: var(--if-radius-md);
+  background: #fff;
+  line-height: 0;
+}
+.adm-sec__qr svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: var(--if-radius-md);
+}
+.adm-sec__mono {
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--if-border-strong);
+  border-radius: var(--if-radius-md);
+  background: var(--if-base);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+.adm-sec__codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s2) var(--s4);
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  list-style: none;
+  border: 1px solid var(--if-border-strong);
+  border-radius: var(--if-radius-md);
+  background: var(--if-base);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+.adm-sec__list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.adm-sec__list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s3);
+  padding: var(--s3) 0;
+  border-top: 1px solid var(--if-border);
+}
+.adm-sec__list > li:first-child {
+  border-top: 0;
+}
+.adm-sec__list small {
+  display: block;
+  color: var(--if-text-muted);
+}
+.adm-sec dialog {
+  width: min(440px, calc(100% - 32px));
+  padding: var(--s6);
+  color: var(--if-text);
+  background: var(--if-surface-raised);
+  border: 1px solid var(--if-border-strong);
+  border-radius: var(--if-radius-lg);
+}
+.adm-sec dialog::backdrop {
+  background: color-mix(in srgb, var(--if-base) 70%, transparent);
+}
+.adm-sec dialog h2 {
+  margin: 0 0 var(--s2);
+}
+.adm-sec__print-only {
+  display: none;
+}
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .adm-sec__printable,
+  .adm-sec__printable * {
+    visibility: visible;
+  }
+  .adm-sec__printable {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: #fff;
+    color: #000;
+  }
+  .adm-sec__print-only {
+    display: block;
+  }
+  .adm-sec__no-print {
+    display: none !important;
+  }
+  .adm-sec__codes {
+    background: #fff;
+    color: #000;
+    border-color: #000;
+  }
+}
+@media (max-width: 520px) {
+  .adm-sec-card {
+    padding: var(--s4);
+  }
+  .adm-sec__codes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

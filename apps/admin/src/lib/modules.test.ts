@@ -95,3 +95,19 @@ describe('navigation bar', () => {
     expect(navNeeded(MODULE_ROUTES.length)).toBe(true);
   });
 });
+
+describe('Security is always on', () => {
+  it('belongs to no module, so no ADMIN_MODULES setting can gate its page or API', async () => {
+    const { ALWAYS_ON_ROUTES } = await import('./modules');
+    expect(ALWAYS_ON_ROUTES).toEqual([{ href: '/security', label: 'Security' }]);
+    for (const env of [{}, { ADMIN_MODULES: 'crm' }, { ADMIN_MODULES: 'crmm' }]) {
+      expect(moduleForPage('/security')).toBeNull();
+      expect(moduleForPage('/%73ecurity')).toBeNull();
+      expect(moduleForApi('/api/security')).toBeNull();
+      expect(moduleForApi('/api/security/passkeys/abc')).toBeNull();
+      expect(moduleForApi('/api/reset')).toBeNull();
+      expect(moduleForPage('/reset')).toBeNull();
+      expect(enabledModuleIds(env).includes('security' as never)).toBe(false);
+    }
+  });
+});

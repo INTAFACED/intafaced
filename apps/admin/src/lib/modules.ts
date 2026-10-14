@@ -10,8 +10,9 @@
  * Enforced in `src/middleware.ts` and again inside each module's API route
  * (`moduleDisabledResponse`). Hiding the nav link is only the cosmetic part.
  *
- * Session/login (`/login`, `/api/session*`) belongs to no module and is always
- * reachable: founders must be able to sign in whatever is enabled.
+ * Session/login (`/login`, `/api/session*`), password reset (`/reset`, `/api/reset`) and the founder's own Security page
+ * (`/security`, `/api/security*`) belong to no module and are always reachable: founders must be able to sign in, and to
+ * secure their account, whatever is enabled.
  *
  * This file must stay free of Node-only and Next-only imports: it runs in the
  * Edge middleware, in server components and in tests.
@@ -30,6 +31,13 @@ export const MODULE_ROUTES: readonly { readonly id: ModuleId; readonly href: str
   { id: 'ledger', href: '/ledger', label: 'Ledger ops' },
   { id: 'tools', href: '/tools', label: 'Operator tools' },
 ];
+
+/**
+ * Pages that belong to no module and are always on, whatever ADMIN_MODULES says: a founder must always be able to change their
+ * own password, authenticator and passkeys. The nav appends these after the module links. They are deliberately absent from
+ * `moduleForPage` / `moduleForApi`, so neither the middleware nor the page guards can switch them off.
+ */
+export const ALWAYS_ON_ROUTES: readonly { readonly href: string; readonly label: string }[] = [{ href: '/security', label: 'Security' }];
 
 /**
  * API route prefix per module. `/api/session*` is deliberately absent (always

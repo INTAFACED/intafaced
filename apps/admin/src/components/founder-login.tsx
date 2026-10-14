@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { browserDraftStorage, keptEnquiryId } from '@/lib/crm-drafts';
 import { signInReturnTarget } from '@/lib/crm-return';
 import { firstLoginError, loginFieldErrors, type LoginFieldErrors } from '@/lib/crm-login';
@@ -11,6 +11,11 @@ function returnTarget(session: unknown): string {
   const userId =
     session && typeof session === 'object' && 'userId' in session && typeof session.userId === 'string' ? session.userId : null;
   return signInReturnTarget(window.location.search, keptEnquiryId(browserDraftStorage(), userId));
+}
+
+/** The line shown above the form after a password change or reset sent the founder back here (`/login?changed=1`). */
+export function loginNotice(search: string): string {
+  return new URLSearchParams(search).get('changed') === '1' ? 'Password changed. Sign in with your new password.' : '';
 }
 
 function decode(value: string): ArrayBuffer {
@@ -31,6 +36,9 @@ export function FounderLogin() {
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  // Read after mount, so the server-rendered page and the first browser render match.
+  useEffect(() => setNotice(loginNotice(window.location.search)), []);
   const fields = {
     identifier: useRef<HTMLInputElement>(null),
     password: useRef<HTMLInputElement>(null),
@@ -91,6 +99,11 @@ export function FounderLogin() {
         }
       }}
     >
+      {notice && (
+        <Callout tone="neutral" icon="check" role="status">
+          {notice}
+        </Callout>
+      )}
       <div className="adm-login-field">
         <label>
           Email or handle
@@ -202,6 +215,11 @@ export function FounderLogin() {
       >
         Sign in with a passkey
       </button>
+      <p className="adm-subtle">
+        <a className="adm-link" href="/reset">
+          Forgot password?
+        </a>
+      </p>
     </form>
   );
 }

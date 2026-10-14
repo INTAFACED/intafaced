@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { MODULE_ROUTES, navNeeded, type ModuleId } from '@/lib/modules';
+import { ALWAYS_ON_ROUTES, MODULE_ROUTES, navNeeded, type ModuleId } from '@/lib/modules';
 
 /**
  * `modules` is the server-resolved list of enabled module ids (ADMIN_MODULES);
@@ -12,7 +12,11 @@ import { MODULE_ROUTES, navNeeded, type ModuleId } from '@/lib/modules';
  */
 export function Nav({ modules }: { modules?: readonly ModuleId[] }) {
   const pathname = usePathname();
-  const ROUTES = modules ? MODULE_ROUTES.filter((route) => modules.includes(route.id)) : MODULE_ROUTES;
+  // Security is not a module: it is always listed, after the enabled modules, so a founder can always reach it.
+  const ROUTES: readonly { href: string; label: string }[] = [
+    ...(modules ? MODULE_ROUTES.filter((route) => modules.includes(route.id)) : MODULE_ROUTES),
+    ...ALWAYS_ON_ROUTES,
+  ];
   const links = ROUTES.map((route) => {
     const active = route.href === '/' ? pathname === '/' : pathname.startsWith(route.href);
     return (

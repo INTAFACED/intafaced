@@ -1,0 +1,23 @@
+/* The forgotten-password page (/reset). It reuses the login card (.adm-login), form rules (.adm-form) and message box (.crm-callout). */
+.adm-reset h2 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  margin: 0 0 var(--s2);
+}
+.adm-reset section {
+  margin: var(--s6) 0 0;
+  padding-top: var(--s6);
+  border-top: 1px solid var(--if-border);
+}
+.adm-reset .adm-link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.adm-reset button[data-primary='true']:not(:disabled) {
+  background: var(--if-accent);
+  color: var(--if-text-on-accent);
+  border-color: var(--if-accent);
+  font-weight: 600;
+}
