@@ -90,6 +90,17 @@ export function createMuxGateway(options: MuxGatewayOptions): MuxGateway {
   }, heartbeatMs);
   heartbeat.unref?.();
 
+  // A connection that holds no subscription still costs a heartbeat and a seat.
+  // The sweep closes it after `idleMs` (1008 `ws.close.mux_idle`).
+  const idleSweep = setInterval(
+    () => {
+      const now = Date.now();
+      for (const session of [...sessions]) if (session.idleExpired(now)) session.closeIdle();
+    },
+    Math.max(250, Math.floor(sessionDeps.idleMs / 4)),
+  );
+  idleSweep.unref?.();
+
   return {
     get connections() {
       return sessions.size;
@@ -157,6 +168,7 @@ export function createMuxGateway(options: MuxGatewayOptions): MuxGateway {
     async close(reason: string) {
       closed = true;
       clearInterval(heartbeat);
+      clearInterval(idleSweep);
       const copy = resolveWsCopy(reason);
       for (const session of [...sessions]) session.close(CLOSE_GOING_AWAY, copy);
       for (const ws of wss.clients) ws.close(CLOSE_GOING_AWAY, closeReason(copy));

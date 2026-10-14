@@ -1,6 +1,6 @@
 import type { HubLogger } from '../depth/hub.js';
 import { MUX_INTERVAL_MS, type MuxInterval } from './protocol.js';
-import type { CandleHub } from './candle-hub.js';
+import type { CandleHub, WireCandle } from './candle-hub.js';
 import type { CandleSource, MarketDirectory, TickerSource } from './sources.js';
 import type { TickerHub, TickerRow } from './ticker-hub.js';
 
@@ -46,6 +46,9 @@ export class MuxPoller {
   #tickerBusy = false;
   #candlesBusy = false;
   readonly #candleSeeds = new Map<string, Promise<void>>();
+  /** Last upstream answer per candle key (null = the read failed), for the demand path. */
+  readonly #candleLast = new Map<string, { at: number; candles: readonly WireCandle[] | null }>();
+  #tickerLast: { at: number; rows: TickerRow[] | null } | null = null;
 
   constructor(
     deps: { tickers: TickerHub; candles: CandleHub; tickerSource: TickerSource; candleSource: CandleSource; directory: MarketDirectory },
@@ -93,13 +96,46 @@ export class MuxPoller {
         if (market === null) continue;
         rows.push({ market, ...ticker });
       }
-      this.#tickers.ingest(rows, this.#clock());
+      const now = this.#clock();
+      this.#tickerLast = { at: now, rows };
+      this.#tickers.ingest(rows, now);
     } catch (err) {
+      this.#tickerLast = { at: this.#clock(), rows: null };
       this.#tickers.markUnavailable();
       this.#log.warn({ err: String(err) }, 'ws: ticker poll failed — disclosing ticker.unavailable');
     } finally {
       this.#tickerBusy = false;
     }
+  }
+
+  /**
+   * A subscriber arrived to an empty ticker cache. Within one poll period of the
+   * last upstream answer that answer is re-used; otherwise one shared read.
+   */
+  async demandTickers(): Promise<void> {
+    const last = this.#tickerLast;
+    const now = this.#clock();
+    if (last !== null && now - last.at < this.#options.tickerPollMs) {
+      if (last.rows !== null) this.#tickers.ingest(last.rows, now);
+      else this.#tickers.markUnavailable();
+      return;
+    }
+    await this.tickTickers();
+  }
+
+  /** A subscriber arrived to an empty candle cache. Same read-through rule as `demandTickers`, per key. */
+  async demandCandle(marketId: string, interval: MuxInterval): Promise<void> {
+    const key = `${marketId}|${interval}`;
+    const inFlight = this.#candleSeeds.get(key);
+    if (inFlight) return inFlight;
+    const last = this.#candleLast.get(key);
+    const now = this.#clock();
+    if (last !== undefined && now - last.at < this.#options.candlePollMs) {
+      if (last.candles !== null) this.#candles.ingest(marketId, interval, last.candles, now);
+      else this.#candles.markUnavailable(marketId, interval);
+      return;
+    }
+    await this.pollCandle(marketId, interval);
   }
 
   /** One candle sweep across every watched (market, interval). */
@@ -108,6 +144,9 @@ export class MuxPoller {
     this.#candlesBusy = true;
     try {
       await Promise.all(this.#candles.activeKeys.map(({ marketId, interval }) => this.pollCandle(marketId, interval)));
+      // Answers older than two periods can no longer be served to the demand path.
+      const horizon = this.#clock() - 2 * this.#options.candlePollMs;
+      for (const [key, entry] of this.#candleLast) if (entry.at < horizon) this.#candleLast.delete(key);
     } finally {
       this.#candlesBusy = false;
     }
@@ -123,6 +162,7 @@ export class MuxPoller {
         await this.#directory.refresh();
         const symbol = this.#directory.symbolFor(marketId);
         if (symbol === null) {
+          this.#candleLast.set(key, { at: this.#clock(), candles: null });
           this.#candles.markUnavailable(marketId, interval);
           this.#log.warn({ marketId }, 'ws: candle poll skipped — market has no listed symbol');
           return;
@@ -131,8 +171,10 @@ export class MuxPoller {
         const span = MUX_INTERVAL_MS[interval];
         const since = Math.floor(now / span) * span - span;
         const candles = await this.#candleSource.latest(symbol, interval, since, CANDLE_POLL_BUCKETS);
+        this.#candleLast.set(key, { at: now, candles });
         this.#candles.ingest(marketId, interval, candles, now);
       } catch (err) {
+        this.#candleLast.set(key, { at: this.#clock(), candles: null });
         this.#candles.markUnavailable(marketId, interval);
         this.#log.warn({ marketId, interval, err: String(err) }, 'ws: candle poll failed — disclosing candles.unavailable');
       } finally {

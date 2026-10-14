@@ -36,8 +36,9 @@ import type { TickerHub } from './ticker-hub.js';
  *     refused with `subscription_limit`; the connection and its other channels
  *     are untouched.
  *   · `maxOpsPerSecond`   a token bucket over inbound work. A subscribe of N
- *     channels costs N (capped at one second of budget), so a client cannot buy
- *     64 hub attaches for the price of one message. Over budget the socket is
+ *     channels costs N tokens, so a client cannot buy 64 hub attaches for the
+ *     price of one message (an operation larger than the whole budget is never
+ *     affordable and closes the socket). Over budget the socket is
  *     closed 1008 `ws.close.mux_rate_limited` — a client that floods an
  *     unauthenticated port is not worth an error frame per message.
  *   · pending operations are bounded at `MUX_MAX_PENDING_OPS`; a client that
@@ -77,6 +78,8 @@ export interface MuxSessionDeps {
   readonly maxOpsPerSecond: number | undefined;
   /** Owner-published. Unset refuses the connection. */
   readonly highWaterBytes: number | undefined;
+  /** A socket with no subscription for this long is closed 1008. */
+  readonly idleMs: number;
   readonly log: HubLogger;
   readonly clock?: () => number;
 }
@@ -111,6 +114,8 @@ export class MuxSession {
   #tokens = 0;
   #lastRefill = 0;
   #pendingOps = 0;
+  /** When this connection last had zero subscriptions; null while it holds any. */
+  #emptySince: number | null = null;
   #chain: Promise<void> = Promise.resolve();
   /** While a hub `attach` is running, a synchronous refusal is captured here instead of sent. */
   #attaching: { key: string; refusal: { code: number; reason: string } | null } | null = null;
@@ -137,7 +142,27 @@ export class MuxSession {
     if (!isPublishedMuxLimit(maxOpsPerSecond)) return this.#refuse(WS_COPY.muxMaxOpsUnset);
     this.#tokens = maxOpsPerSecond;
     this.#lastRefill = this.#clock();
+    this.#emptySince = this.#lastRefill;
     return true;
+  }
+
+  /**
+   * True when the connection has held no subscription for `idleMs` and has no
+   * operation in flight. An idle socket still costs a heartbeat and a connection
+   * seat; the gateway sweeps these and closes them.
+   */
+  idleExpired(now: number): boolean {
+    return !this.#closed && this.#emptySince !== null && this.#pendingOps === 0 && now - this.#emptySince >= this.#deps.idleMs;
+  }
+
+  /** Close an idle connection with the policy code and its catalog name. */
+  closeIdle(): void {
+    this.#closeSocket(CLOSE_POLICY, resolveWsCopy(WS_COPY.muxIdle));
+  }
+
+  #touchIdle(): void {
+    if (this.#subs.size > 0) this.#emptySince = null;
+    else if (this.#emptySince === null) this.#emptySince = this.#clock();
   }
 
   #refuse(copyKey: string): false {
@@ -200,8 +225,9 @@ export class MuxSession {
     const elapsed = Math.max(0, now - this.#lastRefill);
     this.#lastRefill = now;
     this.#tokens = Math.min(rate, this.#tokens + (elapsed / 1000) * rate);
-    // A big operation costs at most one second of budget, so it can always be afforded once.
-    const price = Math.min(Math.max(1, cost), rate);
+    // A subscribe of N channels is N attaches, so it costs N tokens. An operation larger than
+    // the whole budget can never be afforded: the client is told by being closed, not trusted.
+    const price = Math.max(1, cost);
     if (this.#tokens < price) return false;
     this.#tokens -= price;
     return true;
@@ -278,6 +304,7 @@ export class MuxSession {
     }
     entry.detach = detach;
     this.#subs.set(key, entry);
+    this.#touchIdle();
     if (marketId !== null && spec.market !== undefined && spec.market !== marketId) this.#aliases.set(spec.market, marketId);
     if (marketId !== null && symbol !== null) this.#aliases.set(symbol, marketId);
     return ok(i, spec, marketId, symbol);
@@ -286,9 +313,9 @@ export class MuxSession {
   #attach(spec: ChannelSpec, marketId: string | null, sink: DepthSink): (() => void) | null {
     switch (spec.ch) {
       case 'book':
-        return this.#deps.depth.attach(marketId as string, sink);
+        return this.#deps.depth.attach(marketId as string, sink, { mux: true });
       case 'trades':
-        return this.#deps.trades.attach(marketId as string, sink);
+        return this.#deps.trades.attach(marketId as string, sink, { mux: true });
       case 'candles':
         return this.#deps.candles.attach(marketId as string, spec.interval, sink, this.#clock());
       case 'ticker':
@@ -365,6 +392,7 @@ export class MuxSession {
     if (entry) {
       entry.detach?.();
       this.#subs.delete(key);
+      this.#touchIdle();
     }
     const error: MuxErrorCode = code === CLOSE_POLICY && reason === resolveWsCopy(WS_COPY.unknownMarket) ? 'unknown_market' : 'unavailable';
     this.#sendControl(
@@ -381,6 +409,7 @@ export class MuxSession {
 
   #drop(key: string, entry: Entry): void {
     this.#subs.delete(key);
+    this.#touchIdle();
     entry.detach?.();
     for (const [alias, id] of this.#aliases) if (id === entry.marketId && !this.#hasOtherFor(id)) this.#aliases.delete(alias);
   }

@@ -124,7 +124,7 @@ describe('the multiplexed door, over a real socket', () => {
   let base: string;
   const clients: Client[] = [];
 
-  async function boot(opts: { withMux: boolean; muxMax?: number | undefined; maxSubs?: number | undefined; maxOps?: number | undefined }) {
+  async function boot(opts: { withMux: boolean; muxMax?: number | undefined; maxSubs?: number | undefined; maxOps?: number | undefined; idleMs?: number; legacyMax?: number; muxSeats?: number | undefined }) {
     app = Fastify({ logger: false });
     hub = new DepthHub(new StubSource(), {
       depthLimit: 50,
@@ -137,6 +137,7 @@ describe('the multiplexed door, over a real socket', () => {
       highWaterBytes: 1_000_000,
       maxLagTicks: 5,
       maxConnections: 8,
+      muxMaxConnections: 8,
       recentLimit: 10,
       ensureKnownMarket: (id) => hub.ensureKnownMarket(id),
     });
@@ -152,6 +153,7 @@ describe('the multiplexed door, over a real socket', () => {
         maxSubscriptions: 'maxSubs' in opts ? opts.maxSubs : 6,
         maxOpsPerSecond: 'maxOps' in opts ? opts.maxOps : 50,
         highWaterBytes: 1_000_000,
+        idleMs: opts.idleMs ?? 60_000,
         log,
       },
       maxConnections: 'muxMax' in opts ? opts.muxMax : 2,
