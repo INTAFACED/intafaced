@@ -9,7 +9,7 @@ Locate code with `rg`, `rg --files`, and focused Git history. Graphify is retire
 ## Ship (full access)
 
 1. Review, audit, and debug the change. **Merge when done.** Any agent may merge their own pull request.
-2. **Do not wait for CI green.** Full-suite CI and `pnpm verify` are informational; required branch-protection checks still apply. A 403 or 429 from `gh` means stop. Do not retry in a loop, do not switch accounts, and do not create a new token.
+2. **Merge only after the merge gate passes.** Run `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` from an up-to-date `origin/main` checkout, not from the PR's branch. It waits for every check and passes only if Gitleaks and Dependency audit pass and the PR adds no failure that main's latest finished CI run does not already have, down to the failing gate ids and test tasks inside a job that is already red (a ratchet: a red main is not your blocker, a new red is). Docs-only PRs (CI skipped by its path filter) pass on the checks that did report, so a failing docs Prettier check blocks them; agent-rule files are never docs-only. The gate never merges; run the merge command it prints as its own step. A PR that changes a gate file (`tooling/ci`, `.github/workflows`) needs a `ci:` or `gate:` title. A 403 or 429 from `gh` means stop. Do not retry in a loop, do not switch accounts, and do not create a new token.
 3. Start without waiting for a person, an audit seal, FREEZE, a tracker claim, LIVE-LANES, or `pnpm ledger`. A blocked money path refuses closed, with an honest empty state. Leave the audit flag alone.
 4. Any product path is fair game once its dependencies are met, including money. A blank price, limit, or sanctions list stays blank: refuse that action with a typed error. Do not invent live §8 magnitudes or sanctions list content.
 
@@ -38,7 +38,7 @@ Coordination map, not a permission system: [`docs/COORDINATION-TRUTH-LAYERS.md`]
 
 ## Skills
 
-Use the installed skills. This file wins where a skill says to wait for a person, wait for CI, or use `git worktree add`.
+Use the installed skills. This file wins where a skill says to wait for a person, wait for CI beyond the merge gate, or use `git worktree add`.
 
 ## Agent skills
 
