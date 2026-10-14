@@ -62,7 +62,11 @@ async function mount(): Promise<{ app: FastifyInstance; engine: MatchingEngine }
     snapshotEvery: 0,
   });
   const app = Fastify({ logger: false });
-  registerRoutes(app, engine, SECRET, { bodyBind: 'require', approvals: stubApprovalConsumer('ops-confirm') });
+  registerRoutes(app, engine, SECRET, {
+    bodyBind: 'require',
+    approvals: stubApprovalConsumer('ops-confirm'),
+    operatorIds: new Set(['ops-1', 'ops-confirm']),
+  });
   await app.ready();
   return { app, engine };
 }
@@ -308,7 +312,7 @@ describe('POST /markets/:marketId/halt', () => {
       snapshotEvery: 0,
     });
     const app = Fastify({ logger: false });
-    registerRoutes(app, engine, SECRET, { bodyBind: 'require' });
+    registerRoutes(app, engine, SECRET, { bodyBind: 'require', operatorIds: new Set(['ops-1']) });
     await app.ready();
     const halt = await post(app, `/markets/${MARKET}/halt`, {
       operatorId: 'ops-1',
