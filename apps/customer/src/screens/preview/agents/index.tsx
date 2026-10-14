@@ -1,23 +1,51 @@
+import { useState } from 'react';
 import type { ScreenProps } from '../../../app/screen-types';
-import { PreviewActionButton, PreviewSamplePanel, PreviewScreen, previewCopy, previewProducts } from '../../../preview';
-import { agentsFixture } from '../../../preview/fixtures/agents';
+import { PreviewScreen } from '../../../preview';
+import { agentsFixture, type SampleAgentId } from '../../../preview/fixtures/agents';
+import './agents.css';
+import { ActivityLog } from './ActivityLog';
+import { Fleet } from './Fleet';
+import { Guardrails } from './Guardrails';
+import { NavigatorBar } from './NavigatorBar';
+import { Overview } from './Overview';
+import { draftOf, lastDay, type Draft } from './model';
 
 /**
- * PLACEHOLDER for the agents Preview. The builder who owns this folder replaces this file (see src/preview/README.md).
- * Keep: PreviewScreen as the frame, sample data only from the agents fixture, and PreviewActionButton for every action.
+ * Agents (Preview): a workforce, not a chatbot. The fleet, a guardrails editor, the activity log and a Navigator command bar. Sample
+ * data only, from the agents fixture. Every action opens the shared "nothing was sent" sheet. `?sample=empty` shows an empty log.
  */
-export default function AgentsPreview(_props: ScreenProps) {
-  const { t } = previewCopy.useCopy();
+export default function AgentsPreview({ search }: ScreenProps) {
+  const rows = agentsFixture.rows;
+  const empty = new URLSearchParams(search).get('sample') === 'empty';
+  const log = empty ? [] : rows.log;
+  const day = lastDay(log, rows.asOf);
+  const [selected, setSelected] = useState<SampleAgentId>('navigator');
+  const [drafts, setDrafts] = useState<Partial<Record<SampleAgentId, Draft>>>({});
+  const agent = rows.agents.find((candidate) => candidate.id === selected) ?? rows.agents[0]!;
+  const draft = drafts[agent.id] ?? draftOf(agent.guardrails);
   return (
     <PreviewScreen product="agents">
-      <PreviewSamplePanel fixture={agentsFixture} />
-      <p className="if-preview__note" style={{ marginTop: 16 }}>
-        {t('Screen being built', { product: previewProducts.agents.name })}
-      </p>
-      <div className="if-preview__actions">
-        <PreviewActionButton product="agents" variant="primary" size={40}>
-          {t('Try an action')}
-        </PreviewActionButton>
+      <div className="if-agents">
+        <Overview agents={rows.agents} day={day} />
+        <NavigatorBar commands={rows.commands} />
+        <div className="ag-layout">
+          <Fleet agents={rows.agents} day={day} selected={selected} onSelect={setSelected} />
+          <Guardrails
+            agent={agent}
+            draft={draft}
+            temperament={rows.temperament}
+            day={day}
+            onChange={(next) =>
+              setDrafts((current) => {
+                const copy = { ...current };
+                if (next === null) delete copy[agent.id];
+                else copy[agent.id] = next;
+                return copy;
+              })
+            }
+          />
+        </div>
+        <ActivityLog agents={rows.agents} log={log} />
       </div>
     </PreviewScreen>
   );

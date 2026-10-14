@@ -1,23 +1,36 @@
+import { useState } from 'react';
 import type { ScreenProps } from '../../../app/screen-types';
-import { PreviewActionButton, PreviewSamplePanel, PreviewScreen, previewCopy, previewProducts } from '../../../preview';
+import { PreviewScreen } from '../../../preview';
 import { botsFixture } from '../../../preview/fixtures/bots';
+import type { SampleBotKind } from '../../../preview/fixtures/bots';
+import './bots.css';
+import { botsCopy } from './copy';
+import { CreatePanel } from './CreatePanel';
+import { Performance } from './Performance';
+import { RunningBots } from './RunningBots';
+import { StrategyPicker } from './StrategyPicker';
 
 /**
- * PLACEHOLDER for the bots Preview. The builder who owns this folder replaces this file (see src/preview/README.md).
- * Keep: PreviewScreen as the frame, sample data only from the bots fixture, and PreviewActionButton for every action.
+ * Trading bots (Preview): three strategies, a create flow, the running list and sample results. Sample data only, from the bots
+ * fixture. Every action opens the shared "nothing was sent" sheet. `?sample=empty` shows the empty lists, for checking that state.
  */
-export default function BotsPreview(_props: ScreenProps) {
-  const { t } = previewCopy.useCopy();
+export default function BotsPreview({ search }: ScreenProps) {
+  const { t } = botsCopy.useCopy();
+  const [kind, setKind] = useState<SampleBotKind>('grid');
+  const empty = new URLSearchParams(search).get('sample') === 'empty';
+  const rows = botsFixture.rows;
   return (
     <PreviewScreen product="bots">
-      <PreviewSamplePanel fixture={botsFixture} />
-      <p className="if-preview__note" style={{ marginTop: 16 }}>
-        {t('Screen being built', { product: previewProducts.bots.name })}
-      </p>
-      <div className="if-preview__actions">
-        <PreviewActionButton product="bots" variant="primary" size={40}>
-          {t('Try an action')}
-        </PreviewActionButton>
+      <div className="if-bots">
+        <p className="bots-lede">{t('Lede')}</p>
+        <StrategyPicker value={kind} onChange={setKind} />
+        <div className="bots-layout">
+          <div className="bots-main">
+            <RunningBots rows={rows} empty={empty} />
+            <Performance rows={rows} empty={empty} />
+          </div>
+          <CreatePanel rows={rows} kind={kind} />
+        </div>
       </div>
     </PreviewScreen>
   );

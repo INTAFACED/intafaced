@@ -1,0 +1,367 @@
+/*
+ * Trading bots Preview. Only --if-* tokens: no colour values live here.
+ * The whole file is in `@layer components` (see screens/money/money.css for why); sizes are px.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .if-bots {
+    margin-top: 16px;
+  }
+  .if-bots * {
+    box-sizing: border-box;
+  }
+  .if-bots :where(h2, h3, p, dl, dd, figure, ul) {
+    margin: 0;
+    padding: 0;
+  }
+  .bots-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .bots-lede {
+    max-width: 640px;
+    color: var(--if-fg-2);
+    font: 400 16px/24px var(--if-font-ui);
+  }
+
+  /* Strategy choices */
+  .bots-strategy-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 20px;
+  }
+  .bots-strategy {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+    padding: 16px;
+    background: var(--if-panel);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-lg);
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+    text-align: left;
+    cursor: pointer;
+    transition:
+      border-color var(--if-t-fast) var(--if-ease),
+      background-color var(--if-t-fast) var(--if-ease);
+  }
+  .bots-strategy:hover {
+    background: var(--if-hover);
+  }
+  .bots-strategy[aria-checked='true'] {
+    border-color: var(--if-lime);
+    background: var(--if-panel);
+    box-shadow: inset 0 0 0 1px var(--if-lime);
+  }
+  .bots-strategy__icon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--if-r-md);
+    background: var(--if-field);
+    color: var(--if-fg-2);
+  }
+  .bots-strategy[aria-checked='true'] .bots-strategy__icon {
+    background: var(--if-lime-soft);
+    color: var(--if-lime);
+  }
+  .bots-strategy__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .bots-strategy__name {
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .bots-strategy__line {
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+
+  /* Page layout */
+  .bots-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 400px;
+    gap: 24px;
+    align-items: start;
+  }
+  .bots-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .bots-create {
+    position: sticky;
+    top: calc(var(--if-topbar-h) + 16px);
+  }
+
+  /* Create flow */
+  .bots-balance {
+    margin-bottom: 14px;
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .bots-balance strong {
+    margin-left: 4px;
+    color: var(--if-fg);
+    font-weight: 500;
+  }
+  .bots-form {
+    display: grid;
+    gap: 10px;
+  }
+  .bots-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 40px;
+  }
+  .bots-field__label {
+    flex: none;
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .bots-field--chips {
+    flex-wrap: wrap;
+  }
+  .bots-select {
+    min-width: 160px;
+  }
+  .bots-switch {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+    cursor: pointer;
+  }
+  .bots-h3 {
+    margin-top: 8px;
+    padding-top: 14px;
+    border-top: 1px solid var(--if-line);
+    font: 600 14px/20px var(--if-font-ui);
+  }
+  .bots-facts {
+    display: grid;
+    gap: 8px;
+  }
+  .bots-facts__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .bots-facts dt {
+    color: var(--if-fg-2);
+  }
+  .bots-facts dd {
+    margin: 0;
+    color: var(--if-fg);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .bots-warn {
+    margin-top: 12px;
+    color: var(--if-warn-text);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .bots-start {
+    margin-top: 16px;
+  }
+  .bots-fine {
+    margin-top: 10px;
+    color: var(--if-fg-3);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .bots-chart {
+    margin: 0;
+    background: var(--if-bg);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-md);
+    overflow: hidden;
+  }
+  .bots-chart__svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .bots-line {
+    stroke: var(--if-line-strong);
+    stroke-width: 1;
+  }
+  .bots-line--buy {
+    stroke: var(--if-up);
+    opacity: 0.7;
+  }
+  .bots-line--sell {
+    stroke: var(--if-down);
+    opacity: 0.7;
+  }
+  .bots-line--price {
+    stroke: var(--if-fg);
+    stroke-dasharray: 4 3;
+    opacity: 1;
+  }
+  .bots-chart__label {
+    fill: var(--if-fg);
+    font: 500 11px var(--if-font-ui);
+  }
+
+  /* Bots table */
+  .bots-table-wrap {
+    overflow-x: auto;
+  }
+  .bots-table {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: collapse;
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .bots-table th,
+  .bots-table td {
+    padding: 12px 8px;
+    border-top: 1px solid var(--if-line);
+    text-align: left;
+    font-weight: 400;
+    vertical-align: middle;
+  }
+  .bots-table thead th {
+    border-top: 0;
+    color: var(--if-fg-2);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .bots-table .bots-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .bots-cell-bot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .bots-kind {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: var(--if-r-xs);
+    background: var(--if-field);
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+  }
+  .bots-bot-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .bots-bot-pair {
+    color: var(--if-fg);
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .bots-bot-settings {
+    max-width: 220px;
+    overflow: hidden;
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bots-sub {
+    display: block;
+    margin-top: 4px;
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+    white-space: nowrap;
+  }
+  .bots-table [data-direction='up'],
+  .bots-stats [data-direction='up'] {
+    color: var(--if-up-text);
+  }
+  .bots-table [data-direction='down'],
+  .bots-stats [data-direction='down'] {
+    color: var(--if-down-text);
+  }
+  .bots-actions {
+    white-space: nowrap;
+    text-align: right;
+  }
+  .bots-actions > * + * {
+    margin-left: 6px;
+  }
+  .bots-spark {
+    width: 112px;
+  }
+
+  /* Performance */
+  .bots-perf__range {
+    margin-left: auto;
+  }
+  .bots-stats {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .bots-stats > div {
+    padding: 12px;
+    background: var(--if-bg);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-md);
+  }
+  .bots-stats dt {
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .bots-stats dd {
+    margin-top: 6px;
+    font: 600 20px/28px var(--if-font-ui);
+  }
+  .bots-perf__chart {
+    margin: 0;
+  }
+  .bots-perf__svg {
+    width: 100%;
+    height: auto;
+  }
+  .bots-perf__chart figcaption {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+
+  @media (max-width: 1100px) {
+    .bots-layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .bots-create {
+      position: static;
+      order: -1;
+    }
+    .bots-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 720px) {
+    .bots-strategy-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}
