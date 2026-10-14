@@ -54,6 +54,12 @@ import { userCopy } from './user-copy.js';
  * to be re-taken HERE, by someone reading this paragraph, and not inherited by
  * accident. A cookie would make every request in this file credentialed.
  *
+ * RE-TAKEN (session-persist): the refresh-token cookie now exists (`session-cookie.ts`) and the
+ * answer here stays NO credentials. The cookie is host-only, `SameSite=Strict`, scoped to
+ * `/api/identity/session`, and the customer app reaches it same-origin through its own `/api`
+ * proxy, so no cross-origin page ever needs it. A cross-origin caller that wanted it would need
+ * `Allow-Credentials` AND `x-session-request`, and this file grants neither.
+ *
  * **`OPTIONS` is terminated at the edge and never proxied.** Not "handled before
  * the proxy" — never proxied, on any path, from any origin. A preflight is
  * unauthenticated by necessity (the browser sends it before it will send the

@@ -193,6 +193,20 @@ const schema = baseEnvSchema
         .max(32 * 1024 * 1024),
 
       /**
+       * Lifetime of the HttpOnly refresh-token cookie (`session-cookie.ts`), in seconds.
+       *
+       * Renewed on every rotation. Keep it equal to (never above) svc-identity's
+       * `JWT_REFRESH_TTL_SECONDS`, whose default is 30 days: a longer cookie only carries a token
+       * identity will refuse, a shorter one signs people out early. Not a secret.
+       */
+      EDGE_REFRESH_COOKIE_MAX_AGE_SECONDS: z.coerce
+        .number()
+        .int()
+        .min(3600)
+        .max(60 * 60 * 24 * 90)
+        .default(60 * 60 * 24 * 30),
+
+      /**
        * Commercial licence for the embeddable ramp widget (`/api/widget/ramp`).
        *
        * UNSET / blank → named refuse `ops.infra_licence_unset`. This is not a

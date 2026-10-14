@@ -24,6 +24,7 @@ import { createQuotaStore, decideGateway, sandboxOf } from './gateway-plane.js';
 import { exchangePrincipal } from './principal-exchange.js';
 import { upstreamBody } from './proxy-body.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
+import { answerRefusal, cookieIsSecure, finishSessionCookie, planSessionCookie } from './session-cookie.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
 import { withEdgeSpan } from './tracing.js';
 import { userCopy } from './user-copy.js';
@@ -360,6 +361,28 @@ await app.register(async (api) => {
       });
     }
 
+    // Refresh-token cookie transport (see `session-cookie.ts`). Planned before the principal
+    // exchange: a refresh/logout is answered from the cookie alone, never from a bearer token.
+    const cookieOptions = {
+      secure: cookieIsSecure(req.protocol, env.APP_ENV),
+      maxAgeSeconds: env.EDGE_REFRESH_COOKIE_MAX_AGE_SECONDS,
+    };
+    const sessionPlan = planSessionCookie({
+      module: target.upstream.module,
+      path: target.path,
+      method: req.method,
+      headers: req.headers,
+    });
+    if (sessionPlan.kind === 'refuse') {
+      const done = answerRefusal(sessionPlan, cookieOptions);
+      return reply
+        .code(done.status)
+        .header('cache-control', 'no-store')
+        .header('set-cookie', [...done.setCookie])
+        .header('content-type', 'application/json')
+        .send(done.body);
+    }
+
     const exchanged = await exchangePrincipal(req.headers, {
       tokens: tokenConfig,
       edgeSecret: env.EDGE_PRINCIPAL_SECRET,
@@ -416,7 +439,16 @@ await app.register(async (api) => {
       return reply.code(gate.status).send(gate.body);
     }
 
-    const body = upstreamBody(req.method, req.body);
+    const rewritesRequest = sessionPlan.kind === 'refresh' || sessionPlan.kind === 'logout';
+    const body = rewritesRequest ? sessionPlan.body : upstreamBody(req.method, req.body);
+    const upstreamHeaders: Record<string, string> = { ...exchanged.headers };
+    if (rewritesRequest) {
+      // The cookie was consumed here; the body is rebuilt, so the caller's length and type no longer apply.
+      delete upstreamHeaders.cookie;
+      delete upstreamHeaders['content-length'];
+      upstreamHeaders['content-type'] = 'application/json';
+    }
+    const upstreamPath = rewritesRequest ? sessionPlan.path : target.path;
 
     return withEdgeSpan(
       'edge.proxy',
@@ -430,13 +462,13 @@ await app.register(async (api) => {
         try {
           const request = {
             method: req.method,
-            headers: exchanged.headers,
+            headers: upstreamHeaders,
             redirect: 'error' as const,
             cache: 'no-store',
             ...(body === undefined ? {} : { body }),
             signal: AbortSignal.timeout(env.UPSTREAM_TIMEOUT_MS),
           };
-          response = await fetch(`${resolved.base}${target.path}${url.search}`, request);
+          response = await fetch(`${resolved.base}${upstreamPath}${rewritesRequest ? '' : url.search}`, request);
         } catch (err) {
           // 502, not 500: the edge is fine, the upstream is not, and a caller
           // needs to tell those apart before deciding whether to retry.
@@ -445,10 +477,18 @@ await app.register(async (api) => {
         }
 
         const text = await response.text();
+        const done = finishSessionCookie(sessionPlan, { status: response.status, text }, cookieOptions);
+        if (sessionPlan.kind !== 'none') reply.header('cache-control', 'no-store');
+        if (done.setCookie.length > 0) reply.header('set-cookie', [...done.setCookie]);
         return reply
-          .code(response.status)
-          .header('content-type', response.headers.get('content-type') ?? 'application/json')
-          .send(text);
+          .code(done.status)
+          .header(
+            'content-type',
+            done.status === 502 && sessionPlan.kind !== 'none'
+              ? 'application/json'
+              : (response.headers.get('content-type') ?? 'application/json'),
+          )
+          .send(done.body);
       },
     );
   });
