@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * can each settle occurrence N. subscriptions has no idempotency key, so a
  * retried create inserts a second schedule instead of refusing.
  *
- * 0031 adds idempotency_key text NOT NULL, CHECK (length(btrim(key)) > 0),
+ * 0041 adds idempotency_key text NOT NULL, CHECK (length(btrim(key)) > 0),
  * and UNIQUE (idempotency_key). It adds a partial unique index on mandate_id
  * WHERE status = 'active'. A cancelled or paused row may sit beside one
  * active row. Two active rows for one mandate refuse. Two inserts of the
@@ -31,8 +31,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', 'drizzle');
-const CLOSING = '0031_pay_subscription_one_active.sql';
-const CLOSING_DOWN = '0031_pay_subscription_one_active.down.sql';
+const CLOSING = '0041_pay_subscription_one_active.sql';
+const CLOSING_DOWN = '0041_pay_subscription_one_active.down.sql';
 
 const KEY_CK = 'subscriptions_idempotency_key_not_blank';
 const KEY_UQ = 'subscriptions_idempotency_key_uq';

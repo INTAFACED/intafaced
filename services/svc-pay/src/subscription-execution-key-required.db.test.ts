@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * WHERE exhausted_at IS NULL, so a cutoff on last_attempt_at skips every row
  * that left the column null.
  *
- * 0034 makes idempotency_key NOT NULL with CHECK (length(btrim(key)) > 0),
+ * 0042 makes idempotency_key NOT NULL with CHECK (length(btrim(key)) > 0),
  * drops the partial unique index, and adds a non-partial UNIQUE (idempotency_key).
  * No default and no invented key. A stored null fails SET NOT NULL and stays.
  * A stored blank fails the check and stays. last_attempt_at gets DEFAULT now(),
@@ -36,8 +36,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', 'drizzle');
-const CLOSING = '0034_pay_subscription_execution_key_required.sql';
-const CLOSING_DOWN = '0034_pay_subscription_execution_key_required.down.sql';
+const CLOSING = '0042_pay_subscription_execution_key_required.sql';
+const CLOSING_DOWN = '0042_pay_subscription_execution_key_required.down.sql';
 
 const KEY_CK = 'subscription_executions_idempotency_key_not_blank';
 const KEY_UQ = 'subscription_executions_idempotency_key_uq';

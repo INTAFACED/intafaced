@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0034_pay_subscription_execution_key_required.sql
+-- intafaced:destructive — reversal of 0042_pay_subscription_execution_key_required.sql
 --
 -- Drops the not-null, the blank check, and the full unique on
 -- subscription_executions.idempotency_key. Drops the not-null and the default

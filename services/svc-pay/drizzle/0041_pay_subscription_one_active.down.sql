@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0031_pay_subscription_one_active.sql
+-- intafaced:destructive — reversal of 0041_pay_subscription_one_active.sql
 --
 -- Drops the partial unique index that refuses a second active subscription
 -- for one mandate, then the unique idempotency key, the not-blank check, and

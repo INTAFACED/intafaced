@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0018_pay_permission_seq_commit_order.sql
+-- intafaced:destructive — reversal of 0039_pay_permission_seq_commit_order.sql
 --
 -- Restores insert-time seq. A revoke that commits after a grant of the same
 -- triple can again lose to that grant. The journal rows themselves stay.

@@ -1,5 +1,5 @@
 -- svc-pay · one mandate has one active subscription, and a create key is unique.
--- Reversal: 0031_pay_subscription_one_active.down.sql
+-- Reversal: 0041_pay_subscription_one_active.down.sql
 --
 -- 0010 stores many subscriptions against one mandate. The double-fire guard is
 -- only unique (subscription_id, occurrence) on executions, so two active

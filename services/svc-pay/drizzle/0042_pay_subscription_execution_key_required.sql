@@ -1,5 +1,5 @@
 -- svc-pay · an execution key is required and last_attempt_at is not null.
--- Reversal: 0034_pay_subscription_execution_key_required.down.sql
+-- Reversal: 0042_pay_subscription_execution_key_required.down.sql
 -- intafaced:destructive — the partial unique index is replaced by a full
 -- unique constraint. A stored null is not given a key or a timestamp.
 --
