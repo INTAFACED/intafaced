@@ -8,6 +8,7 @@ import { useClosedOrders, useRefreshPrivate } from './data';
 import { Amount, fmtAmount, isHiddenPath, StateBlock, Tabs, TabsList, TabsPanel, TabsTab, type Loadable } from './deps';
 import type { DeskMarket } from './market';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from './OrderTables';
+import { CancelAll } from './ticket/CancelAll';
 
 type Tab = 'open' | 'history' | 'trades' | 'assets';
 
@@ -53,7 +54,12 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
       </div>
       <TabsPanel value="open" className="dk-bottom-body">
         <LoadState load={openOrders} thing="orders">
-          {(rows) => (rows.length === 0 ? <StateBlock kind="empty" title={t('No open orders')} /> : orderTable(rows, true))}
+          {(rows) => (
+            <>
+              <CancelAll rows={rows} market={market} onDone={refresh} />
+              {rows.length === 0 ? <StateBlock kind="empty" title={t('No open orders')} /> : orderTable(rows, true)}
+            </>
+          )}
         </LoadState>
       </TabsPanel>
       <TabsPanel value="history" className="dk-bottom-body">

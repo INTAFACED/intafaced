@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
@@ -20,6 +21,10 @@ import {
   fmtAmount,
   fmtPct,
   fmtPrice,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuTrigger,
   refusalCopy,
   Skeleton,
   StateBlock,
@@ -62,8 +67,22 @@ import { bpsToRatio, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } fr
 import { CONFLICT_CODE, resendOrder } from './resend';
 import { failureOf, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
+import { ADVANCED_KINDS, isPreviewKind, type AdvancedKind } from './ticket/advanced';
+import { ticketCopy } from './ticket/copy';
+import { DEFAULT_OPTIONS, effectiveOptions, type TicketOptions } from './ticket/options';
+import { PreviewChip, PreviewTicket, typeName } from './ticket/PreviewTicket';
+import { RefusalNote } from './ticket/RefusalNote';
+import { isScaleSlot, ScaleRecovery } from './ticket/ScaleRecovery';
+import { ScaleTicket } from './ticket/ScaleTicket';
+import { useScaleMarker } from './ticket/scale-marker';
+import { tifName, TicketOptionsRow } from './ticket/TicketOptionsRow';
+import './ticket/ticket.css';
 
 const PERCENTS = [25, 50, 75, 100] as const;
+
+/** What the ticket is showing: the two live forms, Scale, or one of the Preview order types under Advanced. */
+type TicketMode = 'limit' | 'market' | 'scale' | AdvancedKind;
+const isAdvanced = (mode: TicketMode): mode is AdvancedKind => (ADVANCED_KINDS as readonly string[]).includes(mode);
 
 function problemText(problem: Problem, market: DeskMarket, t: ReturnType<typeof deskCopy.useCopy>['t']): string {
   switch (problem.kind) {
@@ -85,35 +104,6 @@ function problemText(problem: Problem, market: DeskMarket, t: ReturnType<typeof 
     case 'noPrice':
       return t('No prices to judge a market order');
   }
-}
-
-/** The reason a refusal gives, with its action link ("Verify now") when it has one. */
-function RefusalNote({ failure, onRetry }: { failure: Failure; onRetry?: () => void }) {
-  const { t } = deskCopy.useCopy();
-  if (failure.kind === 'network')
-    return (
-      <div className="dk-note dk-note--bad" role="alert">
-        <p>{t('Couldn’t check the order')}</p>
-        {onRetry ? (
-          <button type="button" className="dk-link" onClick={onRetry}>
-            {t('Check again')}
-          </button>
-        ) : null}
-      </div>
-    );
-  const { title, body, action, reference } = failure.copy;
-  return (
-    <div className="dk-note dk-note--bad" role="alert">
-      <p className="dk-note-title">{title}</p>
-      <p>{body}</p>
-      {action ? (
-        <a className="dk-link" href={action.href}>
-          {action.label}
-        </a>
-      ) : null}
-      {reference ? <p className="dk-note-ref">{reference}</p> : null}
-    </div>
-  );
 }
 
 interface SideProps {
@@ -149,7 +139,9 @@ function SideForm({
   onPlaced,
 }: SideProps) {
   const { t } = deskCopy.useCopy();
+  const tk = ticketCopy.useCopy().t;
   const env = useDataEnv();
+  const [options, setOptions] = useState<TicketOptions>(DEFAULT_OPTIONS);
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
   const [totalEdit, setTotalEdit] = useState<string | null>(null);
@@ -226,6 +218,8 @@ function SideForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);
 
+  // Time in force and post-only count for a limit order only; a market order keeps the old fixed values.
+  const sent = effectiveOptions(type, options);
   const input = { side, type, price, amount };
   const checked = checkOrder(input, market, reference);
   const value = orderValue(input, reference);
@@ -241,12 +235,24 @@ function SideForm({
       type,
       amount: checked.amount,
       ...(checked.price ? { price: checked.price } : {}),
-      timeInForce: 'GTC',
-      postOnly: false,
+      timeInForce: sent.timeInForce,
+      postOnly: sent.postOnly,
       clientOrderId: 'desk-preview',
     };
-  }, [tradable, checked.ok, checked.ok ? checked.amount : '', checked.ok ? checked.price : '', market.symbol, side, type]); // eslint-disable-line react-hooks/exhaustive-deps
-  const key = draft ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}` : 'none';
+  }, [
+    tradable,
+    checked.ok,
+    checked.ok ? checked.amount : '',
+    checked.ok ? checked.price : '',
+    market.symbol,
+    side,
+    type,
+    sent.timeInForce,
+    sent.postOnly,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
+  const key = draft
+    ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.timeInForce}|${draft.postOnly}`
+    : 'none';
   const { live, retry } = useLivePreview(api, draft && !review ? draft : null, key, context, () => env.poller.recordExternalRequest());
 
   // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
@@ -308,8 +314,8 @@ function SideForm({
       type,
       amount: checked.amount,
       ...(checked.price ? { price: checked.price } : {}),
-      timeInForce: 'GTC',
-      postOnly: false,
+      timeInForce: sent.timeInForce,
+      postOnly: sent.postOnly,
       clientOrderId: `desk:${crypto.randomUUID()}`,
     };
     const parsed = draftSchema.safeParse(fresh);
@@ -376,12 +382,20 @@ function SideForm({
         const complete = scaled(done.remaining) === 0n && done.status === 'closed';
         restingSeen.current = false;
         setRestingId(done.status === 'open' ? done.id : null);
+        const endedEarly = !complete && done.status !== 'open' && (sending.timeInForce === 'IOC' || sending.timeInForce === 'FOK');
         setStatus(
           complete
             ? t('Order placed filled', { side: sideWord, amount: fmtAmount(done.filled, { places: amountPlaces }), asset: market.base })
             : done.status === 'open'
               ? t('Order placed open', { side: sideWord })
-              : t('Order placed done', { side: sideWord }),
+              : endedEarly
+                ? tk('Order ended early', {
+                    side: sideWord,
+                    filled: fmtAmount(done.filled, { places: amountPlaces }),
+                    amount: fmtAmount(done.amount, { places: amountPlaces }),
+                    asset: market.base,
+                  })
+                : t('Order placed done', { side: sideWord }),
         );
         setReview(null);
         setAmount('');
@@ -529,6 +543,7 @@ function SideForm({
         placeholder="0"
         aria-label={t('Total')}
       />
+      {type === 'limit' ? <TicketOptionsRow value={options} onChange={(next) => edit(() => setOptions(next))} /> : null}
       <dl className="dk-avail">
         <div>
           <dt>{t('Available')}</dt>
@@ -613,6 +628,7 @@ function SideForm({
 
 function ReviewRows({ market, review, side }: { market: DeskMarket; review: { draft: Draft; preview: Preview }; side: Side }) {
   const { t } = deskCopy.useCopy();
+  const tk = ticketCopy.useCopy().t;
   const { draft, preview } = review;
   const limit = draft.type === 'limit';
   const value = limit && draft.price ? orderValue({ side, type: 'limit', price: draft.price, amount: draft.amount }, null) : null;
@@ -627,6 +643,18 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
         <dt>{t('Review type')}</dt>
         <dd>{limit ? t('Order type limit') : t('Order type market')}</dd>
       </div>
+      {limit ? (
+        <div>
+          <dt>{tk('Review time in force')}</dt>
+          <dd>{tifName(draft.timeInForce, tk)}</dd>
+        </div>
+      ) : null}
+      {limit && draft.postOnly ? (
+        <div>
+          <dt>{tk('Review post-only')}</dt>
+          <dd>{tk('Review post-only on')}</dd>
+        </div>
+      ) : null}
       <div>
         <dt>{t('Review price')}</dt>
         <dd className="if-num">
@@ -709,8 +737,13 @@ export const OrderPanel = memo(function OrderPanel({
   const { userId, api: client } = useSession();
   const api = useDeskApi();
   const refresh = useRefreshPrivate();
-  const [type, setType] = useState<OrderType>('limit');
+  const tk = ticketCopy.useCopy().t;
+  // Limit and Market are the live forms; Scale is live; the rest are Preview tabs under Advanced.
+  const [mode, setMode] = useState<TicketMode>('limit');
+  const type: OrderType = mode === 'market' ? 'market' : 'limit';
   const pending = usePendingOrder(userId);
+  const scaleMarker = useScaleMarker(userId);
+  const [lastAdvanced, setLastAdvanced] = useState<AdvancedKind>('stop');
   const [settled, setSettled] = useState<string | null>(null);
   const [stillChecking, setStillChecking] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -726,7 +759,7 @@ export const OrderPanel = memo(function OrderPanel({
   useEffect(() => {
     if (suggestion && suggestion.nonce !== lastSuggestion.current) {
       lastSuggestion.current = suggestion.nonce;
-      setType('limit');
+      setMode('limit');
     }
   }, [suggestion]);
 
@@ -737,7 +770,15 @@ export const OrderPanel = memo(function OrderPanel({
   const blocked = pending.state !== 'none';
 
   async function check() {
-    if (!pendingValue || pendingValue.kind !== 'place' || !userId || checkingRef.current || isInFlight(pendingValue.id)) return;
+    if (
+      !pendingValue ||
+      pendingValue.kind !== 'place' ||
+      isScaleSlot(pendingValue) ||
+      !userId ||
+      checkingRef.current ||
+      isInFlight(pendingValue.id)
+    )
+      return;
     checkingRef.current = true;
     setChecking(true);
     env.poller.recordExternalRequest(2);
@@ -766,7 +807,7 @@ export const OrderPanel = memo(function OrderPanel({
   checkRef.current = check;
   const pendingId = pendingValue?.id;
   useEffect(() => {
-    if (!pendingId || pendingValue?.kind !== 'place') return;
+    if (!pendingId || pendingValue?.kind !== 'place' || isScaleSlot(pendingValue)) return;
     // First look at once, then 5, 10, 20, then every 60 seconds, so a lost order does not keep the desk over its budget.
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
@@ -833,40 +874,82 @@ export const OrderPanel = memo(function OrderPanel({
     onPlaced: () => (refresh(), onPlaced()),
     type,
   } as const;
+  const advanced = isAdvanced(mode);
+  const tabValue = advanced ? 'advanced' : mode;
   return (
-    <Tabs value={type} onValueChange={(value) => setType(value as OrderType)} className="dk-panel dk-order">
+    <Tabs
+      value={tabValue}
+      onValueChange={(value) => setMode(value === 'advanced' ? lastAdvanced : (value as TicketMode))}
+      className="dk-panel dk-order"
+    >
       <TabsList divider className="dk-tabs" aria-label={t('Order type')}>
         <TabsTab value="limit">{t('Limit')}</TabsTab>
         <TabsTab value="market">{t('Market')}</TabsTab>
+        <TabsTab value="scale">{tk('Scale')}</TabsTab>
+        <Menu>
+          <MenuTrigger render={<TabsTab value="advanced" className="tk-adv" />} aria-label={tk('Advanced order types')}>
+            {advanced ? typeName(mode, tk) : tk('Advanced')}
+            {advanced && isPreviewKind(mode) ? <PreviewChip /> : null}
+            <ChevronDown size={14} aria-hidden="true" />
+          </MenuTrigger>
+          <MenuContent align="start">
+            {ADVANCED_KINDS.map((kind) => (
+              <MenuItem
+                key={kind}
+                onClick={() => {
+                  setLastAdvanced(kind);
+                  setMode(kind);
+                }}
+              >
+                <span className="tk-menu-item">
+                  {typeName(kind, tk)}
+                  {isPreviewKind(kind) ? <PreviewChip /> : null}
+                </span>
+              </MenuItem>
+            ))}
+          </MenuContent>
+        </Menu>
       </TabsList>
       {!market.open ? (
         <div className="dk-order-body">
           <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />
         </div>
       ) : (
-        <TabsPanel value={type} className="dk-order-body">
+        <TabsPanel value={tabValue} className="dk-order-body">
           {pending.state === 'pending' && !isInFlight(pending.value.id) ? (
-            <div className="dk-note dk-note--warn" role="status">
-              <p className="dk-note-title">{t('Checking your order')}</p>
-              <p>{t('Checking your order body')}</p>
-              {pending.value.kind === 'place' ? (
-                <div className="dk-note-actions">
-                  <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void check()}>
-                    {t('Check order')}
-                  </button>
-                  {pending.value.draft ? (
-                    <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void sendAgain()}>
-                      {resending ? t('Sending again') : t('Send again')}
+            isScaleSlot(pending.value) && userId ? (
+              <ScaleRecovery
+                userId={userId}
+                pending={pending.value}
+                marker={scaleMarker}
+                api={api}
+                client={client}
+                market={market}
+                onChanged={refresh}
+              />
+            ) : (
+              <div className="dk-note dk-note--warn" role="status">
+                <p className="dk-note-title">{t('Checking your order')}</p>
+                <p>{t('Checking your order body')}</p>
+                {pending.value.kind === 'place' ? (
+                  <div className="dk-note-actions">
+                    <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void check()}>
+                      {t('Check order')}
                     </button>
-                  ) : null}
-                </div>
-              ) : (
-                <p>{t('Other request open')}</p>
-              )}
-              {pending.value.kind === 'place' && pending.value.draft ? <p className="dk-note-small">{t('Send again hint')}</p> : null}
-              {resendNote ? <p role="status">{resendNote}</p> : null}
-              {stillChecking ? <p>{t('Still checking')}</p> : null}
-            </div>
+                    {pending.value.draft ? (
+                      <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void sendAgain()}>
+                        {resending ? t('Sending again') : t('Send again')}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p>{t('Other request open')}</p>
+                )}
+                {pending.value.kind === 'place' && pending.value.draft ? <p className="dk-note-small">{t('Send again hint')}</p> : null}
+                {resendNote ? <p role="status">{resendNote}</p> : null}
+                {stillChecking ? <p>{t('Still checking')}</p> : null}
+              </div>
+            )
           ) : pending.state === 'unreadable' ? (
             <div className="dk-note dk-note--warn" role="status">
               <p>{t('Unreadable marker')}</p>
@@ -876,11 +959,26 @@ export const OrderPanel = memo(function OrderPanel({
               <p>{settled}</p>
             </div>
           ) : null}
-          {balances.status === 'loading' && signedIn ? (
+          {advanced ? (
+            <PreviewTicket kind={mode} market={market} />
+          ) : balances.status === 'loading' && signedIn ? (
             <div className="dk-forms" aria-busy="true">
               <Skeleton height={320} className="bg-field" />
               <Skeleton height={320} className="bg-field" />
             </div>
+          ) : mode === 'scale' ? (
+            <ScaleTicket
+              market={market}
+              reference={reference}
+              referenceFresh={referenceFresh}
+              freeOf={(asset) => free(asset)}
+              signedIn={signedIn}
+              userId={userId}
+              blocked={blocked}
+              api={api}
+              client={client}
+              onPlaced={() => (refresh(), onPlaced())}
+            />
           ) : (
             <div className="dk-forms">
               <SideForm {...common} side="buy" available={signedIn ? free(market.quote) : null} autoFocus={focusSide === 'buy'} />
