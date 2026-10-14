@@ -113,7 +113,7 @@ interface BookProps {
   onPickPrice: (price: string) => void;
 }
 
-function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'onPickPrice'>) {
+export function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'onPickPrice'>) {
   const { t } = deskCopy.useCopy();
   const [view, setView] = useState<View>('both');
   const [places, setPlaces] = useState(0);
@@ -275,7 +275,7 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
   );
 }
 
-function Tape({
+export function Tape({
   market,
   zone,
   onPickPrice,

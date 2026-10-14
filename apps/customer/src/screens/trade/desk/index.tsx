@@ -6,12 +6,17 @@ import { usePreferences } from '../../../shared/preferences';
 import { useTicker as useTickerRow } from './deps';
 import './desk.css';
 import '../chart/chart.css';
-import { BookPanel, STALE_BOOK_MS, type BookPick } from './OrderBook';
-import { BottomTabs, type BottomTab } from './BottomTabs';
-import { ChartPanel } from './ChartPanel';
+import '../terminal/terminal.css';
+import { STALE_BOOK_MS, type BookPick } from './OrderBook';
+import { type BottomTab } from './BottomTabs';
 import { MarketsPanel } from './MarketsPanel';
-import { OrderPanel } from './OrderForm';
 import { TickerStrip } from './TickerStrip';
+import { AccountStrip } from '../terminal/AccountStrip';
+import { CompactStack } from '../terminal/CompactStack';
+import { connectionOf } from '../terminal/connection';
+import { DeskProvider, type DeskShared } from '../terminal/desk-context';
+import { StatusBar } from '../terminal/StatusBar';
+import { Terminal } from '../terminal/Terminal';
 import { deskCopy } from './copy';
 import { DESK_INTERVALS, useBalances, useBook, useDeskMarkets, useFills, useOpenOrders } from './data';
 import {
@@ -26,7 +31,7 @@ import {
   useFavorites,
 } from './deps';
 import { findMarket, type DeskMarket } from './market';
-import { useNow } from './hooks';
+import { useMinWidth, useNow } from './hooks';
 import type { Reference, Side } from './order-math';
 
 function PairPicker({ selected }: { selected: string }) {
@@ -45,7 +50,6 @@ function PairPicker({ selected }: { selected: string }) {
 }
 
 function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMarket[]; side: Side | null }) {
-  const { t } = deskCopy.useCopy();
   const { userId } = useSession();
   const { timeZone } = usePreferences();
   const ticker = useTickerRow(market.symbol, { intervalMs: DESK_INTERVALS.ticker });
@@ -83,63 +87,86 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
     [],
   );
 
+  const connection = connectionOf([book, ticker], now);
+  const shared = useMemo<DeskShared>(
+    () => ({
+      market,
+      markets,
+      zone: timeZone,
+      ticker,
+      book,
+      balances,
+      openOrders,
+      fills,
+      reference,
+      referenceFresh,
+      suggestion,
+      focusSide: side,
+      bottomTab: tab,
+      setBottomTab: setTab,
+      onPick: setSuggestion,
+      onPickPrice,
+      onPlaced,
+      connection,
+    }),
+    [
+      market,
+      markets,
+      timeZone,
+      ticker,
+      book,
+      balances,
+      openOrders,
+      fills,
+      reference,
+      referenceFresh,
+      suggestion,
+      side,
+      tab,
+      onPickPrice,
+      onPlaced,
+      connection,
+    ],
+  );
+  // Below 900 px there is no room to dock: the panels stack, as the desk always did on a phone.
+  const docking = useMinWidth(900);
+
   return (
-    <div className="if-desk" data-market={market.symbol}>
-      <TickerStrip
-        market={market}
-        ticker={ticker}
-        favorite={isFavorite(market.symbol)}
-        onToggleFavorite={toggleFavorite}
-        zone={timeZone}
-        picker={picker}
-      />
-      <div className="dk-grid">
-        <aside className="dk-panel dk-left" aria-label={t('Markets')}>
-          <div className="dk-fill">
-            <div className="dk-tab-title">
-              <span>{t('Markets')}</span>
-            </div>
-            <MarketsPanel selected={market.symbol} />
-          </div>
-        </aside>
-        <div className="dk-centre">
-          <ChartPanel market={market} openOrders={openOrders} fills={fills} />
-          <OrderPanel
-            market={market}
-            reference={reference}
-            referenceFresh={referenceFresh}
-            balances={balances}
-            suggestion={suggestion}
-            focusSide={side}
-            onPlaced={onPlaced}
-          />
-        </div>
-        <BookPanel market={market} book={book} ticker={ticker} zone={timeZone} onPick={setSuggestion} onPickPrice={onPickPrice} />
+    <DeskProvider value={shared}>
+      <div className="if-desk tm-terminal" data-market={market.symbol} data-docking={docking || undefined}>
+        <AccountStrip />
+        <TickerStrip
+          market={market}
+          ticker={ticker}
+          favorite={isFavorite(market.symbol)}
+          onToggleFavorite={toggleFavorite}
+          zone={timeZone}
+          picker={picker}
+        />
+        {docking ? <Terminal key={userId ?? 'guest'} userId={userId} /> : <CompactStack />}
+        <StatusBar />
       </div>
-      <BottomTabs market={market} markets={markets} openOrders={openOrders} fills={fills} balances={balances} tab={tab} onTab={setTab} />
-    </div>
+    </DeskProvider>
   );
 }
 
 function DeskSkeleton() {
   return (
-    <div className="if-desk" role="status" aria-busy="true">
+    <div className="if-desk tm-terminal" role="status" aria-busy="true">
+      <div className="tm-strip">
+        <Skeleton width={220} height={16} className="bg-field" />
+      </div>
       <div className="dk-ticker">
         <Skeleton width={160} height={24} className="bg-field" />
       </div>
-      <div className="dk-grid">
-        <div className="dk-panel dk-left">
+      <div className="tm-skeleton">
+        <div className="tm-skeleton-box">
           <Skeleton height={500} className="bg-field" />
         </div>
-        <div className="dk-centre">
-          <div className="dk-panel dk-chart">
-            <Skeleton height={440} className="bg-field" />
-          </div>
-          <div className="dk-panel dk-order">
-            <Skeleton height={330} className="bg-field" />
-          </div>
+        <div className="tm-skeleton-box">
+          <Skeleton height={500} className="bg-field" />
         </div>
-        <div className="dk-panel dk-book">
+        <div className="tm-skeleton-box">
           <Skeleton height={500} className="bg-field" />
         </div>
       </div>
