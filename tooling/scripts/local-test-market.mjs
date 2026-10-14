@@ -855,7 +855,7 @@ const errCode = (r) => {
  * Is the ledger accepting posts? svc-ledger's /health carries `postingEnabled`. Posting switches off when the
  * scheduled reconciliation fails or throws (an operator freeze does the same), and then EVERY order is refused
  * with 400 LedgerError. Failure it prevents: on 14 Oct the hourly reconcile hit the ledger's 15 s statement
- * timeout (115,000 accounts and 680,000 balance snapshots, left by an earlier version of this market that
+ * timeout (its proof reads every ledger entry: 464,000 of them, left by an earlier version of this market that
  * cancelled and re-placed every order every few seconds), froze posting, and the market sent about 1,800 orders
  * an hour into the refusal for hours without saying why.
  */

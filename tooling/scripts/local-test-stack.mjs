@@ -684,9 +684,12 @@ function serviceDefs(secrets) {
         DATABASE_URL: dbUrl('svc_ledger', secrets),
         LEDGER_POSTING_ENABLED: 'true',
         // Required, no default. LOCAL TEST value chosen for this stack only, not an owner decision.
-        // Weekly, not hourly. The hourly run reads every account and writes a balance snapshot for each, inside the
-        // ledger's fixed 15 s statement timeout. On a busy local stack that stops fitting (115,000 accounts), the run
-        // throws, and a throw freezes posting: from then on every order is refused with 400 LedgerError (14 Oct).
+        // Weekly, not hourly. The run is a proof that reads every ledger entry, inside the ledger's fixed 15 s
+        // statement timeout. On a busy local stack that stopped fitting (464,000 entries in a day); the statement
+        // timed out, the run threw, and a throw freezes posting: every order is then refused with 400 LedgerError
+        // (14 Oct). Weekly only POSTPONES this: the proof scans all history, so a stack running more than about
+        // 7 days times out and freezes again. Remedy then: reset the local database, or a lighter run once the
+        // production fix lands.
         RECONCILE_CRON_MINUTES: '10080',
       }),
     },
