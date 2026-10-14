@@ -28,23 +28,50 @@ Worth stating here because the word "token" invites the wrong inference. No `.so
 
 ## API
 
-| Route / method                         | Scope / auth            | Purpose                                                                                                                                                |
-| -------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /internal/stake/:userId`          | service headers         | **The hot path.** §4.3: other services call this to gate launchpad allocations, OTC access, premium lobbies, vendor slots                              |
-| `POST /internal/emissions/mint-next`   | service headers         | Cron-friendly mint of the next sequential epoch (refuses when `EMISSIONS_ENABLED=false`)                                                               |
-| tRPC `stake`                           | `token:stake`           | Opens a stake for the signed principal — claim `pending` → ledger fund → `active`                                                                      |
-| tRPC `unstake`                         | `token:stake`           | Returns principal; enforces lock + ownership                                                                                                           |
-| tRPC `listStakes`                      | `token:read`            | Stakes owned by the signed principal                                                                                                                   |
-| tRPC `stakeOf` / `accessOf`            | `token:read`            | Total active stake / access tier + fee discount                                                                                                        |
-| tRPC `mintEpoch` / `nextEmissionEpoch` | `admin:treasury` / read | Operator mint (optional `epoch`) and next index                                                                                                        |
-| tRPC `distributeRevenue`               | `admin:treasury` + MFA  | **Operator action, no caller.** Sweeps the fee sources the operator names → pro-rata staker payouts. Not a scheduled job                               |
-| tRPC `recordBuyback`                   | `admin:treasury` + MFA  | **Operator action, no caller.** Refuses `token.buyback_tokens_unmoved` unless a recipe booked the buy. Buys nothing; does not emit `buybackExecuted`   |
-| tRPC `burnedSupply`                    | `token:read`            | Balance of the `house/burn` ledger account                                                                                                             |
-| tRPC `createProposal` / `castVote`     | `token:stake` / admin   | Records a ballot, weight = `stakeOf` snapshot taken inside the vote transaction                                                                        |
-| tRPC `listProposals` / `getProposal`   | `token:read`            | Reads proposals; `getProposal` recomputes a tally                                                                                                      |
-| tRPC `closeProposal`                   | `token:stake`           | After the window: writes `passed` / `rejected`. Blank quorum env → `token.governance_quorum_unset`. Grant/listing → `token.governance_execute_unwired` |
+| Route / method                         | Scope / auth            | Purpose                                                                                                                                                                            |
+| -------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /internal/stake/:userId`          | service headers         | **The hot path.** §4.3: other services call this to gate launchpad allocations, OTC access, premium lobbies, vendor slots                                                          |
+| `POST /internal/emissions/mint-next`   | service headers         | Cron-friendly mint of the next sequential epoch (refuses `503` when `EMISSIONS_ENABLED=false`; `429` + `Retry-After` + `token.epoch_too_early` before one epoch length has passed) |
+| tRPC `stake`                           | `token:stake`           | Opens a stake for the signed principal — claim `pending` → ledger fund → `active`                                                                                                  |
+| tRPC `unstake`                         | `token:stake`           | Returns principal; enforces lock + ownership                                                                                                                                       |
+| tRPC `listStakes`                      | `token:read`            | Stakes owned by the signed principal                                                                                                                                               |
+| tRPC `stakeOf` / `accessOf`            | `token:read`            | Total active stake / access tier + fee discount                                                                                                                                    |
+| tRPC `mintEpoch` / `nextEmissionEpoch` | `admin:treasury` / read | Operator mint (optional `epoch`) and next index                                                                                                                                    |
+| tRPC `distributeRevenue`               | `admin:treasury` + MFA  | **Operator action, no caller.** Sweeps the fee sources the operator names → pro-rata staker payouts. Not a scheduled job                                                           |
+| tRPC `recordBuyback`                   | `admin:treasury` + MFA  | **Operator action, no caller.** Refuses `token.buyback_tokens_unmoved` unless a recipe booked the buy. Buys nothing; does not emit `buybackExecuted`                               |
+| tRPC `burnedSupply`                    | `token:read`            | Balance of the `house/burn` ledger account                                                                                                                                         |
+| tRPC `createProposal` / `castVote`     | `token:stake` / admin   | Records a ballot, weight = `stakeOf` snapshot taken inside the vote transaction                                                                                                    |
+| tRPC `listProposals` / `getProposal`   | `token:read`            | Reads proposals; `getProposal` recomputes a tally                                                                                                                                  |
+| tRPC `closeProposal`                   | `token:stake`           | After the window: writes `passed` / `rejected`. Blank quorum env → `token.governance_quorum_unset`. Grant/listing → `token.governance_execute_unwired`                             |
 
-Optional auto-tick: set `EMISSIONS_AUTO_TICK=true` (and leave `EMISSIONS_ENABLED=true`) to mint the next sequential epoch every `EMISSIONS_TICK_MS` (default 1 day). Prefer external cron → `/internal/emissions/mint-next` or tRPC `mintEpoch` so the job is pauseable.
+Optional auto-tick: set `EMISSIONS_AUTO_TICK=true` (and leave `EMISSIONS_ENABLED=true`) to have an in-process timer **ask** whether the next epoch is due every `EMISSIONS_TICK_MS`. Blank `EMISSIONS_TICK_MS` polls every `min(EMISSIONS_EPOCH_MS, 60s)`; a non-blank value that is not an integer of at least 1000 refuses at boot (`token.emissions_tick_unset`). The poll is not the cadence — the time gate below is. Do not set the tick equal to the epoch length: the claim is stamped a few ms after the tick fires, so the next tick lands just inside the gate and an epoch is lost to the wait. Prefer external cron → `/internal/emissions/mint-next` or tRPC `mintEpoch` so the job is pauseable.
+
+### Epoch time gate
+
+One epoch is **1 day** (`EMISSIONS_EPOCH_MS`, default `86400000` — owner-present, Nitro's pick 2026-10-14). A **new** epoch cannot start sooner than one epoch length after the previous epoch was claimed; `mintEpoch`, `mintNextEpoch`, the HTTP endpoint and the auto-tick all go through the same check and refuse with `token.epoch_too_early` (message says how long to wait).
+
+- **Clock:** the database's. `emission_epochs.created_at` is stamped with `clock_timestamp()` when an epoch is claimed, and the gap is measured with `clock_timestamp()` inside the same claim transaction, under the per-asset advisory lock — so two concurrent callers cannot both pass, and app-server clock skew or restarts do not move the gate. No new column or migration: `created_at` already exists.
+- **Timestamp:** the newest `created_at` of any epoch row (the claim time, not the close time).
+- **Not refused:** the very first epoch (no row yet), and a **resume** of an epoch that is claimed but not closed (a retry after a lost reply: same epoch number, same snapshotted reward, same ledger key `token.emission:<epoch>`).
+- **Explicit `epoch` argument:** a closed epoch is still `token.epoch_closed`; skipping ahead to any other new epoch number is a new claim and is gated the same way.
+- **Order of refusals:** kill switch (`EMISSIONS_ENABLED=false`) first, then closed / supply exhausted, then the time gate.
+- **What it is not:** it does not set the amount. Reward per epoch, supply cap and halving interval stay blank and owner-only in `token_params`.
+- **Statuses:** tRPC `TOO_MANY_REQUESTS` (message = the wait time); HTTP `429` with `Retry-After` (seconds) and `retryAfterSeconds`.
+
+### Environment (emissions)
+
+| Variable              | Default    | Meaning                                                                                                                                             |
+| --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EMISSIONS_ENABLED`   | `true`     | Kill switch for every mint path                                                                                                                     |
+| `EMISSIONS_EPOCH_MS`  | `86400000` | Epoch length (1 day): minimum gap between NEW epochs, database clock. Positive integer. Owner-present, 2026-10-14                                   |
+| `EMISSIONS_AUTO_TICK` | `false`    | In-process timer that asks whether the next epoch is due                                                                                            |
+| `EMISSIONS_TICK_MS`   | blank      | Poll interval for the auto-tick; blank means `min(EMISSIONS_EPOCH_MS, 60000)`. Non-blank must be an integer >= 1000 or `token.emissions_tick_unset` |
+
+| Error code               | Meaning                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------------------- |
+| `token.epoch_too_early`  | A new epoch was requested before one epoch length passed since the last claim; retry after the wait |
+| `token.epoch_closed`     | That epoch is already minted                                                                        |
+| `token.supply_exhausted` | Schedule exhausted or the cap would be exceeded                                                     |
 
 ---
 
@@ -124,7 +151,7 @@ The service checks these; the database enforces them regardless.
 
 ## Kill-switch
 
-`EMISSIONS_ENABLED=false` halts minting on every path (tRPC, internal cron endpoint, auto-tick). This is the only thing between a mis-tuned curve and permanent supply inflation, and **inflation cannot be un-minted** — which is why it is a separate switch rather than a general service toggle. `EMISSIONS_AUTO_TICK` defaults off so a redeploy never silently opens the faucet.
+`EMISSIONS_ENABLED=false` halts minting on every path (tRPC, internal cron endpoint, auto-tick); the epoch time gate (1 day by default) limits how fast a NEW epoch can open when it is on. This is the only thing between a mis-tuned curve and permanent supply inflation, and **inflation cannot be un-minted** — which is why it is a separate switch rather than a general service toggle. `EMISSIONS_AUTO_TICK` defaults off so a redeploy never silently opens the faucet.
 
 ---
 
