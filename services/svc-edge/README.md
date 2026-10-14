@@ -112,6 +112,23 @@ Until this landed the edge sent **no CORS headers at all** — not a permissive 
 
 `src/cors.test.ts` covers the policy against Fastify's own pipeline; `src/cors.browser.e2e.test.ts` drives **real Chromium** against a real socket, because nothing on the server enforces CORS — a browser does, and a suite that only asserts header strings is asserting that we wrote the right sentence, not that anything obeys it. Its load-bearing assertion is that a disallowed origin's POST is **never put on the wire**, checked against the edge's own record of what arrived; its sibling guard asserts that a blocked _read_ did arrive, so a `fetch` rejection cannot be a shut port masquerading as a CORS refusal. The browser suite skips loudly when no Chromium binary is present (`pnpm exec playwright install chromium`).
 
+## Refresh-token cookie (sign-in that survives a reload)
+
+The customer app keeps its access token in memory and its refresh token in an **HttpOnly, SameSite=Strict cookie that this edge sets**, so a reload, a second tab or a pop-out window can ask for a new access token without asking the person to sign in again. Never in `localStorage`. Source: `src/session-cookie.ts`; boot-level proof: `src/session-cookie.e2e.test.ts`.
+
+| Call                                                                                  | What the edge does                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth.login` / `auth.register` / `auth.authVerify` with `x-session-transport: cookie` | Forwards as usual, then moves `refreshToken` out of the answer into the cookie. Callers that do not send the header (mobile, API clients, `apps/admin`) are untouched and still get the token in the body.      |
+| `POST /api/identity/session/refresh`                                                  | Reads the cookie, calls `auth.refresh`, answers with a new access token and sets the **rotated** cookie. Identity retires the old token; replaying it revokes every session of that user (svc-identity's rule). |
+| `POST /api/identity/session/logout`                                                   | Reads the cookie, calls `auth.logout` (revokes the session), always clears the cookie.                                                                                                                          |
+
+- **Scope.** `Path=/api/identity/session`: the browser attaches the cookie to those two doors and nothing else, so no other upstream and no WebSocket upgrade ever carries it. That is why the `svc-ws` origin-allowlist dependency noted under CORS does not arise from this cookie; if a cookie is ever scoped wider, that note applies again.
+- **Cookie only.** The refresh token comes from the cookie, never from a body or a bearer token. A stolen access token cannot mint a session (refused `401 session.no_cookie`, identity not called).
+- **CSRF.** SameSite=Strict, plus `x-session-request: 1` (not CORS-safelisted, not in the allowed-headers list), plus `Sec-Fetch-Site` must be `same-origin`/`none` when the browser sends it. The app reaches the edge same-origin through its own `/api` proxy, so no CORS credentials are granted (`cors.ts` is unchanged).
+- **Secure.** Set on https and always in `staging`/`prod`; the local stack on `http://127.0.0.1:3210` gets a non-Secure cookie because a browser drops a Secure one on plain http.
+- **Failure behaviour.** A refresh identity refuses (4xx: expired, revoked, reuse detected) clears the cookie. A refresh that fails on an outage (5xx, unreachable) keeps it, so a hiccup does not sign anyone out.
+- **Not coalesced.** The edge does not merge simultaneous refreshes with the same cookie: that would let a replay inside the window slip past reuse detection. The app serialises refreshes across tabs instead (Web Locks plus BroadcastChannel).
+
 ## Events
 
 **None.** This service publishes and consumes nothing. It owns no data.
@@ -151,23 +168,24 @@ Until this landed the edge sent **no CORS headers at all** — not a permissive 
 
 ## Configuration
 
-| Variable                               | Notes                                                                                                                                                                 |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `JWT_ACCESS_SECRET`                    | **must match svc-identity's.** A mismatch means every login succeeds and every request after it is anonymous — which presents as "logged in but nothing works".       |
-| `EDGE_PRINCIPAL_SECRET`                | must match every mounted service's                                                                                                                                    |
-| `DEFAULT_REGION`                       | two-letter code; `XX` = unresolved sentinel (open defaults + `regionResolved: false`, not a lock-down)                                                                |
-| `INTAFACED_REGION_FAIL_CLOSED`         | process-wide; when `true`/`1`/`yes`/`on`, `checkAccess` refuses unresolved (`XX`) with `denied.region_unknown`. Default off.                                          |
-| `UPSTREAM_TIMEOUT_MS`                  | a hung service must not hold an edge connection open                                                                                                                  |
-| `EDGE_ALLOWED_ORIGINS`                 | browser origins, comma-separated and exact. **Required in `staging`/`prod`** — unset there is a closed door to every front-end. `*` is a boot failure.                |
-| `EDGE_RATE_LIMIT_ENABLED`              | throttle on/off (see `env.ts` defaults)                                                                                                                               |
-| `EDGE_RATE_LIMIT_MAX` / `_WINDOW_MS`   | per-replica budget when enabled. Pair: both required (blank refuses boot, never 300 / never 60000). Owner may set 300 and 60000.                                      |
-| `EDGE_TRUST_PROXY`                     | when set, Fastify trusts proxy headers for `req.ip` (rate-limit key) **and** trusted geo header reads. Unset behind nginx = one shared bucket — boot WARN.            |
-| `EDGE_GEO_COUNTRY_HEADER`              | optional trusted geo header name (e.g. `cf-ipcountry`). Requires `EDGE_TRUST_PROXY`. Missing/invalid → unresolved `XX`. No vendor invent.                             |
-| `INTAFACED_NETWORK_SIGNAL_CONFIGURED`  | partner slot claimed (not a vendor name). Without it, signal stays `unset`.                                                                                           |
-| `INTAFACED_NETWORK_SIGNAL_FAIL_CLOSED` | when armed, `/api/*` refuses `unset`/`dark` with `edge.network_*` codes. Default off.                                                                                 |
-| `EDGE_BODY_LIMIT_BYTES`                | max request body the edge will parse. Required (blank refuses boot, never 1048576). Owner may set 1048576. Oversize → 413 before principal exchange or upstream work. |
-| `EDGE_KILL_STATE_PATH`                 | JSON path for single-process kill restart durability. Empty = memory only. **Not** multi-replica share.                                                               |
-| `LEDGER_URL`                           | optional; operator freeze surface. Unset → `/admin/status.ledgerConfigured: false`.                                                                                   |
+| Variable                               | Notes                                                                                                                                                                       |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JWT_ACCESS_SECRET`                    | **must match svc-identity's.** A mismatch means every login succeeds and every request after it is anonymous — which presents as "logged in but nothing works".             |
+| `EDGE_PRINCIPAL_SECRET`                | must match every mounted service's                                                                                                                                          |
+| `DEFAULT_REGION`                       | two-letter code; `XX` = unresolved sentinel (open defaults + `regionResolved: false`, not a lock-down)                                                                      |
+| `INTAFACED_REGION_FAIL_CLOSED`         | process-wide; when `true`/`1`/`yes`/`on`, `checkAccess` refuses unresolved (`XX`) with `denied.region_unknown`. Default off.                                                |
+| `UPSTREAM_TIMEOUT_MS`                  | a hung service must not hold an edge connection open                                                                                                                        |
+| `EDGE_ALLOWED_ORIGINS`                 | browser origins, comma-separated and exact. **Required in `staging`/`prod`** — unset there is a closed door to every front-end. `*` is a boot failure.                      |
+| `EDGE_RATE_LIMIT_ENABLED`              | throttle on/off (see `env.ts` defaults)                                                                                                                                     |
+| `EDGE_RATE_LIMIT_MAX` / `_WINDOW_MS`   | per-replica budget when enabled. Pair: both required (blank refuses boot, never 300 / never 60000). Owner may set 300 and 60000.                                            |
+| `EDGE_TRUST_PROXY`                     | when set, Fastify trusts proxy headers for `req.ip` (rate-limit key) **and** trusted geo header reads. Unset behind nginx = one shared bucket — boot WARN.                  |
+| `EDGE_GEO_COUNTRY_HEADER`              | optional trusted geo header name (e.g. `cf-ipcountry`). Requires `EDGE_TRUST_PROXY`. Missing/invalid → unresolved `XX`. No vendor invent.                                   |
+| `INTAFACED_NETWORK_SIGNAL_CONFIGURED`  | partner slot claimed (not a vendor name). Without it, signal stays `unset`.                                                                                                 |
+| `INTAFACED_NETWORK_SIGNAL_FAIL_CLOSED` | when armed, `/api/*` refuses `unset`/`dark` with `edge.network_*` codes. Default off.                                                                                       |
+| `EDGE_BODY_LIMIT_BYTES`                | max request body the edge will parse. Required (blank refuses boot, never 1048576). Owner may set 1048576. Oversize → 413 before principal exchange or upstream work.       |
+| `EDGE_KILL_STATE_PATH`                 | JSON path for single-process kill restart durability. Empty = memory only. **Not** multi-replica share.                                                                     |
+| `EDGE_REFRESH_COOKIE_MAX_AGE_SECONDS`  | lifetime of the refresh-token cookie, renewed on every rotation. Default 30 days = svc-identity's `JWT_REFRESH_TTL_SECONDS` default; never set it above that. Not a secret. |
+| `LEDGER_URL`                           | optional; operator freeze surface. Unset → `/admin/status.ledgerConfigured: false`.                                                                                         |
 
 Authenticated forwarding now checks current identity authority on every request with the dedicated `IDENTITY_OWNERSHIP_SECRET`, matching identity's `IDENTITY_EDGE_AUTHORITY_SECRET`. It never substitutes the generic internal service secret, a WebSocket read key or an owner money-admission key. Missing configuration, a revoked or expired credential, unavailable identity or a response beyond the bounded three-second read refuses authenticated forwarding. Anonymous public enquiry routes remain reachable. The check covers the response body, avoids cached responses and redirects, and binds the original user/credential/subaccount. API keys additionally use current owner, expiry, IP, origin, product and account restrictions; the route determines the product. Identity's current KYC tier replaces the token's older tier. Ordinary interactive TOTP sessions can use the platform; existing explicit passkey and money-admission policies retain their own gates.
 
