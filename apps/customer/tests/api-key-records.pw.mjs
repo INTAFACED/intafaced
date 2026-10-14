@@ -105,7 +105,7 @@ test('deliberate owner GET windows and refresh preserve an unresolved Security o
   await expect(section(page)).toBeVisible();
   await expect(page.locator('.security__session-inspection')).toHaveAttribute('disabled', '');
   await expect(page.locator('.security__session-inspection').getByRole('button', { name: 'Refresh sessions', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Review sign-out everywhere', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Sign out everywhere', exact: true })).toBeDisabled();
   for (const limit of [50, 100, 150, 200]) {
     if (limit !== 50) await section(page).getByRole('combobox').selectOption(String(limit));
     await expect(rows(page)).toHaveCount(0);
@@ -117,7 +117,7 @@ test('deliberate owner GET windows and refresh preserve an unresolved Security o
   state.respond = async () => ({ status: 200, data: [] });
   await readButton(page).click();
   await expect(rows(page)).toHaveCount(0);
-  await expect(section(page).getByText('No API-key records returned in this window.', { exact: true })).toBeVisible();
+  await expect(section(page).getByText('No API keys yet.', { exact: true })).toBeVisible();
   expect(await page.evaluate((key) => localStorage.getItem(key), securityKey)).toBe(original);
   await clean(state, 'windows-and-original');
 });

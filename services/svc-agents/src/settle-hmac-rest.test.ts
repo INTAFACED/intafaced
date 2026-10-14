@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import type { Principal } from '@intafaced/auth';
-import { createEdgeContext, encodePrincipal, serviceAuthHeaders, signPrincipalHeader } from '@intafaced/contracts';
+import { createEdgeContext, encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
 import type { AgentsRouterDeps } from './router.js';
 import { chargeKeyFor } from './metering/meter.js';
@@ -48,10 +48,13 @@ function signedHeaders(scopes: string[]): Record<string, string> {
   };
 }
 
-function hmacHeaders(caller: 'svc-agents' | 'svc-trade'): Record<string, string> {
+// Was v1 `serviceAuthHeaders(caller, secret)`: an unbound signature the tRPC door
+// accepted only because it defaulted to accept-both. The door is `require` now
+// and every real caller signs v2 over the exact body it sends.
+function hmacHeaders(caller: 'svc-agents' | 'svc-trade', body: Record<string, unknown>): Record<string, string> {
   return {
     'content-type': 'application/json',
-    ...serviceAuthHeaders(caller, SERVICE_SECRET),
+    ...serviceAuthHeadersForBody(caller, SERVICE_SECRET, JSON.stringify(body)),
   };
 }
 
@@ -89,7 +92,7 @@ beforeAll(async () => {
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<AgentsRouter>['trpcOptions'],
   });
   await app.ready();
@@ -143,19 +146,19 @@ describe('usage settle HMAC as svc-agents', () => {
     { name: 'settle', path: 'usage.settle', payload: settlePayload },
     { name: 'settleSession', path: 'usage.settleSession', payload: settleSessionPayload },
   ] as const)('$name svc-trade HMAC → 403', async ({ path, payload }) => {
-    const { statusCode, body } = await post(path, payload, hmacHeaders('svc-trade'));
+    const { statusCode, body } = await post(path, payload, hmacHeaders('svc-trade', payload));
     expect(statusCode).toBe(403);
     expect(body.error?.data?.code).toBe('FORBIDDEN');
   });
 
   it('usage.settle HMAC as svc-agents reaches the meter door', async () => {
-    const { statusCode, body } = await post('usage.settle', settlePayload, hmacHeaders('svc-agents'));
+    const { statusCode, body } = await post('usage.settle', settlePayload, hmacHeaders('svc-agents', settlePayload));
     expect(statusCode).toBe(200);
     expect(body.result?.data).toBeDefined();
   });
 
   it('usage.settleSession HMAC as svc-agents reaches the meter door', async () => {
-    const { statusCode, body } = await post('usage.settleSession', settleSessionPayload, hmacHeaders('svc-agents'));
+    const { statusCode, body } = await post('usage.settleSession', settleSessionPayload, hmacHeaders('svc-agents', settleSessionPayload));
     expect(statusCode).toBe(200);
     expect(body.result?.data).toBeDefined();
   });

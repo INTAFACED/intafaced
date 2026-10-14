@@ -2,8 +2,11 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { accessClaimsSchema, type Principal } from '@intafaced/auth';
 import type { Context } from './trpc.js';
-import { rawBodyOf } from './raw-body.js';
-import { DEFAULT_SERVICE_BODY_BIND_MODE, verifyServiceHeaders, type ServiceBodyBindMode } from './service-auth.js';
+import { inboundRawBodyOf } from './raw-body.js';
+import { verifyServiceHeaders, type ServiceBodyBindMode } from './service-auth.js';
+
+/** The tRPC door has no v1 callers; see `EdgeContextOptions.bodyBindMode`. */
+const EDGE_CONTEXT_BODY_BIND_MODE: ServiceBodyBindMode = 'require';
 
 /**
  * THE EDGE TRUST BOUNDARY (§9).
@@ -148,12 +151,17 @@ export interface EdgeContextOptions {
    */
   internalSecret?: string;
   /**
-   * How strictly S2S HMAC binds the request body. Defaults to
-   * `DEFAULT_SERVICE_BODY_BIND_MODE` (`accept-both`).
+   * How strictly S2S HMAC binds the request body on this tRPC door. Defaults to
+   * `require`.
    *
-   * Pass `require` only after callers sign v2 and this instance has
-   * `retainRawBody` installed — otherwise every service call is
-   * `body-unavailable`. Does not change the package-wide default.
+   * The tRPC door has no v1 callers (every outbound client signs v2 with
+   * `serviceAuthHeadersForBody`), and `accept-both` here would let an unbound v1
+   * signature — or an empty-body one replayed — authenticate any body for the
+   * skew window. Pass `accept-both` only as a deliberate, temporary downgrade.
+   * `require` needs the context factory to be handed the whole request (so
+   * `req.body` / the retained bytes are visible); `{ headers, id }` alone has no
+   * body and refuses every service call as `body-unavailable`. Does not change
+   * the package-wide `DEFAULT_SERVICE_BODY_BIND_MODE`.
    */
   bodyBindMode?: ServiceBodyBindMode;
 }
@@ -174,6 +182,12 @@ export class EdgeTrustError extends Error {
 export interface EdgeRequest {
   headers: Record<string, string | string[] | undefined>;
   id?: string | number;
+  /**
+   * The request body as the HTTP adapter left it. The tRPC Fastify plugin keeps
+   * the wire text here (`parseAs: 'string'`); that exact text is bound for S2S
+   * body verification. Pass the whole Fastify request, not a copy of its headers.
+   */
+  body?: unknown;
 }
 
 /**
@@ -224,13 +238,16 @@ export function createEdgeContext(options: EdgeContextOptions): (req: EdgeReques
     // each check only their own, so neither can stand in for the other.
     //
     // Body bytes must reach the verifier: without them a captured v2 HMAC is
-    // replayable against any tRPC input for the skew window. `rawBodyOf` on a
-    // plain object (no `retainRawBody`) reports not-retained; accept-both still
-    // admits authentic v2, require refuses with body-unavailable.
+    // replayable against any tRPC input for the skew window. The tRPC Fastify
+    // plugin replaces the JSON parser inside its own scope with `parseAs:
+    // 'string'`, so `retainRawBody`'s parser never runs for /trpc/*; the wire
+    // text is `req.body`, and `inboundRawBodyOf` binds exactly that (or the
+    // retained bytes on a root route). A plain object with neither reports
+    // not-retained, which `require` refuses with body-unavailable.
     const service = options.internalSecret
       ? verifyServiceHeaders(req.headers, options.internalSecret, {
-          rawBody: rawBodyOf(req),
-          mode: options.bodyBindMode ?? DEFAULT_SERVICE_BODY_BIND_MODE,
+          rawBody: inboundRawBodyOf(req),
+          mode: options.bodyBindMode ?? EDGE_CONTEXT_BODY_BIND_MODE,
         }).service
       : null;
 

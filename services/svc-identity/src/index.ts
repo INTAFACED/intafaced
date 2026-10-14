@@ -103,6 +103,12 @@ const sql = postgres(env.DATABASE_URL, {
 await sql`SELECT 1 FROM users LIMIT 1`.catch(() => {
   throw new Error('identity schema is missing — run migrations before starting svc-identity');
 });
+// Code-before-migration must fail here, not on the first login (0027 per-account lockout counters).
+await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: auth_attempts (with consecutive_failures) is missing — apply drizzle/0027_auth_attempt_lockouts.sql before starting svc-identity',
+  );
+});
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
@@ -265,9 +271,16 @@ const identityRequestContext = createIdentityRequestContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  // The tRPC door has no v1 callers (every outbound client signs v2), so it is
+  // `require` whatever INTERNAL_SERVICE_BODY_BIND says: that fleet knob exists
+  // for the raw /internal routes that still need a migration window, and letting
+  // it downgrade this door would re-open unbound-signature replay on
+  // rank.awardXp and the other serviceProcedures.
+  bodyBindMode: 'require',
 });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+auth.useLogger(app.log);
 
 app.addHook('onRequest', (req, _reply, done) => {
   const rawIp = req.headers['x-forwarded-for'] ?? req.headers['x-real-ip'];

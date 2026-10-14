@@ -168,16 +168,53 @@ export function retainRawBody(app: RawBodyHost, contentTypes: readonly string[] 
 }
 
 /**
+ * Did the request line up for a body? `content-length` other than zero, or any
+ * `transfer-encoding`, means bytes followed the headers. A request object with no
+ * headers cannot be shown to be bodyless, so it counts as announcing one (fail
+ * closed).
+ */
+function announcesBody(req: object): boolean {
+  const headers = (req as { headers?: Record<string, string | string[] | undefined> }).headers;
+  if (headers === undefined || headers === null) return true;
+  if (headers['transfer-encoding'] !== undefined) return true;
+  const raw = headers['content-length'];
+  if (raw === undefined) return false;
+  const length = Array.isArray(raw) ? raw.join(',') : raw;
+  return !/^\s*0+\s*$/.test(length);
+}
+
+/**
  * The bytes this request carried, if anyone kept them.
  *
  * `{ retained: false }` means `retainRawBody` was never installed on this
  * instance — NOT that the request had no body. A bodyless request on an instance
  * that does retain reports `{ retained: true, bytes: <empty> }`, which verifies
  * against the digest of the empty body.
+ *
+ * The empty answer is given ONLY to a request that did not announce a body. The
+ * `onRequest` marker runs for every request, but a parser that is not ours can
+ * still consume the body without calling ours: Fastify's built-in `text/plain`
+ * parser on a root route, and the tRPC Fastify plugin, which replaces the JSON
+ * parser inside its own scope with `parseAs: 'string'`. Reporting "empty,
+ * verified" for those let a replayed empty-body signature authenticate a request
+ * carrying an attacker's body. They report `{ retained: false, unread: true }`.
  */
 export function rawBodyOf(req: object): ServiceRawBody {
   const bytes = RETAINED.get(req);
   if (bytes !== undefined) return { retained: true, bytes };
-  if (RETENTION_ACTIVE.has(req)) return { retained: true, bytes: EMPTY };
+  if (RETENTION_ACTIVE.has(req)) return announcesBody(req) ? { retained: false, unread: true } : { retained: true, bytes: EMPTY };
   return { retained: false };
+}
+
+/**
+ * The bytes to bind for a request that may have reached the handler by either
+ * route: `retainRawBody`'s parser (bytes in the WeakMap) or an adapter that
+ * keeps the wire text as `req.body` — the tRPC Fastify plugin's `parseAs:
+ * 'string'`, or a buffer parser. The string IS what was received, so its UTF-8
+ * bytes are the bytes the caller signed; never re-serialise a parsed object.
+ */
+export function inboundRawBodyOf(req: object & { body?: unknown }): ServiceRawBody {
+  if (typeof req.body === 'string') return { retained: true, bytes: Buffer.from(req.body, 'utf8') };
+  if (Buffer.isBuffer(req.body)) return { retained: true, bytes: req.body };
+  return rawBodyOf(req);
 }

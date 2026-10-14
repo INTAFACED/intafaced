@@ -338,7 +338,7 @@ test('an unknown dispatched original survives source failure reload tab closure 
     await page.getByRole('button', { name: 'Release escrow', exact: true }).click();
     await confirm(page).click();
     await expect(original(page)).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Connection unavailable', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Can’t connect right now', exact: true })).toBeVisible();
     await expect(page.locator('.p2p-order-identity')).toHaveCount(0);
     await expect.poll(() => state.writes.length).toBe(1);
     expect(await page.evaluate((key) => localStorage.getItem(key), originalKey)).toBe(unknownRaw);

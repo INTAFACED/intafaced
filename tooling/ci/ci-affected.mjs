@@ -11,14 +11,14 @@
  *   node tooling/ci/ci-affected.mjs --seal
  *
  * `push:main` always classifies as full (the trunk seal). Tooling / lockfile /
- * shared contracts+events also force full so a consumer shard cannot be skipped.
+ * shared contracts/events/ledger-client/config also force full so a consumer shard cannot be skipped.
  */
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
 export const SHARDS = {
   protocol: ['services/svc-protocol/', 'services/svc-dex/', 'services/svc-indexer/', 'services/svc-chain/', 'services/svc-bridge/'],
-  money: ['packages/ledger-client/', 'packages/config/', 'services/svc-ledger/', 'services/svc-identity/', 'services/svc-token/'],
+  money: ['services/svc-ledger/', 'services/svc-identity/', 'services/svc-token/'],
   trade: ['services/svc-trade/', 'services/svc-matching/', 'services/svc-execution/', 'packages/venue-adapter/', 'services/svc-ws/'],
   paybank: ['services/svc-pay/', 'services/svc-bank/', 'services/svc-p2p/'],
 };
@@ -34,6 +34,10 @@ export const FULL_TRIGGERS = [
   'INTAFACED_DEFINITIVE_BUILD.md',
   'packages/contracts/',
   'packages/events/',
+  // Imported by dozens of services across every shard (27 workspaces depend on
+  // ledger-client, 33 on config), so a change here must retest all of them.
+  'packages/ledger-client/',
+  'packages/config/',
 ];
 
 const SHARD_KEYS = /** @type {const} */ (['protocol', 'money', 'trade', 'paybank']);
@@ -157,14 +161,18 @@ function selfTest() {
     },
     {
       files: ['packages/ledger-client/src/index.ts'],
-      expected: { ...empty, money: true },
+      expected: { ...empty, full: true },
+    },
+    {
+      files: ['packages/config/src/index.ts'],
+      expected: { ...empty, full: true },
     },
     {
       files: ['services/svc-token/src/token-service.ts'],
       expected: { ...empty, money: true },
     },
     {
-      files: ['services/svc-protocol/x.ts', 'packages/ledger-client/src/x.ts'],
+      files: ['services/svc-protocol/x.ts', 'services/svc-ledger/src/x.ts'],
       expected: { ...empty, protocol: true, money: true },
     },
     {
@@ -188,7 +196,7 @@ function selfTest() {
       expected: empty,
     },
     {
-      files: ['services/svc-protocol/a.ts', 'packages/ledger-client/a.ts', 'services/svc-trade/a.ts'],
+      files: ['services/svc-protocol/a.ts', 'services/svc-ledger/a.ts', 'services/svc-trade/a.ts'],
       expected: { ...empty, full: true },
     },
   ];

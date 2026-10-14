@@ -98,7 +98,7 @@ async function mount(opts: { internalBookEnabled: boolean }): Promise<FastifyIns
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<DexRouter>['trpcOptions'],
   });
   await app.ready();
