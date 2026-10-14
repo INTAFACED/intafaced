@@ -1,6 +1,7 @@
 # ADR: drop-copy completeness contract — replay, gap-fill, independent session
 
-**Status:** **Proposed (spec).** Completeness is **false** on tip. This file does not claim complete.  
+**Status:** proposed  
+**Status note:** **Proposed (spec).** Completeness is **false** on tip. This file does not claim complete.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Plane:** Fiat house book only. INTACORE does not emit FIX.  
 **Does not edit:** `feat/svc-fix-dropcopy-hitch` (ingest in flight). Does not add `svc-chain`. Does not invent CompIDs.

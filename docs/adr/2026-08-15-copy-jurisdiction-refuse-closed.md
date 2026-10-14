@@ -1,6 +1,7 @@
 # ADR: copy geo stays refuse-closed until counsel supplies the list (D26-P0-15)
 
-**Status:** **Accepted — 2026-08-15.** Seals **D26-P0-15** as **refuse-closed in all regions** until a **counsel-supplied** served-jurisdiction list exists. Supersedes the 2026-08-14 “owner published allowlist” note on [`2026-08-12-copy-jurisdiction-refuse-closed.md`](2026-08-12-copy-jurisdiction-refuse-closed.md). That earlier ADR’s **mechanism** (blank law refuses; no source default) still holds. The 2026-08-14 example array is **not** counsel law.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15.** Seals **D26-P0-15** as **refuse-closed in all regions** until a **counsel-supplied** served-jurisdiction list exists. Supersedes the 2026-08-14 “owner published allowlist” note on [`2026-08-12-copy-jurisdiction-refuse-closed.md`](2026-08-12-copy-jurisdiction-refuse-closed.md). That earlier ADR’s **mechanism** (blank law refuses; no source default) still holds. The 2026-08-14 example array is **not** counsel law.
 **Decision owner (list content):** Nitro + counsel — Class X (`CLASS-X-SANCTIONS`). Engineers never draft the list.
 **Shape owner (this document):** Denon.
 **Law:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §8; [`OWNER-DECISIONS-OPEN.md`](../OWNER-DECISIONS-OPEN.md) §2 (engineers do not draft jurisdiction lists); [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §A3 copy fee-share refuse pattern; packet index `CLASS-X-SANCTIONS` / `D26-P0-15` in [`ops/owner-ruling-packet.json`](../ops/owner-ruling-packet.json).

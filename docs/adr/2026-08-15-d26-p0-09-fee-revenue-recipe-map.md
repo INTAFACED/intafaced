@@ -1,6 +1,7 @@
 # ADR: Fee + revenue recipe map — closed matrix, no invent (D26-P0-09)
 
-**Status:** **Accepted — 2026-08-15 (D26-P0-09 law seal).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15 (D26-P0-09 law seal).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-09 — fee + revenue recipe map.  
 **Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-09.  

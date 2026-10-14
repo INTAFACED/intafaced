@@ -1,6 +1,7 @@
 # ADR: P2P escrow and disputes — a timer is not a moderator
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-08.
 **Resolves:** an apparent conflict between doctrine §19/§23 and two accepted specs, plus a live contradiction between a spec and shipped behaviour.

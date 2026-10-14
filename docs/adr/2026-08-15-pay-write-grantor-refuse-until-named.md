@@ -1,6 +1,7 @@
 # ADR addendum: A2 grantor stays owner-named (D26-P0-08)
 
-**Status:** **Accepted — 2026-08-15 (mechanism freeze, not A2 content).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15 (mechanism freeze, not A2 content).**  
 **Cites (do not rewrite):** [`2026-08-12-pay-write-kyb-grant-mechanism-shape.md`](2026-08-12-pay-write-kyb-grant-mechanism-shape.md) — Layer A/B split and Layer B KYB money gate stay as written.  
 **Also on tip:** [`2026-08-13-pay-write-grant-a2-unpublished.md`](2026-08-13-pay-write-grant-a2-unpublished.md) (unpublished → refuse). This addendum corrects the packet: **mechanism only**. A2 answers are still owner.  
 **Decision owner (grantor / predicates / revocation):** Nitro (DIRECTION §8 item 4). **Written by:** Denon.  

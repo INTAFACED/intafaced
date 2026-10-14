@@ -1,6 +1,7 @@
 # ADR: integrating the vendored exchange platform
 
-**Status:** **Accepted — 2026-07-31. Option B: `ledger.*` is the only book.**
+**Status:** accepted  
+**Status note:** **Accepted — 2026-07-31. Option B: `ledger.*` is the only book.**
 **Decision owner:** repo owner (directed). **Written by:** Denon.
 
 > ### The decision, taken 2026-07-31

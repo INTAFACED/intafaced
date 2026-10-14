@@ -1,6 +1,7 @@
 # ADR: `pay:write` / KYB grant mechanism shape (D26-P0-08)
 
-**Status:** **Accepted as mechanism shape — 2026-08-12.** Grant **issuance** itself remains owner-sealed (DIRECTION §8 item 4). This ADR does **not** invent who grants or auto-approve KYB.
+**Status:** accepted  
+**Status note:** **Accepted as mechanism shape — 2026-08-12.** Grant **issuance** itself remains owner-sealed (DIRECTION §8 item 4). This ADR does **not** invent who grants or auto-approve KYB.
 **Decision owner (issuance):** Nitro (DIRECTION §8.4 / §8 item 4).
 **Shape owner (this document):** Denon.
 **Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P0-08** (shape) → **D26-P1-P10** (implement after seal).

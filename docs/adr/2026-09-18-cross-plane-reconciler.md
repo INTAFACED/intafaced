@@ -1,6 +1,7 @@
 # ADR: cross-plane reconciler — first deliverable; no crossing
 
-**Status:** **Proposed (spec).** No crossing is enabled. `svc-bridge` is **not** created by this file.  
+**Status:** proposed  
+**Status note:** **Proposed (spec).** No crossing is enabled. `svc-bridge` is **not** created by this file.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** D-S-12 done-bar 1 · S-D7 first slice (ledger half).  
 **Parent:** [`2026-08-04-cross-plane-bridge-accounting.md`](2026-08-04-cross-plane-bridge-accounting.md) · handshake [`2026-08-15-cross-plane-bridge-handshake.md`](2026-08-15-cross-plane-bridge-handshake.md).  

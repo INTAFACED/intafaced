@@ -1,6 +1,7 @@
 # ADR: dex venue set — empty is refuse, not a silent router
 
-**Status:** **Accepted — 2026-08-13 (D26-P0-03 sealed).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-13 (D26-P0-03 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-03 — `socket.dex-venue-set` one sentence.  
 **Packet:** [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §2.  

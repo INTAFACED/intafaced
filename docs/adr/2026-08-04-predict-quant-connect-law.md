@@ -1,6 +1,7 @@
 # ADR: Connect, Execution, Quant and Predict — the invent ban, made specific
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-18. The board qualifies this one _"(if in scope)"_ — so the first thing it decides is what is in scope.
 **Ground truth:** `svc-connect`, `svc-execution`, `svc-quant` and `svc-predict` **do not exist.** None of the four appears under `services/`. §27–§32 are doctrine describing rooms nobody has entered.

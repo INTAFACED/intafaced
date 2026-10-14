@@ -1,6 +1,7 @@
 # ADR: D26-P0-07 — freeze leverage / margin / liq params beyond 10× until §1 liquidation proof
 
-**Status:** **Accepted — 2026-08-15 (D26-P0-07 freeze bound to liquidation proof).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15 (D26-P0-07 freeze bound to liquidation proof).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-07.  
 **Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-07.  

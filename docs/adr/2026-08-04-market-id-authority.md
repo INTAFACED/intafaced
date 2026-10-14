@@ -1,6 +1,7 @@
 # ADR: which service decides what a market is
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Supersedes in scope:** nothing. **Implemented by:** [#727](https://github.com/Phantom-X-007/intafaced/pull/727), which shipped before this was written down — this ADR seals the decision that PR made.
 

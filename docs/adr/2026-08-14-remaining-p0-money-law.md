@@ -1,6 +1,7 @@
 # ADR: remaining Denon P0 money-law seals (2026-08-14)
 
-**Status:** **Accepted — 2026-08-14.**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-14.**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-04 · D26-P0-12 · D26-P0-13 · PKT-C7 · PKT-C8 · PKT-C9.  
 **Index:** [`docs/ops/owner-ruling-packet.json`](../ops/owner-ruling-packet.json).  

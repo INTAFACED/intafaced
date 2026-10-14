@@ -1,6 +1,7 @@
 # The vendored exchange UI: what to take, and what to leave
 
-**Status:** Assessment. Decision is the repo owner's.
+**Status:** proposed  
+**Status note:** Assessment. Decision is the repo owner's.
 **Context:** direction given — _"the vendored exchange UI and app is better built so we use that ui, add all of our other features to it."_
 
 ---

@@ -1,6 +1,7 @@
 # ADR: listing policy blank is refuse — not default allow (D26-P0-06)
 
-**Status:** **Accepted — 2026-08-15 (D26-P0-06 sealed).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15 (D26-P0-06 sealed).**  
 **Amends:** [`2026-08-12-listing-delisting-policy.md`](2026-08-12-listing-delisting-policy.md) (structural gates + halt/delist non-confiscation stay).  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-06 — Listing / delisting policy (DIRECTION §8 item 5; board label “§8.5”).  

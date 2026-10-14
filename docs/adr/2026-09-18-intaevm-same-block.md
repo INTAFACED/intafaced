@@ -1,6 +1,7 @@
 # ADR: S-D5 — INTACORE ↔ INTAEVM, same block; desync is halt
 
-**Status:** **Proposed (spec).** Implement of P1 / INTAEVM stays **parked**.  
+**Status:** proposed  
+**Status note:** **Proposed (spec).** Implement of P1 / INTAEVM stays **parked**.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** S-D5 (Shehzad board) · feeds `chain.evm`.  
 **Parent:** [`2026-09-18-intacore-module-map.md`](2026-09-18-intacore-module-map.md) §3 (desync named, not testable).  

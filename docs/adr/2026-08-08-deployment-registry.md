@@ -1,6 +1,7 @@
 # ADR — Deployment registry (S-A13)
 
-**Status:** Accepted (artefact format)  
+**Status:** accepted  
+**Status note:** Accepted (artefact format)  
 **Date:** 2026-08-08  
 **Board:** S-A13 · `socket.deployment-registry`
 

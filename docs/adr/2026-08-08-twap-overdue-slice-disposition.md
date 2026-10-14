@@ -1,6 +1,7 @@
 # ADR: what a TWAP does with overdue slices — the interval is the promise
 
-**Status:** **Accepted — 2026-08-08.** This is the ruling `docs/BUILD-STOP-TRADE-2026-08-08.md` §4 asked for. It unblocks defect 1 of the three that made the adversarial pass return **DO NOT MOUNT** on the TWAP scheduler.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-08.** This is the ruling `docs/BUILD-STOP-TRADE-2026-08-08.md` §4 asked for. It unblocks defect 1 of the three that made the adversarial pass return **DO NOT MOUNT** on the TWAP scheduler.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec:** the algo half of **D-S-04**, extending [`adr/2026-08-04-algo-execution-law.md`](2026-08-04-algo-execution-law.md) (TWAP only, icebergs out). That ADR stands unchanged.
 **Lane:** `services/svc-trade/src/algo/**` is claimed live by `nitro-money-trade-algo`. **This is law only — the craft is theirs.** No code in this PR.

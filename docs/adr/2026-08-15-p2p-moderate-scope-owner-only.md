@@ -1,6 +1,7 @@
 # ADR: `p2p:moderate` scope mint stays refuse / owner-gated (PKT-C8)
 
-**Status:** **Accepted — 2026-08-15.** Owner sign-off. Agents do not invent who moderates.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15.** Owner sign-off. Agents do not invent who moderates.
 **Decision owner:** repo owner (Denon). **Written by:** Denon.
 **Packet:** PKT-C8 — [`docs/ops/owner-ruling-packet.json`](../ops/owner-ruling-packet.json).
 **Packet prose:** [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §8.

@@ -1,6 +1,7 @@
 # ADR: matching dual-target — one spec, two runtimes, and two different words for "final"
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-06.
 **Ground truth:** `svc-matching` exists and runs. **INTACORE does not exist.** P1 implement is **parked** ([`2026-09-03-protocol-rails-until-intachain.md`](2026-09-03-protocol-rails-until-intachain.md)) — Fiat matching stays the house book until Nitro GO. This ADR still binds the second runtime _when_ it is built.

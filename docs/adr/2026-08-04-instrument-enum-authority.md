@@ -1,6 +1,7 @@
 # ADR: instrument enum authority — a schedule nobody defined must refuse, not throw
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-05, **completing** it.
 **Builds on:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §2, which decided the instrument model and the listing rule. Both stand. This adds the **enum authority** the board's column asked for, and corrects one instruction in §2 that has gone stale.

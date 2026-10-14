@@ -1,6 +1,6 @@
 # ADR — Fail-closed price oracle (S-A12)
 
-**Status:** Accepted  
+**Status:** accepted  
 **Date:** 2026-08-08  
 **Board:** S-A12 · tracker `socket.price-oracle`  
 **Blocks:** S-A4 lending

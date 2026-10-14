@@ -1,6 +1,7 @@
 # ADR: D26-P0-02 DIRECTION §8 rates / fee-shares — explicit launch-closed
 
-**Status:** **Accepted as launch-closed — 2026-08-15.** Mechanism is refuse-closed. Magnitudes remain unpublished until the owner writes them into **config authority**, not source seeds.
+**Status:** accepted  
+**Status note:** **Accepted as launch-closed — 2026-08-15.** Mechanism is refuse-closed. Magnitudes remain unpublished until the owner writes them into **config authority**, not source seeds.
 **Decision owner (magnitudes):** Nitro / host (DIRECTION §8 item 10).
 **Mechanism owner (this document):** Denon.
 **Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P0-02**.

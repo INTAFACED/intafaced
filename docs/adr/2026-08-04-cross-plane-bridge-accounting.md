@@ -1,6 +1,7 @@
 # ADR: cross-plane bridge accounting — the window cannot be closed, so it must be bounded
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-12. **Accounting law only** — the chain side is Shehzad's S-D7 / S-B5 and this does not reach into it.
 **Ground truth:** `svc-bridge` **does not exist**. Not a shell, not a stub — zero lines, zero tables, zero procedures, zero tests, zero events. `bridgeBoundary()` is declared in `packages/ledger-client/src/accounts.ts:232` and has **zero callers** repo-wide, against 40 for `railBoundary`. There is no IFC contract on any chain: `grep -rn "IFC" services/svc-protocol/contracts/ services/svc-indexer/contracts/` returns nothing.

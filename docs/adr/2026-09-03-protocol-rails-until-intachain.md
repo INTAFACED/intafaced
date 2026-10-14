@@ -1,6 +1,7 @@
 # ADR: Protocol rails until INTACHAIN — house book + Base; P1 parked
 
-**Status:** **Accepted — 2026-09-03.** Nitro human decision.  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-09-03.** Nitro human decision.  
 **Decision owner:** Nitro.  
 **Does not replace:** `INTAFACED_DEFINITIVE_BUILD.md` §16–§17 (end-state still own L1).  
 **Supersedes for _timing_ only:** `docs/LAST-MVP-BOARDS-2026-08-23.md` §4 “INTACHAIN GO / start P1 now” and the 2026-08-23 GO delta on the Shehzad board.  

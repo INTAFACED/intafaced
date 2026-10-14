@@ -1,6 +1,7 @@
 # ADR: Java vs TypeScript money source of truth — sealed forever
 
-**Status:** **Accepted — 2026-08-15.** Language seal only. Does not re-open D-S-17.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15.** Language seal only. Does not re-open D-S-17.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P4-07**.
 **Depends on (unchanged):** [`2026-08-02-adopt-vendored-product-keep-our-ledger.md`](2026-08-02-adopt-vendored-product-keep-our-ledger.md) (“Yes for the product. No for the book.”) · [`2026-08-04-java-dual-book-residual.md`](2026-08-04-java-dual-book-residual.md) (D-S-17 residual grades, jars, scans).

@@ -1,6 +1,7 @@
 # ADR: Launchpad raise economics — named params, sockets, refuse until set (D26-P0-13)
 
-**Status:** **Accepted — 2026-08-15 (law catalog + refuse).** Magnitudes remain **unpublished**. This ADR does **not** invent raise math.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15 (law catalog + refuse).** Magnitudes remain **unpublished**. This ADR does **not** invent raise math.
 **Decision owner (magnitudes):** Nitro (authority store). **Law catalog owner:** Denon.
 **On-chain implement:** Shehzad (`launch.launchpad` · S-G2 / escrow / vesting). Agents babysit only.
 **Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P0-13**.

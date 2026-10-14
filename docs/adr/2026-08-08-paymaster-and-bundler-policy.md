@@ -1,6 +1,7 @@
 # ADR — Paymaster sponsorship + bundler dependency (S-A10 / S-A11)
 
-**Status:** Accepted (policy + contract); funding half open  
+**Status:** accepted  
+**Status note:** Accepted (policy + contract); funding half open  
 **Date:** 2026-08-08  
 **Board:** S-A10 · S-A11  
 **Tracker:** `socket.paymaster-policy` · `socket.bundler-policy`

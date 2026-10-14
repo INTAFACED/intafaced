@@ -1,6 +1,7 @@
 # ADR: copy served-jurisdiction list — refuse-closed until the owner publishes
 
-**Status:** **Accepted — 2026-08-12 (mechanism).** Seals refuse-closed **shape**. **2026-08-15:** the 2026-08-14 “owner published allowlist” note is **withdrawn as product law** — copy geo stays refuse-closed in all regions until a **counsel-supplied** list exists. See [`2026-08-15-copy-jurisdiction-refuse-closed.md`](2026-08-15-copy-jurisdiction-refuse-closed.md) (D26-P0-15 content seal · `CLASS-X-SANCTIONS`).
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-12 (mechanism).** Seals refuse-closed **shape**. **2026-08-15:** the 2026-08-14 “owner published allowlist” note is **withdrawn as product law** — copy geo stays refuse-closed in all regions until a **counsel-supplied** list exists. See [`2026-08-15-copy-jurisdiction-refuse-closed.md`](2026-08-15-copy-jurisdiction-refuse-closed.md) (D26-P0-15 content seal · `CLASS-X-SANCTIONS`).
 **Decision owner:** repo owner. **Written by:** Denon.
 **Law:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §8 item 10; [`SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md`](../SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md) (served-jurisdiction answer); [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §A3.
 **Board:** `trade.copy` · D26-P0-15 on [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md).

@@ -1,6 +1,7 @@
 # ADR: leverage / margin / liquidation params — §1 defaults frozen
 
-**Status:** **Accepted — 2026-08-13 (D26-P0-07 sealed).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-13 (D26-P0-07 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-07 — Leverage / margin / liq params beyond §1 defaults.  
 **Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-07.  

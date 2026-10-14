@@ -1,6 +1,7 @@
 # INTACHAIN unpark — what is written, what is left (English)
 
-**Status:** **Proposed (index).** Not a tracker recook. Not LIVE-LANES.  
+**Status:** proposed  
+**Status note:** **Proposed (index).** Not a tracker recook. Not LIVE-LANES.  
 **Written:** 2026-09-18. Tip at write: re-derive `origin/main`.  
 **Does not unpark P1.** Nitro still writes GO on [`2026-09-03-protocol-rails-until-intachain.md`](2026-09-03-protocol-rails-until-intachain.md).
 

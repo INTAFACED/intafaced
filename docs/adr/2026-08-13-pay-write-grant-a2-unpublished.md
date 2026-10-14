@@ -1,6 +1,7 @@
 # ADR: merchant `pay:*` grant A2 — unpublished is refuse (D26-P0-08 close)
 
-**Status:** **Accepted — 2026-08-13 (D26-P0-08 sealed).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-13 (D26-P0-08 sealed).**  
 **Amends:** [`2026-08-12-pay-write-kyb-grant-mechanism-shape.md`](2026-08-12-pay-write-kyb-grant-mechanism-shape.md) (mechanism shape already on tip).  
 **Decision owner (A2 content):** Nitro. **Written by:** Denon.  
 **Does not invent:** grantor role, dual-control, per-scope KYB predicates, sandbox temporary grants, or revoke actors.

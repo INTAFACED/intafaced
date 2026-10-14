@@ -1,6 +1,7 @@
 # ADR: D26-P0-02 owner launch seals — fee-shares, profit pot, payout click
 
-**Status:** **Accepted — 2026-08-13 (D26-P0-02 + PKT-B5 + PAYOUT-01 sealed).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-13 (D26-P0-02 + PKT-B5 + PAYOUT-01 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-02 — DIRECTION §8 rates / fee-shares.  
 **Packet:** [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §3; index `docs/ops/owner-ruling-packet.json`.  

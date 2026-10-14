@@ -1,6 +1,7 @@
 # ADR: INTACORE mark port — interface + refuse when unset
 
-**Status:** **Proposed (spec).** No vendor. No INTACORE. No `svc-chain`.  
+**Status:** proposed  
+**Status note:** **Proposed (spec).** No vendor. No INTACORE. No `svc-chain`.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** INTACORE margin marks + Predict **trading** marks (not resolution).  
 **Parents:** [`2026-08-08-price-oracle-fail-closed.md`](2026-08-08-price-oracle-fail-closed.md) (S-A12 lending policy) · [`2026-09-18-intacore-module-map.md`](2026-09-18-intacore-module-map.md) (margin reads marks “once a source exists”) · [`2026-09-18-predict-resolution-stack.md`](2026-09-18-predict-resolution-stack.md) (resolution ≠ mark).  

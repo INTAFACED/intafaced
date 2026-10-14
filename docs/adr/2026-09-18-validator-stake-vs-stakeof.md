@@ -1,6 +1,7 @@
 # ADR: S-D3 — validator security stake is not `token.stakeOf`
 
-**Status:** **Proposed (spec).** Implement of P1 / `svc-chain` stays **parked**.  
+**Status:** proposed  
+**Status note:** **Proposed (spec).** Implement of P1 / `svc-chain` stays **parked**.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** S-D3 (Shehzad board) · feeds `chain.validators`.  
 **Parent:** [`2026-09-18-intacore-module-map.md`](2026-09-18-intacore-module-map.md) (staking module named, not designed) · [`2026-09-03-protocol-rails-until-intachain.md`](2026-09-03-protocol-rails-until-intachain.md).  

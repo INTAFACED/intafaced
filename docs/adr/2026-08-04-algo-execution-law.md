@@ -1,6 +1,7 @@
 # ADR: algo execution — a schedule is not a position, and progress is not a fill
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed. **Amended 2026-08-14:** VWAP/POV may run from the existing non-seeded fill-tape volume series; they still refuse when that series is empty. Icebergs remain out. `trade.algo` is still not Done (jobs default OFF).
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed. **Amended 2026-08-14:** VWAP/POV may run from the existing non-seeded fill-tape volume series; they still refuse when that series is empty. Icebergs remain out. `trade.algo` is still not Done (jobs default OFF).
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-04.
 **Builds on:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §1, which already decided the scope: **"Algo v1 = TWAP only. Icebergs are OUT."** That stands for icebergs. TWAP shipped; VWAP/POV now consume real tape rather than inventing a curve.

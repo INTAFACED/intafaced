@@ -1,6 +1,7 @@
 # ADR: token economics — which numbers are decisions, and the one that is already wrong
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-14.
 **Scope:** this ADR **decides no economic number.** It decides which numbers are the owner's, what must happen before any of them is published, and it names one ordering defect that needs fixing regardless of what the numbers turn out to be.

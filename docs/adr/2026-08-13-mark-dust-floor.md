@@ -1,6 +1,7 @@
 # ADR: mark dust floor — keep shipped `DEFAULT_MIN_BEST_LEVEL_*`
 
-**Status:** **Accepted — 2026-08-13 (D26-P0-14 sealed).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-13 (D26-P0-14 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-14 — `DEFAULT_MIN_BEST_LEVEL_NOTIONAL` + mark dust floor.  
 **Packet:** [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §4 · part two §P0-14.  

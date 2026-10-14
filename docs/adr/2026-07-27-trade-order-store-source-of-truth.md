@@ -2,7 +2,7 @@
 
 | Field       | Value                                                              |
 | ----------- | ------------------------------------------------------------------ |
-| **Status**  | Accepted                                                           |
+| **Status**  | accepted                                                           |
 | **Date**    | 2026-07-27                                                         |
 | **Closes**  | P0-2 (`order.filled` → `tradeFill` shape gap)                      |
 | **Related** | svc-matching events · svc-trade · `packages/ledger-client` recipes |

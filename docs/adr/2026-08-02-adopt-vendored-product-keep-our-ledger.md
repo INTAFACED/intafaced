@@ -1,6 +1,7 @@
 # ADR: adopt the vendored product, keep our ledger
 
-**Status:** **Accepted — 2026-08-02.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-02.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Supersedes in scope:** nothing. **Depends on:** [`2026-07-28-vendored-exchange-integration.md`](2026-07-28-vendored-exchange-integration.md) (Accepted, Option B).
 

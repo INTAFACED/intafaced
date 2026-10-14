@@ -1,6 +1,7 @@
 # ADR: PKT-C9 — four token magnitudes remain owner-only and unset
 
-**Status:** **Accepted — 2026-08-15.** Owner decision, stated.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15.** Owner decision, stated.
 **Decision owner:** repo owner (Nitro publishes magnitudes). **Written by:** Denon.
 **Packet id:** PKT-C9.
 **Cites (does not rewrite):** [`2026-08-04-token-economics-outcomes.md`](2026-08-04-token-economics-outcomes.md) (D-S-14 — whose the numbers are; no figure).

@@ -1,6 +1,6 @@
 # ADR: This redesign may replace the product UI and the unsettled color lock
 
-**Status:** Accepted
+**Status:** accepted  
 **Date:** 2026-10-02
 **Decision owner:** Nitro
 

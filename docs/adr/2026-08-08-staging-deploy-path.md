@@ -1,6 +1,7 @@
 # ADR: staging deploy path — parameterised workflow, not prod Kubernetes
 
-**Status:** **Accepted — 2026-08-08.** Owner decision (Nitro green light on axis plan A3).
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-08.** Owner decision (Nitro green light on axis plan A3).
 **Decision owner:** repo owner. **Written by:** resume agent (axis C4).
 **Spec id:** axis A3 / C4. **Class:** X2 for real credentials; this ADR is product/ops law only.
 

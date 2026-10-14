@@ -1,6 +1,7 @@
 # ADR: S-D2 — INTACORE module map (house book vs chain book)
 
-**Status:** **Accepted — 2026-09-18** as **spec**. Implement of P1 stays **parked**.  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-09-18** as **spec**. Implement of P1 stays **parked**.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** S-D2 (Shehzad board).  
 **Does not replace:** [`2026-09-03-protocol-rails-until-intachain.md`](2026-09-03-protocol-rails-until-intachain.md) (timing) · [`2026-08-04-matching-dual-target.md`](2026-08-04-matching-dual-target.md) (D-S-06) · doctrine §16–§17.  

@@ -1,6 +1,7 @@
 # ADR: futures risk and mark law — the engine must not be told what a position is worth
 
-**Status:** **Accepted — 2026-08-05.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-05.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec ids:** **D-S-01** (futures risk product law) and the futures half of **D-S-07** (oracle / mark policy). The lending half of D-S-07 is already law in [`SPEC-LENDING-2026-08-02.md`](../SPEC-LENDING-2026-08-02.md) §1 and is unchanged.
 **Builds on:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §1 — isolated margin only, partial-liquidation posture, MVP done bar. All of that stands.

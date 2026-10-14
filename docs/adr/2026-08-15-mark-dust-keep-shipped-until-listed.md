@@ -1,6 +1,7 @@
 # ADR: mark dust floors stay shipped until listing evidence (D26-P0-14)
 
-**Status:** **Accepted — 2026-08-15 (D26-P0-14).** Shipped constants stay until a market lists with observed depth.  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15 (D26-P0-14).** Shipped constants stay until a market lists with observed depth.  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-14 — `DEFAULT_MIN_BEST_LEVEL_NOTIONAL` + mark dust floor.  
 **Packet (part one item 4):** [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §B · [Two depth numbers on the futures mark path](../OWNER-DECISION-PACKET-2026-08-09.md#4--two-depth-numbers-on-the-futures-mark-path).  

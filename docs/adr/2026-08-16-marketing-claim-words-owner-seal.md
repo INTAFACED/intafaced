@@ -1,6 +1,7 @@
 # ADR: audited / insured / guaranteed — owner seal or ban
 
-**Status:** **Accepted — 2026-08-16 (D26-P0-16 sealed).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-16 (D26-P0-16 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-16 — “Audited / insured / guaranteed” language ban surface.  
 **Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-16.  

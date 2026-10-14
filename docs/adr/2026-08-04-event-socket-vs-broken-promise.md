@@ -1,6 +1,7 @@
 # ADR: an unconsumed event is a socket only when nothing was promised
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-13.
 **Ground truth (as written, 2026-08-04):** `event-wiring` reported **32 declared events: 14 wired end to end, 18 recorded sockets with a written reason.** The gate is good and the reasons in `packages/events/src/catalog.ts` are unusually honest. This ADR does not ask for more discipline — it asks for the eighteen to be **sorted**, because they are not all the same thing.

@@ -1,6 +1,7 @@
 # ADR: what `socket.psp-partners` actually is, and why an orchestrator does not close it
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-10, **completing** it rather than opening it.
 **Builds on:** [`SPEC-PAY-VERTICALS-2026-08-02.md`](../SPEC-PAY-VERTICALS-2026-08-02.md), which already decided the licence line for all six verticals — _"whose money is it while we are touching it, and are we ever the counterparty?"_ That spec stands unchanged and is the senior document. It did not cover the board's remaining column: **what Nitro may ship after #346, merchant durability, and card sandbox vs go-live.** That is what this adds, plus the Hyperswitch answer.

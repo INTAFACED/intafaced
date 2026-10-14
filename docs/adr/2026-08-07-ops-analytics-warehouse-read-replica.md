@@ -1,6 +1,7 @@
 # ADR: `ops.analytics` — warehouse is a read replica, never a second book
 
-**Status:** **Accepted — 2026-08-07.** Stage-1 product law for tracker row `ops.analytics` ("Warehouse — read replica + cube layer").
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-07.** Stage-1 product law for tracker row `ops.analytics` ("Warehouse — read replica + cube layer").
 **Decision owner:** Nitro agents under doctrine §8.8. **Class:** N (no money invent; read path only).
 **Reason this exists:** Slice A contracts already name metrics and lag SLOs. What was still missing is the **replica connection law** and an **honest empty surface** so operators never see invented trading volume when the warehouse is dark.
 

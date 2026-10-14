@@ -1,6 +1,7 @@
 # ADR: house commission authority — blank refuses, numbers stay owner
 
-**Status:** **Accepted — 2026-08-13 (D26-P0-10 sealed).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-13 (D26-P0-10 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-10 — listings / treasury / house commission law.  
 **Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-10.  

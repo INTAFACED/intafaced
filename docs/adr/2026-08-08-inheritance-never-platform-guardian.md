@@ -1,6 +1,6 @@
 # ADR — Inheritance vs never-a-guardian (S-K7 → S-L2)
 
-**Status:** Accepted  
+**Status:** accepted  
 **Date:** 2026-08-08  
 **Board:** S-K7 (required before S-L2 legacy vaults)  
 **Law:** §34 legacy / `socket.social-recovery` — platform must never be a guardian

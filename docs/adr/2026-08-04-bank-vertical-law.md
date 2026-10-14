@@ -1,6 +1,7 @@
 # ADR: when a bank vertical may say Done, and when it is a §13 socket
 
-**Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-09, **completing** it rather than opening it.
 **Builds on:** [`SPEC-OTC-RFQ-AND-EARN-2026-08-02.md`](../SPEC-OTC-RFQ-AND-EARN-2026-08-02.md) Part B, which already decided the Earn half ("yield must have a named source"), and [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §7. Neither answered the board's other column — **cards/ramps sandbox bounds, and what is §13 forever**. That is what this adds. Part B stands unchanged.

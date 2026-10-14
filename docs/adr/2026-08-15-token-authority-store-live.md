@@ -1,6 +1,7 @@
 # ADR: token authority store live — seeds fail-closed; claim-before-burn (D26-P0-04)
 
-**Status:** **Accepted — 2026-08-15 (D26-P0-04 sealed as a dedicated authority ADR).**  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-15 (D26-P0-04 sealed as a dedicated authority ADR).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P0-04**.  
 **Cites (does not replace):** [`2026-08-04-token-economics-outcomes.md`](2026-08-04-token-economics-outcomes.md) — whose the numbers are, and the irreversible-burn defect.  

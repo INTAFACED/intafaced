@@ -1,6 +1,7 @@
 # ADR: shared matching conformance — one spec both runtimes import
 
-**Status:** **Proposed (spec).** Implement of INTACORE stays **parked**.  
+**Status:** proposed  
+**Status note:** **Proposed (spec).** Implement of INTACORE stays **parked**.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** D-S-06 done-bar 3 (shared rows).  
 **Parent:** [`2026-08-04-matching-dual-target.md`](2026-08-04-matching-dual-target.md) · module map [`2026-09-18-intacore-module-map.md`](2026-09-18-intacore-module-map.md).  

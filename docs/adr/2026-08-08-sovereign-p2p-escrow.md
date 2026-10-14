@@ -1,6 +1,7 @@
 # ADR: Sovereign (Protocol Plane) P2P escrow — S-A3
 
-**Status:** Accepted for implementation — 2026-08-08.  
+**Status:** accepted  
+**Status note:** Accepted for implementation — 2026-08-08.  
 **Board id:** S-A3 · tracker `protocol.escrow`.  
 **Owner:** `@shehzad002`.
 

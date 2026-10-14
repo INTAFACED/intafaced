@@ -1,6 +1,7 @@
 # ADR: insurance fund funding policy — empty fund, no live perps
 
-**Status:** **Accepted — 2026-08-13 (D26-P0-17 sealed).** Addendum **2026-08-15**: list gate is an existing-recipe path only.  
+**Status:** accepted  
+**Status note:** **Accepted — 2026-08-13 (D26-P0-17 sealed).** Addendum **2026-08-15**: list gate is an existing-recipe path only.  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-17 — Insurance fund funding policy (futures list gate).  
 **Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-17.  
