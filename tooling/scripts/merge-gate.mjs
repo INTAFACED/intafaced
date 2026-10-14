@@ -22,7 +22,7 @@
  *          what catches, say, "Every infrastructure-backed suite actually ran" going red on a PR when main's job failed
  *          only at "Run pnpm test --continue".
  *        - "Doctrine gates": the failing gate ids (the `✖ <id>` summary lines of the job log) must be a subset of main's.
- *        - "Tests (full)": the failing test FILES, per package, against a window of main's recent runs (below).
+ *        - "Tests (full)": the failing TESTS, per package, against a window of main's recent runs (below).
  *      If the failing ids cannot be read from a log, the failure counts as new.
  *      The PR test SHARDS ("Tests (protocol)", "(money)", "(trade)") run `pnpm --no-bail --filter ... test`, which prints no
  *      `Failed:` line, so there is nothing to compare: EVERY red shard blocks the PR, even while main's "Tests (full)" is
@@ -30,36 +30,42 @@
  *
  *   6. The PR does not change gate files (tooling/ci, workflows, ...) unless its title says so (gate-file-guard.mjs).
  *
- * "TESTS (FULL)": A FILE-LEVEL RATCHET AGAINST A WINDOW OF MAIN (2026-10-14; replaces the package-level comparison)
+ * "TESTS (FULL)": A TEST-NAME RATCHET AGAINST A WINDOW OF MAIN (2026-10-14; replaces the package-level comparison)
  *
  *   Main's "Tests (full)" is flaky (timeouts under load, a shared anvil, about ten packages that come and go), so comparing
  *   packages with one single main run blocked every PR on whichever package happened to flake, while a NEW failing test
  *   inside an already-red package stayed invisible. Now:
  *     - The failing packages of a job are the tasks on the `Failed:    a#test, b#test` line (turbo).
- *     - Failing FILES come from vitest's own summary lines ` FAIL  <file> > <suite> > <test>` and ` FAIL  <file> [ <file> ]`
- *       (a suite that failed to load). Turbo runs here with grouped log order, so those lines carry NO package prefix: the
- *       log holds one block per package that starts with a header line `@intafaced/<pkg>:test` (or `##[group]<pkg>:test`) and
- *       ends at `##[endgroup]`. A FAIL line belongs to the package of the block it sits in. If a log is instead prefixed
- *       per line (`@intafaced/<pkg>:test: ...`, turbo's stream mode) the prefix wins. A FAIL line outside any block cannot be
- *       attributed and is ignored. Files are compared as "<task> <path>" (path relative to the package), test names are not.
+ *     - What failed in a package is read as NAMES from vitest's summary: `FAIL  <file> > <suite> > <test>` is the name
+ *       "<file> > <suite> > <test>"; `FAIL  <file> [ <file> ]` (a suite or hook that failed to load or run) is the file-level
+ *       name "<file>"; each unhandled error ("Unhandled Error" / "Unhandled Rejection", also counted by the `Errors  N error`
+ *       summary) is the name "(unhandled) <file>" when vitest says `This error originated in "<file>"`, else
+ *       "(unhandled) <task>". Test names are compared exactly: the same file with another test name is a NEW failure.
+ *     - Attribution. Turbo runs here with grouped log order, so FAIL lines carry NO package prefix: the log holds one block per
+ *       package that starts with a header line `@intafaced/<pkg>:test` and ends at `##[endgroup]`. A line counts as a header
+ *       only if its task is on the log's own `Failed:` line or it sits behind `##[group]`; anything else that merely looks
+ *       like one (`Error:boom`) is ordinary text and does not switch the block. A per-line prefix
+ *       (`@intafaced/<pkg>:test: ...`, turbo's stream mode) wins over the block. A FAIL line on the PR that has no package,
+ *       belongs to a package that is not on the `Failed:` line, or cannot be read at all BLOCKS the PR ("belongs to no failing
+ *       package"): the gate never ignores a failure it cannot place. On main's logs such lines only mean less is excused.
  *     - The window is the last MAIN_WINDOW (5) completed push runs of ci.yml on main in which "Tests (full)" actually ran
  *       (success, failure or timed_out; cancelled and skipped ones do not count). Their logs are fetched once per gate run
  *       and cached in a temp directory that is deleted afterwards.
- *     - A failing package of the PR is PRE-EXISTING only if (a) at least one failing file was read from the PR log, and (b)
- *       EVERY failing file of it failed, in that same package, in at least one run of the window. Otherwise the PR is blocked
- *       and the verdict names the new files. This holds inside packages that are red on main right now too.
- *     - A failing package with NO readable FAIL line (a crash, an unhandled error, a runner that is not vitest, a log that
- *       could not be attributed) is excused only if that package is also on the `Failed:` line of main's LATEST run
- *       (the previous package-level behaviour), and the verdict says so. A new package with no FAIL lines blocks.
- *     - The verdict lists every excused file with the main run ids where it failed ("known flaky on main: <task> <file>
+ *     - A failing package of the PR is PRE-EXISTING only if (a) at least one name was read from the PR log, and (b) EVERY
+ *       name of it also failed, in that same package, in at least one run of the window. Otherwise the PR is blocked and the
+ *       verdict names the new tests. This holds inside packages that are red on main right now too.
+ *     - A failing package with NO readable name (no FAIL line, no unhandled error: an exit code only) is excused only if that
+ *       package is also on the `Failed:` line of main's LATEST run (the previous package-level behaviour), and the verdict
+ *       says so. A new package with nothing readable blocks.
+ *     - The verdict lists every excused name with the main run ids where it failed ("known flaky on main: <task> <name>
  *       (runs a, b)").
  *   The job-level rules above are unchanged: "Tests (full)" must still be red on main's latest run to be excused at all,
  *   and its failing steps must still be a subset of that run's.
  *
- * Known gaps that remain: a second finding in a doctrine gate that is already red (say "secrets") is invisible. A new
- * failing TEST inside a file that already failed on main in the window is invisible too: the ratchet is per file, not per
- * test (a flaky file can hide a real regression in it for as long as it keeps flaking). If main's latest "Tests (full)"
- * run happens to be green, the job is not excused at all, flaky or not.
+ * Known gaps that remain: a second finding in a doctrine gate that is already red (say "secrets") is invisible. The
+ * ratchet sees only what vitest prints: a test that fails in a way vitest does not name (a runner that is not vitest, a crash)
+ * is judged at package level only. A test whose name embeds something that changes every run (a timestamp, a random id) never
+ * matches main and blocks. If main's latest "Tests (full)" run happens to be green, the job is not excused at all, flaky or not.
  *
  * Docs-only PRs: ci.yml has a path filter, so a PR that only touches docs/**, *.md, NOTICE or LICENSE gets no CI run at
  * all. That is accepted when, and only when, the changed files are all excluded by that filter and every check that DID
@@ -140,7 +146,7 @@ export const CI_PR_PATHS = ['**', '!docs/**', '!**/*.md', '!NOTICE', '!LICENSE',
 
 const FAIL_BUCKETS = new Set(['fail', 'cancel']);
 
-/** How many of main's recent completed push runs (that ran "Tests (full)") the file-level ratchet looks back over. */
+/** How many of main's recent completed push runs (that ran "Tests (full)") the test-name ratchet looks back over. */
 export const MAIN_WINDOW = 5;
 /** The conclusions of a main job that count as "it ran" (a cancelled or skipped job proves nothing). */
 const RAN = new Set(['success', 'failure', 'timed_out']);
@@ -299,28 +305,61 @@ function* logLines(log) {
 }
 
 /** A package block header in turbo's grouped log: `@intafaced/svc-ops:test` (optionally behind `##[group]`). */
-const HEADER_RE = /^(?:##\[group\])?((?:@[\w.-]+\/)?[A-Za-z][\w.-]*):([A-Za-z][\w-]*)\s*$/;
+const HEADER_RE = /^(##\[group\])?((?:@[\w.-]+\/)?[A-Za-z][\w.-]*):([A-Za-z][\w-]*)\s*$/;
 /** Turbo's per-line prefix in stream mode: `@intafaced/svc-ops:test: <text>`. */
 const PREFIX_RE = /^((?:@[\w.-]+\/)?[A-Za-z][\w.-]*):([a-z][\w-]*): (.*)$/;
-/** vitest's summary line: ` FAIL  [|project| ]<file> > <suite> > <test>` or ` FAIL  <file> [ <file> ]`. */
-const FAIL_RE = /^\s*FAIL\s+(?:\|[^|]*\|\s+)?(\S+\.[cm]?[jt]sx?)(?=\s|$)/;
+/** vitest's summary line: ` FAIL  [|project| ]<file> > <suite> > <test>` or ` FAIL  <file> [ <file> ]` (suite/hook failure). */
+const FAIL_RE = /^\s*FAIL\s+(?:\|[^|]*\|\s+)?(\S+\.[cm]?[jt]sx?)(?:\s+(>\s.*?|\[.*?))?\s*$/;
+const ANY_FAIL_RE = /^\s*FAIL(\s|$)/;
+/** One unhandled error of a vitest run: `Unhandled Error` / `Unhandled Rejection` heading (not the plural summary). */
+const UNHANDLED_RE = /Unhandled (?:Error|Rejection)\s*(?:[^\w\s]|$)/;
+const ORIGIN_RE = /This error originated in "([^"]+)"/;
+const ERRORS_RE = /^\s*Errors\s+(\d+) errors?\b/;
 
 /**
- * Failing test FILES per turbo task from a test job log: Map<"@intafaced/svc-ops#test", Set<"src/a.test.ts">>.
- * See the header ("TESTS (FULL)") for how a FAIL line is attributed to a package. A FAIL line that cannot be attributed is
- * ignored; a task with no entry has no readable failing file.
+ * What failed in a test job log, per turbo task, as NAMES: Map<"@intafaced/svc-ops#test", Set<name>> where a name is
+ *   - `<file> > <suite> > <test>`  for a failing test (vitest prints the whole path on its FAIL line),
+ *   - `<file>`                     for a suite/hook that failed to load or run (`FAIL <file> [ <file> ]`): file-level,
+ *   - `(unhandled) <file>`         for each unhandled error that vitest says originated in <file>, and
+ *   - `(unhandled) <task>`         for an unhandled error with no file named (or more errors counted than described).
+ * And `orphans`: every FAIL line that could not be given to a task on the `Failed:` line, or could not be read at all.
+ *
+ * Attribution (see the header): a package block starts at a header line `pkg:task` and ends at `##[endgroup]`. A header
+ * counts only if its task is on the log's own `Failed:` line (`tasks`) or sits behind `##[group]`; any other line that merely
+ * looks like one (`Error:boom`) is ordinary text and does NOT switch the block. A per-line prefix `pkg:task: ` wins.
  */
-export function parseFailedTestFiles(log) {
+export function parseFailedTests(log, { tasks = parseTurboFailures(log) } = {}) {
   const byTask = new Map();
+  const orphans = [];
+  const add = (task, name) => {
+    if (!byTask.has(task)) byTask.set(task, new Set());
+    byTask.get(task).add(name);
+  };
   let current = null;
+  let pending = null; // an unhandled error being read: { task, file }
+  let described = 0; // unhandled errors named in the current block
+  const finish = () => {
+    if (pending) {
+      add(pending.task, pending.file ? `(unhandled) ${pending.file}` : `(unhandled) ${pending.task}`);
+      described++;
+    }
+    pending = null;
+  };
+  const endBlock = () => {
+    finish();
+    current = null;
+    described = 0;
+  };
   for (const line of logLines(log)) {
-    if (line.trim() === '##[endgroup]') {
-      current = null;
+    const trimmed = line.trim();
+    if (trimmed === '##[endgroup]') {
+      endBlock();
       continue;
     }
     const head = HEADER_RE.exec(line);
-    if (head) {
-      current = `${head[1]}#${head[2]}`;
+    if (head && (head[1] || tasks.has(`${head[2]}#${head[3]}`))) {
+      endBlock();
+      current = `${head[2]}#${head[3]}`;
       continue;
     }
     let task = current;
@@ -330,12 +369,36 @@ export function parseFailedTestFiles(log) {
       task = `${pre[1]}#${pre[2]}`;
       text = pre[3];
     }
-    const m = task ? FAIL_RE.exec(text) : null;
-    if (!m) continue;
-    if (!byTask.has(task)) byTask.set(task, new Set());
-    byTask.get(task).add(m[1]);
+    if (task && tasks.has(task)) {
+      // unhandled errors (vitest: "Unhandled Errors" summary, then one "Unhandled Error|Rejection" section per error)
+      if (/^\s*⎯/.test(text)) {
+        finish();
+        if (UNHANDLED_RE.test(text) && !/Unhandled Errors/.test(text)) pending = { task, file: null };
+      } else if (pending) {
+        const o = ORIGIN_RE.exec(text);
+        if (o && !pending.file) pending.file = o[1];
+      }
+      const count = ERRORS_RE.exec(text);
+      if (count) {
+        finish();
+        if (Number(count[1]) > described) add(task, `(unhandled) ${task}`);
+      }
+    }
+    const m = FAIL_RE.exec(text);
+    if (!m) {
+      if (ANY_FAIL_RE.test(text)) orphans.push(text.trim());
+      continue;
+    }
+    finish();
+    if (!task || !tasks.has(task)) {
+      orphans.push(text.trim());
+      continue;
+    }
+    const rest = (m[2] ?? '').trim();
+    add(task, rest.startsWith('>') ? `${m[1]} ${rest}`.replace(/\s+/g, ' ') : m[1]);
   }
-  return byTask;
+  finish();
+  return { byTask, orphans };
 }
 
 const PARSERS = { doctrine: parseDoctrineFailures, turbo: parseTurboFailures };
@@ -387,7 +450,7 @@ export function refineWithLogs(ev, { gh, repo, main, logStore = makeLogStore(gh,
         if (!mainLogs.has(ratchet.source)) mainLogs.set(ratchet.source, readLog(main.byKey.get(ratchet.source).databaseId));
         const prLog = readLog(jobIdOf(c));
         if (ratchet.parse === 'turbo') {
-          detail = compareTestFiles(ev, c, {
+          detail = compareTests(ev, c, {
             gh,
             repo,
             main,
@@ -421,57 +484,62 @@ export function refineWithLogs(ev, { gh, repo, main, logStore = makeLogStore(gh,
 }
 
 /**
- * The file-level ratchet for "Tests (full)" (see the header). Returns a blocking detail string, or undefined when every
+ * The test-name ratchet for "Tests (full)" (see the header). Returns a blocking detail string, or undefined when every
  * failing package of the PR is pre-existing; on success it appends to ev.flaky and ev.logChecks.
  */
-function compareTestFiles(ev, check, { gh, repo, main, readLog, prLog, mainLog, source }) {
+function compareTests(ev, check, { gh, repo, main, readLog, prLog, mainLog, source }) {
   const prTasks = parseTurboFailures(prLog);
   if (!prTasks.size) return 'could not read the failing test task ids from the log, so nothing proves they are all on main';
-  const prFiles = parseFailedTestFiles(prLog);
+  const pr = parseFailedTests(prLog, { tasks: prTasks });
+  // A FAIL line that no package on the `Failed:` line owns could be anything: it blocks.
+  if (pr.orphans.length)
+    return `${pr.orphans.length} FAIL line(s) in the log belong to no failing package on the Failed: line, so their package cannot be compared: ${listCapped(pr.orphans, 5)}`;
   const mainLatestTasks = parseTurboFailures(mainLog);
   const window = loadMainWindow({ gh, repo, main, readLog, source });
   const blocked = [];
   const flaky = [];
   const unreadable = [];
   for (const task of [...prTasks].sort()) {
-    const files = prFiles.get(task);
-    if (files?.size) {
+    const names = pr.byTask.get(task);
+    if (names?.size) {
       const fresh = [];
-      for (const file of [...files].sort()) {
-        const runs = window.filter((w) => w.files.get(task)?.has(file)).map((w) => w.runId);
-        if (runs.length) flaky.push({ task, file, runs });
-        else fresh.push(file);
+      for (const name of [...names].sort()) {
+        const runs = window.filter((w) => w.names.get(task)?.has(name)).map((w) => w.runId);
+        if (runs.length) flaky.push({ task, name, runs });
+        else fresh.push(name);
       }
       if (fresh.length)
         blocked.push(
-          `${task}: ${fresh.length} new failing test file(s) not failing on main in its last ${window.length} run(s): ${fresh.join(', ')}`,
+          `${task}: ${fresh.length} new failing test(s) not failing on main in its last ${window.length} run(s): ${listCapped(fresh, 8)}`,
         );
     } else if (mainLatestTasks.has(task)) unreadable.push(task);
-    else blocked.push(`${task}: no failing test file could be read from the log, and the package is not failing on main's latest run`);
+    else blocked.push(`${task}: no failing test could be read from the log, and the package is not failing on main's latest run`);
   }
   if (blocked.length) return blocked.join('; ');
   ev.flaky.push(...flaky);
   const runList = window.map((w) => w.runId).join(', ');
   ev.logChecks.push(
-    `${check.name}: ${prTasks.size} failing package(s); all ${flaky.length} readable failing file(s) failed on main in the last ${window.length} run(s) (${runList})`,
+    `${check.name}: ${prTasks.size} failing package(s); all ${flaky.length} failing test(s) or suite(s) read from the log also failed on main in the last ${window.length} run(s) (${runList})`,
   );
   for (const task of unreadable)
     ev.logChecks.push(
-      `${check.name}: ${task} has no readable FAIL line (crash or exit code only); excused only because it also fails in main's latest run ${main.run.databaseId}`,
+      `${check.name}: ${task} has no readable FAIL line or unhandled error (exit code only); excused only because it also fails in main's latest run ${main.run.databaseId}`,
     );
   return undefined;
 }
 
+const listCapped = (items, n) => (items.length > n ? `${items.slice(0, n).join('; ')}; and ${items.length - n} more` : items.join('; '));
+
 /**
- * The failing files of the last MAIN_WINDOW main runs that ran `source`: [{ runId, files: Map<task, Set<file>> }], newest
- * first. A run whose log cannot be read is skipped (a 403/429 is never skipped: it stops the gate).
+ * The failing tests of the last MAIN_WINDOW main runs that ran `source`: [{ runId, names: Map<task, Set<name>> }], newest
+ * first (names as in parseFailedTests). A run whose log cannot be read is skipped (a 403/429 is never skipped: it stops the gate).
  */
 function loadMainWindow({ gh, repo, main, readLog, source }) {
   const name = source.slice(source.indexOf('/') + 1);
   const out = [];
   for (const { run, job } of selectMainWindow(gh, repo, { jobName: name, main })) {
     try {
-      out.push({ runId: run.databaseId, files: parseFailedTestFiles(readLog(job.databaseId)) });
+      out.push({ runId: run.databaseId, names: parseFailedTests(readLog(job.databaseId)).byTask });
     } catch (e) {
       if (e?.name === 'GitHubRefusalError') throw e;
     }
@@ -591,8 +659,8 @@ export function renderComment({ verdict, head, pr, main, checks, evalResult }) {
     );
   for (const l of e.logChecks) L.push(`- **Log comparison:** ${l}.`);
   if (e.flaky?.length) {
-    L.push('- **Excused as known flaky on main (each file failed in a recent main run):**');
-    for (const f of e.flaky) L.push(`  - known flaky on main: ${f.task} ${f.file} (runs ${f.runs.join(', ')})`);
+    L.push('- **Excused as known flaky on main (each failed in the same package in a recent main run):**');
+    for (const f of e.flaky) L.push(`  - known flaky on main: ${f.task} ${f.name} (runs ${f.runs.join(', ')})`);
   }
   if (e.knownRed.length) {
     L.push(`- **Known PR-only red, allowed:** ${e.knownRed.map((c) => `${link(c)} (${KNOWN_PR_ONLY_RED[keyOf(c)]})`).join('; ')}.`);

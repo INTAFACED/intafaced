@@ -154,6 +154,9 @@ Tests (full)	Run pnpm test --continue	2026-10-14T01:56:36.0277929Z ^[[41m^[[1m F
 Tests (full)	Run pnpm test --continue	2026-10-14T01:56:36.0567367Z ^[[41m^[[1m FAIL ^[[22m^[[49m src/lending/lending-cascade-flash.onchain.test.ts^[[2m > ^[[22mS-A4 cascade + flash adversarial on chain^[[2m > ^[[22mflash pack: same-tx open/borrow/repay extracts no borrow-token profit
 Tests (full)	Run pnpm test --continue	2026-10-14T01:56:36.0828048Z ^[[41m^[[1m FAIL ^[[22m^[[49m src/lending/lending-oracle.onchain.test.ts^[[2m > ^[[22moracle + isolated lending on chain (S-A12/S-A4)^[[2m > ^[[22mborrow works with agreeing marks; unhealthy borrow reverts
 Tests (full)	Run pnpm test --continue	2026-10-14T01:56:46.7726846Z ^[[;31m@intafaced/svc-matching:test^[[;0m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:56:46.9995524Z ^[[31m⎯⎯⎯⎯⎯⎯^[[39m^[[1m^[[41m Unhandled Errors ^[[49m^[[22m^[[31m⎯⎯⎯⎯⎯⎯^[[39m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:56:46.9999344Z ^[[31m⎯⎯⎯⎯⎯⎯^[[39m^[[1m^[[41m Unhandled Error ^[[49m^[[22m^[[31m⎯⎯⎯⎯⎯⎯⎯^[[39m
+Tests (full)	Run pnpm test --continue	2026-10-14T01:56:47.0045747Z ^[[2m     Errors ^[[22m ^[[1m^[[31m1 error^[[39m^[[22m
 Tests (full)	Run pnpm test --continue	2026-10-14T01:57:13.6863020Z ##[group]@intafaced/svc-ws:test
 Tests (full)	Run pnpm test --continue	2026-10-14T01:57:14.0676731Z ##[endgroup]
 Tests (full)	Run pnpm test --continue	2026-10-14T01:57:22.1082495Z ##[group]@intafaced/svc-p2p:test

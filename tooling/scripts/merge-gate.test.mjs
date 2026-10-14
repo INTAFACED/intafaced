@@ -23,7 +23,7 @@ import {
   makeLogStore,
   mergeCommand,
   parseDoctrineFailures,
-  parseFailedTestFiles,
+  parseFailedTests,
   parseTurboFailures,
   renderComment,
   runGate,
@@ -628,14 +628,17 @@ test('a FAIL verdict never says the docs-only PR "passed"', () => {
   assert.match(text, /Checks that reported/);
 });
 
-// ---- "Tests (full)": the file-level ratchet against a window of main's recent runs --------------------------------------
+// ---- "Tests (full)": the test-name ratchet against a window of main's recent runs ---------------------------------------
 // Fixtures tests-full-main-<run>.log and tests-full-pr-*.log are built in the shape of `gh run view --job <id> --log`
-// (turbo grouped output, ANSI colours, vitest FAIL lines). tests-full-real-excerpt.log is the header / FAIL / endgroup /
-// Failed lines of the real "Tests (full)" log of PR #4722 (2026-10-14), caret-form colour codes and BOM included.
-//   run 206 cancelled | 205 red: ops a,b  notify n  crash(svc-crash, no FAIL line) | 204 red: p2p flaky  ops a
-//   203 red: p2p flaky,flaky2 | 202 green | 201 red: ops c | 200 red: p2p old  (200 is outside the window of 5)
+// (turbo grouped output, ANSI colours, vitest FAIL lines). tests-full-real-excerpt.log is the header / FAIL / unhandled-error /
+// endgroup / Failed lines of the real "Tests (full)" log of PR #4722 (2026-10-14), caret-form colour codes and BOM included.
+// Every FAIL line below is `<file> > some suite > does the thing` unless a fixture says otherwise.
+//   run 206 cancelled | 205 red: ops a,b  notify n  matching(unhandled error, no file)  crash(exit code only)
+//   204 red: p2p flaky  ops a + unhandled in a | 203 red: p2p flaky + suite-level flaky2 | 202 green | 201 red: ops c
+//   200 red: p2p old  (200 is outside the window of 5)
 const SEC = '@intafaced/';
 const T = (pkg) => `${SEC}${pkg}#test`;
+const N = (file, test = 'does the thing') => `${file} > some suite > ${test}`;
 const MAIN_CONCLUSION = { 205: 'failure', 204: 'failure', 203: 'failure', 202: 'success', 201: 'failure', 200: 'failure' };
 const winJobId = (run) => 7000 + Number(run);
 
@@ -677,46 +680,94 @@ const runWin = (prLog, o) => {
 };
 const comment = (calls) => calls.find((x) => x.args[1] === 'comment').input;
 
-test('parseFailedTestFiles: attributes vitest FAIL lines to the package block they sit in (real PR #4722 log excerpt)', () => {
-  const byTask = parseFailedTestFiles(log('tests-full-real-excerpt'));
+test('parseFailedTests: names per package from the real PR #4722 log excerpt (FAIL lines, suite failures, unhandled errors)', () => {
+  const { byTask, orphans } = parseFailedTests(log('tests-full-real-excerpt'));
+  assert.deepEqual(orphans, []);
   assert.deepEqual([...byTask.keys()].sort(), [
     T('svc-bank'),
     T('svc-indexer'),
     T('svc-market'),
+    T('svc-matching'),
     T('svc-notify'),
     T('svc-ops'),
     T('svc-pay'),
     T('svc-protocol'),
     T('svc-support'),
   ]);
-  assert.equal(byTask.get(T('svc-support')).size, 8, 'vitest said "Failed Suites 8" for svc-support');
-  assert.ok(byTask.get(T('svc-support')).has('scripts/migrate.one-tx.test.ts'), 'a suite that failed to load: FAIL file [ file ]');
-  assert.deepEqual([...byTask.get(T('svc-market'))], ['scripts/migrate.down.test.ts'], 'three failing tests, one file');
-  assert.deepEqual([...byTask.get(T('svc-ops'))].sort(), ['src/outreach/archive-receiver.boot.test.ts', 'src/outreach/privacy.test.ts']);
-  // svc-matching is on the `Failed:` line but printed no FAIL line (exit code only): no entry, so it is "unreadable"
-  assert.ok(parseTurboFailures(log('tests-full-real-excerpt')).has(T('svc-matching')));
-  assert.equal(byTask.has(T('svc-matching')), false);
+  const support = byTask.get(T('svc-support'));
+  assert.equal(support.size, 8, 'vitest said "Failed Suites 8" for svc-support');
+  assert.ok(support.has('scripts/migrate.one-tx.test.ts'), 'a suite that failed to load: FAIL file [ file ] is the file-level name');
+  assert.ok(support.has('src/unpublish-bumps-revision.pg.test.ts > L1247 postgres unpublish bumps revision'));
+  // three failing tests of one file are three names, not one
+  assert.equal(byTask.get(T('svc-market')).size, 3);
+  assert.ok(
+    byTask
+      .get(T('svc-market'))
+      .has(
+        'scripts/migrate.down.test.ts > actual market migration runner down transactions > refuses known periods without clearing terms or the applied marker',
+      ),
+  );
+  // svc-matching printed no FAIL line, only "Unhandled Error: Timeout calling onTaskUpdate" and "Errors 1 error"
+  assert.deepEqual([...byTask.get(T('svc-matching'))], [`(unhandled) ${T('svc-matching')}`]);
 });
 
-test('parseFailedTestFiles: per-line prefixes win, project tags are dropped, unattributable lines are ignored', () => {
-  const lines = [
-    '@intafaced/svc-ops:test:  FAIL  src/a.test.ts > suite > test',
-    '@intafaced/svc-p2p:test: \u001b[41m FAIL \u001b[49m |unit| src/b.test.ts [ src/b.test.ts ]',
-    'mobile:test: FAIL app/c.test.tsx > x',
-    ' FAIL  src/orphan.test.ts > outside any block',
-    '##[group]@intafaced/svc-edge:build',
-    ' FAIL  src/not-a-test-run.ts > in a build block (still attributed to that task)',
-    '##[endgroup]',
-    ' FAIL  src/after.test.ts > outside again',
-    ' FAIL  not a file',
-  ].map((t) => `Tests (full)\tRun pnpm test --continue\t2026-10-14T01:00:00.0000000Z ${t}`);
-  const byTask = parseFailedTestFiles(lines.join('\n'));
-  assert.deepEqual([...byTask.get(T('svc-ops'))], ['src/a.test.ts']);
-  assert.deepEqual([...byTask.get(T('svc-p2p'))], ['src/b.test.ts']);
-  assert.deepEqual([...byTask.get('mobile#test')], ['app/c.test.tsx']);
-  assert.deepEqual([...byTask.get(`${SEC}svc-edge#build`)], ['src/not-a-test-run.ts']);
-  assert.equal(byTask.size, 4, 'orphan and after-block lines belong to no package');
-  assert.equal(parseFailedTestFiles('').size, 0);
+test('parseFailedTests: a header counts only for a failing task; stray lines, orphans and project tags', () => {
+  const L = (...t) => t.map((x) => `Tests (full)\tRun pnpm test --continue\t2026-10-14T01:00:00.0000000Z ${x}`).join('\n');
+  const failed = 'Failed:    @intafaced/svc-ops#test, @intafaced/svc-p2p#test, mobile#test';
+  // block mode: Error:boom is not a failing task, so it does not switch the block
+  const block = parseFailedTests(
+    L('@intafaced/svc-ops:test', ' FAIL  src/a.test.ts > s > t1', 'Error:boom', ' FAIL  src/b.test.ts > s > t2', '##[endgroup]', failed),
+  );
+  assert.deepEqual([...block.byTask.get(T('svc-ops'))], ['src/a.test.ts > s > t1', 'src/b.test.ts > s > t2']);
+  assert.deepEqual(block.orphans, []);
+  // an unknown header after ##[endgroup] is not a header either; a FAIL there has no package
+  const lost = parseFailedTests(
+    L(
+      '@intafaced/svc-ops:test',
+      ' FAIL  src/a.test.ts > s > t',
+      '##[endgroup]',
+      '@intafaced/other:test',
+      ' FAIL  src/x.test.ts > s > t',
+      failed,
+    ),
+  );
+  assert.deepEqual(lost.orphans, ['FAIL  src/x.test.ts > s > t']);
+  // stream mode: the per-line prefix wins; project tags are dropped; FAIL of a package not on the Failed: line is an orphan
+  const stream = parseFailedTests(
+    L(
+      '@intafaced/svc-ops:test:  FAIL  src/a.test.ts > suite > test',
+      '@intafaced/svc-p2p:test: \u001b[41m FAIL \u001b[49m |unit| src/b.test.ts [ src/b.test.ts ]',
+      'mobile:test: FAIL app/c.test.tsx > x',
+      '@intafaced/svc-edge:test: FAIL src/e.test.ts > x',
+      ' FAIL  src/orphan.test.ts > outside any block',
+      ' FAIL  not a file',
+      failed,
+    ),
+  );
+  assert.deepEqual([...stream.byTask.get(T('svc-ops'))], ['src/a.test.ts > suite > test']);
+  assert.deepEqual([...stream.byTask.get(T('svc-p2p'))], ['src/b.test.ts']);
+  assert.deepEqual([...stream.byTask.get('mobile#test')], ['app/c.test.tsx > x']);
+  assert.equal(stream.orphans.length, 3, 'svc-edge not failing, no block at all, and a FAIL line that names no file');
+  // unhandled errors: one per section, with or without the file vitest says it originated in; Errors N catches the rest
+  const unh = parseFailedTests(
+    L(
+      '@intafaced/svc-ops:test',
+      '⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯',
+      'Vitest caught 3 unhandled errors during the test run.',
+      '⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯',
+      'Error: one',
+      'This error originated in "src/u.test.ts" test file. It does not mean',
+      '⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯',
+      '⎯⎯⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯⎯⎯',
+      'Error: two',
+      '⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯',
+      '     Errors  3 errors',
+      '##[endgroup]',
+      failed,
+    ),
+  );
+  assert.deepEqual([...unh.byTask.get(T('svc-ops'))].sort(), [`(unhandled) ${T('svc-ops')}`, '(unhandled) src/u.test.ts']);
+  assert.equal(parseFailedTests('').byTask.size, 0);
 });
 
 test('selectMainWindow: the last MAIN_WINDOW runs in which Tests (full) ran; cancelled and green-less runs do not count', async () => {
@@ -760,21 +811,23 @@ test('makeLogStore: a log is fetched once per gate run and cached in the temp di
   }
 });
 
-test('file ratchet: files that flaked on main in the window are excused, even in a package main does not fail right now', async () => {
+const nameRuns = (r) => Object.fromEntries(r.evalResult.flaky.map((f) => [`${f.task} ${f.name}`, f.runs]));
+
+test('test ratchet: tests that flaked on main in the window are excused, even in a package main does not fail right now', async () => {
   const { r, calls } = await runWin('tests-full-pr-flaky');
   assert.equal(r.code, 0, r.evalResult.reasons.join());
-  const flaky = Object.fromEntries(r.evalResult.flaky.map((f) => [`${f.task} ${f.file}`, f.runs]));
-  assert.deepEqual(flaky, {
-    [`${T('svc-p2p')} src/flaky.test.ts`]: [204, 203], // svc-p2p is NOT failing in main's latest run (205)
-    [`${T('svc-p2p')} src/flaky2.test.ts`]: [203],
-    [`${T('svc-ops')} src/a.test.ts`]: [205, 204],
-    [`${T('svc-ops')} src/c.test.ts`]: [201], // only in the oldest run of the window
+  assert.deepEqual(nameRuns(r), {
+    [`${T('svc-p2p')} ${N('src/flaky.test.ts')}`]: [204, 203], // svc-p2p is NOT failing in main's latest run (205)
+    [`${T('svc-p2p')} src/flaky2.test.ts`]: [203], // a suite-level failure stays file-level
+    [`${T('svc-ops')} ${N('src/a.test.ts')}`]: [205, 204],
+    [`${T('svc-ops')} ${N('src/c.test.ts')}`]: [201], // only in the oldest run of the window
   });
   const text = comment(calls);
   assert.match(text, /Merge gate: PASS/);
-  assert.match(text, /known flaky on main: @intafaced\/svc-p2p#test src\/flaky\.test\.ts \(runs 204, 203\)/);
-  assert.match(text, /known flaky on main: @intafaced\/svc-ops#test src\/a\.test\.ts \(runs 205, 204\)/);
-  assert.match(text, /all 4 readable failing file\(s\) failed on main in the last 5 run\(s\) \(205, 204, 203, 202, 201\)/);
+  assert.match(text, /known flaky on main: @intafaced\/svc-p2p#test src\/flaky\.test\.ts > some suite > does the thing \(runs 204, 203\)/);
+  assert.match(text, /known flaky on main: @intafaced\/svc-p2p#test src\/flaky2\.test\.ts \(runs 203\)/);
+  assert.match(text, /known flaky on main: @intafaced\/svc-ops#test src\/a\.test\.ts > some suite > does the thing \(runs 205, 204\)/);
+  assert.match(text, /all 4 failing test\(s\) or suite\(s\).*in the last 5 run\(s\) \(205, 204, 203, 202, 201\)/);
   // the run outside the window (200) was never fetched, and every window log once
   const logCalls = calls.filter((x) => x.args[0] === 'run' && x.args[1] === 'view' && x.args[2] === '--job').map((x) => x.args[3]);
   assert.equal(logCalls.includes(String(winJobId(200))), false);
@@ -782,22 +835,71 @@ test('file ratchet: files that flaked on main in the window are excused, even in
   assert.equal(logCalls.length, 1 + MAIN_WINDOW, 'the PR log plus the five window logs');
 });
 
-test('file ratchet: a NEW test file inside a package that is red on main blocks, and the verdict names it', async () => {
+test('test ratchet: the same file with a DIFFERENT test name blocks; the same name passes', async () => {
+  const other = await runWin('tests-full-pr-other-test-name');
+  assert.equal(other.r.code, 1);
+  assert.match(
+    other.r.evalResult.reasons.join(),
+    /svc-ops#test: 1 new failing test\(s\).*src\/a\.test\.ts > some suite > a different test/,
+  );
+  assert.doesNotMatch(other.r.evalResult.reasons.join(), /does the thing/, 'the name main did fail is not blamed');
+  const same = await runWin('tests-full-pr-flaky');
+  assert.equal(same.r.code, 0);
+});
+
+test('test ratchet: a NEW test inside a package that is red on main blocks, and the verdict names it', async () => {
   const { r, calls } = await runWin('tests-full-pr-newfile');
   assert.equal(r.code, 1);
   const why = r.evalResult.reasons.join();
-  assert.match(why, /@intafaced\/svc-ops#test: 1 new failing test file\(s\).*: src\/new\.test\.ts/);
-  assert.doesNotMatch(why, /a\.test\.ts/, 'the file that did fail on main is not blamed');
+  assert.match(why, /@intafaced\/svc-ops#test: 1 new failing test\(s\).*: src\/new\.test\.ts > some suite > does the thing/);
+  assert.doesNotMatch(why, /a\.test\.ts/, 'the test that did fail on main is not blamed');
   assert.match(comment(calls), /NEW failures.*Tests \(full\).*src\/new\.test\.ts/);
   assert.equal(r.evalResult.flaky.length, 0, 'a blocked job excuses nothing');
 });
 
-test("file ratchet: a new package with no FAIL lines blocks; one that is red in main's latest run is excused, and says so", async () => {
+test('test ratchet: an unhandled error main never had blocks, even next to FAIL lines main did have', async () => {
+  const mixed = await runWin('tests-full-pr-unhandled-new');
+  assert.equal(mixed.r.code, 1);
+  assert.match(mixed.r.evalResult.reasons.join(), /svc-ops#test: 1 new failing test\(s\).*\(unhandled\) src\/x\.test\.ts/);
+  const only = await runWin('tests-full-pr-unhandled-only-new'); // no FAIL line at all, svc-ops IS red in main's latest run
+  assert.equal(only.r.code, 1, 'an unhandled-only package no longer falls back to "also red on main"');
+  assert.match(only.r.evalResult.reasons.join(), /\(unhandled\) src\/zzz\.test\.ts/);
+  // unhandled errors that main had (with a file in run 204, without one in run 205) are excused and listed
+  const known = await runWin('tests-full-pr-unhandled-known');
+  assert.equal(known.r.code, 0, known.r.evalResult.reasons.join());
+  const seen = nameRuns(known.r);
+  assert.deepEqual(seen[`${T('svc-ops')} (unhandled) src/a.test.ts`], [204]);
+  assert.deepEqual(seen[`${T('svc-matching')} (unhandled) ${T('svc-matching')}`], [205]);
+  assert.match(
+    comment(known.calls),
+    /known flaky on main: @intafaced\/svc-matching#test \(unhandled\) @intafaced\/svc-matching#test \(runs 205\)/,
+  );
+});
+
+test("test ratchet: a FAIL after a stray header-looking line is still svc-ops' and blocks; a FAIL no failing package owns blocks", async () => {
+  const stray = await runWin('tests-full-pr-stray-header');
+  assert.equal(stray.r.code, 1);
+  assert.match(stray.r.evalResult.reasons.join(), /svc-ops#test: 1 new failing test\(s\).*src\/new\.test\.ts/);
+  for (const [fixture, line] of [
+    ['tests-full-pr-orphan-fail', 'src/lost.test.ts'], // after the block closed
+    ['tests-full-pr-fail-in-green-package', 'src/hidden.test.ts'], // inside a package that did not fail
+  ]) {
+    const { r } = await runWin(fixture);
+    assert.equal(r.code, 1, fixture);
+    assert.match(
+      r.evalResult.reasons.join(),
+      new RegExp(`1 FAIL line\\(s\\).*belong to no failing package.*${line.replace('.', '\\.')}`),
+      fixture,
+    );
+  }
+});
+
+test("test ratchet: a new package with nothing readable blocks; one that is red in main's latest run is excused, and says so", async () => {
   const fresh = await runWin('tests-full-pr-newpkg');
   assert.equal(fresh.r.code, 1);
   assert.match(
     fresh.r.evalResult.reasons.join(),
-    /@intafaced\/svc-fresh#test: no failing test file could be read from the log, and the package is not failing on main's latest run/,
+    /@intafaced\/svc-fresh#test: no failing test could be read from the log, and the package is not failing on main's latest run/,
   );
   const known = await runWin('tests-full-pr-crash-known');
   assert.equal(known.r.code, 0, known.r.evalResult.reasons.join());
@@ -808,45 +910,47 @@ test("file ratchet: a new package with no FAIL lines blocks; one that is red in 
   );
   assert.match(
     comment(known.calls),
-    /no readable FAIL line \(crash or exit code only\); excused only because it also fails in main's latest run 205/,
+    /no readable FAIL line or unhandled error \(exit code only\); excused only because it also fails in main's latest run 205/,
   );
 });
 
-test('file ratchet: a file only seen on main OUTSIDE the window, or only in another package, is new', async () => {
+test('test ratchet: a test only seen on main OUTSIDE the window, or only in another package, is new', async () => {
   const old = await runWin('tests-full-pr-outside-window'); // p2p src/old.test.ts failed in run 200 only
   assert.equal(old.r.code, 1);
-  assert.match(old.r.evalResult.reasons.join(), /svc-p2p#test: 1 new failing test file\(s\).*src\/old\.test\.ts/);
+  assert.match(old.r.evalResult.reasons.join(), /svc-p2p#test: 1 new failing test\(s\).*src\/old\.test\.ts/);
   const wrong = await runWin('tests-full-pr-wrong-package'); // flaky.test.ts is a svc-p2p file; here it fails in svc-ops
   assert.equal(wrong.r.code, 1);
-  assert.match(wrong.r.evalResult.reasons.join(), /svc-ops#test: 1 new failing test file\(s\).*src\/flaky\.test\.ts/);
+  assert.match(wrong.r.evalResult.reasons.join(), /svc-ops#test: 1 new failing test\(s\).*src\/flaky\.test\.ts/);
 });
 
-test("file ratchet: the job is still excused only if main's latest Tests (full) is red (job-level rule unchanged)", async () => {
+test("test ratchet: the job is still excused only if main's latest Tests (full) is red (job-level rule unchanged)", async () => {
   const { r } = await runWin('tests-full-pr-flaky', { conclusions: { ...MAIN_CONCLUSION, 205: 'success' } });
   assert.equal(r.code, 1);
   assert.match(r.evalResult.reasons.join(), /new failing check\(s\).*Tests \(full\)/);
 });
 
-test('file ratchet: a window log that cannot be read is skipped; the remaining runs still decide', async () => {
+test('test ratchet: a window log that cannot be read is skipped; the remaining runs still decide', async () => {
   const world = windowWorld('tests-full-pr-flaky');
   delete world.logs[winJobId(204)];
   const r = await runGate(opts(), { gh: fakeGh(world).gh, ...clock() });
   assert.equal(r.code, 0, r.evalResult.reasons.join());
-  const flaky = Object.fromEntries(r.evalResult.flaky.map((f) => [`${f.task} ${f.file}`, f.runs]));
-  assert.deepEqual(flaky[`${T('svc-p2p')} src/flaky.test.ts`], [203], 'run 204 was unreadable, run 203 still shows the file');
-  assert.deepEqual(flaky[`${T('svc-ops')} src/a.test.ts`], [205]);
+  const seen = nameRuns(r);
+  assert.deepEqual(seen[`${T('svc-p2p')} ${N('src/flaky.test.ts')}`], [203], 'run 204 was unreadable, run 203 still shows it');
+  assert.deepEqual(seen[`${T('svc-ops')} ${N('src/a.test.ts')}`], [205]);
   assert.match(r.evalResult.logChecks.join(), /in the last 4 run\(s\) \(205, 203, 202, 201\)/);
-  // a file seen only in the unreadable run is new
+  // a test seen only in the unreadable runs is new
   const p = windowWorld('tests-full-pr-flaky');
-  p.logs = { ...p.logs };
   delete p.logs[winJobId(203)];
   delete p.logs[winJobId(204)];
   const r2 = await runGate(opts(), { gh: fakeGh(p).gh, ...clock() });
   assert.equal(r2.code, 1);
-  assert.match(r2.evalResult.reasons.join(), /svc-p2p#test: 2 new failing test file\(s\).*src\/flaky\.test\.ts, src\/flaky2\.test\.ts/);
+  assert.match(
+    r2.evalResult.reasons.join(),
+    /svc-p2p#test: 2 new failing test\(s\).*src\/flaky\.test\.ts > some suite > does the thing; src\/flaky2\.test\.ts/,
+  );
 });
 
-test('file ratchet: a 403 while fetching a window log stops the gate, never skipped', async () => {
+test('test ratchet: a 403 while fetching a window log stops the gate, never skipped', async () => {
   const world = windowWorld('tests-full-pr-flaky');
   await assert.rejects(
     runGate(opts(), { gh: fakeGh({ ...world, refuse: `run view --job ${winJobId(203)}` }).gh, ...clock() }),
