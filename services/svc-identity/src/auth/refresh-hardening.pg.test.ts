@@ -85,7 +85,9 @@ if (!available) {
   };
   const claims = (s: SessionTokens) => verifyAccessToken(s.accessToken, tokenConfig);
   const liveSessions = async (userId: string) =>
-    Number((await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM sessions WHERE user_id = ${userId} AND revoked = false`)[0]!.n);
+    Number(
+      (await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM sessions WHERE user_id = ${userId} AND revoked = false`)[0]!.n,
+    );
 
   /** A password session turned into a second-factor session whose last real check was `ageSeconds` ago. */
   const mfaSessionAged = async (ageSeconds: number) => {
@@ -115,13 +117,17 @@ if (!available) {
       expect(principal.mfa).toBe(true);
       expect(principal.auth_time).toBeGreaterThanOrEqual(before - 1);
       expect(principal.auth_time).toBeLessThanOrEqual(before + 5);
-      const row = await db.sql<Array<{ at: string }>>`SELECT extract(epoch from auth_time)::bigint::text AS at FROM sessions WHERE id = ${signedIn.sessionId}`;
+      const row = await db.sql<
+        Array<{ at: string }>
+      >`SELECT extract(epoch from auth_time)::bigint::text AS at FROM sessions WHERE id = ${signedIn.sessionId}`;
       expect(Number(row[0]!.at)).toBe(principal.auth_time);
     });
 
     it('keeps mfa across a refresh inside the max age, and carries auth_time unchanged', async () => {
       const { session } = await mfaSessionAged(1800);
-      const original = await db.sql<Array<{ at: string }>>`SELECT extract(epoch from auth_time)::bigint::text AS at FROM sessions WHERE id = ${session.sessionId}`;
+      const original = await db.sql<
+        Array<{ at: string }>
+      >`SELECT extract(epoch from auth_time)::bigint::text AS at FROM sessions WHERE id = ${session.sessionId}`;
       const first = await auth.refresh(session.refreshToken);
       const second = await auth.refresh(first.refreshToken);
       for (const refreshed of [first, second]) {
@@ -129,7 +135,9 @@ if (!available) {
         expect(principal.mfa).toBe(true);
         expect(principal.auth_time).toBe(Number(original[0]!.at));
       }
-      const rows = await db.sql<Array<{ at: string }>>`SELECT extract(epoch from auth_time)::bigint::text AS at FROM sessions WHERE user_id = ${session.userId}`;
+      const rows = await db.sql<
+        Array<{ at: string }>
+      >`SELECT extract(epoch from auth_time)::bigint::text AS at FROM sessions WHERE user_id = ${session.userId}`;
       expect(new Set(rows.map((r) => r.at)).size).toBe(1);
     });
 

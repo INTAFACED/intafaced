@@ -54,7 +54,9 @@ export const REFRESH_GRACE_BOUNDS = { min: 0, max: 300 } as const;
 
 function required(name: string, value: number | undefined, bounds: { min: number; max: number }): number {
   if (value === undefined) {
-    throw new RefreshPolicyError(`${name} is unset — owner must publish it (seconds, ${bounds.min} to ${bounds.max}); svc-identity will not boot without it`);
+    throw new RefreshPolicyError(
+      `${name} is unset — owner must publish it (seconds, ${bounds.min} to ${bounds.max}); svc-identity will not boot without it`,
+    );
   }
   if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) {
     throw new RefreshPolicyError(`${name} must be a whole number of seconds from ${bounds.min} to ${bounds.max}, got ${value}`);
@@ -114,7 +116,9 @@ export interface GracePayload {
  * HKDF info separates this key from every other use of those two inputs.
  */
 function graceKey(retiredToken: string, serviceSecret: string): Buffer {
-  return Buffer.from(hkdfSync('sha256', Buffer.from(retiredToken, 'utf8'), Buffer.from(serviceSecret, 'utf8'), 'identity.refresh-grace.v1', 32));
+  return Buffer.from(
+    hkdfSync('sha256', Buffer.from(retiredToken, 'utf8'), Buffer.from(serviceSecret, 'utf8'), 'identity.refresh-grace.v1', 32),
+  );
 }
 
 /** AES-256-GCM, `base64url(iv | tag | ciphertext)`, bound to the retired hash as associated data. */
