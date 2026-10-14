@@ -3,8 +3,18 @@ import { transaction } from '@intafaced/db';
 import type { AccountState } from '@intafaced/contracts';
 import { assertDelegatableScopes, issueAccessToken, SESSION_SCOPES, type Scope, type TokenConfig } from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
-import { dummyPasswordHash, generateApiKey, generateToken, hashPassword, hashToken, needsRehash, verifyPassword } from './passwords.js';
-import { assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import {
+  assertPasswordShape,
+  dummyPasswordHash,
+  generateApiKey,
+  generateToken,
+  hashPassword,
+  hashToken,
+  needsRehash,
+  verifyPassword,
+  WeakPasswordError,
+} from './passwords.js';
+import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
@@ -82,6 +92,8 @@ export class AuthError extends Error {
       | 'auth.session_revoked'
       | 'auth.totp_key_missing'
       | 'auth.delegate_cannot_grant'
+      | 'auth.password_unchanged'
+      | 'auth.password_policy'
       | 'auth.too_many_attempts',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
@@ -546,6 +558,95 @@ export class AuthService {
     const result = await this.sql`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false`;
     if (result.count > 0) await syncNavigatorSessionsClosedForUser(this.sql, userId);
     return result.count;
+  }
+
+  /**
+   * CHANGE PASSWORD (signed-in user).
+   *
+   * Failures this prevents:
+   *  - a stolen session (or a leaked API key) taking the account over by setting a
+   *    new password: it needs the CURRENT password, and an API key / sub-account
+   *    principal is refused outright (it is not a person at a keyboard);
+   *  - a stolen password plus a non-MFA session doing the same on an account that
+   *    has a second factor: any TOTP / passkey on the account requires the `mfa`
+   *    claim (TOTP or passkey login, or a fresh `auth.stepUp` token). An account
+   *    with NO second factor may change the password with the current one alone;
+   *  - the current password being brute-forced through this door: the guess is
+   *    reserved on the same per-account `password` counter as login BEFORE it is
+   *    verified, so the two doors share one budget;
+   *  - the old password living on in other devices: every OTHER session is revoked
+   *    in the same transaction as the hash update. The calling session stays.
+   *
+   * Order: gate (delegated / MFA) → reserve → verify current → policy → not-the-same
+   * → one transaction (re-check the hash we verified, write, revoke others, clear
+   * the counter). A wrong current password answers `auth.invalid_credentials`,
+   * identical to login. Entitlements (`operatorStatus`) are not touched: this writes
+   * only `users.password_hash` and `sessions`.
+   *
+   * AUDIT: no durable auth-audit table or password-changed bus event exists yet, so
+   * the record is the service's structured log line `auth.password_changed`
+   * (same sink as `identity.account_locked`). User id and counts only, never a secret.
+   */
+  async changePassword(input: {
+    userId: string;
+    sessionId: string;
+    actor: FactorActor;
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<void> {
+    const { userId, sessionId, actor } = input;
+    // Delegated principals first: refused before any lookup, so it cannot probe ids.
+    if (actor.delegated) {
+      throw new AuthError('Sign in yourself to change your password; an API key or sub-account cannot', 'auth.mfa_required');
+    }
+    const rows = await this.sql<
+      Array<{ password_hash: string; status: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT password_hash, status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    // Second factor on the account: the session must have passed it. Checked before the
+    // reservation so a missing step-up never spends the password budget.
+    if (accountHasSecondFactor(user) && !actor.mfa) {
+      throw new AuthError('Verify with your second factor before changing your password', 'auth.mfa_required');
+    }
+    // Count the guess BEFORE verifying it (see attempt-lockout.ts); a locked account is refused here.
+    await this.reserve(userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.currentPassword))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    try {
+      assertPasswordShape(input.newPassword);
+    } catch (err) {
+      if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
+      throw err;
+    }
+    if (input.newPassword === input.currentPassword) {
+      throw new AuthError('The new password must differ from the current one', 'auth.password_unchanged');
+    }
+    const nextHash = await hashPassword(input.newPassword);
+    const revokedIds = await transaction(this.sql, async (tx) => {
+      const locked = await tx<
+        Array<{ password_hash: string; status: string }>
+      >`SELECT password_hash, status FROM users WHERE id = ${userId} FOR UPDATE`;
+      // A parallel change already moved the hash: the password we verified is no longer the current one.
+      if (!locked[0] || locked[0].password_hash !== user.password_hash) {
+        throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+      }
+      if (locked[0].status !== 'active') throw new AuthError(`Account is ${locked[0].status}`, 'auth.account_frozen');
+      const live = await tx<
+        Array<{ id: string }>
+      >`SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()`;
+      if (!live[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+      await tx`UPDATE users SET password_hash = ${nextHash}, updated_at = now() WHERE id = ${userId}`;
+      const revoked = await tx<
+        Array<{ id: string }>
+      >`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false AND id <> ${sessionId} RETURNING id`;
+      await recordSuccess(tx, userId, 'password');
+      return revoked.map((r) => r.id);
+    });
+    for (const id of revokedIds) await syncNavigatorSessionClosed(this.sql, id);
+    this.log.warn({ userId, sessionId, otherSessionsRevoked: revokedIds.length }, 'auth.password_changed');
   }
 
   async getSessionOwnership(sessionId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {

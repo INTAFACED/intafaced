@@ -283,6 +283,8 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     case 'auth.sub_account_required':
     case 'auth.sub_account_same':
+    case 'auth.password_unchanged':
+    case 'auth.password_policy':
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.sub_account_denied':
     case 'auth.sub_account_revoked':
@@ -657,6 +659,30 @@ export function createIdentityRouter(
       logoutAll: protectedProcedure.output(z.object({ revoked: z.number() })).mutation(async ({ ctx }) => ({
         revoked: await auth.logoutAll(ctx.principal.userId),
       })),
+
+      /**
+       * Change the signed-in user's password. User sessions only (an API key or
+       * sub-account is refused), the current password is required, and an account
+       * with any second factor also needs an `mfa` session. Revokes every OTHER
+       * session; the caller's stays. Rules: auth-service `changePassword`.
+       */
+      changePassword: protectedProcedure
+        .input(z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().max(200) }))
+        .output(z.object({ ok: z.literal(true) }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            await auth.changePassword({
+              userId: ctx.principal.userId,
+              sessionId: ctx.principal.sid,
+              actor: factorActor(ctx.principal, privilegedUserIds),
+              currentPassword: input.currentPassword,
+              newPassword: input.newPassword,
+            });
+            return { ok: true as const };
+          } catch (err) {
+            throw toFactorError(err);
+          }
+        }),
 
       /**
        * THE STEP-UP CHALLENGE.
