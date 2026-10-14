@@ -62,6 +62,7 @@ const SERVICES = [
   ['svc-support', 'support'],
   ['svc-academy', 'academy'],
   ['svc-market', 'market'],
+  ['svc-mining-pool', 'mining_pool'],
   ['svc-ops', 'ops'],
 ];
 

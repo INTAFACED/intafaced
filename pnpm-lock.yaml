@@ -1541,6 +1541,9 @@ importers:
 
   services/svc-mining-pool:
     dependencies:
+      '@intafaced/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@intafaced/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -1560,6 +1563,9 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
