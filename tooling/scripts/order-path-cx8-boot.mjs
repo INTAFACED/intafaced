@@ -9,6 +9,7 @@
  *   CX8_SKIP_IDENTITY=1 — L1 only (not default)
  */
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -44,6 +45,13 @@ const EDGE = process.env.EDGE_PRINCIPAL_SECRET ?? 'dev-only-cx8-edge-principal-s
 const JWT = process.env.JWT_ACCESS_SECRET ?? 'dev-only-cx8-jwt-access-secret-xxxxxxxx';
 const NATS = process.env.NATS_URL ?? 'nats://127.0.0.1:4222';
 const PG = process.env.CX8_POSTGRES ?? 'postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test';
+
+// Owner-operation admission key shared by exactly two services: svc-trade reads it as
+// IDENTITY_ADMISSION_SECRET and svc-identity as IDENTITY_TRADE_ADMISSION_SECRET. Identity
+// refuses a key shorter than 32 chars or equal to any other secret it holds, so it is
+// generated on its own. 36 random bytes = 48 chars. Fresh every run, never stored or logged.
+// SMOKE RIG ONLY — not a production value; Nitro 2026-10-14
+const ADMISSION_SECRET = randomBytes(36).toString('base64url');
 
 const children = [];
 
@@ -158,6 +166,10 @@ async function main() {
     HTTP_HOST: '127.0.0.1',
     HTTP_PORT: '4005',
     MATCHING_JOURNAL_PATH: join(ROOT, '.data/matching/engine_journal.ndjson'),
+    // Matching consumes the two-person approval that opens a market at identity.
+    IDENTITY_URL: 'http://127.0.0.1:4002',
+    // Owner-published, no default: blank refuses boot (services/svc-matching/src/env.ts).
+    MATCHING_SNAPSHOT_EVERY: '500', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
   });
 
   start('ledger', 'node', ['services/svc-ledger/dist/index.js'], {
@@ -168,6 +180,10 @@ async function main() {
     HTTP_PORT: '4001',
     DATABASE_URL: ledgerUrl,
     LEDGER_POSTING_ENABLED: 'true',
+    // Owner-published integers with no default: blank refuses boot (schemas in
+    // packages/config/src/env.ts and services/svc-ledger/src/env.ts).
+    DATABASE_POOL_MAX: '10', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
+    RECONCILE_CRON_MINUTES: '60', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
   });
 
   start('identity', 'node', ['services/svc-identity/dist/index.js'], {
@@ -177,6 +193,13 @@ async function main() {
     HTTP_HOST: '127.0.0.1',
     HTTP_PORT: '4002',
     DATABASE_URL: identityUrl,
+    DATABASE_POOL_MAX: '10', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
+    // Action approval (opening a market takes a proposer and a different, MFA-verified approver).
+    // Blank lifetime refuses every propose (action_approval.ttl_unset).
+    IDENTITY_TRADE_ADMISSION_SECRET: ADMISSION_SECRET,
+    IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-14
+    // Key that seals TOTP secrets at rest; blank refuses enrolment. Generated fresh each run, never stored.
+    IDENTITY_TOTP_SECRET_KEY: randomBytes(32).toString('hex'), // SMOKE RIG ONLY — generated fresh each run, never stored
     REGISTRATION_OPEN: 'true',
     WEBAUTHN_ENABLED: 'false',
     WEBAUTHN_RP_ID: 'localhost',
@@ -195,25 +218,49 @@ async function main() {
     HTTP_HOST: '127.0.0.1',
     HTTP_PORT: '4004',
     DATABASE_URL: tradeUrl,
+    DATABASE_POOL_MAX: '10', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
     LEDGER_URL: 'http://127.0.0.1:4001',
     MATCHING_URL: 'http://127.0.0.1:4005',
     IDENTITY_URL: 'http://127.0.0.1:4002',
+    IDENTITY_ADMISSION_SECRET: ADMISSION_SECRET,
     TRADE_SPOT_ENABLED: 'true',
+    // The smoke supplies no sanctions screening list (INTAFACED_SANCTIONS_REGIONS
+    // is counsel's to publish; this rig must not invent one). With the switch
+    // unset, POST /api/v1/orders is refused 403 denied.screening_unconfigured.
+    // 'off' is the explicit local-test stand-in that every service's vitest
+    // config uses; it is honoured only while APP_ENV is dev/test, which `common`
+    // sets. Outside dev/test svc-trade refuses to BOOT with this fixture
+    // (assertNoLocalTestFixtures, services/svc-trade/src/index.ts), and the
+    // screening reader ignores 'off' there, so screening stays fail-closed.
+    INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value, same as every service's vitest config; refused outside dev/test
     // SMOKE RIG owner integers. Compose ships empty; blank refuses convert quote
     // and market-buy hold. These are the fixture's published values, not product
     // defaults — never restore compose invented spread/cap.
     TRADE_CONVERT_SPREAD_BPS: '25',
     TRADE_MARKET_SLIPPAGE_CAP_BPS: '150',
-    // svc-trade refuses to boot until the account that funds realised futures
-    // profit is NAMED — its balance is the ceiling on a payout, and there is no
-    // safe default (docs/adr/2026-08-05-futures-risk-and-mark-law.md).
-    //
-    // This is the SMOKE RIG's value, not a product decision. The bound has to
-    // guard the account `futuresRealizeProfit` actually debits, and that recipe
-    // is an owner carve-out this branch does not touch — so exactly one value
-    // boots today, and `profitSourceFromConfig` refuses any other. A deployment
-    // still has to state it; that is the whole point of having no default.
-    TRADE_FUTURES_PROFIT_SOURCE: 'house:fees:trade:available',
+    // Fee schedule (PTX-M21). Place and fill refuse while it is unpublished, and
+    // blank is not zero. This is a published schedule whose maker and taker fees
+    // are both 0 bps, in the exact JSON shape parseFeeScheduleJson reads
+    // (services/svc-trade/src/spot/fee-schedule.ts; bps are decimal STRINGS, the
+    // same shape the #3699 tests use). The smoke checks the order path, not fee
+    // revenue, so it posts no fee.
+    TRADE_FEE_SCHEDULE: JSON.stringify({ published: true, version: 'cx8-smoke-zero-fee', makerBps: '0', takerBps: '0' }), // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
+    // Pre-trade credit caps (services/svc-trade/src/futures/pretrade-credit.ts).
+    // Each is an owner integer: a plain base-10 integer string, parsed by
+    // parseOwnerIntegerEnv (owner-int-env.ts); blank or non-integer refuses every
+    // place with trade.max_{order,position,loss}_unset. The code only checks that
+    // each is published and does not compare an order against it, so the unit is
+    // not enforced here.
+    TRADE_MAX_ORDER: '1000000', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
+    TRADE_MAX_POSITION: '1000000', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
+    TRADE_MAX_LOSS: '1000000', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
+    // NOT a boot requirement any more. svc-trade boots with this blank and logs
+    // "FUTURES IS DISABLED" (optionalProfitSourceFromConfig in
+    // services/svc-trade/src/index.ts): futures opens are refused until an account
+    // is named. The spot smoke never touches futures. It is kept so the rig's
+    // futures path stays enabled as it was; recipes.futuresRealizeProfit draws
+    // from this one account, so profitSourceFromConfig refuses any other value.
+    TRADE_FUTURES_PROFIT_SOURCE: 'house:fees:trade:available', // pre-existing smoke value (#883)
   });
 
   await waitHealth('http://127.0.0.1:4004', 'trade');
@@ -222,6 +269,13 @@ async function main() {
     TRADE_HTTP_URL: 'http://127.0.0.1:4004',
     MATCHING_HTTP_URL: 'http://127.0.0.1:4005',
     LEDGER_HTTP_URL: 'http://127.0.0.1:4001',
+    // The smoke opens the market through identity and matching, and reads the
+    // approver's MFA session as the edge would, so it needs identity's URL and the
+    // token settings.
+    IDENTITY_HTTP_URL: 'http://127.0.0.1:4002',
+    JWT_ACCESS_SECRET: JWT,
+    JWT_ISSUER: common.JWT_ISSUER,
+    JWT_AUDIENCE: common.JWT_AUDIENCE,
     ORDER_PATH_SMOKE_STRICT: '1',
     EDGE_PRINCIPAL_SECRET: EDGE,
     INTERNAL_SERVICE_SECRET: SECRET,
