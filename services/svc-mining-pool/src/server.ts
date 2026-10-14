@@ -3,16 +3,18 @@ import postgres from 'postgres';
 import { miningHealthHonesty } from './health-honesty.js';
 import { createLedgerClient } from './ledger-client.js';
 import { startMiningJobs } from './epoch-jobs.js';
+import { loadMiningPoolDatabase } from './pool-config.js';
 import { handleSubmitSharePost } from './submit-share.js';
 
 const port = Number.parseInt(process.env.HTTP_PORT ?? '4023', 10);
 const ledgerUrl = process.env.LEDGER_URL?.trim();
 const internalSecret = process.env.INTERNAL_SERVICE_SECRET?.trim();
-const databaseUrl = process.env.DATABASE_URL?.trim();
+const database = loadMiningPoolDatabase();
 const ledger = ledgerUrl && internalSecret ? createLedgerClient(ledgerUrl, internalSecret) : null;
-const sql = databaseUrl
-  ? postgres(databaseUrl, {
-      max: 8,
+const sql = database
+  ? postgres(database.url, {
+      max: database.max,
+      ssl: database.ssl ? 'require' : false,
       connection: { search_path: 'mining_pool,public', application_name: 'svc-mining-pool' },
       onnotice: () => undefined,
     })

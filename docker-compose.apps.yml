@@ -1603,7 +1603,14 @@ services:
       SERVICE_NAME: svc-mining-pool
       HTTP_PORT: '4023'
       LEDGER_URL: http://svc-ledger:4001
+      # The `mining_pool` schema (2 migrations). Shares and windows persist here. Pool size is
+      # DATABASE_POOL_MAX via *service-env, a blank pass-through: blank refuses boot, never invent one.
+      # MINING_PAYOUT_INTERVAL_MS stays unset on purpose: no payout job starts, and postPayouts
+      # refuses EMISSION_UNPUBLISHED until an emission is published.
+      DATABASE_URL: postgres://svc_mining_pool:${SVC_MINING_POOL_DB_PASSWORD:-svc_mining_pool}@postgres:5432/intafaced
     expose: ['4023']
+    depends_on:
+      <<: *needs-schema
 
   # ── Protocol Plane (§17.4) ─────────────────────────────────────
 
