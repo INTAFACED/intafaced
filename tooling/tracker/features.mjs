@@ -2199,23 +2199,21 @@ export const FEATURES = [
       'Revoke and closed/missing profile are named refuses (`share.revoked`, `share.profile_gone`) so later hits do not attribute. ' +
       'blueprint.card still owns card rendering (untouched). Residual: out-of-app email/push/SMS stay sockets.',
   }),
-  f('ops.infra-b2b', 'INTAFACED INFRA — embeddable ramp widget and white-label tiers (§37)', {
+  f('ops.infra-b2b', 'INTAFACED INFRA — partner ramp distribution and white-label tiers (§37)', {
     module: 'core-ops',
     phase: '5',
     plane: 'B',
-    status: 'done',
+    status: 'socket',
     dependsOn: ['pay.payfac', 'bank.ramps'],
-    requires: [
-      'services/svc-edge/src/widget-ramp.ts',
-      'services/svc-edge/src/widget-ramp.test.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/platform-embed-ramp.golden.js',
-    ],
+    requires: ['services/svc-edge/src/widget-ramp.ts', 'services/svc-edge/src/widget-ramp.test.ts'],
     note:
-      '**DONE 2026-08-23:** embeddable ramp widget at GET /api/widget/ramp — iframe of existing /bank/ramps + /api/pay/checkout (no second pay stack). ' +
-      'Unset INFRA_LICENCE → named refuse `ops.infra_licence_unset`. /platform copies the iframe snippet. ' +
-      'White-label is CSS/tenant env (`INFRA_WIDGET_ACCENT`, `INFRA_WIDGET_CSS`). Amounts stay strings. ' +
-      'Residual: who-is-liable / who holds the licence / rev-share are counsel; white-label tenant isolation audit (§38) stays owner/counsel. ' +
-      'Pay hosted checkout keeps `frame-ancestors none` — nested checkout may be a top-level link to the same path.',
+      '**CORRECTED 2026-10-14. This row said DONE 2026-08-23 and that was wrong.** The iframe widget at GET /api/widget/ramp never worked: ' +
+      'it framed /bank/ramps and /api/pay/checkout, and both refuse framing (nginx and pay send DENY / frame-ancestors none). ' +
+      'It also sent `frame-ancestors *`, a latent clickjacking surface. It is RETIRED: the route now answers 410 `ops.widget_iframe_retired` ' +
+      'with framing denied and logs Sec-Fetch-Dest plus the Referer origin of each hit; INFRA_LICENCE / INFRA_WIDGET_* are gone. ' +
+      'Decision: docs/adr/2026-10-14-ramp-widget-no-third-party-framing.md (hosted top-level page only, no third-party framing). ' +
+      'NOT BUILT: the partner session link, the `ramp_partners` registry and any partner distribution; that design is recorded in the ADR only. ' +
+      'Residual: who-is-liable / who holds the licence / rev-share are counsel; white-label tenant isolation audit (§38) stays owner/counsel.',
   }),
 
   // ── PHASE 5 · DEX — THE PROTOCOL PLANE'S FRONT DOOR (§8.6, §17.5) ────────
