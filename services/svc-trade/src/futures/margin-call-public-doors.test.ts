@@ -150,7 +150,8 @@ describe('D26-P1-T1b public doors — margin call observable', () => {
         throw new Error('must not post on margin-call');
       },
       async balance() {
-        return { account: {} as never, accountId: 'x', amount: 0n };
+        // Ample, so the tick plans against the row's own margin (the ledger-pot divergence guard takes min(row, pot)).
+        return { account: {} as never, accountId: 'x', amount: 1_000_000n * 10n ** 18n };
       },
     };
 
