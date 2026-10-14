@@ -1,4 +1,4 @@
--- Restore the 0001 predicate. NOT VALID so this down does not scan a backlog
+-- Reverse 0028_kyc_reviewed_by_ck.sql. Restore the 0001 predicate. NOT VALID so this down does not scan a backlog
 -- row that still has no reviewer, and does not invent one on the way down.
 
 ALTER TABLE "identity"."kyc_records" DROP CONSTRAINT IF EXISTS "kyc_reviewed_by_ck";
