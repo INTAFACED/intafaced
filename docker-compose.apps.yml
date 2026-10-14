@@ -1056,6 +1056,11 @@ services:
       # rather than inventing 24. Zero is a real choice (no wait). Dest-elapsed
       # uses the dest row's updated_at — compose must not invent a number.
       BANK_OFFRAMP_COOLING_HOURS: ${BANK_OFFRAMP_COOLING_HOURS:-}
+      # Money-out step-up (off | required). `off` leaves every door as it was.
+      # `required` makes sends to other people, standing orders to them, business
+      # payments, card unfreeze/issue need a same-person identity approval. Flip it
+      # only when the customer app ships the step-up sheet. Any other value refuses boot.
+      BANK_STEP_UP_MONEY_OUT: ${BANK_STEP_UP_MONEY_OUT:-off}
       # Standing-order + auto-invest runners. env.ts already names these;
       # without compose pass-through a host `.env` never reaches the container.
       # Defaults match env.ts (`true`) — an operator stop is host `.env` plus

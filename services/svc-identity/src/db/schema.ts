@@ -388,6 +388,10 @@ export const actionApprovals = identity.table(
     expiresAt: tstz('expires_at').notNull(),
     approvedAt: tstz('approved_at'),
     consumedAt: tstz('consumed_at'),
+    /** `four_eyes` (default) or `same_person` money-out step-up (migration 0028). */
+    kind: text('kind').notNull().default('four_eyes'),
+    /** Session a same_person approval is bound to; null for four_eyes. */
+    sessionId: text('session_id'),
   },
   (t) => [
     uniqueIndex('action_approvals_operation_idx').on(t.operationId),

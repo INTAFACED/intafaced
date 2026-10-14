@@ -425,7 +425,19 @@ export type BankErrorCode =
    * id is retried or `recover-loan-repayments` re-drives it, so a new event
    * cannot collect the same principal twice.
    */
-  | 'bank.ledger_outcome_unknown';
+  | 'bank.ledger_outcome_unknown'
+  /**
+   * Money-out step-up (BANK_STEP_UP_MONEY_OUT=required). This door needs a fresh
+   * same-person approval from identity: none was sent, it is spent, expired,
+   * another user's, or for another session. The client asks the user again.
+   */
+  | 'bank.step_up_required'
+  /** The approval was for a different payload (amount, payee, asset, id, cadence...). Ask again. */
+  | 'bank.step_up_mismatch'
+  /** The approval was already spent on a different operation. Ask again. */
+  | 'bank.step_up_used'
+  /** Identity could not answer, or is not wired. Nothing was posted; fail closed. */
+  | 'bank.step_up_unavailable';
 
 export class BankError extends Error {
   constructor(

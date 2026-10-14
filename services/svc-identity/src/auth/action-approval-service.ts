@@ -3,7 +3,12 @@
  * authority. TTL is owner-published; blank refuses propose.
  */
 import type { ActionApproval, ActionApprovalConsumeInput, ActionApprovalProposeInput } from '@intafaced/contracts';
-import { isConsumableApproval, namesAreNotActionApproval } from '@intafaced/contracts';
+import {
+  SAME_PERSON_APPROVAL_TTL_SECONDS,
+  isConsumableApproval,
+  isSamePersonActionType,
+  namesAreNotActionApproval,
+} from '@intafaced/contracts';
 import { type ActionApprovalStore, type StoredApproval, newApprovalIds, toActionApproval } from './action-approval-store.js';
 
 export const ACTION_APPROVAL_TTL_UNSET = 'action_approval.ttl_unset' as const;
@@ -20,6 +25,9 @@ export type ActionApprovalErrorCode =
   | 'action_approval.consumed'
   | 'action_approval.not_requester'
   | 'action_approval.service_mismatch'
+  | 'action_approval.type_not_four_eyes'
+  | 'action_approval.operator_only'
+  | 'action_approval.type_not_same_person'
   | 'action_approval.already_terminal';
 
 export class ActionApprovalError extends Error {
@@ -44,6 +52,14 @@ export class ActionApprovalService {
   ) {}
 
   async propose(requesterId: string, input: ActionApprovalProposeInput): Promise<ActionApproval> {
+    // Same-person step-up types have their own door (`createSamePerson`), which demands a fresh
+    // factor. They are never four-eyes types, so a second person cannot approve one.
+    if (isSamePersonActionType(input.actionType)) {
+      throw new ActionApprovalError(
+        'this action type is a same-person step-up, not a four-eyes approval',
+        'action_approval.type_not_four_eyes',
+      );
+    }
     const ttl = this.policy.ttlSeconds;
     if (ttl === undefined) {
       throw new ActionApprovalError('action-approval lifetime is unpublished; identity does not invent hours', ACTION_APPROVAL_TTL_UNSET);
@@ -66,6 +82,46 @@ export class ActionApprovalService {
       expiresAt: new Date(now.getTime() + ttl * 1000),
       approvedAt: null,
       consumedAt: null,
+    };
+    return toActionApproval(await this.store.insert(row));
+  }
+
+  /**
+   * Money-out step-up approval. The CALLER must already have proven a fresh second factor
+   * (passkey or TOTP, never a recovery code) in this same request; this method only records
+   * the result. The row is born APPROVED, bound to the proving user and session, valid five
+   * minutes, and only that user in that session can consume it, once, through the target
+   * service's HMAC consume. The four-eyes rule (`same_person` refusal in `approve`) is untouched.
+   */
+  async createSamePerson(
+    principal: { readonly userId: string; readonly sessionId: string },
+    input: { readonly actionType: string; readonly payloadHash: string },
+  ): Promise<ActionApproval> {
+    if (!isSamePersonActionType(input.actionType)) {
+      throw new ActionApprovalError('this action type does not take a same-person step-up', 'action_approval.type_not_same_person');
+    }
+    const now = this.clock();
+    const approvalId = newApprovalIds().approvalId;
+    const row: StoredApproval = {
+      approvalId,
+      actionType: input.actionType,
+      targetService: 'svc-bank',
+      // Bank consumes with the same constants; the payload hash carries every business field.
+      targetId: input.actionType,
+      expectedVersion: '1',
+      payloadHash: input.payloadHash,
+      requesterId: principal.userId,
+      approverId: principal.userId,
+      policyVersion: 'step-up-v1',
+      // The client holds only the approval id, so the operation id is the approval id (unique per row).
+      operationId: approvalId,
+      status: 'APPROVED',
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + SAME_PERSON_APPROVAL_TTL_SECONDS * 1000),
+      approvedAt: now,
+      consumedAt: null,
+      kind: 'same_person',
+      sessionId: principal.sessionId,
     };
     return toActionApproval(await this.store.insert(row));
   }
@@ -120,6 +176,18 @@ export class ActionApprovalService {
     if (row.targetId !== input.targetId || row.expectedVersion !== input.expectedVersion || row.operationId !== input.operationId) {
       throw new ActionApprovalError('target, version, or operation id does not match', 'action_approval.target_mismatch');
     }
+    const samePerson = row.kind === 'same_person';
+    const hasPrincipal = input.principalUserId !== undefined || input.principalSessionId !== undefined;
+    if (samePerson !== hasPrincipal) {
+      // A same-person row is consumed only with the consumer's principal, and a four-eyes row never is.
+      throw new ActionApprovalError('approval kind does not match this consume', 'action_approval.target_mismatch');
+    }
+    if (samePerson && (row.requesterId !== input.principalUserId || row.sessionId !== input.principalSessionId)) {
+      throw new ActionApprovalError(
+        'only the user and session that proved the factor can consume this approval',
+        'action_approval.not_requester',
+      );
+    }
     if (row.status === 'CONSUMED') {
       throw new ActionApprovalError('approval already consumed', 'action_approval.consumed');
     }
@@ -135,6 +203,11 @@ export class ActionApprovalService {
       throw this.terminal(again, 'action_approval.not_approved');
     }
     return toActionApproval(next);
+  }
+
+  /** The action type of a stored approval, or null. Lets a door classify it before acting on it. */
+  async actionTypeOf(approvalId: string): Promise<string | null> {
+    return (await this.store.get(approvalId))?.actionType ?? null;
   }
 
   /** Two strings in one body never become an approval. */

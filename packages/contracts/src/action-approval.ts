@@ -15,6 +15,42 @@ export const ACTION_APPROVAL_NOT_AUTHORITY = 'action_approval.names_are_not_auth
 export const actionApprovalStatusSchema = z.enum(['PENDING', 'APPROVED', 'CONSUMED', 'REJECTED', 'EXPIRED', 'REVOKED']);
 export type ActionApprovalStatus = z.infer<typeof actionApprovalStatusSchema>;
 
+/**
+ * `four_eyes` is the original maker/checker row: a second authenticated person
+ * approves. `same_person` is the money-out step-up row: the requester proves a
+ * fresh second factor for THEIR OWN intent and only they can consume it, once.
+ * The two never share a path; see `SAME_PERSON_ACTION_TYPES`.
+ */
+export const actionApprovalKindSchema = z.enum(['four_eyes', 'same_person']);
+export type ActionApprovalKind = z.infer<typeof actionApprovalKindSchema>;
+
+/**
+ * Action types that are same-person step-up approvals for svc-bank money-out
+ * doors (ADR 2026-10-14-money-out-step-up). Identity refuses to issue these
+ * through the four-eyes `propose` and refuses any other type on the
+ * same-person door, so one type is never both.
+ */
+export const SAME_PERSON_ACTION_TYPES = [
+  'bank.step_up.transfers.toUser',
+  'bank.step_up.transfers.create',
+  'bank.step_up.transfers.scheduleToUser',
+  'bank.step_up.transfers.schedule',
+  'bank.step_up.business.runPayroll',
+  'bank.step_up.business.proposeTransfer',
+  'bank.step_up.business.approve',
+  'bank.step_up.business.addMember',
+  'bank.step_up.cards.unfreeze',
+  'bank.step_up.cards.issue',
+] as const;
+export type SamePersonActionType = (typeof SAME_PERSON_ACTION_TYPES)[number];
+
+export function isSamePersonActionType(actionType: string): actionType is SamePersonActionType {
+  return (SAME_PERSON_ACTION_TYPES as readonly string[]).includes(actionType);
+}
+
+/** Lifetime of a same-person step-up approval. Fixed, not env: five minutes, like `auth.stepUp`. */
+export const SAME_PERSON_APPROVAL_TTL_SECONDS = 300;
+
 export const actionApprovalSchema = z.object({
   approvalId: z.string().min(1).max(128),
   actionType: z.string().min(1).max(128),
@@ -30,6 +66,8 @@ export const actionApprovalSchema = z.object({
   expiresAt: z.string().datetime({ offset: true }),
   status: actionApprovalStatusSchema,
   operationId: z.string().min(1).max(128),
+  /** Absent means `four_eyes`. Present only for `same_person` rows, so four-eyes output is unchanged. */
+  kind: actionApprovalKindSchema.optional(),
 });
 export type ActionApproval = z.infer<typeof actionApprovalSchema>;
 
@@ -58,6 +96,14 @@ export const actionApprovalConsumeInputSchema = z.object({
   targetService: z.string().min(1).max(64),
   targetId: z.string().min(1).max(256),
   expectedVersion: z.string().min(1).max(128),
+  /**
+   * Same-person consume only. Both are the CONSUMING caller's authenticated
+   * principal (user id and session id), forwarded by the target service.
+   * Identity refuses a same-person row unless both match the row, and refuses a
+   * four-eyes row when they are present, so neither kind can pass as the other.
+   */
+  principalUserId: z.string().min(1).max(128).optional(),
+  principalSessionId: z.string().min(1).max(128).optional(),
 });
 export type ActionApprovalConsumeInput = z.infer<typeof actionApprovalConsumeInputSchema>;
 
@@ -75,7 +121,11 @@ export function namesAreNotActionApproval(input: {
 }
 
 export function isConsumableApproval(row: ActionApproval): boolean {
-  return row.status === 'APPROVED' && row.approverId !== null && row.approverId !== row.requesterId;
+  if (row.status !== 'APPROVED' || row.approverId === null) return false;
+  // A same-person step-up row is its own approval by construction (the fresh
+  // factor was proven by the requester). Every other row needs a second person.
+  if (row.kind === 'same_person') return row.approverId === row.requesterId;
+  return row.approverId !== row.requesterId;
 }
 
 export function approvalCannotExecute(row: ActionApproval): boolean {

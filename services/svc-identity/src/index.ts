@@ -257,7 +257,13 @@ export const appRouter = mergeRouters(
     origin: env.WEBAUTHN_ORIGIN,
   }),
   createUnenrollPasskeyRouter(sql),
-  createActionApprovalRouter(actionApprovals),
+  createActionApprovalRouter(actionApprovals, {
+    privilegedUserIds: founderPair ?? [],
+    // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
+    verifyFactor: async (input) => {
+      await auth.stepUp(input);
+    },
+  }),
 );
 export type AppRouter = typeof appRouter;
 
