@@ -39,7 +39,8 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { marketStatus } from './local-test-market.mjs';
+import { rotateAll, rotateLog } from './local-test-logs.mjs';
+import { ledgerPosting, marketStatus } from './local-test-market.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
@@ -219,6 +220,18 @@ function loadOrCreateSecrets() {
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
 const urlOf = (name) => `http://${HOST}:${PORTS[name]}`;
+/** User ids of the two LOCAL TEST operators (comma-separated), or '' while they have not been created yet. */
+function localOperatorIds() {
+  try {
+    const ops = JSON.parse(fs.readFileSync(path.join(STATE, 'operators.json'), 'utf8')).operators ?? {};
+    return ['a', 'b']
+      .map((k) => ops[k]?.userId)
+      .filter((id) => typeof id === 'string' && /^[0-9a-zA-Z-]{8,64}$/.test(id))
+      .join(',');
+  } catch {
+    return '';
+  }
+}
 
 // ── Process records (pid file + argv) ───────────────────────────────────────
 
@@ -241,6 +254,7 @@ function ownedAlive(rec) {
 
 function startProc(name, argv, env, cwd) {
   const logPath = path.join(P.logs, `${name}.log`);
+  rotateLog(logPath); // a log over 50 MB keeps its newest 50 MB as .1 (3 files at most); see local-test-logs.mjs
   const fd = fs.openSync(logPath, 'a', 0o600);
   const child = spawn(argv[0], argv.slice(1), { cwd, env, detached: true, stdio: ['ignore', fd, fd] });
   child.unref();
@@ -670,7 +684,10 @@ function serviceDefs(secrets) {
         DATABASE_URL: dbUrl('svc_ledger', secrets),
         LEDGER_POSTING_ENABLED: 'true',
         // Required, no default. LOCAL TEST value chosen for this stack only, not an owner decision.
-        RECONCILE_CRON_MINUTES: '60',
+        // Weekly, not hourly. The hourly run reads every account and writes a balance snapshot for each, inside the
+        // ledger's fixed 15 s statement timeout. On a busy local stack that stops fitting (115,000 accounts), the run
+        // throws, and a throw freezes posting: from then on every order is refused with 400 LedgerError (14 Oct).
+        RECONCILE_CRON_MINUTES: '10080',
       }),
     },
     {
@@ -710,6 +727,11 @@ function serviceDefs(secrets) {
         // Opening a market needs a two-person approval that matching consumes from identity
         // (services/svc-matching/src/action-approval-consume.ts). Without this it refuses by name.
         IDENTITY_URL: urlOf('identity'),
+        // Opening a market also requires BOTH the proposer and the approver to be on this list (security fix #4742;
+        // unset, nobody can open a market). LOCAL TEST: the two labelled operators of local-test-gates.mjs, read
+        // from operators.json. They exist only after `local-test-gates.mjs operators`, so the first time restart
+        // matching afterwards (pnpm local:stack:restart matching). Harmless before #4742 merges.
+        ...(localOperatorIds() ? { MATCHING_OPERATOR_IDS: localOperatorIds() } : {}),
       }),
     },
     {
@@ -1071,7 +1093,14 @@ async function healthTable({ gateMarket = false } = {}) {
   rows.push(['nats', `${PORTS.nats}/${PORTS.natsMonitor}`, procs.nats?.pid ?? '-', nats.status === 200 ? 'ok' : 'DOWN']);
   for (const n of serviceNames()) {
     const r = await httpGet(`${urlOf(n)}/health`, 2500);
-    rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', r.status === 200 ? 'ok' : `DOWN (${r.status})`]);
+    // A ledger that answers /health but has posting switched off refuses every order: not "ok".
+    const posting = n === 'ledger' && r.status === 200 ? ledgerPosting(r.text) : null;
+    rows.push([
+      `svc-${n}`,
+      PORTS[n],
+      procs[n]?.pid ?? '-',
+      posting?.frozen ? `FROZEN (${posting.text})` : r.status === 200 ? 'ok' : `DOWN (${r.status})`,
+    ]);
   }
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
   rows.push([
@@ -1111,6 +1140,7 @@ async function cmdStart(flags) {
   for (const b of [`${PG_BIN}/pg_ctl`, `${PG_BIN}/initdb`, `${PG_BIN}/psql`])
     if (!fs.existsSync(b)) fail(`missing ${b} (install PostgreSQL 16 via Homebrew)`);
   const secrets = loadOrCreateSecrets();
+  rotateAll(P.logs); // every log capped at 50 MB, 3 files; the running market sweeps them too
   writePrivate(
     P.marker,
     JSON.stringify(

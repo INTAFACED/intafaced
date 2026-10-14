@@ -698,6 +698,9 @@ async function main() {
     if (cmd === 'operators') {
       const ops = await ensureOperators(ctx);
       say(`operators ready: ${ops.a.handle}, ${ops.b.handle} (credentials in ${ctx.paths.operators}, mode 600)`);
+      say(
+        '  matching only lets listed operators open a market (MATCHING_OPERATOR_IDS, from #4742): if this is the first time, run  pnpm local:stack:restart matching',
+      );
     } else if (cmd === 'lifecycle') {
       for (const r of await publishLifecycles(ctx)) say(`  ${r.symbol.padEnd(10)} ${r.status}  evidence ${r.evidenceId}`);
     } else if (cmd === 'open') {

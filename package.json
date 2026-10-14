@@ -79,6 +79,7 @@
     "local:stack:test": "node tooling/scripts/local-test-stack.test.mjs",
     "local:market": "node tooling/scripts/local-test-market.mjs",
     "local:market:stop": "node tooling/scripts/local-test-market.mjs stop",
+    "local:market:list": "node tooling/scripts/local-test-listing.mjs",
     "local:market:test": "node tooling/scripts/local-test-market.test.mjs",
     "local:world": "node tooling/scripts/local-test-world.mjs watch",
     "local:world:seed": "node tooling/scripts/local-test-world.mjs seed",
