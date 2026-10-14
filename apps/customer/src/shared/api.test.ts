@@ -123,4 +123,31 @@ describe('customer transport boundary', () => {
       savePreferences({ language: 'en' });
     }
   });
+  it('sends caller headers but never lets them replace the bearer token', async () => {
+    const seen: Array<Record<string, string>> = [];
+    const api = createApiClient({
+      token: () => 'real-token',
+      fetch: async (_url, init) => {
+        seen.push((init?.headers ?? {}) as Record<string, string>);
+        return new Response(JSON.stringify({ result: { data: {} } }));
+      },
+    });
+    await api.mutate('identity', 'auth.login', {}, z.unknown(), {
+      headers: { 'X-Session-Transport': 'cookie', Authorization: 'Bearer attacker-chosen' },
+    });
+    expect(seen[0]).toMatchObject({ 'x-session-transport': 'cookie', authorization: 'Bearer real-token' });
+  });
+  it('talks to the cookie session doors with the CSRF marker and the browser-attached cookie, not a token', async () => {
+    const seen: Array<{ url: string; credentials?: RequestCredentials; headers: Record<string, string> }> = [];
+    const api = createApiClient({
+      fetch: async (url, init) => {
+        seen.push({ url: String(url), credentials: init?.credentials, headers: (init?.headers ?? {}) as Record<string, string> });
+        return new Response(JSON.stringify({ result: { data: { ok: true } } }));
+      },
+    });
+    expect(await api.session('logout', z.object({ ok: z.literal(true) }))).toEqual({ ok: true, data: { ok: true } });
+    expect(seen[0]).toMatchObject({ url: '/api/identity/session/logout', credentials: 'same-origin' });
+    expect(seen[0]!.headers['x-session-request']).toBe('1');
+    expect(seen[0]!.headers.authorization).toBeUndefined();
+  });
 });

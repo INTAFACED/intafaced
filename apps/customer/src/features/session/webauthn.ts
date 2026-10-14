@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { sessionSchema, type Session } from './session';
+import { SESSION_TRANSPORT_HEADERS } from './session-sync';
 
 const credentialDescriptor = z.object({ id: z.string(), type: z.literal('public-key'), transports: z.array(z.string()).optional() });
 const authenticationOptions = z.object({
@@ -121,7 +122,7 @@ export async function signInWithPasskey(
         },
       },
       sessionSchema,
-      { signal: intent.signal },
+      { signal: intent.signal, headers: SESSION_TRANSPORT_HEADERS },
     );
   } catch (error) {
     if (!active()) return changed();

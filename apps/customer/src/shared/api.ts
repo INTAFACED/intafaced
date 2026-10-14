@@ -5,7 +5,7 @@ export type RefusalReason =
   'unauthorized' | 'forbidden' | 'not_mounted' | 'not_supported' | 'unreachable' | 'invalid_response' | 'aborted' | 'error' | 'uncertain';
 export type ApiResult<T> =
   { ok: true; data: T } | { ok: false; reason: RefusalReason; message: string; messageCopy?: UiMessage; code?: string; status?: number };
-export type RequestOptions = { signal?: AbortSignal };
+export type RequestOptions = { signal?: AbortSignal; headers?: Record<string, string> };
 export type RestOptions = RequestOptions & {
   method?: 'GET' | 'POST' | 'DELETE' | 'PUT' | 'PATCH';
   body?: unknown;
@@ -67,6 +67,9 @@ export function createApiClient(
     if (method !== 'GET' && options.canWrite && !options.canWrite()) return authoredRefusal('aborted', { key: 'accountChanged' });
     // A JSON content type on a body-less request (DELETE /orders/:id) makes Fastify answer 400 FST_ERR_CTP_EMPTY_JSON_BODY.
     const headers: Record<string, string> = input === undefined ? {} : { 'content-type': 'application/json' };
+    // Caller headers first: they can never replace the credential headers set below.
+    for (const [name, value] of Object.entries(requestOptions.headers ?? {})) headers[name.toLowerCase()] = value;
+    delete headers.authorization;
     const token = options.token?.();
     if (token) headers.authorization = `Bearer ${token}`;
     if (requestOptions.idempotencyKey) headers['Idempotency-Key'] = requestOptions.idempotencyKey;
@@ -183,6 +186,13 @@ export function createApiClient(
     },
     mutate<T>(module: string, procedure: string, input: unknown, schema: ZodType<T>, opts: RequestOptions = {}) {
       return request(`/api/${encodeURIComponent(module)}/trpc/${encodeURIComponent(procedure)}`, 'POST', schema, input ?? {}, false, opts);
+    },
+    /** The edge's cookie doors (`/api/identity/session/refresh|logout`). The browser attaches the HttpOnly cookie itself; page code never holds the refresh token. The header is the CSRF marker the edge requires. */
+    session<T>(action: 'refresh' | 'logout', schema: ZodType<T>, opts: RequestOptions = {}) {
+      return request(`/api/identity/session/${action}`, 'POST', schema, {}, false, {
+        ...opts,
+        headers: { ...opts.headers, 'x-session-request': '1' },
+      });
     },
     rest<T>(path: string, schema: ZodType<T>, opts: RestOptions = {}) {
       const query = new URLSearchParams();

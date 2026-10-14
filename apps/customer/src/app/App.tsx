@@ -96,7 +96,7 @@ export function App() {
   const path = current.split('?')[0] ?? '/';
   const search = current.slice(path.length);
   const room = findRoom(path);
-  const { session } = useSession();
+  const { session, restoring } = useSession();
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
   const hidden = hiddenFeatureFor(path, search);
@@ -137,7 +137,7 @@ export function App() {
     const url = new URL(anchor.href, location.href);
     if (url.origin !== location.origin) return;
     // A link to another place in the same page is the browser's job (it scrolls to the anchor). A link to
-    // another route with a `#` stays inside the app: a full reload would drop the in-memory sign-in.
+    // another route with a `#` stays inside the app: it needs no reload and no refresh round trip.
     if (url.hash && url.pathname === location.pathname && url.search === location.search) return;
     event.preventDefault();
     navigate(url.pathname + url.search + url.hash);
@@ -180,44 +180,48 @@ export function App() {
         </Page>
       </div>
     );
-  const content = redirectTo ? null : room?.area === 'public' ? (
-    <div className="legacy-room">
-      {ribbon}
-      <PublicRoutes path={path} />
-    </div>
-  ) : room?.area === 'team' ? (
-    <div className="legacy-room">
-      <Page title={t('Separate team desk')}>
-        <EmptyState
-          title={t('Open the operator console')}
-          action={
-            teamHref ? (
-              <a className="button button--primary" href={teamHref}>
-                {t('Open Team')}
-              </a>
-            ) : undefined
-          }
-        >
-          {teamHref
-            ? t('The team desk uses separate operator authentication.')
-            : t('The Team deployment address is not configured. Ask your operator for the verified console address.')}
-        </EmptyState>
-      </Page>
-    </div>
-  ) : room?.area === 'parked' ? (
-    <div className="legacy-room">
-      <Page title={t('This room is parked')}>
-        <EmptyState title={t('Chain services are not active')}>
-          {t('This room remains reserved until owner activation. It is not available from customer navigation or search.')}
-        </EmptyState>
-      </Page>
-    </div>
-  ) : (
-    <Shell door={room?.door} path={path}>
-      {ribbon}
-      {body}
-    </Shell>
-  );
+  // Until the edge has said whether a cookie session exists, paint neither private rooms nor the signed-out pages.
+  const content =
+    restoring && !devFeatures ? (
+      fallback
+    ) : redirectTo ? null : room?.area === 'public' ? (
+      <div className="legacy-room">
+        {ribbon}
+        <PublicRoutes path={path} />
+      </div>
+    ) : room?.area === 'team' ? (
+      <div className="legacy-room">
+        <Page title={t('Separate team desk')}>
+          <EmptyState
+            title={t('Open the operator console')}
+            action={
+              teamHref ? (
+                <a className="button button--primary" href={teamHref}>
+                  {t('Open Team')}
+                </a>
+              ) : undefined
+            }
+          >
+            {teamHref
+              ? t('The team desk uses separate operator authentication.')
+              : t('The Team deployment address is not configured. Ask your operator for the verified console address.')}
+          </EmptyState>
+        </Page>
+      </div>
+    ) : room?.area === 'parked' ? (
+      <div className="legacy-room">
+        <Page title={t('This room is parked')}>
+          <EmptyState title={t('Chain services are not active')}>
+            {t('This room remains reserved until owner activation. It is not available from customer navigation or search.')}
+          </EmptyState>
+        </Page>
+      </div>
+    ) : (
+      <Shell door={room?.door} path={path}>
+        {ribbon}
+        {body}
+      </Shell>
+    );
   return (
     <div onClick={followLink}>
       <ApplyView />

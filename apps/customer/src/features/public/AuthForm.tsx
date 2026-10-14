@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 're
 import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { useSession, sessionSchema, type Session } from '../session/session';
+import { SESSION_TRANSPORT_HEADERS } from '../session/session-sync';
 import { signInWithPasskey } from '../session/webauthn';
 import { useLocation, navigate } from '../../app/location';
 import { findRoom, roomTitle } from '../../app/navigation';
@@ -238,6 +239,7 @@ export function AuthForm({ register }: { register: boolean }) {
           if (!same(original)) return;
           answer = await original.api.mutate('identity', kind === 'register' ? 'auth.register' : 'auth.login', input, sessionSchema, {
             signal: controller.signal,
+            headers: SESSION_TRANSPORT_HEADERS,
           });
         }
         if (!same(original)) return;

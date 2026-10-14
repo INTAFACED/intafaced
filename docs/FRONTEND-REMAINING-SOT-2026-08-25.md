@@ -267,7 +267,7 @@ Product and implementation signals, not legal standards:
 
 - Route metadata names the required authority; a generic truthy “session” is insufficient.
 - Deep links, redirects, back/forward, refresh, logout, expiry, and cross-tab state are deterministic.
-- The member SPA holds no bearer token in local/session storage. Until an HttpOnly refresh-cookie design exists, reload logout is accepted and stated honestly.
+- The member SPA holds no bearer token in local/session storage. The access token stays in memory; the refresh token is an HttpOnly, SameSite=Strict cookie set by svc-edge, so a reload, a second tab or a pop-out window renews the session through `POST /api/identity/session/refresh` (tabs coordinate with Web Locks and a BroadcastChannel; `apps/customer/src/features/session/session-sync.ts`).
 - Protected content never paints before the authority check completes.
 - Every route has a meaningful document title, stable main heading, skip path, and branded 404.
 
