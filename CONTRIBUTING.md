@@ -13,7 +13,7 @@ Read once, properly. It takes five minutes and saves a week.
 ## 0 · 60-second ship (Denon, Shehzad, Nitro agents)
 
 1. One service per PR. Worktree. Review and verify your change, then squash-merge your own PR when required branch-protection checks pass.
-2. **Merge when done. Do not wait for CI green.** Agents own the technical review and relevant local checks. Full-suite CI and `pnpm verify` are informational; required branch-protection checks still apply. Nobody waits for Nitro to Approve routine code.
+2. **Merge when done, after the merge gate passes.** Agents own the technical review and relevant local checks. Run `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` from an up-to-date `origin/main` checkout. It passes only if every check finished, Gitleaks and Dependency audit passed, and the PR adds no failure that main's latest finished CI run does not already have (a red main is not your blocker, a new red is). Then run the merge command it prints. `pnpm verify` is informational; required branch-protection checks still apply. Nobody waits for Nitro to Approve routine code.
 3. Investigate a failed check by its **job name**. Fix failures introduced by your change and report unrelated baseline failures. Do not weaken a gate or ask Nitro to interpret the logs.
 4. `audited:true` stays false until a paid external audit. Leave it. Keep shipping.
 5. Money still through `packages/ledger-client`. No balances in a service. No money in a `number`. No fake books, mids, or vendor names in the UI.
@@ -176,7 +176,7 @@ Do **not** file an issue for everything. A tracker nobody reads is worse than no
 
 ## 5 · CI
 
-**Do not wait for CI green.** Full-suite CI reports useful evidence; only the repository's actual required protection checks block a merge. The **job name** locates a failure for the agent to investigate.
+**Merge only after the merge gate passes** (AGENTS.md rule 2; `node tooling/scripts/merge-gate.mjs <pr> --head <sha>`, run from an up-to-date `origin/main` checkout). The gate compares your PR's failing checks, and the failing gate ids and test tasks inside them, with main's latest finished CI run, so it blocks only on what your PR adds. The **job name** locates a failure for the agent to investigate.
 
 | Check                                                                       | What it protects                                                                       |
 | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -250,7 +250,7 @@ Commit messages inside a PR do not need to be perfect — the squash-merge title
 1. Never work in the main checkout — `pnpm wt <branch>`
 2. Never push to `main` — PR, always
 3. Small PRs, real reviews, "Request changes" freely
-4. Verify the change; honor required protection checks; do not wait for full CI green
+4. Verify the change; honor required protection checks; merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes (run from an up-to-date `origin/main` checkout)
 5. Preserve local work, remove the worktree, and keep the local branch
 6. Repair red main without freezing independent work
 

@@ -673,6 +673,9 @@ describe('svc-bank money PG-hard', () => {
       expect(executions[0]).toMatchObject({ occurrence: 0, status: 'settled' });
     });
 
+    // Eight racers on a pool of eight (`createTestDatabase` opens `max: 8`): the
+    // exact ratio that froze the pool before #4621. Keep racers == pool size;
+    // `pool-starvation.test.ts` is the deterministic version of this race.
     it('fires once even when eight runs race each other', async () => {
       const { rent } = await standingOrder('100');
       await fund(USER_A, 'USDT', '1000');

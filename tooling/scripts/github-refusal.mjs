@@ -5,7 +5,9 @@ export function isGitHubRefusal(error) {
   // execFileSync's message includes command arguments, which can mention HTTP statuses.
   const stderr = error?.stderr?.toString().trim();
   const text = stderr || [error?.stdout, error?.message].filter(Boolean).join('\n');
-  return /\bHTTP(?:\/\d(?:\.\d)?)?\s+(?:403|429)\b|\b403\s+Forbidden\b|\b429\s+Too Many Requests\b/i.test(text);
+  return /\bHTTP(?:\/\d(?:\.\d)?)?\s+(?:403|429)\b|\b403\s+Forbidden\b|\b429\s+Too Many Requests\b|\bAPI rate limit (?:already )?exceeded\b|\bsecondary rate limit\b/i.test(
+    text,
+  );
 }
 
 /** Do not let a best-effort caller turn a GitHub refusal into an empty result. */
