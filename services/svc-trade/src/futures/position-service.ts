@@ -1126,14 +1126,22 @@ export class PositionService {
         const currentMargin = parseAmount(row.margin_current ?? row.margin_initial);
         const target = initialMargin({ size, entryPrice, leverage: input.leverage });
 
-        const at = this.now();
-        const mark = await this.markFor(row.market_id, row.symbol, at, size);
-        if (await this.wouldBeLiquidatable(row, target, mark.price, `re-leverage-gate:${row.id}`)) {
-          throw new FuturesError(
-            `refusing leverage ${formatAmount(input.leverage)}x — new isolated margin would already be in liquidation at the current mark`,
-            LEVERAGE_WOULD_LIQUIDATE,
-            400,
-          );
+        /**
+         * THE LIQUIDATION GATE GUARDS AN OUTFLOW ONLY. Raising leverage releases margin (target below what
+         * the position holds) and must leave something the ladder would not liquidate. Lowering leverage
+         * ADDS margin: it can only improve the position, so it is never refused by this gate, by a dark
+         * mark, or by an unreadable book (`trade.depth_unknown`). The mark is not even read for an inflow.
+         */
+        if (target < currentMargin) {
+          const at = this.now();
+          const mark = await this.markFor(row.market_id, row.symbol, at, size);
+          if (await this.wouldBeLiquidatable(row, target, mark.price, `re-leverage-gate:${row.id}`)) {
+            throw new FuturesError(
+              `refusing leverage ${formatAmount(input.leverage)}x — new isolated margin would already be in liquidation at the current mark`,
+              LEVERAGE_WOULD_LIQUIDATE,
+              400,
+            );
+          }
         }
 
         if (input.leverage > currentLeverage) {

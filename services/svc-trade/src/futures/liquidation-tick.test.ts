@@ -59,7 +59,7 @@ function recordingLedger(opts?: { insuranceAvailable?: Amount }) {
       },
       async balance(ref: AccountRef): Promise<Balance> {
         // A position's collateral pot: ample, so the tick plans against the row's own margin (the ledger-pot
-        // divergence guard takes min(row, pot)). The guard itself is proven in liquidation-margin-divergence.test.ts.
+        // divergence guard takes min(row, pot)). The guard itself is proven in liquidation-rung-machine.test.ts ("divergence guard: the plan is taken against min(row margin, ledger pot)").
         const amount =
           ref.ownerType === 'house' && ref.ownerId === 'insurance-fund'
             ? insuranceAvailable

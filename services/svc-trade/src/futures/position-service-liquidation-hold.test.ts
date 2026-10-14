@@ -28,7 +28,7 @@ import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } 
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
 import { LIQUIDATION_IN_PROGRESS, POSITION_UNDER_REVIEW } from './position-service.js';
 import { sqlLiquidationRungStore } from './tick-stores.js';
-import { sqlDatedSettlementPositionLoader } from './position-loaders.js';
+import { sqlDatedSettlementPositionLoader, sqlLiquidationPositionLoader } from './position-loaders.js';
 import type { FuturesLadderPolicy } from './maintenance-ladder.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -313,6 +313,45 @@ describe('position-service: liquidation hold (Postgres)', () => {
     });
   });
 
+  describe('the liquidation tick leaves an expired dated contract to settlement', () => {
+    const DATED_EXPIRED = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const DATED_FUTURE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    async function datedMarket(id: string, symbol: string, expiry: string) {
+      await sql`
+        INSERT INTO trade.markets (
+          id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+          maker_bps, taker_bps, status, display_name, listed_at,
+          futures_contract_style, futures_expiry_at, futures_settlement_fixing
+        ) VALUES (${id}, ${symbol}, 'BTC', 'USDT', 'futures', '0.01', '0.0001', '0.0001', '1', 10, 20, 'active', 'dated', now(),
+                  'dated', ${expiry}, 'owner-dated-fixing')
+      `;
+    }
+    async function rawPosition(marketId: string, n: number) {
+      const user = `44444444-4444-4444-8444-${String(n).padStart(12, '0')}`;
+      const [r] = await sql<{ id: string }[]>`
+        INSERT INTO trade.positions (user_id, market_id, side, status, margin_mode, size, entry_price, leverage,
+                                     margin_initial, margin_current, margin_asset, funding_paid)
+        VALUES (${user}, ${marketId}, 'long', 'open', 'isolated', '1', '100', '5', '20', '20', 'USDT', '0') RETURNING id`;
+      return r!.id;
+    }
+
+    it('lists perpetuals and unexpired dated positions; skips an expired dated one; keeps one whose rung is live (it is finished first)', async () => {
+      await datedMarket(DATED_EXPIRED, 'BTC/USDT:USDT-200101', '2020-01-01T00:00:00.000Z');
+      await datedMarket(DATED_FUTURE, 'BTC/USDT:USDT-990101', '2099-01-01T00:00:00.000Z');
+      const perp = await openPosition();
+      const future = await rawPosition(DATED_FUTURE, 1);
+      const expired = await rawPosition(DATED_EXPIRED, 2);
+      const expiredLive = await rawPosition(DATED_EXPIRED, 3);
+      await putRung(expiredLive, 'closing', 'posted');
+      const listed = (await sqlLiquidationPositionLoader(sql).listOpen()).map((p) => p.positionId).sort();
+      expect(listed).toEqual([perp, future, expiredLive].sort());
+      expect(listed).not.toContain(expired);
+      // ...and settlement is the one that takes the expired one (the live-rung one waits for its rung).
+      const settle = (await sqlDatedSettlementPositionLoader(sql).listOpenForMarket(DATED_EXPIRED)).map((p) => p.positionId);
+      expect(settle).toEqual([expired]);
+    });
+  });
+
   describe('exactly one of "a trader mutation" and "a rung beginning" wins (the shared row lock)', () => {
     it('begin racing reduceIsolatedMargin: the pot and the row agree, and never both succeed', async () => {
       const store = sqlLiquidationRungStore(sql);
@@ -401,6 +440,48 @@ describe('position-service: liquidation hold (Postgres)', () => {
       const id = await openPosition();
       const gated = build({ depth: depth(null), policy: LAX });
       await expect(gated.reduceIsolatedMargin({ ...common(id), amount: amt('100') })).rejects.toMatchObject({
+        code: 'trade.depth_unknown',
+        status: 503,
+      });
+      expect(await pot(id)).toBe('7500');
+    });
+
+    // Lowering leverage ADDS margin (target above the 7500 held). It can only improve the position, so the
+    // gate must never refuse it - not for the ladder, not for a dark mark, not for an unreadable book.
+    const EVERY_POSITION_LIQUIDATABLE: FuturesLadderPolicy = {
+      ...STRICT,
+      tiers: [{ uptoDepthBps: Number.MAX_SAFE_INTEGER, maintenanceBps: 6_000 }],
+    };
+
+    it('setLeverage INFLOW (lower leverage, more margin) is not refused by a ladder that would liquidate everything', async () => {
+      const id = await openPosition();
+      const gated = build({ depth: depth(amt('1000000')), policy: EVERY_POSITION_LIQUIDATABLE });
+      const next = await gated.setLeverage({ ...common(id), leverage: amt('4') }); // target 12500 > 7500
+      expect(next.leverage).toBe('4');
+      expect(next.collateral).toBe('12500');
+    });
+
+    it('setLeverage INFLOW is not refused by an unreadable book (no trade.depth_unknown) or a dark mark', async () => {
+      const id = await openPosition();
+      marks = memoryMarkBook(); // no mark at all: the inflow does not read one
+      const gated = build({ depth: depth(null), policy: LAX });
+      const next = await gated.setLeverage({ ...common(id), leverage: amt('4') });
+      expect(next.collateral).toBe('12500');
+    });
+
+    it('setLeverage OUTFLOW (higher leverage, margin released) is still gated by the ladder', async () => {
+      const id = await openPosition();
+      const gated = build({ depth: depth(amt('1000000')), policy: STRICT });
+      await expect(gated.setLeverage({ ...common(id), leverage: amt('8') })).rejects.toMatchObject({
+        code: 'trade.leverage_would_liquidate',
+      }); // target 6250 < 7500, needs 10000
+      expect(await pot(id)).toBe('7500');
+    });
+
+    it('setLeverage OUTFLOW with an unreadable book is refused 503 depth_unknown', async () => {
+      const id = await openPosition();
+      const gated = build({ depth: depth(null), policy: LAX });
+      await expect(gated.setLeverage({ ...common(id), leverage: amt('8') })).rejects.toMatchObject({
         code: 'trade.depth_unknown',
         status: 503,
       });

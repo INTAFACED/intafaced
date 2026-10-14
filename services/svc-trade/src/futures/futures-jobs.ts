@@ -196,6 +196,14 @@ export function reportLiquidationTick(tick: LiquidationTickResult, onError: (nam
         ),
       );
     }
+    if (item.insuranceGrown) {
+      onError(
+        'futures.liquidation',
+        new Error(
+          `${item.insuranceGrown.code} positionId=${item.positionId} rungId=${item.insuranceGrown.rungId} amount=${item.insuranceGrown.amount} (a closing rung's loss was amended: the pot held less than planned, so the insurance fund paid this much more)`,
+        ),
+      );
+    }
     if (item.lossShort) {
       onError(
         'futures.liquidation',

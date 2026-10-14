@@ -95,3 +95,22 @@ describe('reportLiquidationTick: margin divergence', () => {
     expect(logged[0]!.message).toContain('trade.liquidation_margin_divergence positionId=pos-v row=100 pot=80');
   });
 });
+
+describe('reportLiquidationTick: insurance grown', () => {
+  it('raises a closing rung whose insurance leg grew at error level, though the item is a success', () => {
+    const logged: string[] = [];
+    reportLiquidationTick(
+      tick([
+        {
+          positionId: 'pos-g',
+          outcome: 'liquidated',
+          reason: 'bankrupt_full_close',
+          insuranceGrown: { code: 'trade.liquidation_insurance_grown', rungId: 'r-9', amount: '12' },
+        },
+      ]),
+      (_n, err) => logged.push((err as Error).message),
+    );
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toContain('trade.liquidation_insurance_grown positionId=pos-g rungId=r-9 amount=12');
+  });
+});

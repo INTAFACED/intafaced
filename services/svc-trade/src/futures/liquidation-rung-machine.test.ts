@@ -689,7 +689,10 @@ describe('probe L: the margin release comes up short (the position must never st
     await storedRung(h);
     h.row.margin = 0n;
     const t = await runLiquidationTick(h.deps);
-    expect(t.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { amount: '30' } });
+    expect(t.items[0]).toMatchObject({
+      outcome: 'liquidated',
+      releaseShort: { amount: '30' },
+    });
     expect(h.row.status).toBe('liquidated');
     expect(releaseOf(h)).toBeUndefined();
     expect((await h.rungs.all())[0]!.plan.recipes).toHaveLength(1);
@@ -777,7 +780,11 @@ describe('probes M / N: the pot shrank after planning and the LOSS is refused', 
     await store(h, { kind: 'closing', potLeg: '100', insLeg: '60' });
     h.row.margin = amt('99');
     const t = await runLiquidationTick(h.deps);
-    expect(t.items[0]).toMatchObject({ outcome: 'liquidated' });
+    expect(t.items[0]).toMatchObject({
+      outcome: 'liquidated',
+      // The fund paid 1 more than planned because the pot held less: never silent.
+      insuranceGrown: { code: 'trade.liquidation_insurance_grown', rungId: 'r1', amount: '1' },
+    });
     expect(t.items[0]!.reason).not.toBe('trade.liquidation_insurance_underfunded_on_replay');
     expect(h.row.status).toBe('liquidated');
     expect(legs(lossOf(h))).toEqual(['credit:collateral:99', 'credit:available:61', 'debit:available:160']);
@@ -810,7 +817,11 @@ describe('probes M / N: the pot shrank after planning and the LOSS is refused', 
     await store(h, { kind: 'closing', potLeg: '70', release: '30' });
     h.row.margin = amt('60');
     const t = await runLiquidationTick(h.deps);
-    expect(t.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { amount: '30' } });
+    expect(t.items[0]).toMatchObject({
+      outcome: 'liquidated',
+      releaseShort: { amount: '30' },
+      insuranceGrown: { code: 'trade.liquidation_insurance_grown', amount: '10' },
+    });
     expect(h.row.status).toBe('liquidated');
     expect(legs(lossOf(h))).toEqual(['credit:collateral:60', 'credit:available:10', 'debit:available:70']);
     expect(h.booked.has('futures.margin.release:pos-1:rung:r1')).toBe(false);
@@ -829,6 +840,15 @@ describe('probes M / N: the pot shrank after planning and the LOSS is refused', 
     expect(h.row.size).toBe(amt('6'));
     expect(h.row.margin).toBe(0n);
     expect((await h.rungs.all())[0]!.plan.lossShort).toBe(amt('10'));
+    expect(t.items[0]).not.toHaveProperty('insuranceGrown'); // a partial rung never draws on the fund here
+  });
+
+  it('a closing rung whose pot did NOT shrink raises no insuranceGrown (the planned insurance leg is not "grown")', async () => {
+    const h = harness();
+    await store(h, { kind: 'closing', potLeg: '100', insLeg: '60' });
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'liquidated' });
+    expect(t.items[0]).not.toHaveProperty('insuranceGrown');
   });
 
   it('the amended loss is persisted before it posts: a crash right after, then the replay posts the SAME amended body', async () => {

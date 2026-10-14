@@ -354,6 +354,15 @@ export interface LiquidationTickItemResult {
    */
   divergence?: { code: 'trade.liquidation_margin_divergence'; row: string; pot: string };
   /**
+   * A CLOSING rung's loss was amended so MORE of it is drawn from the insurance fund than planned, because
+   * the position's pot held less when it posted (`trade.liquidation_insurance_grown`). Amount is how much the
+   * insurance leg grew. Funding, a withdrawal or a settlement took the margin first; the fund paid the
+   * difference. Raised for every such amendment so the fund never pays for a pot shortfall silently.
+   * Carried on the item of the drive that made the amendment (a crash after the amendment persisted and
+   * before this item was returned loses the alert, but not the amended plan: `plan.fromInsurance` keeps it).
+   */
+  insuranceGrown?: { code: 'trade.liquidation_insurance_grown'; rungId: string; amount: string };
+  /**
    * Set when `outcome === 'margin_call'`: whether the notify port accepted
    * delivery. Observable on the tick result; REST durability is the trader door.
    */
@@ -903,6 +912,7 @@ async function driveRung(
 
   let releaseShort = plan.releaseShort;
   let lossShort = plan.lossShort;
+  let insuranceGrown = 0n;
 
   if (rung.state === 'planned') {
     let current: RungPlan = plan;
@@ -1041,6 +1051,7 @@ async function driveRung(
             };
           }
           if (!(await amend(next))) return rereadAndDrive();
+          if (closing) insuranceGrown += shift; // the amendment is persisted: the fund now pays `shift` more than planned
           if (recipe) await deps.ledger.post(recipe);
         } else if (current.fromInsurance > 0n) {
           // The pot holds what the recipe needs, so a refusal on a rung that draws on insurance is
@@ -1113,6 +1124,15 @@ async function driveRung(
         ...(alert ? { alert: { code: alert.code, rungId: rung.rungId, amount: formatAmount(alert.amount) } } : {}),
         ...(lossShort > 0n && applied.status === 'applied'
           ? { lossShort: { code: 'trade.liquidation_loss_short', rungId: rung.rungId, amount: formatAmount(lossShort) } }
+          : {}),
+        ...(insuranceGrown > 0n && applied.status === 'applied'
+          ? {
+              insuranceGrown: {
+                code: 'trade.liquidation_insurance_grown' as const,
+                rungId: rung.rungId,
+                amount: formatAmount(insuranceGrown),
+              },
+            }
           : {}),
         ...(releaseShort > 0n && applied.status === 'applied'
           ? { releaseShort: { code: 'trade.liquidation_release_short', rungId: rung.rungId, amount: formatAmount(releaseShort) } }
