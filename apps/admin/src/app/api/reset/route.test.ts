@@ -72,8 +72,10 @@ describe('POST /api/reset (public)', () => {
   it('limits each client to 10 attempts in 15 minutes, and answers 429 admin.rate_limited without calling identity', async () => {
     const fetcher = vi.fn<typeof fetch>(async () => refused(400, 'auth.reset_refused'));
     vi.stubGlobal('fetch', fetcher);
-    for (let i = 0; i < 10; i += 1) expect((await post(good)).status).toBe(400);
-    const blocked = await post(good);
+    process.env.ADMIN_TRUST_PROXY = '1';
+    const client = { 'x-forwarded-for': '203.0.113.7' };
+    for (let i = 0; i < 10; i += 1) expect((await post(good, client)).status).toBe(400);
+    const blocked = await post(good, client);
     expect(blocked.status).toBe(429);
     expect(await blocked.json()).toEqual({ code: 'admin.rate_limited' });
     expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);
@@ -81,16 +83,17 @@ describe('POST /api/reset (public)', () => {
   });
   it('counts bad input against the limit too', async () => {
     vi.stubGlobal('fetch', vi.fn());
-    for (let i = 0; i < 10; i += 1) expect((await post({ nope: 1 })).status).toBe(400);
-    expect((await post({ nope: 1 })).status).toBe(429);
+    process.env.ADMIN_TRUST_PROXY = '1';
+    const client = { 'x-forwarded-for': '203.0.113.8' };
+    for (let i = 0; i < 10; i += 1) expect((await post({ nope: 1 }, client)).status).toBe(400);
+    expect((await post({ nope: 1 }, client)).status).toBe(429);
   });
-  it('shares one bucket unless ADMIN_TRUST_PROXY=1, then counts by the first x-forwarded-for entry', async () => {
+  it('does not limit unless ADMIN_TRUST_PROXY=1 (no shared bucket to lock founders out), then counts by the first x-forwarded-for entry', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => refused(400, 'auth.reset_refused')),
     );
-    for (let i = 0; i < 10; i += 1) await post(good, { 'x-forwarded-for': `203.0.113.${i}` });
-    expect((await post(good, { 'x-forwarded-for': '203.0.113.99' })).status).toBe(429);
+    for (let i = 0; i < 15; i += 1) expect((await post(good, { 'x-forwarded-for': '203.0.113.9' })).status).toBe(400);
     resetLimiter.reset();
     process.env.ADMIN_TRUST_PROXY = '1';
     for (let i = 0; i < 10; i += 1) await post(good, { 'x-forwarded-for': '203.0.113.1, 10.0.0.2' });

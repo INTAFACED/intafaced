@@ -625,10 +625,16 @@ describe('register is rate limited per client', () => {
   const input = { invite: 'ABCD-EFGH', handle: 'test-one', email: 'one@example.test', password: 'a-test-password-1' };
 
   it('allows 10 attempts, then answers 429 admin.rate_limited without calling identity', async () => {
+    process.env.ADMIN_TRUST_PROXY = '1';
     replies['auth.registerFounder'] = { status: 409, upstreamCode: 'auth.invite_used' };
-    for (let i = 0; i < 10; i += 1)
-      expect((await register(request('/api/enroll/register', 'POST', { session: null, body: input }))).status).toBe(409);
-    const blocked = await register(request('/api/enroll/register', 'POST', { session: null, body: input }));
+    const asClient = () => {
+      const asked = request('/api/enroll/register', 'POST', { session: null, body: input });
+      const headers = new Headers(asked.headers);
+      headers.set('x-forwarded-for', '203.0.113.5');
+      return new Request(asked.url, { method: 'POST', headers, body: JSON.stringify(input) });
+    };
+    for (let i = 0; i < 10; i += 1) expect((await register(asClient())).status).toBe(409);
+    const blocked = await register(asClient());
     expect(blocked.status).toBe(429);
     expect(await body(blocked)).toEqual({ code: 'admin.rate_limited' });
     expect(calls).toHaveLength(10);
