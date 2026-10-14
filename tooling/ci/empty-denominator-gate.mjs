@@ -349,6 +349,16 @@ export const EXEMPT = {
       'many assertions fired. Not fixed here — retuning an existing gate is out of scope for this change — recorded as ' +
       'a residual instead.',
   },
+  'gate-tools-tests': {
+    proof: /ℹ pass (\d+)/,
+    denom: 1,
+    reason:
+      'node:test over in-memory fixtures (fixture JSON and log excerpts under tooling/scripts/fixtures, a fake gh and a fake ' +
+      'git): the repo is not its subject. The count of passing tests is printed on every run and asserted non-zero here. ' +
+      'HONEST EXCEPTION: one test compares the PR path filter mirrored in merge-gate.mjs with .github/workflows/ci.yml, and ' +
+      'one compares the dependabot prefix with the title rule; both read the repo, and both skip themselves (reported as ' +
+      'skipped, not passed) when the file is absent, which is exactly this empty-tree run. In a real checkout they run.',
+  },
   'secret-scan-mutation': {
     proof: /(\d+)\/(\d+) planted defects caught/,
     denom: 2,
@@ -357,8 +367,9 @@ export const EXEMPT = {
       'over them. The repo is not its subject — it passes 13/13 with the repo absent, which is this row proving itself.',
   },
 };
+// Raised 5 → 6 (2026-10-13) for gate-tools-tests, whose subject is its own fixtures; every earlier raise had the same reason.
 // Raised 3 → 5 in the same commit that classified worktree-selftest + claim-check-selftest (gates main added after branch).
-export const EXEMPT_MAX = 5;
+export const EXEMPT_MAX = 6;
 
 // ───────────────────────────────────────────────────────────────────────────
 // 3. BLIND — measured, printing clean over nothing, frozen as debt.
