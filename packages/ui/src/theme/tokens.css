@@ -1,0 +1,137 @@
+/**
+ * INTAFACED customer-app design tokens (UI-SPEC section 2).
+ * GENERATED from src/theme/tokens.ts by src/theme/generate.ts.
+ * Do not edit by hand: theme/tokens.test.ts fails if the two drift.
+ * Values are PROVISIONAL until measured from okx.com CSS.
+ */
+
+:root {
+  --if-bg: #000000;
+  --if-panel: #121212;
+  --if-field: #212121;
+  --if-hover: #1d1d1d;
+  --if-raised: #2c2c2c;
+  --if-pill-active: #383838;
+  --if-line: #2e2e2e;
+  --if-line-strong: #383838;
+  --if-line-stronger: #4d4d4d;
+  --if-line-popup: rgba(255, 255, 255, 0.13);
+  --if-fg: #ffffff;
+  --if-fg-2: #909090;
+  --if-fg-3: #6c6c6c;
+  --if-fg-disabled: #5b5b5b;
+  --if-overlay-hover: rgba(255, 255, 255, 0.16);
+  --if-overlay-press: rgba(255, 255, 255, 0.22);
+  --if-overlay-disabled: rgba(255, 255, 255, 0.08);
+  --if-menu: #343434;
+  --if-tooltip: #4d4d4d;
+  --if-popover: #171717;
+  --if-up: #25a750;
+  --if-up-text: #25a750;
+  --if-on-up: #0b0b0b;
+  --if-down: #ca3f64;
+  --if-down-text: #e0567a;
+  --if-on-down: #ffffff;
+  --if-up-bg: #0b361a;
+  --if-down-bg: #280d14;
+  --if-up-hover: #1a8d40;
+  --if-down-hover: #b43255;
+  --if-up-bg-soft: #072110;
+  --if-lime: #c8f64a;
+  --if-lime-hover: #d4fa6e;
+  --if-lime-press: #b5e03a;
+  --if-on-lime: #0b0b0b;
+  --if-lime-soft: rgba(200, 246, 74, 0.16);
+  --if-warn: #f5a915;
+  --if-warn-text: #ffc452;
+  --if-scrim: rgba(0, 0, 0, 0.68);
+  --if-ma-1: #ffa726;
+  --if-ma-2: #ec407a;
+  --if-ma-3: #27c6da;
+  --if-vol-up: #135428;
+  --if-vol-down: #652032;
+  --if-grid: #171717;
+  --if-alloc-1: #c8f64a;
+  --if-alloc-2: #e6e6e6;
+  --if-alloc-3: #a6a6a6;
+  --if-alloc-4: #737373;
+  --if-alloc-5: #4d4d4d;
+  --if-alloc-6: #2e2e2e;
+  --if-font-ui: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --if-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --if-text-2xs: 12px;
+  --if-leading-2xs: 16px;
+  --if-weight-2xs: 500;
+  --if-text-xs: 12px;
+  --if-leading-xs: 16px;
+  --if-weight-xs: 400;
+  --if-text-sm: 13px;
+  --if-leading-sm: 18px;
+  --if-weight-sm: 400;
+  --if-text-base: 14px;
+  --if-leading-base: 20px;
+  --if-weight-base: 400;
+  --if-text-md: 16px;
+  --if-leading-md: 24px;
+  --if-weight-md: 500;
+  --if-text-lg: 20px;
+  --if-leading-lg: 28px;
+  --if-weight-lg: 600;
+  --if-text-xl: 24px;
+  --if-leading-xl: 28px;
+  --if-weight-xl: 600;
+  --if-text-2xl: 28px;
+  --if-leading-2xl: 34px;
+  --if-weight-2xl: 700;
+  --if-text-hero-pro: 32px;
+  --if-leading-hero-pro: 40px;
+  --if-weight-hero-pro: 700;
+  --if-text-hero: 48px;
+  --if-leading-hero: 58px;
+  --if-weight-hero: 700;
+  --if-tracking-tight: -0.02em;
+  --if-r-2xs: 2px;
+  --if-r-xs: 4px;
+  --if-r-sm: 8px;
+  --if-r-md: 12px;
+  --if-r-lg: 16px;
+  --if-r-pill: 999px;
+  --if-topbar-h: 48px;
+  --if-tab-gap: 24px;
+  --if-nav-gap: 24px;
+  --if-row-h: 60px;
+  --if-book-row-h: 22px;
+  --if-menu-item-h: 36px;
+  --if-nav-menu-item-h: 56px;
+  --if-container-max: 1224px;
+  --if-gutter: 24px;
+  --if-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --if-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --if-t-fast: 120ms;
+  --if-t-menu: 160ms;
+  --if-t-tab: 150ms;
+  --if-t-flash: 600ms;
+}
+
+/* "Red for up" preference: the up/down pair swaps here, components never branch on it. */
+[data-up-color='red'] {
+  --if-up: #ca3f64;
+  --if-up-text: #e0567a;
+  --if-on-up: #ffffff;
+  --if-down: #25a750;
+  --if-down-text: #25a750;
+  --if-on-down: #0b0b0b;
+  --if-up-bg: #280d14;
+  --if-down-bg: #0b361a;
+  --if-up-hover: #b43255;
+  --if-down-hover: #1a8d40;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --if-t-fast: 0ms;
+    --if-t-menu: 0ms;
+    --if-t-tab: 0ms;
+    --if-t-flash: 0ms;
+  }
+}

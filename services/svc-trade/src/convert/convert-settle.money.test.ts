@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
+import { MemoryLedger, formatAmount, marketMaker, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { Market } from '../spot/types.js';
@@ -294,7 +294,7 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
       expect(await avail('BTC')).toBe(btc);
     });
 
-    it('already bound legacy Convert recovers after expiry using its immutable acceptedAt exactly once', async () => {
+    it('already bound Convert with the customer hold booked recovers after expiry using its immutable acceptedAt exactly once', async () => {
       const created = new Date(Date.now() - 20_000);
       const estimate = estimateConvert({
         side: 'buy',
@@ -320,15 +320,342 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
       });
       const bound = acceptConvertQuote({ quote, now: new Date(created.getTime() + 1_000) });
       await new SqlConvertQuoteStore(sql).saveBound(quote, bound);
+      // The customer hold is already booked (an earlier attempt got that far), so recovery stands.
+      const ids = convertSettleIdsFor(quote.quoteId);
+      await ledger.post(planConvertSettle({ bound, ...ids, now: new Date(bound.acceptedAt) }).hold);
       const usdt = await avail('USDT');
       const btc = await avail('BTC');
 
       const first = await trade.convertExecute(principal, { quoteId: quote.quoteId });
       expect(fillPosts()).toHaveLength(1);
-      expect(amt(await avail('USDT'))).toBeLessThan(amt(usdt));
+      // USDT already left available when the hold was booked above; the fill must not hold again.
+      expect(amt(await avail('USDT'))).toBe(amt(usdt));
       expect(amt(await avail('BTC'))).toBe(amt(btc) + amt('1'));
       expect((await trade.convertExecute(principal, { quoteId: quote.quoteId })).fillId).toBe(first.fillId);
       expect(fillPosts()).toHaveLength(1);
+    });
+
+    it('bound quote with NO customer hold, past the TTL: refuses trade.convert_quote_expired, posts nothing, stays bound', async () => {
+      const created = new Date(Date.now() - 20_000);
+      const estimate = estimateConvert({
+        side: 'buy',
+        qty: amt('1'),
+        levels: [['100', '5']],
+        convertSpreadBps: OWNER_CONVERT_SPREAD_BPS,
+        tickSize: amt('0.01'),
+      });
+      const quote = buildFirmConvertQuote({
+        quoteId: crypto.randomUUID(),
+        userId: ALICE,
+        symbol: btcusdt.symbol,
+        marketId: btcusdt.id,
+        side: 'buy',
+        baseAsset: 'BTC',
+        quoteAsset: 'USDT',
+        requestedQty: amt('1'),
+        estimate,
+        convertSpreadBps: OWNER_CONVERT_SPREAD_BPS,
+        source: { kind: 'book', symbol: btcusdt.symbol, asOf: created.toISOString() },
+        now: created,
+        quoteTtlMs: 15_000,
+      });
+      const bound = acceptConvertQuote({ quote, now: new Date(created.getTime() + 1_000) });
+      await new SqlConvertQuoteStore(sql).saveBound(quote, bound);
+      const journalBefore = ledger.journal().length;
+
+      await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
+        code: 'trade.convert_quote_expired',
+      });
+      expect(ledger.journal()).toHaveLength(journalBefore);
+      expect(ledger.journal().filter((tx) => tx.reason === 'order.hold' || tx.reason === 'order.hold.mm')).toHaveLength(0);
+      expect(fillPosts()).toHaveLength(0);
+    });
+
+    describe('legacy bound quote with the house hold already booked (house-first order)', () => {
+      const reasonsOf = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
+      const houseBtc = async () => formatAmount((await ledger.balance(marketMaker('BTC'))).amount);
+
+      async function legacyBound(createdAgoMs: number, level: [string, string], qty: string) {
+        const created = new Date(Date.now() - createdAgoMs);
+        const estimate = estimateConvert({
+          side: 'buy',
+          qty: amt(qty),
+          levels: [level],
+          convertSpreadBps: OWNER_CONVERT_SPREAD_BPS,
+          tickSize: amt('0.01'),
+        });
+        const quote = buildFirmConvertQuote({
+          quoteId: crypto.randomUUID(),
+          userId: ALICE,
+          symbol: btcusdt.symbol,
+          marketId: btcusdt.id,
+          side: 'buy',
+          baseAsset: 'BTC',
+          quoteAsset: 'USDT',
+          requestedQty: amt(qty),
+          estimate,
+          convertSpreadBps: OWNER_CONVERT_SPREAD_BPS,
+          source: { kind: 'book', symbol: btcusdt.symbol, asOf: created.toISOString() },
+          now: created,
+          quoteTtlMs: 15_000,
+        });
+        const bound = acceptConvertQuote({ quote, now: new Date(created.getTime() + 1_000) });
+        await new SqlConvertQuoteStore(sql).saveBound(quote, bound);
+        const plan = planConvertSettle({ bound, ...convertSettleIdsFor(quote.quoteId), now: new Date(bound.acceptedAt) });
+        const before = await houseBtc();
+        await ledger.post(plan.mmHold); // the old order: house first
+        expect(await houseBtc()).not.toBe(before);
+        return { quote, before };
+      }
+
+      it('past the TTL: refused trade.convert_quote_expired, house hold released once, repeat posts nothing', async () => {
+        const { quote, before } = await legacyBound(20_000, ['100', '5'], '1');
+        await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_quote_expired',
+        });
+        expect(await houseBtc()).toBe(before);
+        expect(reasonsOf('order.hold.mm.released')).toHaveLength(1);
+        expect(reasonsOf('order.hold')).toHaveLength(0);
+        expect(fillPosts()).toHaveLength(0);
+
+        const journalAfter = ledger.journal().length;
+        await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_quote_expired',
+        });
+        expect(ledger.journal()).toHaveLength(journalAfter);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('inside the TTL but customer cannot cover: refused ledger.insufficient_funds, house hold released once, repeat posts nothing', async () => {
+        const { quote, before } = await legacyBound(2_000, ['300', '5'], '5');
+        await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
+          code: 'ledger.insufficient_funds',
+        });
+        expect(await houseBtc()).toBe(before);
+        expect(reasonsOf('order.hold.mm.released')).toHaveLength(1);
+        expect(reasonsOf('order.hold')).toHaveLength(0);
+        expect(fillPosts()).toHaveLength(0);
+
+        const journalAfter = ledger.journal().length;
+        await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
+          code: 'ledger.insufficient_funds',
+        });
+        expect(ledger.journal()).toHaveLength(journalAfter);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+    });
+
+    describe('convert hold order — customer first, no stranded house inventory (#4676)', () => {
+      const houseAvail = async (assetId: string) => formatAmount((await ledger.balance(marketMaker(assetId))).amount);
+      const reasons = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
+
+      it('customer cannot cover: refuses ledger.insufficient_funds, house BTC untouched, quote not left bound, retry safe', async () => {
+        matching.asks = [['300', '5']];
+        const quoted = await trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy', qty: amt('5') });
+        expect(amt(quoted.inAmount)).toBeGreaterThan(amt('1000'));
+        const house = await houseAvail('BTC');
+        const usdt = await avail('USDT');
+
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'ledger.insufficient_funds',
+        });
+        // A second fresh-looking retry must not strand a second hold either.
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'ledger.insufficient_funds',
+        });
+
+        expect(await houseAvail('BTC')).toBe(house);
+        expect(await avail('USDT')).toBe(usdt);
+        expect(reasons('order.hold.mm')).toHaveLength(0);
+        expect(reasons('order.hold')).toHaveLength(0);
+        expect((await new SqlConvertQuoteStore(sql).load(quoted.quoteId))?.lifecycle).not.toBe('bound');
+        expect(ledger.reconcile()).toEqual({ ok: true });
+
+        // Within the TTL (documented): the same quote keeps its recorded price, so a top-up
+        // inside the TTL settles it exactly once. After the TTL it is refused (next test).
+        await fundUser('USDT', '1000');
+        const settled = await trade.convertExecute(principal, { quoteId: quoted.quoteId });
+        expect(settled.outAmount).toBe(quoted.outAmount);
+        expect(reasons('order.hold.mm')).toHaveLength(1);
+        expect(reasons('order.hold')).toHaveLength(1);
+        expect(fillPosts()).toHaveLength(1);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('customer short, top-up AFTER the TTL: same quote refuses trade.convert_quote_expired, nothing held or filled', async () => {
+        matching.asks = [['300', '5']];
+        const quoted = await trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy', qty: amt('5') });
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'ledger.insufficient_funds',
+        });
+        await fundUser('USDT', '1000');
+        const house = await houseAvail('BTC');
+        const usdt = await avail('USDT');
+        const journalBefore = ledger.journal().length;
+
+        nowFn = () => new Date(Date.parse(quoted.expiresAt) + 1);
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_quote_expired',
+        });
+        expect(ledger.journal()).toHaveLength(journalBefore);
+        expect(reasons('order.hold')).toHaveLength(0);
+        expect(reasons('order.hold.mm')).toHaveLength(0);
+        expect(fillPosts()).toHaveLength(0);
+        expect(await houseAvail('BTC')).toBe(house);
+        expect(await avail('USDT')).toBe(usdt);
+        expect((await new SqlConvertQuoteStore(sql).load(quoted.quoteId))?.lifecycle).toBe('open');
+      });
+
+      it('house cannot cover: distinct trade.convert_liquidity_unavailable, customer hold released once, quote not bound, retry never double-holds', async () => {
+        matching.asks = [['100', '20']];
+        await fundUser('USDT', '5000');
+        const quoted = await trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy', qty: amt('20') });
+        const house = await houseAvail('BTC');
+        const usdt = await avail('USDT');
+        expect(amt(house)).toBeLessThan(amt('20'));
+
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_liquidity_unavailable',
+        });
+
+        expect(await houseAvail('BTC')).toBe(house);
+        expect(await avail('USDT')).toBe(usdt);
+        expect(reasons('order.hold')).toHaveLength(1);
+        expect(reasons('order.hold.released')).toHaveLength(1);
+        expect(reasons('order.hold.mm')).toHaveLength(0);
+        expect(fillPosts()).toHaveLength(0);
+        expect((await new SqlConvertQuoteStore(sql).load(quoted.quoteId))?.lifecycle).not.toBe('bound');
+
+        const journalBefore = ledger.journal().length;
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_liquidity_unavailable',
+        });
+        expect(ledger.journal()).toHaveLength(journalBefore);
+        expect(await avail('USDT')).toBe(usdt);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+    });
+
+    describe('quoteQty — spend by amount (U7)', () => {
+      const houseAvail = async (assetId: string) => formatAmount((await ledger.balance(marketMaker(assetId))).amount);
+      const reasons = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
+      const spend = (quoteQty: string, extra: Record<string, unknown> = {}) =>
+        trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy', quoteQty: amt(quoteQty), ...extra });
+
+      it('quotes the exact spend for the largest lot count, then execute charges that and never more than typed', async () => {
+        const typed = amt('10');
+        const quoted = await spend('10');
+        // 100 per BTC + 25 bps spread = 100.25; 0.0997 BTC costs 9.994925 USDT, 0.0998 would cost 10.00495.
+        expect(quoted.outAmount).toBe('0.0997');
+        expect(quoted.filledQty).toBe('0.0997');
+        expect(quoted.requestedQty).toBe('0.0997');
+        expect(quoted.inAmount).toBe('9.994925');
+        expect(quoted.userNotional).toBe(quoted.inAmount);
+        expect(amt(quoted.inAmount) <= typed).toBe(true);
+
+        const settled = await trade.convertExecute(principal, { quoteId: quoted.quoteId });
+        expect(settled.inAmount).toBe(quoted.inAmount);
+        expect(settled.outAmount).toBe(quoted.outAmount);
+        expect(amt(settled.inAmount) <= typed).toBe(true);
+        expect(await avail('USDT')).toBe(formatAmount(amt('1000') - amt(quoted.inAmount)));
+        expect(await avail('BTC')).toBe('0.0997');
+        // The customer hold is the quoted spend, not the typed amount.
+        const hold = reasons('order.hold')[0]!;
+        const debited = hold.entries.filter((e) => e.direction === 'credit').reduce((sum, e) => sum + e.amount, 0n);
+        expect(debited).toBe(amt(quoted.inAmount));
+        expect(fillPosts()).toHaveLength(1);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('execute is still bound to the quote when the book moves against the user afterwards', async () => {
+        const typed = amt('10');
+        const quoted = await spend('10');
+        matching.asks = [['150', '5']];
+        const settled = await trade.convertExecute(principal, { quoteId: quoted.quoteId });
+        expect(settled.inAmount).toBe('9.994925');
+        expect(amt(settled.inAmount) <= typed).toBe(true);
+        expect(await avail('USDT')).toBe(formatAmount(amt('1000') - amt('9.994925')));
+      });
+
+      it('accept may repeat the quoted base quantity and refuses a different one', async () => {
+        const quoted = await spend('10');
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId, qty: amt('0.0998') })).rejects.toMatchObject({
+          code: 'trade.convert_price_moved',
+        });
+        const settled = await trade.convertExecute(principal, { quoteId: quoted.quoteId, qty: amt('0.0997') });
+        expect(settled.inAmount).toBe('9.994925');
+      });
+
+      it('rounds down across book levels and still never exceeds the spend', async () => {
+        matching.asks = [
+          ['100', '1'],
+          ['110.37', '4'],
+        ];
+        const typed = amt('333.33');
+        const quoted = await spend('333.33');
+        expect(amt(quoted.inAmount) <= typed).toBe(true);
+        expect(amt(quoted.outAmount) > amt('1')).toBe(true);
+        // One more lot would break the cap.
+        const next = await trade.convertQuote(principal, {
+          symbol: btcusdt.symbol,
+          side: 'buy',
+          qty: amt(quoted.outAmount) + amt('0.0001'),
+        });
+        expect(amt(next.inAmount) > typed).toBe(true);
+      });
+
+      it('both fields refuse, neither refuses, and nothing is stored', async () => {
+        await expect(spend('10', { qty: amt('1') })).rejects.toMatchObject({ code: 'trade.convert_invalid_qty' });
+        await expect(trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy' })).rejects.toMatchObject({
+          code: 'trade.convert_invalid_qty',
+        });
+        const rows = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM trade.convert_quotes`;
+        expect(rows[0]?.n).toBe('0');
+      });
+
+      it('a spend below the market minimum refuses with the existing below-minimum code', async () => {
+        // 0.5 USDT buys 0.0049 BTC = 0.49 USDT of book, under the 1 USDT minNotional.
+        await expect(spend('0.5')).rejects.toMatchObject({ code: 'trade.below_min_notional' });
+        // Less than one lot at all.
+        await expect(spend('0.001')).rejects.toMatchObject({ code: 'trade.below_min_notional' });
+      });
+
+      it('sell by spend is refused; sell by base amount is unchanged', async () => {
+        await expect(trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'sell', quoteQty: amt('10') })).rejects.toMatchObject({
+          code: 'trade.convert_invalid_qty',
+        });
+        const sell = await trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'sell', qty: amt('1') });
+        expect(sell.inAsset).toBe('BTC');
+        expect(sell.inAmount).toBe('1');
+      });
+
+      it('a spend larger than the visible book refuses trade.convert_insufficient_depth', async () => {
+        await expect(spend('1000000')).rejects.toMatchObject({ code: 'trade.convert_insufficient_depth' });
+      });
+
+      it('house cannot cover a spend quote: customer hold released, nothing charged', async () => {
+        matching.asks = [['100', '20']];
+        await fundUser('USDT', '5000');
+        const quoted = await spend('2000');
+        expect(amt(quoted.outAmount)).toBeGreaterThan(amt(await houseAvail('BTC')));
+        const usdt = await avail('USDT');
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_liquidity_unavailable',
+        });
+        expect(await avail('USDT')).toBe(usdt);
+        expect(reasons('order.hold.released')).toHaveLength(1);
+        expect(fillPosts()).toHaveLength(0);
+      });
+
+      it('an expired spend quote refuses and posts nothing', async () => {
+        const quoted = await spend('10');
+        nowFn = () => new Date(Date.parse(quoted.expiresAt) + 1);
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_quote_expired',
+        });
+        expect(fillPosts()).toHaveLength(0);
+        expect(await avail('USDT')).toBe('1000');
+      });
     });
 
     it('settled quote after expiry still returns the first settle — no second fill', async () => {

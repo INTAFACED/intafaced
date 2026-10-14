@@ -99,6 +99,23 @@ describe('s2s-http (graph W1-C money surface)', () => {
     expect(out.postedAt).toMatch(/^2026-07-27/);
   });
 
+  it('returns the entries the ledger booked, as decimal strings, so callers can check the receipt', async () => {
+    const booked = {
+      id: 'tx-s2s',
+      hash: 'deadbeef',
+      postedAt: new Date('2026-07-27T00:00:00Z'),
+      entries: [
+        { id: '1', txId: 'tx-s2s', accountId: 'acct-1', assetId: 'USDT', direction: 'debit', amount: amt('5'), balanceAfter: amt('5') },
+        { id: '2', txId: 'tx-s2s', accountId: 'acct-2', assetId: 'USDT', direction: 'credit', amount: amt('5'), balanceAfter: -amt('5') },
+      ],
+    };
+    const out = await handleS2sPost(stubService({ post: async () => booked }), validPost);
+    expect(out.entries).toEqual([
+      { id: '1', txId: 'tx-s2s', accountId: 'acct-1', assetId: 'USDT', direction: 'debit', amount: '5', balanceAfter: '5' },
+      { id: '2', txId: 'tx-s2s', accountId: 'acct-2', assetId: 'USDT', direction: 'credit', amount: '5', balanceAfter: '-5' },
+    ]);
+  });
+
   it('refuses assembled entries that are not a known recipe, and never posts', async () => {
     let posted = false;
     await expect(
@@ -857,7 +874,7 @@ describe('s2s HTTP — service credentials', () => {
       stubService({
         historyPage: async (input: unknown) => {
           seen.push(input);
-          return { entries: [{ ...historyEntry, assetId: 'USDT' }], nextCursor: 'abc' };
+          return { entries: [{ ...historyEntry, assetId: 'USDT', entryId: '42', rail: 'crypto-native' }], nextCursor: 'abc' };
         },
       }),
     );
@@ -874,6 +891,8 @@ describe('s2s HTTP — service credentials', () => {
           amount: '12.345678901234567891',
           postedAt: '2026-07-27T12:00:00.000Z',
           assetId: 'USDT',
+          entryId: '42',
+          rail: 'crypto-native',
         },
       ],
       nextCursor: 'abc',
@@ -995,6 +1014,13 @@ describe('s2s HTTP — service credentials', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe('FST_ERR_CTP_EMPTY_JSON_BODY');
     await app.close();
+  });
+
+  it('maps a reused idempotency key with a different body to 409, so a caller cannot record success', () => {
+    expect(httpError(new LedgerError('key taken by another movement', 'ledger.idempotency_conflict'))).toEqual({
+      status: 409,
+      body: { message: 'key taken by another movement', code: 'ledger.idempotency_conflict' },
+    });
   });
 
   it('maps an unauthenticated caller to 401, distinct from 412 frozen and 400 funds', () => {

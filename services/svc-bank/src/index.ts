@@ -4,7 +4,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { createEdgeContext, rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
-import { createBankServices } from './bank-service.js';
+import { createBankServices, createIdentityRecipientState, unconfiguredRecipientState } from './bank-service.js';
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
 import { bankHttpReady } from './ready.js';
 import { cardIssuerFor } from './cards/issuer.js';
@@ -12,7 +12,7 @@ import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { tickerPriceSource } from './loans/prices.js';
 import { httpTickerSource } from './portfolio/portfolio-service.js';
-import { createLedgerClient, createLedgerHistory } from './ledger-client.js';
+import { createLedgerClient, createLedgerHistory, createLedgerHistoryPages } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
 import { createBankRouter, type BankRouter } from './router.js';
@@ -86,6 +86,13 @@ const bus = await JetStreamEventBus.connect({
 
 const bank = createBankServices(sql, ledger, history, {
   nativeAssetId: env.TOKEN_ASSET_ID,
+  // Frozen/closed recipients are refused before any posting. Identity owns that
+  // state; with no IDENTITY_URL every credit to ANOTHER user refuses
+  // `bank.recipient_check_unset` (see the boot warning below). No default of
+  // "everyone may receive".
+  recipients: env.IDENTITY_URL ? createIdentityRecipientState(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : unconfiguredRecipientState(),
+  // `bank.activity.list`: svc-ledger `historyPage` (read-only), cursors signed under the service secret.
+  activity: { pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET), cursorSecret: env.INTERNAL_SERVICE_SECRET },
   loans: {
     // Marks are READ from svc-trade's public REST. svc-trade belongs to another
     // stream; nothing here imports it, shares a table with it, or writes to it.
@@ -488,7 +495,7 @@ await app.register(fastifyTRPCPlugin, {
     // edge's signature over that principal — see packages/contracts/src/edge.ts
     // for why an unsigned header makes every scope check decorative.
     createContext: ({ req }) => {
-      const ctx = edgeContext({ headers: req.headers, id: req.id });
+      const ctx = edgeContext(req);
       const { service } = verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, {
         rawBody: inboundRawBody(req),
         mode: env.INTERNAL_SERVICE_BODY_BIND,
@@ -499,6 +506,11 @@ await app.register(fastifyTRPCPlugin, {
 });
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
+if (!env.IDENTITY_URL) {
+  app.log.warn(
+    'IDENTITY_URL is unset: svc-bank cannot check whether a recipient is frozen or closed, so every payment to ANOTHER user refuses (bank.recipient_check_unset). Moves between your own spaces still work.',
+  );
+}
 app.log.info(
   {
     port: env.HTTP_PORT,

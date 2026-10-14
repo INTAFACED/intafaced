@@ -4,6 +4,8 @@ import type { CrmOpportunity, crmMessagePageSchema, crmQueueMessageReceiptSchema
 import { crmJson, crmWrite, workflowUrl, crmDate as date, crmLabel as label, type PendingCrmWrite } from '@/lib/crm-browser';
 import { founderName, type FounderOwner } from './founder-names';
 import { kindLabel } from './crm-workflows';
+import { Callout } from './crm-callout';
+import { submitProps } from '@/lib/crm-form-state';
 type Page = (typeof crmMessagePageSchema)['_output'];
 type Receipt = (typeof crmQueueMessageReceiptSchema)['_output'];
 type Message = (typeof crmMessageSchema)['_output'];
@@ -36,30 +38,47 @@ export function MessageItem({ message, owners }: { message: Message; owners: Fou
 export function CrmMessages({
   csrf,
   opportunity,
+  expectedRevision,
+  staleDraft = false,
   originalRecipient,
   owners,
   onSaved,
   onDraftChange,
+  initialDraft,
+  onDraftValues,
 }: {
   csrf: string;
   opportunity: CrmOpportunity;
+  /** The revision the console's form is based on (see crm-base-revision); defaults to the record's own. */
+  expectedRevision?: number;
+  /** The form is based on an older version, so queueing will be refused: the button stays neutral. */
+  staleDraft?: boolean;
   originalRecipient: { name: string; email: string };
   owners: FounderOwner[];
   onSaved: () => Promise<boolean>;
   onDraftChange: (dirty: boolean) => void;
+  /** Text kept from before the session ended, put back when the form opens. The confirmation tick is never restored. */
+  initialDraft?: { kind: string; staffText: string; reason: string };
+  /** Reports the typed fields, so the workspace can keep them if the session ends. */
+  onDraftValues?: (values: { kind: string; staffText: string; reason: string }) => void;
 }) {
   const [page, setPage] = useState<Page | null>(null),
     [cursor, setCursor] = useState<string>(),
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false);
-  const [kind, setKind] = useState('information_request'),
-    [staffText, setStaffText] = useState(''),
-    [reason, setReason] = useState(''),
+  const [kind, setKind] = useState(initialDraft?.kind ?? 'information_request'),
+    [staffText, setStaffText] = useState(initialDraft?.staffText ?? ''),
+    [reason, setReason] = useState(initialDraft?.reason ?? ''),
     [confirmed, setConfirmed] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
   const pending = useRef(new Map<string, PendingCrmWrite>()),
     generation = useRef(0);
+  const [startOpen] = useState(Boolean(initialDraft?.staffText || initialDraft?.reason));
+  useEffect(() => {
+    onDraftValues?.({ kind, staffText, reason });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, staffText, reason]);
   const refresh = useCallback(async () => {
     const current = ++generation.current;
     setLoading(true);
@@ -88,7 +107,7 @@ export function CrmMessages({
     try {
       saved = await crmWrite<Receipt>(csrf, pending.current, 'queueMessage', {
         opportunityId: opportunity.id,
-        expectedRevision: opportunity.revision,
+        expectedRevision: expectedRevision ?? opportunity.revision,
         kind,
         staffText,
         reason,
@@ -118,14 +137,14 @@ export function CrmMessages({
         does not change who receives them.
       </p>
       {error && (
-        <p className="adm-alert" role="alert">
+        <Callout tone="danger" role="alert">
           {error}
-        </p>
+        </Callout>
       )}
       {notice && (
-        <p className="adm-save-notice" role="status">
+        <Callout role="status" icon="check">
           {notice}
-        </p>
+        </Callout>
       )}
       <ul className="adm-history">
         {page?.items.map((message) => (
@@ -155,7 +174,7 @@ export function CrmMessages({
           </button>
         )}
       </div>
-      <details>
+      <details open={startOpen || undefined}>
         <summary>Queue an enquiry message</summary>
         <form
           className="adm-form"
@@ -221,7 +240,11 @@ export function CrmMessages({
           </p>
           <button
             type="submit"
-            disabled={busy || !confirmed || opportunity.stage === 'closed' || (kind === 'call_invitation' && !inviteAllowed)}
+            {...submitProps({
+              disabled: busy || !confirmed || opportunity.stage === 'closed' || (kind === 'call_invitation' && !inviteAllowed),
+              changed: Boolean(staffText.trim() || reason.trim() || confirmed),
+              refused: staleDraft,
+            })}
           >
             Queue message
           </button>

@@ -199,8 +199,10 @@ export type BankErrorCode =
    * A settlement re-drive disagreed with the amount its row was claimed for.
    *
    * The ledger's business key is the authorisation, not the amount, and a reused
-   * key returns the original transaction without comparing bodies — correct for a
-   * re-drive, silently wrong for a disagreement. Refused rather than reconciled,
+   * key returned the original transaction without comparing bodies — correct for a
+   * re-drive, silently wrong for a disagreement. (The ledger now compares: in `refuse`
+   * mode it answers `ledger.idempotency_conflict`; in `detect` mode it still returns the
+   * original and logs `ledger.idempotency_mismatch`, so this check stays.) Refused rather than reconciled,
    * because the alternative reports a capture the ledger never saw and reverses
    * a remainder computed from it.
    */
@@ -287,6 +289,16 @@ export type BankErrorCode =
   | 'bank.withdraw_destination_missing'
   /** Dest user has no primary space — refuse before ledger-client posts. */
   | 'bank.dest_user_missing'
+  /**
+   * The recipient cannot be credited. Identity says they are frozen, closed, or
+   * unknown, and bank says only that — one code, one message, no state named, so
+   * it matches identity's uniform `{ found: false }`. Refused before any posting.
+   */
+  | 'bank.recipient_cannot_receive'
+  /** Identity could not answer the recipient check (outage, timeout, bad reply). Nothing posted; retry with the same id. */
+  | 'bank.recipient_check_unavailable'
+  /** No IDENTITY_URL: this deployment cannot check recipients, so it refuses to credit another user. A deployment gap, not an outage. */
+  | 'bank.recipient_check_unset'
   /** Same (rail, railRef), (user, clientRef), or offramp id already booked with different facts. */
   | 'bank.ramp_conflict'
   /**

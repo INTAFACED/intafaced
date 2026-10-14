@@ -17,6 +17,7 @@ import type { BankServices } from './bank-service.js';
 import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { describeBusinessPolicy } from './business/business-policy.js';
+import { createActivityRouter } from './activity/activity.router.js';
 
 /**
  * svc-bank's API.
@@ -130,7 +131,10 @@ function publicDoorWireMessage(err: BankError): string {
     err.code === 'bank.prices_unavailable' ||
     err.code === 'bank.earn_principal_mismatch' ||
     err.code === 'bank.loan_seizure_cross_asset' ||
-    err.code === 'bank.loan_health_price_unset'
+    err.code === 'bank.loan_health_price_unset' ||
+    err.code === 'bank.recipient_cannot_receive' ||
+    err.code === 'bank.recipient_check_unavailable' ||
+    err.code === 'bank.recipient_check_unset'
   ) {
     return facing + ' (' + err.code + ')';
   }
@@ -320,6 +324,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.fiat_ramp_socket':
       case 'bank.withdraw_destination_missing':
       case 'bank.dest_user_missing':
+      case 'bank.recipient_cannot_receive':
+      case 'bank.recipient_check_unset':
       case 'bank.offramp_cooling_unset':
       case 'bank.offramp_cooling_active':
       case 'bank.earn_rate_unset':
@@ -341,6 +347,8 @@ function toTrpcError(err: unknown): TRPCError {
       // The ledger may have committed; the claim is held pending. Retry later
       // with the same id, never with a new one.
       case 'bank.ledger_outcome_unknown':
+      // Identity could not answer; nothing was posted. Retry with the same id.
+      case 'bank.recipient_check_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       // svc-trade's prices could not be read. A retry later may work; the
@@ -502,6 +510,11 @@ async function gateDestination(
  */
 function hideDestinationDetail(err: unknown): unknown {
   if (err instanceof BankError && (err.code === 'bank.space_not_found' || err.code === 'bank.asset_mismatch')) {
+    return noSuchDestination();
+  }
+  // A recipient who is frozen, closed or unknown reads exactly like a space that
+  // does not exist: relative to this caller there is nothing to learn about them.
+  if (err instanceof BankError && err.code === 'bank.recipient_cannot_receive') {
     return noSuchDestination();
   }
   return err;
@@ -3045,6 +3058,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     business,
     analytics,
     portfolio,
+    activity: createActivityRouter(bank),
     ops,
   });
 }

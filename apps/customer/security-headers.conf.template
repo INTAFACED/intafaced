@@ -1,0 +1,49 @@
+# Browser security headers for the customer site. This is an envsubst TEMPLATE:
+# the nginx image renders it at container start to
+# /etc/nginx/snippets/security-headers.conf (see the Dockerfile), and nginx.conf
+# includes the result. Only the two CUSTOMER_CSP_* placeholders in the CSP line
+# are substituted; csp-origins.envsh builds them from CUSTOMER_LIVEKIT_ORIGIN,
+# CUSTOMER_STORAGE_ORIGIN and CUSTOMER_MEDIA_ORIGINS.
+#
+# Roll this out with one staging pass and the browser console open (Academy live
+# session, a recorded video, a chart, a passkey login): a CSP violation is
+# logged there by name, and the origin variables above are the fix.
+#
+# nginx rule that shapes this layout: `add_header` inside a `location` REPLACES
+# every `add_header` inherited from the server block. Every location that sets
+# its own header (Cache-Control) therefore has to `include` this file itself;
+# deployment/security-headers.node-test.mjs fails if one does not. `always`
+# keeps the headers on 404 and other error responses too.
+#
+# HSTS: TLS is terminated upstream of this container, so over plain http
+# browsers ignore Strict-Transport-Security. It still has to be emitted here
+# for the https responses the load balancer forwards. Deliberately cautious for
+# now: one day, no includeSubDomains, no `preload`. Once every subdomain is
+# inventoried and https-only, raise max-age (e.g. 31536000) and add
+# includeSubDomains here, in security-headers-api.conf and in the admin app.
+add_header Strict-Transport-Security "max-age=86400" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+# Academy live sessions publish camera, microphone and screen share, so those
+# stay available to this origin only. Geolocation and the Payment Request API
+# are unused. publickey-credentials-get/create (passkeys) are deliberately NOT
+# listed: their default allowlist (self) is what the passkey flows need.
+add_header Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()" always;
+# No popups, OAuth redirects or window.open exist in the app (WebAuthn is not
+# affected by this policy).
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+# Derived from the built app, not guessed:
+#  - script-src 'self': index.html has only a Vite module script; there is no
+#    inline script, eval or new Function. Vendored livekit/lightweight-charts
+#    load as same-origin files.
+#  - style-src 'unsafe-inline': React style attributes and the <style> element
+#    lightweight-charts injects.
+#  - img-src data: blob: : data:image/svg+xml identity cards, blob: shared-card
+#    images.
+#  - connect-src: /api and /ws are same-origin ('self'). The LiveKit host is
+#    issued per session by the API, so the deployment names it with
+#    CUSTOMER_LIVEKIT_ORIGIN; unset, live sessions cannot connect.
+#  - media-src: recorded Academy video is a <video> on a presigned URL at the
+#    storage origin (CUSTOMER_STORAGE_ORIGIN); blob: for local media elements.
+add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ${CUSTOMER_CSP_CONNECT_SRC}; media-src ${CUSTOMER_CSP_MEDIA_SRC}; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;

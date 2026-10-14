@@ -109,7 +109,7 @@ describe('svc-bank never holds one pool connection while waiting for a second', 
   it('the scheduled-transfer claim reads its spaces on the transaction', () => {
     const src = readFileSync(join(here, 'transfers', 'transfer-service.ts'), 'utf8');
     expect(src).toMatch(/resolveForDebit\(schedule\.fromSpaceId, now, tx\)/);
-    expect(src).toMatch(/resolveForCredit\(schedule\.toSpaceId, tx\)/);
+    expect(src).toMatch(/resolveForCredit\(schedule\.toSpaceId, \{ actingUserId: from\.userId \}, tx\)/);
     // and does not queue on a schedule row another pass holds across the ledger post
     expect(src).toMatch(/FROM bank\.scheduled_transfers WHERE id = \$\{schedule\.id\} FOR UPDATE SKIP LOCKED/);
   });

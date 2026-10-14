@@ -11,7 +11,9 @@ import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
+import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
+import type { RecipientStatePort } from './recipient-state.js';
 
 /**
  * svc-bank — MULTI-CURRENCY ACCOUNTS OVER THE LEDGER (§8.1).
@@ -33,6 +35,7 @@ export interface BankServices {
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
   readonly portfolio: PortfolioService;
+  readonly activity: ActivityService;
   readonly loans: LoanService;
   readonly cards: CardService;
   readonly ramps: RampService;
@@ -89,14 +92,25 @@ export interface BankServiceOptions {
    * only USDT/USDC/USD and refuses `bank.prices_unavailable` for anyone else.
    */
   portfolio?: PortfolioServiceOptions;
+  /**
+   * Who may be credited: asks svc-identity whether a recipient is frozen or closed.
+   *
+   * Not defaulted to "everyone may receive". With no port every credit to another
+   * user refuses `bank.recipient_check_unset`; moves between a user's own spaces
+   * need no check and still work. See `recipient-state.ts`.
+   */
+  recipients?: RecipientStatePort;
+  /** Merged money history: the ledger page port and the cursor secret. Unset = `bank.activity.list` refuses, never answers empty. */
+  activity?: ActivityServiceOptions;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
-  const spaces = new SpaceService(sql, ledger);
+  const spaces = new SpaceService(sql, ledger, options.recipients);
   const transfers = new TransferService(sql, ledger, spaces);
   const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
   const analytics = new SpendAnalytics(spaces, history);
   const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
+  const activity = new ActivityService(spaces, options.activity ?? {});
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
@@ -115,10 +129,11 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const ramps = new RampService(sql, ledger, options.ramps ?? {});
   const business = new BusinessService(sql, ledger, spaces, transfers);
 
-  return { spaces, transfers, earn, analytics, portfolio, loans, cards, ramps, autoInvest, business };
+  return { spaces, transfers, earn, analytics, portfolio, activity, loans, cards, ramps, autoInvest, business };
 }
 
 export { PortfolioService, httpTickerSource, type TickerSource } from './portfolio/portfolio-service.js';
+export { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 export {
   SpaceService,
   TransferService,
@@ -131,6 +146,14 @@ export {
   BusinessService,
 };
 export { BankError, type BankErrorCode } from './errors.js';
+export {
+  createIdentityRecipientState,
+  memoryRecipientState,
+  unconfiguredRecipientState,
+  RecipientStateUnavailableError,
+  type RecipientStatePort,
+  type RecipientStatus,
+} from './recipient-state.js';
 export { accountForSpace, type SpaceRecord, type SpaceView } from './spaces/space-service.js';
 export { planDue, occurrenceStart, dueOccurrence, type Cadence } from './transfers/schedule.js';
 export { PAUSED_SKIP_REASON, type ResumeReport, type ScheduleRecord } from './transfers/transfer-service.js';

@@ -38,10 +38,20 @@ function Check() {
   );
 }
 
-function Popup({ groups, emptyText, anchor }: { groups: PickerGroup[]; emptyText: string; anchor: RefObject<HTMLElement | null> }) {
+function Popup({
+  groups,
+  emptyText,
+  anchor,
+  align = 'start',
+}: {
+  groups: PickerGroup[];
+  emptyText: string;
+  anchor: RefObject<HTMLElement | null>;
+  align?: 'start' | 'end';
+}) {
   return (
     <Combobox.Portal>
-      <Combobox.Positioner className="picker-positioner" anchor={anchor} align="start" sideOffset={8} collisionPadding={12}>
+      <Combobox.Positioner className="picker-positioner" anchor={anchor} align={align} sideOffset={8} collisionPadding={12}>
         <Combobox.Popup className="picker-popup">
           <Combobox.Empty className="picker-empty">{emptyText}</Combobox.Empty>
           <Combobox.List className="picker-list">
@@ -75,6 +85,8 @@ interface CommonProps {
   groups: PickerGroup[];
   disabled?: boolean;
   emptyText?: string;
+  /** Which edge of the field the popup lines up with. A field in a narrow right-hand column opens with `end` so the popup grows inwards. */
+  align?: 'start' | 'end';
 }
 
 export function SearchPicker({
@@ -87,6 +99,7 @@ export function SearchPicker({
   onValueChange,
   disabled,
   emptyText = 'No match. Try a name or a code.',
+  align = 'start',
 }: CommonProps & { value: PickerOption | null; onValueChange: (value: PickerOption | null) => void }) {
   const anchor = useRef<HTMLDivElement | null>(null);
   return (
@@ -115,7 +128,7 @@ export function SearchPicker({
             <Chevron />
           </Combobox.Trigger>
         </div>
-        <Popup groups={groups} emptyText={emptyText} anchor={anchor} />
+        <Popup groups={groups} emptyText={emptyText} anchor={anchor} align={align} />
       </Combobox.Root>
     </div>
   );
@@ -131,6 +144,7 @@ export function SearchPickerMulti({
   onValueChange,
   disabled,
   emptyText = 'No match. Try a name.',
+  align = 'start',
 }: CommonProps & { value: PickerOption[]; onValueChange: (value: PickerOption[]) => void }) {
   const anchor = useRef<HTMLDivElement | null>(null);
   return (
@@ -172,7 +186,7 @@ export function SearchPickerMulti({
             )}
           </Combobox.Value>
         </Combobox.Chips>
-        <Popup groups={groups} emptyText={emptyText} anchor={anchor} />
+        <Popup groups={groups} emptyText={emptyText} anchor={anchor} align={align} />
       </Combobox.Root>
     </div>
   );

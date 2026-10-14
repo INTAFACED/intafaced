@@ -248,7 +248,7 @@ describe('pay.subscriptions Done bar PG-hard', () => {
       prefix: '/trpc',
       trpcOptions: {
         router,
-        createContext: ({ req }) => EDGE({ headers: req.headers, id: req.id }),
+        createContext: ({ req }) => EDGE(req),
       } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
     });
     registerSubscriptionCycleRoutes(app, {

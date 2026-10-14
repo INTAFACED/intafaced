@@ -1,0 +1,259 @@
+/*
+ * Notifications: the bell popover and the page (UI-SPEC 5.12). Only --if-* tokens: no colour values live here.
+ *
+ * The whole file is in `@layer components`: unlayered CSS beats every layer, so an unlayered link or button rule would
+ * override the kit's utilities (the Buy pill once turned white on lime, M1 critic H1). The order is declared again so it holds
+ * in any bundle order. Sizes are px so the legacy 14 px root can't shrink them (M1 critic H2). `.nf-*` rows are used both in the
+ * popover (a portal outside `.if-app`) and on the page, so they are not scoped under a screen class.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  /* One notification row, 72 px */
+  .nf-row {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 12px;
+    width: 100%;
+    height: 72px;
+    padding: 0 16px;
+    border: 0;
+    background: transparent;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color var(--if-t-fast) var(--if-ease);
+  }
+  .nf-row:hover {
+    background: var(--if-hover);
+  }
+  .nf-row:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: -2px;
+  }
+  .nf-icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    background: var(--if-field);
+    color: var(--if-fg-2);
+  }
+  .nf-row[data-unread] .nf-icon {
+    color: var(--if-fg);
+  }
+  .nf-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .nf-title {
+    font: 500 14px/20px var(--if-font-ui);
+    color: var(--if-fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nf-row:not([data-unread]) .nf-title {
+    color: var(--if-fg-2);
+  }
+  .nf-body {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nf-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-3);
+    white-space: nowrap;
+  }
+  .nf-dot,
+  .nf-dot-gap {
+    display: block;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+  }
+  .nf-dot {
+    background: var(--if-lime);
+  }
+  .nf-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .nf-list > li + li {
+    border-top: 1px solid var(--if-line);
+  }
+
+  /* Bell popover, 400 wide under the bell */
+  .nf-pop__inner {
+    display: flex;
+    flex-direction: column;
+    outline: none;
+  }
+  .nf-pop__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    height: 48px;
+    padding: 0 8px 0 16px;
+    border-bottom: 1px solid var(--if-line);
+  }
+  .nf-pop__title {
+    margin: 0;
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .nf-pop__body {
+    max-height: min(576px, calc(100vh - 170px));
+    overflow-y: auto;
+  }
+  .nf-pop__loading {
+    padding: 8px 16px;
+  }
+  .nf-pop__note {
+    margin: 0;
+    padding: 12px 16px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-warn-text, var(--if-fg-2));
+  }
+  .nf-pop__foot {
+    display: grid;
+    place-items: center;
+    height: 44px;
+    border-top: 1px solid var(--if-line);
+  }
+  .nf-pop__all {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    color: var(--if-fg-2);
+    font: 500 14px/20px var(--if-font-ui);
+    text-decoration: none;
+  }
+  .nf-pop__all:hover {
+    color: var(--if-fg);
+    background: var(--if-hover);
+  }
+  .nf-pop__all:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: -2px;
+  }
+
+  /* Page, container 760 */
+  .if-notify {
+    width: min(760px, calc(100% - 56px));
+    margin: 0 auto;
+    padding: 32px 0 64px;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .if-notify * {
+    box-sizing: border-box;
+  }
+  .if-notify :where(h1, h2, p, ul) {
+    margin: 0;
+    padding: 0;
+  }
+  .if-notify :focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .nf-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 40px;
+  }
+  .nf-h1 {
+    font: 700 28px/34px var(--if-font-ui);
+    letter-spacing: -0.02em;
+  }
+  .nf-head__actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .nf-link,
+  .nf-back {
+    color: var(--if-fg-2);
+    font: 500 14px/20px var(--if-font-ui);
+    text-decoration: none;
+  }
+  .nf-link:hover,
+  .nf-back:hover {
+    color: var(--if-fg);
+  }
+  .nf-back {
+    display: inline-block;
+    margin-bottom: 16px;
+  }
+  .nf-tabs {
+    margin-top: 16px;
+  }
+  .nf-card {
+    margin-top: 16px;
+    background: var(--if-panel);
+    border: 1px solid var(--if-line);
+    border-radius: 16px;
+    overflow: hidden;
+    list-style: none;
+  }
+  .nf-card__loading {
+    padding: 8px 16px;
+  }
+  .nf-card .nf-row {
+    border-radius: 0;
+  }
+  .nf-note {
+    margin-top: 12px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .nf-more {
+    display: flex;
+    justify-content: center;
+    margin-top: 16px;
+  }
+
+  /* Settings */
+  .nf-intro {
+    margin-top: 4px;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .nf-h2 {
+    margin-top: 32px !important;
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .nf-channel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    column-gap: 16px;
+    min-height: 72px;
+    padding: 0 16px;
+  }
+  .nf-channel + .nf-channel {
+    border-top: 1px solid var(--if-line);
+  }
+  .nf-channel__state {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-3);
+    min-width: 40px;
+    text-align: right;
+  }
+}

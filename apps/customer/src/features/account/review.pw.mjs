@@ -48,15 +48,15 @@ test('Security reads bounded own seats and revokes only the reviewed named seat 
     return reply(route, []);
   });
   await mount(page);
-  await expect(page.getByRole('region', { name: 'Signed-in identity sessions' })).toContainText(seatId);
+  await expect(page.getByRole('region', { name: 'Where you’re signed in' })).toContainText(seatId);
   expect(reads[0]).toEqual({ userId, limit: 50 });
-  await page.getByRole('button', { name: `Revoke session ${seatId}` }).click();
+  await page.getByRole('button', { name: `Sign out session ${seatId}` }).click();
   expect(writes).toEqual([]);
-  const dialog = page.getByRole('dialog', { name: 'Revoke session' });
+  const dialog = page.getByRole('dialog', { name: 'Sign out this session?' });
   await expect(dialog).toContainText(seatId);
-  await dialog.getByRole('button', { name: 'Revoke this session' }).click();
+  await dialog.getByRole('button', { name: 'Sign out this session' }).click();
   await expect(page.getByText('The service revoked the selected session.')).toBeVisible();
-  await expect(page.getByText('No live sessions returned')).toBeVisible();
+  await expect(page.getByText('No active sessions')).toBeVisible();
   expect(writes).toEqual([{ userId, sessionId: seatId }]);
   expect(reads.length).toBeGreaterThan(1);
 });
@@ -160,7 +160,7 @@ test('Security refuses foreign session source data instead of presenting it as a
   });
   await mount(page);
   await expect(page.getByRole('heading', { name: 'Information could not be verified' })).toBeVisible();
-  await expect(page.getByRole('button', { name: `Revoke session ${seatId}` })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: `Sign out session ${seatId}` })).toHaveCount(0);
 });
 
 test('owned keyed copy fits actual Shell composites with honest service absence on desktop and phone', async ({ page }) => {

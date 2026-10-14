@@ -92,7 +92,7 @@ for (const readState of ['loading', 'failed', 'empty']) {
     await expect(recovery.getByText(originalId, { exact: true })).toBeVisible();
     await expect(recovery.getByRole('link', { name: 'Contact Support' })).toHaveAttribute('href', '/support');
     await expect(recovery.getByRole('link', { name: 'Check Money activity' })).toHaveAttribute('href', '/uc/record');
-    if (readState === 'failed') await expect(page.getByRole('heading', { name: 'Connection unavailable' })).toBeVisible();
+    if (readState === 'failed') await expect(page.getByRole('heading', { name: 'Can’t connect right now' })).toBeVisible();
     if (readState === 'empty')
       await expect(page.getByRole('heading', { name: 'No BTC source account available', exact: true })).toBeVisible();
     expect(writes).toEqual([]);
@@ -264,7 +264,7 @@ test('A confirmed transfer receipt survives failed source refresh and subsequent
   await expect(outcome).toHaveAttribute('aria-live', 'polite');
   await expect(outcome).toHaveAttribute('aria-atomic', 'true');
   await expect(page.getByText('1.000000000000000001 USDT', { exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Connection unavailable' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Can’t connect right now' })).toBeVisible();
   expect(reads).toBe(3);
   expect(posted).toHaveLength(1);
   allowRefresh = true;

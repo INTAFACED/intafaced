@@ -108,7 +108,7 @@ beforeAll(async () => {
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
   });
   app.get<{ Params: { userId: string } }>('/internal/rank/:userId/perks', async (req, reply) => {

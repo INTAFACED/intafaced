@@ -12,7 +12,7 @@ import {
 import { BankError } from '../errors.js';
 import { assertExecutionsListLimit, assertSchedulesListLimit } from '../owner-list-limit.js';
 import { assertTransferDueLimit } from '../job-batch-limit.js';
-import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
+import { RECIPIENT_CANNOT_RECEIVE_MESSAGE, accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { MAX_CATCH_UP_PER_PASS, dueOccurrence, lastOccurrenceBefore, planDue, occurrenceStart, type Cadence } from './schedule.js';
 import { withMoneySpan, withSpan } from '../tracing.js';
 
@@ -206,7 +206,10 @@ export class TransferService {
         }
 
         const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
-        const to = await this.spaces.resolveForCredit(input.toSpaceId);
+        const to = await this.spaces.resolveForCredit(input.toSpaceId, {
+          actingUserId: from.userId,
+          alreadyBooked: async () => (await this.ledger.getTxByKey(`bank.transfer:${input.transferId}:0`)) !== null,
+        });
 
         if (from.assetId !== to.assetId) {
           // Converting between assets is a trade, and a trade has an execution
@@ -246,10 +249,9 @@ export class TransferService {
         const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
         const dest = destUserId ? await this.spaces.findPrimary(destUserId, from.assetId) : null;
         if (!dest) {
-          throw new BankError(
-            `Dest user ${destUserId || '(empty)'} has no primary ${from.assetId} space — transfer refused`,
-            'bank.dest_user_missing',
-          );
+          // One code and one message for "no such account", frozen and closed:
+          // the caller must not be able to tell them apart.
+          throw new BankError(RECIPIENT_CANNOT_RECEIVE_MESSAGE, 'bank.recipient_cannot_receive');
         }
         return this.transfer({
           transferId: input.transferId,
@@ -278,10 +280,9 @@ export class TransferService {
     const from = await this.spaces.get(input.fromSpaceId);
     const dest = destUserId ? await this.spaces.findPrimary(destUserId, from.assetId) : null;
     if (!dest) {
-      throw new BankError(
-        `Dest user ${destUserId || '(empty)'} has no primary ${from.assetId} space — schedule refused`,
-        'bank.dest_user_missing',
-      );
+      // Same one code as frozen and closed, so a far-future schedule is not a
+      // free way to learn that an id is frozen.
+      throw new BankError(RECIPIENT_CANNOT_RECEIVE_MESSAGE, 'bank.recipient_cannot_receive');
     }
     return this.schedule({
       userId: input.userId,
@@ -317,6 +318,9 @@ export class TransferService {
     if (from.assetId !== to.assetId) {
       throw new BankError(`Cannot schedule ${from.assetId} into a ${to.assetId} space`, 'bank.asset_mismatch');
     }
+    // Refuse a standing order to a recipient who cannot receive, at creation
+    // as well as at each run: it is the earliest place the user can be told.
+    if (to.userId !== from.userId) await this.spaces.assertCanReceive(to.userId);
 
     const scheduleId = input.scheduleId;
 
@@ -912,9 +916,17 @@ export class TransferService {
           // and a second one from the same pool is a wait with no timeout
           // (GitHub issue #4621). Plain reads, no lock needed.
           from = await this.spaces.resolveForDebit(schedule.fromSpaceId, now, tx);
-          to = await this.spaces.resolveForCredit(schedule.toSpaceId, tx);
+          to = await this.spaces.resolveForCredit(schedule.toSpaceId, { actingUserId: from.userId }, tx);
         } catch (err) {
-          if (err instanceof BankError && (err.code === 'bank.space_locked' || err.code === 'bank.space_archived')) {
+          // `bank.recipient_cannot_receive` is a refusal of this occurrence like a
+          // lock or an archive: recorded on the run, one code, no state named.
+          // `bank.recipient_check_unavailable` / `_unset` are NOT here: identity
+          // being down must not consume the occurrence, so they rethrow and the
+          // claim rolls back for the next pass.
+          if (
+            err instanceof BankError &&
+            (err.code === 'bank.space_locked' || err.code === 'bank.space_archived' || err.code === 'bank.recipient_cannot_receive')
+          ) {
             // Crash window: claim rolled back (or never committed settle) AFTER
             // ledger.post already moved value under bank.transfer:<id>:<n>. A
             // later lock must RECOVER that movement as settled — never mark

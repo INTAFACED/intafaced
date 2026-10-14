@@ -6,14 +6,18 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
+  InsufficientFundsError,
   InvalidEntryError,
+  LedgerError,
   merchantClearing,
   mulBps,
   parseAmount,
+  railBoundary,
   recipes,
   userAvailable,
   type Amount,
   type LedgerClient,
+  type LedgerTx,
 } from '@intafaced/ledger-client';
 import type { PaymentIntent, RailAdapter, RailEvent, RailResult, RailWebhookRequest } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
@@ -45,9 +49,14 @@ import {
   stable,
   type IdentityPayoutAdmissionPort,
 } from './payout-admission.js';
-import { postDisputeOpening } from './chargeback-ledger.js';
+import { disputeOpeningKey, postDisputeOpening } from './chargeback-ledger.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
-import { defaultDisputeCaseStore, refuseChargebackUncovered, type ChargebackLedgerRefuse } from './fraud/dispute-case.js';
+import {
+  defaultDisputeCaseStore,
+  refuseChargebackPlanConflict,
+  refuseChargebackUncovered,
+  type ChargebackLedgerRefuse,
+} from './fraud/dispute-case.js';
 import { affiliateLegAfterPaySettlement, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 
@@ -185,6 +194,8 @@ export type PayErrorCode =
    */
   | 'pay.refund_id_spent'
   | 'pay.refund_id_conflict'
+  /** A redelivered chargeback names a different amount than the opening already planned for that dispute. */
+  | 'pay.chargeback_plan_conflict'
   /**
    * A pending settlement window has already frozen this payment into its set.
    * Pre-settlement refunds would drain clearing under the frozen gross and let
@@ -2357,10 +2368,8 @@ export class PayService {
         const sequence = await countEvents(tx, row.id, 'refund.posted');
         const refundId = options.refundId ?? `${row.id}:${sequence + 1}`;
         const merchant = await this.getMerchant(row.merchant_id);
-        const source = row.status === 'settled' ? ('settled' as const) : ('clearing' as const);
-
-        const posted = await postPayLedger(
-          this.ledger,
+        let source = row.status === 'settled' ? ('settled' as const) : ('clearing' as const);
+        const refundRequest = (from: 'clearing' | 'settled') =>
           recipes.paymentRefund({
             refundId,
             paymentId: row.id,
@@ -2369,9 +2378,34 @@ export class PayService {
             assetId: row.currency,
             amount,
             rail: row.rail_adapter,
-            source,
-          }),
-        );
+            source: from,
+          });
+
+        let posted: LedgerTx;
+        try {
+          posted = await postPayLedger(this.ledger, refundRequest(source));
+        } catch (error) {
+          // `source` is derived from the payment's CURRENT status, but the ledger key
+          // `payment.refund:<paymentId>:<refundId>` does not contain it and it decides which account is debited. If an
+          // earlier attempt booked this refund and its reply was lost (timeout, deadline, unreadable acknowledgement) the
+          // transaction rolled back with no `refund.posted`; the payment may have settled since, so this attempt asks for
+          // the other account. The ledger then answers with the ORIGINAL booking (or refuses the key) and every retry
+          // would fail, while a new refundId would debit the merchant twice. Recover only that case: the booked
+          // transaction is read back, checked leg by leg, and its own source is adopted.
+          const recovered = await this.recoverBookedRefund(error, {
+            key: refundRequest(source).idempotencyKey,
+            paymentId: row.id,
+            refundId,
+            merchantId: row.merchant_id,
+            merchantUserId: merchant.userId,
+            assetId: row.currency,
+            rail: row.rail_adapter,
+            amount,
+          });
+          if (!recovered) throw error;
+          posted = recovered.tx;
+          source = recovered.source;
+        }
 
         await appendEvent(tx, row.id, 'refund.posted', {
           refundId,
@@ -2455,6 +2489,60 @@ export class PayService {
 
     this.notifyPaymentEvent('payment.refunded', settled.view);
     return settled.view;
+  }
+
+  /**
+   * A refund whose first attempt was booked by svc-ledger but never acknowledged to us (see the phase-1 call).
+   *
+   * Returns the booked transaction and the source it was booked from, when `error` is a receipt mismatch or an
+   * idempotency refusal AND the ledger really holds this refund key with exactly the two legs `paymentRefund` books:
+   * the merchant account (clearing or available) credited and the rail boundary debited, in this asset. A booking for a
+   * different amount is a refund id reused for another refund (`pay.refund_id_conflict`). Anything else, including
+   * nothing booked, returns null so the caller rethrows the original error.
+   */
+  private async recoverBookedRefund(
+    error: unknown,
+    input: {
+      key: string;
+      paymentId: string;
+      refundId: string;
+      merchantId: string;
+      merchantUserId: string;
+      assetId: string;
+      rail: string;
+      amount: Amount;
+    },
+  ): Promise<{ tx: LedgerTx; source: 'clearing' | 'settled' } | null> {
+    if (!(error instanceof LedgerError) || (error.code !== 'pay.ledger_receipt_mismatch' && error.code !== 'ledger.idempotency_conflict')) {
+      return null;
+    }
+    const booked = await this.ledger.getTxByKey(input.key);
+    if (!booked || booked.module !== 'pay' || booked.reason !== 'payment.refunded' || booked.entries.length !== 2) return null;
+    const credit = booked.entries.find((e) => e.direction === 'credit');
+    const debit = booked.entries.find((e) => e.direction === 'debit');
+    if (!credit || !debit || credit.assetId !== input.assetId || debit.assetId !== input.assetId || credit.amount !== debit.amount)
+      return null;
+
+    const boundary = (await this.ledger.balance(railBoundary(input.rail, input.assetId))).accountId;
+    if (!boundary || debit.accountId !== boundary) return null;
+    const clearing = (await this.ledger.balance(merchantClearing(input.merchantId, input.assetId))).accountId;
+    const available = (await this.ledger.balance(userAvailable(input.merchantUserId, input.assetId))).accountId;
+    const source = credit.accountId === clearing ? ('clearing' as const) : credit.accountId === available ? ('settled' as const) : null;
+    if (!source) return null;
+
+    if (credit.amount !== input.amount) {
+      throw new PayError(
+        `Refund id ${input.refundId} is already booked for ${formatAmount(credit.amount)}; requested ${formatAmount(input.amount)} — use a new refundId for a different amount`,
+        'pay.refund_id_conflict',
+        {
+          refundId: input.refundId,
+          paymentId: input.paymentId,
+          completedAmount: formatAmount(credit.amount),
+          requested: formatAmount(input.amount),
+        },
+      );
+    }
+    return { tx: booked, source };
   }
 
   // ── Webhooks ───────────────────────────────────────────────────────────────
@@ -3436,22 +3524,145 @@ export class PayService {
     if (payment.merchantId !== input.merchantId) throw new PayError('Payment does not belong to merchant', 'pay.payment_not_found');
     if (payment.assetId !== input.assetId) throw new PayError('Chargeback asset does not match payment', 'pay.invalid_amount');
     const amount = parseAmount(input.amount);
-    const clearing = await this.clearingBalance(input.merchantId, input.assetId);
-    const available = await this.merchantBalance(input.merchantId, input.assetId);
-    const fromClearing = clearing < amount ? clearing : amount;
-    const fromMerchantBalance = amount - fromClearing;
-    if (fromMerchantBalance > available) {
-      throw new PayError('Merchant balances cannot cover chargeback', 'pay.invalid_amount');
+    // The split is frozen per dispute the first time it is computed. It depends on LIVE clearing and merchant
+    // balances, and the opening recipe's key is the dispute id: a redelivery after a crash (post committed, delivery
+    // marker not yet written) would otherwise re-split from balances the first post already moved, and book the same key
+    // with different amounts. Replays post the stored plan.
+    const compute = async () => {
+      const clearing = await this.clearingBalance(input.merchantId, input.assetId);
+      const available = await this.merchantBalance(input.merchantId, input.assetId);
+      const fromClearing = clearing < amount ? clearing : amount;
+      const fromMerchantBalance = amount - fromClearing;
+      if (fromMerchantBalance > available) {
+        throw new PayError('Merchant balances cannot cover chargeback', 'pay.invalid_amount');
+      }
+      return { fromClearing, fromMerchantBalance };
+    };
+    // At most one re-plan: a STORED plan that the ledger refuses for funds is stale (money moved since it was planned and
+    // nothing was booked under the key), so it is retired and the split recomputed from live balances once. A plan computed
+    // in this very call that is still refused is a real shortfall: retire it and let the caller see the refusal.
+    for (let attempt = 0; ; attempt += 1) {
+      const plan = await this.chargebackSplit(input.paymentId, input.disputeId, amount, compute);
+      const request = {
+        disputeId: input.disputeId,
+        paymentId: input.paymentId,
+        merchantId: input.merchantId,
+        merchantUserId: merchant.userId,
+        assetId: input.assetId,
+        rail: payment.railAdapter,
+        fromClearing: plan.fromClearing,
+        fromMerchantBalance: plan.fromMerchantBalance,
+      };
+      try {
+        const posted = await postDisputeOpening(this.ledger, request);
+        // A concurrent delivery whose post was refused for funds may have voided this plan just before this post landed.
+        await this.ensureChargebackPlanLive(input.paymentId, input.disputeId, plan);
+        return posted;
+      } catch (e) {
+        // Insufficient funds proves nothing was posted under the dispute key: both ledger engines resolve the idempotency
+        // key before they validate the body, so a key that had committed would have returned its transaction. Any other
+        // failure (a 5xx, a timeout, an unknown outcome) may have committed: keep the plan and replay it.
+        if (!isInsufficientFunds(e)) throw e;
+        const booked = await this.voidChargebackPlan(input.paymentId, input.disputeId, plan.planSeq, disputeOpeningKey(request));
+        // Another delivery booked this very plan while ours was being refused: the book already has the opening.
+        if (booked) return { txId: booked.id };
+        if (plan.replayed && attempt === 0) continue;
+        throw e;
+      }
     }
-    return postDisputeOpening(this.ledger, {
-      disputeId: input.disputeId,
-      paymentId: input.paymentId,
-      merchantId: input.merchantId,
-      merchantUserId: merchant.userId,
-      assetId: input.assetId,
-      rail: payment.railAdapter,
-      fromClearing,
-      fromMerchantBalance,
+  }
+
+  /**
+   * The clearing-first split for one dispute, computed once and stored as a `chargeback.opening_planned` event (append-only,
+   * no money moves). A plan that already exists wins: same amount replays it, a different amount is a conflict.
+   * `replayed` says the plan was already stored, not computed by this call.
+   * The balance reads (network) happen outside any transaction; only the insert-once is serialised, per dispute.
+   */
+  private async chargebackSplit(
+    paymentId: string,
+    disputeId: string,
+    amount: Amount,
+    compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount }>,
+  ): Promise<ChargebackSplit> {
+    const decode = (planned: ChargebackPlan, replayed: boolean): ChargebackSplit => {
+      if (parseAmount(planned.amount) !== amount) {
+        throw new PayError(`Dispute ${disputeId} already planned its opening for a different amount`, 'pay.chargeback_plan_conflict', {
+          disputeId,
+        });
+      }
+      return {
+        fromClearing: parseAmount(planned.fromClearing),
+        fromMerchantBalance: parseAmount(planned.fromMerchantBalance),
+        planSeq: planned.seq,
+        amount: planned.amount,
+        replayed,
+      };
+    };
+
+    const existing = await readLivePlan(this.sql, paymentId, disputeId);
+    if (existing) return decode(existing, true);
+
+    const split = await compute();
+    const { plan, created } = await transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.plan:${disputeId}`}))`;
+      const winner = await readLivePlan(tx, paymentId, disputeId);
+      if (winner) return { plan: winner, created: false };
+      const payload = {
+        amount: formatAmount(amount),
+        fromClearing: formatAmount(split.fromClearing),
+        fromMerchantBalance: formatAmount(split.fromMerchantBalance),
+      };
+      const [row] = await tx<Array<{ seq: string }>>`
+        INSERT INTO pay.payment_events (payment_id, event, payload)
+        VALUES (${paymentId}, 'chargeback.opening_planned', ${tx.json({ disputeId, ...payload } as never)})
+        RETURNING seq
+      `;
+      return { plan: { ...payload, seq: String(row!.seq) }, created: true };
+    });
+    return decode(plan, !created);
+  }
+
+  /**
+   * Retire one plan (append-only: a `chargeback.opening_plan_voided` event, nothing is deleted). Only the plan the caller
+   * posted is voided, and only if it is still the live one: a plan another delivery made after an earlier void is left alone.
+   * Under the lock the ledger is asked whether the dispute key is booked after all (another delivery posted the same plan while
+   * ours was refused); if so nothing is voided and that transaction is returned.
+   */
+  private async voidChargebackPlan(
+    paymentId: string,
+    disputeId: string,
+    planSeq: string,
+    idempotencyKey: string,
+  ): Promise<{ id: string } | null> {
+    return transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.plan:${disputeId}`}))`;
+      // The lookup only detects ANOTHER delivery's booking of this same plan. It goes over svc-ledger's txByKey door in
+      // production (#4696), and a failed lookup must not stop the void: our own refusal for funds already proves our post
+      // booked nothing, and a plan wrongly voided here is restored by `ensureChargebackPlanLive` once the other post returns.
+      const booked = await this.ledger.getTxByKey(idempotencyKey).catch(() => null);
+      if (booked) return booked;
+      const live = await readLivePlan(tx, paymentId, disputeId);
+      if (!live || live.seq !== planSeq) return null;
+      await appendEvent(tx, paymentId, 'chargeback.opening_plan_voided', { disputeId, planSeq });
+      return null;
+    });
+  }
+
+  /**
+   * After a successful post: if the plan that was just booked is no longer the live one (a concurrent void landed between the
+   * ledger commit and now), append it again so the stored plan matches the book. Takes the same per-dispute lock as the void.
+   */
+  private async ensureChargebackPlanLive(paymentId: string, disputeId: string, plan: ChargebackSplit): Promise<void> {
+    await transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.plan:${disputeId}`}))`;
+      const live = await readLivePlan(tx, paymentId, disputeId);
+      if (live?.seq === plan.planSeq) return;
+      await appendEvent(tx, paymentId, 'chargeback.opening_planned', {
+        disputeId,
+        amount: plan.amount,
+        fromClearing: formatAmount(plan.fromClearing),
+        fromMerchantBalance: formatAmount(plan.fromMerchantBalance),
+      });
     });
   }
 
@@ -3469,8 +3680,12 @@ export class PayService {
     try {
       return { ledgerPost: await this.openChargeback(input) };
     } catch (e) {
-      if ((e instanceof PayError && e.code === 'pay.invalid_amount') || e instanceof InvalidEntryError) {
+      if ((e instanceof PayError && e.code === 'pay.invalid_amount') || e instanceof InvalidEntryError || isInsufficientFunds(e)) {
         return { ledgerRefuse: refuseChargebackUncovered({ disputeId: input.disputeId, paymentId: input.paymentId }) };
+      }
+      // A redelivery that names another amount cannot be fixed by redelivering: record the case and name the conflict.
+      if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') {
+        return { ledgerRefuse: refuseChargebackPlanConflict({ disputeId: input.disputeId, paymentId: input.paymentId }) };
       }
       throw e;
     }
@@ -3686,6 +3901,40 @@ async function countEvents(sql: Sql, paymentId: string, event: string): Promise<
     SELECT COUNT(*)::text AS n FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = ${event}
   `;
   return Number.parseInt(rows[0]?.n ?? '0', 10);
+}
+
+/** The ledger refused for want of funds: the HTTP client rebuilds the subclass, but any LedgerError carrying the code counts. */
+function isInsufficientFunds(e: unknown): boolean {
+  return e instanceof InsufficientFundsError || (e instanceof LedgerError && e.code === 'ledger.insufficient_funds');
+}
+
+type ChargebackSplit = {
+  fromClearing: Amount;
+  fromMerchantBalance: Amount;
+  planSeq: string;
+  amount: string;
+  replayed: boolean;
+};
+
+type ChargebackPlan = { amount: string; fromClearing: string; fromMerchantBalance: string; seq: string };
+
+/**
+ * The dispute's live opening plan: the latest `chargeback.opening_planned` that no later `chargeback.opening_plan_voided`
+ * retired. A void applies to the plans before it; a plan made after a void is live.
+ */
+async function readLivePlan(sql: Sql, paymentId: string, disputeId: string): Promise<ChargebackPlan | null> {
+  const rows = await sql<Array<{ seq: string; event: string; payload: Omit<ChargebackPlan, 'seq'> }>>`
+    SELECT seq, event, payload FROM pay.payment_events
+     WHERE payment_id = ${paymentId}
+       AND event IN ('chargeback.opening_planned', 'chargeback.opening_plan_voided')
+       AND payload->>'disputeId' = ${disputeId}
+     ORDER BY seq ASC
+  `;
+  let live: ChargebackPlan | null = null;
+  for (const row of rows) {
+    live = row.event === 'chargeback.opening_planned' ? { ...row.payload, seq: String(row.seq) } : null;
+  }
+  return live;
 }
 
 async function appendEvent(sql: Sql, paymentId: string, event: string, payload: Record<string, unknown>): Promise<void> {

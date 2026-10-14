@@ -294,6 +294,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
 
   // ── Cannot be filled at all right now ─────────────────────────
   'trade.convert_no_liquidity': { ccxt: 'OrderNotFillable', status: 400 },
+  /** House inventory short at settle — customer hold already released; re-quote. */
+  'trade.convert_liquidity_unavailable': { ccxt: 'OrderNotFillable', status: 400 },
   'trade.convert_insufficient_depth': { ccxt: 'OrderNotFillable', status: 400 },
   'trade.convert_bad_depth': { ccxt: 'OrderNotFillable', status: 400 },
   /** Quote went stale between quote and accept — re-quote and try again. */

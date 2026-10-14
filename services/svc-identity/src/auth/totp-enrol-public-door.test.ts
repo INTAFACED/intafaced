@@ -99,7 +99,7 @@ async function mountEnrol(auth: AuthService): Promise<FastifyInstance> {
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
   });
   await app.ready();

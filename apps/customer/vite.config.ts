@@ -1,12 +1,33 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
+import tailwindcss from '@tailwindcss/vite';
 
-export default defineConfig({
-  esbuild: { jsx: 'automatic' },
-  server: {
-    proxy: {
-      '/api': { target: process.env.CUSTOMER_EDGE_URL ?? 'http://127.0.0.1:4000', changeOrigin: false },
-      '/ws': { target: process.env.CUSTOMER_WS_URL ?? 'ws://127.0.0.1:4014', ws: true, rewrite: (path) => path.replace(/^\/ws/, '') },
+/**
+ * Production guard. `VITE_LOCAL_TEST=1` turns on dev-only screens (the hidden-path ribbon) in a build.
+ * A build in production mode refuses it unless `INTAFACED_LOCAL_STACK_BUILD=1` is also set, so a stray
+ * variable (CI, a Dockerfile, a .env file) can never ship those screens to customers.
+ * Local test stack build: `INTAFACED_LOCAL_STACK_BUILD=1 VITE_LOCAL_TEST=1 vite build --outDir <dir>`.
+ */
+export function assertLocalTestBuildAllowed(mode: string, env: Record<string, string | undefined>): void {
+  if (mode !== 'production') return;
+  if (!env.VITE_LOCAL_TEST) return;
+  if (env.INTAFACED_LOCAL_STACK_BUILD === '1') return;
+  throw new Error(
+    'VITE_LOCAL_TEST is set in a production build. It switches on dev-only screens. ' +
+      'Unset it, or set INTAFACED_LOCAL_STACK_BUILD=1 if this is the local test stack build.',
+  );
+}
+
+export default defineConfig(({ mode }) => {
+  assertLocalTestBuildAllowed(mode, { ...loadEnv(mode, process.cwd(), ['VITE_', 'INTAFACED_']), ...process.env });
+  return {
+    esbuild: { jsx: 'automatic' },
+    plugins: [tailwindcss()],
+    server: {
+      proxy: {
+        '/api': { target: process.env.CUSTOMER_EDGE_URL ?? 'http://127.0.0.1:4000', changeOrigin: false },
+        '/ws': { target: process.env.CUSTOMER_WS_URL ?? 'ws://127.0.0.1:4014', ws: true, rewrite: (path) => path.replace(/^\/ws/, '') },
+      },
     },
-  },
-  build: { target: 'es2022', sourcemap: false },
+    build: { target: 'es2022', sourcemap: false },
+  };
 });

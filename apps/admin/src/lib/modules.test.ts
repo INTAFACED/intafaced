@@ -10,6 +10,7 @@ import {
   moduleForApi,
   isUndecodablePath,
   moduleForPage,
+  navNeeded,
 } from './modules';
 
 describe('ADMIN_MODULES gate', () => {
@@ -83,5 +84,14 @@ describe('ADMIN_MODULES gate', () => {
     const res = moduleDisabledResponse('tools', env);
     expect(res?.status).toBe(404);
     expect(await res?.json()).toEqual({ error: 'not_found' });
+  });
+});
+
+describe('navigation bar', () => {
+  it('is hidden when only one module is enabled, and shown from two', () => {
+    expect(navNeeded(1)).toBe(false);
+    expect(navNeeded(0)).toBe(false);
+    expect(navNeeded(2)).toBe(true);
+    expect(navNeeded(MODULE_ROUTES.length)).toBe(true);
   });
 });
