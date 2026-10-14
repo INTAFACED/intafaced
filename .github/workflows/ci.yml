@@ -30,6 +30,16 @@ on:
       - '!NOTICE'
       - '!LICENSE'
       - INTAFACED_DEFINITIVE_BUILD.md
+      # Agent-rule files are markdown but they ARE the law agents load: a change must run the doctrine gates, whose
+      # agent-autoload scan pins them. Listed after the markdown exclusion so they win (the last match decides).
+      # tooling/scripts/merge-gate.mjs mirrors this list (AGENT_RULE_PATTERNS) and its test fails on drift.
+      - '**/AGENTS.md'
+      - '**/CLAUDE.md'
+      - '**/AGENT_PROTOCOL.md'
+      - '**/SKILL.md'
+      - 'tooling/agent-protocol/**'
+      - '.agents/**'
+      - '.cursor/rules/**'
   workflow_dispatch:
 
 # CONCURRENCY — main vs PR (law 2026-08-09, Denon+Nitro greenlit)
@@ -56,10 +66,14 @@ concurrency:
 env:
   TURBO_TELEMETRY_DISABLED: 1
 
+# Every job carries a timeout-minutes of 2-3x its healthy run. The GitHub default
+# is 360 minutes: one hung svc-bank file held Tests (full) for an hour on
+# 2026-10-13 (run 38354707403) before this was set.
 jobs:
   gates:
     name: Doctrine gates
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # healthy run: 1 min
     steps:
       # fetch-depth: 0 — the value-gate step at the end of this job needs
       # `origin/main` and ten ancestor subjects. The default is 1, which gives
@@ -108,6 +122,7 @@ jobs:
   changes:
     name: Affected shards
     runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: under 1 min
     outputs:
       protocol: ${{ steps.cls.outputs.protocol }}
       money: ${{ steps.cls.outputs.money }}
@@ -133,6 +148,7 @@ jobs:
   format:
     name: Format
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # healthy run: 1-2 min
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -147,6 +163,7 @@ jobs:
   build:
     name: Typecheck & build
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # healthy run: 6-8 min
     needs: [changes]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -164,6 +181,7 @@ jobs:
     if: needs.changes.outputs.full == 'true'
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 45 # healthy run: 11-20 min
 
     services:
       postgres:
@@ -390,6 +408,7 @@ jobs:
     if: needs.changes.outputs.full != 'true' && needs.changes.outputs.protocol == 'true'
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # healthy run: 3 min
 
     services:
       postgres:
@@ -511,6 +530,7 @@ jobs:
     if: needs.changes.outputs.full != 'true' && needs.changes.outputs.money == 'true'
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # healthy run: 1-5 min
 
     services:
       postgres:
@@ -611,6 +631,7 @@ jobs:
     if: needs.changes.outputs.full != 'true' && needs.changes.outputs.trade == 'true'
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # healthy run: 5 min
 
     services:
       postgres:
@@ -710,6 +731,7 @@ jobs:
     if: needs.changes.outputs.full != 'true' && needs.changes.outputs.paybank == 'true'
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # healthy run: 6 min
 
     services:
       postgres:
@@ -807,6 +829,7 @@ jobs:
   merge-seal:
     name: CI merge seal
     runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: seconds
     if: always()
     needs:
       [
@@ -844,6 +867,7 @@ jobs:
   dod:
     name: Definition of Done
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # healthy run: about 2 min
     needs: [merge-seal]
     if: needs.merge-seal.result == 'success'
     steps:

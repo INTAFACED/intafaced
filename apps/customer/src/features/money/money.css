@@ -155,48 +155,6 @@
     scroll-margin-block: calc(84px + env(safe-area-inset-bottom, 0px));
   }
 }
-.money-holding-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-.money-layout--holding {
-  grid-template-areas: 'quantity actions' 'analysis actions';
-  row-gap: 28px;
-}
-.money-holding-primary {
-  grid-area: quantity;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  min-width: 0;
-}
-.money-holding-analysis {
-  grid-area: analysis;
-  min-width: 0;
-}
-.money-holding-analysis .empty-state {
-  align-items: flex-start;
-  text-align: left;
-  padding: 24px;
-  min-height: 0;
-  background: var(--color-surface);
-  border: 1px solid var(--color-divider);
-  border-radius: 8px;
-}
-.money-holding-analysis .empty-mark {
-  display: none;
-}
-.money-holding-analysis .empty-state h3 {
-  font-size: 18px;
-  font-weight: 500;
-}
-.money-holding-analysis .empty-state p {
-  max-width: none;
-}
-.money-layout--holding .money-action-lane {
-  grid-area: actions;
-}
 .money-holding-quantity {
   font-size: clamp(22px, 3vw, 36px);
   line-height: 1.28;
@@ -234,29 +192,7 @@
 .money-holding-actions .money-section {
   margin-bottom: 0;
 }
-.money-holding-send {
-  display: flex;
-  margin-block: 16px;
-}
-.money-holding-secondary {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-block: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--color-divider);
-}
-.money-holding-secondary a,
-.money-holding-advanced {
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-}
 @media (max-width: 600px) {
-  .money-layout--holding {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: 'quantity' 'actions' 'analysis';
-  }
   .money-holding-restrictions {
     grid-template-columns: minmax(0, 1fr);
     gap: 20px;
@@ -265,26 +201,11 @@
     padding: 20px;
   }
 }
-.money-overview-lane,
-.money-action-lane {
+.money-overview-lane {
   display: flex;
   flex-direction: column;
   min-width: 0;
   gap: 28px;
-}
-.money-value {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 8px 0 24px;
-}
-.money-value-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  color: var(--color-muted);
-  font-size: 14px;
 }
 .money-total {
   font-size: clamp(32px, 4.2vw, 60px);
@@ -292,22 +213,6 @@
   font-weight: 500;
   letter-spacing: -0.04em;
   overflow-wrap: anywhere;
-}
-.money-currency {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--color-muted);
-}
-.money-currency select {
-  min-height: 36px;
-  width: auto;
-  padding: 6px 12px;
-}
-.money-currency > span {
-  font-size: 12px;
 }
 .money-availability {
   display: grid;
@@ -1087,8 +992,7 @@
     grid-column: 1;
   }
 }
-.money-overview-lane > .money-section,
-.money-action-lane > .money-section {
+.money-overview-lane > .money-section {
   margin-bottom: 0;
 }
 .money-section > header {
@@ -1119,23 +1023,6 @@
 .money-holding:hover strong {
   color: var(--color-accent);
 }
-.money-asset-mark {
-  display: grid;
-  place-items: center;
-  flex: 0 0 44px;
-  height: 44px;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: var(--color-surface);
-  font-size: 20px;
-}
-.money-holding-name {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-}
 .money-holding-values {
   display: flex;
   flex: 0 1 55%;
@@ -1156,26 +1043,6 @@
   color: var(--color-muted);
   font-size: 14px;
   line-height: 20px;
-}
-.money-chevron {
-  flex: 0 0 20px;
-  color: var(--color-muted);
-  text-align: right;
-}
-.money-action-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.money-action-grid .button {
-  white-space: normal;
-  min-height: 56px;
-  padding-inline: 12px;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .money-capability {
   display: flex;
@@ -1435,34 +1302,19 @@
   }
 }
 @media (max-width: 1000px) {
-  .money-layout--holding a,
-  .money-layout--holding button {
-    /* 68px phone navigation + 16px clear space; retain device safe area. */
-    scroll-margin-block: calc(84px + env(safe-area-inset-bottom, 0px));
-  }
   .money-layout {
     display: flex;
     flex-direction: column;
     gap: 32px;
   }
-  .money-overview-lane,
-  .money-action-lane {
+  .money-overview-lane {
     width: 100%;
-  }
-  .money-action-lane {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 32px;
   }
   .money-total {
     font-size: 52px;
   }
 }
 @media (max-width: 650px) {
-  .money-action-lane {
-    display: flex;
-    flex-direction: column;
-  }
   .money-total {
     font-size: 40px;
     line-height: 48px;
@@ -1482,9 +1334,6 @@
   .money-holding-values {
     flex-basis: calc(100% - 76px);
     margin-left: 56px;
-  }
-  .money-chevron {
-    margin-left: auto;
   }
   .money-section > header {
     flex-wrap: wrap;
@@ -1514,13 +1363,6 @@
   }
 }
 @media (max-width: 380px) {
-  .money-value-label {
-    align-items: flex-start;
-  }
-  .money-value-label .button {
-    font-size: 12px;
-    padding: 8px;
-  }
   .money-total {
     font-size: 36px;
     line-height: 44px;
@@ -1548,63 +1390,16 @@
   grid-template-columns: minmax(0, 1fr) minmax(260px, 328px);
   gap: 40px;
 }
-.money-primary-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.money-primary-actions .button {
-  min-width: 104px;
-  min-height: 44px;
-}
-.money-home .money-value {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 28px;
-  padding: 0 0 24px;
-  margin-bottom: 28px;
-  border-bottom: 1px solid var(--color-divider);
-}
-.money-value-copy {
-  min-width: 0;
-}
 .money-home .money-total {
   font-size: 16px;
   font-weight: 500;
   line-height: 24px;
   letter-spacing: 0;
 }
-.money-value-copy p {
-  margin-top: 4px;
-  font-size: 14px;
-  line-height: 22px;
-}
-.money-value-controls {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 12px;
-}
-.money-home .money-currency {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-.money-home .money-currency select {
-  min-height: 44px;
-  min-width: 100px;
-}
 .money-home .money-section > header h2 {
   font-size: 24px;
   line-height: 32px;
   font-weight: 600;
-}
-.money-response-time {
-  color: var(--color-muted);
-  font-size: 13px;
-  line-height: 20px;
-  margin-bottom: 8px;
 }
 .money-home .money-holding {
   display: grid;
@@ -1612,11 +1407,6 @@
   column-gap: 16px;
   row-gap: 12px;
   padding-block: 22px;
-}
-.money-home .money-holding-name strong {
-  font-size: 17px;
-  line-height: 26px;
-  overflow-wrap: anywhere;
 }
 .money-home .money-holding-values {
   margin: 0;
@@ -1629,84 +1419,6 @@
   font-weight: 600;
   letter-spacing: -0.02em;
 }
-.money-quantity-unit {
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--color-muted);
-  letter-spacing: 0;
-}
-.money-quantity-restrictions {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  text-align: left;
-}
-.money-quantity-restrictions div {
-  min-width: 0;
-}
-.money-quantity-restrictions dt {
-  color: var(--color-muted);
-  font-size: 12px;
-  line-height: 18px;
-  margin-bottom: 4px;
-}
-.money-quantity-restrictions dd {
-  font-size: 14px;
-  line-height: 22px;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.money-home .money-asset-mark svg {
-  width: 26px;
-  height: 28px;
-}
-.money-bitcoin-mark {
-  font-size: 28px;
-  line-height: 32px;
-}
-.money-coverage {
-  border-left: 2px solid var(--color-accent);
-  padding-left: 16px;
-  font-size: 14px;
-  line-height: 22px;
-}
-.money-coverage strong {
-  font-weight: 500;
-}
-.money-coverage p {
-  margin-top: 4px;
-  color: var(--color-muted);
-}
-.money-home .money-action-lane {
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-}
-.money-home .money-action-lane .money-section > header h2 {
-  font-size: 20px;
-  line-height: 28px;
-  font-weight: 500;
-}
-.money-destinations .link-row {
-  min-height: 60px;
-  gap: 16px;
-}
-.money-destinations strong {
-  font-weight: 500;
-}
-.money-destinations small {
-  font-size: 13px;
-  line-height: 20px;
-}
-.money-funding-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.money-funding-actions .text-link {
-  flex-basis: 100%;
-}
 .money-home a,
 .money-home button,
 .money-home select {
@@ -1717,20 +1429,10 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 32px;
   }
-  .money-destinations {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 32px;
-  }
 }
 @media (max-width: 767px) {
   .money-home .page-heading > .actions {
     width: 100%;
-  }
-  .money-home .money-value {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 16px;
   }
   .money-home .money-holding {
     grid-template-columns: 44px minmax(0, 1fr) 16px;
@@ -1740,81 +1442,9 @@
     grid-column: 2 / 4;
     text-align: left;
   }
-  .money-home .money-chevron {
-    grid-column: 3;
-    grid-row: 1;
-    margin: 0;
-  }
-  .money-primary-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-  }
-  .money-primary-actions .button {
-    min-width: 0;
-    white-space: normal;
-    text-align: center;
-  }
-  .money-primary-actions .button:last-child {
-    grid-column: 1 / 3;
-  }
-  .money-destinations {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .money-value-controls {
-    justify-content: space-between;
-  }
 }
 
 /* Bank overview reuses the accepted Money hierarchy with separately labelled spaces. */
-.money-bank .money-space-row > div:first-child {
-  min-width: 0;
-}
-.money-bank .money-space-row strong {
-  overflow-wrap: anywhere;
-}
-.money-bank .money-space-row .numeric {
-  min-width: 0;
-  font-size: 20px;
-  line-height: 28px;
-}
-.money-bank .money-space-row small {
-  font-size: 13px;
-  line-height: 20px;
-}
-.money-bank .money-bank-nav {
-  margin-bottom: 24px;
-}
-
-.money-bank .money-value {
-  padding-bottom: 16px;
-  margin-bottom: 20px;
-}
-@media (max-width: 767px) {
-  .money-bank .money-primary-actions .button:first-child {
-    grid-column: 1 / 3;
-  }
-  .money-bank .money-primary-actions .button:last-child {
-    grid-column: auto;
-  }
-  .money-bank .money-bank-nav {
-    margin-bottom: 16px;
-  }
-  .money-bank .money-value {
-    gap: 12px;
-    padding-bottom: 12px;
-    margin-bottom: 16px;
-  }
-  .money-bank .money-section > header {
-    margin-bottom: 12px;
-  }
-  .money-bank .money-response-time {
-    margin-bottom: 0;
-  }
-  .money-bank .money-holding {
-    padding-block: 12px;
-  }
-}
 
 .money-selected-space {
   display: grid;
