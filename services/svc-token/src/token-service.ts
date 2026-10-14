@@ -1519,8 +1519,10 @@ export class TokenService {
    * A fresh insert from this call posted nothing — release so the window is
    * not held hostage. A retry of an older pending row may sit on top of a
    * landed `token.burn:` from the pre-refuse path; deleting that claim would
-   * hide the burn. Live HTTP `getTxByKey` throws (S2S has no such door) — that
-   * must stay `token.buyback_tokens_unmoved`, never a 500, and unknown ≠ absent.
+   * hide the burn. `getTxByKey` answers null only for a key the ledger says it
+   * has not booked (the read-only `txByKey` door); when it cannot answer (ledger
+   * down, malformed, inconsistent) it throws — that must stay
+   * `token.buyback_tokens_unmoved`, never a 500, and unknown ≠ absent.
    */
   private async refuseUnbookedBuyback(claimedId: string, runId: string, tokensBought: Amount, opts: { fresh: boolean }): Promise<never> {
     let burnKnownAbsent = opts.fresh;
@@ -1715,7 +1717,7 @@ export class TokenService {
    * svc-token is the ONLY minter. svc-mining-pool (Phase 5) requests an epoch
    * allocation from here; it never mints. The epoch row is the dedupe: a closed
    * epoch cannot be minted twice, and the ledger's idempotency key on
-   * `token.emission:<epoch>` is the backstop if this check is ever bypassed.
+   * `token.emission:<assetId>:<epoch>` is the backstop if this check is ever bypassed.
    */
   async mintEpoch(epoch: number, destination = rewardsEngine(this.assetId)): Promise<{ epoch: number; minted: Amount }> {
     return withMoneySpan('token.mintEpoch', { operation: 'emission', epoch }, async () => this.mintEpochInner(epoch, destination));
