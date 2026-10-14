@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local CSP preview checklist</title>
+<link rel="stylesheet" href="checklist.css">
+</head>
+<body>
+<main>
+  <p class="tag">TEST DATA ONLY. Local preview, not a real account, balance or service.</p>
+  <h1>Customer app behind the new security headers</h1>
+  <p class="lede">This page itself is served under the same Content-Security-Policy as the app (no inline script). Open each link below in a new tab, click through, and watch the violation list at the bottom. <strong>Good</strong> means: the feature works and the list stays empty (except lines marked <em>expected</em>, and one known <code>font-src</code> line, see the note under the list).</p>
+
+  <section>
+    <h2>Four copies of the app</h2>
+    <ul class="links">
+      <li><a id="link-configured" href="#" target="_blank" rel="noopener">Origins configured</a> <span>live-session server and recorded-video host are named in the policy (the way staging should be set).</span></li>
+      <li><a id="link-bare" href="#" target="_blank" rel="noopener">Origins EMPTY (as shipped)</a> <span>what customers get if the three CUSTOMER_* variables are forgotten. Live sessions and recorded video are blocked here on purpose.</span></li>
+      <li><a id="link-academy" href="#" target="_blank" rel="noopener">Academy copy, origins configured</a> <span>the same headers, but a build with the hidden rooms switched on (a ribbon shows). The production build hides Academy from customers today, so this is the only way to see its live and video pages under the policy.</span></li>
+      <li><a id="link-academy-bare" href="#" target="_blank" rel="noopener">Academy copy, origins EMPTY</a> <span>the same, with the three CUSTOMER_* variables empty.</span></li>
+    </ul>
+    <p class="note">Use <code>localhost</code> (not 127.0.0.1): passkeys are tied to the host name. The sign-in lives in memory only, so do not reload the page after signing in; use the deep links below, which sign you in and land on the right room.</p>
+  </section>
+
+  <section>
+    <h2>What to click (configured copy first)</h2>
+    <ol class="steps">
+      <li><strong>Sign in.</strong> Open the login page, type any email and any password, press Sign in. Good: you land on Home with TEST prices.
+        <div class="go"><a data-app="configured" data-path="/login" target="_blank" rel="noopener">Open sign-in</a></div></li>
+      <li><strong>Register a passkey.</strong> Sign in, go to Security, press add passkey, confirm with Touch ID. Good: the ceremony starts and a passkey row appears. (The stub does not check the signature; it only proves the browser is allowed to run the ceremony.)
+        <div class="go"><a data-app="configured" data-path="/login/returnUrl/%2Fuc%2Fsafe" target="_blank" rel="noopener">Sign in, then Security</a></div></li>
+      <li><strong>Passkey sign-in.</strong> Open the login page, type the same email, press the passkey button. Good: Touch ID prompt, then you are in.
+        <div class="go"><a data-app="configured" data-path="/login" target="_blank" rel="noopener">Open sign-in</a></div></li>
+      <li><strong>Chart.</strong> Sign in, open the BTC spot desk or a coin page. Good: candles draw, you can hover and zoom.
+        <div class="go"><a data-app="configured" data-path="/login/returnUrl/%2Ftrade%2Fspot%2FBTC-USDT" target="_blank" rel="noopener">Sign in, then BTC desk</a>
+        <a data-app="configured" data-path="/login/returnUrl/%2Fcoin%2FBTC" target="_blank" rel="noopener">Sign in, then BTC coin page</a></div></li>
+      <li><strong>Academy, Rooms tab</strong> (Academy copy, configured). Open a room, then the two live sessions and press <em>Connect audio/video</em> on each.
+        <ul>
+          <li>Session A (allowed server): <em>expected</em> a media connection error, because the local stand-in is not a real LiveKit server. <strong>No</strong> violation line.</li>
+          <li>Session B (not-allowed server): <em>expected</em> one <code>connect-src</code> violation naming <code>blocked-livekit.csp-preview.invalid</code>. That is the policy doing its job.</li>
+        </ul>
+        <div class="go"><a data-app="academyConfigured" data-path="/login/returnUrl/%2Facademy" target="_blank" rel="noopener">Sign in, then Academy</a></div></li>
+      <li><strong>Academy, Videos tab.</strong> Pick each video.
+        <ul>
+          <li>Allowed host: the player appears and fails to load (the host is fake). <strong>No</strong> violation line.</li>
+          <li>Not-allowed host: one <code>media-src</code> violation naming <code>blocked-storage.csp-preview.invalid</code>.</li>
+        </ul></li>
+      <li><strong>Empty Academy copy.</strong> Repeat steps 5 and 6 on the EMPTY Academy copy. Good: session A and the allowed video now ALSO show violations (nothing is allowed). That shows why the three deploy variables matter.
+        <div class="go"><a data-app="academyBare" data-path="/login/returnUrl/%2Facademy" target="_blank" rel="noopener">Empty copy: sign in, then Academy</a></div></li>
+      <li><strong>Everything else.</strong> Click around Money, Pay, More. Any new line in the list that is not named above is a real finding: copy it to Nitro's agent.</li>
+    </ol>
+    <p class="note">Also open the browser console (Cmd+Option+J). A blocked load prints <code>Refused to ...</code> there as well; the list below is the same thing collected for the agent.</p>
+  </section>
+
+  <section>
+    <h2>Violations collected (<span id="count">0</span>)</h2>
+    <p><button id="refresh" type="button">Refresh now</button> <button id="clear" type="button">Clear list</button> <span id="status" aria-live="polite"></span></p>
+    <table>
+      <thead><tr><th>Time</th><th>Rule broken</th><th>Blocked</th><th>On page</th><th>Source</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5">None yet.</td></tr></tbody>
+    </table>
+    <p class="note"><strong>Known finding:</strong> every page load logs one <code>font-src</code> violation for a <code>data:</code> font. The build inlines a tiny JetBrains Mono (extended Cyrillic) subset into the stylesheet and the policy says <code>font-src 'self'</code>. The agent has already reported it; you do not need to chase it.</p>
+    <p class="note">The file the agent reads is <code>tooling/local-csp-preview/.state/violations.jsonl</code>. These come from a report-only copy of the same policy, so they appear whether or not the browser also blocked the load.</p>
+  </section>
+</main>
+<script src="checklist.js"></script>
+</body>
+</html>

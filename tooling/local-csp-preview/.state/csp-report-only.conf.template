@@ -1,0 +1,2 @@
+# Local preview only: duplicate of the CSP above in report-only mode so violations reach the local sink.
+add_header Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ${CUSTOMER_CSP_CONNECT_SRC}; media-src ${CUSTOMER_CSP_MEDIA_SRC}; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; report-uri /__csp-report" always;
