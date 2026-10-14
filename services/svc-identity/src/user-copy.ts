@@ -41,7 +41,7 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
  */
 const LOCAL_COPY: Readonly<Record<string, string>> = {
   'auth.password_unchanged': 'Choose a new password that is different from your current one.',
-  'auth.password_policy': 'Choose a password of at least 12 characters.',
+  'auth.password_policy': 'Choose a password of at least 12 characters and at most 72 bytes, and not one character repeated.',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {

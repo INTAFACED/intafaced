@@ -680,6 +680,11 @@ export function createIdentityRouter(
             });
             return { ok: true as const };
           } catch (err) {
+            // A typo in the current password is not an expired session. Every 401 makes the
+            // apps sign the person out, so this door answers 403 (code stays in `cause`).
+            if (err instanceof AuthError && err.code === 'auth.invalid_credentials') {
+              throw new TRPCError({ code: 'FORBIDDEN', message: userCopy(err.code), cause: err });
+            }
             throw toFactorError(err);
           }
         }),

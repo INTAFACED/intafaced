@@ -605,9 +605,10 @@ export class AuthService {
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
-    // Second factor on the account: the session must have passed it. Checked before the
+    // Second factor on the account, or a privileged identity (founder pair / `admin:*`
+    // scope, which never gets the no-factor exception): the session must have passed it. Checked before the
     // reservation so a missing step-up never spends the password budget.
-    if (accountHasSecondFactor(user) && !actor.mfa) {
+    if ((accountHasSecondFactor(user) || actor.privileged) && !actor.mfa) {
       throw new AuthError('Verify with your second factor before changing your password', 'auth.mfa_required');
     }
     // Count the guess BEFORE verifying it (see attempt-lockout.ts); a locked account is refused here.
@@ -615,6 +616,9 @@ export class AuthService {
     if (!(await verifyPassword(user.password_hash, input.currentPassword))) {
       throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     }
+    // The current password verified, so it is no longer a guess: a policy or same-password
+    // refusal below must not count toward the lock.
+    await recordSuccess(this.sql, userId, 'password');
     try {
       assertPasswordShape(input.newPassword);
     } catch (err) {

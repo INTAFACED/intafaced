@@ -154,7 +154,10 @@ if (!available) {
         }),
       );
 
-      expect(viaChange).toEqual(viaLogin);
+      // Same code and wording as login; the HTTP class differs on purpose: login's 401 is right
+      // there, but here a 401 would make the apps sign a signed-in person out over a typo.
+      expect(viaLogin.trpc).toBe('UNAUTHORIZED');
+      expect(viaChange).toEqual({ ...viaLogin, trpc: 'FORBIDDEN' });
       expect(viaChange.code).toBe('auth.invalid_credentials');
       expect(await hashOf(user.userId)).toBe(before);
       // a weak new password does not leak past a wrong current password
@@ -224,6 +227,45 @@ if (!available) {
       }
       expect(await hashOf(user.userId)).toBe(before);
       expect(await attemptRows(user.userId)).toHaveLength(0);
+    });
+
+    it('always needs an mfa session for a privileged identity, even with no second factor', async () => {
+      const founder = await register();
+      const before = await hashOf(founder.userId);
+      const asFounder = createIdentityRouter(auth, rank, {
+        registrationOpen: true,
+        actionApprovals: stubActionApprovals(),
+        privilegedUserIds: [founder.userId],
+      });
+      const contextFounder = await contextOf(founder);
+
+      expect(
+        await refusal(asFounder.createCaller(contextFounder).auth.changePassword({ currentPassword: OLD, newPassword: NEW })),
+      ).toMatchObject({
+        trpc: 'FORBIDDEN',
+        code: 'auth.mfa_required',
+      });
+      // An admin-scope session is privileged the same way.
+      const admin = await contextOf(founder, { scopes: ['admin:write'] });
+      expect(await refusal(router.createCaller(admin).auth.changePassword({ currentPassword: OLD, newPassword: NEW }))).toMatchObject({
+        trpc: 'FORBIDDEN',
+        code: 'auth.mfa_required',
+      });
+      expect(await hashOf(founder.userId)).toBe(before);
+      expect(await attemptRows(founder.userId)).toHaveLength(0);
+
+      const stepped = await contextOf(founder, { mfa: true });
+      expect(await asFounder.createCaller(stepped).auth.changePassword({ currentPassword: OLD, newPassword: NEW })).toEqual({ ok: true });
+    });
+
+    it('does not count a policy or same-password refusal as a failed guess once the current password verified', async () => {
+      const user = await register();
+      const api = await callerOf(user);
+      for (let i = 0; i < ATTEMPT_POLICY.password.maxFailures + 2; i++) {
+        await refusal(api.auth.changePassword({ currentPassword: OLD, newPassword: 'short' }));
+      }
+      expect(await attemptRows(user.userId)).toHaveLength(0);
+      await expect(auth.login({ identifier: user.handle, password: OLD })).resolves.toMatchObject({ userId: user.userId });
     });
 
     it('refuses a new password equal to the current one', async () => {
@@ -303,7 +345,7 @@ if (!available) {
   describe('copy', () => {
     it('maps the new codes in user-copy', () => {
       expect(userCopy('auth.password_unchanged')).toMatch(/different/);
-      expect(userCopy('auth.password_policy')).toMatch(/12 characters/);
+      expect(userCopy('auth.password_policy')).toMatch(/12 characters.*72 bytes.*repeated/);
       expect(userCopy('auth.mfa_required')).toBe('Two-factor verification');
     });
   });
