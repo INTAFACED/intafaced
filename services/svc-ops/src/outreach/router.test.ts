@@ -146,4 +146,103 @@ describe('private CRM router authority boundary', () => {
     expect(exportRead).toHaveBeenCalledOnce();
     expect(authority).toHaveBeenCalledTimes(13);
   });
+  it('keeps setCommitment founder-only, binds it to the signed-in user and refuses bad money before the service', async () => {
+    const crm = new OutreachCrm(null, null);
+    const set = vi.spyOn(crm, 'setCommitment').mockRejectedValue(new OutreachError('ops.crm.storage_unconfigured'));
+    const input = {
+      requestId: randomUUID(),
+      opportunityId: randomUUID(),
+      expectedRevision: 2,
+      commitment: { tier: 'soft_circled' as const, amount: '250000', currency: 'EUR', evidenceRef: 'call notes' },
+      reason: 'After the call',
+    };
+    const anonymous = createOutreachRouter(crm, async () => userId).createCaller({ ...context, principal: null });
+    await expect(anonymous.setCommitment(input)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    const readOnly = createOutreachRouter(crm, async () => userId).createCaller({
+      ...context,
+      principal: { ...context.principal!, scopes: ['ops:read'] },
+    });
+    await expect(readOnly.setCommitment(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const notFounder = createOutreachRouter(crm, async () => {
+      throw new OutreachError('ops.crm.operator_forbidden');
+    }).createCaller(context);
+    await expect(notFounder.setCommitment(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(set).not.toHaveBeenCalled();
+    const founder = createOutreachRouter(crm, async () => userId).createCaller(context);
+    await expect(founder.setCommitment(input)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    expect(set).toHaveBeenCalledWith(input, userId);
+    // Bad money, an unknown currency and a smuggled identity never reach the service.
+    for (const bad of [
+      { ...input, commitment: { ...input.commitment, amount: '-5' } },
+      { ...input, commitment: { ...input.commitment, amount: '1e6' } },
+      { ...input, commitment: { ...input.commitment, amount: 250000 } },
+      { ...input, commitment: { ...input.commitment, currency: 'ZZZ' } },
+      { ...input, commitment: { ...input.commitment, recordedBy: userId } },
+      { ...input, actorUserId: randomUUID() },
+      { ...input, reason: '' },
+    ])
+      await expect(founder.setCommitment(bad as never)).rejects.toThrow();
+    expect(set).toHaveBeenCalledOnce();
+  });
+  it('passes the waiting queue through and refuses a list page that lacks reply state', async () => {
+    const crm = new OutreachCrm(null, null);
+    const list = vi.spyOn(crm, 'listOpportunities').mockResolvedValue({
+      items: [],
+      contacts: [],
+      submissions: [],
+      nextCursor: null,
+    });
+    const founder = createOutreachRouter(crm, async () => userId).createCaller(context);
+    expect(await founder.listOpportunities({ limit: 25, queue: 'waiting' })).toEqual({
+      items: [],
+      contacts: [],
+      submissions: [],
+      nextCursor: null,
+    });
+    expect(list).toHaveBeenCalledWith({ limit: 25, queue: 'waiting' });
+    await expect(founder.listOpportunities({ limit: 25, queue: 'overdue' } as never)).rejects.toThrow();
+    const now = '2026-10-14T01:00:00.000Z';
+    const contactId = randomUUID();
+    const submissionId = randomUUID();
+    const row = {
+      id: randomUUID(),
+      contactId,
+      organisationId: null,
+      submissionId,
+      ownerUserId: userId,
+      revision: 1,
+      nextAction: { description: 'Review enquiry', dueAt: now },
+      closedDisposition: null,
+      closingEvidenceRef: null,
+      createdAt: now,
+      updatedAt: now,
+      audience: 'trader' as const,
+      stage: 'new' as const,
+    };
+    const contact = {
+      id: contactId,
+      name: 'Ada',
+      email: 'ada@example.test',
+      emailEvidence: { status: 'unverified' as const },
+      organisationIds: [],
+      interests: ['trader' as const],
+      platformIdentity: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const page = (item: object) => ({
+      items: [item],
+      contacts: [contact],
+      submissions: [{ submissionId, completedAt: null, organisationName: null }],
+      nextCursor: null,
+    });
+    list.mockResolvedValue(page({ ...row, firstReplyAt: null, lastTouchAt: null, waitingSince: now }) as never);
+    expect((await founder.listOpportunities({ limit: 25, queue: 'waiting' })).items[0]).toMatchObject({
+      waitingSince: now,
+      firstReplyAt: null,
+    });
+    // A service that forgets the reply state is a fault, never "nobody has replied".
+    list.mockResolvedValue(page(row) as never);
+    await expect(founder.listOpportunities({ limit: 25, queue: 'waiting' })).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' });
+  });
 });

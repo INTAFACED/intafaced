@@ -6,11 +6,14 @@ import { transaction } from '@intafaced/db';
 import {
   crmActivitySchema,
   crmAssignmentInputSchema,
+  crmCommitmentSchema,
   crmContactSchema,
   crmListInputSchema,
   crmNextActionInputSchema,
   crmNoteInputSchema,
+  crmSetCommitmentInputSchema,
   crmOpportunitySchema,
+  crmOpportunityRowSchema,
   crmOpportunityPageSchema,
   crmOrganisationSchema,
   crmStageChangeInputSchema,
@@ -28,6 +31,8 @@ import {
   type CrmNextActionInput,
   type CrmNoteInput,
   type CrmOpportunity,
+  type CrmOpportunityRow,
+  type CrmSetCommitmentInput,
   type CrmStageChangeInput,
   type OutreachCaptureInput,
   type OutreachContinuationInput,
@@ -376,18 +381,56 @@ export class OutreachCrm {
       ] as [{ userId: string; displayName: 'Nitro' }, { userId: string; displayName: 'Phantom' }],
     };
   }
+  /**
+   * First reply and last touch, derived from what already exists so no backfill is needed. Correlated on `b.id`, so the
+   * caller aliases its opportunity rows as `b`. A touch is a founder action that reaches or concerns the person: a queued
+   * message, a recorded interaction or a stage change. Notes and owner changes are not touches. First reply is the first
+   * queued message or reply_sent interaction. LEAST and GREATEST skip the sources that have nothing.
+   */
+  private replyColumns(tx: Sql) {
+    return tx`LEAST(
+        (SELECT min(m.created_at) FROM ops.crm_outbox m WHERE m.opportunity_id=b.id AND m.actor_user_id IS NOT NULL),
+        (SELECT min(i.occurred_at) FROM ops.crm_interactions i WHERE i.opportunity_id=b.id AND i.kind='reply_sent')
+      ) AS first_reply_at,
+      GREATEST(
+        (SELECT max(m.created_at) FROM ops.crm_outbox m WHERE m.opportunity_id=b.id AND m.actor_user_id IS NOT NULL),
+        (SELECT max(i.occurred_at) FROM ops.crm_interactions i WHERE i.opportunity_id=b.id),
+        (SELECT max((a.record->>'occurredAt')::timestamptz) FROM ops.crm_activities a WHERE a.opportunity_id=b.id AND a.record->>'kind'='stage_changed')
+      ) AS last_touch_at`;
+  }
+  private async replyStates(tx: Sql, ids: string[]): Promise<Map<string, { firstReplyAt: string | null; lastTouchAt: string | null }>> {
+    if (!ids.length) return new Map();
+    const rows = await tx`SELECT b.id,${this.replyColumns(tx)} FROM (SELECT unnest(${tx.array(ids)}::uuid[]) AS id) b`;
+    return new Map(
+      rows.map((row) => [String(row.id), { firstReplyAt: isoOrNull(row.first_reply_at), lastTouchAt: isoOrNull(row.last_touch_at) }]),
+    );
+  }
+  private opportunityRow(record: unknown, state: { firstReplyAt: string | null; lastTouchAt: string | null }): CrmOpportunityRow {
+    const opportunity = crmOpportunitySchema.parse(record);
+    // Since when they have been waiting on us: from the enquiry while nobody has replied, otherwise from when the next action fell due.
+    let waitingSince: string | null = null;
+    if (opportunity.stage !== 'closed')
+      waitingSince = new Date(
+        state.firstReplyAt === null || !opportunity.nextAction ? opportunity.createdAt : opportunity.nextAction.dueAt,
+      ).toISOString();
+    return crmOpportunityRowSchema.parse({ ...opportunity, ...state, waitingSince });
+  }
   async listOpportunities(raw: CrmListInput) {
     const input = normalizeIds(crmListInputSchema.parse(raw));
+    const queue = input.queue === 'waiting';
+    const now = this.now().toISOString();
     return this.write(async (tx) => {
       let cursor: { at: string; id: string } | null = null;
       if (input.cursor) {
         try {
-          cursor = cursorSchema.parse(JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8')));
+          const decoded = JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8'));
+          // A queue cursor and a default cursor are not interchangeable: each is strict about its own shape.
+          cursor = queue ? queueCursorSchema.parse(decoded) : cursorSchema.parse(decoded);
         } catch {
           throw new OutreachError('ops.crm.cursor_invalid');
         }
       }
-      const rows = await tx`SELECT o.record,s.id AS submission_id,s.record->>'completedAt' AS completed_at,
+      const base = tx`SELECT o.id,o.created_at,o.stage,o.record,s.id AS submission_id,s.record->>'completedAt' AS completed_at,
         s.original_contact->>'organisationName' AS organisation_name
         FROM ops.crm_opportunities o JOIN ops.crm_contacts c ON c.id=o.contact_id
         JOIN ops.crm_submissions s ON s.id=o.submission_id
@@ -398,10 +441,35 @@ export class OutreachCrm {
           OR EXISTS(SELECT 1 FROM ops.crm_contact_aliases al JOIN ops.crm_contacts ac ON ac.id=al.contact_id
             WHERE al.canonical_contact_id=o.contact_id
             AND NOT EXISTS(SELECT 1 FROM ops.crm_erasure_intents e WHERE ac.id = ANY(e.contact_ids))
-            AND (strpos(lower(ac.record->>'name'),lower(${input.query ?? ''}))>0 OR strpos(lower(ac.record->>'email'),lower(${input.query ?? ''}))>0)))
-        AND (${cursor?.at ?? null}::timestamptz IS NULL OR (o.created_at,o.id)<(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
-        ORDER BY o.created_at DESC,o.id DESC LIMIT ${input.limit + 1}`;
-      const items = rows.slice(0, input.limit).map((r) => crmOpportunitySchema.parse(r.record));
+            AND (strpos(lower(ac.record->>'name'),lower(${input.query ?? ''}))>0 OR strpos(lower(ac.record->>'email'),lower(${input.query ?? ''}))>0)))`;
+      // The waiting queue: open, and either nobody has replied yet or the next action is due now. Oldest waiting first, where
+      // "waiting since" is the enquiry's creation until it is first replied to, and the next action's due time after that.
+      const waitingSince = tx`(CASE WHEN q.first_reply_at IS NULL THEN q.created_at ELSE (q.record->'nextAction'->>'dueAt')::timestamptz END)`;
+      const rows = queue
+        ? await tx`SELECT q.*,${waitingSince} AS waiting_since FROM (
+            SELECT b.*,${this.replyColumns(tx)} FROM (${base}) b WHERE b.stage<>'closed'
+          ) q
+          WHERE (q.first_reply_at IS NULL OR (q.record->'nextAction'->>'dueAt')::timestamptz<=${now}::timestamptz)
+          AND (${cursor?.at ?? null}::timestamptz IS NULL OR (${waitingSince},q.id)>(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
+          ORDER BY ${waitingSince},q.id LIMIT ${input.limit + 1}`
+        : await tx`SELECT b.* FROM (${base}) b
+          WHERE (${cursor?.at ?? null}::timestamptz IS NULL OR (b.created_at,b.id)<(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
+          ORDER BY b.created_at DESC,b.id DESC LIMIT ${input.limit + 1}`;
+      const pageRows = rows.slice(0, input.limit);
+      const states = queue
+        ? new Map(
+            pageRows.map((row) => [
+              String(row.id),
+              { firstReplyAt: isoOrNull(row.first_reply_at), lastTouchAt: isoOrNull(row.last_touch_at) },
+            ]),
+          )
+        : await this.replyStates(
+            tx,
+            pageRows.map((row) => String(row.id)),
+          );
+      const items = pageRows.map((r) =>
+        this.opportunityRow(r.record, states.get(String(r.id)) ?? { firstReplyAt: null, lastTouchAt: null }),
+      );
       const last = items.at(-1);
       const contactIds = [...new Set(items.map((item) => item.contactId))];
       const contactRows = contactIds.length
@@ -424,7 +492,7 @@ export class OutreachCrm {
         contacts: contactRows.map((row) => crmContactSchema.parse(row.record)),
         submissions: [
           ...new Map(
-            rows.slice(0, input.limit).map((row) => [
+            pageRows.map((row) => [
               row.submission_id,
               {
                 submissionId: row.submission_id,
@@ -436,7 +504,11 @@ export class OutreachCrm {
         ],
         items,
         nextCursor:
-          rows.length > input.limit && last ? Buffer.from(JSON.stringify({ at: last.createdAt, id: last.id })).toString('base64url') : null,
+          rows.length > input.limit && last
+            ? Buffer.from(
+                JSON.stringify(queue ? { at: last.waitingSince, id: last.id, queue: 'waiting' } : { at: last.createdAt, id: last.id }),
+              ).toString('base64url')
+            : null,
       });
     }, 'repeatable read');
   }
@@ -445,7 +517,10 @@ export class OutreachCrm {
     return this.write(async (tx) => {
       const rows = await tx`SELECT record FROM ops.crm_opportunities WHERE id=${opportunityId}`;
       if (!rows[0]) return null;
-      const opportunity = crmOpportunitySchema.parse(rows[0].record);
+      const opportunity = this.opportunityRow(
+        rows[0].record,
+        (await this.replyStates(tx, [opportunityId])).get(opportunityId) ?? { firstReplyAt: null, lastTouchAt: null },
+      );
       const deliveries =
         await tx`SELECT id,business_key,kind,status,attempts,acceptance_ref,error_code,created_at,updated_at FROM ops.crm_outbox WHERE submission_id=${opportunity.submissionId}`;
       const contacts = await tx`SELECT record FROM ops.crm_contacts WHERE id=${opportunity.contactId}`;
@@ -530,7 +605,11 @@ export class OutreachCrm {
         requestId: input.requestId,
         reason: input.reason,
       });
-      await this.activity(tx, row.id, { kind: 'operator', userId: actorUserId }, 'stage_changed', input.reason, input.requestId);
+      // fromStage and toStage let the timeline read "New to Qualified" rather than a vague "updated".
+      await this.activity(tx, row.id, { kind: 'operator', userId: actorUserId }, 'stage_changed', input.reason, input.requestId, {
+        fromStage: old.stage,
+        toStage: row.stage,
+      });
       await this.audit(tx, actorUserId, input.requestId, 'opportunity', row.id, 'stage_changed', input.reason, {
         from: old.stage,
         to: row.stage,
@@ -558,7 +637,11 @@ export class OutreachCrm {
       });
       await this.task(tx, row, { actor: actorUserId, requestId: input.requestId, reason: 'Founder edited the next action' });
       // note = the new description, referenceId = the new due time, so the history can say what the next action became.
-      await this.activity(tx, row.id, { kind: 'operator', userId: actorUserId }, 'next_action_changed', input.description, dueAt);
+      // fromDueAt is null when there was no pending next action.
+      await this.activity(tx, row.id, { kind: 'operator', userId: actorUserId }, 'next_action_changed', input.description, dueAt, {
+        fromDueAt: old.nextAction ? new Date(old.nextAction.dueAt).toISOString() : null,
+        toDueAt: dueAt,
+      });
       return row;
     });
   }
@@ -568,6 +651,45 @@ export class OutreachCrm {
     return this.mutate(actorUserId, input, 'addNote', (tx, row) =>
       this.activity(tx, row.id, { kind: 'operator', userId: actorUserId }, 'note', input.note, input.requestId),
     );
+  }
+  /**
+   * Sets or clears the founder-confirmed commitment of an investor opportunity. Same lock, revision check, replay and audit as
+   * the other writes. The amount stays a decimal string end to end; it never passes through Number.
+   */
+  async setCommitment(raw: CrmSetCommitmentInput, actorUserId: string) {
+    actorUserId = uuidSchema.parse(actorUserId).toLowerCase();
+    const input = normalizeIds(crmSetCommitmentInputSchema.parse(raw));
+    return this.mutate(actorUserId, input, 'setCommitment', async (tx, old) => {
+      if (old.revision !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
+      if (old.audience !== 'investor') throw new OutreachError('ops.crm.commitment_investor_only');
+      // A commitment on a closed enquiry would claim money for a record that has left the pipeline. Clearing one is still allowed.
+      if (input.commitment !== null && old.stage === 'closed') throw new OutreachError('ops.crm.opportunity_closed');
+      const at = this.now().toISOString();
+      const commitment =
+        input.commitment === null
+          ? null
+          : crmCommitmentSchema.parse({
+              tier: input.commitment.tier,
+              amount: input.commitment.amount,
+              currency: input.commitment.currency,
+              ...(input.commitment.evidenceRef === undefined ? {} : { evidenceRef: input.commitment.evidenceRef }),
+              recordedAt: at,
+              recordedBy: actorUserId,
+            });
+      const summary = (value: typeof old.commitment) =>
+        value ? { tier: value.tier, amount: value.amount, currency: value.currency } : null;
+      const row = await this.saveOpportunity(tx, { ...old, commitment, revision: old.revision + 1, updatedAt: at });
+      await this.activity(tx, row.id, { kind: 'operator', userId: actorUserId }, 'commitment_changed', input.reason, input.requestId, {
+        fromCommitment: summary(old.commitment),
+        toCommitment: summary(commitment),
+      });
+      await this.audit(tx, actorUserId, input.requestId, 'opportunity', row.id, 'commitment_changed', input.reason, {
+        previous: old.commitment,
+        current: commitment,
+        revision: row.revision,
+      });
+      return row;
+    });
   }
   private json(tx: Sql, value: unknown) {
     return tx.json(JSON.parse(JSON.stringify(value)));
@@ -834,7 +956,7 @@ export class OutreachCrm {
     const input = normalizeIds(workflow.crmMetricsInputSchema.parse(raw));
     return this.write(async (tx) => {
       const observedAt = this.now().toISOString();
-      const filtered = tx`SELECT o.id,o.submission_id,o.contact_id,o.audience,o.stage,s.record AS submission,s.attribution FROM ops.crm_opportunities o JOIN ops.crm_submissions s ON s.id=o.submission_id
+      const filtered = tx`SELECT o.id,o.submission_id,o.contact_id,o.audience,o.stage,o.record AS opp,s.record AS submission,s.attribution FROM ops.crm_opportunities o JOIN ops.crm_submissions s ON s.id=o.submission_id
         WHERE (${input.audience ?? null}::text IS NULL OR o.audience=${input.audience ?? null}) AND (${input.stage ?? null}::text IS NULL OR o.stage=${input.stage ?? null}) AND (${input.ownerUserId ?? null}::uuid IS NULL OR o.owner_user_id=${input.ownerUserId ?? null}::uuid)
         AND (${input.campaignId ?? null}::uuid IS NULL OR (s.attribution->'campaign'->>'id')::uuid=${input.campaignId ?? null}::uuid) AND (${input.sourceKey ?? null}::text IS NULL OR s.attribution->>'sourceHint'=${input.sourceKey ?? null})
         AND (${input.capturedFrom ?? null}::timestamptz IS NULL OR (s.record->>'capturedAt')::timestamptz>=${input.capturedFrom ?? null}::timestamptz) AND (${input.capturedBefore ?? null}::timestamptz IS NULL OR (s.record->>'capturedAt')::timestamptz<${input.capturedBefore ?? null}::timestamptz)`;
@@ -849,6 +971,25 @@ export class OutreachCrm {
         await tx`WITH filtered AS (${filtered}) SELECT audience,stage,count(*)::int AS count FROM filtered GROUP BY audience,stage ORDER BY audience,stage`;
       const sources =
         await tx`WITH filtered AS (${filtered}) SELECT attribution->>'sourceHint' AS source_key,attribution->'campaign'->>'id' AS campaign_id,count(*)::int AS count FROM filtered GROUP BY source_key,campaign_id ORDER BY count DESC,source_key NULLS LAST,campaign_id NULLS LAST LIMIT 201`;
+      // The raise. Exact decimal addition in PostgreSQL numeric (never a float), one total per currency, nothing converted.
+      // A commitment is the founder's own record and counts while the enquiry is open or was closed as proceeded; the enquirer's
+      // stated amount counts only for open investors who have no commitment, so nobody is counted at two levels.
+      const money = await tx`WITH filtered AS (${filtered}),
+        levels AS (
+          SELECT COALESCE(opp->'commitment'->>'tier','indicated') AS level,
+            CASE WHEN opp->'commitment'->>'tier' IS NULL THEN opp->'indicativeContribution'->>'currency' ELSE opp->'commitment'->>'currency' END AS currency,
+            CASE WHEN opp->'commitment'->>'tier' IS NULL THEN opp->'indicativeContribution'->>'amount' ELSE opp->'commitment'->>'amount' END AS amount
+          FROM filtered
+          WHERE audience='investor'
+          AND (CASE WHEN opp->'commitment'->>'tier' IS NULL THEN stage<>'closed' ELSE stage<>'closed' OR opp->>'closedDisposition'='proceeded' END)
+          AND (opp->'commitment'->>'tier' IS NOT NULL OR opp->'indicativeContribution'->>'status'='stated')
+        )
+        SELECT level,currency,trim_scale(sum(amount::numeric))::text AS amount,count(*)::int AS count FROM levels GROUP BY level,currency ORDER BY level,currency`;
+      const undecided =
+        await tx`WITH filtered AS (${filtered}) SELECT count(*)::int AS count FROM filtered WHERE audience='investor' AND stage<>'closed'
+        AND opp->'commitment'->>'tier' IS NULL AND opp->'indicativeContribution'->>'status'<>'stated'`;
+      const totalsOf = (level: string) => money.filter((r) => r.level === level).map((r) => ({ currency: r.currency, amount: r.amount }));
+      const countOf = (level: string) => money.filter((r) => r.level === level).reduce((sum, r) => sum + Number(r.count), 0);
       const row = totals[0]!;
       return workflow.crmMetricsSchema.parse({
         observedAt,
@@ -867,6 +1008,17 @@ export class OutreachCrm {
           .slice(0, 200)
           .map((r) => ({ sourceKey: r.source_key ?? null, campaignId: r.campaign_id ?? null, count: r.count })),
         sourceGroupsTruncated: sources.length > 200,
+        raise: {
+          indicated: totalsOf('indicated'),
+          softCircled: totalsOf('soft_circled'),
+          committed: totalsOf('committed'),
+          counts: {
+            indicated: countOf('indicated'),
+            softCircled: countOf('soft_circled'),
+            committed: countOf('committed'),
+            undecided: undecided[0]?.count ?? 0,
+          },
+        },
       });
     }, 'repeatable read');
   }
@@ -1068,8 +1220,12 @@ export class OutreachCrm {
       if (Date.parse(input.occurredAt) > this.now().getTime()) throw new OutreachError('ops.crm.interaction_in_future');
       if (input.kind === 'call_booked' && Date.parse(input.scheduledAt) < Date.parse(input.occurredAt))
         throw new OutreachError('ops.crm.call_schedule_invalid');
+      // reply_sent is the one kind whose evidence is optional (a reply sent outside the console may have no reference).
+      const evidenceRef = input.evidenceRef ?? null;
       const existing =
-        await tx`SELECT id FROM ops.crm_interactions WHERE opportunity_id=${old.id} AND kind=${input.kind} AND record->>'evidenceRef'=${input.evidenceRef}`;
+        evidenceRef === null
+          ? []
+          : await tx`SELECT id FROM ops.crm_interactions WHERE opportunity_id=${old.id} AND kind=${input.kind} AND record->>'evidenceRef'=${evidenceRef}`;
       if (existing[0]) throw new OutreachError('ops.crm.interaction_already_recorded');
       const at = this.now().toISOString(),
         interaction = workflow.crmInteractionSchema.parse({
@@ -1078,7 +1234,7 @@ export class OutreachCrm {
           kind: input.kind,
           actorUserId: actor.toLowerCase(),
           status: 'manually_recorded',
-          evidenceRef: input.evidenceRef,
+          evidenceRef,
           occurredAt: input.occurredAt,
           recordedAt: at,
           scheduledAt: input.kind === 'call_booked' ? input.scheduledAt : null,
@@ -1097,7 +1253,7 @@ export class OutreachCrm {
         { kind: 'operator', userId: actor.toLowerCase() },
         input.kind === 'follow_up' ? 'note' : input.kind,
         input.reason,
-        input.evidenceRef,
+        evidenceRef,
       );
       await this.audit(tx, actor, input.requestId, 'opportunity', old.id, 'interaction_recorded', input.reason, {
         interaction,
@@ -1232,9 +1388,11 @@ export class OutreachCrm {
     kind: CrmActivity['kind'],
     note: string | null,
     referenceId: string | null,
+    change: Partial<Pick<CrmActivity, 'fromStage' | 'toStage' | 'fromDueAt' | 'toDueAt' | 'fromCommitment' | 'toCommitment'>> = {},
   ): Promise<CrmActivity> {
     const rows = await tx`SELECT COALESCE(MAX(sequence),0)+1 AS sequence FROM ops.crm_activities WHERE opportunity_id=${opportunityId}`;
     const activity = crmActivitySchema.parse({
+      ...change,
       id: randomUUID(),
       opportunityId,
       sequence: Number(rows[0]?.sequence),
@@ -1254,6 +1412,8 @@ function staffTextOf(payload: unknown): string | null {
   return typeof message?.staffText === 'string' && message.staffText.length > 0 ? message.staffText : null;
 }
 const cursorSchema = z.object({ at: z.string().datetime({ offset: true }), id: uuidSchema }).strict();
+const queueCursorSchema = z.object({ at: z.string().datetime({ offset: true }), id: uuidSchema, queue: z.literal('waiting') }).strict();
+const isoOrNull = (value: unknown): string | null => (value === null || value === undefined ? null : new Date(value as Date).toISOString());
 function outreachCaptureReceipt(value: unknown) {
   return outreachCaptureReceiptSchema.parse(value);
 }

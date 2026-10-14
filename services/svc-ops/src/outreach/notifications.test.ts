@@ -2,7 +2,12 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
-import { crmQueueMessageReceiptSchema, type GuestNotificationReceipt, type GuestNotificationSendInput } from '@intafaced/contracts';
+import {
+  crmQueueMessageReceiptSchema,
+  type CrmOpportunity,
+  type GuestNotificationReceipt,
+  type GuestNotificationSendInput,
+} from '@intafaced/contracts';
 import { migrateOutreach } from '../db/migrate.js';
 import { OutreachCrm } from './crm.js';
 import { OutreachNotificationWorker } from './notification-worker.js';
@@ -246,7 +251,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('CRM durable guest queue 
   it('refuses call invitations until actual investor answers and founder review exist', async () => {
     const original = capture(),
       saved = await crm.capture(original, 'review');
-    let opportunity = (await crm.listOpportunities({ limit: 10 })).items[0]!;
+    let opportunity: CrmOpportunity = (await crm.listOpportunities({ limit: 10 })).items[0]!;
     const queue = () =>
       crm.queueMessage(
         {

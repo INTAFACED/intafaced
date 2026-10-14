@@ -7,7 +7,12 @@ import {
   crmEngagementSyncSchema,
   crmInvestorStageSchema,
   crmOpportunitySchema,
+  crmOpportunityRowSchema,
   crmOpportunityPageSchema,
+  crmCommitmentSchema,
+  crmSetCommitmentInputSchema,
+  ISO_4217_CURRENCIES,
+  crmListInputSchema,
   crmStageChangeInputSchema,
   crmStageFitsAudience,
   crmSubmissionSchema,
@@ -127,9 +132,17 @@ const OPPORTUNITY_BASE = {
   updatedAt: NOW,
 };
 
+const REPLY_STATE = { firstReplyAt: null, lastTouchAt: null, waitingSince: NOW };
+
 describe('outreach and CRM boundary contracts', () => {
   it('includes exactly the private contacts associated with visible opportunities', () => {
-    const opportunity = { ...OPPORTUNITY_BASE, audience: 'investor', stage: 'new', indicativeContribution: { status: 'undecided' } };
+    const opportunity = {
+      ...OPPORTUNITY_BASE,
+      ...REPLY_STATE,
+      audience: 'investor',
+      stage: 'new',
+      indicativeContribution: { status: 'undecided' },
+    };
     const contact = {
       id: CONTACT_ID,
       name: 'Ada',
@@ -407,7 +420,13 @@ describe('outreach and CRM boundary contracts', () => {
   });
 
   it('carries an alias match only for a visible opportunity', () => {
-    const opportunity = { ...OPPORTUNITY_BASE, audience: 'investor', stage: 'new', indicativeContribution: { status: 'undecided' } };
+    const opportunity = {
+      ...OPPORTUNITY_BASE,
+      ...REPLY_STATE,
+      audience: 'investor',
+      stage: 'new',
+      indicativeContribution: { status: 'undecided' },
+    };
     const contact = {
       id: CONTACT_ID,
       name: 'Ada',
@@ -457,5 +476,109 @@ describe('outreach and CRM boundary contracts', () => {
     expect(crmMessageSchema.parse({ ...message, staffText: undefined }).staffText).toBeNull();
     expect(crmMessageSchema.safeParse({ ...message, staffText: 'x'.repeat(2001) }).success).toBe(false);
     expect(crmMessagePageSchema.safeParse({ items: [message], nextCursor: null }).success).toBe(true);
+  });
+  describe('reply state, queue mode and commitment', () => {
+    const investor = {
+      ...OPPORTUNITY_BASE,
+      audience: 'investor' as const,
+      stage: 'new' as const,
+      indicativeContribution: { status: 'undecided' as const },
+    };
+    const commitment = { tier: 'soft_circled', amount: '250000', currency: 'EUR', recordedAt: NOW, recordedBy: OWNER_ID };
+
+    it('reads a record saved before commitment existed as having none, and keeps reply state out of the record', () => {
+      expect(crmOpportunitySchema.parse(investor)).toMatchObject({ commitment: null });
+      expect(crmOpportunitySchema.safeParse({ ...investor, firstReplyAt: null }).success).toBe(false);
+      const row = crmOpportunityRowSchema.parse({ ...investor, ...REPLY_STATE });
+      expect(row).toMatchObject({ commitment: null, firstReplyAt: null, lastTouchAt: null, waitingSince: NOW });
+      // A row must say when it started waiting; a server that omits the reply state is refused, not read as "unreplied".
+      expect(crmOpportunityRowSchema.safeParse(investor).success).toBe(false);
+      expect(crmOpportunityRowSchema.safeParse({ ...investor, ...REPLY_STATE, waitingSince: 'soon' }).success).toBe(false);
+    });
+
+    it('holds a commitment on investors only, and checks the money', () => {
+      expect(crmOpportunitySchema.parse({ ...investor, commitment })).toMatchObject({ commitment });
+      const trader = { ...OPPORTUNITY_BASE, audience: 'trader' as const, stage: 'new' as const };
+      expect(crmOpportunitySchema.safeParse({ ...trader, commitment }).success).toBe(false);
+      expect(crmCommitmentSchema.safeParse({ ...commitment, tier: 'received' }).success).toBe(false);
+      expect(crmCommitmentSchema.safeParse({ ...commitment, evidenceRef: 'x'.repeat(201) }).success).toBe(false);
+      expect(crmCommitmentSchema.safeParse({ ...commitment, evidenceRef: 'x'.repeat(200) }).success).toBe(true);
+      for (const amount of ['-1', '1e6', '1,000', ' 5', '5.', '.5', '0', '0.00', '250000.0000000000000000001', 'abc', '']) {
+        expect(crmCommitmentSchema.safeParse({ ...commitment, amount }).success, amount).toBe(false);
+      }
+      for (const amount of ['1', '0.5', '250000', '99999999999999999999999.123456789012345678']) {
+        expect(crmCommitmentSchema.safeParse({ ...commitment, amount }).success, amount).toBe(true);
+      }
+      // Numbers are not decimal strings.
+      expect(crmCommitmentSchema.safeParse({ ...commitment, amount: 250000 }).success).toBe(false);
+    });
+
+    it('accepts only real ISO 4217 currencies', () => {
+      for (const currency of ['EUR', 'USD', 'GBP', 'IDR', 'JPY', 'CHF', 'SGD']) {
+        expect(crmCommitmentSchema.safeParse({ ...commitment, currency }).success, currency).toBe(true);
+      }
+      for (const currency of ['ZZZ', 'XXX', 'XAU', 'BTC', 'eur', 'EU', 'EURO', '', 'ABC']) {
+        expect(crmCommitmentSchema.safeParse({ ...commitment, currency }).success, currency).toBe(false);
+      }
+      expect(new Set(ISO_4217_CURRENCIES).size).toBe(ISO_4217_CURRENCIES.length);
+    });
+
+    it('sets or clears a commitment with a revision and a reason, and never accepts who or when', () => {
+      const input = {
+        requestId: REQUEST_ID,
+        opportunityId: OPPORTUNITY_ID,
+        expectedRevision: 3,
+        commitment: { tier: 'committed', amount: '100000', currency: 'EUR', evidenceRef: 'signed subscription agreement, 2026-10-12' },
+        reason: 'Documents signed',
+      };
+      expect(crmSetCommitmentInputSchema.safeParse(input).success).toBe(true);
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, commitment: null }).success).toBe(true);
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, commitment: undefined }).success).toBe(false);
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, reason: '  ' }).success).toBe(false);
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, reason: undefined }).success).toBe(false);
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, expectedRevision: 0 }).success).toBe(false);
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, requestId: undefined }).success).toBe(false);
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, commitment: { ...input.commitment, recordedBy: OWNER_ID } }).success).toBe(
+        false,
+      );
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, commitment: { ...input.commitment, amount: '-5' } }).success).toBe(false);
+      expect(crmSetCommitmentInputSchema.safeParse({ ...input, commitment: { ...input.commitment, currency: 'ZZZ' } }).success).toBe(false);
+    });
+
+    it('accepts the waiting queue on a list request and nothing else in its place', () => {
+      expect(crmListInputSchema.parse({ limit: 50, queue: 'waiting' })).toEqual({ limit: 50, queue: 'waiting' });
+      expect(crmListInputSchema.parse({ limit: 50 }).queue).toBeUndefined();
+      expect(crmListInputSchema.safeParse({ limit: 50, queue: 'all' }).success).toBe(false);
+    });
+
+    it('records where a stage, a next action and a commitment came from and went, and still reads old entries', () => {
+      const activity = {
+        id: REQUEST_ID,
+        opportunityId: OPPORTUNITY_ID,
+        sequence: 2,
+        kind: 'stage_changed',
+        actor: { kind: 'operator', userId: OWNER_ID },
+        note: 'Reviewed: fits',
+        referenceId: null,
+        occurredAt: NOW,
+      };
+      expect(crmActivitySchema.safeParse(activity).success).toBe(true); // an entry written before these fields existed
+      expect(crmActivitySchema.safeParse({ ...activity, fromStage: 'new', toStage: 'qualified' }).success).toBe(true);
+      expect(crmActivitySchema.safeParse({ ...activity, fromStage: 'archived' }).success).toBe(false);
+      const due = { ...activity, kind: 'next_action_changed', fromDueAt: NOW, toDueAt: '2026-10-15T00:00:00.000Z' };
+      expect(crmActivitySchema.safeParse(due).success).toBe(true);
+      expect(crmActivitySchema.safeParse({ ...due, fromDueAt: null }).success).toBe(true);
+      const changed = {
+        ...activity,
+        kind: 'commitment_changed',
+        fromCommitment: null,
+        toCommitment: { tier: 'committed', amount: '100000', currency: 'EUR' },
+      };
+      expect(crmActivitySchema.safeParse(changed).success).toBe(true);
+      expect(crmActivitySchema.safeParse({ ...changed, toCommitment: { tier: 'committed', amount: '-1', currency: 'EUR' } }).success).toBe(
+        false,
+      );
+      expect(crmActivitySchema.safeParse({ ...activity, kind: 'reply_sent' }).success).toBe(true);
+    });
   });
 });

@@ -18,6 +18,7 @@ import {
   crmStageChangeInputSchema,
   crmNextActionInputSchema,
   crmNoteInputSchema,
+  crmSetCommitmentInputSchema,
   crmActivitySchema,
   type Context,
 } from '@intafaced/contracts';
@@ -123,6 +124,10 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .input(crmNextActionInputSchema)
       .output(crmOpportunitySchema)
       .mutation(({ input, ctx }) => mapped(() => crm.updateNextAction(input, ctx.principal!.userId))),
+    setCommitment: staffWrite
+      .input(crmSetCommitmentInputSchema)
+      .output(crmOpportunitySchema)
+      .mutation(({ input, ctx }) => mapped(() => crm.setCommitment(input, ctx.principal!.userId))),
     addNote: staffWrite
       .input(crmNoteInputSchema)
       .output(crmActivitySchema)

@@ -6,6 +6,11 @@ import {
   crmMetricsInputSchema,
   crmCampaignWriteInputSchema,
   crmDocumentProviderReadResultSchema,
+  crmInteractionInputSchema,
+  crmInteractionSchema,
+  crmMetricsSchema,
+  crmRaiseSchema,
+  crmWorkflowAuditSchema,
 } from './crm-workflows.js';
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -90,5 +95,94 @@ describe('owned CRM workflow boundaries', () => {
       crmDocumentProviderReadResultSchema.safeParse({ status: 'unavailable', reason: 'api_access_unavailable', items: [] }).success,
     ).toBe(false);
     expect(crmDocumentProviderReadResultSchema.safeParse({ status: 'page', items: [], nextCursor: null }).success).toBe(true);
+  });
+  const interaction = {
+    requestId: A,
+    opportunityId: B,
+    expectedRevision: 2,
+    occurredAt: NOW,
+    nextAction: { description: 'Check in after the weekend', dueAt: '2026-10-14T09:00:00.000Z' },
+    reason: 'Replied from Gmail',
+  };
+  it('records a reply sent outside the console, with an evidence reference that is optional for this kind only', () => {
+    expect(crmInteractionInputSchema.safeParse({ ...interaction, kind: 'reply_sent' }).success).toBe(true);
+    expect(crmInteractionInputSchema.safeParse({ ...interaction, kind: 'reply_sent', evidenceRef: 'gmail-thread-18f2' }).success).toBe(
+      true,
+    );
+    expect(crmInteractionInputSchema.safeParse({ ...interaction, kind: 'reply_sent', evidenceRef: '' }).success).toBe(false);
+    expect(crmInteractionInputSchema.safeParse({ ...interaction, kind: 'reply_sent', evidenceRef: 'x'.repeat(129) }).success).toBe(false);
+    // The other kinds still need evidence, and a reply still needs a reason and a next step.
+    expect(crmInteractionInputSchema.safeParse({ ...interaction, kind: 'follow_up' }).success).toBe(false);
+    expect(crmInteractionInputSchema.safeParse({ ...interaction, kind: 'call_invited' }).success).toBe(false);
+    expect(crmInteractionInputSchema.safeParse({ ...interaction, kind: 'reply_sent', reason: undefined }).success).toBe(false);
+    expect(crmInteractionInputSchema.safeParse({ ...interaction, kind: 'reply_sent', nextAction: undefined }).success).toBe(false);
+    expect(crmInteractionInputSchema.safeParse({ ...interaction, kind: 'reply_sent', actorUserId: A }).success).toBe(false);
+  });
+  it('lets only a reply be stored without evidence', () => {
+    const stored = {
+      id: A,
+      opportunityId: B,
+      kind: 'reply_sent',
+      actorUserId: A,
+      status: 'manually_recorded',
+      evidenceRef: null,
+      occurredAt: NOW,
+      recordedAt: NOW,
+      scheduledAt: null,
+    };
+    expect(crmInteractionSchema.safeParse(stored).success).toBe(true);
+    expect(crmInteractionSchema.safeParse({ ...stored, kind: 'follow_up' }).success).toBe(false);
+    expect(crmInteractionSchema.safeParse({ ...stored, kind: 'follow_up', evidenceRef: 'call-note' }).success).toBe(true);
+  });
+  it('knows the commitment_changed audit kind', () => {
+    const audit = {
+      id: A,
+      requestId: B,
+      actorUserId: A,
+      subjectType: 'opportunity',
+      subjectId: B,
+      kind: 'commitment_changed',
+      reason: 'Documents signed',
+      occurredAt: NOW,
+      facts: {},
+    };
+    expect(crmWorkflowAuditSchema.safeParse(audit).success).toBe(true);
+    expect(crmWorkflowAuditSchema.safeParse({ ...audit, kind: 'commitment_deleted' }).success).toBe(false);
+  });
+  it('totals the raise per currency as exact decimal strings, with people counted separately', () => {
+    const raise = {
+      indicated: [
+        { currency: 'EUR', amount: '1000000.5' },
+        { currency: 'USD', amount: '50000' },
+      ],
+      softCircled: [{ currency: 'EUR', amount: '250000' }],
+      committed: [{ currency: 'EUR', amount: '100000' }],
+      counts: { indicated: 3, softCircled: 1, committed: 1, undecided: 2 },
+    };
+    expect(crmRaiseSchema.parse(raise)).toEqual(raise);
+    expect(crmRaiseSchema.safeParse({ ...raise, indicated: [{ currency: 'EUR', amount: 1000000 }] }).success).toBe(false);
+    expect(crmRaiseSchema.safeParse({ ...raise, indicated: [{ currency: 'EUR', amount: '-1' }] }).success).toBe(false);
+    expect(crmRaiseSchema.safeParse({ ...raise, indicated: [{ currency: 'EUR', amount: '1e6' }] }).success).toBe(false);
+    expect(crmRaiseSchema.safeParse({ ...raise, indicated: [{ currency: 'ZZZ', amount: '1' }] }).success).toBe(false);
+    expect(crmRaiseSchema.safeParse({ ...raise, converted: { currency: 'EUR', amount: '1' } }).success).toBe(false);
+    const metrics = {
+      observedAt: NOW,
+      totals: {
+        opportunities: 0,
+        submissions: 0,
+        canonicalContacts: 0,
+        incompleteSubmissions: 0,
+        overdueTasks: 0,
+        manualCallInvitations: 0,
+        manualCallBookings: 0,
+      },
+      byAudience: [],
+      byStage: [],
+      bySource: [],
+      sourceGroupsTruncated: false,
+      raise,
+    };
+    expect(crmMetricsSchema.safeParse(metrics).success).toBe(true);
+    expect(crmMetricsSchema.safeParse({ ...metrics, raise: undefined }).success).toBe(false);
   });
 });

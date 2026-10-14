@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import type { CrmOpportunity } from '@intafaced/contracts';
 import { migrateOutreach } from '../db/migrate.js';
 import { OutreachCrm } from './crm.js';
 
@@ -311,7 +312,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder CRM workflows on
   it('requires reviewed investor answers before calls and audits raced task completion with manual evidence', async () => {
     const input = captureInput();
     const receipt = await crm.capture(input, 'calls');
-    let opportunity = (await crm.listOpportunities({ limit: 10 })).items[0]!;
+    let opportunity: CrmOpportunity = (await crm.listOpportunities({ limit: 10 })).items[0]!;
     const planned = {
       requestId: randomUUID(),
       opportunityId: opportunity.id,

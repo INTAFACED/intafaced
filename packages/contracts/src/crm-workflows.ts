@@ -7,6 +7,8 @@ import {
   crmTaskSchema,
   crmActivitySchema,
   crmOpportunitySchema,
+  crmCurrencySchema,
+  crmDecimalAmountSchema,
   outreachContactCaptureSchema,
 } from './outreach-crm.js';
 
@@ -141,6 +143,22 @@ function validateCaptureInterval(value: { capturedFrom?: string; capturedBefore?
   if (value.capturedFrom && value.capturedBefore && Date.parse(value.capturedFrom) >= Date.parse(value.capturedBefore))
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Capture interval must be increasing' });
 }
+const crmMoneyTotalSchema = z.object({ currency: crmCurrencySchema, amount: crmDecimalAmountSchema }).strict();
+/**
+ * The raise as three honest levels, each currency summed on its own with exact decimal addition and never converted.
+ * indicated: the stated indicativeContribution of open investor opportunities that have no commitment (self-reported).
+ * softCircled / committed: founder-recorded commitments, by tier. Nothing here is money received (SPEC:27).
+ */
+export const crmRaiseSchema = z
+  .object({
+    indicated: z.array(crmMoneyTotalSchema).max(60),
+    softCircled: z.array(crmMoneyTotalSchema).max(60),
+    committed: z.array(crmMoneyTotalSchema).max(60),
+    /** People, not currencies: how many opportunities are in each level. undecided: open investors with no commitment and no stated amount. */
+    counts: z.object({ indicated: count, softCircled: count, committed: count, undecided: count }).strict(),
+  })
+  .strict();
+export type CrmRaise = z.infer<typeof crmRaiseSchema>;
 export const crmMetricsInputSchema = z.object(filters).strict().superRefine(validateCaptureInterval);
 export const crmMetricsSchema = z
   .object({
@@ -180,6 +198,7 @@ export const crmMetricsSchema = z
       )
       .max(200),
     sourceGroupsTruncated: z.boolean(),
+    raise: crmRaiseSchema,
   })
   .strict();
 export const crmDuplicateListInputSchema = z
@@ -358,20 +377,38 @@ export const crmInteractionInputSchema = z.discriminatedUnion('kind', [
       reason,
     })
     .strict(),
+  /** A reply was sent outside the console, e.g. from Gmail. The only kind whose evidence reference is optional. */
+  z
+    .object({
+      requestId: id,
+      opportunityId: id,
+      expectedRevision: revision,
+      kind: z.literal('reply_sent'),
+      occurredAt: timestamp,
+      evidenceRef: evidenceRef.optional(),
+      nextAction,
+      reason,
+    })
+    .strict(),
 ]);
 export const crmInteractionSchema = z
   .object({
     id,
     opportunityId: id,
-    kind: z.enum(['call_invited', 'call_booked', 'follow_up']),
+    kind: z.enum(['call_invited', 'call_booked', 'follow_up', 'reply_sent']),
     actorUserId: id,
     status: z.literal('manually_recorded'),
-    evidenceRef,
+    /** Null only for reply_sent recorded without a reference. */
+    evidenceRef: evidenceRef.nullable(),
     occurredAt: timestamp,
     recordedAt: timestamp,
     scheduledAt: timestamp.nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.evidenceRef === null && value.kind !== 'reply_sent')
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evidenceRef'], message: 'Evidence is required for this kind' });
+  });
 export const crmInteractionReceiptSchema = z
   .object({
     interaction: crmInteractionSchema,
@@ -394,6 +431,7 @@ export const crmWorkflowAuditSchema = z
       'task_created',
       'task_transitioned',
       'interaction_recorded',
+      'commitment_changed',
       'message_queued',
       'export_generated',
     ]),

@@ -40,6 +40,7 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
   const activities = new Map(); // opportunity id -> []
   const tasks = []; // crmWorkflowTask
   const messages = [];
+  const interactions = []; // crmInteraction, in recorded order
   const audits = [];
   const campaigns = new Map();
   const mappings = new Map();
@@ -66,9 +67,10 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
     return data;
   }
 
-  function activity(opportunityId, actor, kind, note = null, referenceId = null) {
+  function activity(opportunityId, actor, kind, note = null, referenceId = null, change = {}) {
     const rows = activities.get(opportunityId) ?? [];
     const row = c.crmActivitySchema.parse({
+      ...change,
       id: randomUUID(),
       opportunityId,
       sequence: rows.length + 1,
@@ -110,6 +112,74 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
     if (!current) throw new FixtureError('ops.crm.not_found', 404);
     if (expectedRevision !== undefined && current.revision !== expectedRevision) throw new FixtureError('ops.crm.revision_conflict', 409);
     return saveOpportunity({ ...current, revision: current.revision + 1 });
+  }
+
+  // Derived exactly like svc-ops: nothing is stored on the opportunity. A touch is a queued message, a recorded interaction or a
+  // stage change (notes and owner changes are not). First reply is the first queued message or reply_sent interaction.
+  const timeOf = (value) => Date.parse(value);
+  function replyState(opportunity) {
+    const sent = messages.filter((row) => row.opportunityId === opportunity.id).map((row) => timeOf(row.createdAt));
+    const recorded = interactions.filter((row) => row.opportunityId === opportunity.id);
+    const staged = (activities.get(opportunity.id) ?? [])
+      .filter((row) => row.kind === 'stage_changed')
+      .map((row) => timeOf(row.occurredAt));
+    const replies = [...sent, ...recorded.filter((row) => row.kind === 'reply_sent').map((row) => timeOf(row.occurredAt))];
+    const touches = [...sent, ...recorded.map((row) => timeOf(row.occurredAt)), ...staged];
+    const at = (values, pick) => (values.length ? new Date(pick(...values)).toISOString() : null);
+    const firstReplyAt = at(replies, Math.min);
+    // Waiting since the enquiry arrived until the first reply, then since the next action fell due. Closed: not waiting.
+    let waitingSince = null;
+    if (opportunity.stage !== 'closed')
+      waitingSince = new Date(
+        firstReplyAt === null || !opportunity.nextAction ? opportunity.createdAt : opportunity.nextAction.dueAt,
+      ).toISOString();
+    return { firstReplyAt, lastTouchAt: at(touches, Math.max), waitingSince };
+  }
+  const row = (opportunity) => c.crmOpportunityRowSchema.parse({ ...opportunity, ...replyState(opportunity) });
+
+  // Exact decimal addition on strings (scaled BigInt, 18 places like the contract). Never a Number, never converted between currencies.
+  const SCALE = 18;
+  const scaled = (value) => {
+    const [whole, fraction = ''] = value.split('.');
+    return BigInt(whole + fraction.padEnd(SCALE, '0'));
+  };
+  const decimal = (units) => {
+    const digits = units.toString().padStart(SCALE + 1, '0');
+    const whole = digits.slice(0, -SCALE).replace(/^0+(?=\d)/, '');
+    const fraction = digits.slice(-SCALE).replace(/0+$/, '');
+    return fraction ? `${whole}.${fraction}` : whole;
+  };
+  function raise(rows) {
+    const levels = { indicated: new Map(), soft_circled: new Map(), committed: new Map() };
+    const counts = { indicated: 0, soft_circled: 0, committed: 0, undecided: 0 };
+    const add = (level, currency, amount) => {
+      levels[level].set(currency, (levels[level].get(currency) ?? 0n) + scaled(amount));
+      counts[level] += 1;
+    };
+    for (const opportunity of rows) {
+      if (opportunity.audience !== 'investor') continue;
+      const open = opportunity.stage !== 'closed';
+      if (opportunity.commitment) {
+        // A commitment counts while the enquiry is open, or when it was closed as proceeded.
+        if (open || opportunity.closedDisposition === 'proceeded')
+          add(opportunity.commitment.tier, opportunity.commitment.currency, opportunity.commitment.amount);
+      } else if (open) {
+        // The enquirer's stated amount counts only for open investors without a commitment, so nobody is counted twice.
+        const stated = opportunity.indicativeContribution;
+        if (stated.status === 'stated') add('indicated', stated.currency, stated.amount);
+        else counts.undecided += 1;
+      }
+    }
+    const totals = (level) =>
+      [...levels[level]]
+        .sort(([a], [b]) => (a < b ? -1 : Number(a > b)))
+        .map(([currency, units]) => ({ currency, amount: decimal(units) }));
+    return {
+      indicated: totals('indicated'),
+      softCircled: totals('soft_circled'),
+      committed: totals('committed'),
+      counts: { indicated: counts.indicated, softCircled: counts.soft_circled, committed: counts.committed, undecided: counts.undecided },
+    };
   }
 
   function openOpportunity(submissionId, contactId, audience, organisationId = null) {
@@ -431,16 +501,48 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
     }),
     'outreach.listOpportunities': (raw) => {
       const input = c.crmListInputSchema.parse(raw);
-      const items = visible()
-        .filter((row) => matches(row, input))
-        .slice(0, input.limit);
-      const aliasMatches = items.map((row) => aliasMatch(row, input.query)).filter(Boolean);
+      let rows = visible().filter((item) => matches(item, input));
+      let nextCursor = null;
+      if (input.queue === 'waiting') {
+        // Like svc-ops: open, and either nobody has replied yet or the next action is due now; oldest waiting first, ties by id.
+        const waiting = rows
+          .map((item) => row(item))
+          .filter((item) => item.stage !== 'closed' && (item.firstReplyAt === null || Date.parse(item.nextAction.dueAt) <= clock()))
+          .sort((a, b) => Date.parse(a.waitingSince) - Date.parse(b.waitingSince) || (a.id < b.id ? -1 : Number(a.id > b.id)));
+        let cursor = null;
+        if (input.cursor) {
+          try {
+            cursor = JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8'));
+            if (cursor.queue !== 'waiting' || typeof cursor.at !== 'string' || typeof cursor.id !== 'string') throw new Error('shape');
+          } catch {
+            throw new FixtureError('ops.crm.cursor_invalid', 409);
+          }
+        }
+        const after = cursor
+          ? waiting.filter(
+              (item) =>
+                Date.parse(item.waitingSince) > Date.parse(cursor.at) ||
+                (Date.parse(item.waitingSince) === Date.parse(cursor.at) && item.id > cursor.id),
+            )
+          : waiting;
+        const page = after.slice(0, input.limit);
+        const last = page.at(-1);
+        if (after.length > input.limit && last)
+          nextCursor = Buffer.from(JSON.stringify({ at: last.waitingSince, id: last.id, queue: 'waiting' })).toString('base64url');
+        rows = page;
+      } else {
+        // A cursor from the waiting queue is not a default-listing cursor.
+        if (input.cursor) throw new FixtureError('ops.crm.cursor_invalid', 409);
+        rows = rows.slice(0, input.limit).map((item) => row(item));
+      }
+      const items = rows;
+      const aliasMatches = items.map((item) => aliasMatch(item, input.query)).filter(Boolean);
       return c.crmOpportunityPageSchema.parse({
         items,
-        contacts: [...new Set(items.map((row) => row.contactId))].map(contact),
-        submissions: [...new Set(items.map((row) => row.submissionId))].map(summary),
+        contacts: [...new Set(items.map((item) => item.contactId))].map(contact),
+        submissions: [...new Set(items.map((item) => item.submissionId))].map(summary),
         ...(aliasMatches.length ? { aliasMatches } : {}),
-        nextCursor: null,
+        nextCursor,
       });
     },
     'outreach.getOpportunity': (input) => {
@@ -448,7 +550,7 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
       if (!opportunity) return null;
       const saved = submissions.get(opportunity.submissionId);
       return {
-        opportunity,
+        opportunity: row(opportunity),
         contact: contact(opportunity.contactId),
         submission: saved.record,
         organisation: (opportunity.organisationId && organisations.get(opportunity.organisationId)) || null,
@@ -491,13 +593,17 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
         if (current.revision !== input.expectedRevision) throw new FixtureError('ops.crm.revision_conflict', 409);
         if (current.stage === 'closed') throw new FixtureError('ops.crm.opportunity_closed', 409);
         const dueAt = new Date(input.dueAt).toISOString();
+        const fromDueAt = current.nextAction ? new Date(current.nextAction.dueAt).toISOString() : null;
         const saved = saveOpportunity({
           ...current,
           nextAction: { description: input.description, dueAt },
           revision: current.revision + 1,
         });
         replaceNextActionTask(saved, { requestId: input.requestId, reason: 'Founder edited the next action' });
-        activity(saved.id, { kind: 'operator', userId: NITRO }, 'next_action_changed', input.description, dueAt);
+        activity(saved.id, { kind: 'operator', userId: NITRO }, 'next_action_changed', input.description, dueAt, {
+          fromDueAt,
+          toDueAt: dueAt,
+        });
         return saved;
       });
     },
@@ -516,7 +622,10 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
                 ? { ...row.task, status: 'cancelled', updatedAt: iso() }
                 : { ...row.task, ...input.nextAction, updatedAt: iso() };
           }
-        activity(next.id, { kind: 'operator', userId: NITRO }, 'stage_changed', input.reason);
+        activity(next.id, { kind: 'operator', userId: NITRO }, 'stage_changed', input.reason, null, {
+          fromStage: current.stage,
+          toStage: input.stage,
+        });
         audit(input, 'opportunity', next.id, 'stage_changed', NITRO);
         return saveOpportunity({
           ...next,
@@ -560,6 +669,7 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
         }),
         bySource: rows.length ? [{ sourceKey: null, campaignId: null, count: rows.length }] : [],
         sourceGroupsTruncated: false,
+        raise: raise(rows),
       });
     },
     'outreach.listTasks': (raw) => {
@@ -630,31 +740,67 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
     'outreach.recordInteraction': (raw) => {
       const input = c.crmInteractionInputSchema.parse(raw);
       return remember(NITRO, input.requestId, input, () => {
+        const current = opportunities.get(input.opportunityId);
+        if (!current) throw new FixtureError('ops.crm.not_found', 404);
+        if (current.revision !== input.expectedRevision) throw new FixtureError('ops.crm.revision_conflict', 409);
+        // Like svc-ops: no records against a closed enquiry, nothing from the future, and one piece of evidence is recorded once.
+        if (current.stage === 'closed') throw new FixtureError('ops.crm.opportunity_closed', 409);
+        if (Date.parse(input.occurredAt) > clock()) throw new FixtureError('ops.crm.interaction_in_future', 409);
+        // reply_sent is the one kind whose evidence is optional (a reply sent outside the console, e.g. from Gmail).
+        const evidenceRef = input.evidenceRef ?? null;
+        if (
+          evidenceRef !== null &&
+          interactions.some((row) => row.opportunityId === current.id && row.kind === input.kind && row.evidenceRef === evidenceRef)
+        )
+          throw new FixtureError('ops.crm.interaction_already_recorded', 409);
         let opportunity = bump(input.opportunityId, input.expectedRevision);
         opportunity = saveOpportunity({
           ...opportunity,
           nextAction: input.nextAction ?? { description: 'Attend the recorded call', dueAt: input.scheduledAt },
         });
-        const interaction = {
+        replaceNextActionTask(opportunity, { requestId: input.requestId, reason: input.reason });
+        const interaction = c.crmInteractionSchema.parse({
           id: randomUUID(),
           opportunityId: opportunity.id,
           kind: input.kind,
           actorUserId: NITRO,
           status: 'manually_recorded',
-          evidenceRef: input.evidenceRef,
+          evidenceRef,
           occurredAt: input.occurredAt,
           recordedAt: iso(),
           scheduledAt: input.scheduledAt ?? null,
-        };
-        const row = activity(
+        });
+        interactions.push(interaction);
+        const activityRow = activity(
           opportunity.id,
           { kind: 'operator', userId: NITRO },
           input.kind === 'follow_up' ? 'note' : input.kind,
           input.reason,
-          input.evidenceRef,
+          evidenceRef,
         );
         audit(input, 'opportunity', opportunity.id, 'interaction_recorded', NITRO);
-        return c.crmInteractionReceiptSchema.parse({ interaction, activity: row, opportunity });
+        return c.crmInteractionReceiptSchema.parse({ interaction, activity: activityRow, opportunity });
+      });
+    },
+    // Like svc-ops setCommitment: investors only, revision-checked, audited, the amount a decimal string end to end.
+    'outreach.setCommitment': (raw) => {
+      const input = c.crmSetCommitmentInputSchema.parse(raw);
+      return remember(NITRO, input.requestId, input, () => {
+        const current = opportunities.get(input.opportunityId);
+        if (!current) throw new FixtureError('ops.crm.not_found', 404);
+        if (current.revision !== input.expectedRevision) throw new FixtureError('ops.crm.revision_conflict', 409);
+        if (current.audience !== 'investor') throw new FixtureError('ops.crm.commitment_investor_only', 409);
+        if (input.commitment !== null && current.stage === 'closed') throw new FixtureError('ops.crm.opportunity_closed', 409);
+        const commitment =
+          input.commitment === null ? null : c.crmCommitmentSchema.parse({ ...input.commitment, recordedAt: iso(), recordedBy: NITRO });
+        const summary = (value) => (value ? { tier: value.tier, amount: value.amount, currency: value.currency } : null);
+        const saved = saveOpportunity({ ...current, commitment, revision: current.revision + 1 });
+        activity(saved.id, { kind: 'operator', userId: NITRO }, 'commitment_changed', input.reason, input.requestId, {
+          fromCommitment: summary(current.commitment),
+          toCommitment: summary(commitment),
+        });
+        audit(input, 'opportunity', saved.id, 'commitment_changed', NITRO);
+        return saved;
       });
     },
     'outreach.listWorkflowAudit': (raw) => {
@@ -984,6 +1130,29 @@ export function seedTestEnquiries(fixture) {
       ...extra,
     });
   };
+  // Money levels and reply state, so the preview shows the raise bar and the waiting queue. All of it is test data.
+  const commit = (opportunity, tier, amount, currency, evidenceRef) => {
+    const current = fixture.opportunities.get(opportunity.id);
+    return founderApi['outreach.setCommitment']({
+      requestId: randomUUID(),
+      opportunityId: current.id,
+      expectedRevision: current.revision,
+      commitment: { tier, amount, currency, evidenceRef },
+      reason: 'Test data: sample commitment',
+    });
+  };
+  const replied = (opportunity, dueInMs) => {
+    const current = fixture.opportunities.get(opportunity.id);
+    return founderApi['outreach.recordInteraction']({
+      requestId: randomUUID(),
+      opportunityId: current.id,
+      expectedRevision: current.revision,
+      kind: 'reply_sent',
+      occurredAt: new Date().toISOString(),
+      nextAction: { description: 'Check in after the reply', dueAt: new Date(Date.now() + dueInMs).toISOString() },
+      reason: 'Test data: replied from Gmail',
+    });
+  };
 
   const [investorA] = enquire(
     { name: 'Test Investor A', email: 'test.investor.a@example.invalid', country: 'SG', interests: ['investor'] },
@@ -1002,15 +1171,38 @@ export function seedTestEnquiries(fixture) {
     ],
   );
   stage(investorA, 'qualified');
-  enquire({ name: 'Test Investor B (introducer)', email: 'test.introducer.b@example.invalid', interests: ['investor'] }, [
+  // Test Investor A: soft-circled EUR 250,000 (confirmed by a founder after a call), and replied to.
+  commit(investorA, 'soft_circled', '250000', 'EUR', 'Test data: sample call note');
+  replied(investorA, 2 * DAY);
+  const [investorB] = enquire(
+    { name: 'Test Investor B (introducer)', email: 'test.introducer.b@example.invalid', interests: ['investor'] },
+    [
+      {
+        audience: 'investor',
+        answers: {
+          investorType: 'other',
+          participation: 'introduction',
+          decisionRole: 'introducer',
+          indicativeContribution: { status: 'undecided' },
+          timing: 'undecided',
+        },
+      },
+    ],
+  );
+  // Test Investor B: committed EUR 100,000 (documents signed), and replied to.
+  commit(investorB, 'committed', '100000', 'EUR', 'Test data: sample signed agreement');
+  replied(investorB, 3 * DAY);
+  // Test Investor C: only an indicated amount (self-reported), nobody has replied yet.
+  enquire({ name: 'Test Investor C (indicated only)', email: 'test.investor.c@example.invalid', interests: ['investor'] }, [
     {
       audience: 'investor',
       answers: {
-        investorType: 'other',
-        participation: 'introduction',
-        decisionRole: 'introducer',
-        indicativeContribution: { status: 'undecided' },
-        timing: 'undecided',
+        investorType: 'individual',
+        participation: 'direct',
+        decisionRole: 'decision_maker',
+        indicativeContribution: { status: 'stated', amount: '50000', currency: 'USD' },
+        timing: 'as_available',
+        message: 'Test data. Indicative only.',
       },
     },
   ]);
@@ -1026,10 +1218,12 @@ export function seedTestEnquiries(fixture) {
       },
     },
   ]);
-  enquire(
+  const [merchant] = enquire(
     { name: 'Test Merchant', email: 'test.merchant@example.invalid', organisationName: 'Test Merchant Ltd', interests: ['merchant'] },
     [],
   );
+  // Replied to, but the promised check-in fell due two hours ago, so it is waiting on us again.
+  replied(merchant, -2 * 3_600_000);
   const [academy] = enquire({ name: 'Test Academy Student', email: 'test.academy@example.invalid', interests: ['academy'] }, [
     {
       audience: 'academy',

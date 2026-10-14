@@ -7,6 +7,7 @@ import {
   crmStageChangeInputSchema,
   crmOpportunityPageSchema,
   crmOpportunitySchema,
+  crmOpportunityRowSchema,
   crmContactSchema,
   crmOrganisationSchema,
   crmSubmissionSchema,
@@ -32,7 +33,7 @@ function writeSchema(action: unknown) {
 function detailResponse(data: unknown, id: string) {
   if (data === null) return null;
   if (!record(data)) throw new AdminSessionError('admin.upstream_invalid', 502);
-  const opportunity = crmOpportunitySchema.safeParse(data.opportunity);
+  const opportunity = crmOpportunityRowSchema.safeParse(data.opportunity);
   const contact = crmContactSchema.safeParse(data.contact);
   const submission = crmSubmissionSchema.safeParse(data.submission);
   const organisation = data.organisation === null ? null : crmOrganisationSchema.safeParse(data.organisation);
@@ -150,6 +151,14 @@ export async function GET(request: Request) {
       data = await founderEdgeCall(config, 'ops', 'outreach.listOpportunities', 'GET', parsed.data, session.accessToken);
       const page = crmOpportunityPageSchema.safeParse(data);
       if (!page.success) throw new AdminSessionError('admin.upstream_invalid', 502);
+      // The waiting queue is open enquiries only, oldest waiting first. Anything else from upstream is not shown as that queue.
+      if (parsed.data.queue === 'waiting') {
+        const since = page.data.items.map((item) =>
+          item.stage === 'closed' || item.waitingSince === null ? NaN : Date.parse(item.waitingSince),
+        );
+        if (since.some((value, index) => Number.isNaN(value) || (index > 0 && value < since[index - 1]!)))
+          throw new AdminSessionError('admin.upstream_invalid', 502);
+      }
       data = page.data;
     }
     return Response.json(data, { headers: { 'cache-control': 'no-store' } });

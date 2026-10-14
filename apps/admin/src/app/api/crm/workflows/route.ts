@@ -25,6 +25,7 @@ const writes: Record<string, [Schema, Schema]> = {
   transitionTask: [crm.crmTaskTransitionInputSchema, crm.crmTaskMutationReceiptSchema],
   recordInteraction: [crm.crmInteractionInputSchema, crm.crmInteractionReceiptSchema],
   queueMessage: [crm.crmQueueMessageInputSchema, crm.crmQueueMessageReceiptSchema],
+  setCommitment: [crm.crmSetCommitmentInputSchema, crm.crmOpportunitySchema],
 };
 function parse(schema: Schema, value: unknown, upstream = false): unknown {
   const parsed = schema.safeParse(value);
@@ -119,6 +120,24 @@ export async function POST(request: Request) {
     }
     let subjectType: string, subjectId: unknown, kind: string;
     switch (action) {
+      case 'setCommitment': {
+        // The receipt must be the commitment that was asked for, on the same investor enquiry, one revision on.
+        equal(result.id, input.opportunityId);
+        equal(result.audience, 'investor');
+        equal(result.revision, Number(input.expectedRevision) + 1);
+        const asked = input.commitment === null ? null : row(input.commitment),
+          saved = result.commitment === null ? null : row(result.commitment);
+        if ((asked === null) !== (saved === null)) throw new AdminSessionError('admin.upstream_invalid', 502);
+        if (asked !== null && saved !== null) {
+          for (const key of ['tier', 'amount', 'currency']) equal(saved[key], asked[key]);
+          equal(saved.evidenceRef ?? null, asked.evidenceRef ?? null);
+          equal(saved.recordedBy, session.userId);
+        }
+        subjectType = 'opportunity';
+        subjectId = input.opportunityId;
+        kind = 'commitment_changed';
+        break;
+      }
       case 'upsertCampaign':
         for (const key of ['id', 'name', 'channel', 'status', 'documentRef', 'providerLinkId']) equal(result[key], input[key]);
         equal(result.revision, Number(input.expectedRevision) + 1);
@@ -183,7 +202,9 @@ export async function POST(request: Request) {
         const interaction = row(result.interaction),
           activity = row(result.activity),
           opportunity = row(result.opportunity);
-        for (const key of ['opportunityId', 'kind', 'occurredAt', 'evidenceRef']) equal(interaction[key], input[key]);
+        for (const key of ['opportunityId', 'kind', 'occurredAt']) equal(interaction[key], input[key]);
+        // A reply sent outside the console may carry no evidence reference; every other kind must echo the one it was given.
+        equal(interaction.evidenceRef, input.evidenceRef ?? null);
         equal(interaction.actorUserId, session.userId);
         equal(interaction.status, 'manually_recorded');
         equal(opportunity.id, input.opportunityId);

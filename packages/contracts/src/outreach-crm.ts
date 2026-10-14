@@ -255,6 +255,210 @@ export const crmOrganisationSchema = z
   .strict();
 export type CrmOrganisation = z.infer<typeof crmOrganisationSchema>;
 
+/**
+ * Active ISO 4217 currency codes (funds and precious metals excluded). A static list, not Intl, so the browser and the
+ * service always agree on what is a currency.
+ */
+export const ISO_4217_CURRENCIES = [
+  'AED',
+  'AFN',
+  'ALL',
+  'AMD',
+  'ANG',
+  'AOA',
+  'ARS',
+  'AUD',
+  'AWG',
+  'AZN',
+  'BAM',
+  'BBD',
+  'BDT',
+  'BGN',
+  'BHD',
+  'BIF',
+  'BMD',
+  'BND',
+  'BOB',
+  'BRL',
+  'BSD',
+  'BTN',
+  'BWP',
+  'BYN',
+  'BZD',
+  'CAD',
+  'CDF',
+  'CHF',
+  'CLP',
+  'CNY',
+  'COP',
+  'CRC',
+  'CUP',
+  'CVE',
+  'CZK',
+  'DJF',
+  'DKK',
+  'DOP',
+  'DZD',
+  'EGP',
+  'ERN',
+  'ETB',
+  'EUR',
+  'FJD',
+  'FKP',
+  'GBP',
+  'GEL',
+  'GHS',
+  'GIP',
+  'GMD',
+  'GNF',
+  'GTQ',
+  'GYD',
+  'HKD',
+  'HNL',
+  'HTG',
+  'HUF',
+  'IDR',
+  'ILS',
+  'INR',
+  'IQD',
+  'IRR',
+  'ISK',
+  'JMD',
+  'JOD',
+  'JPY',
+  'KES',
+  'KGS',
+  'KHR',
+  'KMF',
+  'KPW',
+  'KRW',
+  'KWD',
+  'KYD',
+  'KZT',
+  'LAK',
+  'LBP',
+  'LKR',
+  'LRD',
+  'LSL',
+  'LYD',
+  'MAD',
+  'MDL',
+  'MGA',
+  'MKD',
+  'MMK',
+  'MNT',
+  'MOP',
+  'MRU',
+  'MUR',
+  'MVR',
+  'MWK',
+  'MXN',
+  'MYR',
+  'MZN',
+  'NAD',
+  'NGN',
+  'NIO',
+  'NOK',
+  'NPR',
+  'NZD',
+  'OMR',
+  'PAB',
+  'PEN',
+  'PGK',
+  'PHP',
+  'PKR',
+  'PLN',
+  'PYG',
+  'QAR',
+  'RON',
+  'RSD',
+  'RUB',
+  'RWF',
+  'SAR',
+  'SBD',
+  'SCR',
+  'SDG',
+  'SEK',
+  'SGD',
+  'SHP',
+  'SLE',
+  'SOS',
+  'SRD',
+  'SSP',
+  'STN',
+  'SVC',
+  'SYP',
+  'SZL',
+  'THB',
+  'TJS',
+  'TMT',
+  'TND',
+  'TOP',
+  'TRY',
+  'TTD',
+  'TWD',
+  'TZS',
+  'UAH',
+  'UGX',
+  'USD',
+  'UYU',
+  'UZS',
+  'VED',
+  'VES',
+  'VND',
+  'VUV',
+  'WST',
+  'XAF',
+  'XCD',
+  'XOF',
+  'XPF',
+  'YER',
+  'ZAR',
+  'ZMW',
+  'ZWG',
+] as const;
+const isoCurrencies: ReadonlySet<string> = new Set(ISO_4217_CURRENCIES);
+export const crmCurrencySchema = z.string().refine((value) => isoCurrencies.has(value), 'Unknown ISO 4217 currency');
+
+/** An exact, non-negative decimal string. Never parsed through Number. */
+export const crmDecimalAmountSchema = z
+  .string()
+  .max(60)
+  .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/, 'Amount must be a non-negative decimal string');
+/** The same, and greater than zero: a commitment of nothing is not a commitment. */
+export const crmPositiveDecimalSchema = crmDecimalAmountSchema.refine((value) => /[1-9]/.test(value), 'Amount must be greater than zero');
+
+/**
+ * What a founder has confirmed, which is not the same as what the enquirer indicated. Soft-circled: confirmed by a founder
+ * after a call. Committed: documents signed. Neither implies money received (SPEC:27).
+ */
+export const crmCommitmentTierSchema = z.enum(['soft_circled', 'committed']);
+export const crmCommitmentFieldsSchema = z
+  .object({
+    tier: crmCommitmentTierSchema,
+    amount: crmPositiveDecimalSchema,
+    currency: crmCurrencySchema,
+    evidenceRef: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict();
+export type CrmCommitmentFields = z.infer<typeof crmCommitmentFieldsSchema>;
+/** Stored on an investor opportunity. recordedAt and recordedBy are filled by the service, never accepted as input. */
+export const crmCommitmentSchema = z
+  .object({
+    tier: crmCommitmentTierSchema,
+    amount: crmPositiveDecimalSchema,
+    currency: crmCurrencySchema,
+    evidenceRef: z.string().trim().min(1).max(200).optional(),
+    recordedAt: timestamp,
+    recordedBy: id,
+  })
+  .strict();
+export type CrmCommitment = z.infer<typeof crmCommitmentSchema>;
+/** The part of a commitment a history line needs: no evidence text, no author. */
+export const crmCommitmentSummarySchema = z
+  .object({ tier: crmCommitmentTierSchema, amount: crmPositiveDecimalSchema, currency: crmCurrencySchema })
+  .strict();
+
 export const crmInvestorStageSchema = z.enum(['new', 'qualified', 'diligence', 'terms', 'closed']);
 export const crmCommunityStageSchema = z.enum(['new', 'qualified', 'invited', 'onboarding', 'closed']);
 export const crmOpportunityStageSchema = z.enum(['new', 'qualified', 'diligence', 'terms', 'invited', 'onboarding', 'closed']);
@@ -274,38 +478,77 @@ const opportunityFields = {
   updatedAt: timestamp,
 };
 
-/** Closing an opportunity never implies payment or allocates equity. */
-export const crmOpportunitySchema = z
-  .discriminatedUnion('audience', [
+function opportunityUnion<E extends z.ZodRawShape>(extra: E) {
+  return z.discriminatedUnion('audience', [
     z
       .object({
         ...opportunityFields,
+        ...extra,
         audience: z.literal('investor'),
         stage: crmInvestorStageSchema,
         indicativeContribution: outreachIndicativeAmountSchema,
+        /**
+         * Founder-confirmed money, investors only. Absent on records saved before it existed, which read as null.
+         * Separate from indicativeContribution, which is only what the enquirer said.
+         */
+        commitment: crmCommitmentSchema.nullable().default(null),
       })
       .strict(),
     ...(['trader', 'merchant', 'academy', 'partner'] as const).map((audience) =>
-      z.object({ ...opportunityFields, audience: z.literal(audience), stage: crmCommunityStageSchema }).strict(),
+      z.object({ ...opportunityFields, ...extra, audience: z.literal(audience), stage: crmCommunityStageSchema }).strict(),
     ),
-  ])
-  .superRefine((row, ctx) => {
-    const closed = row.stage === 'closed';
-    if (closed !== (row.closedDisposition !== null && row.closingEvidenceRef !== null)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['closedDisposition'], message: 'Closed stage requires disposition and evidence' });
-    }
-    if (!closed && (row.closedDisposition !== null || row.closingEvidenceRef !== null)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['closedDisposition'], message: 'Open stage cannot carry closing facts' });
-    }
-    if (closed ? row.nextAction !== null : row.nextAction === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['nextAction'],
-        message: 'Open opportunities require a next action; closed opportunities do not',
-      });
-    }
-  });
+  ]);
+}
+
+function validateOpportunity(
+  row: Pick<CrmOpportunityShape, 'stage' | 'closedDisposition' | 'closingEvidenceRef' | 'nextAction'>,
+  ctx: z.RefinementCtx,
+): void {
+  const closed = row.stage === 'closed';
+  if (closed !== (row.closedDisposition !== null && row.closingEvidenceRef !== null)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['closedDisposition'], message: 'Closed stage requires disposition and evidence' });
+  }
+  if (!closed && (row.closedDisposition !== null || row.closingEvidenceRef !== null)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['closedDisposition'], message: 'Open stage cannot carry closing facts' });
+  }
+  if (closed ? row.nextAction !== null : row.nextAction === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['nextAction'],
+      message: 'Open opportunities require a next action; closed opportunities do not',
+    });
+  }
+}
+type CrmOpportunityShape = {
+  stage: string;
+  closedDisposition: string | null;
+  closingEvidenceRef: string | null;
+  nextAction: unknown;
+};
+
+/** Closing an opportunity never implies payment or allocates equity. */
+export const crmOpportunitySchema = opportunityUnion({}).superRefine(validateOpportunity);
 export type CrmOpportunity = z.infer<typeof crmOpportunitySchema>;
+
+/**
+ * Derived reply state, never stored on the record: computed from the queued messages, recorded interactions and stage
+ * changes that already exist, so no backfill is needed. A "touch" is a founder action that reaches or concerns the person:
+ * a queued message, a recorded interaction or a stage change. Notes and owner changes are not touches.
+ */
+export const crmReplyStateFields = {
+  /** The first queued message or "reply_sent" interaction. Null while nobody has replied. */
+  firstReplyAt: timestamp.nullable(),
+  /** The latest touch of any kind. Null when there has been none. */
+  lastTouchAt: timestamp.nullable(),
+  /**
+   * Since when this person has been waiting on us: createdAt while nothing has been replied, otherwise the next action's
+   * due time. Null for a closed opportunity.
+   */
+  waitingSince: timestamp.nullable(),
+};
+/** An opportunity as listed or opened by a founder: the record plus its derived reply state. */
+export const crmOpportunityRowSchema = opportunityUnion(crmReplyStateFields).superRefine(validateOpportunity);
+export type CrmOpportunityRow = z.infer<typeof crmOpportunityRowSchema>;
 
 /** Validate against the persisted audience, not an audience supplied by the caller. */
 export function crmStageFitsAudience(audience: OutreachAudience, stage: CrmOpportunityStage): boolean {
@@ -364,6 +607,8 @@ export const crmActivitySchema = z
       'call_invited',
       'call_booked',
       'email_status',
+      'reply_sent',
+      'commitment_changed',
     ]),
     /** Filled by the authenticated service; input schemas never accept an operator identity. */
     actor: z.discriminatedUnion('kind', [
@@ -374,6 +619,19 @@ export const crmActivitySchema = z
     note: message.nullable(),
     referenceId: z.string().min(1).max(128).nullable(),
     occurredAt: timestamp,
+    /**
+     * What changed, so the timeline can read "New to Qualified" instead of "Stage or next action updated". Written by
+     * stage_changed (fromStage, toStage), next_action_changed (fromDueAt, toDueAt) and commitment_changed (fromCommitment,
+     * toCommitment). Absent on entries written before these existed; those stay as they are.
+     */
+    fromStage: crmOpportunityStageSchema.optional(),
+    toStage: crmOpportunityStageSchema.optional(),
+    /** Null when there was no pending next action before. */
+    fromDueAt: timestamp.nullable().optional(),
+    toDueAt: timestamp.optional(),
+    /** Null when there was no commitment before, or it was cleared. */
+    fromCommitment: crmCommitmentSummarySchema.nullable().optional(),
+    toCommitment: crmCommitmentSummarySchema.nullable().optional(),
   })
   .strict();
 export type CrmActivity = z.infer<typeof crmActivitySchema>;
@@ -408,6 +666,11 @@ export const crmListInputSchema = z
     stage: crmOpportunityStageSchema.optional(),
     ownerUserId: id.optional(),
     query: z.string().trim().max(160).optional(),
+    /**
+     * "waiting": only open opportunities where nobody has replied yet, or whose next action is due now, oldest waiting first.
+     * Paged by its own cursor; do not mix a cursor between queue and default listings.
+     */
+    queue: z.literal('waiting').optional(),
   })
   .strict();
 export type CrmListInput = z.infer<typeof crmListInputSchema>;
@@ -424,7 +687,7 @@ export const crmAliasMatchSchema = z.object({ opportunityId: id, name: z.string(
 export type CrmAliasMatch = z.infer<typeof crmAliasMatchSchema>;
 export const crmOpportunityPageSchema = z
   .object({
-    items: z.array(crmOpportunitySchema).max(200),
+    items: z.array(crmOpportunityRowSchema).max(200),
     contacts: z.array(crmContactSchema).max(200),
     submissions: z.array(crmSubmissionSummarySchema).max(200),
     aliasMatches: z.array(crmAliasMatchSchema).max(200).optional(),
@@ -463,6 +726,21 @@ export type CrmOpportunityPage = z.infer<typeof crmOpportunityPageSchema>;
 export const crmNoteInputSchema = z.object({ requestId: id, opportunityId: id, note: z.string().trim().min(1).max(2000) }).strict();
 export type CrmNoteInput = z.infer<typeof crmNoteInputSchema>;
 
+/**
+ * Sets or clears (null) the founder-confirmed commitment of an investor opportunity. Investor opportunities only; any other
+ * audience is refused by the service. A reason is required, like every other audited write.
+ */
+export const crmSetCommitmentInputSchema = z
+  .object({
+    requestId: id,
+    opportunityId: id,
+    expectedRevision: z.number().int().positive(),
+    commitment: crmCommitmentFieldsSchema.nullable(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type CrmSetCommitmentInput = z.infer<typeof crmSetCommitmentInputSchema>;
+
 export const crmAssignmentInputSchema = z
   .object({ requestId: id, opportunityId: id, expectedRevision: z.number().int().positive(), ownerUserId: id })
   .strict();
@@ -475,7 +753,7 @@ export interface OutreachCrmContract {
   answer(input: OutreachQuestionnaireInput): Promise<OutreachDraft>;
   listOpportunities(input: CrmListInput): Promise<CrmOpportunityPage>;
   getOpportunity(input: { opportunityId: string }): Promise<{
-    opportunity: CrmOpportunity;
+    opportunity: CrmOpportunityRow;
     contact: CrmContact;
     submission: CrmSubmission;
     organisation: CrmOrganisation | null;
@@ -485,5 +763,6 @@ export interface OutreachCrmContract {
   assign(input: CrmAssignmentInput): Promise<CrmOpportunity>;
   changeStage(input: CrmStageChangeInput): Promise<CrmOpportunity>;
   updateNextAction(input: CrmNextActionInput): Promise<CrmOpportunity>;
+  setCommitment(input: CrmSetCommitmentInput): Promise<CrmOpportunity>;
   addNote(input: CrmNoteInput): Promise<CrmActivity>;
 }

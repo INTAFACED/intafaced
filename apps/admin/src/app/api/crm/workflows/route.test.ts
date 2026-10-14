@@ -47,6 +47,9 @@ const opportunity = {
   createdAt: now,
   updatedAt: now,
 };
+// What a founder sees when listing or opening an enquiry: the record plus its derived reply state.
+const replyState = { firstReplyAt: null, lastTouchAt: null, waitingSince: now };
+const row = { ...opportunity, ...replyState };
 const submission = {
   submissionId,
   contactId: originalId,
@@ -78,7 +81,7 @@ const provenance = {
   latestKnownSource: null,
 };
 const detail = {
-  opportunity,
+  opportunity: row,
   submission,
   contact: canonicalContact,
   organisation: null,
@@ -170,7 +173,7 @@ describe('protected founder CRM workflows', () => {
   });
   it.each(['original', 'canonical', 'opportunity'] as const)('rejects foreign %s binding after merge', async (wrong) => {
     upstream({
-      getOpportunity: wrong === 'opportunity' ? { ...detail, opportunity: { ...opportunity, id: randomUUID() } } : detail,
+      getOpportunity: wrong === 'opportunity' ? { ...detail, opportunity: { ...row, id: randomUUID() } } : detail,
       getContactProvenance: {
         ...provenance,
         ...(wrong === 'original'
@@ -215,11 +218,27 @@ describe('protected founder CRM workflows', () => {
       byStage: [],
       bySource: [],
       sourceGroupsTruncated: false,
+      raise: {
+        indicated: [{ currency: 'EUR', amount: '350000.5' }],
+        softCircled: [{ currency: 'EUR', amount: '250000' }],
+        committed: [{ currency: 'EUR', amount: '100000' }],
+        counts: { indicated: 2, softCircled: 1, committed: 1, undecided: 0 },
+      },
     };
     const fetcher = upstream({ metrics, documentProviderStatus: { status: 'disabled', reason: 'api_access_unavailable' } });
     const result = await GET(request('/api/crm/workflows?view=metrics&audience=investor'));
     expect(result.status).toBe(200);
-    expect((await result.json()).totals.opportunities).toBe(120);
+    const body = await result.json();
+    expect(body.totals.opportunities).toBe(120);
+    // The raise reaches the console as exact decimal strings per currency, never summed across currencies.
+    expect(body.raise.committed).toEqual([{ currency: 'EUR', amount: '100000' }]);
+    expect(body.raise.indicated).toEqual([{ currency: 'EUR', amount: '350000.5' }]);
+    // Upstream that sends the totals as numbers is not shown.
+    upstream({ metrics: { ...metrics, raise: { ...metrics.raise, committed: [{ currency: 'EUR', amount: 100000 }] } } });
+    expect((await GET(request('/api/crm/workflows?view=metrics'))).status).toBe(502);
+    upstream({ metrics: { ...metrics, raise: undefined } });
+    expect((await GET(request('/api/crm/workflows?view=metrics'))).status).toBe(502);
+    upstream({ metrics, documentProviderStatus: { status: 'disabled', reason: 'api_access_unavailable' } });
     expect((await (await GET(request('/api/crm/workflows?view=documentProviderStatus'))).json()).reason).toBe('api_access_unavailable');
     expect((await GET(request('/api/crm/workflows?view=metrics&actorUserId=' + randomUUID()))).status).toBe(400);
     expect(fetcher.mock.calls.filter(([url]) => String(url).includes('outreach.metrics'))).toHaveLength(1);
@@ -496,7 +515,7 @@ describe('protected founder CRM workflows', () => {
   });
   it('list pages pass an alias match through and refuse one for an enquiry that is not on the page', async () => {
     const page = {
-      items: [opportunity],
+      items: [row],
       contacts: [canonicalContact],
       submissions: [{ submissionId, completedAt: null, organisationName: null }],
       nextCursor: null,
@@ -619,4 +638,237 @@ describe('protected founder CRM workflows', () => {
       expect(response.status).toBe(wrong === 'valid' ? 200 : 502);
     },
   );
+  describe('reply sent outside the console', () => {
+    const input = (extra: Record<string, unknown> = {}) => ({
+      requestId: randomUUID(),
+      opportunityId,
+      expectedRevision: 2,
+      kind: 'reply_sent',
+      occurredAt: now,
+      nextAction: { description: 'Check in', dueAt: now },
+      reason: 'Replied from Gmail',
+      ...extra,
+    });
+    const receipt = (body: Record<string, unknown>, extra: { evidenceRef?: string | null; kind?: string } = {}) => ({
+      opportunity: { ...opportunity, revision: 3 },
+      interaction: {
+        id: randomUUID(),
+        opportunityId,
+        kind: extra.kind ?? 'reply_sent',
+        actorUserId: userId,
+        status: 'manually_recorded',
+        evidenceRef: extra.evidenceRef === undefined ? (body.evidenceRef ?? null) : extra.evidenceRef,
+        occurredAt: now,
+        recordedAt: now,
+        scheduledAt: null,
+      },
+      activity: {
+        id: randomUUID(),
+        opportunityId,
+        sequence: 1,
+        kind: 'reply_sent',
+        actor: { kind: 'operator', userId },
+        note: body.reason,
+        referenceId: body.evidenceRef ?? null,
+        occurredAt: now,
+      },
+    });
+    it('passes a reply with no evidence reference through and checks the receipt says the same', async () => {
+      const body = input();
+      const fetcher = upstream({
+        recordInteraction: receipt(body),
+        listWorkflowAudit: audit(body, 'opportunity', opportunityId, 'interaction_recorded'),
+      });
+      const response = await POST(request('/api/crm/workflows', 'POST', { action: 'recordInteraction', input: body }));
+      expect(response.status).toBe(200);
+      expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual(body);
+      expect((await response.json()).interaction.evidenceRef).toBeNull();
+    });
+    it('keeps an evidence reference when one is given, and refuses a receipt that drops or invents one', async () => {
+      const body = input({ evidenceRef: 'gmail-thread-18f2' });
+      const evidence = audit(body, 'opportunity', opportunityId, 'interaction_recorded');
+      upstream({ recordInteraction: receipt(body), listWorkflowAudit: evidence });
+      expect((await POST(request('/api/crm/workflows', 'POST', { action: 'recordInteraction', input: body }))).status).toBe(200);
+      upstream({ recordInteraction: receipt(body, { evidenceRef: null }), listWorkflowAudit: evidence });
+      expect((await POST(request('/api/crm/workflows', 'POST', { action: 'recordInteraction', input: body }))).status).toBe(502);
+      const bare = input();
+      upstream({
+        recordInteraction: receipt(bare, { evidenceRef: 'invented' }),
+        listWorkflowAudit: audit(bare, 'opportunity', opportunityId, 'interaction_recorded'),
+      });
+      expect((await POST(request('/api/crm/workflows', 'POST', { action: 'recordInteraction', input: bare }))).status).toBe(502);
+    });
+    it('still needs evidence for the other kinds, and a reason and next step for a reply', async () => {
+      const fetcher = upstream({});
+      const post = (body: unknown) => POST(request('/api/crm/workflows', 'POST', { action: 'recordInteraction', input: body }));
+      expect((await post(input({ kind: 'follow_up' }))).status).toBe(400);
+      expect((await post(input({ reason: undefined }))).status).toBe(400);
+      expect((await post(input({ nextAction: undefined }))).status).toBe(400);
+      expect((await post(input({ actorUserId: userId }))).status).toBe(400);
+      expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/'))).toHaveLength(0);
+    });
+  });
+  describe('commitment', () => {
+    const input = (extra: Record<string, unknown> = {}) => ({
+      requestId: randomUUID(),
+      opportunityId,
+      expectedRevision: 2,
+      commitment: { tier: 'soft_circled', amount: '250000', currency: 'EUR', evidenceRef: 'call notes' },
+      reason: 'After the call',
+      ...extra,
+    });
+    const saved = (body: ReturnType<typeof input>, patch: Record<string, unknown> = {}) => ({
+      ...opportunity,
+      revision: 3,
+      commitment: body.commitment === null ? null : { ...body.commitment, recordedAt: now, recordedBy: userId },
+      ...patch,
+    });
+    const send = (body: unknown) => POST(request('/api/crm/workflows', 'POST', { action: 'setCommitment', input: body }));
+    it('passes a commitment through, verifies the receipt and the founder audit, and keeps the amount a string', async () => {
+      const body = input({ commitment: { tier: 'committed', amount: '12345678901234567890.123456789', currency: 'EUR' } });
+      const fetcher = upstream({
+        setCommitment: saved(body),
+        listWorkflowAudit: audit(body, 'opportunity', opportunityId, 'commitment_changed'),
+      });
+      const response = await send(body);
+      expect(response.status).toBe(200);
+      expect(String(fetcher.mock.calls[1]?.[0])).toContain('outreach.setCommitment');
+      expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual(body);
+      expect(new Headers(fetcher.mock.calls[1]?.[1]?.headers).get('authorization')).toBe(`Bearer ${session.accessToken}`);
+      expect((await response.json()).commitment.amount).toBe('12345678901234567890.123456789');
+    });
+    it('clears a commitment', async () => {
+      const body = input({ commitment: null });
+      upstream({ setCommitment: saved(body), listWorkflowAudit: audit(body, 'opportunity', opportunityId, 'commitment_changed') });
+      const response = await send(body);
+      expect(response.status).toBe(200);
+      expect((await response.json()).commitment).toBeNull();
+    });
+    it.each([
+      'foreign',
+      'revision',
+      'tier',
+      'amount',
+      'currency',
+      'cleared',
+      'invented',
+      'author',
+      'audience',
+      'audit_actor',
+      'audit_kind',
+    ] as const)('refuses a receipt or audit that does not match what was asked: %s', async (wrong) => {
+      // "invented": the founder asked to clear it and the receipt still carries one.
+      const body = wrong === 'invented' ? input({ commitment: null }) : input();
+      const commitment = { ...input().commitment!, recordedAt: now, recordedBy: userId };
+      const result = {
+        foreign: saved(body, { id: randomUUID() }),
+        revision: saved(body, { revision: 9 }),
+        tier: saved(body, { commitment: { ...commitment, tier: 'committed' } }),
+        amount: saved(body, { commitment: { ...commitment, amount: '250001' } }),
+        currency: saved(body, { commitment: { ...commitment, currency: 'USD' } }),
+        cleared: saved(body, { commitment: null }),
+        invented: saved(body, { commitment }),
+        author: saved(body, { commitment: { ...commitment, recordedBy: randomUUID() } }),
+        audience: { ...saved(body), audience: 'trader', stage: 'new', indicativeContribution: undefined, commitment: undefined },
+        audit_actor: saved(body),
+        audit_kind: saved(body),
+      }[wrong];
+      const evidence = audit(
+        body,
+        'opportunity',
+        opportunityId,
+        wrong === 'audit_kind' ? 'stage_changed' : 'commitment_changed',
+        wrong === 'audit_actor' ? randomUUID() : userId,
+      );
+      upstream({ setCommitment: result, listWorkflowAudit: evidence });
+      expect((await send(body)).status).toBe(502);
+    });
+    it('refuses bad money, an unknown currency, a smuggled identity and a missing reason before anything leaves the console', async () => {
+      const fetcher = upstream({});
+      for (const bad of [
+        input({ commitment: { tier: 'committed', amount: '-5', currency: 'EUR' } }),
+        input({ commitment: { tier: 'committed', amount: '1e6', currency: 'EUR' } }),
+        input({ commitment: { tier: 'committed', amount: 100, currency: 'EUR' } }),
+        input({ commitment: { tier: 'committed', amount: '0', currency: 'EUR' } }),
+        input({ commitment: { tier: 'committed', amount: '100', currency: 'ZZZ' } }),
+        input({ commitment: { tier: 'received', amount: '100', currency: 'EUR' } }),
+        input({ commitment: { tier: 'committed', amount: '100', currency: 'EUR', recordedBy: userId } }),
+        input({ actorUserId: userId }),
+        input({ reason: '' }),
+        input({ commitment: undefined }),
+      ])
+        expect((await send(bad)).status).toBe(400);
+      const incoming = request('/api/crm/workflows', 'POST', { action: 'setCommitment', input: input() });
+      incoming.headers.delete('x-intafaced-csrf');
+      expect((await POST(incoming)).status).toBe(403);
+      expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/'))).toHaveLength(0);
+    });
+    it('shows the service refusing a commitment on a non-investor as a refusal, with its status', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn<typeof fetch>(async (url) =>
+          String(url).includes('operatorStatus')
+            ? Response.json({ result: { data: enabled } })
+            : Response.json({ error: { message: 'ops.crm.commitment_investor_only' } }, { status: 412 }),
+        ),
+      );
+      const response = await send(input());
+      expect(response.status).toBe(412);
+      expect(await response.json()).toEqual({ code: 'admin.upstream_refused' });
+    });
+  });
+  describe('waiting queue', () => {
+    const waiting = (items: unknown[]) => ({
+      items,
+      contacts: [canonicalContact],
+      submissions: [{ submissionId, completedAt: null, organisationName: null }],
+      nextCursor: null,
+    });
+    const at = (hours: number) => new Date(Date.parse(now) + hours * 3_600_000).toISOString();
+    it('passes queue=waiting to the service and returns the rows with their waiting time', async () => {
+      const fetcher = upstream({ listOpportunities: waiting([{ ...row, waitingSince: at(-5) }]) });
+      const response = await detailGet(request('/api/crm?limit=50&queue=waiting'));
+      expect(response.status).toBe(200);
+      const call = fetcher.mock.calls.find(([url]) => String(url).includes('outreach.listOpportunities'))!;
+      expect(JSON.parse(new URL(String(call[0])).searchParams.get('input')!)).toEqual({ limit: 50, queue: 'waiting' });
+      expect((await response.json()).items[0]).toMatchObject({ firstReplyAt: null, lastTouchAt: null, waitingSince: at(-5) });
+    });
+    it('refuses an unknown queue name', async () => {
+      const fetcher = upstream({});
+      expect((await detailGet(request('/api/crm?limit=50&queue=overdue'))).status).toBe(400);
+      expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/'))).toHaveLength(0);
+    });
+    it('does not show a queue that is out of order, includes a closed enquiry or has no waiting time', async () => {
+      const second = { ...row, id: randomUUID(), contactId: canonicalId, submissionId };
+      upstream({
+        listOpportunities: waiting([
+          { ...row, waitingSince: at(-5) },
+          { ...second, waitingSince: at(-4) },
+        ]),
+      });
+      expect((await detailGet(request('/api/crm?limit=50&queue=waiting'))).status).toBe(200);
+      upstream({
+        listOpportunities: waiting([
+          { ...row, waitingSince: at(-4) },
+          { ...second, waitingSince: at(-5) },
+        ]),
+      });
+      expect((await detailGet(request('/api/crm?limit=50&queue=waiting'))).status).toBe(502);
+      // The same order is fine in the default listing, which makes no such promise.
+      expect((await detailGet(request('/api/crm?limit=50'))).status).toBe(200);
+      const closed = {
+        ...row,
+        stage: 'closed',
+        nextAction: null,
+        closedDisposition: 'declined',
+        closingEvidenceRef: 'no',
+        waitingSince: null,
+      };
+      upstream({ listOpportunities: waiting([closed]) });
+      expect((await detailGet(request('/api/crm?limit=50&queue=waiting'))).status).toBe(502);
+      expect((await detailGet(request('/api/crm?limit=50'))).status).toBe(200);
+      upstream({ listOpportunities: waiting([row].map(({ waitingSince: _w, ...rest }) => rest)) });
+      expect((await detailGet(request('/api/crm?limit=50&queue=waiting'))).status).toBe(502);
+    });
+  });
 });
