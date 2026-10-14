@@ -28,6 +28,13 @@ export default defineConfig(({ mode }) => {
         '/ws': { target: process.env.CUSTOMER_WS_URL ?? 'ws://127.0.0.1:4014', ws: true, rewrite: (path) => path.replace(/^\/ws/, '') },
       },
     },
-    build: { target: 'es2022', sourcemap: false },
+    build: {
+      target: 'es2022',
+      sourcemap: false,
+      // Fonts are never inlined as `data:` URIs: the production CSP is `font-src 'self'` (security-headers.conf.template),
+      // so an inlined subset (JetBrains Mono's Cyrillic woff2) is blocked on every page load. Emit them as files instead of
+      // weakening the policy. Everything else keeps Vite's default 4 KiB inline limit.
+      assetsInlineLimit: (file) => (/\.(woff2?|ttf|otf|eot)$/i.test(file) ? false : undefined),
+    },
   };
 });
