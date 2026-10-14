@@ -54,7 +54,8 @@ describe('D-S-06 shared matching conformance pins', () => {
     ] as const) {
       expect(text, `ADR missing token: ${token}`).toContain(token);
     }
-    expect(text).toMatch(/\*\*Status:\*\* \*\*Proposed \(spec\)\.\*\*/);
+    expect(text).toMatch(/\*\*Status:\*\* proposed/);
+    expect(text).toMatch(/\*\*Status note:\*\* \*\*Proposed \(spec\)\.\*\*/);
     expect(text).not.toMatch(/self-Accepted/);
   });
 
