@@ -58,7 +58,14 @@ function recordingLedger(opts?: { insuranceAvailable?: Amount }) {
         return { id: `tx-${posts.length}`, idempotencyKey: req.idempotencyKey } as never;
       },
       async balance(ref: AccountRef): Promise<Balance> {
-        const amount = ref.ownerType === 'house' && ref.ownerId === 'insurance-fund' ? insuranceAvailable : 0n;
+        // A position's collateral pot: ample, so the tick plans against the row's own margin (the ledger-pot
+        // divergence guard takes min(row, pot)). The guard itself is proven in liquidation-rung-machine.test.ts ("divergence guard: the plan is taken against min(row margin, ledger pot)").
+        const amount =
+          ref.ownerType === 'house' && ref.ownerId === 'insurance-fund'
+            ? insuranceAvailable
+            : ref.kind === 'collateral'
+              ? amt('1000000')
+              : 0n;
         return { account: ref, accountId: `${ref.ownerType}:${ref.ownerId}`, amount };
       },
     },

@@ -267,10 +267,6 @@ services:
       # when set. Unset omits the key so unresolved region stays fall-open.
       # Do not default true — `:-true` would refuse XX on every compose boot.
       INTAFACED_REGION_FAIL_CLOSED:
-      # Embeddable ramp widget. Unset → ops.infra_licence_unset. White-label is CSS.
-      INFRA_LICENCE:
-      INFRA_WIDGET_ACCENT:
-      INFRA_WIDGET_CSS:
       EDGE_RATE_LIMIT_ENABLED: ${EDGE_RATE_LIMIT_ENABLED:-true}
       # Per-replica throttle pair: no git default — blank refuses (never 300 /
       # never 60000). Owner may set 300 and 60000 explicitly. Same `:?` shape as

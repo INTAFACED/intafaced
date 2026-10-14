@@ -19,6 +19,7 @@ import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from '.
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
 import { recordSuccess, reserveAttempt, type AttemptKind } from './attempt-lockout.js';
+import { matchInvite, type FounderEnrolmentConfig } from './founder-enrolment.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
 import {
   b64urlDecode,
@@ -94,7 +95,11 @@ export class AuthError extends Error {
       | 'auth.delegate_cannot_grant'
       | 'auth.password_unchanged'
       | 'auth.password_policy'
-      | 'auth.too_many_attempts',
+      | 'auth.too_many_attempts'
+      | 'auth.invite_invalid'
+      | 'auth.invite_used'
+      | 'auth.invite_expired'
+      | 'auth.founder_enrolment_closed',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
   ) {
@@ -303,6 +308,15 @@ const DEFAULT_WEBAUTHN: WebAuthnConfig = {
   origin: 'http://localhost:3000',
 };
 
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === '23505';
+}
+
+function uniqueConstraintName(err: unknown): string {
+  const name = (err as { constraint_name?: unknown }).constraint_name;
+  return typeof name === 'string' ? name : '';
+}
+
 export class AuthService {
   private readonly pendingTotp: PendingTotpEnrolmentStore;
   private readonly challenges: ChallengeStorePort;
@@ -376,24 +390,32 @@ export class AuthService {
 
   async register(input: RegisterInput): Promise<SessionTokens> {
     const passwordHash = await hashPassword(input.password);
-    const userId = await transaction(this.sql, async (tx) => {
-      const clash = await tx<
-        Array<{ handle: string; email: string }>
-      >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
-      for (const row of clash) {
-        if (row.handle.toLowerCase() === input.handle.toLowerCase()) {
-          throw new AuthError('That handle is taken', 'auth.handle_taken');
-        }
-        throw new AuthError('An account with that email already exists', 'auth.email_taken');
+    const userId = await transaction(this.sql, (tx) => this.insertNewUser(tx, input, passwordHash));
+    return this.finishRegistration(userId, input);
+  }
+
+  /** The user, profile and rank rows of a new account, inside the caller's transaction. */
+  private async insertNewUser(tx: Sql, input: RegisterInput, passwordHash: string): Promise<string> {
+    const clash = await tx<
+      Array<{ handle: string; email: string }>
+    >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
+    for (const row of clash) {
+      if (row.handle.toLowerCase() === input.handle.toLowerCase()) {
+        throw new AuthError('That handle is taken', 'auth.handle_taken');
       }
-      const inserted = await tx<
-        Array<{ id: string }>
-      >`INSERT INTO users (handle, email, password_hash) VALUES (${input.handle}, ${input.email}, ${passwordHash}) RETURNING id`;
-      const id = inserted[0]!.id;
-      await tx`INSERT INTO profiles (user_id, display_name, region) VALUES (${id}, ${input.handle}, ${input.region ?? null})`;
-      await tx`INSERT INTO rank_state (user_id) VALUES (${id})`;
-      return id;
-    });
+      throw new AuthError('An account with that email already exists', 'auth.email_taken');
+    }
+    const inserted = await tx<
+      Array<{ id: string }>
+    >`INSERT INTO users (handle, email, password_hash) VALUES (${input.handle}, ${input.email}, ${passwordHash}) RETURNING id`;
+    const id = inserted[0]!.id;
+    await tx`INSERT INTO profiles (user_id, display_name, region) VALUES (${id}, ${input.handle}, ${input.region ?? null})`;
+    await tx`INSERT INTO rank_state (user_id) VALUES (${id})`;
+    return id;
+  }
+
+  /** After the account is committed: announce it, award the first XP, open a (non-MFA) session. */
+  private async finishRegistration(userId: string, input: RegisterInput): Promise<SessionTokens> {
     await this.bus.publish(
       'userCreated',
       { userId, handle: input.handle, ...(input.region ? { region: input.region } : {}) },
@@ -407,6 +429,103 @@ export class AuthService {
       idempotencyKey: `identity.registered:${userId}`,
     });
     return this.issueSession(userId, { device: input.device, ip: input.ip, mfa: false });
+  }
+
+  /**
+   * FOUNDER ENROLMENT (`auth.registerFounder`, src/auth/founder-enrolment.ts).
+   *
+   * Creates an ordinary account, exactly like `register`, but gated by a
+   * single-use invite instead of REGISTRATION_OPEN. The new account is NOT
+   * privileged until the founder pair is pinned to its id, so the session may
+   * enrol its first factor the normal way (factor-gate.ts is untouched).
+   *
+   * Order matters. The cheap refusals come first, before the argon2 hash that an
+   * attacker could otherwise make us pay for with a bad code:
+   *   closed (not configured, or the pair is pinned) → invalid → expired → used.
+   * The invite is then consumed in the SAME transaction as the user insert,
+   * behind a per-invite advisory lock, with the primary key as the backstop: one
+   * invite makes one account and a race has exactly one winner. The losing
+   * transaction rolls back its user row.
+   *
+   * Logging: one audit line, `founder.enrolled {userId}`. The invite, its hash
+   * and the password are never logged, and the hash is never put next to an
+   * email. The durable record is the `founder_invites_used` row (hash → user,
+   * time), which is immutable.
+   */
+  async registerFounder(
+    input: RegisterInput & { invite: string },
+    config: FounderEnrolmentConfig | undefined,
+    now: Date = new Date(),
+  ): Promise<SessionTokens> {
+    const closed = () => new AuthError('Founder enrolment is closed', 'auth.founder_enrolment_closed');
+    if (!config) throw closed();
+    if (await this.founderPairPinned(this.sql)) throw closed();
+    const hash = matchInvite(input.invite, config.hashes);
+    if (hash === null) throw new AuthError('That invite code is not valid', 'auth.invite_invalid');
+    if (now.getTime() >= config.expiresAt.getTime()) throw new AuthError('That invite code has expired', 'auth.invite_expired');
+    const usedError = () => new AuthError('That invite code has already been used', 'auth.invite_used');
+    if (await this.founderInviteSpent(this.sql, hash)) throw usedError();
+
+    const passwordHash = await hashPassword(input.password);
+    let userId: string;
+    try {
+      userId = await transaction(
+        this.sql,
+        async (tx) => {
+          // Serialise every attempt on this invite, so the loser of a race gets
+          // `invite_used` (not a unique-violation 500) and never half-creates a user.
+          await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`founder-invite:${hash}`}, 0))`;
+          // Re-read under the lock: the pair may have been pinned, the invite spent, while we hashed.
+          if (await this.founderPairPinned(tx)) throw closed();
+          if (await this.founderInviteSpent(tx, hash)) throw usedError();
+          const id = await this.insertNewUser(tx, input, passwordHash);
+          const claimed = await tx<
+            Array<{ hash: string }>
+          >`INSERT INTO founder_invites_used (hash, user_id) VALUES (${hash}, ${id}) ON CONFLICT (hash) DO NOTHING RETURNING hash`;
+          if (claimed.length !== 1) throw usedError();
+          return id;
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (err) {
+      // Two founders racing different invites for the same handle/email: the unique index decides.
+      if (isUniqueViolation(err)) {
+        if (/founder_invites_used/.test(uniqueConstraintName(err))) throw usedError();
+        throw new AuthError(
+          /email/i.test(uniqueConstraintName(err)) ? 'An account with that email already exists' : 'That handle is taken',
+          /email/i.test(uniqueConstraintName(err)) ? 'auth.email_taken' : 'auth.handle_taken',
+        );
+      }
+      throw err;
+    }
+    this.log.warn({ audit: 'founder.enrolled', userId }, 'founder.enrolled');
+    return this.finishRegistration(userId, input);
+  }
+
+  /**
+   * Is founder enrolment open right now? True only while ALL hold: the invites
+   * are configured (hashes and expiry), the founder pair is not pinned, the
+   * expiry has not passed, and at least one invite is unspent. Reveals nothing else.
+   */
+  async founderEnrolmentOpen(config: FounderEnrolmentConfig | undefined, now: Date = new Date()): Promise<boolean> {
+    if (!config) return false;
+    if (now.getTime() >= config.expiresAt.getTime()) return false;
+    if (await this.founderPairPinned(this.sql)) return false;
+    const spent = await this.sql<
+      Array<{ n: number }>
+    >`SELECT count(*)::int AS n FROM founder_invites_used WHERE hash IN ${this.sql(config.hashes as string[])}`;
+    return (spent[0]?.n ?? 0) < config.hashes.length;
+  }
+
+  /** The founder pair is pinned permanently by the first verified boot (founder-controls.ts). */
+  private async founderPairPinned(q: Sql): Promise<boolean> {
+    const rows = await q<Array<{ pinned: boolean }>>`SELECT true AS pinned FROM founder_control_configuration LIMIT 1`;
+    return rows.length > 0;
+  }
+
+  private async founderInviteSpent(q: Sql, hash: string): Promise<boolean> {
+    const rows = await q<Array<{ hash: string }>>`SELECT hash FROM founder_invites_used WHERE hash = ${hash}`;
+    return rows.length > 0;
   }
 
   async login(input: { identifier: string; password: string; totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
