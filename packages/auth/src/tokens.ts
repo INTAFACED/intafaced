@@ -33,6 +33,14 @@ export const accessClaimsSchema = z.object({
   tier: z.enum(['none', 'basic', 'full', 'institutional']).default('none'),
   /** True once the session has passed 2FA. Gates INTERACTIVE_ONLY_SCOPES. */
   mfa: z.boolean().default(false),
+  /**
+   * Unix seconds when the password (and second factor, if any) were last actually
+   * verified. A refresh carries it forward unchanged, so it measures how long ago
+   * the person really signed in, not when the token was minted. Absent on tokens
+   * minted before it existed and on API-key tokens; treat absent as "unknown", never
+   * as recent. Lets a step-up gate require recency.
+   */
+  auth_time: z.number().int().nonnegative().optional(),
   sid: z.string().uuid(),
 });
 
@@ -92,6 +100,8 @@ export interface IssueAccessInput {
   scopes: readonly Scope[] | readonly string[];
   tier?: AccessClaims['tier'];
   mfa?: boolean;
+  /** Unix seconds of the last real password / second-factor verification. Omit when unknown. */
+  authTime?: number;
   subAccountId?: string;
   apiKeyId?: string;
   /** Only for tokens minted from an API key (ADR pay.public-api §2.5). */
@@ -106,6 +116,7 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
     scopes: [...input.scopes],
     tier: input.tier ?? 'none',
     mfa: input.mfa ?? false,
+    ...(input.authTime !== undefined ? { auth_time: Math.floor(input.authTime) } : {}),
     sid: input.sessionId,
     ...(input.subAccountId ? { sub_account: input.subAccountId } : {}),
     ...(input.apiKeyId ? { kid: input.apiKeyId } : {}),

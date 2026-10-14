@@ -251,6 +251,13 @@ export const sessions = identity.table(
     ip: text('ip'),
     /** True once this session has passed a second factor. */
     mfa: boolean('mfa').notNull().default(false),
+    /**
+     * When the password (and second factor, if any) were last actually verified.
+     * Carried unchanged through every refresh; the MFA max age runs against it.
+     */
+    authTime: tstz('auth_time').notNull().defaultNow(),
+    /** One value for a whole refresh chain. The refresh grace window answers only inside one family. */
+    familyId: uuid('family_id').notNull().defaultRandom(),
     expiresAt: tstz('expires_at').notNull(),
     revoked: boolean('revoked').notNull().default(false),
     /**

@@ -7,6 +7,7 @@ import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
+import { resolveRefreshPolicy } from './auth/refresh-policy.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { assertProdTotpKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -94,6 +95,10 @@ if (env.APP_ENV === 'prod') {
   assertProdTotpKey(env);
 }
 
+const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
+// Refuses boot on a blank or malformed refresh policy: how long a refresh keeps `mfa`, and the grace window.
+const refreshPolicy = resolveRefreshPolicy(env, founderPair ?? []);
+
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   ssl: env.DATABASE_SSL ? 'require' : false,
@@ -115,6 +120,18 @@ await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
 await sql`SELECT hash FROM founder_invites_used LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: founder_invites_used is missing — apply drizzle/0028_founder_invites_used.sql before starting svc-identity',
+  );
+});
+
+// Same for 0030: refresh reads sessions.auth_time and the grace table on every call, not just at login.
+await sql`SELECT auth_time, family_id FROM sessions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: sessions.auth_time / family_id are missing — apply drizzle/0030_session_auth_time_refresh_grace.sql before starting svc-identity',
+  );
+});
+await sql`SELECT retired_hash FROM session_refresh_grace LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: session_refresh_grace is missing — apply drizzle/0030_session_auth_time_refresh_grace.sql before starting svc-identity',
   );
 });
 
@@ -164,10 +181,10 @@ const auth = new AuthService(
   undefined,
   undefined,
   env.IDENTITY_MAX_SUB_ACCOUNTS,
+  refreshPolicy,
 );
 
 const placeDoor = new PlaceDoor(sql);
-const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
 const founderControls = new FounderControls(sql, founderPair);
 await founderControls.bootstrap();
 

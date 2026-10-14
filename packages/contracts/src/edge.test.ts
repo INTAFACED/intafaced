@@ -51,6 +51,13 @@ describe('edge principal — the happy path', () => {
     expect(got?.expiresAt.toISOString()).toBe(p.expiresAt.toISOString());
   });
 
+  it('forwards auth_time when the principal has one, and omits it when not', () => {
+    const withTime = forward(principal({ mfa: true, auth_time: 1_760_000_000 }));
+    expect(verifyForwardedPrincipal(withTime.raw, withTime.sig, SECRET).principal?.auth_time).toBe(1_760_000_000);
+    const without = forward(principal({ mfa: true }));
+    expect(verifyForwardedPrincipal(without.raw, without.sig, SECRET).principal?.auth_time).toBeUndefined();
+  });
+
   it('treats an absent header as anonymous rather than as a rejection', () => {
     expect(verifyForwardedPrincipal(undefined, undefined, SECRET)).toEqual({ principal: null, rejected: null });
   });

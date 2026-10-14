@@ -56,6 +56,7 @@ export function encodePrincipal(principal: Principal): string {
     scopes: [...principal.scopes],
     tier: principal.tier,
     mfa: principal.mfa,
+    ...(principal.auth_time !== undefined ? { auth_time: principal.auth_time } : {}),
     sid: principal.sid,
     userId: principal.userId,
     expiresAt: principal.expiresAt.toISOString(),

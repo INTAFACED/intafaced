@@ -154,6 +154,10 @@ async function main() {
     WEBAUTHN_RP_ID: 'localhost',
     WEBAUTHN_RP_NAME: 'cx8',
     WEBAUTHN_ORIGIN: 'http://localhost',
+    // SMOKE RIG values. Identity refuses to boot without a refresh policy; these are the fixture's, not product defaults.
+    IDENTITY_MFA_MAX_AGE_SECONDS: '43200',
+    IDENTITY_PRIVILEGED_MFA_MAX_AGE_SECONDS: '900',
+    IDENTITY_REFRESH_GRACE_SECONDS: '30',
   });
 
   await waitHealth('http://127.0.0.1:4005', 'matching');

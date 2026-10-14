@@ -25,6 +25,17 @@ const registrationOpen = z.preprocess((v) => {
 }, z.boolean().optional());
 
 /**
+ * An owner-published whole number of seconds. Unset or blank → undefined here; the refresh policy
+ * (`resolveRefreshPolicy`, called at boot) turns that into a refusal to boot. Never defaulted.
+ * Non-numeric → fail boot with the variable named.
+ */
+const publishedSeconds = z.preprocess((v) => {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === 'string' && v.trim() === '') return undefined;
+  return v;
+}, z.coerce.number().int().optional());
+
+/**
  * A founder-invite value that is either unset/blank (→ undefined, enrolment closed)
  * or valid. A malformed value fails boot with the parser's message; it is never
  * silently dropped, because a typo here would otherwise look like a closed door.
@@ -140,6 +151,24 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(10_000).optional()),
+      /**
+       * How long a refresh may keep carrying the `mfa` claim after the person last really verified
+       * their password and second factor (`auth_time`). Past it, refresh issues `mfa: false` and the
+       * person signs in again. Required: blank / unset refuses boot. Never defaulted. Recommended
+       * production value to put to the owner: 43200 (12 h).
+       */
+      IDENTITY_MFA_MAX_AGE_SECONDS: publishedSeconds,
+      /**
+       * The same, for the founder pair and any `admin:*` principal. Required, never longer than the
+       * value above. Blank / unset refuses boot. Recommended production value: 900 (15 min).
+       */
+      IDENTITY_PRIVILEGED_MFA_MAX_AGE_SECONDS: publishedSeconds,
+      /**
+       * Refresh grace window: a refresh token retired by a rotation is answered once, within this many
+       * seconds, with the same successor pair (a lost response), instead of revoking every session.
+       * 0 turns the window off. Required: blank / unset refuses boot. Recommended production value: 30.
+       */
+      IDENTITY_REFRESH_GRACE_SECONDS: publishedSeconds,
       /**
        * Owner-published lifetime for an action-bound approval, in seconds.
        * Blank / unset → unpublished; propose refuses (`action_approval.ttl_unset`).

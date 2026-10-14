@@ -359,6 +359,11 @@ services:
       # Live-partition cap — pass-through, no compose default. Blank stays refuse-closed.
       # Host must set IDENTITY_MAX_SUB_ACCOUNTS (explicit 25 allowed). Never invent 25.
       IDENTITY_MAX_SUB_ACCOUNTS: ${IDENTITY_MAX_SUB_ACCOUNTS:-}
+      # Refresh policy. Owner-published, so no compose default: identity refuses to boot without all three.
+      # See .env.example for dev values; production values are the owner's call.
+      IDENTITY_MFA_MAX_AGE_SECONDS: ${IDENTITY_MFA_MAX_AGE_SECONDS:?missing — copy .env.example to .env}
+      IDENTITY_PRIVILEGED_MFA_MAX_AGE_SECONDS: ${IDENTITY_PRIVILEGED_MFA_MAX_AGE_SECONDS:?missing — copy .env.example to .env}
+      IDENTITY_REFRESH_GRACE_SECONDS: ${IDENTITY_REFRESH_GRACE_SECONDS:?missing — copy .env.example to .env}
       # ops.affiliates: payout posts sweepFeesToRewards + rewardPay. Without this,
       # compose identity refuses affiliate.payout.ledger_unwired (env stays optional
       # and undefaulted — unset is still a legible refuse, not a localhost invent).

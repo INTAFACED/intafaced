@@ -38,6 +38,14 @@ describe('access tokens', () => {
     expect(p.scopes).toContain('trade:write');
   });
 
+  it('carries auth_time through, and leaves it absent rather than inventing one', async () => {
+    const signedInAt = 1_760_000_000;
+    const withTime = await principal({ mfa: true, authTime: signedInAt });
+    expect(withTime.auth_time).toBe(signedInAt);
+    const without = await principal({ mfa: true });
+    expect(without.auth_time).toBeUndefined();
+  });
+
   it('rejects a token signed with a different secret', async () => {
     const { token } = await issueAccessToken({ userId: USER, sessionId: SESSION, scopes: [] }, config);
     await expect(verifyAccessToken(token, { ...config, secret: 'a-completely-different-secret-value!!' })).rejects.toThrow(AuthError);

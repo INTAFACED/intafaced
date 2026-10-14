@@ -14,7 +14,15 @@ import {
   verifyPassword,
   WeakPasswordError,
 } from './passwords.js';
-import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import {
+  accountHasSecondFactor,
+  assertMayAddFactor,
+  assertMayRemoveFactor,
+  checkMayAddFactor,
+  factorActor,
+  type FactorActor,
+} from './factor-gate.js';
+import { mfaSurvivesRefresh, openGracePayload, sealGracePayload, type RefreshPolicy } from './refresh-policy.js';
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
@@ -308,6 +316,11 @@ const DEFAULT_WEBAUTHN: WebAuthnConfig = {
   origin: 'http://localhost:3000',
 };
 
+/** Whole unix seconds, the unit of the `auth_time` claim. */
+function epochSeconds(at: Date): number {
+  return Math.floor(at.getTime() / 1000);
+}
+
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === '23505';
 }
@@ -324,6 +337,8 @@ export class AuthService {
   private readonly totpSecretKey: Buffer | null;
   /** Owner-published live cap. Undefined = unpublished — create refuses, never invents 25. */
   private readonly maxSubAccounts: number | undefined;
+  /** Owner-published refresh policy. Undefined = refresh drops `mfa` and grants no grace; never invented. */
+  private readonly refreshPolicy: RefreshPolicy | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -335,7 +350,9 @@ export class AuthService {
     challenges?: ChallengeStorePort,
     pendingTotp?: PendingTotpEnrolmentStore,
     maxSubAccounts?: number,
+    refreshPolicy?: RefreshPolicy,
   ) {
+    this.refreshPolicy = refreshPolicy;
     this.webauthn = webauthn;
     this.totpSecretKey = parseTotpSecretKey(totpSecretKeyMaterial);
     this.challenges = challenges ?? new SqlChallengeStore(sql, webauthn.challengeTtlMs);
@@ -582,9 +599,10 @@ export class AuthService {
       async (tx) => {
         const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`;
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+        // A new session is a real sign-in: auth_time is now (the column default), and a fresh family starts.
         return tx<
-          Array<{ id: string }>
-        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${options.mfa}, ${expiresAt}) RETURNING id`;
+          Array<{ id: string; auth_time: Date }>
+        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${options.mfa}, ${expiresAt}) RETURNING id, auth_time`;
       },
       { isolation: 'read committed' },
     );
@@ -592,7 +610,7 @@ export class AuthService {
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     const tier = await this.kycTier(userId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId, sessionId, scopes: this.defaultScopes(), tier, mfa: options.mfa },
+      { userId, sessionId, scopes: this.defaultScopes(), tier, mfa: options.mfa, authTime: epochSeconds(inserted[0]!.auth_time) },
       this.tokens,
     );
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
@@ -600,18 +618,35 @@ export class AuthService {
 
   async refresh(refreshToken: string, options: { device?: string; ip?: string } = {}): Promise<SessionTokens> {
     const hash = hashToken(refreshToken);
+    const graceSeconds = this.refreshPolicy?.graceSeconds ?? 0;
     type RefreshOutcome =
       | { kind: 'reuse'; userId: string; sessionId: string }
       | { kind: 'frozen'; userId: string; sessionId: string; status: string }
       | { kind: 'expired'; sessionId: string }
-      | { kind: 'rotated'; previousSessionId: string; tokens: SessionTokens };
+      | { kind: 'rotated'; previousSessionId: string; tokens: SessionTokens }
+      | { kind: 'grace'; userId: string; tokens: SessionTokens }
+      | { kind: 'refused' };
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
-        Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; expires_at: Date; user_status: string }>
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+        Array<{
+          id: string;
+          user_id: string;
+          revoked: boolean;
+          mfa: boolean;
+          auth_time: Date;
+          family_id: string;
+          expires_at: Date;
+          user_status: string;
+        }>
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.auth_time, s.family_id, s.expires_at, u.status AS user_status FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
-      if (session.revoked) return { kind: 'reuse', userId: session.user_id, sessionId: session.id };
+      if (session.revoked) {
+        // A token retired by a rotation may be answered once, shortly after, with its successor
+        // (the response was lost). Everything else that lands here is theft and revokes all.
+        const answered = graceSeconds > 0 ? await this.answerFromGrace(tx, session, refreshToken, hash, graceSeconds) : null;
+        return answered ?? { kind: 'reuse', userId: session.user_id, sessionId: session.id };
+      }
       if (session.expires_at.getTime() < Date.now()) {
         await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
         return { kind: 'expired', sessionId: session.id };
@@ -620,31 +655,61 @@ export class AuthService {
         await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
         return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
       }
+      // `mfa` rides a refresh only while the last real second-factor check is recent. auth_time itself
+      // is carried unchanged: a refresh is not a sign-in and must never restart the clock.
+      const privileged = factorActor(
+        { userId: session.user_id, mfa: session.mfa, scopes: this.defaultScopes() },
+        this.refreshPolicy?.privilegedUserIds ?? [],
+      ).privileged;
+      const keepMfa = mfaSurvivesRefresh(this.refreshPolicy, { mfa: session.mfa, authTime: session.auth_time, privileged });
       await tx`UPDATE sessions SET revoked = true, last_used_at = now() WHERE id = ${session.id}`;
       const nextToken = generateToken(48);
       const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
       const nextSession = await tx<
         Array<{ id: string }>
-      >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${session.user_id}, ${hashToken(nextToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${session.mfa}, ${expiresAt}) RETURNING id`;
+      >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, auth_time, family_id, expires_at) VALUES (${session.user_id}, ${hashToken(nextToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${keepMfa}, ${session.auth_time}, ${session.family_id}, ${expiresAt}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       const tier = await this.kycTier(session.user_id, tx);
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-        { userId: session.user_id, sessionId, scopes: this.defaultScopes(), tier, mfa: session.mfa },
+        {
+          userId: session.user_id,
+          sessionId,
+          scopes: this.defaultScopes(),
+          tier,
+          mfa: keepMfa,
+          authTime: epochSeconds(session.auth_time),
+        },
         this.tokens,
       );
-      return {
-        kind: 'rotated',
-        previousSessionId: session.id,
-        tokens: {
+      const tokens: SessionTokens = {
+        accessToken,
+        refreshToken: nextToken,
+        expiresAt: accessExpiresAt,
+        sessionId,
+        userId: session.user_id,
+        mfaRequired: false,
+      };
+      if (graceSeconds > 0) {
+        // Keep the answer to THIS rotation, sealed so that only the holder of the retired token can read it.
+        const sealed = sealGracePayload(refreshToken, hash, this.tokens.secret, {
           accessToken,
           refreshToken: nextToken,
-          expiresAt: accessExpiresAt,
+          expiresAt: accessExpiresAt.toISOString(),
           sessionId,
           userId: session.user_id,
-          mfaRequired: false,
-        },
-      };
+        });
+        await tx`DELETE FROM session_refresh_grace WHERE rotated_at < now() - make_interval(secs => ${graceSeconds})`;
+        await tx`INSERT INTO session_refresh_grace (retired_hash, user_id, family_id, retired_session_id, successor_session_id, sealed) VALUES (${hash}, ${session.user_id}, ${session.family_id}, ${session.id}, ${sessionId}, ${sealed})`;
+      }
+      return { kind: 'rotated', previousSessionId: session.id, tokens };
     });
+    if (result.kind === 'grace') {
+      this.log.warn({ userId: result.userId }, 'identity.refresh_grace_replay');
+      return result.tokens;
+    }
+    if (result.kind === 'refused') {
+      throw new AuthError('Session not found', 'auth.session_invalid');
+    }
     if (result.kind === 'reuse') {
       await this.sql`UPDATE sessions SET revoked = true, reuse_detected_at = now() WHERE user_id = ${result.userId} AND revoked = false`;
       await this.sql`UPDATE sessions SET reuse_detected_at = now() WHERE id = ${result.sessionId}`;
@@ -665,12 +730,78 @@ export class AuthService {
     return result.tokens;
   }
 
+  /**
+   * A revoked refresh token was presented. If a rotation (not a logout, a revoke, a freeze) retired it
+   * moments ago, its holder most likely never received the answer: return that same answer, once.
+   *
+   * Returns null when this is not that case (no rotation record, window over, already answered, the
+   * successor was revoked or used) so the caller treats it as reuse and revokes everything. Returns
+   * `refused` when a rotation record exists but does not belong to this session's family or cannot be
+   * opened with this token: nothing is returned and nothing else is revoked.
+   *
+   * Runs inside the refresh transaction, which already holds the retired session's row lock, so two
+   * replays of one token are serialised and the second sees the answer already spent.
+   */
+  private async answerFromGrace(
+    tx: Sql,
+    retired: { id: string; user_id: string; family_id: string },
+    refreshToken: string,
+    hash: string,
+    graceSeconds: number,
+  ): Promise<{ kind: 'grace'; userId: string; tokens: SessionTokens } | { kind: 'refused' } | null> {
+    const rows = await tx<
+      Array<{
+        user_id: string;
+        family_id: string;
+        retired_session_id: string;
+        successor_session_id: string;
+        sealed: string;
+        succ_user_id: string | null;
+        succ_family_id: string | null;
+        succ_revoked: boolean | null;
+        succ_expires_at: Date | null;
+      }>
+    >`SELECT g.user_id, g.family_id, g.retired_session_id, g.successor_session_id, g.sealed, succ.user_id AS succ_user_id, succ.family_id AS succ_family_id, succ.revoked AS succ_revoked, succ.expires_at AS succ_expires_at FROM session_refresh_grace g LEFT JOIN sessions succ ON succ.id = g.successor_session_id WHERE g.retired_hash = ${hash} AND g.consumed_at IS NULL AND g.rotated_at > now() - make_interval(secs => ${graceSeconds}) FOR UPDATE OF g`;
+    const row = rows[0];
+    if (!row) return null;
+    // The record, the retired session and its successor must all be one person's one family.
+    if (
+      row.retired_session_id !== retired.id ||
+      row.user_id !== retired.user_id ||
+      row.family_id !== retired.family_id ||
+      row.succ_user_id !== retired.user_id ||
+      row.succ_family_id !== retired.family_id
+    ) {
+      return { kind: 'refused' };
+    }
+    // The successor already rotated, was logged out or revoked, or lapsed: somebody used it, so this is a replay.
+    if (row.succ_revoked !== false || !row.succ_expires_at || row.succ_expires_at.getTime() <= Date.now()) return null;
+    const payload = openGracePayload(refreshToken, hash, this.tokens.secret, row.sealed);
+    if (!payload || payload.sessionId !== row.successor_session_id || payload.userId !== retired.user_id) return { kind: 'refused' };
+    const spent = await tx`UPDATE session_refresh_grace SET consumed_at = now() WHERE retired_hash = ${hash} AND consumed_at IS NULL`;
+    if (spent.count !== 1) return null;
+    return {
+      kind: 'grace',
+      userId: retired.user_id,
+      tokens: {
+        accessToken: payload.accessToken,
+        refreshToken: payload.refreshToken,
+        expiresAt: new Date(payload.expiresAt),
+        sessionId: payload.sessionId,
+        userId: payload.userId,
+        mfaRequired: false,
+      },
+    };
+  }
+
   async logout(refreshToken: string): Promise<void> {
     const hash = hashToken(refreshToken);
-    const rows = await this.sql<Array<{ id: string }>>`SELECT id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1`;
-    await this.sql`UPDATE sessions SET revoked = true WHERE refresh_hash = ${hash}`;
-    const sessionId = rows[0]?.id;
-    if (sessionId) await syncNavigatorSessionClosed(this.sql, sessionId);
+    // Ends the whole chain this token belongs to. A token retired by a rotation whose answer was lost
+    // still has a live successor; logging out with the old cookie must not leave that session open.
+    const rows = await this.sql<
+      Array<{ id: string }>
+    >`UPDATE sessions SET revoked = true WHERE revoked = false AND family_id = (SELECT family_id FROM sessions WHERE refresh_hash = ${hash}) RETURNING id`;
+    for (const row of rows) await syncNavigatorSessionClosed(this.sql, row.id);
   }
 
   async logoutAll(userId: string): Promise<number> {
@@ -1398,7 +1529,7 @@ export class AuthService {
     const scopes: Scope[] = [...this.defaultScopes(), ...STEP_UP_SCOPES];
     const tier = await this.kycTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
-      { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true },
+      { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true, authTime: Math.floor(Date.now() / 1000) },
       { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, STEP_UP_TTL_SECONDS) },
     );
     return { accessToken: token, expiresAt, scopes };

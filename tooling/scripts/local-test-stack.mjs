@@ -696,6 +696,11 @@ function serviceDefs(secrets) {
         // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
         // test accounts; "LOCAL TEST — not a real approval".
         IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
+        // LOCAL TEST ONLY. Required, no default, owner-unpublished: how long a refresh may keep the `mfa` claim,
+        // how long for the founder pair / admins, and the refresh grace window. Local test values, not owner decisions.
+        IDENTITY_MFA_MAX_AGE_SECONDS: '43200',
+        IDENTITY_PRIVILEGED_MFA_MAX_AGE_SECONDS: '900',
+        IDENTITY_REFRESH_GRACE_SECONDS: '30',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
       }),
