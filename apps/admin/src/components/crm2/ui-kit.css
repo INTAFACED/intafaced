@@ -1,0 +1,140 @@
+/*
+ * Entry stylesheet for the shared UI kit (@intafaced/ui: Base UI + Tailwind 4) inside the founder console.
+ * Imported by ./ui-scope.tsx, so a page only receives it when it renders a <UiScope>.
+ *
+ * What keeps the existing console pages looking exactly as they do now:
+ *  1. No Preflight. Tailwind's global reset (it restyles every h1, button, a, table) is never imported. A small reset
+ *     below applies only inside .ui-scope and to the kit's own elements (they carry data-slot, popups included).
+ *  2. Every rule sits in a CSS layer. Unlayered CSS beats layered CSS whatever the order, so globals.css and the other
+ *     hand-written sheets always win a conflict.
+ *  3. source(none) plus two @source lines. Tailwind only generates utilities for class names found in the kit's own
+ *     components and in ./ (the new CRM screens). It does not scan the rest of apps/admin.
+ *  4. Token names are new. The only names shared with the console are --if-warn and --if-font-mono; the kit's values for
+ *     those sit in a lower layer, so the console's own value stays in force.
+ *
+ * Colours come from the console (graphite plus lime #C8F64A in globals.css), mapped once in the console-map layer.
+ * Type scale, radii, motion and spacing come from the kit's own tokens.css (step 2 of the layer list), so there is one
+ * source for each. ui-kit.test.ts checks both.
+ *
+ * New CRM screens: put Tailwind classes only in files under ./ and wrap the screen in <UiScope>.
+ */
+@layer theme, kit-defaults, console-map, base, components, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import '@intafaced/ui/theme/tokens.css' layer(kit-defaults);
+@import '@intafaced/ui/theme/theme.css';
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+
+@source './';
+
+@layer console-map {
+  :root {
+    /* Surfaces: --if-base / --if-surface / --if-surface-raised are the console's three graphite steps. */
+    --if-bg: var(--if-base);
+    --if-panel: var(--if-surface);
+    --if-field: var(--if-surface-raised);
+    --if-hover: var(--if-surface-raised);
+    --if-raised: color-mix(in srgb, var(--if-text) 7%, var(--if-surface-raised));
+    --if-pill-active: color-mix(in srgb, var(--if-text) 12%, var(--if-surface-raised));
+    --if-menu: var(--if-surface-raised);
+    --if-tooltip: color-mix(in srgb, var(--if-text) 7%, var(--if-surface-raised));
+    --if-popover: var(--if-surface);
+
+    /* Lines. */
+    --if-line: var(--if-border);
+    --if-line-strong: var(--if-border-strong);
+    --if-line-stronger: color-mix(in srgb, var(--if-text) 40%, var(--if-border-strong));
+    --if-line-popup: color-mix(in srgb, var(--if-text) 13%, transparent);
+
+    /* Text. */
+    --if-fg: var(--if-text);
+    --if-fg-2: var(--if-text-muted);
+    --if-fg-3: var(--if-text-faint);
+    --if-fg-disabled: color-mix(in srgb, var(--if-text-faint) 70%, var(--if-base));
+    --if-overlay-hover: color-mix(in srgb, var(--if-text) 16%, transparent);
+    --if-overlay-press: color-mix(in srgb, var(--if-text) 22%, transparent);
+    --if-overlay-disabled: color-mix(in srgb, var(--if-text) 8%, transparent);
+
+    /* Lime: the one main action. */
+    --if-lime: var(--if-accent);
+    --if-lime-hover: var(--if-accent-bright);
+    --if-lime-press: color-mix(in srgb, var(--if-accent) 85%, black);
+    --if-on-lime: var(--if-text-on-accent);
+    --if-lime-soft: color-mix(in srgb, var(--if-accent) 16%, transparent);
+
+    /* Direction and risk keep the console's long/short colours (the same values the console already uses). */
+    --if-up: var(--if-long);
+    --if-up-text: var(--if-long);
+    --if-on-up: var(--if-base);
+    --if-down: var(--if-short);
+    --if-down-text: var(--if-short);
+    --if-on-down: var(--if-text);
+    --if-up-bg: color-mix(in srgb, var(--if-long) 18%, var(--if-base));
+    --if-down-bg: color-mix(in srgb, var(--if-short) 18%, var(--if-base));
+    --if-up-hover: var(--if-long-dim);
+    --if-down-hover: var(--if-short-dim);
+    --if-up-bg-soft: color-mix(in srgb, var(--if-long) 10%, var(--if-base));
+    --if-warn-text: var(--if-warn);
+    --if-scrim: color-mix(in srgb, var(--if-base) 68%, transparent);
+
+    /* Chart colours: unused by the CRM, mapped so no utility can point at an undefined variable. */
+    --if-ma-1: var(--if-warn);
+    --if-ma-2: var(--if-short);
+    --if-ma-3: var(--if-info);
+    --if-vol-up: color-mix(in srgb, var(--if-long) 35%, var(--if-base));
+    --if-vol-down: color-mix(in srgb, var(--if-short) 35%, var(--if-base));
+    --if-grid: var(--if-surface);
+    --if-alloc-1: var(--if-accent);
+    --if-alloc-2: color-mix(in srgb, var(--if-text) 90%, var(--if-base));
+    --if-alloc-3: color-mix(in srgb, var(--if-text) 65%, var(--if-base));
+    --if-alloc-4: color-mix(in srgb, var(--if-text) 45%, var(--if-base));
+    --if-alloc-5: color-mix(in srgb, var(--if-text) 28%, var(--if-base));
+    --if-alloc-6: color-mix(in srgb, var(--if-text) 16%, var(--if-base));
+
+    /* Font: the console's Inter (next/font, served from our own origin). --if-font-mono is the console's already. */
+    --if-font-ui: var(--if-font-body);
+  }
+}
+
+@layer base {
+  /*
+   * Small reset for the kit, in place of Preflight. It reaches .ui-scope and anything carrying data-slot (every kit
+   * component sets one, including popups, which render in a portal outside .ui-scope). Nothing else on a page matches.
+   */
+  :where(.ui-scope, .ui-scope *, [data-slot], [data-slot] *),
+  :where(.ui-scope *, [data-slot] *)::before,
+  :where(.ui-scope *, [data-slot] *)::after {
+    box-sizing: border-box;
+  }
+
+  :where(.ui-scope, [data-slot]) :where(button, input, select, textarea),
+  :where(button, input, select, textarea):where([data-slot]) {
+    appearance: none;
+    margin: 0;
+    padding: 0;
+    border: 0 solid;
+    border-radius: 0;
+    background: transparent;
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    text-align: inherit;
+  }
+
+  :where(.ui-scope, [data-slot]) :where(p, h1, h2, h3, h4, ul, ol, dl, dd, figure) {
+    margin: 0;
+  }
+
+  :where(.ui-scope, [data-slot]) :where(ul, ol) {
+    list-style: none;
+    padding: 0;
+  }
+
+  .ui-scope {
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+    font-size: var(--if-text-base);
+    line-height: var(--if-leading-base);
+    color-scheme: dark;
+  }
+}
