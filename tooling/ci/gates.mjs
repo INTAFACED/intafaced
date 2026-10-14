@@ -421,6 +421,16 @@ export const GATES = [
       'which is precisely the drift this file exists to make impossible, arriving through its own merge.',
   },
   {
+    id: 'adr-register',
+    script: 'tooling/ci/adr-register-check.mjs',
+    doctrine: 'decision records (docs/POLICY-REGISTER.md · docs/adr/)',
+    why:
+      'agents now make product and money-safety rules themselves and record them for Phantom, so the record has to be ' +
+      'trustworthy: every row of the policy register must link an ADR that exists and is `accepted`, and the generated ' +
+      'ADR index must match the files. An empty register is valid at first; checking against no ADRs or no register file ' +
+      'refuses instead of passing.',
+  },
+  {
     id: 'empty-denominator',
     script: 'tooling/ci/empty-denominator-gate.mjs',
     doctrine: '§14 / empty-denominator law',

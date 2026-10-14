@@ -275,6 +275,13 @@ export const ENFORCED = {
       'D26-P2-13 seal: with money roots absent it refuses "no money-path roots"; with roots empty of the inventoried ' +
       'files it refuses via the stale-row ratchet. Either way it cannot print clean over nothing.',
   },
+  'adr-register': {
+    kind: 'guard',
+    must: /docs\/adr has no ADR files/,
+    note:
+      'denominator is the ADR files, not the register rows: an EMPTY register is legitimate until the first rule is ' +
+      'recorded, so zero rows passes, but with docs/adr gone (or no register file) it refuses by name.',
+  },
   'compose-secret-parity': {
     kind: 'uncaught',
     must: /ENOENT[\s\S]*env\.ts/,
