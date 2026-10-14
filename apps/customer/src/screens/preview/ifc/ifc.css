@@ -1,0 +1,315 @@
+/*
+ * IFC Preview screen. Only --if-* tokens (no colour values). Everything in `@layer components`. Sizes are px.
+ * Nothing here is a price, a yield or a buyback; reward figures are labelled samples.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .pv-ifc {
+    margin-top: 8px;
+  }
+  .pv-ifc * {
+    box-sizing: border-box;
+  }
+  .pv-ifc :where(h2, h3, p, ul, dl, dd, table) {
+    margin: 0;
+    padding: 0;
+  }
+  .pv-ifc__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .pv-ifc__panel {
+    margin-top: 16px;
+    padding: 20px;
+    background: var(--if-panel);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-lg);
+  }
+  .pv-ifc__panel--quiet {
+    background: var(--if-bg);
+  }
+  .pv-ifc__panel--build {
+    border-style: dashed;
+    border-color: var(--if-line-stronger);
+  }
+  .pv-ifc__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .pv-ifc__h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .pv-ifc__head .pv-ifc__h2 {
+    margin-bottom: 0;
+  }
+  .pv-ifc__h3 {
+    margin: 20px 0 8px;
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+  }
+  .pv-ifc__label {
+    display: block;
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .pv-ifc__strong {
+    display: block;
+    color: var(--if-fg);
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .pv-ifc__note {
+    margin-top: 12px;
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .pv-ifc__note--first {
+    margin-top: 0;
+  }
+  .pv-ifc__num {
+    font-variant-numeric: tabular-nums;
+  }
+  .pv-ifc__right {
+    text-align: right;
+  }
+  .pv-ifc__big {
+    margin: 4px 0 8px;
+    font: 700 40px/48px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .pv-ifc__big span {
+    color: var(--if-fg-2);
+    font-size: 20px;
+    font-weight: 500;
+  }
+  .pv-ifc__big--tier {
+    color: var(--if-lime);
+    font-size: 32px;
+    line-height: 40px;
+  }
+  .pv-ifc__stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 20px;
+    padding: 14px 16px;
+    background: var(--if-field);
+    border-radius: var(--if-r-md);
+  }
+  .pv-ifc__stats dt {
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .pv-ifc__stats dd {
+    margin-top: 2px;
+    font: 500 14px/20px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+  .pv-ifc__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .pv-ifc__bar {
+    height: 8px;
+    margin-top: 16px;
+    overflow: hidden;
+    background: var(--if-field);
+    border-radius: var(--if-r-pill);
+  }
+  .pv-ifc__bar > span {
+    display: block;
+    height: 100%;
+    background: var(--if-lime);
+    border-radius: var(--if-r-pill);
+  }
+
+  /* Tiers */
+  .pv-ifc__table {
+    width: 100%;
+    border-collapse: collapse;
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .pv-ifc__table th,
+  .pv-ifc__table td {
+    padding: 12px 0;
+    border-top: 1px solid var(--if-line);
+    text-align: left;
+    font-weight: 400;
+  }
+  .pv-ifc__table thead th {
+    border-top: 0;
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+  }
+  .pv-ifc__table th.pv-ifc__right,
+  .pv-ifc__table td.pv-ifc__right {
+    text-align: right;
+  }
+  .pv-ifc__table tbody th {
+    font-weight: 500;
+  }
+  .pv-ifc__table tr[data-current='true'] th,
+  .pv-ifc__table tr[data-current='true'] td {
+    color: var(--if-lime);
+  }
+  .pv-ifc__you {
+    margin-left: 8px;
+    padding: 1px 6px;
+    border: 1px solid currentColor;
+    border-radius: var(--if-r-xs);
+    font: 500 12px/16px var(--if-font-ui);
+  }
+
+  /* Staking */
+  .pv-ifc__options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .pv-ifc__option {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px;
+    background: var(--if-field);
+    border: 1px solid transparent;
+    border-radius: var(--if-r-md);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .pv-ifc__option:hover {
+    background: var(--if-raised);
+  }
+  .pv-ifc__option[aria-pressed='true'] {
+    border-color: var(--if-lime);
+  }
+  .pv-ifc__stake-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .pv-ifc__flag {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid var(--if-line-stronger);
+    border-radius: var(--if-r-xs);
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+    white-space: nowrap;
+  }
+  .pv-ifc__list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-left: 18px !important;
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .pv-ifc__uses {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    list-style: none;
+  }
+
+  /* Governance */
+  .pv-ifc__proposals {
+    display: flex;
+    flex-direction: column;
+    list-style: none;
+  }
+  .pv-ifc__proposal {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px 0;
+    border-top: 1px solid var(--if-line);
+  }
+  .pv-ifc__proposal:first-child {
+    border-top: 0;
+  }
+  .pv-ifc__proposal-top,
+  .pv-ifc__proposal-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .pv-ifc__proposal-foot {
+    margin-top: 6px;
+  }
+  .pv-ifc__vote {
+    display: inline-flex;
+    gap: 8px;
+  }
+  .pv-ifc__split {
+    height: 6px;
+    margin-top: 8px;
+    overflow: hidden;
+    background: var(--if-down-bg);
+    border-radius: var(--if-r-pill);
+  }
+  .pv-ifc__split > span {
+    display: block;
+    height: 100%;
+    background: var(--if-lime);
+  }
+  .pv-ifc__split-labels {
+    display: flex;
+    justify-content: space-between;
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Mining: in build */
+  .pv-ifc__build {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    border: 1px solid var(--if-warn);
+    border-radius: var(--if-r-pill);
+    color: var(--if-warn-text);
+    font: 500 12px/16px var(--if-font-ui);
+  }
+  .pv-ifc__activity {
+    display: flex;
+    flex-direction: column;
+    list-style: none;
+  }
+  .pv-ifc__activity li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-top: 1px solid var(--if-line);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .pv-ifc__activity li:first-child {
+    border-top: 0;
+  }
+
+  @media (max-width: 1000px) {
+    .pv-ifc__grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .pv-ifc__options {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}

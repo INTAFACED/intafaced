@@ -1,0 +1,221 @@
+/*
+ * Academy Preview screen. Only --if-* tokens (no colour values). Everything in `@layer components`. Sizes are px.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .pv-acad {
+    margin-top: 16px;
+  }
+  .pv-acad * {
+    box-sizing: border-box;
+  }
+  .pv-acad :where(h2, h3, h4, p, ul) {
+    margin: 0;
+    padding: 0;
+  }
+  .pv-acad__summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 24px;
+    padding: 20px;
+    background: var(--if-panel);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-lg);
+  }
+  .pv-acad__continue {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 16px;
+    background: var(--if-field);
+    border-radius: var(--if-r-md);
+  }
+  .pv-acad__continue .pv-acad__strong {
+    margin-bottom: 8px;
+  }
+  .pv-acad__tabs {
+    margin-top: 16px;
+  }
+  .pv-acad__panel {
+    margin-top: 16px;
+    padding: 20px;
+    background: var(--if-panel);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-lg);
+  }
+  .pv-acad__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .pv-acad__h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .pv-acad__h3 {
+    font: 600 15px/22px var(--if-font-ui);
+  }
+  .pv-acad__h4 {
+    margin-top: 8px;
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+  }
+  .pv-acad__big {
+    margin: 8px 0 12px;
+    font: 700 28px/34px var(--if-font-ui);
+    letter-spacing: -0.02em;
+  }
+  .pv-acad__label {
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .pv-acad__lede {
+    margin: 4px 0 16px;
+    font-size: 14px;
+    line-height: 20px;
+  }
+  .pv-acad__strong {
+    color: var(--if-fg);
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .pv-acad__bar {
+    height: 6px;
+    margin: 4px 0;
+    overflow: hidden;
+    background: var(--if-field);
+    border-radius: var(--if-r-pill);
+  }
+  .pv-acad__summary .pv-acad__bar {
+    height: 8px;
+    background: var(--if-bg);
+  }
+  .pv-acad__bar > span {
+    display: block;
+    height: 100%;
+    background: var(--if-lime);
+    border-radius: var(--if-r-pill);
+  }
+  .pv-acad__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    list-style: none;
+  }
+  .pv-acad__course,
+  .pv-acad__lobby,
+  .pv-acad__cert {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    background: var(--if-bg);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-md);
+  }
+  .pv-acad__course:hover,
+  .pv-acad__lobby:hover {
+    border-color: var(--if-line-stronger);
+  }
+  .pv-acad__course-top,
+  .pv-acad__lobby-top,
+  .pv-acad__cert-head,
+  .pv-acad__course-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .pv-acad__course-foot {
+    margin-top: auto;
+    padding-top: 8px;
+  }
+  .pv-acad__tag,
+  .pv-acad__live {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line-strong);
+    border-radius: var(--if-r-pill);
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+    white-space: nowrap;
+  }
+  .pv-acad__live {
+    border-color: var(--if-lime);
+    color: var(--if-lime);
+  }
+  .pv-acad__seats {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 4px;
+    padding: 8px 0;
+  }
+  .pv-acad__seats > span {
+    aspect-ratio: 1;
+    background: var(--if-field);
+    border-radius: var(--if-r-pill);
+  }
+  .pv-acad__seats > span[data-taken='true'] {
+    background: var(--if-alloc-3);
+  }
+  .pv-acad__lobby[data-live='true'] .pv-acad__seats > span[data-taken='true'] {
+    background: var(--if-lime);
+  }
+  .pv-acad__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border: 1px dashed var(--if-line-stronger);
+    border-radius: var(--if-r-pill);
+    color: var(--if-fg-3);
+  }
+  .pv-acad__cert[data-status='earned'] .pv-acad__badge {
+    border-style: solid;
+    border-color: var(--if-lime);
+    color: var(--if-lime);
+  }
+  .pv-acad__reqs {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    list-style: none;
+  }
+  .pv-acad__reqs li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .pv-acad__reqs li svg {
+    flex: none;
+    margin-top: 2px;
+  }
+  .pv-acad__reqs li[data-done='true'] {
+    color: var(--if-fg);
+  }
+  .pv-acad__reqs li[data-done='true'] svg {
+    color: var(--if-lime);
+  }
+  .pv-acad__cert > button {
+    align-self: flex-start;
+    margin-top: 4px;
+  }
+
+  @media (max-width: 1000px) {
+    .pv-acad__summary,
+    .pv-acad__grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}

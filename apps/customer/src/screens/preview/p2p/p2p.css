@@ -1,0 +1,437 @@
+/*
+ * P2P Preview screen. Only --if-* tokens (no colour values). Everything in `@layer components` (see screens/money/money.css).
+ * Sizes are px. Classes start with pv-p2p so nothing leaks into other screens.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .pv-p2p {
+    margin-top: 16px;
+  }
+  .pv-p2p * {
+    box-sizing: border-box;
+  }
+  .pv-p2p :where(h2, h3, h4, p, ul, ol, dl, dd, table) {
+    margin: 0;
+    padding: 0;
+  }
+  .pv-p2p__panel {
+    margin-top: 16px;
+    padding: 20px;
+    background: var(--if-panel);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-lg);
+  }
+  .pv-p2p__panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .pv-p2p__h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .pv-p2p__h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 20px 0 8px;
+    font: 600 14px/20px var(--if-font-ui);
+  }
+  .pv-p2p__h4 {
+    margin: 16px 0 8px;
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+    text-transform: none;
+  }
+  .pv-p2p__lede,
+  .pv-p2p__foot {
+    color: var(--if-fg-2);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .pv-p2p__foot {
+    margin-top: 16px;
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .pv-p2p__label {
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+  }
+  .pv-p2p__sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  /* Filters */
+  .pv-p2p__filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 16px 20px;
+    margin-top: 16px;
+  }
+  .pv-p2p__field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .pv-p2p__field--amount {
+    width: 200px;
+  }
+  .pv-p2p__select {
+    min-width: 200px;
+  }
+  .pv-p2p__check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    color: var(--if-fg);
+    font: 400 14px/20px var(--if-font-ui);
+    cursor: pointer;
+  }
+  .pv-p2p__legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    margin-top: 16px;
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+
+  /* Merchant badges */
+  .pv-p2p__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+    padding: 0 6px;
+    border: 1px solid currentColor;
+    border-radius: var(--if-r-xs);
+    font: 500 12px/16px var(--if-font-ui);
+    white-space: nowrap;
+  }
+  .pv-p2p__badge--top {
+    color: var(--if-lime);
+  }
+  .pv-p2p__badge--verified {
+    color: var(--if-fg-2);
+  }
+
+  /* Offers table */
+  .pv-p2p__scroll {
+    margin-top: 12px;
+    overflow-x: auto;
+  }
+  .pv-p2p__table {
+    width: 100%;
+    min-width: 860px;
+    border-collapse: collapse;
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .pv-p2p__table th {
+    padding: 10px 12px 10px 0;
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+    text-align: left;
+  }
+  .pv-p2p__table td {
+    padding: 14px 12px 14px 0;
+    border-top: 1px solid var(--if-line);
+    vertical-align: middle;
+  }
+  .pv-p2p__table tbody tr:hover td {
+    background: var(--if-hover);
+  }
+  .pv-p2p__num {
+    font-variant-numeric: tabular-nums;
+  }
+  .pv-p2p__num > span {
+    display: block;
+  }
+  .pv-p2p__price {
+    font: 600 18px/24px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+  .pv-p2p__action {
+    width: 1%;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .pv-p2p__who {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .pv-p2p__avatar {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: var(--if-field);
+    border-radius: var(--if-r-pill);
+    color: var(--if-fg);
+    font: 600 14px/20px var(--if-font-ui);
+  }
+  .pv-p2p__who-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .pv-p2p__name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font: 600 14px/20px var(--if-font-ui);
+  }
+  .pv-p2p__stats {
+    display: block;
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .pv-p2p__strong {
+    display: block;
+    color: var(--if-fg);
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .pv-p2p__methods {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .pv-p2p__method {
+    padding: 2px 8px;
+    background: var(--if-field);
+    border-radius: var(--if-r-xs);
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+    white-space: nowrap;
+  }
+
+  /* Trade in escrow */
+  .pv-p2p__trade {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 16px;
+    align-items: start;
+  }
+  .pv-p2p__trade > .pv-p2p__panel {
+    margin-top: 16px;
+  }
+  .pv-p2p__state {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pv-p2p__trade-with {
+    color: var(--if-fg-2);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .pv-p2p__facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--if-field);
+    border-radius: var(--if-r-md);
+  }
+  .pv-p2p__facts--pay {
+    margin-top: 12px;
+  }
+  .pv-p2p__facts--wide {
+    grid-template-columns: 1fr;
+    margin-top: 8px;
+  }
+  .pv-p2p__facts dt {
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .pv-p2p__facts dd {
+    margin-top: 2px;
+    font: 500 14px/20px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+  .pv-p2p__facts dd.pv-p2p__big {
+    font: 700 24px/28px var(--if-font-ui);
+  }
+  .pv-p2p__escrow {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: var(--if-lime-soft);
+    border-radius: var(--if-r-sm);
+    color: var(--if-lime);
+    font: 500 13px/18px var(--if-font-ui);
+  }
+  .pv-p2p__steps {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    list-style: none;
+  }
+  .pv-p2p__steps--small {
+    gap: 10px;
+  }
+  .pv-p2p__step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    color: var(--if-fg-2);
+  }
+  .pv-p2p__step[data-done='true'] .pv-p2p__dot {
+    background: var(--if-lime);
+    color: var(--if-on-lime);
+  }
+  .pv-p2p__step[data-here='true'] .pv-p2p__dot {
+    background: var(--if-fg);
+    color: var(--if-bg);
+  }
+  .pv-p2p__dot {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    margin-top: 0;
+    background: var(--if-raised);
+    border-radius: var(--if-r-pill);
+    color: var(--if-fg-3);
+  }
+  .pv-p2p__appeal {
+    margin-top: 20px;
+    padding: 16px;
+    border: 1px solid var(--if-warn);
+    border-radius: var(--if-r-md);
+  }
+  .pv-p2p__appeal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .pv-p2p__appeal-head .pv-p2p__h3 {
+    margin-top: 0;
+  }
+  .pv-p2p__evidence {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    list-style: none;
+  }
+  .pv-p2p__evidence li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--if-fg-2);
+  }
+  .pv-p2p__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-top: 24px;
+  }
+  .pv-p2p__link {
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--if-lime);
+    font: 500 14px/20px var(--if-font-ui);
+    cursor: pointer;
+  }
+  .pv-p2p__link:hover {
+    text-decoration: underline;
+  }
+
+  /* Chat */
+  .pv-p2p__chat {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .pv-p2p__messages {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 260px;
+    list-style: none;
+  }
+  .pv-p2p__msg {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 90%;
+  }
+  .pv-p2p__msg--you {
+    align-self: flex-end;
+    align-items: flex-end;
+  }
+  .pv-p2p__msg--system {
+    align-self: center;
+    align-items: center;
+    max-width: 100%;
+    text-align: center;
+  }
+  .pv-p2p__msg-from {
+    color: var(--if-fg-3);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .pv-p2p__msg-from span {
+    margin-left: 4px;
+  }
+  .pv-p2p__msg-text {
+    padding: 8px 12px;
+    background: var(--if-field);
+    border-radius: var(--if-r-md);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .pv-p2p__msg--you .pv-p2p__msg-text {
+    background: var(--if-lime-soft);
+  }
+  .pv-p2p__msg--system .pv-p2p__msg-text {
+    background: transparent;
+    color: var(--if-fg-2);
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .pv-p2p__composer {
+    display: flex;
+    gap: 8px;
+    margin-top: auto;
+  }
+  .pv-p2p__input {
+    flex: 1;
+    min-width: 0;
+    height: 40px;
+    padding: 0 12px;
+    background: var(--if-field);
+    border: 0;
+    border-radius: var(--if-r-sm);
+    color: var(--if-fg);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .pv-p2p__input::placeholder {
+    color: var(--if-fg-3);
+  }
+
+  @media (max-width: 1000px) {
+    .pv-p2p__trade {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}
