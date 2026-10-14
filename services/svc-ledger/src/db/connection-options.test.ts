@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { LEDGER_CONNECT_TIMEOUT_S, LEDGER_STATEMENT_TIMEOUT_MS, ledgerPostgresOptions } from './connection-options.js';
+import {
+  LEDGER_CONNECT_TIMEOUT_S,
+  LEDGER_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+  LEDGER_STATEMENT_TIMEOUT_MS,
+  ledgerPostgresOptions,
+} from './connection-options.js';
 
 /**
  * The limits are the point, so the limits are asserted.
@@ -25,6 +30,17 @@ describe('ledger connection options', () => {
     // Matches packages/db's default on purpose: the most money-critical service
     // must not be the one running looser limits than the shared helper it skipped.
     expect(LEDGER_STATEMENT_TIMEOUT_MS).toBe(15_000);
+  });
+
+  it("ends a transaction that goes quiet — 60 s, the shared helper's value", () => {
+    // The statement timeout bounds one statement, not the gap between them. A
+    // stalled caller would otherwise hold the chain_tip lock indefinitely, and
+    // svc-bank's recovery bound (7 minutes after the last attempt) counts on
+    // this ceiling. Pinned: raising it also means raising that bound.
+    expect(ledgerPostgresOptions(ENV).connection).toMatchObject({
+      idle_in_transaction_session_timeout: LEDGER_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+    });
+    expect(LEDGER_IDLE_IN_TRANSACTION_TIMEOUT_MS).toBe(60_000);
   });
 
   it('bounds how long a connection attempt can block', () => {

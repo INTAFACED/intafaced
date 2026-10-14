@@ -27,6 +27,26 @@ import type { Options, PostgresType } from 'postgres';
  * be the one running looser limits than the shared default it skipped.
  */
 export const LEDGER_STATEMENT_TIMEOUT_MS = 15_000;
+
+/**
+ * A transaction that goes quiet is ended, not waited on.
+ *
+ * `statement_timeout` bounds one statement. It does not bound the gap BETWEEN
+ * statements: a caller that opens a transaction, takes the `chain_tip` lock
+ * and then stalls holds that lock for as long as it likes. Postgres ends such a
+ * session after this long and rolls the transaction back, which releases the
+ * lock.
+ *
+ * It is also what makes the in-flight bound of a lost-reply post a number
+ * rather than a hope. svc-bank refuses to release collateral for a pending loan
+ * until 7 minutes after its last attempt: a signed call is refused after
+ * SERVICE_CALL_MAX_SKEW_SECONDS (300 s), plus one 15 s statement, plus this 60 s
+ * of idle time, plus the caller's 25 s retry deadline. Without this setting the
+ * last term has no limit (docs/runbooks/bank-recovery-ops.md).
+ *
+ * Same value as `packages/db`'s default, on purpose.
+ */
+export const LEDGER_IDLE_IN_TRANSACTION_TIMEOUT_MS = 60_000;
 export const LEDGER_CONNECT_TIMEOUT_S = 10;
 
 export interface LedgerConnectionEnv {
@@ -45,6 +65,7 @@ export function ledgerPostgresOptions(env: LedgerConnectionEnv): Options<Record<
       search_path: 'ledger,public',
       application_name: env.SERVICE_NAME,
       statement_timeout: LEDGER_STATEMENT_TIMEOUT_MS,
+      idle_in_transaction_session_timeout: LEDGER_IDLE_IN_TRANSACTION_TIMEOUT_MS,
     },
     onnotice: () => undefined,
   };
