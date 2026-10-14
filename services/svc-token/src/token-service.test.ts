@@ -183,6 +183,8 @@ describe('svc-token money PG-hard', () => {
     toBurn?: string;
     toRewards?: string;
     status?: 'pending' | 'settled';
+    /** Age of the claim row (a crash leftover is old; a claim still being posted is young). Default 1 hour. */
+    ageSeconds?: number;
   }) {
     const tokensBought = input.tokensBought ?? '1000';
     const toBurn = input.toBurn ?? '600';
@@ -190,11 +192,11 @@ describe('svc-token money PG-hard', () => {
     await sql`
       INSERT INTO token.buyback_runs (
         id, revenue_window_from, revenue_window_to, revenue_total,
-        tokens_bought, tokens_burned, tokens_to_rewards, status, executed_at
+        tokens_bought, tokens_burned, tokens_to_rewards, status, executed_at, created_at
       ) VALUES (
         ${input.runId}, ${input.window.from}, ${input.window.to}, ${sql.json({ IFC: '1000' } as never)},
         ${tokensBought}::numeric, ${toBurn}::numeric, ${toRewards}::numeric,
-        ${input.status ?? 'settled'}, now()
+        ${input.status ?? 'settled'}, now(), now() - make_interval(secs => ${input.ageSeconds ?? 3600})
       )
     `;
   }
@@ -1476,6 +1478,18 @@ describe('svc-token money PG-hard', () => {
       expect(await token.burnedSupply()).toBe(0n);
       expect(await sql`SELECT id FROM token.buyback_runs WHERE id = ${runId}`).toHaveLength(0);
       expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('keeps a YOUNG pending claim even when the ledger says the burn is not booked (a late burn may still land)', async () => {
+      await fundRewards('2000', 'w-claim-young');
+      const runId = crypto.randomUUID();
+      await seedBuybackRun({ runId, window: JULY, status: 'pending', ageSeconds: 5 });
+
+      await expect(
+        token.recordBuyback({ runId, revenueWindow: JULY, revenueTotal: { IFC: '1000' }, tokensBought: amt('1000') }),
+      ).rejects.toMatchObject({ code: 'token.buyback_tokens_unmoved' });
+
+      expect(await sql`SELECT id FROM token.buyback_runs WHERE id = ${runId}`).toHaveLength(1);
     });
 
     /**
