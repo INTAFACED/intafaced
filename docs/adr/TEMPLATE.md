@@ -1,10 +1,11 @@
 # <The decision as one line, e.g. "Transfers to a new payee need a second factor">
 
 **Status:** proposed
-<!-- proposed | accepted | superseded by [title](YYYY-MM-DD-slug.md). First word is read by tooling/scripts/adr-index.mjs, lowercase. Only accepted binds. -->
+<!-- proposed | accepted | superseded by [title](YYYY-MM-DD-slug.md). First word is read by tooling/scripts/adr-index.mjs, lowercase. Only accepted binds. The owner chat sets accepted in the PR that makes the call. -->
 
 **Date:** YYYY-MM-DD
 **Decision owner:** <chat name> · <model>
+**Supersedes:** <link to the older ADR, if any; delete this line otherwise>
 <!-- Who made the call. Name the chat and the model, not "the team". -->
 
 **Reversibility:** <two-way door | one-way door> — <what it costs to undo>

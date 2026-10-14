@@ -3,8 +3,9 @@
  * Builds docs/adr/README.md (the ADR index) from the files in docs/adr.
  * No dependencies. The README is generated: edit an ADR, then run this.
  *
- *   node tooling/scripts/adr-index.mjs           write docs/adr/README.md
- *   node tooling/scripts/adr-index.mjs --check   exit 1 if the README is stale
+ *   node tooling/scripts/adr-index.mjs   write docs/adr/README.md
+ *
+ * The adr-register gate (tooling/ci/adr-register-check.mjs) fails if the README is stale.
  *
  * An ADR is a file named YYYY-MM-DD-slug.md. Its date is the filename date. Its
  * title is the first `# ` heading (a leading "ADR:" is dropped). Its status is
@@ -83,20 +84,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DIR = join(HERE, '..', '..', 'docs', 'adr');
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const check = process.argv.includes('--check');
   try {
     const next = renderIndex(readAdrs(DEFAULT_DIR));
-    const path = join(DEFAULT_DIR, 'README.md');
-    if (check) {
-      if (!existsSync(path) || readFileSync(path, 'utf8') !== next) {
-        console.error('docs/adr/README.md is stale. Run: node tooling/scripts/adr-index.mjs');
-        process.exit(1);
-      }
-      console.log('docs/adr/README.md is current');
-    } else {
-      writeFileSync(path, next);
-      console.log(`wrote docs/adr/README.md (${next.split('\n').length - 1} lines)`);
-    }
+    writeFileSync(join(DEFAULT_DIR, 'README.md'), next);
+    console.log(`wrote docs/adr/README.md (${next.split('\n').length - 1} lines)`);
   } catch (e) {
     console.error(`ADR index failed:\n${e.message}`);
     process.exit(1);

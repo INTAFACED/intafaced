@@ -18,6 +18,7 @@ function tree({ register = HEADER, readme = 'current', adrs = true } = {}) {
   if (adrs) {
     writeFileSync(join(root, 'docs/adr/2026-10-01-good.md'), '# Good\n**Status:** accepted\n');
     writeFileSync(join(root, 'docs/adr/2026-10-02-draft.md'), '# Draft\n**Status:** proposed\n');
+    writeFileSync(join(root, 'docs/adr/2026-10-03-old.md'), '# Old\n**Status:** superseded by [Good](2026-10-01-good.md)\n');
   }
   if (readme === 'current') writeFileSync(join(root, 'docs/adr/README.md'), renderIndex(readAdrs(join(root, 'docs/adr'))));
   if (readme === 'stale') writeFileSync(join(root, 'docs/adr/README.md'), '# old index\n');
@@ -40,6 +41,8 @@ assert.deepEqual(check({ register: HEADER + row('[why](adr/2026-10-01-good.md)')
 assert.deepEqual(check({ register: HEADER + row('[why](adr/2026-10-01-good.md#decision)') }), []);
 // a proposed ADR cannot back a rule
 assert.match(check({ register: HEADER + row('[x](adr/2026-10-02-draft.md)') }).join('\n'), /is proposed\. Only accepted/);
+// a superseded ADR cannot back a rule either
+assert.match(check({ register: HEADER + row('[x](adr/2026-10-03-old.md)') }).join('\n'), /is superseded\. Only accepted/);
 // a missing ADR, a non-ADR file, a missing link, a wrong column count all fail
 assert.match(check({ register: HEADER + row('[x](adr/2026-10-09-nope.md)') }).join('\n'), /not an ADR in docs\/adr/);
 assert.match(check({ register: HEADER + row('[x](adr/README.md)') }).join('\n'), /not an ADR in docs\/adr/);
