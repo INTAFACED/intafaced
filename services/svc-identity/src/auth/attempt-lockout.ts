@@ -2,10 +2,10 @@ import type { PendingQuery, Row, Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
 
 /**
- * NOTE FOR FUTURE WIRING: the (currently unwired) `src/auth/redeem-recovery-*.ts`
- * modules verify recovery codes WITHOUT this counter. If any of them is ever
- * mounted on a public path it must call `reserveAttempt(sql, userId, 'mfa')`
- * before checking the code, or it becomes an unmetered guessing oracle.
+ * RECOVERY-CODE REDEMPTION. The `src/auth/redeem-recovery-*.ts` modules all spend
+ * their code through `redeemRecoveryCode` (recovery-redeem.ts), which calls
+ * `reserveAttempt(sql, userId, 'mfa')` before the code is read. A new caller that
+ * checks a recovery code must do the same, or it becomes an unmetered guessing oracle.
  *
  * PER-ACCOUNT SIGN-IN ATTEMPT LOCKOUT.
  *
