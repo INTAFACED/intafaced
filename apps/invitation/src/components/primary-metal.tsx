@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react';
+import { ArrowRight } from './icons';
 import { MetalButton } from './metal-button';
 
 /** One original Cult/MetalFx treatment; the actual inner button owns all form semantics. */
@@ -65,7 +66,7 @@ export function PrimaryMetal({
         </span>
         <span className="primary-caption-current">{busy ? busyLabel : label}</span>
       </span>
-      <span aria-hidden="true">{children || '→'}</span>
+      <span aria-hidden="true">{children || <ArrowRight />}</span>
     </MetalButton>
   );
 }

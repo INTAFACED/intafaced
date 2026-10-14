@@ -299,11 +299,25 @@ describe('createEdgeContext — S2S body bind (tRPC HMAC)', () => {
     expect(ctx(retainedEdgeRequest(headers, S2S_BODY)).service).toBe('svc-trade');
   });
 
-  it('accept-both (default) still admits v2 when the request was not retained', () => {
-    // Plain EdgeRequest is a different object than retainRawBody keys; rawBodyOf
-    // reports not-retained. Migration window: authentic v2 is still a service.
+  // Was: "accept-both (default) still admits v2 when the request was not retained".
+  // That encoded the hole: the tRPC edge context defaulted to accept-both, so an
+  // authentic v2 signature (e.g. the digest of the EMPTY body, replayed) was a
+  // service for any body. The tRPC door now defaults to require.
+  it('defaults to require: v2 without retained bytes is refused (body-unavailable)', () => {
     const headers = serviceAuthHeadersForBody('svc-trade', OTHER_SECRET, S2S_BODY);
     const ctx = createEdgeContext({ secret: SECRET, serviceName: 'svc-test', internalSecret: OTHER_SECRET });
+
+    expect(ctx({ headers }).service).toBeNull();
+  });
+
+  it('accept-both stays reachable as an explicit downgrade and still admits unretained v2', () => {
+    const headers = serviceAuthHeadersForBody('svc-trade', OTHER_SECRET, S2S_BODY);
+    const ctx = createEdgeContext({
+      secret: SECRET,
+      serviceName: 'svc-test',
+      internalSecret: OTHER_SECRET,
+      bodyBindMode: 'accept-both',
+    });
 
     expect(ctx({ headers }).service).toBe('svc-trade');
   });
@@ -320,10 +334,79 @@ describe('createEdgeContext — S2S body bind (tRPC HMAC)', () => {
     expect(ctx({ headers }).service).toBeNull();
   });
 
-  it('accept-both still admits a legacy v1 caller', () => {
+  // Was: "accept-both still admits a legacy v1 caller" under the default. The tRPC
+  // door has no v1 callers (every outbound client signs v2), so the default now
+  // refuses an unbound v1 signature; accept-both is the explicit downgrade.
+  it('defaults to require: a legacy v1 caller (unbound signature) is refused', () => {
     const headers = serviceAuthHeaders('svc-trade', OTHER_SECRET);
     const ctx = createEdgeContext({ secret: SECRET, serviceName: 'svc-test', internalSecret: OTHER_SECRET });
 
+    expect(ctx({ headers }).service).toBeNull();
+  });
+
+  it('accept-both still admits a legacy v1 caller when explicitly chosen', () => {
+    const headers = serviceAuthHeaders('svc-trade', OTHER_SECRET);
+    const ctx = createEdgeContext({
+      secret: SECRET,
+      serviceName: 'svc-test',
+      internalSecret: OTHER_SECRET,
+      bodyBindMode: 'accept-both',
+    });
+
     expect(ctx({ headers }).service).toBe('svc-trade');
+  });
+
+  // The tRPC Fastify plugin replaces the JSON parser in its scope with
+  // parseAs:'string', so retainRawBody's parser never runs; the onRequest marker
+  // still does. These model that request: marker set, wire text on req.body.
+  describe('tRPC adapter request (marker set, body as the wire string)', () => {
+    function adapterRequest(headers: Record<string, string>, body: string | undefined): EdgeRequest {
+      const hooks: Array<(req: object, reply: unknown, done: () => void) => void> = [];
+      retainRawBody({
+        addContentTypeParser: () => undefined,
+        addHook: (_name, hook) => {
+          hooks.push(hook);
+          return undefined;
+        },
+      });
+      const req: EdgeRequest = {
+        headers: { ...headers, ...(body === undefined ? {} : { 'content-length': String(Buffer.byteLength(body)) }) },
+        ...(body === undefined ? {} : { body }),
+      };
+      for (const hook of hooks) hook(req, {}, () => undefined);
+      return req;
+    }
+    const ctx = () => createEdgeContext({ secret: SECRET, serviceName: 'svc-test', internalSecret: OTHER_SECRET });
+
+    it('accepts an honest v2 call signed over the exact wire text', () => {
+      const headers = serviceAuthHeadersForBody('svc-trade', OTHER_SECRET, S2S_BODY);
+      expect(ctx()(adapterRequest(headers, S2S_BODY)).service).toBe('svc-trade');
+    });
+
+    it('refuses an EMPTY-body signature replayed against an attacker body', () => {
+      const headers = serviceAuthHeadersForBody('svc-edge', OTHER_SECRET, '');
+      expect(ctx()(adapterRequest(headers, S2S_BODY)).service).toBeNull();
+    });
+
+    it('refuses a body altered after signing', () => {
+      const headers = serviceAuthHeadersForBody('svc-trade', OTHER_SECRET, S2S_BODY);
+      const altered = S2S_BODY.replace('10.', '99.');
+      expect(ctx()(adapterRequest(headers, altered)).service).toBeNull();
+    });
+
+    it('refuses a marked request that announced a body nobody kept, in both modes', () => {
+      const headers = serviceAuthHeadersForBody('svc-edge', OTHER_SECRET, '');
+      for (const bodyBindMode of ['accept-both', 'require'] as const) {
+        const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-test', internalSecret: OTHER_SECRET, bodyBindMode });
+        const req = adapterRequest(headers, undefined);
+        req.headers['content-length'] = '40';
+        expect(edge(req).service).toBeNull();
+      }
+    });
+
+    it('still accepts an honest bodyless call signed over the empty body', () => {
+      const headers = serviceAuthHeadersForBody('svc-edge', OTHER_SECRET, '');
+      expect(ctx()(adapterRequest(headers, undefined)).service).toBe('svc-edge');
+    });
   });
 });

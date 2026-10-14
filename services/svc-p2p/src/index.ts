@@ -302,7 +302,7 @@ await app.register(fastifyTRPCPlugin, {
     // service never parses a token itself (§4.1 owns that). It does verify the
     // edge's signature over that principal — see packages/contracts/src/edge.ts
     // for why an unsigned header makes every scope check decorative.
-    createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+    createContext: ({ req }) => edgeContext(req),
   } satisfies FastifyTRPCPluginOptions<P2pRouter>['trpcOptions'],
 });
 

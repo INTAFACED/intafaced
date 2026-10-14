@@ -606,6 +606,16 @@ export type LadderDecision = LadderPlan | { readonly liquidate: false; readonly 
 export interface LadderPlanInput extends LadderInput {
   /** Idempotency root for this attempt. `:loss` and the release sequence hang off it. */
   readonly liquidationId: string;
+  /**
+   * The rung's own id. When given, EVERY ledger key the plan produces carries it
+   * (`futures.loss:{liquidationId}:rung:{rungId}:loss`,
+   * `futures.margin.release:{positionId}:rung:{rungId}`), so a position row that
+   * regrows to an earlier size at the same mark can never collide with a key an
+   * older rung already booked — the ledger would answer with the OLD transaction
+   * and the new rung's loss would never be booked. Omitted: the original keys
+   * (a rung in flight from before rung ids, and every caller that predates them).
+   */
+  readonly rungId?: string;
 }
 
 /**
@@ -654,9 +664,12 @@ export function planLadderLiquidation(input: LadderPlanInput): LadderDecision {
      * the key — otherwise the second partial is a ledger no-op and margin
      * never leaves the pot while the row shrinks.
      */
-    const lossId = rung.closesPosition
-      ? `${input.liquidationId}:loss`
-      : `${input.liquidationId}:loss:partial:${formatAmount(sizeClosed)}:${formatAmount(position.size)}`;
+    const lossId =
+      input.rungId !== undefined
+        ? `${input.liquidationId}:rung:${input.rungId}:loss`
+        : rung.closesPosition
+          ? `${input.liquidationId}:loss`
+          : `${input.liquidationId}:loss:partial:${formatAmount(sizeClosed)}:${formatAmount(position.size)}`;
     posts.push(
       recipes.futuresRealizeLoss({
         positionId: position.positionId,
@@ -669,14 +682,19 @@ export function planLadderLiquidation(input: LadderPlanInput): LadderDecision {
     );
   }
   if (residualRelease > 0n) {
+    const release = recipes.futuresMarginRelease({
+      positionId: position.positionId,
+      userId: position.userId,
+      assetId: position.marginAsset,
+      amount: residualRelease,
+      sequence: 1,
+    });
+    // The recipe keys a release by (position, sequence). A rung's release is that
+    // rung's own fact, so the rung id replaces the sequence in the key.
     posts.push(
-      recipes.futuresMarginRelease({
-        positionId: position.positionId,
-        userId: position.userId,
-        assetId: position.marginAsset,
-        amount: residualRelease,
-        sequence: 1,
-      }),
+      input.rungId === undefined
+        ? release
+        : { ...release, idempotencyKey: `futures.margin.release:${position.positionId}:rung:${input.rungId}` },
     );
   }
 

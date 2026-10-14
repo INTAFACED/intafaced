@@ -99,6 +99,7 @@ import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
+import { logTrpcServerFault } from './trpc-error-log.js';
 
 registerProcessHooks(
   startTelemetry({
@@ -752,7 +753,8 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+    createContext: ({ req }) => edgeContext(req),
+    onError: ({ path, type, error }) => logTrpcServerFault(app.log, { path, type, error }),
   } satisfies FastifyTRPCPluginOptions<TradeRouter>['trpcOptions'],
 });
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });

@@ -1,0 +1,44 @@
+{
+  "$comment": "One row per listed asset (UI-SPEC 4.1, COMPONENT-PLAN 1 #11). The drawings are MIT; the marks themselves are their projects' trademarks, shown only to identify the asset. Never alter a logo. List only assets we support. Regenerate coin-art.generated.ts with: pnpm exec tsx src/components/coins/generate.ts",
+  "assets": {
+    "BTC": {
+      "file": "btc.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/tokens/background/BTC.svg",
+      "commit": "763a55d66a03b21b603eb249f2df7c64a7522089",
+      "licence": "MIT",
+      "copied": "2026-10-13"
+    },
+    "ETH": {
+      "file": "eth.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/tokens/background/ETH.svg",
+      "commit": "763a55d66a03b21b603eb249f2df7c64a7522089",
+      "licence": "MIT",
+      "copied": "2026-10-13"
+    },
+    "USDT": {
+      "file": "usdt.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/tokens/background/USDT.svg",
+      "commit": "763a55d66a03b21b603eb249f2df7c64a7522089",
+      "licence": "MIT",
+      "copied": "2026-10-13"
+    },
+    "USDC": {
+      "file": "usdc.svg",
+      "source": "https://github.com/0xa3k5/web3icons",
+      "sourcePath": "raw-svgs/tokens/background/USDC.svg",
+      "commit": "763a55d66a03b21b603eb249f2df7c64a7522089",
+      "licence": "MIT",
+      "copied": "2026-10-13"
+    },
+    "IFC": {
+      "file": null,
+      "fallback": "lettered",
+      "source": "none: INTAFACED's own asset, no brand art yet",
+      "licence": "n/a",
+      "copied": "2026-10-13"
+    }
+  }
+}
