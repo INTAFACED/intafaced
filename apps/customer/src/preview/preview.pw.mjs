@@ -142,19 +142,22 @@ test.describe('Preview on', () => {
   });
 });
 
-test.describe('Preview off (a production build by default)', () => {
+test.describe('Preview off (what a production build does by default)', () => {
   test.skip(!flagOff, 'run with PREVIEW_HARNESS_FLAG=0');
 
-  test('a Preview path goes to its tab home and the menus list no Preview rows', async ({ page }) => {
+  // The harness is a dev server, and a dev build opens hidden screens under a ribbon instead of redirecting them (App.tsx);
+  // a customer build redirects them to the tab home (feature-registry.test.ts covers that rule). Here: no Preview chip,
+  // the page says it is hidden, and the menus list no Preview rows.
+  test('a Preview path is treated as hidden and the menus list no Preview rows', async ({ page }) => {
     await mockApi(page);
     await page.goto('/preview/futures');
-    await expect.poll(() => new URL(page.url()).pathname).toBe('/trade');
+    await expect(page.locator('.dev-ribbon')).toContainText('Hidden from customers');
     await expect(page.locator('[data-slot="preview-chip"]')).toHaveCount(0);
-    await page.goto('/trade/futures');
-    await expect.poll(() => new URL(page.url()).pathname).toBe('/trade');
+    await page.goto('/trade/spot/BTC-USDT');
     await page.locator('.tb-item', { hasText: 'Trade' }).first().hover();
     await expect(page.locator('.tb-menu').first()).toBeVisible();
     await expect(page.locator('.tb-menu .tb-menu-item', { hasText: 'Futures' })).toHaveCount(0);
-    await page.screenshot({ path: join(shots, 'flag-off-redirect-1440.png') });
+    await expect(page.locator('.tb-menu .tb-menu-item', { hasText: 'Convert' })).toHaveCount(1);
+    await page.screenshot({ path: join(shots, 'flag-off-menu-1440.png') });
   });
 });
