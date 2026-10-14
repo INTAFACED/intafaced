@@ -204,8 +204,14 @@ export class SpaceService {
    * refusal-shape ADR closes. It also does exactly one query in both cases, so
    * absent and not-yours cost the same work as well as saying the same thing.
    */
-  async find(spaceId: string): Promise<SpaceRecord | null> {
-    const rows = await this.sql<SpaceRow[]>`
+  /**
+   * `db` is the connection to read on. A caller that already holds a
+   * transaction passes it, so the read does not wait for a SECOND connection of
+   * the same pool while holding the first (GitHub issue #4621). A read takes no
+   * lock either way: the spaces row is read committed on whichever connection.
+   */
+  async find(spaceId: string, db: Sql = this.sql): Promise<SpaceRecord | null> {
+    const rows = await db<SpaceRow[]>`
       SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
         FROM bank.spaces WHERE id = ${spaceId}
     `;
@@ -213,8 +219,8 @@ export class SpaceService {
     return row ? toRecord(row) : null;
   }
 
-  async get(spaceId: string): Promise<SpaceRecord> {
-    const space = await this.find(spaceId);
+  async get(spaceId: string, db: Sql = this.sql): Promise<SpaceRecord> {
+    const space = await this.find(spaceId, db);
     if (!space) throw new BankError(`Space ${spaceId} not found`, 'bank.space_not_found');
     return space;
   }
@@ -332,8 +338,8 @@ export class SpaceService {
   }
 
   /** Resolve a space for a money path, refusing the states that must not move value. */
-  async resolveForDebit(spaceId: string, now: Date): Promise<SpaceRecord> {
-    const space = await this.get(spaceId);
+  async resolveForDebit(spaceId: string, now: Date, db: Sql = this.sql): Promise<SpaceRecord> {
+    const space = await this.get(spaceId, db);
     if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
     if (space.lockedUntil && space.lockedUntil > now) {
       // A self-imposed lock. Product policy, enforced here — the ledger has no
@@ -362,8 +368,9 @@ export class SpaceService {
   async resolveForCredit(
     spaceId: string,
     opts: { actingUserId?: string; alreadyBooked?: () => Promise<boolean> } = {},
+    db: Sql = this.sql,
   ): Promise<SpaceRecord> {
-    const space = await this.get(spaceId);
+    const space = await this.get(spaceId, db);
     if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
     if (space.userId === opts.actingUserId) return space;
     try {
