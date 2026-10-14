@@ -4,7 +4,21 @@
     "conclusion": "failure",
     "status": "completed",
     "databaseId": 141503417,
-    "url": "https://github.com/x/y/actions/runs/1/job/1"
+    "url": "https://github.com/x/y/actions/runs/1/job/1",
+    "steps": [
+      {
+        "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "conclusion": "success",
+        "status": "completed",
+        "number": 1
+      },
+      {
+        "name": "Doctrine gates (the same list `pnpm verify` runs)",
+        "conclusion": "failure",
+        "status": "completed",
+        "number": 2
+      }
+    ]
   },
   {
     "name": "Affected shards",
@@ -32,7 +46,27 @@
     "conclusion": "failure",
     "status": "completed",
     "databaseId": 303101549,
-    "url": "https://github.com/x/y/actions/runs/1/job/1"
+    "url": "https://github.com/x/y/actions/runs/1/job/1",
+    "steps": [
+      {
+        "name": "Build full-test dependencies",
+        "conclusion": "success",
+        "status": "completed",
+        "number": 1
+      },
+      {
+        "name": "Run pnpm test --continue",
+        "conclusion": "failure",
+        "status": "completed",
+        "number": 2
+      },
+      {
+        "name": "Every infrastructure-backed suite actually ran",
+        "conclusion": "failure",
+        "status": "completed",
+        "number": 3
+      }
+    ]
   },
   {
     "name": "Tests (money)",
@@ -46,7 +80,15 @@
     "conclusion": "failure",
     "status": "completed",
     "databaseId": 153561585,
-    "url": "https://github.com/x/y/actions/runs/1/job/1"
+    "url": "https://github.com/x/y/actions/runs/1/job/1",
+    "steps": [
+      {
+        "name": "Require needed jobs",
+        "conclusion": "failure",
+        "status": "completed",
+        "number": 1
+      }
+    ]
   },
   {
     "name": "Definition of Done",
