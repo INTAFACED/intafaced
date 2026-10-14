@@ -21,10 +21,11 @@ A separate family still exists: `trade.max_order_unset`, `trade.max_position_uns
 
 - Spot and futures-book orders (`placeOrder`, replace, copy mirror, algo child orders): `trade.limit_max_order`. A market buy is valued at its protection price (the most it can pay); a market sell at the best bid, and with no bid it is refused because it cannot be valued.
 - Convert: the bound fill notional, on a fresh accept only (a recovery of an already-bound quote is never newly refused).
-- Native quantity increase on an open order: the grown order must fit `TRADE_MAX_ORDER`.
+- Native quantity increase on an open order: the grown order must fit `TRADE_MAX_ORDER`. A retry of an increase that was already admitted is never newly refused, so a lowered limit cannot strand a hold that was already taken.
+- Replace: a limit (or market) replacement is checked BEFORE the original is cancelled; a refusal comes back as outcome `LIMIT_REFUSED` with the original order still open.
 - Futures open (`PositionService.open`): all three, in the order max-order, max-position, max-loss.
 
-**Never refused** (reducing risk is never blocked): cancel, mass cancel, closing a position, liquidation, ADL, reconcile and funding jobs, seeded market-maker orders, paper markets, and retries of an order or open that was already admitted.
+**Never refused** (reducing risk is never blocked): reduce-only orders, cancel, mass cancel, closing a position, liquidation, ADL, reconcile and funding jobs, seeded market-maker orders, paper markets, and retries of an order or open that was already admitted.
 
 ## What an operator does
 
@@ -37,5 +38,7 @@ A separate family still exists: `trade.max_order_unset`, `trade.max_position_uns
 
 - **Realised loss is not counted.** `TRADE_MAX_LOSS` compares current unrealised loss only. svc-trade does not store realised PnL (a closed position keeps no PnL column and a liquidated one keeps no exit price), and the owner has not named a window (session or day) for a realised figure. Counting it would need a stored realised-PnL ledger and an owner-chosen window.
 - **MAX_POSITION applies to futures opens only.** Orders placed on a futures book through `placeOrder` do not create a row in `trade.positions`, and spot has no position, so only `TRADE_MAX_ORDER` caps them.
-- **Positions are not netted in storage.** One-way mode counts the net across the user's long and short rows on that market; a short opened against a long is a second row, not a reduction of the first. Hedge mode counts each side on its own.
+- **Positions are not netted in storage.** One-way mode counts the net across the user's long and short rows on that market; a short opened against a long is a second row, not a reduction of the first. Hedge mode counts each side on its own. Gross exposure can therefore reach about 3x the cap: a long up to the cap, then a short that only has to keep the NET within the cap, and each row still carries its own margin and liquidation.
+- **OTC / RFQ desk is not gated.** Accept and settle in `otc/otc-service.ts` do not call these limits. This is an owner decision: OTC exists for size above the exchange caps. Say so if that should change.
+- **Spot sells are capped.** A spot SELL, including one used to exit a holding, counts against `TRADE_MAX_ORDER` (only orders flagged reduce-only are exempt). A user over the cap exits by splitting the sale. Whether spot sells should be exempt is the owner's call.
 - **Concurrency.** There is at most one open row per (user, market, side), so two parallel opens cannot stack one side past `TRADE_MAX_POSITION`: the second fails at insert and its margin is released. `TRADE_MAX_LOSS` reads other markets without a lock, so it is a best-effort gate on new risk per request.

@@ -1,4 +1,4 @@
-import { PositionService, TradeService } from '../controls/test-admission.js';
+import { PositionService, TradeService, readyTestAdmission } from '../controls/test-admission.js';
 /**
  * Owner pre-trade limits (#4725) — PG-hard money proof.
  *
@@ -24,6 +24,7 @@ import { FuturesError, type OpenPositionInput } from './position-service.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import { LIMIT_MAX_LOSS, LIMIT_MAX_ORDER, LIMIT_MAX_POSITION, MAX_ORDER_UNSET } from './pretrade-limits.js';
 import { installPreTradeCredit } from './pretrade-credit.js';
+import { installNativeQtyUpAmend } from '../spot/qty-up-amend.js';
 import type { Market } from '../spot/types.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
 
@@ -74,6 +75,7 @@ const onlyPosition = (n: string) => setLimits({ order: BIG, position: n, loss: B
 const onlyLoss = (n: string) => setLimits({ order: BIG, position: BIG, loss: n });
 
 installPreTradeCredit();
+installNativeQtyUpAmend(TradeService);
 
 describe('owner pre-trade limits (#4725, PG-hard)', () => {
   let adminStop: () => Promise<void> = async () => undefined;
@@ -267,7 +269,110 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
       const src = readFileSync(join(here, '..', 'spot', 'trade-service.ts'), 'utf8');
       expect(src).toMatch(/placeChild:[\s\S]{0,1800}this\.placeOrderInner\(/);
       expect(src).toMatch(/const replacement = await this\.placeOrder\(/);
-      expect(src).toMatch(/if \(!seeded\) await this\.assertOwnerOrderLimit\(/);
+      expect(src).toMatch(/assertOwnerOrderLimit\(market, input\.qty, fundingPrice/);
+      expect(src).toMatch(/reduceOnly\?: boolean \}\)\.reduceOnly !== true/);
+    });
+  });
+
+  describe('reduce-only, replace and native qty-up', () => {
+    it('a reduce-only order above TRADE_MAX_ORDER is never refused', async () => {
+      onlyOrder('100');
+      const input = {
+        marketId: spot.id,
+        side: 'sell' as const,
+        type: 'limit' as const,
+        qty: amt('2'),
+        price: amt('100'),
+      };
+      // The flag rides on the input the way reduce-only-place.ts binds it.
+      const placed = await trade.placeOrder(principal, { ...input, reduceOnly: true, clientOrderId: 'ro-big' } as typeof input & {
+        clientOrderId: string;
+      });
+      expect(placed.status).not.toBe('rejected');
+      // The same order without the flag is refused.
+      await expect(trade.placeOrder(principal, { ...input, clientOrderId: 'ro-plain' })).rejects.toMatchObject({
+        code: LIMIT_MAX_ORDER,
+      });
+    });
+
+    it('a refused replacement leaves the original order open (checked before the cancel)', async () => {
+      onlyOrder('200');
+      const original = await limitBuy('100', '2', 'rp-orig');
+      const holdsBefore = holdPosts().length;
+      const outcome = await trade.replaceOrder(principal, original.id, {
+        marketId: spot.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('2'),
+        price: amt('100.01'),
+        clientOrderId: 'rp-new',
+      });
+      expect(outcome).toMatchObject({ accepted: false, code: 'LIMIT_REFUSED', reasonCode: LIMIT_MAX_ORDER, replacement: null });
+      expect(outcome.original.status).toBe('open');
+      expect((await trade.findOrder(original.id))?.status).toBe('open');
+      expect(holdPosts()).toHaveLength(holdsBefore);
+      expect(matching.cancelledOrders).toHaveLength(0);
+      // A replacement inside the limit still goes through.
+      const ok = await trade.replaceOrder(principal, original.id, {
+        marketId: spot.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('2'),
+        price: amt('100'),
+        clientOrderId: 'rp-ok',
+      });
+      expect(ok.code).toBe('REPLACED');
+    });
+
+    it('native qty-up: the grown order must fit; a retry of an already-admitted increase is not newly refused', async () => {
+      // The test admission adapter forgets every non-strategy grant; a real one keeps them. Keep them here.
+      const base = readyTestAdmission();
+      const kept = new Map<string, { admission: Awaited<ReturnType<typeof base.admit>>; payload: unknown }>();
+      trade = new TradeService(sql, ledger, matching, new StubPerks(), bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        accountAdmission: {
+          ...base,
+          async admit(p, kind, businessId, payload, ...rest) {
+            const admission = await base.admit(p, kind, businessId, payload, ...rest);
+            kept.set(`${p.userId}:${businessId}`, { admission, payload });
+            return admission;
+          },
+          async original(userId, businessId) {
+            const found = kept.get(`${userId}:${businessId}`);
+            return found ? { payload: found.payload, admission: found.admission, grantId: found.admission.admissionId } : null;
+          },
+        } as typeof base,
+      });
+      onlyOrder('300');
+      const original = await limitBuy('100', '2', 'qu-orig');
+      onlyOrder('250');
+      const refused = await trade.amendOrder(principal, original.id, { qty: amt('3') });
+      expect(refused).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: LIMIT_MAX_ORDER });
+      expect(matching.amended).toHaveLength(0);
+
+      // Admit the increase under a roomy limit, but let the engine answer version_mismatch (hold returned, admission stays).
+      onlyOrder('300');
+      matching.amendScript = async () => ({
+        accepted: false,
+        orderId: original.id,
+        sequence: null,
+        version: 0,
+        priority: null,
+        fills: [],
+        resting: null,
+        rejected: { code: 'version_mismatch', message: 'stale' },
+        cancellations: [],
+        triggered: [],
+      });
+      const mismatch = await trade.amendOrder(principal, original.id, { qty: amt('3') });
+      expect(mismatch.code).toBe('VERSION_MISMATCH');
+      // The owner lowers the limit; the retry of the SAME admitted increase must still go through.
+      matching.amendScript = null;
+      onlyOrder('250');
+      const retried = await trade.amendOrder(principal, original.id, { qty: amt('3') });
+      expect({ code: retried.code, reason: retried.reasonCode }).toEqual({ code: 'AMENDED', reason: null });
     });
   });
 

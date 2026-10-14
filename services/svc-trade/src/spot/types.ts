@@ -144,7 +144,9 @@ export type ReplaceOutcomeCode =
   | 'RECONCILIATION_REQUIRED'
   | 'REPLACEMENT_SUBMIT_UNKNOWN'
   | 'REPLACEMENT_NOT_SUBMITTED'
-  | 'LIFECYCLE_REFUSED';
+  | 'LIFECYCLE_REFUSED'
+  /** Owner pre-trade limit would refuse the replacement; the original was left untouched (#4725). */
+  | 'LIMIT_REFUSED';
 
 /** Honest result of the two-step cancel → finalized release → submit saga. */
 export interface ReplaceOrderOutcome {

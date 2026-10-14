@@ -254,9 +254,15 @@ async function amendOrderWithQtyUp(
     if (input.qty > engineRemaining) {
       // Owner pre-trade max-order limit (#4725): a native qty-up is fresh
       // size, so the grown order must still fit under the single-order cap.
+      // A retry whose increase was already admitted (its hold may be taken) is a
+      // recovery, not new risk: a limit lowered since must not strand that hold.
+      const admission = (this as unknown as { accountAdmission?: { original(userId: string, businessId: string): Promise<unknown> } })
+        .accountAdmission;
+      const alreadyAdmitted = (await admission?.original(principal.userId, `amend:${order.id}:${expectedVersion}`)) != null;
       const resolved = resolveAdmissionLimits();
-      const refusal =
-        'refusal' in resolved
+      const refusal = alreadyAdmitted
+        ? null
+        : 'refusal' in resolved
           ? resolved.refusal
           : checkMaxOrder({
               limits: resolved.limits,

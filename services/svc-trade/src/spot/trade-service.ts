@@ -1467,7 +1467,10 @@ export class TradeService {
     // placed order passes (router, replace, copy mirror, algo child). Retries of
     // an existing order returned above, so a retry is never newly refused. Paper
     // markets returned above too (no real money), and seeded MM is a system action.
-    if (!seeded) await this.assertOwnerOrderLimit(market, input.qty, fundingPrice ?? protectionPrice);
+    // Reduce-only orders only ever shrink a position, so they are never capped.
+    if (!seeded && (input as { reduceOnly?: boolean }).reduceOnly !== true) {
+      await this.assertOwnerOrderLimit(market, input.qty, fundingPrice ?? protectionPrice);
+    }
 
     // A market SELL holds base quantity, so `holdFor` ignores the price on that
     // branch — the zero is never read, and passing one is what keeps the
@@ -2148,6 +2151,25 @@ export class TradeService {
           assertNotional(market, input.price, input.qty);
         } else if (input.price != null) {
           throw new TradeError('a market order must not carry a price', 'trade.invalid_price');
+        }
+
+        // Owner max-order limit (#4725) BEFORE the cancel: a refused replacement
+        // must leave the original order live, never cancel it and then refuse.
+        if (input.seeded !== true && (input as { reduceOnly?: boolean }).reduceOnly !== true) {
+          try {
+            let reference: Amount | null = input.price ?? null;
+            if (reference == null && input.side === 'buy') {
+              reference = protectionPriceFor(market, await this.bestAsk(market.id), this.slippageCapBps);
+              const cap = input.maxProtectionPrice;
+              if (cap != null && cap > 0n && cap < reference) reference = cap;
+            }
+            await this.assertOwnerOrderLimit(market, input.qty, reference);
+          } catch (err) {
+            if (err instanceof TradeError && (err.code.startsWith('trade.limit_max_') || /^trade\.max_.+_unset$/.test(err.code))) {
+              return this.replaceOutcome(original, null, 'LIMIT_REFUSED', err.code, false, requestAlreadyExists);
+            }
+            throw err;
+          }
         }
 
         // Authority is required before cancel, so an unavailable PX-S01 source

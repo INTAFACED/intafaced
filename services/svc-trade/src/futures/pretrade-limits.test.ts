@@ -174,6 +174,8 @@ describe('wire mapping and exempt doors', () => {
     const closeStart = ps.indexOf('async close(');
     expect(ps.indexOf('checkOpenAdmission(')).toBeLessThan(closeStart);
     const trade = readFileSync(join(here, '..', 'spot', 'trade-service.ts'), 'utf8');
-    expect(trade).toMatch(/if \(!seeded\) await this\.assertOwnerOrderLimit/);
+    expect(trade).toMatch(
+      /if \(!seeded && \(input as \{ reduceOnly\?: boolean \}\)\.reduceOnly !== true\) \{\s+await this\.assertOwnerOrderLimit/,
+    );
   });
 });
