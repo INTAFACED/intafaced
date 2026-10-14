@@ -453,6 +453,15 @@ export async function ensureOperators(ctx) {
   return ops;
 }
 
+/** Short-lived access token for this operator's live session, carrying an `admin:compliance` operator scope. */
+async function mintOperatorToken(ctx, op) {
+  const minted = await ctx.tokens.issueAccessToken(
+    { userId: op.userId, sessionId: op.sessionId, scopes: ['admin:compliance'], tier: 'none', mfa: true },
+    { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
+  );
+  return minted.token;
+}
+
 /** Sign both operators in with their second factor. Returns { a, b } sessions with minted tokens. */
 export async function operatorSessions(ctx) {
   const ops = await ensureOperators(ctx);
@@ -467,11 +476,16 @@ export async function operatorSessions(ctx) {
       token: loginToken,
       /** Same session, plus the operator scope. Short-lived. */
       async complianceToken() {
-        const minted = await ctx.tokens.issueAccessToken(
-          { userId: op.userId, sessionId: op.sessionId, scopes: ['admin:compliance'], tier: 'none', mfa: true },
-          { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
-        );
-        return minted.token;
+        return mintOperatorToken(ctx, op);
+      },
+      /**
+       * Same session with an `admin:*` scope: what identity needs to see an OPERATOR principal. Four-eyes over
+       * operator action types (matching.open, kyc.approve, ...) refuses a plain session token (an ordinary user,
+       * #4724), so propose, approve and reject use this. Identity still checks the proposer and the approver are
+       * two distinct users, so the two operators keep two distinct tokens. Accepted before and after that rule.
+       */
+      async approvalToken() {
+        return mintOperatorToken(ctx, op);
       },
     };
   }
@@ -480,14 +494,14 @@ export async function operatorSessions(ctx) {
 
 /** Operator A proposes, operator B approves, with two different signed-in sessions. Returns { approvalId, operationId }. */
 async function twoPerson(ctx, sessions, proposal) {
-  const proposed = await ctx.edge.mutate('identity', 'actionApproval.propose', proposal, sessions.a.token);
+  const proposed = await ctx.edge.mutate('identity', 'actionApproval.propose', proposal, await sessions.a.approvalToken());
   const row = data(proposed);
   if (!row?.approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
   const approved = await ctx.edge.mutate(
     'identity',
     'actionApproval.approve',
     { approvalId: row.approvalId, expectedPayloadHash: proposal.payloadHash },
-    sessions.b.token,
+    await sessions.b.approvalToken(),
   );
   if (data(approved)?.status !== 'APPROVED')
     throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
