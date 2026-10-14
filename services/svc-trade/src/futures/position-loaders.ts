@@ -136,7 +136,23 @@ export function sqlDatedSettlementMarketLoader(sql: Sql): DatedSettlementMarkets
   };
 }
 
-/** Open positions on one dated market (settlement scan). `closing` excluded. */
+/**
+ * Open positions on one dated market (settlement scan). `closing` excluded.
+ *
+ * DATED POSITIONS RUN THROUGH LIQUIDATION RUNGS TOO: `sqlLiquidationPositionLoader` lists every
+ * open position whatever its market's contract style, so a dated position can have a live rung (or be
+ * parked) at the moment its expiry passes. Settlement posts the position's margin release and PnL to
+ * the ledger, so the gate has to be HERE, before anything posts. A position with a live rung is left
+ * for a later scan (the rung applies within a tick, and settlement is idempotent on
+ * `dated-settle:<id>`); a PARKED position is left until an operator resolves it (runbook section 2),
+ * because its row is not reconciled with a loss that is already booked.
+ *
+ * Residual window: a rung that begins between this read and the settlement's own posts. That rung
+ * then applies against a row `sqlDatedSettlementCloser` has closed and is abandoned
+ * (`trade.liquidation_row_changed_after_post`), which parks and alerts loudly — the same ending as
+ * before this gate, and rare (settlement is a few statements; a rung needs an unhealthy position at
+ * expiry).
+ */
 export function sqlDatedSettlementPositionLoader(sql: Sql): DatedSettlementPositions {
   return {
     async listOpenForMarket(marketId) {
@@ -146,6 +162,16 @@ export function sqlDatedSettlementPositionLoader(sql: Sql): DatedSettlementPosit
         FROM trade.positions p
         JOIN trade.markets m ON m.id = p.market_id
         WHERE p.status = 'open' AND p.market_id = ${marketId}
+          -- no live (planned/posted) rung: its loss is booked or about to be and the row has not caught up
+          AND NOT EXISTS (
+            SELECT 1 FROM trade.liquidation_rungs r
+             WHERE r.position_id = p.id::text AND r.state IN ('planned', 'posted'))
+          -- not parked: latest rung abandoned, or an old-style claim on a still-open position
+          AND COALESCE((
+            SELECT r.state FROM trade.liquidation_rungs r
+             WHERE r.position_id = p.id::text ORDER BY r.created_at DESC, r.rung_id DESC LIMIT 1), '') <> 'abandoned'
+          AND NOT EXISTS (
+            SELECT 1 FROM trade.liquidation_attempts a WHERE a.liquidation_id = 'liq:' || p.id::text)
         ORDER BY p.opened_at ASC, p.id ASC
       `;
       return rows.map(mapDatedClose);

@@ -16,7 +16,15 @@
  * the tick refuses (`trade.ladder_unset`) — it does not flatten the book.
  */
 import { randomUUID } from 'node:crypto';
-import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
+import {
+  formatAmount,
+  parseAmount,
+  positionCollateralAccount,
+  recipes,
+  type Amount,
+  type LedgerClient,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import { type LiquidationPosition } from './liquidation-planner.js';
 import {
   DEPTH_UNKNOWN,
@@ -340,6 +348,12 @@ export interface LiquidationTickItemResult {
   /** A partial rung's loss was booked for less than planned because the pot held less (`trade.liquidation_loss_short`). Amount is the shortfall. */
   lossShort?: { code: string; rungId: string; amount: string };
   /**
+   * The position row's margin and the ledger's collateral pot disagreed when this position was
+   * evaluated (`trade.liquidation_margin_divergence`). The rung was planned against the SMALLER of
+   * the two, so it cannot book a loss the pot does not hold. Amounts are decimal strings.
+   */
+  divergence?: { code: 'trade.liquidation_margin_divergence'; row: string; pot: string };
+  /**
    * Set when `outcome === 'margin_call'`: whether the notify port accepted
    * delivery. Observable on the tick result; REST durability is the trader door.
    */
@@ -626,6 +640,45 @@ async function runLadderRung(
     };
   }
 
+  /**
+   * THE LEDGER POT IS WHAT A LOSS CAN BE TAKEN FROM — NOT THE ROW'S IDEA OF IT.
+   *
+   * `trade.positions.margin_current` is a mirror; the position's collateral pot in the ledger is the
+   * truth. They diverge when a crash lands between a ledger release and the row update (pot below
+   * row), or when a row was hand-edited. Planning against a row margin the pot does not hold has two
+   * bad outcomes: a PHANTOM-MARGIN PARTIAL (the position looks solvent and a tranche is booked
+   * against margin that is not there, so the shortfall lands on the house) and a loss the ledger
+   * refuses at post time. So the plan uses `min(row, pot)`, and any difference is raised as
+   * `trade.liquidation_margin_divergence` for an operator (runbook section 3).
+   *
+   * Read only here, after the cheap skips above (no policy, no depth): a deployment with no ladder
+   * numbers makes no ledger call per position. The rung's compare-and-set (`begin`) still compares the
+   * ROW snapshot, so a divergent position cannot create a rung that errors every tick: the plan is
+   * always payable from the pot, and `begin` is checked against the same row the plan was taken from.
+   */
+  const pot = (await deps.ledger.balance(positionCollateralAccount(row.userId, row.marginAsset, row.positionId))).amount;
+  const planRow: LiquidationPositionRow = pot < row.margin ? { ...row, margin: pot < 0n ? 0n : pot } : row;
+  const item = await planAndDrive(deps, ladder, row, planRow, ladder.policy, depthNotional, markPrice, liquidationId);
+  return pot === row.margin
+    ? item
+    : { ...item, divergence: { code: 'trade.liquidation_margin_divergence', row: formatAmount(row.margin), pot: formatAmount(pot) } };
+}
+
+/**
+ * The deciding half of `runLadderRung`: plan against `planRow` (the row, its margin capped at what
+ * the ledger pot holds), then store and drive the rung. `row` is the snapshot the rung's
+ * compare-and-set is taken against; `planRow` differs from it only in `margin`.
+ */
+async function planAndDrive(
+  deps: LiquidationTickDeps,
+  ladder: LiquidationLadderDeps,
+  row: LiquidationPositionRow,
+  planRow: LiquidationPositionRow,
+  policy: FuturesLadderPolicy,
+  depthNotional: Amount,
+  markPrice: Amount,
+  liquidationId: string,
+): Promise<LiquidationTickItemResult> {
   // Minted per decision, BEFORE planning, so every key the plan produces carries it.
   const rungId = deps.rungs ? (deps.newRungId ?? randomUUID)() : undefined;
 
@@ -633,10 +686,10 @@ async function runLadderRung(
   try {
     decision = planLadderLiquidation({
       liquidationId,
-      position: row,
+      position: planRow,
       markPrice,
       depthNotional,
-      policy: ladder.policy,
+      policy,
       ...(rungId !== undefined ? { rungId } : {}),
     });
   } catch (err) {
@@ -975,23 +1028,67 @@ async function driveRung(
                     lossId,
                   })
                 : null;
-            lossShort += shift;
-            next = { ...current, recipes: replace(stored.idempotencyKey, recipe), marginTaken: potLegNow, lossShort };
+            // `current.fromInsurance` is 0 on every partial rung planned today; it is added so that a
+            // partial rung that ever carries an insurance leg cannot leave the plan claiming a leg the
+            // re-amended recipe (pot only) no longer posts.
+            lossShort += shift + current.fromInsurance;
+            next = {
+              ...current,
+              recipes: replace(stored.idempotencyKey, recipe),
+              marginTaken: potLegNow,
+              fromInsurance: 0n,
+              lossShort,
+            };
           }
           if (!(await amend(next))) return rereadAndDrive();
           if (recipe) await deps.ledger.post(recipe);
-        } else if (plan.fromInsurance > 0n) {
+        } else if (current.fromInsurance > 0n) {
           // The pot holds what the recipe needs, so a refusal on a rung that draws on insurance is
           // the insurance fund — but only if the fund is actually below the leg. Otherwise it is
           // something else, and telling the operator to top up insurance (or letting ADL deleverage
-          // others) would be wrong.
+          // others) would be wrong. `current`, not `plan`: an amendment earlier in this loop (the
+          // pot shrank and the leg grew) is what is posted, so it is what must be checked.
           const bound = await checkInsuranceBound({
             assetId: plan.marginAsset,
-            fromInsurance: plan.fromInsurance,
+            fromInsurance: current.fromInsurance,
             balance: (ref) => deps.ledger.balance(ref),
           });
-          if (!bound.ok) return underfundedItem(plan.fromInsurance, 'the ledger refused the insurance leg of');
-          throw err;
+          if (bound.ok) throw err;
+          if (closing || stored.reason !== 'futures.loss.realized') {
+            // CLOSING rung: insurance is the only cover for a bankrupt close — stay live, loud, ADL answer.
+            return underfundedItem(current.fromInsurance, 'the ledger refused the insurance leg of');
+          }
+          /**
+           * A PARTIAL rung whose insurance leg is refused does NOT park, and does not go to ADL.
+           *
+           * Parking a still-open leveraged position over a small gap leaves risk on the book to save a
+           * bookkeeping entry. The loss re-amends to what the pot holds (same key: the refused post booked
+           * nothing, so a different body is not a key reuse), the gap is recorded as `lossShort` and
+           * paged, and the rung applies. The remainder of the position is bankrupt and is taken by the
+           * closing-rung path on the next evaluation. REACHABLE ONLY ONCE A PARTIAL RUNG CAN CARRY AN
+           * INSURANCE LEG (phase 2 of `docs/adr/2026-10-14-liquidation-shortfall-insurance-leg.md`):
+           * today `planLadderLiquidation` plans a partial rung only while equity > 0, so its
+           * `fromInsurance` is 0 and this branch is not entered.
+           */
+          const gap = current.fromInsurance;
+          const lossId = stored.idempotencyKey.slice('futures.loss:'.length);
+          const marginLeg = potEntry?.amount ?? 0n;
+          const recipe: PostRequest | null =
+            marginLeg > 0n
+              ? recipes.futuresRealizeLoss({
+                  positionId: row.positionId,
+                  userId: row.userId,
+                  assetId: plan.marginAsset,
+                  fromMargin: marginLeg,
+                  fromInsurance: 0n,
+                  lossId,
+                })
+              : null;
+          lossShort += gap;
+          if (!(await amend({ ...current, recipes: replace(stored.idempotencyKey, recipe), fromInsurance: 0n, lossShort }))) {
+            return rereadAndDrive();
+          }
+          if (recipe) await deps.ledger.post(recipe);
         } else {
           throw err;
         }

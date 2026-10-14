@@ -29,6 +29,7 @@ import {
   type LiquidationPositionRow,
   type LiquidationTickDeps,
 } from './liquidation-tick.js';
+import { REALIZED_LOSS_REASON, reconcileRungsToLedger, type InsuranceCredit, type LedgerLossTx } from './liquidation-reconcile.js';
 import { decodeRungPlan, encodeRungPlan, memoryLiquidationRungStore, type RungPlan, type RungRowBook } from './liquidation-rungs.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -864,6 +865,262 @@ describe('probes M / N: the pot shrank after planning and the LOSS is refused', 
     expect(h.row.status).toBe('liquidated');
     expect(h.rungs.all()).toHaveLength(1);
     expect(h.rungs.all()[0]!.state).toBe('applied');
+  });
+});
+
+describe('divergence guard: the plan is taken against min(row margin, ledger pot)', () => {
+  const divergence = (t: { items: { divergence?: unknown }[] }) => t.items[0]!.divergence;
+
+  it('row 100, pot 80: plans against 80, raises trade.liquidation_margin_divergence, and books a loss the pot can pay (no loss_short)', async () => {
+    const h = harness({ pot: amt('80') });
+    const t = await runLiquidationTick(h.deps);
+    expect(divergence(t)).toEqual({ code: 'trade.liquidation_margin_divergence', row: '100', pot: '80' });
+    const rung = h.rungs.all()[0]!;
+    // Planned from 80, not 100: the tranche's margin can never exceed what the pot held.
+    expect(rung.plan.marginTaken).toBeLessThanOrEqual(amt('80'));
+    expect(rung.plan.marginRemaining).toBe(amt('80') - rung.plan.marginTaken);
+    expect(rung.planVersion).toBe(0); // never needed an amendment: the first plan was already payable
+    expect(h.marginTaken()).toBe(rung.plan.marginTaken);
+    expect(h.pot.amount).toBe(amt('80') - rung.plan.marginTaken);
+    expect(t.items[0]!.outcome).toBe('partially_liquidated');
+    expect(t.items[0]).not.toHaveProperty('lossShort');
+    // The rung's compare-and-set is still the ROW the tick read (100), so it begins and applies.
+    expect(rung.fromMargin).toBe(amt('100'));
+    expect(rung.state).toBe('applied');
+  });
+
+  it('the plan differs from the one the row alone would give (the phantom margin is gone)', async () => {
+    const phantom = harness({ pot: amt('1000000') }); // pot above the row: planned from the row's 100
+    await runLiquidationTick(phantom.deps);
+    const guarded = harness({ pot: amt('80') });
+    await runLiquidationTick(guarded.deps);
+    expect(guarded.rungs.all()[0]!.plan.marginRemaining).toBeLessThan(phantom.rungs.all()[0]!.plan.marginRemaining);
+  });
+
+  it('a divergent position cannot loop: it terminates, no tick errors, and every rung applies', async () => {
+    const h = harness({ pot: amt('80') });
+    for (let i = 0; i < 6; i++) {
+      const t = await runLiquidationTick(h.deps);
+      expect(t.errored).toBe(0);
+      expect(t.items.filter((x) => x.outcome === 'errored')).toEqual([]);
+      if (h.row.status !== 'open') break;
+    }
+    expect(h.rungs.all().length).toBeLessThanOrEqual(6);
+    expect(h.rungs.all().every((r) => r.state === 'applied')).toBe(true);
+    expect(h.rungs.all().length).toBeGreaterThan(0);
+  });
+
+  it('a gap that leaves the position bankrupt on the pot: the closing rung draws insurance for what the POT cannot cover, and applies', async () => {
+    const h = harness({ pot: amt('50') });
+    h.price.current = '60'; // loss 400 on 10 units; row 100 / pot 50
+    const t = await runLiquidationTick(h.deps);
+    expect(divergence(t)).toEqual({ code: 'trade.liquidation_margin_divergence', row: '100', pot: '50' });
+    expect(t.items[0]!.outcome).toBe('liquidated');
+    const rung = h.rungs.all()[0]!;
+    expect(rung.plan.marginTaken).toBe(amt('50')); // the pot, not the row's 100
+    expect(rung.planVersion).toBe(0); // planned payable first time, not amended after a refusal
+    expect(rung.plan.fromInsurance).toBeGreaterThan(amt('50')); // the rest of the 400 loss is the insurance leg
+    expect(h.pot.amount).toBe(0n);
+  });
+
+  it('row BELOW pot (the other direction): planned against the row, still raised', async () => {
+    const h = harness({ pot: amt('150') });
+    const t = await runLiquidationTick(h.deps);
+    expect(divergence(t)).toEqual({ code: 'trade.liquidation_margin_divergence', row: '100', pot: '150' });
+    expect(h.rungs.all()[0]!.plan.marginTaken).toBeLessThanOrEqual(amt('100'));
+  });
+
+  it('row and pot agree: no divergence on the item', async () => {
+    const h = harness({ pot: amt('100') });
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).not.toHaveProperty('divergence');
+  });
+
+  it('a healthy position whose pot is short is still flagged (and a healthy one planned on the row stays healthy)', async () => {
+    const h = harness({ pot: amt('90') });
+    h.price.current = '99';
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'skipped_healthy', divergence: { row: '100', pot: '90' } });
+    expect(h.posts).toHaveLength(0);
+  });
+
+  it('no published policy: no ledger read per position (the cheap skip comes first)', async () => {
+    const h = harness({ pot: amt('80') });
+    let reads = 0;
+    h.hooks.balance = () => {
+      reads += 1;
+      return undefined;
+    };
+    h.deps.ladder = { ...h.deps.ladder!, policy: undefined };
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]!.outcome).toBe('skipped_d3_unset');
+    expect(reads).toBe(0);
+  });
+});
+
+describe('refused insurance leg on replay (kind-specific): a PARTIAL rung re-amends to pot-only, a CLOSING rung stays live', () => {
+  const potAccount = {
+    ownerType: 'user',
+    ownerId: USER,
+    assetId: 'USDT',
+    kind: 'collateral',
+    purpose: 'position:pos-1',
+  } as unknown as AccountRef;
+  const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+  const insAcct = { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+
+  /** A stored rung whose loss has a 20 pot leg and a 5 insurance leg. A partial rung has none of these today (equity > 0), so it is stored by hand. */
+  async function storeRung(h: ReturnType<typeof harness>, kind: 'partial' | 'closing') {
+    const r = await h.rungs.begin({
+      rungId: 'r1',
+      positionId: 'pos-1',
+      liquidationId: 'liq:pos-1',
+      kind,
+      fromSize: amt('10'),
+      fromMargin: amt('100'),
+      plan: {
+        recipes: [
+          {
+            idempotencyKey: 'futures.loss:liq:pos-1:rung:r1:loss',
+            module: 'trade',
+            reason: 'futures.loss.realized',
+            meta: { fromMargin: amt('20').toString(), fromInsurance: amt('5').toString() },
+            entries: [
+              { account: potAccount, direction: 'credit', amount: amt('20') },
+              { account: insAcct, direction: 'credit', amount: amt('5') },
+              { account: fees, direction: 'debit', amount: amt('25') },
+            ],
+          },
+        ],
+        sizeClosed: kind === 'partial' ? amt('2') : amt('10'),
+        marginRemaining: kind === 'partial' ? amt('80') : 0n,
+        marginTaken: amt('20'),
+        releaseShort: 0n,
+        lossShort: 0n,
+        reason: kind === 'partial' ? 'ladder_partial' : 'ladder_full_close',
+        fromInsurance: amt('5'),
+        marginAsset: 'USDT',
+      },
+    });
+    expect(r.status).toBe('created');
+  }
+  const bookedLoss = (h: ReturnType<typeof harness>) => h.booked.get('futures.loss:liq:pos-1:rung:r1:loss')!;
+
+  it('PARTIAL, across two ticks: tick 1 dies before posting; on tick 2 the fund refuses the leg, the loss re-amends to the pot leg, lossShort = the gap, no ADL, the rung applies', async () => {
+    const h = harness();
+    await storeRung(h, 'partial');
+    h.hooks.beforePost = () => {
+      throw new Error('died before anything booked');
+    };
+    const t1 = await runLiquidationTick(h.deps);
+    expect(t1.items[0]).toMatchObject({ outcome: 'errored' });
+    expect((await h.rungs.findLive('pos-1'))!.state).toBe('planned');
+
+    h.hooks.beforePost = undefined;
+    h.insurance.available = 0n; // the fund cannot cover the 5 any more
+    const t2 = await runLiquidationTick(h.deps);
+    expect(t2.items[0]).toMatchObject({
+      outcome: 'partially_liquidated',
+      lossShort: { code: 'trade.liquidation_loss_short', rungId: 'r1', amount: '5' },
+    });
+    expect(t2.items[0]!.reason).not.toBe('trade.liquidation_insurance_underfunded_on_replay');
+    // What was booked is the pot leg only, under the same key.
+    expect(bookedLoss(h).meta).toMatchObject({ fromMargin: amt('20').toString(), fromInsurance: '0' });
+    expect(bookedLoss(h).entries.some((e) => e.account.ownerId === 'insurance-fund')).toBe(false);
+    const rung = h.rungs.all()[0]!;
+    expect(rung).toMatchObject({ state: 'applied' });
+    expect(rung.plan).toMatchObject({ fromInsurance: 0n, lossShort: amt('5'), marginTaken: amt('20') });
+    expect(h.row.size).toBe(amt('8'));
+    expect(h.row.margin).toBe(amt('80'));
+  });
+
+  it('PARTIAL, the refusal is NOT the fund (it holds enough): not amended, errors as itself, plan untouched', async () => {
+    const h = harness();
+    await storeRung(h, 'partial');
+    let once = true;
+    h.hooks.beforePost = () => {
+      if (once) {
+        once = false;
+        throw new InsufficientFundsError('house:insurance-fund', 'USDT', '5', '4');
+      }
+    };
+    const t = await runLiquidationTick(h.deps); // the fund really holds 1_000_000
+    expect(t.items[0]).toMatchObject({ outcome: 'errored', reason: 'ledger.insufficient_funds' });
+    expect(h.rungs.all()[0]!.plan).toMatchObject({ fromInsurance: amt('5'), lossShort: 0n });
+    expect((await h.rungs.findLive('pos-1'))!.state).toBe('planned');
+  });
+
+  it('CLOSING is unchanged: a refused insurance leg stays live and loud, nothing is amended, and it finishes once the fund is back', async () => {
+    const h = harness();
+    await storeRung(h, 'closing');
+    h.insurance.available = 0n;
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_insurance_underfunded_on_replay' });
+    expect(h.rungs.all()[0]!.plan).toMatchObject({ fromInsurance: amt('5'), lossShort: 0n });
+    expect(h.booked.size).toBe(0);
+    expect(h.row.status).toBe('open');
+
+    h.insurance.available = amt('1000000');
+    const t2 = await runLiquidationTick(h.deps);
+    expect(t2.items.map((i) => i.outcome)).toEqual(['liquidated']);
+    expect(bookedLoss(h).meta).toMatchObject({ fromInsurance: amt('5').toString() });
+  });
+});
+
+describe('reconciliation to the ledger: the rungs a tick booked agree with what the ledger holds', () => {
+  /** What the operator queries (runbook 5.1) would return, read off the harness's booked transactions. */
+  function ledgerView(h: ReturnType<typeof harness>) {
+    const ledgerLossTxs: LedgerLossTx[] = [...h.booked.values()]
+      .filter((p) => p.reason === REALIZED_LOSS_REASON)
+      .map((p) => ({ idempotencyKey: p.idempotencyKey, meta: p.meta ?? null }));
+    const insuranceCredits: InsuranceCredit[] = [...h.booked.values()].flatMap((p) =>
+      p.entries
+        .filter((e) => e.direction === 'credit' && e.account.ownerType === 'house' && e.account.ownerId === 'insurance-fund')
+        .map((e) => ({ idempotencyKey: p.idempotencyKey, reason: p.reason, amount: e.amount })),
+    );
+    return { ledgerLossTxs, insuranceCredits };
+  }
+
+  it('a partial rung, then a bankrupt closing rung with an insurance leg: clean', async () => {
+    const h = harness();
+    await runLiquidationTick(h.deps); // partial at 93
+    h.price.current = '76'; // a gap inside the breaker that leaves the remainder bankrupt
+    await runLiquidationTick(h.deps);
+    expect(h.row.status).toBe('liquidated');
+    const out = reconcileRungsToLedger({ rungs: h.rungs.all(), ...ledgerView(h) });
+    expect(out.checked).toBe(2);
+    expect(out.mismatches).toEqual([]);
+    expect(out.insurance.plans).toBeGreaterThan(0n);
+    expect(out.clean).toBe(true);
+  });
+
+  it('a rung amended after the pot shrank (closing: 99 pot + 61 insurance) still reconciles: the amended plan is what the ledger booked', async () => {
+    const h = harness({ pot: amt('99') });
+    h.price.current = '40';
+    await runLiquidationTick(h.deps);
+    const out = reconcileRungsToLedger({ rungs: h.rungs.all(), ...ledgerView(h) });
+    expect(out.clean).toBe(true);
+  });
+
+  it('a loss_short partial (pot shrank) books only the pot leg, and the plan says so: clean', async () => {
+    const h = harness();
+    h.hooks.beforePost = () => {
+      h.pot.amount = amt('10'); // funding took most of the pot before the loss posted
+      h.hooks.beforePost = undefined;
+    };
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toHaveProperty('lossShort');
+    expect(reconcileRungsToLedger({ rungs: h.rungs.all(), ...ledgerView(h) }).clean).toBe(true);
+  });
+
+  it('a ledger that booked a different amount than the rung planned is caught', async () => {
+    const h = harness();
+    await runLiquidationTick(h.deps);
+    const view = ledgerView(h);
+    const tampered = view.ledgerLossTxs.map((t) => ({ ...t, meta: { ...t.meta, fromMargin: '1' } }));
+    const out = reconcileRungsToLedger({ rungs: h.rungs.all(), ...view, ledgerLossTxs: tampered });
+    expect(out.clean).toBe(false);
+    expect(out.mismatches.map((m) => m.kind)).toEqual(['from_margin']);
   });
 });
 

@@ -76,3 +76,22 @@ describe('startFuturesJobs wiring', () => {
     expect(src).toMatch(/runLiquidationTick\(\{[\s\S]*?\brungs,[\s\S]*?\}\)/);
   });
 });
+
+describe('reportLiquidationTick: margin divergence', () => {
+  it('raises a row/pot divergence at error level on every tick, even for a healthy position', () => {
+    const logged: { name: string; message: string }[] = [];
+    const t = tick([
+      {
+        positionId: 'pos-v',
+        outcome: 'skipped_healthy',
+        reason: 'none',
+        divergence: { code: 'trade.liquidation_margin_divergence', row: '100', pot: '80' },
+      },
+    ]);
+    reportLiquidationTick(t, (name, err) => logged.push({ name, message: (err as Error).message }));
+    reportLiquidationTick(t, (name, err) => logged.push({ name, message: (err as Error).message }));
+    expect(logged).toHaveLength(2);
+    expect(logged[0]!.name).toBe('futures.liquidation');
+    expect(logged[0]!.message).toContain('trade.liquidation_margin_divergence positionId=pos-v row=100 pot=80');
+  });
+});
