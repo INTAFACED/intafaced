@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ActionApprovalConsumeError,
   bankActionPayloadHash,
   createIdentityApprovalClient,
+  IDENTITY_CONSUME_TIMEOUT_MS,
   readApprovalIds,
   stubApprovalConsumer,
   unwiredApprovalConsumer,
@@ -166,5 +167,39 @@ describe('bank action-approval consume', () => {
       name: 'ActionApprovalConsumeError',
       code: 'action_approval.consume_failed',
     });
+  });
+});
+
+describe('identity consume client', () => {
+  it('gives identity a bounded time to answer, and a timeout rejects instead of hanging', async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort(new DOMException('timed out', 'TimeoutError')));
+    let seen: AbortSignal | null | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        seen = init.signal;
+        if (init.signal?.aborted) throw init.signal.reason;
+        throw new Error('expected an aborted signal');
+      }),
+    );
+    try {
+      const client = createIdentityApprovalClient('http://identity.test', 's'.repeat(32));
+      await expect(
+        client.consume({
+          approvalId: 'a',
+          operationId: 'a',
+          payloadHash: 'sha256:abc',
+          targetService: 'svc-bank',
+          targetId: 'bank.step_up.transfers.toUser',
+          expectedVersion: '1',
+        }),
+      ).rejects.toMatchObject({ name: 'TimeoutError' });
+      expect(timeoutSpy).toHaveBeenCalledWith(IDENTITY_CONSUME_TIMEOUT_MS);
+      expect(IDENTITY_CONSUME_TIMEOUT_MS).toBe(5000);
+      expect(seen).toBeInstanceOf(AbortSignal);
+    } finally {
+      vi.unstubAllGlobals();
+      timeoutSpy.mockRestore();
+    }
   });
 });

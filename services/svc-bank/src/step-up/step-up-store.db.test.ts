@@ -43,6 +43,7 @@ const EXPIRES = new Date('2026-10-14T12:05:00.000Z');
 const use = (over: Record<string, unknown> = {}) => ({
   approvalId: 'ap-1',
   userId: 'u1',
+  sessionId: 's1',
   actionType: 'bank.step_up.transfers.toUser',
   payloadHash: 'sha256:aaa',
   operationKey: 'transfer-0001',
@@ -57,7 +58,7 @@ describe('SqlStepUpUseStore', () => {
     expect(first).toMatchObject({ approvalId: 'ap-1', operationKey: 'transfer-0001' });
     const second = await store.record(use({ operationKey: 'transfer-0002', payloadHash: 'sha256:bbb' }));
     expect(second.operationKey).toBe('transfer-0001');
-    expect(await store.get('ap-1')).toMatchObject({ userId: 'u1', expiresAt: EXPIRES });
+    expect(await store.get('ap-1')).toMatchObject({ userId: 'u1', sessionId: 's1', expiresAt: EXPIRES });
     expect(await store.get('missing')).toBeNull();
   });
 
@@ -65,6 +66,7 @@ describe('SqlStepUpUseStore', () => {
     const store = new SqlStepUpUseStore(db!.sql);
     await expect(store.record(use({ approvalId: ' ' }))).rejects.toThrow();
     await expect(store.record(use({ approvalId: 'ap-x', operationKey: '' }))).rejects.toThrow();
+    await expect(store.record(use({ approvalId: 'ap-y', sessionId: '' }))).rejects.toThrow();
   });
 
   it('the gate replays the same operation from Postgres and refuses another', async () => {
@@ -107,5 +109,7 @@ describe('SqlStepUpUseStore', () => {
       code: 'bank.step_up_mismatch',
     });
     await expect(gate.require({ ...req, replay: false })).rejects.toMatchObject({ code: 'bank.step_up_used' });
+    // another session of the same user cannot replay it
+    await expect(gate.require({ ...req, sessionId: 's-other' })).rejects.toMatchObject({ code: 'bank.step_up_required' });
   });
 });

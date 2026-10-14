@@ -119,7 +119,7 @@ export function createStepUpGate(options: {
 
       const earlier = await store.get(approvalId);
       if (earlier) {
-        if (earlier.userId !== req.userId || earlier.actionType !== req.actionType) {
+        if (earlier.userId !== req.userId || earlier.sessionId !== req.sessionId || earlier.actionType !== req.actionType) {
           return refuse('bank.step_up_required', 'A fresh confirmation is required. Confirm again.');
         }
         if (earlier.payloadHash !== payloadHash) {
@@ -154,13 +154,14 @@ export function createStepUpGate(options: {
       const winner = await store.record({
         approvalId,
         userId: req.userId,
+        sessionId: req.sessionId,
         actionType: req.actionType,
         payloadHash,
         operationKey: req.operationKey,
         expiresAt: new Date(consumed.expiresAt),
       });
       // Two requests raced to spend the same approval: only the same operation may share it.
-      if (winner.operationKey !== req.operationKey || winner.payloadHash !== payloadHash) {
+      if (winner.sessionId !== req.sessionId || winner.operationKey !== req.operationKey || winner.payloadHash !== payloadHash) {
         return refuse('bank.step_up_used', 'This approval was already used. Confirm again.');
       }
     },

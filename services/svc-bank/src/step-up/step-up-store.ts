@@ -12,6 +12,8 @@ import type { Sql } from 'postgres';
 export type StepUpUse = {
   readonly approvalId: string;
   readonly userId: string;
+  /** The session that spent it: another session of the same user cannot replay it. */
+  readonly sessionId: string;
   readonly actionType: string;
   readonly payloadHash: string;
   /** transferId / scheduleId / payrollId / clientId / cardId... the idempotency id inside the hash. */
@@ -44,6 +46,7 @@ export class MemoryStepUpUseStore implements StepUpUseStore {
 type Row = {
   approval_id: string;
   user_id: string;
+  session_id: string;
   action_type: string;
   payload_hash: string;
   operation_key: string;
@@ -54,6 +57,7 @@ function fromRow(r: Row): StepUpUse {
   return {
     approvalId: r.approval_id,
     userId: r.user_id,
+    sessionId: r.session_id,
     actionType: r.action_type,
     payloadHash: r.payload_hash,
     operationKey: r.operation_key,
@@ -66,7 +70,7 @@ export class SqlStepUpUseStore implements StepUpUseStore {
 
   async get(approvalId: string): Promise<StepUpUse | null> {
     const rows = await this.sql<Row[]>`
-      SELECT approval_id, user_id, action_type, payload_hash, operation_key, expires_at
+      SELECT approval_id, user_id, session_id, action_type, payload_hash, operation_key, expires_at
       FROM bank.step_up_uses WHERE approval_id = ${approvalId} LIMIT 1
     `;
     return rows[0] ? fromRow(rows[0]) : null;
@@ -74,10 +78,10 @@ export class SqlStepUpUseStore implements StepUpUseStore {
 
   async record(use: StepUpUse): Promise<StepUpUse> {
     const inserted = await this.sql<Row[]>`
-      INSERT INTO bank.step_up_uses (approval_id, user_id, action_type, payload_hash, operation_key, expires_at)
-      VALUES (${use.approvalId}, ${use.userId}, ${use.actionType}, ${use.payloadHash}, ${use.operationKey}, ${use.expiresAt})
+      INSERT INTO bank.step_up_uses (approval_id, user_id, session_id, action_type, payload_hash, operation_key, expires_at)
+      VALUES (${use.approvalId}, ${use.userId}, ${use.sessionId}, ${use.actionType}, ${use.payloadHash}, ${use.operationKey}, ${use.expiresAt})
       ON CONFLICT (approval_id) DO NOTHING
-      RETURNING approval_id, user_id, action_type, payload_hash, operation_key, expires_at
+      RETURNING approval_id, user_id, session_id, action_type, payload_hash, operation_key, expires_at
     `;
     if (inserted[0]) return fromRow(inserted[0]);
     const winner = await this.get(use.approvalId);

@@ -78,6 +78,7 @@ function signed(p: Principal) {
 class FakeIdentity implements ActionApprovalConsumer {
   now = 1_000_000;
   down = false;
+  timeout = false;
   consumeCalls = 0;
   private readonly rows = new Map<
     string,
@@ -114,6 +115,7 @@ class FakeIdentity implements ActionApprovalConsumer {
   async consume(input: ActionApprovalConsumeInput): Promise<ActionApproval> {
     this.consumeCalls += 1;
     if (this.down) throw new TypeError('fetch failed');
+    if (this.timeout) throw new DOMException('The operation timed out', 'TimeoutError');
     const refuse = (code: string): never => {
       throw new ActionApprovalConsumeError(
         `identity refused consume (412) {"message":"x [action_approval.${code}]"}`,
@@ -273,6 +275,27 @@ describe('flag required: sends to other users', () => {
     const id = f.identity.approve(TO_USER, { ...toUserFields, assetId: 'EUR' });
     await expect(f.caller().transfers.toUser({ ...toUserInput, stepUpApprovalId: id })).rejects.toMatchObject({
       message: expect.stringContaining('bank.step_up_mismatch'),
+    });
+    expect(f.calls).toEqual([]);
+  });
+
+  it('another session of the same user cannot replay a spent approval, even for the same transfer', async () => {
+    const f = fixture();
+    const id = f.identity.approve(TO_USER, toUserFields);
+    await f.caller().transfers.toUser({ ...toUserInput, stepUpApprovalId: id });
+    await expect(f.caller(principal({ sid: SID2 })).transfers.toUser({ ...toUserInput, stepUpApprovalId: id })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.step_up_required'),
+    });
+    expect(f.calls).toEqual(['transfers.transferToUser']);
+  });
+
+  it('a timeout talking to identity is unavailable (503), and nothing posts', async () => {
+    const f = fixture();
+    const id = f.identity.approve(TO_USER, toUserFields);
+    f.identity.timeout = true;
+    await expect(f.caller().transfers.toUser({ ...toUserInput, stepUpApprovalId: id })).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: expect.stringContaining('bank.step_up_unavailable'),
     });
     expect(f.calls).toEqual([]);
   });

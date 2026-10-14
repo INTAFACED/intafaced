@@ -989,6 +989,7 @@ export const stepUpUses = bank.table(
   {
     approvalId: text('approval_id').primaryKey(),
     userId: text('user_id').notNull(),
+    sessionId: text('session_id').notNull(),
     actionType: text('action_type').notNull(),
     payloadHash: text('payload_hash').notNull(),
     operationKey: text('operation_key').notNull(),

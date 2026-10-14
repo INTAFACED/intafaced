@@ -147,9 +147,9 @@ export function createActionApprovalRouter(
             if (!deps.verifyFactor) {
               throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'step-up factor verification is not wired' });
             }
-            if (ctx.principal.kid) {
-              // An API key has no interactive second factor and may never mint a step-up approval.
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys cannot create step-up approvals' });
+            if (ctx.principal.kid || ctx.principal.sub_account) {
+              // An API key or a sub-account has no interactive second factor and may never mint a step-up approval.
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot create step-up approvals' });
             }
             await deps.verifyFactor({
               userId: ctx.principal.userId,

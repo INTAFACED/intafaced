@@ -147,3 +147,12 @@ Two-way. The flag returns every door to today's behaviour instantly. Both migrat
 2. Ship the customer-app step-up sheet (phase 2): `auth.stepUpOptions` for a passkey, then `actionApproval.createSamePerson` with the hash of the fields in `money-out-fields.ts`, then the normal door call with `stepUpApprovalId`.
 3. Merge chat 2 3's factor-gate hardening and the `enrolledAt` refusal.
 4. Flip the flag to `required` in staging, then production. Nitro decides the production flip.
+
+### Preconditions for flipping `BANK_STEP_UP_MONEY_OUT=required`
+
+All four must hold. The flag stays `off` until they do.
+
+- **(a) The client step-up sheet has shipped.** Without it every send to another person fails.
+- **(b) Chat 2 3's factor-age hold is merged.** Today `auth.stepUp` accepts a factor enrolled moments ago, and adding a first factor is ungated. A stolen session on an account with no second factor could enrol a TOTP and mint approvals with it. Until a factor younger than 24 h is refused for money step-up, `required` protects accounts that already have an old factor, not accounts that have none.
+- **(c) API-key integrations that send to other users are identified.** An API key cannot obtain an approval, so they stop working on flip.
+- **(d) The svc-pay follow-up is tracked as #4707:** `withdrawals.create` and `pay.merchant.setPayoutDestination` stay on plain scopes until then.

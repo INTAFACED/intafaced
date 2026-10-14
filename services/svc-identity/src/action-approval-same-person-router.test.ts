@@ -33,7 +33,7 @@ const SESSION = '44444444-4444-4444-8444-444444444444';
 const HASH = `sha256:${'c'.repeat(64)}`;
 const TYPE = 'bank.step_up.transfers.toUser';
 
-async function sessionCtx(userId: string, extra: { apiKeyId?: string } = {}): Promise<Context> {
+async function sessionCtx(userId: string, extra: { apiKeyId?: string; subAccountId?: string } = {}): Promise<Context> {
   const { token } = await issueAccessToken(
     { userId, sessionId: SESSION, scopes: ['identity:write'], tier: 'none', mfa: false, ...extra },
     authConfig,
@@ -140,6 +140,16 @@ describe('actionApproval.createSamePerson', () => {
     for (const input of bad) {
       await expect(caller.actionApproval.createSamePerson(input as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     }
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it('refuses a sub-account principal', async () => {
+    const verify = vi.fn<SamePersonFactorVerifier>(async () => undefined);
+    const { r } = build(verify);
+    const sub = r.createCaller(await sessionCtx(A, { subAccountId: '66666666-6666-4666-8666-666666666666' }));
+    await expect(sub.actionApproval.createSamePerson({ actionType: TYPE, payloadHash: HASH, totpCode: '123456' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
     expect(verify).not.toHaveBeenCalled();
   });
 
