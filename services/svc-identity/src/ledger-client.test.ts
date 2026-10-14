@@ -80,7 +80,7 @@ beforeEach(() => {
   sent = [];
   respond = () => ({ status: 200, body: { txId: 'tx-1', hash: 'h1', postedAt: '2026-07-27T12:00:00.000Z' } });
 
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const url = String(input);
     const raw = typeof init?.body === 'string' ? init.body : '';
     sent.push({
@@ -269,7 +269,7 @@ describe('post — amounts leave as decimal strings', () => {
     const built = client();
     const seen: string[] = [];
     const inner = globalThis.fetch;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       seen.push(new URL(String(input)).pathname);
       return inner(input, init);
     }) as typeof fetch;
