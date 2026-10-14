@@ -959,7 +959,8 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
       if (securityState.passwordChangedAt && input?.password !== securityState.password) {
         throw new FixtureError('auth.invalid_credentials', 401);
       }
-      if (!securityState.passwordChangedAt && typeof input?.password === 'string' && input.password) securityState.password = input.password;
+      if (!securityState.passwordChangedAt && typeof input?.password === 'string' && input.password)
+        securityState.password = input.password;
       return baseLogin(input);
     },
     'auth.logout': (input) => {
