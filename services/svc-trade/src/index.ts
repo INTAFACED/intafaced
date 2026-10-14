@@ -354,6 +354,9 @@ const positions = new PositionService(sql, ledger, {
   profitSource,
   bus,
   maxLeverage,
+  // The same ladder the liquidation tick rates against: a withdrawal is refused when the ladder
+  // would liquidate what is left. `policy` is unset until the owner publishes the D3 table.
+  ladder: futuresJobs.ladderGate,
   assertAdlDisclosureAcked: async (userId) => {
     try {
       await assertAdlDisclosureAcked(adlDisclosureAcks, userId);

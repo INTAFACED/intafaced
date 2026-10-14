@@ -117,7 +117,13 @@ function recordingLedger(opts?: { insuranceAvailable?: Amount }) {
         return { id: `tx-${posts.length}`, idempotencyKey: req.idempotencyKey } as never;
       },
       async balance(ref: AccountRef): Promise<Balance> {
-        const amount = ref.ownerType === 'house' && ref.ownerId === 'insurance-fund' ? insuranceAvailable : 0n;
+        // A position's collateral pot is ample, so the tick plans against the row's own margin (divergence guard: min(row, pot)).
+        const amount =
+          ref.ownerType === 'house' && ref.ownerId === 'insurance-fund'
+            ? insuranceAvailable
+            : ref.kind === 'collateral'
+              ? 1_000_000n * 10n ** 18n
+              : 0n;
         return { account: ref, accountId: `${ref.ownerType}:${ref.ownerId}`, amount };
       },
     },
