@@ -31,10 +31,11 @@
  * merge-gate.mjs: it applies this same rule to the PR when the PR is merged, and it refuses to run unless the checkout
  * it runs from matches origin/main (tooling/scripts and tooling/ci), so the rule that judges is always main's.
  *
- * The one exemption: dependabot[bot] may change the root package.json (dependency bumps) under its own title.
+ * There is no author exemption: anyone with write access can push to a bot's branch, so the author proves nothing. Dependabot's
+ * commit-message prefixes in .github/dependabot.yml are `ci`/`ci(deps)`, so its PRs declare themselves like anyone's.
  *
  * Usage:
- *   node tooling/scripts/gate-file-guard.mjs --pr 4402 --title "fix(db): ..." [--author login] [--repo owner/name] [--comment]
+ *   node tooling/scripts/gate-file-guard.mjs --pr 4402 --title "fix(db): ..." [--repo owner/name] [--comment]
  *   node tooling/scripts/gate-file-guard.mjs --title "..." --files-file changed.txt      (offline)
  * Exit 0 = pass, 1 = undeclared gate change, 2 = usage or lookup error, 3 = GitHub refused (stop, no retry).
  */
@@ -106,11 +107,8 @@ export function titleStatesGateChange(title) {
 }
 
 /** @returns {{ ok: boolean, gateFiles: Array<{file:string,glob:string,why:string}>, declared: boolean }} */
-/** Dependabot bumps dependencies in the root package.json under a `chore(deps)` title. Only that bot, only that file. */
-const BOT_AUTHORS = new Set(['dependabot[bot]', 'app/dependabot']);
-
-export function evaluateGateFileRule(title, files, { author } = {}) {
-  const gateFiles = gateFilesTouched(files).filter((g) => !(BOT_AUTHORS.has(author) && g.file === 'package.json'));
+export function evaluateGateFileRule(title, files) {
+  const gateFiles = gateFilesTouched(files);
   const declared = titleStatesGateChange(title);
   return { ok: gateFiles.length === 0 || declared, gateFiles, declared };
 }
@@ -158,7 +156,6 @@ function parseArgs(argv) {
     if (a === '--pr') o.pr = argv[++i];
     else if (a === '--title') o.title = argv[++i];
     else if (a === '--repo') o.repo = argv[++i];
-    else if (a === '--author') o.author = argv[++i];
     else if (a === '--files-file') o.filesFile = argv[++i];
     else if (a === '--comment') o.comment = true;
     else throw new Error(`unknown argument: ${a}`);
@@ -179,7 +176,7 @@ async function main() {
   try {
     const gh = makeGh();
     const files = o.filesFile ? readFileSync(o.filesFile, 'utf8').split('\n').filter(Boolean) : listPrFiles(gh, o.repo, o.pr);
-    const result = evaluateGateFileRule(o.title, files, { author: o.author });
+    const result = evaluateGateFileRule(o.title, files);
     const body = renderComment(result);
     console.log(body.replace(MARKER, '').trim());
     if (o.comment && o.pr) {
