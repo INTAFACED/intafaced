@@ -388,14 +388,16 @@ function SideForm({
             ? t('Order placed filled', { side: sideWord, amount: fmtAmount(done.filled, { places: amountPlaces }), asset: market.base })
             : done.status === 'open'
               ? t('Order placed open', { side: sideWord })
-              : endedEarly
-                ? tk('Order ended early', {
-                    side: sideWord,
-                    filled: fmtAmount(done.filled, { places: amountPlaces }),
-                    amount: fmtAmount(done.amount, { places: amountPlaces }),
-                    asset: market.base,
-                  })
-                : t('Order placed done', { side: sideWord }),
+              : done.status === 'rejected'
+                ? tk('Order rejected', { side: sideWord })
+                : endedEarly
+                  ? tk('Order ended early', {
+                      side: sideWord,
+                      filled: fmtAmount(done.filled, { places: amountPlaces }),
+                      amount: fmtAmount(done.amount, { places: amountPlaces }),
+                      asset: market.base,
+                    })
+                  : t('Order placed done', { side: sideWord }),
         );
         setReview(null);
         setAmount('');
@@ -926,6 +928,7 @@ export const OrderPanel = memo(function OrderPanel({
                 client={client}
                 market={market}
                 onChanged={refresh}
+                onResolved={setSettled}
               />
             ) : (
               <div className="dk-note dk-note--warn" role="status">

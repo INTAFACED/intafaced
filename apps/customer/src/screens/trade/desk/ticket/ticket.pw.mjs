@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Exchange } from '../desk.fixtures.mjs';
+import { Exchange, scaled } from '../desk.fixtures.mjs';
 
 const shots = process.env.TICKET_SHOTS ?? join(tmpdir(), 'intafaced-ticket-shots');
 mkdirSync(shots, { recursive: true });
@@ -14,11 +14,27 @@ class TicketExchange extends Exchange {
   constructor() {
     super();
     // 'ok' | 'abort' (all taken, answer lost) | 'lose' (none arrived, answer lost) | { refuse: [indexes] } | { unknown: [indexes] }
+    // | { turnedAway: 429 } (the whole request is refused before any order is looked at)
     this.opts.batchMode = 'ok';
     this.opts.cancelAllMode = 'ok'; // 'ok' | 'abort' (cancelled, answer lost)
   }
   wireOrder(draft, extra) {
     return super.wireOrder(draft, { postOnly: draft.postOnly === true, ...extra });
+  }
+  /** Like the engine: a post-only order that would cross the book is rejected, though the request itself succeeds. */
+  commit(draft) {
+    if (draft.postOnly && draft.type === 'limit') {
+      const price = scaled(draft.price);
+      const crosses = draft.side === 'buy' ? price >= scaled(this.opts.book.asks[0][0]) : price <= scaled(this.opts.book.bids[0][0]);
+      const existing = [...this.open, ...this.closed].find((order) => order.clientOrderId === draft.clientOrderId);
+      if (existing) return existing;
+      if (crosses) {
+        const order = this.wireOrder(draft, { status: 'rejected' });
+        this.closed.unshift(order);
+        return order;
+      }
+    }
+    return super.commit(draft);
   }
   handle(request) {
     const { method, path, body, query } = request;
@@ -27,6 +43,11 @@ class TicketExchange extends Exchange {
       this.requests.push({ method, path, body });
       const mode = this.opts.batchMode;
       if (mode === 'lose') return 'abort';
+      if (typeof mode === 'object' && mode.turnedAway)
+        return json(
+          { statusCode: mode.turnedAway, code: 'rate_limited', error: 'Too Many Requests', message: 'slow down' },
+          mode.turnedAway,
+        );
       if (mode === 'abort') {
         for (const draft of body.orders) this.commit(draft);
         return 'abort';
@@ -376,7 +397,14 @@ test('scale order: weighted sizes, post-only, and a warning for orders that woul
   await expect(dialog).toContainText('would fill right away, so post-only will refuse them');
   await shot(page, 'ticket-scale-weighted-warning');
   await dialog.getByRole('button', { name: 'Place 3 buy orders' }).click();
-  await expect(form).toContainText('orders are in');
+  // The engine turns the crossing order down: the request succeeded, the order was NOT placed. It must not read "In".
+  await expect(form).toContainText('2 of 3 orders are in.');
+  await expect(form).not.toContainText('All 3 orders are in');
+  await expect(form).toContainText('1 were rejected by the market');
+  await expect(form.locator('.dk-note tbody tr').nth(2)).toContainText('Refused: would have filled at once');
+  await expect(form.locator('.dk-note tbody tr').nth(0)).toContainText('In');
+  await shot(page, 'ticket-scale-post-only-rejected');
+  expect(await slot(page)).toBeNull(); // the rejected order's outcome is known, so nothing is left in doubt
   const sent = m.requests('POST', 'orders/batch')[0].body.orders;
   expect(sent.map((o) => o.amount)).toEqual(['0.0001', '0.0002', '0.0003']);
   expect(sent.every((o) => o.postOnly === true)).toBe(true);
@@ -494,4 +522,128 @@ test('states: loading balances, signed out, market closed', async ({ page, brows
   await expect(out.getByRole('link', { name: 'Log in to trade' }).first()).toBeVisible();
   await shot(out, 'ticket-scale-signed-out');
   await out.context().close();
+});
+
+test('recovery: a re-send the service turns away (rate limit, sign-in, kill switch) never clears the block', async ({ page }) => {
+  const exchange = new TicketExchange();
+  exchange.opts.batchMode = 'lose';
+  const m = await mount(page, exchange);
+  await ready(page);
+  const form = await fillScale(page);
+  await form.getByRole('button', { name: 'Review buy orders' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Place 5 buy orders' }).click();
+  const note = page.locator('.dk-note--warn', { hasText: 'Checking your scale orders' });
+  await expect(note).toContainText('5 orders are not confirmed yet');
+  // The first batch may have gone in. The re-send is turned away.
+  m.exchange.opts.batchMode = { turnedAway: 429 };
+  await note.getByRole('button', { name: 'Send the missing again' }).click();
+  await expect(note).toContainText('nothing was cleared');
+  await expect(note).not.toContainText('accounted for');
+  expect(await slot(page)).toContain('scale:');
+  expect(JSON.parse(await scaleMarker(page)).drafts).toHaveLength(5);
+  await shot(page, 'ticket-scale-recovery-resend-refused');
+  // New orders still wait.
+  await page.getByRole('tab', { name: 'Limit' }).click();
+  await field(buyForm(page), 'Price').fill('63999.9');
+  await field(buyForm(page), 'Amount').fill('0.0001');
+  await expect(buyForm(page).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  await page.getByRole('tab', { name: 'Scale' }).click();
+  // Only when the orders are really accepted again does the block clear.
+  m.exchange.opts.batchMode = 'ok';
+  await note.getByRole('button', { name: 'Send the missing again' }).click();
+  await expect.poll(() => slot(page), { timeout: 15000 }).toBeNull();
+  expect(m.exchange.open).toHaveLength(5);
+});
+
+test('recovery: orders refused on the re-send clear only after a lookup finds nothing, and say they were refused', async ({ page }) => {
+  const exchange = new TicketExchange();
+  exchange.opts.batchMode = 'lose';
+  const m = await mount(page, exchange);
+  await ready(page);
+  const form = await fillScale(page);
+  await form.getByRole('button', { name: 'Review buy orders' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Place 5 buy orders' }).click();
+  const note = page.locator('.dk-note--warn', { hasText: 'Checking your scale orders' });
+  await expect(note).toBeVisible();
+  m.exchange.opts.batchMode = { refuse: [0, 1, 2, 3, 4] };
+  const before = m.requests('GET', 'orders/open').length;
+  await note.getByRole('button', { name: 'Send the missing again' }).click();
+  await expect.poll(() => slot(page), { timeout: 15000 }).toBeNull();
+  expect(m.requests('GET', 'orders/open').length).toBeGreaterThan(before); // the lookup ran
+  await expect(page.getByText('5 orders were refused and are not placed.')).toBeVisible();
+  await expect(page.getByText('All orders are accounted for.')).toHaveCount(0);
+});
+
+const seedSlot = async (page, { startedAt, batch = 'abc' }) => {
+  await page.addInitScript(
+    ([key, value]) => {
+      if (!localStorage.getItem(key)) localStorage.setItem(key, value);
+    },
+    [`trade-pending:${USER}`, JSON.stringify({ kind: 'place', symbol: 'BTC/USDT', id: `scale:${batch}`, startedAt })],
+  );
+};
+const scaleOrder = (exchange, batch, n, patch = {}) =>
+  exchange.wireOrder(
+    {
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.0002',
+      price: String(60000 + n),
+      timeInForce: 'GTC',
+      postOnly: false,
+      clientOrderId: `desk:scale:${batch}:${n}`,
+    },
+    patch,
+  );
+
+test('recovery without a saved list: the batch is looked up by its number in Open orders AND Order history, and clearing waits', async ({
+  page,
+}) => {
+  const exchange = new TicketExchange();
+  // One order still resting, one that filled (it is only in history), one from another batch.
+  exchange.open.push(scaleOrder(exchange, 'abc', 0));
+  exchange.closed.push(scaleOrder(exchange, 'abc', 1, { status: 'closed', filled: '0.0002', remaining: '0' }));
+  exchange.open.push(scaleOrder(exchange, 'zzz', 0));
+  await seedSlot(page, { startedAt: Date.now() - 5000 });
+  const m = await mount(page, exchange);
+  await ready(page);
+  const note = page.locator('.dk-note--warn', { hasText: 'Checking your scale orders' });
+  await expect(note).toContainText('2 orders of this batch were found');
+  await expect(note.locator('tbody tr')).toHaveCount(2);
+  await expect(note).toContainText('Filled');
+  await expect(note).toContainText('In');
+  expect(m.requests('GET', 'orders/closed').length).toBeGreaterThan(0);
+  const clear = note.getByRole('button', { name: /clear this/ });
+  await expect(clear).toBeDisabled(); // looked up, but sent only seconds ago
+  await expect(note).toContainText('You can clear this in');
+  await shot(page, 'ticket-scale-recovery-no-list');
+  expect(await slot(page)).toContain('scale:abc');
+});
+
+test('recovery without a saved list: after the wait and a successful lookup, clearing frees the account', async ({ page }) => {
+  const exchange = new TicketExchange();
+  await seedSlot(page, { startedAt: Date.now() - 5 * 60_000 });
+  await mount(page, exchange);
+  await ready(page);
+  const note = page.locator('.dk-note--warn', { hasText: 'Checking your scale orders' });
+  await expect(note).toContainText('No order of this batch was found');
+  const clear = note.getByRole('button', { name: /clear this/ });
+  await expect(clear).toBeEnabled();
+  await clear.click();
+  await expect(note).toHaveCount(0);
+  expect(await slot(page)).toBeNull();
+});
+
+test('recovery without a saved list: a failed lookup never allows clearing, however long ago it was sent', async ({ page }) => {
+  const exchange = new TicketExchange();
+  exchange.opts.fail = { orders: 500 };
+  await seedSlot(page, { startedAt: Date.now() - 60 * 60_000 });
+  await mount(page, exchange);
+  await page.locator('.dk-ticker .dk-pair').waitFor();
+  const note = page.locator('.dk-note--warn', { hasText: 'Checking your scale orders' });
+  await expect(note).toContainText('couldn’t look up your orders');
+  await expect(note.getByRole('button', { name: /clear this/ })).toBeDisabled();
+  await shot(page, 'ticket-scale-recovery-lookup-failed');
+  expect(await slot(page)).toContain('scale:abc');
 });

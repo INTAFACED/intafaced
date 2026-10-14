@@ -2,7 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ApiClient, ApiResult } from '../../../../shared/api';
 import type { Draft, Order, Preview, TradeApi } from '../../../../features/trade/trade-api';
 import { CONFLICT_CODE } from '../resend';
-import { buildDrafts, checkAll, findPlaced, samePreviews, scaleOrderId, scaleSlotId, sendBatch, totalsOf } from './scale-flow';
+import {
+  batchPrefix,
+  buildDrafts,
+  checkAll,
+  clearWaitLeft,
+  findByPrefix,
+  findPlaced,
+  MIN_CLEAR_WAIT_MS,
+  samePreviews,
+  scaleOrderId,
+  scaleSlotId,
+  sendBatch,
+  settleResend,
+  totalsOf,
+  type BatchOutcome,
+} from './scale-flow';
 
 const rows = [
   { price: '100', amount: '0.1', value: '10' },
@@ -309,5 +324,163 @@ describe('finding out afterwards', () => {
       async (kind) => (kind === 'open' ? { ok: true, data: [] } : { ok: false, reason: 'unreachable', message: '' }),
     );
     expect((await findPlaced(api, 'BTC/USDT', ['x'], () => undefined)).ok).toBe(false);
+  });
+});
+
+describe('what "success" means for each order', () => {
+  const item = (index: number, order: Order) => ({ index, clientOrderId: drafts[index]!.clientOrderId, status: 'success', order });
+  it('counts only open and filled orders as in; a rejected post-only order is not placed', async () => {
+    const { client } = clientWith({
+      ok: true,
+      data: {
+        results: [
+          item(0, wireOrder(drafts[0]!)),
+          item(1, wireOrder(drafts[1]!, { status: 'rejected', postOnly: true })),
+          item(2, wireOrder(drafts[2]!, { status: 'closed', filled: drafts[2]!.amount, remaining: '0' })),
+        ],
+      },
+    });
+    const outcome = await sendBatch(client, drafts);
+    expect(outcome.items.map((i) => i.kind)).toEqual(['placed', 'rejected', 'placed']);
+  });
+
+  it('a cancelled or expired order is "ended", not in', async () => {
+    const { client } = clientWith({
+      ok: true,
+      data: {
+        results: [
+          item(0, wireOrder(drafts[0]!, { status: 'canceled' })),
+          item(1, wireOrder(drafts[1]!, { status: 'expired' })),
+          item(2, wireOrder(drafts[2]!)),
+        ],
+      },
+    });
+    expect((await sendBatch(client, drafts)).items.map((i) => i.kind)).toEqual(['ended', 'ended', 'placed']);
+  });
+});
+
+describe('after sending the missing orders again', () => {
+  const refusedAll: BatchOutcome = { request: 'refused', items: drafts.map(() => ({ kind: 'refused' as const, code: 'rate.limited' })) };
+  const unsureAll: BatchOutcome = { request: 'unsure', items: drafts.map(() => ({ kind: 'unknown' as const })) };
+  const noRead = () => apiWith(async () => ({ ok: false, reason: 'error', message: '' }));
+  const reading = (open: Order[], closed: Order[] = []) =>
+    apiWith(
+      async () => ({ ok: false, reason: 'error', message: '' }),
+      async (kind) => ({ ok: true, data: kind === 'open' ? open : closed }),
+    );
+
+  it('a refused request (expired sign-in, rate limit, kill switch) clears nothing, and does not even look', async () => {
+    const api = noRead();
+    const settled = await settleResend(api, 'BTC/USDT', drafts, refusedAll, () => undefined);
+    expect(settled.left).toEqual(drafts);
+    expect(settled.refused).toEqual([]);
+    expect((api.orders as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+  });
+
+  it('a lost answer clears nothing', async () => {
+    expect((await settleResend(noRead(), 'BTC/USDT', drafts, unsureAll, () => undefined)).left).toEqual(drafts);
+  });
+
+  it('orders the service shows (placed, rejected or ended) are cleared without a lookup', async () => {
+    const api = noRead();
+    const answered: BatchOutcome = {
+      request: 'answered',
+      items: [
+        { kind: 'placed', order: wireOrder(drafts[0]!) },
+        { kind: 'rejected', order: wireOrder(drafts[1]!, { status: 'rejected' }) },
+        { kind: 'ended', order: wireOrder(drafts[2]!, { status: 'canceled' }) },
+      ],
+    };
+    expect(await settleResend(api, 'BTC/USDT', drafts, answered, () => undefined)).toEqual({ left: [], refused: [] });
+    expect((api.orders as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+  });
+
+  it('an order the service refused is cleared only after a lookup that worked finds nothing under its id', async () => {
+    const answered: BatchOutcome = {
+      request: 'answered',
+      items: [{ kind: 'refused', code: 'trade.spot_disabled' }, { kind: 'placed', order: wireOrder(drafts[1]!) }, { kind: 'unknown' }],
+    };
+    const settled = await settleResend(reading([]), 'BTC/USDT', drafts, answered, () => undefined);
+    expect(settled.left).toEqual([drafts[2]]); // unknown stays
+    expect(settled.refused).toEqual([{ draft: drafts[0], code: 'trade.spot_disabled' }]);
+  });
+
+  it('a refused order that the lookup DOES find is cleared as found, never as refused', async () => {
+    const answered: BatchOutcome = {
+      request: 'answered',
+      items: [{ kind: 'refused', code: 'x' }, { kind: 'unknown' }, { kind: 'unknown' }],
+    };
+    const settled = await settleResend(reading([wireOrder(drafts[0]!)]), 'BTC/USDT', drafts, answered, () => undefined);
+    expect(settled.refused).toEqual([]);
+    expect(settled.left).toEqual([drafts[1], drafts[2]]);
+  });
+
+  it('an order still recovering is kept, even if the service had refused it', async () => {
+    const answered: BatchOutcome = {
+      request: 'answered',
+      items: [
+        { kind: 'refused', code: 'x' },
+        { kind: 'placed', order: wireOrder(drafts[1]!) },
+        { kind: 'placed', order: wireOrder(drafts[2]!) },
+      ],
+    };
+    const settled = await settleResend(
+      reading([{ ...wireOrder(drafts[0]!), recoveryRequired: true }]),
+      'BTC/USDT',
+      drafts,
+      answered,
+      () => undefined,
+    );
+    expect(settled.left).toEqual([drafts[0]]);
+    expect(settled.refused).toEqual([]);
+  });
+
+  it('when the lookup itself fails, nothing is cleared', async () => {
+    const api = apiWith(
+      async () => ({ ok: false, reason: 'error', message: '' }),
+      async () => ({ ok: false, reason: 'unreachable', message: '' }),
+    );
+    const answered: BatchOutcome = {
+      request: 'answered',
+      items: [
+        { kind: 'refused', code: 'x' },
+        { kind: 'refused', code: 'x' },
+        { kind: 'refused', code: 'x' },
+      ],
+    };
+    expect((await settleResend(api, 'BTC/USDT', drafts, answered, () => undefined)).left).toEqual(drafts);
+  });
+});
+
+describe('looking up a batch by its number', () => {
+  it('finds open and closed orders of that batch only, in that market', async () => {
+    const other = buildDrafts({ symbol: 'BTC/USDT', side: 'buy', rows, postOnly: false, batchId: 'other' });
+    const api = apiWith(
+      async () => ({ ok: false, reason: 'error', message: '' }),
+      async (kind) => ({
+        ok: true,
+        data:
+          kind === 'open'
+            ? [wireOrder(drafts[0]!), wireOrder(other[0]!)]
+            : [wireOrder(drafts[1]!, { status: 'closed' }), { ...wireOrder(drafts[2]!), symbol: 'ETH/USDT' }],
+      }),
+    );
+    const found = await findByPrefix(api, 'BTC/USDT', batchPrefix('b1'), () => undefined);
+    expect(found.ok && found.orders.map((o) => o.clientOrderId)).toEqual([drafts[0]!.clientOrderId, drafts[1]!.clientOrderId]);
+  });
+
+  it('a failed read is not "found nothing"', async () => {
+    const api = apiWith(
+      async () => ({ ok: false, reason: 'error', message: '' }),
+      async () => ({ ok: false, reason: 'unreachable', message: '' }),
+    );
+    expect((await findByPrefix(api, 'BTC/USDT', batchPrefix('b1'), () => undefined)).ok).toBe(false);
+  });
+
+  it('clearing waits a minimum time after the send', () => {
+    expect(clearWaitLeft(1000, 1000)).toBe(MIN_CLEAR_WAIT_MS);
+    expect(clearWaitLeft(1000, 1000 + MIN_CLEAR_WAIT_MS - 1)).toBe(1);
+    expect(clearWaitLeft(1000, 1000 + MIN_CLEAR_WAIT_MS)).toBe(0);
+    expect(clearWaitLeft(1000, 10 ** 12)).toBe(0);
   });
 });

@@ -28,6 +28,7 @@ import {
   refusalCopy,
   SegmentedControl,
 } from './deps';
+import { itemWord } from './outcome-words';
 import { RefusalNote } from './RefusalNote';
 import { PostOnlyField, InfoTip } from './TicketOptionsRow';
 import { buildDrafts, checkAll, samePreviews, scaleSlotId, sendBatch, totalsOf, type BatchOutcome, type ScaleTotals } from './scale-flow';
@@ -571,6 +572,7 @@ function ScaleResult({ done, market }: { done: Done; market: DeskMarket }) {
   const { t } = ticketCopy.useCopy();
   const placed = done.outcome.items.filter((item) => item.kind === 'placed').length;
   const refused = done.outcome.items.filter((item) => item.kind === 'refused').length;
+  const rejected = done.outcome.items.filter((item) => item.kind === 'rejected' || item.kind === 'ended').length;
   const unsure = done.outcome.items.filter((item) => item.kind === 'unknown').length;
   const total = done.drafts.length;
   const amountPlaces = placesOf(market.lotSize);
@@ -584,6 +586,7 @@ function ScaleResult({ done, market }: { done: Done; market: DeskMarket }) {
     <div className={`dk-note ${placed === total ? 'dk-note--good' : 'dk-note--warn'}`} role="status">
       <p className="dk-note-title">{headline}</p>
       {refused > 0 && placed !== 0 ? <p>{t('Scale done refused', { count: refused })}</p> : null}
+      {rejected > 0 ? <p>{t('Scale done rejected', { count: rejected })}</p> : null}
       {unsure > 0 ? <p>{t('Scale done unsure', { count: unsure })}</p> : null}
       <div className="tk-list">
         <table className="tk-table">
@@ -603,15 +606,7 @@ function ScaleResult({ done, market }: { done: Done; market: DeskMarket }) {
                   <td>{i + 1}</td>
                   <td className="dk-num if-num">{fmtPrice(draft.price ?? '', market.tickSize)}</td>
                   <td className="dk-num if-num">{fmtAmount(draft.amount, { places: amountPlaces })}</td>
-                  <td>
-                    {item.kind === 'placed'
-                      ? item.order.status === 'closed'
-                        ? t('Scale result filled')
-                        : t('Scale result placed')
-                      : item.kind === 'refused'
-                        ? refusalCopy(item.code ?? 'unknown').title
-                        : t('Scale result unsure')}
-                  </td>
+                  <td>{itemWord(item, t, (code) => refusalCopy(code ?? 'unknown').title)}</td>
                 </tr>
               );
             })}

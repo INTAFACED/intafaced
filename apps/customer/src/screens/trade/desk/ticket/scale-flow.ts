@@ -121,7 +121,12 @@ export function samePreviews(reviewed: readonly Preview[], fresh: readonly Previ
 // ---- Sending the batch ----
 
 export type ItemOutcome =
+  /** The order is in the book (open) or has filled (closed). Only these count as "in". */
   | { kind: 'placed'; order: Order }
+  /** The service took the request but the market turned the order down (for example post-only that would have filled at once). Nothing is held. */
+  | { kind: 'rejected'; order: Order }
+  /** The order ended without resting or filling (cancelled or expired). */
+  | { kind: 'ended'; order: Order }
   /** The service said no to this order (nothing was held). `code` is the service's refusal code, shown only as words. */
   | { kind: 'refused'; code: string | null }
   /** The order may or may not exist. It is looked up, never assumed. */
@@ -172,6 +177,9 @@ export async function sendBatch(client: ApiClient, drafts: readonly Draft[]): Pr
     const placed = order.data;
     if (placed.symbol !== draft.symbol || placed.clientOrderId !== draft.clientOrderId) return { kind: 'unknown' };
     if (placed.recoveryRequired && !isTerminalOrder(placed)) return { kind: 'unknown' };
+    // `success` only means the request was handled. What happened to the order is in its own status.
+    if (placed.status === 'rejected') return { kind: 'rejected', order: placed };
+    if (placed.status === 'canceled' || placed.status === 'expired') return { kind: 'ended', order: placed };
     return { kind: 'placed', order: placed };
   });
   return { request: 'answered', items };
@@ -179,7 +187,8 @@ export async function sendBatch(client: ApiClient, drafts: readonly Draft[]): Pr
 
 // ---- Finding out afterwards (reads only) ----
 
-export type Found = { ok: true; found: Map<string, Order> } | { ok: false };
+/** `found`: orders seen and settled. `present`: every wanted id seen at all, including one still recovering. */
+export type Found = { ok: true; found: Map<string, Order>; present: Set<string> } | { ok: false };
 
 /** Which of these orders does the service know? Looks in Open and Closed orders for the market, by `clientOrderId`. */
 export async function findPlaced(api: TradeApi, symbol: string, ids: readonly string[], onAsk: () => void): Promise<Found> {
@@ -189,9 +198,83 @@ export async function findPlaced(api: TradeApi, symbol: string, ids: readonly st
   if (!open.ok || !closed.ok) return { ok: false };
   const wanted = new Set(ids);
   const found = new Map<string, Order>();
+  const present = new Set<string>();
   for (const order of [...open.data, ...closed.data]) {
-    if (order.symbol === symbol && order.clientOrderId && wanted.has(order.clientOrderId) && !order.recoveryRequired)
-      found.set(order.clientOrderId, order);
+    if (order.symbol !== symbol || !order.clientOrderId || !wanted.has(order.clientOrderId)) continue;
+    present.add(order.clientOrderId);
+    if (!order.recoveryRequired) found.set(order.clientOrderId, order);
   }
-  return { ok: true, found };
+  return { ok: true, found, present };
 }
+
+/** Is what happened to this order known for certain (it exists in a final or resting state)? */
+export const isKnownOutcome = (item: ItemOutcome): boolean => item.kind === 'placed' || item.kind === 'rejected' || item.kind === 'ended';
+
+/** Every order of one scale batch the service knows, by the batch's own id prefix, in this market (open and recent closed). */
+export async function findByPrefix(
+  api: TradeApi,
+  symbol: string,
+  prefix: string,
+  onAsk: () => void,
+): Promise<{ ok: true; orders: Order[] } | { ok: false }> {
+  onAsk();
+  onAsk();
+  const [open, closed] = await Promise.all([api.orders('open', symbol, 500), api.orders('closed', symbol, 500)]);
+  if (!open.ok || !closed.ok) return { ok: false };
+  const orders = [...open.data, ...closed.data].filter((o) => o.symbol === symbol && (o.clientOrderId ?? '').startsWith(prefix));
+  return { ok: true, orders };
+}
+
+/** The prefix every order of a batch carries (`desk:scale:<batch>:`). */
+export const batchPrefix = (batchId: string): string => `desk:scale:${batchId}:`;
+
+export interface Settled {
+  /** Orders whose outcome is still not known. The block stays while any are left. */
+  left: Draft[];
+  /** Orders the service refused on the re-send and that a lookup then confirmed are not there. */
+  refused: Array<{ draft: Draft; code: string | null }>;
+}
+
+/**
+ * After sending the missing orders again: which are still in doubt? An order is cleared only when the service shows it
+ * (placed, rejected or ended) or when a lookup by its own id, that itself succeeded, finds nothing AFTER the service refused
+ * it. A refused or lost request never clears anything by itself: the first send may have gone in, and a refusal such as an
+ * expired sign-in or a rate limit says nothing about it.
+ */
+export async function settleResend(
+  api: TradeApi,
+  symbol: string,
+  drafts: readonly Draft[],
+  outcome: BatchOutcome,
+  onAsk: () => void,
+): Promise<Settled> {
+  if (outcome.request !== 'answered') return { left: [...drafts], refused: [] };
+  const open = drafts.filter((_, i) => !isKnownOutcome(outcome.items[i]!));
+  if (open.length === 0) return { left: [], refused: [] };
+  const found = await findPlaced(
+    api,
+    symbol,
+    open.map((d) => d.clientOrderId),
+    onAsk,
+  );
+  if (!found.ok) return { left: open, refused: [] };
+  const left: Draft[] = [];
+  const refused: Settled['refused'] = [];
+  for (const draft of open) {
+    if (found.found.has(draft.clientOrderId)) continue;
+    if (found.present.has(draft.clientOrderId)) {
+      left.push(draft);
+      continue;
+    }
+    const item = outcome.items[drafts.indexOf(draft)]!;
+    if (item.kind === 'refused') refused.push({ draft, code: item.code });
+    else left.push(draft);
+  }
+  return { left, refused };
+}
+
+/** The least time, after a batch was sent, before the person may declare it gone. A request can still be running at the service. */
+export const MIN_CLEAR_WAIT_MS = 120_000;
+
+/** Milliseconds still to wait before clearing is allowed (0 when it is). */
+export const clearWaitLeft = (startedAt: number, now: number): number => Math.max(0, startedAt + MIN_CLEAR_WAIT_MS - now);
