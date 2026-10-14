@@ -1,5 +1,16 @@
 import { z } from 'zod';
 import { authEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import {
+  DEFAULT_RECONCILE_MAX_STALE_HOURS,
+  DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS,
+  MAX_RECONCILE_MAX_STALE_HOURS,
+  MAX_RECONCILE_STATEMENT_TIMEOUT_MS,
+  MIN_RECONCILE_MAX_STALE_HOURS,
+  MIN_RECONCILE_STATEMENT_TIMEOUT_MS,
+} from './ledger/reconcile-config.js';
+
+/** Unset or blank takes the published default; anything else must pass the bounds. */
+const blankIsUnset = (v: unknown) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v);
 
 // svc-ledger SERVES the internal money plane, so it must be able to
 // authenticate the services calling it. No default: a ledger that cannot tell
@@ -36,6 +47,34 @@ const schema = serviceEnvSchema
       RECONCILE_CRON_MINUTES: z.preprocess(
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.coerce.number().int().min(1),
+      ),
+
+      /**
+       * `statement_timeout` for ONE reconciliation proof, set with `SET LOCAL` inside its own
+       * transaction. Posts keep the pool-wide 15 s. Default 10 minutes.
+       */
+      LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS: z.preprocess(
+        blankIsUnset,
+        z.coerce
+          .number()
+          .int()
+          .min(MIN_RECONCILE_STATEMENT_TIMEOUT_MS)
+          .max(MAX_RECONCILE_STATEMENT_TIMEOUT_MS)
+          .default(DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS),
+      ),
+
+      /**
+       * Staleness backstop: when no `ok` reconciliation run is newer than this many hours, the
+       * next tick freezes posting with reason `reconciliation stale`. Default 24.
+       */
+      LEDGER_RECONCILE_MAX_STALE_HOURS: z.preprocess(
+        blankIsUnset,
+        z.coerce
+          .number()
+          .int()
+          .min(MIN_RECONCILE_MAX_STALE_HOURS)
+          .max(MAX_RECONCILE_MAX_STALE_HOURS)
+          .default(DEFAULT_RECONCILE_MAX_STALE_HOURS),
       ),
 
       /**

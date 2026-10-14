@@ -6,16 +6,21 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { PostgresLedger } from './postgres-ledger.js';
-import { runScheduledReconciliation, type ReconciliationReport } from './reconcile.js';
+import { runSnapshotReconciliation, type ReconciliationReport } from './reconcile.js';
 import { truncateBook } from '../db/journal-guards.testkit.js';
 
 /**
- * A balance snapshot names the chain tip it locked.
+ * A balance snapshot names the chain tip its own proof read.
  *
  * The hourly job used to read balances under an as_of taken before the query
  * and write no tip. A post could commit between the proof and that insert and
- * be recorded as the anchor. The lock is `SELECT … FOR UPDATE` on the singleton
- * `chain_tip` row, held from before the proof until the insert commits.
+ * be recorded as the anchor. Migration 0015 closed that by holding the
+ * `chain_tip` row lock from before the proof until the insert committed.
+ *
+ * Since #4755 there is no tip lock: the proof, the tip read and the snapshot
+ * INSERT..SELECT all run inside ONE REPEATABLE READ snapshot, so the rows are
+ * pinned to the proof's tip by construction, and a post that commits meanwhile
+ * is neither blocked nor recorded. These tests pin both halves.
  *
  * H8a PG-hard: this file never `describe.skip` / `postgresAvailable`. CI uses
  * TEST_DATABASE_URL (per-run schema via `createTestDb`). Local without that env
@@ -95,13 +100,13 @@ describe('snapshot anchor PG-hard (source)', () => {
   });
 });
 
-describe('balance snapshot names the chain tip it locked', () => {
+describe('balance snapshot names the chain tip its own proof read', () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDb | undefined;
   let engine: PostgresLedger;
 
   const reset = async () => {
-    await truncateBook(db!.sql, 'ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE');
+    await truncateBook(db!.sql, 'reconcile_runs, ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE');
     await db!.sql`UPDATE chain_tip SET hash = NULL, seq = 0 WHERE id = true`;
   };
 
@@ -119,70 +124,39 @@ describe('balance snapshot names the chain tip it locked', () => {
 
   const deposit = (railRef: string) => recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('25'), rail: 'test', railRef });
 
-  it('snapshot rows carry the tip seq and hash read under the lock, not a commit that waited on it', async () => {
+  it('snapshot rows carry the tip the proof read, even when a post commits between the proof and the insert', async () => {
     await reset();
     await engine.post(deposit('anchor-1'));
-    const [tip] = await db!.sql<Array<{ seq: string; hash: string | null }>>`
-      SELECT seq::text AS seq, hash FROM chain_tip WHERE id = true
+    const [tip] = await db!.sql<Array<{ seq: string; hash: string | null; entry: string }>>`
+      SELECT seq::text AS seq, hash, (SELECT max(id)::text FROM ledger_entries) AS entry FROM chain_tip WHERE id = true
     `;
     expect(tip?.hash).toEqual(expect.any(String));
     expect(tip?.seq).toEqual(expect.any(String));
 
-    let releaseProof: () => void = () => undefined;
-    const proofHolding = new Promise<void>((resolve) => {
-      releaseProof = resolve;
-    });
-    let proofEntered!: () => void;
-    const entered = new Promise<void>((resolve) => {
-      proofEntered = resolve;
-    });
-    let balancesUnderLock: Array<{ id: string; balance: string }> = [];
+    let balancesUnderSnapshot: Array<{ id: string; balance: string }> = [];
+    let postedWhileProofOpen = false;
 
-    const scheduled = runScheduledReconciliation(db!.sql, {
-      async haltReconciliationInTransaction() {
-        throw new Error('unexpected proof throw');
-      },
-      async publishReconciliationResult() {},
-      async reconcileInTransaction() {
-        await expect(db!.sql`SELECT seq FROM chain_tip WHERE id = true FOR UPDATE NOWAIT`).rejects.toMatchObject({
-          code: '55P03',
-        });
-        balancesUnderLock = await db!.sql<Array<{ id: string; balance: string }>>`
+    const run = await runSnapshotReconciliation(db!.sql, {
+      async prove(tx) {
+        balancesUnderSnapshot = await tx<Array<{ id: string; balance: string }>>`
           SELECT id::text AS id, balance::text AS balance FROM accounts ORDER BY id
         `;
-        proofEntered();
-        await proofHolding;
+        // A post on ANOTHER connection commits while the proof's snapshot is open. It must neither
+        // wait for the proof (no tip lock) nor appear in it.
+        await Promise.race([
+          engine.post(deposit('anchor-2')),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('the post waited for the proof: a lock is held')), 5_000)),
+        ]);
+        postedWhileProofOpen = true;
         return greenReport();
       },
     });
 
-    await entered;
-
-    const posting = engine.post(deposit('anchor-2'));
-    const deadline = Date.now() + 5_000;
-    let waiting = false;
-    while (Date.now() < deadline) {
-      const [row] = await db!.sql<Array<{ n: string }>>`
-        SELECT count(*)::text AS n
-          FROM pg_stat_activity
-         WHERE application_name = ${db!.schema}
-           AND wait_event_type = 'Lock'
-           AND query ILIKE '%chain_tip%'
-      `;
-      if (row?.n !== '0') {
-        waiting = true;
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    expect(waiting, 'a post in the gap must queue on the tip lock').toBe(true);
-
-    releaseProof();
-    const result = await scheduled;
-    await posting;
-
-    expect(result.snapshotted).toBe(true);
-    expect(result.report.ok).toBe(true);
+    expect(postedWhileProofOpen).toBe(true);
+    expect(run.outcome).toBe('ok');
+    if (run.outcome !== 'ok') return;
+    expect(run.snapshotted).toBe(true);
+    expect(run.tip).toMatchObject({ seq: tip!.seq, hash: tip!.hash, throughEntryId: tip!.entry });
 
     const rows = await db!.sql<
       Array<{
@@ -204,16 +178,17 @@ describe('balance snapshot names the chain tip it locked', () => {
        ORDER BY account_id
     `;
 
-    expect(rows.length).toBe(balancesUnderLock.length);
+    expect(rows.length).toBe(balancesUnderSnapshot.length);
     expect(rows.length).toBeGreaterThan(0);
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]!;
-      expect(row.account_id).toBe(balancesUnderLock[i]!.id);
+      expect(row.account_id).toBe(balancesUnderSnapshot[i]!.id);
       expect(typeof row.balance).toBe('string');
-      expect(row.balance).toBe(balancesUnderLock[i]!.balance);
+      // The balances the proof read, NOT the ones after the in-between post.
+      expect(row.balance).toBe(balancesUnderSnapshot[i]!.balance);
       expect(row.chain_tip_seq).toBe(tip!.seq);
       expect(row.chain_tip_hash).toBe(tip!.hash);
-      expect(row.through_entry_id).toBeNull();
+      expect(row.through_entry_id).toBe(tip!.entry);
       expect(row.as_of).toBeInstanceOf(Date);
       expect(Math.abs(row.as_of.getTime() - Date.now())).toBeLessThan(60_000);
     }
@@ -223,33 +198,60 @@ describe('balance snapshot names the chain tip it locked', () => {
     `;
     expect(after!.seq).not.toBe(tip!.seq);
     expect(after!.hash).not.toBe(tip!.hash);
+
+    // The run row names the same tip.
+    const [recorded] = await db!.sql<
+      Array<{ outcome: string; through_seq: string; tip_hash: string | null; through_entry_id: string | null }>
+    >`
+      SELECT outcome, through_seq::text AS through_seq, tip_hash, through_entry_id FROM reconcile_runs
+    `;
+    expect(recorded).toEqual({ outcome: 'ok', through_seq: tip!.seq, tip_hash: tip!.hash, through_entry_id: tip!.entry });
   }, 30_000);
 
-  it('a failed proof writes no snapshot', async () => {
+  it('a failed proof writes no snapshot, records a mismatch run, and takes no tip lock', async () => {
     await reset();
     await engine.post(deposit('anchor-fail'));
     const [before] = await db!.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM balance_snapshots`;
     expect(before!.n).toBe('0');
 
-    let locked = false;
-    const result = await runScheduledReconciliation(db!.sql, {
-      async haltReconciliationInTransaction() {
-        throw new Error('unexpected proof throw');
-      },
-      async publishReconciliationResult() {},
-      async reconcileInTransaction() {
-        await expect(db!.sql`SELECT seq FROM chain_tip WHERE id = true FOR UPDATE NOWAIT`).rejects.toMatchObject({
-          code: '55P03',
-        });
-        locked = true;
+    let tipFree = false;
+    const run = await runSnapshotReconciliation(db!.sql, {
+      async prove() {
+        // FOR UPDATE NOWAIT on the singleton succeeds: the proof holds no lock on it.
+        await db!.sql`SELECT seq FROM chain_tip WHERE id = true FOR UPDATE NOWAIT`;
+        tipFree = true;
         return failedReport();
       },
     });
 
-    expect(locked).toBe(true);
-    expect(result.snapshotted).toBe(false);
-    expect(result.report.ok).toBe(false);
+    expect(tipFree).toBe(true);
+    expect(run.outcome).toBe('mismatch');
+    if (run.outcome === 'mismatch') expect(run.snapshotted).toBe(false);
     const [after] = await db!.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM balance_snapshots`;
     expect(after!.n).toBe('0');
+    const runs = await db!.sql<
+      Array<{ outcome: string; through_seq: string }>
+    >`SELECT outcome, through_seq::text AS through_seq FROM reconcile_runs`;
+    expect(runs).toEqual([{ outcome: 'mismatch', through_seq: '1' }]);
+  });
+
+  it('mixed deploy: pre-0015 snapshot rows with no recorded tip are tolerated and left untouched', async () => {
+    await reset();
+    await engine.post(deposit('anchor-legacy'));
+    const [account] = await db!.sql<Array<{ id: string }>>`SELECT id::text AS id FROM accounts WHERE owner_type = 'user'`;
+    // A row exactly as an old pod wrote it before 0015: no chain_tip_seq, no chain_tip_hash, no through_entry_id.
+    await db!.sql`
+      INSERT INTO balance_snapshots (account_id, as_of, balance) VALUES (${account!.id}, now() - interval '2 hours', 25)
+    `;
+
+    const run = await runSnapshotReconciliation(db!.sql);
+    expect(run.outcome).toBe('ok');
+
+    const rows = await db!.sql<Array<{ chain_tip_seq: string | null; chain_tip_hash: string | null; through_entry_id: string | null }>>`
+      SELECT chain_tip_seq::text AS chain_tip_seq, chain_tip_hash, through_entry_id FROM balance_snapshots ORDER BY id
+    `;
+    expect(rows[0]).toEqual({ chain_tip_seq: null, chain_tip_hash: null, through_entry_id: null });
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.slice(1).every((row) => row.chain_tip_seq === '1' && row.chain_tip_hash !== null)).toBe(true);
   });
 });

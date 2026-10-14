@@ -509,6 +509,41 @@ export const ledgerFreezeOutbox = ledger.table(
 );
 
 /**
+ * One row per reconciliation attempt that reached an outcome (0022).
+ *
+ * `ok` and `mismatch` are written in the proof's own REPEATABLE READ snapshot,
+ * so `through_seq` / `through_entry_id` / `tip_hash` name exactly the committed
+ * prefix of the book the verdict covers. `incomplete` means no verdict was
+ * reached (timeout, lost connection, bug): it freezes nothing, and the
+ * staleness backstop measures from the last `ok` row.
+ */
+export const reconcileRuns = ledger.table(
+  'reconcile_runs',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    startedAt: tstz('started_at').notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' })
+      .default(sql`clock_timestamp()`)
+      .notNull(),
+    outcome: text('outcome').notNull(),
+    kind: text('kind').notNull().default('full'),
+    throughSeq: bigint('through_seq', { mode: 'bigint' }),
+    throughEntryId: text('through_entry_id'),
+    tipHash: text('tip_hash'),
+    errorCode: text('error_code'),
+    detail: jsonb('detail'),
+  },
+  (t) => [
+    index('reconcile_runs_ok_idx')
+      .on(t.id.desc())
+      .where(sql`outcome = 'ok'`),
+    check('reconcile_runs_outcome_ck', sql`outcome IN ('ok', 'mismatch', 'incomplete')`),
+    check('reconcile_runs_kind_ck', sql`kind IN ('full', 'incremental')`),
+    check('reconcile_runs_ok_has_tip_ck', sql`outcome <> 'ok' OR through_seq IS NOT NULL`),
+  ],
+);
+
+/**
  * Single-row table holding the posting freeze — the platform kill-switch.
  *
  * Durable rather than a field on LedgerService, because the freeze outranks the

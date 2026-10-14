@@ -139,7 +139,21 @@ Runs on the owner-published `RECONCILE_CRON_MINUTES` cadence (blank / unset refu
 2. **`verifyChain`** — every hash recomputed from its predecessor. Catches tampering, _including by someone with database access_.
 3. **`totalsByAsset`** — every asset must net to exactly zero across all accounts. Catches value created or destroyed by any means.
 
-On failure the service **freezes itself** and emits `reconciliation.failed`. That is §4.2's requirement: a book we cannot verify must not accept more writes while someone decides what to do about it.
+**How it runs.** The proof reads **one consistent snapshot** (a `REPEATABLE READ` transaction on its own connection) and takes **no `chain_tip` lock**, so posts are not blocked while it runs and a live post can never make it report a false `ok: false`. The snapshot, the tip it covers (`through_seq`, hash, last entry id), the tip-pinned `balance_snapshots` rows and one `reconcile_runs` row are all written from that same snapshot. The proof has its own `statement_timeout` (`LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS`, default 10 minutes, set with `SET LOCAL`; posts keep the pool-wide 15 s). Only one run goes at a time per book (a transaction-scoped advisory lock): a tick that finds another run in progress skips quietly, and `POST /operator/reconcile` answers 409 `ledger.reconcile_in_progress`.
+
+**Three outcomes, only one freezes.**
+
+| Outcome      | Meaning                                                                                     | Posting                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `ok`         | The proof finished and the book is consistent through `through_seq`.                        | Unchanged.                                                                                                    |
+| `mismatch`   | The proof **finished** and found drift, a broken hash chain or an unbalanced asset.         | **Frozen** (`reconciliation mismatch`) and `reconciliation.failed` emitted for a balance drift.               |
+| `incomplete` | No verdict: statement timeout, lost connection, a rejected insert. "Could not finish" only. | **Not frozen.** Logged fatal `LEDGER RECONCILIATION INCOMPLETE`, recorded, retried with backoff across ticks. |
+
+A mismatch is frozen when the proof **finishes**, not while it reads: posts continue on a broken book for the duration of one proof. That cost is accepted and written down in [`docs/adr/2026-10-14-ledger-reconcile-snapshot-no-freeze-on-incomplete.md`](../../docs/adr/2026-10-14-ledger-reconcile-snapshot-no-freeze-on-incomplete.md).
+
+**Staleness backstop.** If no `ok` run is newer than `LEDGER_RECONCILE_MAX_STALE_HOURS` (default 24), the next tick freezes posting with reason `reconciliation stale`, actor `reconciliation`. This exists because nothing subscribes to the `INCOMPLETE` log line yet: without it a book that stops being provable would post unverified, silently. `GET /health` reports `lastVerifiedAt` and `lastVerifiedSeq` (the latest `ok` run; null before the first), and `/metrics` carries `ledger_reconcile_last_verified_timestamp_seconds` and `ledger_reconcile_last_verified_seq`. An operator freeze already standing is never overwritten.
+
+See the runbook for what to do on `incomplete` and `stale`: [`docs/ops/INCIDENT-MONEY-PATH-RUNBOOK.md`](../../docs/ops/INCIDENT-MONEY-PATH-RUNBOOK.md) §"Reconcile incomplete or stale".
 
 ### The one denormalisation
 
@@ -185,7 +199,7 @@ ALTER TABLE ledger.ledger_entries ENABLE TRIGGER ledger_entries_immutable;
 
 **Effect when off:** every `post()` throws `ledger.frozen`; reads continue to work. This halts all value movement across the entire platform — trading, payments, escrow, staking, rewards. It is the most consequential switch in the OS and exists because §4.2 demands it.
 
-`ledger.reconciliation` disables the scheduled job only. It does not disable the freeze-on-failure behaviour.
+`ledger.reconciliation` disables the scheduled job only. It does not disable the freeze-on-mismatch behaviour.
 
 ### The switch is durable
 
