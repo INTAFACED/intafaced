@@ -151,23 +151,30 @@ test('gate files: the review additions (rules every agent loads, repo-wide confi
   assert.equal(gateFilesTouched(['apps/admin/package.json', 'services/svc-pay/package.json']).length, 0, 'only the ROOT package.json');
 });
 
-test('dependabot may bump the root package.json under a chore(deps) title; nobody else may', () => {
+test('no author is exempt: the root package.json needs a declaring title from everyone, bots included', () => {
   const files = ['package.json', 'pnpm-lock.yaml'];
-  assert.equal(evaluateGateFileRule('chore(deps): bump x', files, { author: 'dependabot[bot]' }).ok, true);
-  assert.equal(evaluateGateFileRule('chore(deps): bump x', files, { author: 'ZenYoda3' }).ok, false);
-  assert.equal(evaluateGateFileRule('chore(deps): bump x', ['.github/workflows/ci.yml'], { author: 'dependabot[bot]' }).ok, false);
+  assert.equal(evaluateGateFileRule('chore(deps): bump x', files).ok, false);
+  assert.equal(evaluateGateFileRule('ci(deps): bump x', files).ok, true);
+  assert.equal(evaluateGateFileRule.length, 2, 'the rule takes only a title and files (no author argument)');
 });
 
 const DEPENDABOT = new URL('../../.github/dependabot.yml', import.meta.url);
 test(
-  'dependabot github-actions prefix passes the title rule',
+  'dependabot prefixes pass the title rule (npm bumps touch the root package.json, actions bumps touch workflows)',
   { skip: !existsSync(DEPENDABOT) && 'dependabot.yml not present (empty-tree run)' },
   () => {
     const yml = readFileSync(DEPENDABOT, 'utf8');
-    const block = yml.slice(yml.indexOf("package-ecosystem: 'github-actions'"), yml.indexOf("package-ecosystem: 'maven'"));
-    const prefix = /prefix: '([^']+)'/.exec(block)?.[1];
-    assert.ok(prefix, 'a prefix is set for github-actions');
-    assert.equal(titleStatesGateChange(`${prefix}: Bump actions/checkout from 6 to 7`), true);
+    for (const [eco, next] of [
+      ['npm', "package-ecosystem: 'github-actions'"],
+      ['github-actions', "package-ecosystem: 'maven'"],
+    ]) {
+      const start = yml.indexOf(`package-ecosystem: '${eco}'`);
+      const block = yml.slice(start, yml.indexOf(next, start + 1));
+      const prefixes = [...block.matchAll(/^\s+prefix(?:-development)?: '([^']+)'/gm)].map((m) => m[1]);
+      assert.ok(prefixes.length >= 1, `${eco}: a prefix is set`);
+      for (const prefix of prefixes)
+        assert.equal(titleStatesGateChange(`${prefix}: Bump something from 1 to 2`), true, `${eco}: ${prefix}`);
+    }
   },
 );
 
