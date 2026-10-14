@@ -1,0 +1,178 @@
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import {
+  colors,
+  controlHeights,
+  cssValue,
+  cssVars,
+  radii,
+  redUpOverrides,
+  renderTokensCss,
+  sizes,
+  textStyles,
+  tightTextTokens,
+} from './tokens.js';
+
+const here = fileURLToPath(new URL('.', import.meta.url));
+const read = (name: string) => readFileSync(join(here, name), 'utf8');
+const css = read('tokens.css');
+const themeCss = read('theme.css');
+
+const lum = (hex: string) => {
+  const [r, g, b] = [1, 3, 5]
+    .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a: string, b: string) => {
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
+  return (hi + 0.05) / (lo + 0.05);
+};
+
+function walk(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) walk(full, out);
+    else out.push(full);
+  }
+  return out;
+}
+
+describe('UI-SPEC 2 tokens: tokens.ts and tokens.css cannot drift', () => {
+  it('tokens.css is exactly what tokens.ts generates', () => {
+    expect(css).toBe(renderTokensCss());
+  });
+
+  it.each(Object.entries(cssVars()))('declares %s', (name, value) => {
+    expect(css).toContain(`${name}: ${cssValue(value)};`);
+  });
+
+  it('holds the spec anchors', () => {
+    expect(colors.bg).toBe('#000000');
+    expect(colors.lime).toBe('#C8F64A');
+    expect(colors['on-lime']).toBe('#0B0B0B');
+    // OKX's own lime is never used.
+    expect(JSON.stringify(colors).toLowerCase()).not.toContain('#bcff2f');
+    expect(controlHeights).toEqual([28, 32, 40, 48, 56]);
+    expect(textStyles.hero.size).toBe('48px');
+    expect(textStyles.base.size).toBe('14px');
+  });
+
+  it('holds the measured OKX values from critic round 1', () => {
+    expect(colors.warn).toBe('#F5A915');
+    expect(colors['warn-text']).toBe('#FFC452');
+    expect(colors.scrim).toBe('rgba(0, 0, 0, 0.68)');
+    expect(colors['ma-2']).toBe('#EC407A');
+    expect(colors['lime-soft']).toBe('rgba(200, 246, 74, 0.16)');
+    expect(textStyles['2xs']).toEqual({ size: '12px', line: '16px', weight: '500' });
+    expect(textStyles.xl).toEqual({ size: '24px', line: '28px', weight: '600' });
+    expect(textStyles['2xl']).toEqual({ size: '28px', line: '34px', weight: '700' });
+    expect(textStyles.hero).toEqual({ size: '48px', line: '58px', weight: '700' });
+    expect(tightTextTokens).toEqual(['hero']);
+    expect(radii['2xs']).toBe('2px');
+    expect(sizes['topbar-h']).toBe('48px');
+    expect(sizes['container-max']).toBe('1224px');
+    expect(css).toContain('--if-topbar-h: 48px;');
+  });
+
+  it('pins Tailwind spacing to 4 px so the legacy 14 px root cannot shrink every kit size', () => {
+    expect(themeCss).toContain('--spacing: 4px;');
+  });
+
+  it('turns every motion token to 0 ms under prefers-reduced-motion', () => {
+    const block = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(css)![1]!;
+    for (const name of ['--if-t-fast', '--if-t-menu', '--if-t-tab', '--if-t-flash']) {
+      expect(block).toContain(`${name}: 0ms;`);
+    }
+  });
+});
+
+describe('contrast (WCAG 2.2 AA) on the surfaces the tokens sit on', () => {
+  it.each([
+    ['fg', 'bg'],
+    ['fg-2', 'bg'],
+    ['fg-2', 'panel'],
+    ['down-text', 'bg'],
+    ['up-text', 'bg'],
+    ['on-lime', 'lime'],
+    ['on-up', 'up'],
+    ['fg', 'down'],
+    ['lime', 'bg'],
+  ] as const)('%s on %s is at least 4.5:1', (fg, bg) => {
+    expect(contrast(colors[fg], colors[bg])).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('keeps the red-up swap readable', () => {
+    const t = { ...colors, ...redUpOverrides } as Record<string, string>;
+    expect(contrast(t['up-text']!, t['bg']!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(t['down-text']!, t['bg']!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(t['on-up']!, t['up']!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(t['on-down']!, t['down']!)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('only overrides tokens that exist', () => {
+    for (const key of Object.keys(redUpOverrides)) expect(key in colors).toBe(true);
+  });
+});
+
+describe('theme.css (Tailwind @theme mapping)', () => {
+  it('maps every colour token except the chart lines', () => {
+    for (const key of Object.keys(colors)) {
+      if (key.startsWith('ma-')) continue;
+      expect(themeCss, key).toContain(`--color-${key}: var(--if-${key});`);
+    }
+  });
+
+  it('only references custom properties that tokens.css declares', () => {
+    const declared = new Set(Object.keys(cssVars()));
+    for (const [, name] of themeCss.matchAll(/var\((--if-[a-z0-9-]+)\)/g)) {
+      expect(declared.has(name!), `${name} is not declared in tokens.css`).toBe(true);
+    }
+  });
+
+  it('is imported without preflight and disables the default palette', () => {
+    expect(themeCss).toContain('--color-*: initial;');
+    const code = themeCss.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(code).not.toMatch(/@import/);
+    expect(code).not.toContain('preflight');
+  });
+
+  it('does not reuse a custom property name from apps/customer/src/shared/tokens.css', () => {
+    const legacy = join(here, '../../../../apps/customer/src/shared/tokens.css');
+    if (!existsSync(legacy)) return; // package used outside the monorepo
+    const legacyNames = new Set([...readFileSync(legacy, 'utf8').matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]!));
+    const mine = [...themeCss.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]!).filter((n) => !n.endsWith('*'));
+    const clashes = mine.filter((n) => legacyNames.has(n));
+    expect(clashes).toEqual([]);
+  });
+});
+
+describe('no hex colour outside tokens.ts', () => {
+  const hexPattern = /#[0-9a-fA-F]{3,8}\b/;
+  const roots = [
+    join(here, '../components'),
+    join(here, '../../../../apps/customer/src/screens'),
+    join(here, '../../../../apps/customer/src/app'),
+  ].filter(existsSync);
+
+  it('finds no hex in component, screen or shell source (.ts, .tsx, .css)', () => {
+    const offenders: string[] = [];
+    for (const root of roots) {
+      for (const file of walk(root)) {
+        if (!/\.(tsx?|css)$/.test(file) || /\.test\.tsx?$/.test(file)) continue;
+        // Coin art is third-party trademark artwork stored as data, not our palette.
+        if (file.includes('/components/coins/')) continue;
+        const text = readFileSync(file, 'utf8');
+        if (hexPattern.test(text)) offenders.push(file);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('theme.css and base.css contain no hex either', () => {
+    expect(hexPattern.test(themeCss)).toBe(false);
+    expect(hexPattern.test(read('base.css'))).toBe(false);
+  });
+});

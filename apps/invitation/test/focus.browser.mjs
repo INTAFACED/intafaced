@@ -159,7 +159,7 @@ try {
     await expect(page.locator('#intake-heading')).toHaveText('A little more, if you like.');
     await page.getByRole('checkbox', { name: 'Remember my draft on this device.' }).check();
     await page.getByRole('button', { name: 'Save details & continue' }).click();
-    await page.getByRole('button', { name: 'I can introduce an investor', exact: true }).click();
+    await page.getByRole('radio', { name: 'I can introduce an investor', exact: true }).check();
     await next(page);
     await page.getByRole('radio', { name: 'Individual', exact: true }).check();
     await next(page);
@@ -191,16 +191,15 @@ try {
     await expect(control(page, 'What would you like us to know?')).toHaveValue(edited);
     await page.getByRole('button', { name: 'Review your answers' }).click();
     await page.locator('.saved-contact-details>summary').click();
-    await expect(page.getByText('Draft kept on this device')).toBeVisible();
+    await expect(page.getByText('Kept on this device.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Forget this draft on my device' })).toBeVisible();
     await page.close();
     page = await context.newPage();
     await page.goto(origin + '/invest');
     await page.getByRole('button', { name: 'Continue your enquiry' }).click();
-    await page.getByRole('button', { name: 'Reopen saved enquiry' }).click();
     await expect(page.getByText(edited, { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Your enquiry is saved.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Thank you. We’ve received your enquiry.' })).toBeVisible();
     assert.equal(api.answerRequests.length, 1);
     assert.equal(api.answerRequests[0].questionnaire.answers.message, edited);
     assert.equal(api.answerRequests[0].questionnaire.answers.participation, 'introduction');
@@ -209,6 +208,44 @@ try {
     console.log(
       `focus ${width}px: delayed heading focus preserves immediate sequential typing, review, unsent edit, actual tab reopen and exact wire message`,
     );
+  }
+  // N1 race made deterministic: the heading-focus callback runs as a microtask, before React commits the confirmation
+  // view. The header <h1> that was just focused is then unmounted and the heading is rebuilt inside the receipt, so
+  // focus must be carried onto the new node instead of falling to <body>.
+  for (const width of [1440, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: 850 } });
+    await fixtures(context);
+    const page = await context.newPage();
+    await page.goto(origin + '/invest');
+    await page.getByRole('button', { name: 'Begin', exact: true }).click();
+    await control(page, 'Your name').fill('Focus race proof');
+    await control(page, 'Email').fill('race@example.invalid');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Save details & continue' }).click();
+    await page.getByRole('radio', { name: 'I can introduce an investor', exact: true }).check();
+    await next(page);
+    await page.getByRole('radio', { name: 'Individual', exact: true }).check();
+    await next(page);
+    await page.getByRole('radio', { name: 'I make introductions', exact: true }).check();
+    await next(page);
+    await page.getByRole('radio', { name: 'Later', exact: true }).check();
+    await next(page);
+    await control(page, 'What would you like us to know?').fill('Focus race');
+    await page.getByRole('button', { name: 'Review your answers' }).click();
+    await expect(page.getByRole('button', { name: 'Send enquiry', exact: true })).toBeVisible();
+    await page.evaluate(() => {
+      const raf = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback) => {
+        if (!String(callback).includes('welcomeTitle')) return raf(callback);
+        queueMicrotask(() => callback(performance.now()));
+        return 0;
+      };
+    });
+    await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Thank you. We’ve received your enquiry.' })).toBeVisible();
+    await expect(page.locator('#intake-heading')).toBeFocused();
+    await context.close();
+    console.log(`focus ${width}px: heading keeps focus when it is rebuilt inside the confirmation before the commit`);
   }
 } finally {
   if (browser) await browser.close();

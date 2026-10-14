@@ -70,6 +70,7 @@ export const en = {
   'auth.twofa.prompt': 'Enter the {digits}-digit code from your authenticator app.',
   'auth.webauthn.prompt': 'Confirm with your security key.',
   'auth.logout': 'Sign out',
+  'auth.too_many_attempts': 'Too many attempts. Wait before trying again, or sign in with a passkey.',
   'auth.session.expired': 'Your session has expired. Sign in again.',
   'auth.email_taken': 'An account with that email already exists.',
   'auth.handle_taken': 'That handle is already taken.',

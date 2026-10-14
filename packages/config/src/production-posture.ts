@@ -23,6 +23,22 @@ import { isExplicitDevOrTest } from './app-env.js';
  *
  * Messages name the variable, never its value: a refusal must not leak the secret
  * it is refusing.
+ *
+ * TWO KINDS OF REFUSAL, one guard. Development material (above) and one setting: S2S body binding. In production
+ * posture a process that holds `INTERNAL_SERVICE_SECRET` must also say `INTERNAL_SERVICE_BODY_BIND=require`, or it
+ * refuses to start with its own code (`config.s2s_body_bind_not_required`). It used to be a boot warning. It is a refusal
+ * now because the setting that was safe to leave soft has stopped being soft:
+ *   - the tRPC door is already `require` in code (#4667) and ignores this variable, so the only thing the variable still
+ *     decides is the raw `/internal` REST routes, where the migration default `accept-both` leaves a captured service
+ *     signature replayable against any body for 300 seconds;
+ *   - no in-repo caller signs v1 any more (every outbound client uses `serviceAuthHeadersForBody`), so `require` refuses
+ *     no honest caller; every service that verifies on raw routes installs `retainRawBody` first, so it does not 401 them
+ *     as `body-unavailable` either;
+ *   - the launch services' own suites (svc-ledger, -identity, -ops, -notify, -trade, -edge) pass with `require` exported, and each
+ *     raw route module answers an honest v2 call under it (survey and run in `docs/decisions/s2s-body-bind.md`).
+ * A warning nobody reads leaves the hole open on the one host where it matters. There is no flag that turns this off,
+ * for the same reason as the rest of the guard. `accept-both` stays the default for local runs and tests (APP_ENV dev/test
+ * is not production posture), so nothing on a laptop changes.
  */
 
 type Env = Record<string, unknown>;
@@ -254,38 +270,61 @@ export function productionPostureIssues(env: Env = process.env): string[] {
   return issues;
 }
 
+/** Refusal code for a production-posture process that holds the service secret but does not bind signed calls to their body. */
+export const S2S_BODY_BIND_REFUSE_CODE = 'config.s2s_body_bind_not_required' as const;
+
 /**
- * Things a real server should fix but that do not stop it booting. Today: S2S body binding. It defaults to `accept-both`
- * (the migration setting), under which a captured service signature is replayable against any body for 300 s; a real server
- * should say `require`. This is a warning, not a refusal, because the fleet has never run with `require` end to end (the
- * local stack and CX-8 boot both pin `accept-both`), and a missed raw-body retention would 401 the money path with no way
- * to roll back past the guard. It becomes a refusal after one fleet run under `require` (tracked in the PR).
+ * What is wrong with S2S body binding, as one line per problem. Empty when not in production posture, when the
+ * process holds no `INTERNAL_SERVICE_SECRET` (it does not speak service-to-service), or when
+ * `INTERNAL_SERVICE_BODY_BIND` is exactly `require`. Unset, `accept-both`, a typo and a different case all refuse:
+ * only the exact value closes the replay, and the schema's own default is the weak one.
  */
-export function productionPostureWarnings(env: Env = process.env): string[] {
+export function productionPostureS2sIssues(env: Env = process.env): string[] {
   if (!isProductionPosture(env)) return [];
   const secret = env.INTERNAL_SERVICE_SECRET;
-  if (typeof secret === 'string' && secret.trim() !== '' && String(env.INTERNAL_SERVICE_BODY_BIND ?? '').trim() !== 'require') {
-    return ['INTERNAL_SERVICE_BODY_BIND is not "require": signed service calls stay replayable against any body for 300 seconds'];
-  }
-  return [];
+  if (typeof secret !== 'string' || secret.trim() === '') return [];
+  if (env.INTERNAL_SERVICE_BODY_BIND === 'require') return [];
+  return [
+    'INTERNAL_SERVICE_BODY_BIND must be exactly "require" where INTERNAL_SERVICE_SECRET is set: any other value (or none) ' +
+      'leaves signed service calls replayable against any body for 300 seconds. Fix: set INTERNAL_SERVICE_BODY_BIND=require ' +
+      '(docs/decisions/s2s-body-bind.md)',
+  ];
 }
 
 export class ProductionPostureError extends Error {
-  readonly code = PRODUCTION_POSTURE_REFUSE_CODE;
+  readonly code: typeof PRODUCTION_POSTURE_REFUSE_CODE | typeof S2S_BODY_BIND_REFUSE_CODE;
   constructor(
     readonly appEnv: string | null,
     readonly issues: readonly string[],
+    code: typeof PRODUCTION_POSTURE_REFUSE_CODE | typeof S2S_BODY_BIND_REFUSE_CODE = PRODUCTION_POSTURE_REFUSE_CODE,
   ) {
+    const shown = `APP_ENV=${appEnv === null || appEnv === '' ? '<unset>' : appEnv}`;
     super(
-      `DEVELOPMENT MATERIAL IS NOT ALLOWED HERE (APP_ENV=${appEnv === null || appEnv === '' ? '<unset>' : appEnv}, ${PRODUCTION_POSTURE_REFUSE_CODE}). Refusing to start.\n` +
-        `Only APP_ENV exactly "dev" or "test" may run on dev keys, the Anvil chain or published passwords.\n  - ${issues.join('\n  - ')}`,
+      code === S2S_BODY_BIND_REFUSE_CODE
+        ? `SERVICE CALLS MUST BE BOUND TO THEIR BODY HERE (${shown}, ${code}). Refusing to start.\n` +
+            `Only APP_ENV exactly "dev" or "test" may run on the migration setting.\n  - ${issues.join('\n  - ')}`
+        : `DEVELOPMENT MATERIAL IS NOT ALLOWED HERE (${shown}, ${code}). Refusing to start.\n` +
+            `Only APP_ENV exactly "dev" or "test" may run on dev keys, the Anvil chain or published passwords.\n  - ${issues.join('\n  - ')}`,
     );
+    this.code = code;
     this.name = 'ProductionPostureError';
   }
 }
 
-/** Throws `ProductionPostureError` if a production-posture process carries development material. */
+/**
+ * Throws `ProductionPostureError` if a production-posture process carries development material or does not bind
+ * service calls to their body. Everything wrong is listed in one error, so a fix is one restart, not two: the code is
+ * `config.dev_material_in_production_posture` when any development material is present (the S2S line rides along),
+ * `config.s2s_body_bind_not_required` when that setting is the only problem.
+ */
 export function assertProductionPosture(env: Env = process.env): void {
-  const issues = productionPostureIssues(env);
-  if (issues.length > 0) throw new ProductionPostureError(typeof env.APP_ENV === 'string' ? env.APP_ENV : null, issues);
+  const material = productionPostureIssues(env);
+  const s2s = productionPostureS2sIssues(env);
+  if (material.length === 0 && s2s.length === 0) return;
+  const appEnv = typeof env.APP_ENV === 'string' ? env.APP_ENV : null;
+  throw new ProductionPostureError(
+    appEnv,
+    [...material, ...s2s],
+    material.length > 0 ? PRODUCTION_POSTURE_REFUSE_CODE : S2S_BODY_BIND_REFUSE_CODE,
+  );
 }

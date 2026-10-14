@@ -110,7 +110,7 @@ await app.register(fastifyTRPCPlugin, {
   trpcOptions: {
     router: appRouter,
     createContext: async ({ req }) => ({
-      ...(await edgeContext({ headers: req.headers, id: req.id })),
+      ...(await edgeContext(req)),
       outreachAbuseKey: createHash('sha256')
         .update(resolveClientIp(req.raw.socket.remoteAddress, req.headers['x-intafaced-client-ip']))
         .digest('hex'),

@@ -6,6 +6,8 @@ import type { Resource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { useSession, type Session } from '../session/session';
+import { stamp } from '../../screens/money/time';
+import { usePreferences } from '../../shared/preferences';
 import { accountPerks, formatXp, rankForOwner } from './rank-perks-api';
 import { rankPerksCopy as copy } from './rank-perks-copy';
 import './rank-perks.css';
@@ -53,6 +55,7 @@ function useAccountRead<T>(
 export function RankPerks() {
   const { api, userId: owner, session } = useSession();
   const { t, Copy, requestedLocale } = copy.useCopy();
+  const { timeZone } = usePreferences();
   const id = useId();
   const [location, setLocation] = useState(() => ({ href: currentReturnLocation(), departure: 0 }));
   const observed = useRef(location);
@@ -156,7 +159,7 @@ export function RankPerks() {
             <p className="rank-perks__updated">
               <Copy k="updated" />{' '}
               <time dateTime={value.updatedAt} lang={requestedLocale}>
-                {new Date(value.updatedAt).toLocaleString(requestedLocale)}
+                {stamp(value.updatedAt, timeZone)}
               </time>
             </p>
           </>
@@ -183,50 +186,8 @@ export function RankPerks() {
                 <Copy k="fee" />
               </dt>
               <dd>
-                <Copy k="bps" params={{ count: benefit.feeDiscountBps }} />
+                <Copy k="bps" params={{ count: benefit.feeDiscountBps / 100 }} />
               </dd>
-            </div>
-            <div>
-              <dt>
-                <Copy k="p2p" />
-              </dt>
-              <dd lang="zxx">{String(benefit.p2pLimitMultiplier)}×</dd>
-            </div>
-            <div>
-              <dt>
-                <Copy k="copy" />
-              </dt>
-              <dd lang="zxx">{benefit.copyFollowerCap}</dd>
-            </div>
-            <div>
-              <dt>
-                <Copy k="lobby" />
-              </dt>
-              <dd>
-                <Copy k={benefit.lobbyHostRights ? 'yes' : 'no'} />
-              </dd>
-            </div>
-            <div>
-              <dt>
-                <Copy k="card" />
-              </dt>
-              <dd>
-                <Copy k={benefit.cardTier} />
-              </dd>
-            </div>
-            <div>
-              <dt>
-                <Copy k="otc" />
-              </dt>
-              <dd>
-                <Copy k={benefit.otcAccess ? 'yes' : 'no'} />
-              </dd>
-            </div>
-            <div>
-              <dt>
-                <Copy k="launch" />
-              </dt>
-              <dd lang="zxx">{benefit.launchpadTier}</dd>
             </div>
           </dl>
         )}

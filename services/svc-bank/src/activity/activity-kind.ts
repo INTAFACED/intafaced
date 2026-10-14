@@ -25,6 +25,13 @@
  *   services/svc-bank/src/cards/card-service.ts:1095    rewardPay reason 'bank.card.cashback'
  *   services/svc-token/src/token-service.ts:1072        rewardPay reason 'token.yield.distributed'
  *
+ * ORDER HOLD vs RELEASE. Classified only from the ledger's own `module/reason`
+ * (`trade / order.hold`, `order.hold.amend`, `order.hold.released`), never from
+ * amounts or timing. Spot orders and Convert (#4678) post the same recipes.
+ * A fill spends from the hold account, not `available`, so fill legs stay `trade`.
+ * Added after the first six-kind release: a client that does not know these two
+ * kinds must treat an unknown kind as `other`.
+ *
  * DEPOSIT vs WELCOME FUNDS. A real deposit and a local-test grant both post
  * `ledger / deposit.credited`; only the post's rail tells them apart. The ledger
  * page returns that rail (allow-listed: crypto-native, card-sandbox,
@@ -42,6 +49,8 @@ export const ACTIVITY_KINDS = [
   'payment',
   'withdrawal',
   'space_move',
+  'order_hold',
+  'order_release',
   'other',
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
@@ -73,12 +82,14 @@ export const KIND_BY_MODULE_REASON: Readonly<Record<string, Row>> = {
   'trade/futures.loss.realized': 'trade',
   'trade/futures.profit.realized': 'trade',
   'trade/futures.funding.paid': 'trade',
-  // Order reservations are value set aside, not a settled movement (recipes/index.ts:292-347, order-hold-amend.ts:45)
-  'trade/order.hold': 'other',
-  'trade/order.hold.released': 'other',
+  // Order reservations are value set aside, not a settled movement (recipes/index.ts:292-347, order-hold-amend.ts:45).
+  // The customer's own hold, its top-up and its release are named; spot orders and Convert post the same recipes.
+  'trade/order.hold': 'order_hold',
+  'trade/order.hold.amend': 'order_hold',
+  'trade/order.hold.released': 'order_release',
+  // House market-maker holds sit on the house's account, never a customer's; they stay unnamed.
   'trade/order.hold.mm': 'other',
   'trade/order.hold.mm.released': 'other',
-  'trade/order.hold.amend': 'other',
   // House-side postings: never on a user's account, listed so the inventory is closed (index.ts:119, 619)
   'trade/mm.seed.funded': 'other',
   'trade/futures.insurance.topup': 'other',
@@ -168,5 +179,7 @@ export const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
   payment: 'Payment',
   withdrawal: 'Withdrawal',
   space_move: 'Moved between Spaces',
+  order_hold: 'Set aside for an order',
+  order_release: 'Returned from an order',
   other: 'Other',
 };

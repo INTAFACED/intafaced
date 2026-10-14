@@ -34,9 +34,10 @@ function AnimatedControlShell({ children, className, innerClassName, translucent
         Clip to the same 11px round as the shell (not `rounded-xl`) so the rim and gradient share one curve —
         matches `SelectGradientUnderlay` / `HaloSwitch` underglow.
       */}
-      {/* Local change: the glow is a response to hover and focus. An empty, unfocused field rests nearly dark, so it never reads as a stain. */}
+      {/* Local change: the Halo glow appears only while the visitor is typing in this field (focus), never at rest or on hover,
+          so an untouched field never reads as a lime stain and the field in use is the one lit thing on the step. */}
       <div
-        className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[11px] opacity-[0.05] transition-opacity duration-300 ease-out group-hover/halo:opacity-100 group-focus-within/halo:opacity-100"
+        className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[11px] opacity-0 transition-opacity duration-300 ease-out group-focus-within/halo:opacity-100"
         data-slot="halo-glow"
       >
         {translucent ? (
@@ -44,7 +45,7 @@ function AnimatedControlShell({ children, className, innerClassName, translucent
             <div
               className="absolute inset-0 blur-2xl"
               style={{
-                background: 'radial-gradient(90% 70% at 50% 100%, rgba(185,246,90,0.12), rgba(185,246,90,0.04) 48%, transparent 62%)',
+                background: 'radial-gradient(90% 70% at 50% 100%, rgba(200,246,74,0.12), rgba(200,246,74,0.04) 48%, transparent 62%)',
               }}
             />
             <div
@@ -76,7 +77,7 @@ function AnimatedControlShell({ children, className, innerClassName, translucent
             <div
               className="h-full w-44 blur-xl"
               style={{
-                background: 'linear-gradient(90deg, #b9f65a, #455039, #bccdd5, #424c50)',
+                background: 'linear-gradient(90deg, #c8f64a, #455039, #bccdd5, #424c50)',
               }}
             />
           </motion.div>
@@ -94,7 +95,7 @@ function AnimatedControlShell({ children, className, innerClassName, translucent
             <div
               className="h-full w-36 blur-lg"
               style={{
-                background: 'linear-gradient(90deg, #515a44, #b9f65a, #b9f65a)',
+                background: 'linear-gradient(90deg, #515a44, #c8f64a, #c8f64a)',
               }}
             />
           </motion.div>
@@ -109,20 +110,20 @@ function AnimatedControlShell({ children, className, innerClassName, translucent
         className={cn(
           'relative z-1 border border-[color-mix(in_oklch,var(--border)_72%,oklch(0.88_0.06_300))] outline-none',
           'shadow-[0_1px_2px_rgba(0,0,0,0.03),0_6px_18px_rgba(0,0,0,0.04)]',
-          'dark:border-border/80 dark:shadow-[0_1px_2px_rgba(0,0,0,0.28),0_6px_22px_rgba(0,0,0,0.32)]',
+          'dark:border-border dark:shadow-[0_1px_2px_rgba(0,0,0,0.28),0_6px_22px_rgba(0,0,0,0.32)]',
           /* Inset rim only — concentric with 11px border − 1px (see `CONTENT_RADIUS`). */
           "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:rounded-[10px] before:shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] before:content-['']",
           'dark:before:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]',
           'transition-[border-color,box-shadow] duration-200 ease-out',
-          'focus-within:border-ring/80 focus-within:ring-2 focus-within:ring-ring/30',
-          invalid && 'border-destructive/90 focus-within:border-destructive focus-within:ring-destructive/25 dark:border-destructive/70',
+          /* One focus ring for the whole page: the 2px outline on the shell (outreach.css). No second, inner ring here. */
+          invalid && 'border-destructive/90 dark:border-destructive/70',
           RIM_RADIUS,
-          translucent && 'backdrop-blur-xl backdrop-saturate-150',
           innerClassName,
         )}
         style={{
           background: translucent
-            ? 'linear-gradient(to bottom, color-mix(in oklch, var(--card) 82%, transparent) 0%, color-mix(in oklch, var(--card) 70%, transparent) 100%)'
+            ? /* Local change: the same literal gradient as the picker and the answer cards (outreach.css), so every control is one surface. */
+              'linear-gradient(to bottom, rgb(23 27 29 / 82%) 0%, rgb(23 27 29 / 70%) 100%)'
             : 'linear-gradient(to bottom, var(--card) 0%, color-mix(in oklch, var(--card) 94%, var(--muted)) 100%)',
         }}
       >

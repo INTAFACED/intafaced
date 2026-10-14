@@ -214,7 +214,7 @@ try {
     await page.getByRole('button', { name: 'Begin', exact: true }).click();
     await page.getByLabel('Your name', { exact: true }).waitFor();
     await page.waitForFunction(() => document.querySelector('.lb.is-dim'), null, { timeout: 30000 });
-    await page.waitForFunction(() => getComputedStyle(document.querySelector('.lb__dim')).opacity === '0.65', null, { timeout: 30000 });
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.lb__dim')).opacity === '0.82', null, { timeout: 30000 });
     assert.ok(await drawsHaveStopped(page), 'ribbons park on one still frame once dim has settled');
     const parked = await draws(page);
     await page.getByLabel('Your name', { exact: true }).fill('Typing visitor');

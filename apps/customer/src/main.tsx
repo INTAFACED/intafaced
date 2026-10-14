@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { SessionProvider } from './features/session/session';
 import './shared/tokens.css';
 import './shared/styles.css';
+import './app/redesign.css';
+import './app/shell.css';
 import { App } from './app/App';
 
 const element = document.getElementById('root');
