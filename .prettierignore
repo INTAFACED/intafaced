@@ -20,3 +20,9 @@ vendor/
 # Retired Graphify installer remnants and generated maps in older checkouts.
 .agents/skills/graphify/
 graphify-out/
+
+# Verbatim copies of the six outreach modules (and their goldens) that
+# apps/invitation took over from the retired Vue site. Kept byte-identical to
+# the originals so the move is provable; reformatting would hide any drift.
+apps/invitation/src/assets/js/
+apps/invitation/src/config/

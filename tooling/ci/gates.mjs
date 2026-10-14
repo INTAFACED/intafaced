@@ -264,9 +264,10 @@ export const GATES = [
     script: 'tooling/ci/invitation-outreach-golden-scan.mjs',
     doctrine: '§14 / desk honesty',
     why:
-      'apps/invitation still bundles six modules from the retired Vue customer site (outreach-intake, outreach-review, ' +
-      'outreach-public-info, outreach-draft-storage, outreach-countries, config/intafaced.js). The goldens that sit ' +
-      'next to them (intake, review, draft-storage) only prove anything if CI runs them. Narrowed from the retired ' +
+      'apps/invitation owns six outreach modules (outreach-intake, outreach-review, outreach-public-info, ' +
+      'outreach-draft-storage, outreach-countries, config/intafaced.js), copied out of the retired Vue customer site. ' +
+      'The goldens that sit next to them (intake, review, draft-storage) only prove anything if CI runs them. ' +
+      'Narrowed from the retired ' +
       'shell-golden gate; refuses when it finds no outreach goldens.',
   },
   {

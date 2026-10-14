@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /**
- * Outreach golden tests — the proofs for the 05_Web_Front modules that the
- * public invitation app (apps/invitation) still bundles.
+ * Outreach golden tests — the proofs for the outreach modules that the public
+ * invitation app (apps/invitation) owns.
  *
- * The legacy Vue customer site in that directory is retired (see its
- * RETIRED.md), but `apps/invitation/vite.config.ts` still aliases six of its
- * files into the shipped questionnaire: outreach-intake, outreach-review,
- * outreach-public-info, outreach-draft-storage, outreach-countries and
- * config/intafaced.js. This gate keeps the golden tests that sit next to those
- * modules running; it replaces the broader `shell-golden` gate, which ran every
- * golden in the retired site.
+ * The six modules (outreach-intake, outreach-review, outreach-public-info,
+ * outreach-draft-storage, outreach-countries and config/intafaced.js, plus the
+ * ix-wire.js and auth-refusal.js it requires) were copied out of the retired
+ * Vue customer site into `apps/invitation/src/`, and
+ * `apps/invitation/vite.config.ts` aliases them into the shipped questionnaire.
+ * This gate keeps the golden tests that sit next to those modules running; it
+ * replaces the broader `shell-golden` gate, which ran every golden in the
+ * retired site.
  *
  * Only `outreach-*.golden.js` files are run.
  *
@@ -23,8 +24,8 @@ import { fileURLToPath } from 'node:url';
 
 const posix = (p) => p.replaceAll('\\', '/');
 const ROOT = posix(fileURLToPath(new URL('../..', import.meta.url))).replace(/\/$/, '');
-const SHELL = join(ROOT, 'vendor/upstream-exchange/05_Web_Front');
-const GOLDEN_DIR = join(SHELL, 'src/assets/js');
+const APP = join(ROOT, 'apps/invitation');
+const GOLDEN_DIR = join(APP, 'src/assets/js');
 
 function listGoldens(dir) {
   let entries;
@@ -49,7 +50,7 @@ function listGoldens(dir) {
 const goldens = listGoldens(GOLDEN_DIR);
 if (goldens.length === 0) {
   console.error('✗ invitation-outreach-golden — no outreach-*.golden.js under', relative(ROOT, GOLDEN_DIR));
-  console.error('  NOTHING WAS RUN. apps/invitation still bundles these modules; do not leave them unproven.');
+  console.error('  NOTHING WAS RUN. apps/invitation bundles these modules; do not leave them unproven.');
   process.exit(1);
 }
 
@@ -57,7 +58,7 @@ let failed = 0;
 for (const file of goldens) {
   const rel = relative(ROOT, file);
   const r = spawnSync(process.execPath, [file], {
-    cwd: SHELL,
+    cwd: APP,
     encoding: 'utf8',
     env: process.env,
   });

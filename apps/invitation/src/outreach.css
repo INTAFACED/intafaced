@@ -1,5 +1,8 @@
 @import 'tailwindcss' source(none);
 @source './';
+/* Copied logic modules and images hold no markup; scanning their plain words would add dead utilities (.collapse, .fixed, .table). */
+@source not './assets';
+@source not './config';
 @custom-variant dark (&:where(.dark, .dark *));
 @theme inline {
   --color-background: var(--background);
@@ -37,7 +40,7 @@
 }
 @font-face {
   font-family: 'Outreach Inter';
-  src: url('../../../vendor/upstream-exchange/05_Web_Front/src/assets/fonts/inter-latin.woff2') format('woff2');
+  src: url('./assets/fonts/inter-latin.woff2') format('woff2');
   font-weight: 100 900;
   font-display: swap;
   /* Ranges match each file's character map (read directly, 2026-10-14). Latin: Latin-1, punctuation, € ™ ↑ ↓ −, and the
@@ -49,7 +52,7 @@
 }
 @font-face {
   font-family: 'Outreach Inter';
-  src: url('../../../vendor/upstream-exchange/05_Web_Front/src/assets/fonts/inter-latin-ext.woff2') format('woff2');
+  src: url('./assets/fonts/inter-latin-ext.woff2') format('woff2');
   font-weight: 100 900;
   font-display: swap;
   /* The latin-ext subset's range, so an English-only page never downloads this 85 KB file (without a range the face claims

@@ -8,25 +8,23 @@ This directory is the old Vue 2 customer site. It was replaced by the React cust
 
 - **Staging build and deploy.** `.github/workflows/staging-deploy.yml` no longer builds this directory. The `vendor-shell` image slot now builds `apps/customer/Dockerfile`.
 - **Compose.** `docker-compose.apps.yml` already served `apps/customer` in the `vendor-shell` slot on :8090. Nothing here is served.
-- **Doctrine gates (`pnpm gates`).** `shell-i18n`, `shell-golden`, `fabricated-money` and `lang-duplicate-key` were deleted. `shell-brand` and `marketing-language` no longer walk this directory. `brand` walks it only for the six files below.
+- **Doctrine gates (`pnpm gates`).** `shell-i18n`, `shell-golden`, `fabricated-money` and `lang-duplicate-key` were deleted. `shell-brand` and `marketing-language` no longer walk this directory. `brand` no longer walks it.
 
-## What still ships from this tree
+## What no longer ships from this tree
 
-The public invitation app (`apps/invitation`) still bundles six JavaScript modules from `src/` here (aliased in `apps/invitation/vite.config.ts`):
+The public invitation app (`apps/invitation`) no longer imports anything from this tree. It owns verbatim copies of what it used to bundle from here, under `apps/invitation/src/`:
 
-- `assets/js/outreach-intake.js`
-- `assets/js/outreach-review.js`
-- `assets/js/outreach-public-info.js`
-- `assets/js/outreach-draft-storage.js`
-- `assets/js/outreach-countries.js`
+- `assets/js/outreach-intake.js`, `outreach-review.js`, `outreach-public-info.js`, `outreach-draft-storage.js`, `outreach-countries.js`
+- `assets/js/ix-wire.js` and `assets/js/auth-refusal.js` (required by the transport)
 - `config/intafaced.js`
+- the hero images, logo and Inter fonts under `assets/`
 
-It also imports images and fonts from `src/assets/`.
+The three golden tests moved with them. The copies in this tree are now dead weight; deleting them is part of the separate repo move.
 
-Gates that still cover them:
+Gates that cover the copies:
 
-- `invitation-outreach-golden` runs the golden tests next to the modules (`outreach-intake`, `outreach-review`, `outreach-draft-storage`) and fails if it finds none.
-- `brand` scans exactly those six files.
+- `invitation-outreach-golden` runs the golden tests in `apps/invitation/src/assets/js/` and fails if it finds none.
+- `brand` reaches them through its ordinary walk of `apps/`; it no longer walks anything under this directory.
 - `vendor-shell` (hazard scan over all of `vendor/`) and `secrets` still read this tree.
 
 ## Other things that depend on it
@@ -34,4 +32,4 @@ Gates that still cover them:
 - `NOTICE` records third-party licences for files under this directory.
 - `tooling/uiproof/dod-gate.mjs` and a few `tooling/` scripts still name files here as evidence.
 
-Do not delete the directory without moving the six modules out first. Deleting the tree is a separate decision, not part of the retirement.
+The six modules have been moved out (see above). Deleting the tree is a separate decision, not part of the retirement.

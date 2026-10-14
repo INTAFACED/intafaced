@@ -119,23 +119,11 @@ const FORBIDDEN = [
 
 /**
  * The legacy Vue customer site (retired 2026-10-13, see its RETIRED.md) is NOT
- * walked as a project root. Only the files `apps/invitation` still bundles from
- * it are scanned, because those ship to the public questionnaire.
+ * walked as a project root and no file of it is scanned. `apps/invitation` used
+ * to bundle six modules from it; they now live in `apps/invitation/src/` and are
+ * covered by the ordinary repo walk.
  */
 const RETIRED_VUE_ROOT_NAME = '05_Web_Front';
-
-/**
- * The six modules `apps/invitation/vite.config.ts` aliases out of the retired
- * site, relative to its `src/`. Keep in step with that file.
- */
-const INVITATION_IMPORTED_FILES = [
-  'assets/js/outreach-intake.js',
-  'assets/js/outreach-review.js',
-  'assets/js/outreach-public-info.js',
-  'assets/js/outreach-draft-storage.js',
-  'assets/js/outreach-countries.js',
-  'config/intafaced.js',
-];
 
 /** Directories never scanned. */
 const SKIP_DIRS = new Set([
@@ -161,7 +149,7 @@ const SKIP_DIRS = new Set([
   // findings to thousands, almost all load-bearing Java package/groupId lines
   // that are not user-facing copy. The product surfaces inside vendor ARE
   // scanned: see `collectVendorProductFiles()` below (Vue project roots other than
-  // the retired customer site, its six invitation-imported files, and Java
+  // the retired customer site, and Java
   // `src/main/resources`).
   // `tooling/ci/shell-brand-scan.mjs` remains the relaxed-boundary ratchet over
   // the vendored Java CORS surface so welded identifiers cannot hide behind `\b`.
@@ -452,18 +440,14 @@ function selfTest() {
   assert(isInternalPastePath('docs/paste-extra/nope.md') === false, 'paste-extra is not paste-wN');
 
   // D26-P2-14: vendor product surfaces must be discoverable when the tree exists.
-  // The retired Vue customer site is walked only for the six files apps/invitation bundles.
+  // The retired Vue customer site is not walked at all: apps/invitation owns the modules it used to bundle from there.
   const vendorRoot = join(ROOT, 'vendor');
   if (existsSync(vendorRoot)) {
     const productFiles = collectVendorProductFiles();
     assert(productFiles.length > 0, 'vendor product-surface walk returned 0 files');
     const posixPath = (f) => f.split(sep).join('/');
     const retired = productFiles.filter((f) => posixPath(f).includes('/' + RETIRED_VUE_ROOT_NAME + '/'));
-    const expected = invitationImportedFiles(vendorRoot).map(posixPath).sort();
-    assert(
-      JSON.stringify(retired.map(posixPath).sort()) === JSON.stringify(expected),
-      `retired Vue site must be walked only for its ${INVITATION_IMPORTED_FILES.length} invitation-imported files (walked ${retired.length}, expected ${expected.length})`,
-    );
+    assert(retired.length === 0, `retired Vue site must not be walked (walked ${retired.length} file(s))`);
     if (existsSync(join(vendorRoot, 'upstream-exchange', '04_Web_Admin'))) {
       assert(
         productFiles.some((f) => f.endsWith('.vue') && posixPath(f).includes('/04_Web_Admin/')),
@@ -479,7 +463,7 @@ function selfTest() {
   }
   console.log('brand-scan --self-test OK');
   console.log('  fixture paste-wN / PASTE-BUILD-WAVE-N / docs/paste/** allowed; product surfaces not');
-  console.log('  vendor staff console + Java resources discoverable; retired Vue site walked only for its invitation-imported files');
+  console.log('  vendor staff console + Java resources discoverable; retired Vue site not walked');
   process.exit(0);
 }
 
@@ -528,28 +512,10 @@ function findVendorShellProjectRoots(dir, out = [], depth = 0) {
   return out;
 }
 
-/** The invitation-imported files of the retired site, wherever the vendor dir is named. */
-function invitationImportedFiles(vendorRoot) {
-  const out = [];
-  let vendors;
-  try {
-    vendors = readdirSync(vendorRoot);
-  } catch {
-    return out;
-  }
-  for (const name of vendors) {
-    for (const rel of INVITATION_IMPORTED_FILES) {
-      const full = join(vendorRoot, name, RETIRED_VUE_ROOT_NAME, 'src', rel);
-      if (existsSync(full)) out.push(full);
-    }
-  }
-  return out;
-}
-
 /**
  * Files inside vendor that can reach a user without walking every Java
  * package line: Vue project trees (the staff console; not the retired customer
- * site), the six invitation-imported modules, and `src/main/resources`
+ * site), and `src/main/resources`
  * catalogues.
  */
 function collectVendorProductFiles() {
@@ -582,7 +548,6 @@ function collectVendorProductFiles() {
   for (const projectRoot of new Set(findVendorShellProjectRoots(vendorRoot))) {
     for (const file of walkScoped(projectRoot)) files.add(file);
   }
-  for (const file of invitationImportedFiles(vendorRoot)) files.add(file);
 
   /**
    * Java `src/main/resources` copy surfaces only.

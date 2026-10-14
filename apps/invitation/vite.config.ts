@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import tailwind from '@tailwindcss/postcss';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-const publicSource = fileURLToPath(new URL('../../vendor/upstream-exchange/05_Web_Front/src/', import.meta.url));
+const publicSource = fileURLToPath(new URL('./src/', import.meta.url));
 const modules = {
   intake: 'assets/js/outreach-intake.js',
   review: 'assets/js/outreach-review.js',
@@ -40,6 +40,6 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: false,
-    commonjsOptions: { include: [/node_modules/, /05_Web_Front\/src/], transformMixedEsModules: true },
+    commonjsOptions: { include: [/node_modules/, /apps\/invitation\/src\/(?:assets\/js|config)\//], transformMixedEsModules: true },
   },
 });

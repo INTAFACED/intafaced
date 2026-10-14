@@ -1,4 +1,4 @@
-import heroImage from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/outreach/graphite-fins-desktop.webp';
+import heroImage from './assets/images/outreach/graphite-fins-desktop.webp';
 
 import { mutate } from '@outreach/transport';
 import intake from '@outreach/intake';
