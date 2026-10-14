@@ -2103,9 +2103,12 @@ code {
     position: absolute;
     z-index: 120;
     top: calc(100% + 8px);
-    left: 0;
+    /* The menu button is the last item in the header, so the list hangs from its right edge and never runs off the screen. */
+    right: 0;
+    left: auto;
     display: grid;
-    min-width: 220px;
+    min-width: min(220px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
     padding: 8px;
     border: 1px solid var(--if-border);
     border-radius: var(--if-radius-md);

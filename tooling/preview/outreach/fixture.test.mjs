@@ -890,4 +890,70 @@ describe('outreach preview fixture, founder inbox', { skip: built ? false : 'bui
       throwsCode('ops.crm.cursor_invalid'),
     );
   });
+  it('sums every commitment, one per opportunity, even for a person with several, including one on a proceeded enquiry', () => {
+    const { f, fixture, enquire, commit, fresh, advance } = setup();
+    const first = enquire('investor', 'undecided', 'direct', 'holder@example.invalid');
+    advance(1);
+    const second = enquire('investor', 'undecided', 'direct', 'holder@example.invalid');
+    f['outreach.mergeContacts']({
+      requestId: randomUUID(),
+      sourceContactId: second.contactId,
+      targetContactId: first.contactId,
+      sourceExpectedRevision: 1,
+      targetExpectedRevision: 1,
+      confirmed: true,
+      reason: 'Same person',
+    });
+    commit(fresh(first), { tier: 'committed', amount: '100000', currency: 'EUR' });
+    f['outreach.changeStage']({
+      requestId: randomUUID(),
+      opportunityId: first.id,
+      expectedRevision: fresh(first).revision,
+      stage: 'closed',
+      reason: 'Documents signed',
+      closedDisposition: 'proceeded',
+      closingEvidenceRef: 'signed agreement',
+      nextAction: null,
+    });
+    commit(fresh(second), { tier: 'committed', amount: '50000', currency: 'USD' });
+    assert.deepEqual(f['outreach.metrics']({}).raise, {
+      indicated: [],
+      softCircled: [],
+      committed: [
+        { currency: 'EUR', amount: '100000' },
+        { currency: 'USD', amount: '50000' },
+      ],
+      counts: { indicated: 0, softCircled: 0, committed: 2, undecided: 0 },
+    });
+    const third = enquire('investor', 'undecided', 'direct', 'other@example.invalid');
+    commit(fresh(third), { tier: 'soft_circled', amount: '10', currency: 'EUR' });
+    const fourth = enquire('investor', 'undecided', 'direct', 'other@example.invalid');
+    commit(fresh(fourth), { tier: 'soft_circled', amount: '15', currency: 'EUR' });
+    const raise = f['outreach.metrics']({}).raise;
+    assert.deepEqual(raise.softCircled, [{ currency: 'EUR', amount: '25' }]);
+    assert.equal(raise.counts.softCircled, 2);
+    assert.ok(fixture);
+  });
+
+  it('keeps a commitment exact at 2^53 + 1 with 18 decimals, and applies the intake cap to new input only', () => {
+    const { f, fixture, enquire, commit } = setup();
+    const exact = '9007199254740993.000000000000000001';
+    const a = enquire();
+    const b = enquire();
+    assert.equal(commit(a, { tier: 'soft_circled', amount: exact, currency: 'USD' }).commitment.amount, exact);
+    commit(b, { tier: 'soft_circled', amount: exact, currency: 'USD' });
+    assert.deepEqual(f['outreach.metrics']({}).raise.softCircled, [{ currency: 'USD', amount: '18014398509481986.000000000000000002' }]);
+    // New input of that size is refused at the public answer path; a record already stored that large still lists and sums.
+    assert.throws(
+      () => enquire('investor', { amount: exact, currency: 'EUR' }),
+      (e) => e.name === 'ZodError',
+    );
+    const stored = enquire('investor', { amount: '5', currency: 'EUR' });
+    fixture.opportunities.set(stored.id, {
+      ...fixture.opportunities.get(stored.id),
+      indicativeContribution: { status: 'stated', amount: exact, currency: 'EUR' },
+    });
+    assert.ok(contracts.crmOpportunityPageSchema.safeParse(f['outreach.listOpportunities']({ limit: 50 })).success);
+    assert.deepEqual(f['outreach.metrics']({}).raise.indicated, [{ currency: 'EUR', amount: exact }]);
+  });
 });

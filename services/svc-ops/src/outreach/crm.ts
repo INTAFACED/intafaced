@@ -981,26 +981,35 @@ export class OutreachCrm {
       const sources =
         await tx`WITH filtered AS (${filtered}) SELECT attribution->>'sourceHint' AS source_key,attribution->'campaign'->>'id' AS campaign_id,count(*)::int AS count FROM filtered GROUP BY source_key,campaign_id ORDER BY count DESC,source_key NULLS LAST,campaign_id NULLS LAST LIMIT 201`;
       // The raise. Exact decimal addition in PostgreSQL numeric (never a float), one total per currency, nothing converted.
-      // Counted per person (the canonical contact), not per submission, so a duplicate enquiry cannot double an amount. Each
-      // person is counted once, at their highest level (committed, soft-circled, indicated, undecided), and within that level by
-      // their most recent qualifying investor opportunity. A commitment is the founder's own record and counts while the enquiry
-      // is open or was closed as proceeded; a stated amount counts only for open enquiries.
+      // Commitments (soft-circled, committed): EVERY commitment is summed, one per opportunity. Each is an evidenced founder
+      // record, and a duplicate is a founder error for the Duplicates screen to catch, not something to hide in a total. One counts
+      // while its enquiry is open or was closed as proceeded.
+      // Indicated and undecided: per PERSON (the canonical contact), so a duplicate enquiry cannot double an amount. A person is
+      // counted once, from their most recent open enquiry with a stated amount, and only if they hold no commitment on any
+      // opportunity.
       const money = await tx`WITH filtered AS (${filtered}),
+        investor AS (
+          SELECT contact_id,id,created_at,stage,opp->'commitment'->>'tier' AS tier,opp->>'closedDisposition' AS disposition,
+            opp->'commitment' AS commitment,opp->'indicativeContribution' AS indicative
+          FROM filtered WHERE audience='investor'
+        ),
+        commitments AS (
+          SELECT tier AS level,commitment->>'currency' AS currency,commitment->>'amount' AS amount FROM investor
+          WHERE tier IS NOT NULL AND (stage<>'closed' OR disposition='proceeded')
+        ),
         candidates AS (
           SELECT contact_id,id,created_at,
-            CASE WHEN opp->'commitment'->>'tier' IS NOT NULL THEN opp->'commitment'->>'tier'
-              WHEN opp->'indicativeContribution'->>'status'='stated' THEN 'indicated' ELSE 'undecided' END AS level,
-            CASE WHEN opp->'commitment'->>'tier' IS NOT NULL THEN opp->'commitment'->>'currency' ELSE opp->'indicativeContribution'->>'currency' END AS currency,
-            CASE WHEN opp->'commitment'->>'tier' IS NOT NULL THEN opp->'commitment'->>'amount' ELSE opp->'indicativeContribution'->>'amount' END AS amount
-          FROM filtered
-          WHERE audience='investor'
-          AND (stage<>'closed' OR (opp->'commitment'->>'tier' IS NOT NULL AND opp->>'closedDisposition'='proceeded'))
+            CASE WHEN indicative->>'status'='stated' THEN 'indicated' ELSE 'undecided' END AS level,
+            indicative->>'currency' AS currency,indicative->>'amount' AS amount
+          FROM investor WHERE tier IS NULL AND stage<>'closed'
+          AND contact_id NOT IN (SELECT contact_id FROM investor WHERE tier IS NOT NULL)
         ),
         chosen AS (
-          SELECT DISTINCT ON (contact_id) * FROM candidates
-          ORDER BY contact_id,CASE level WHEN 'committed' THEN 1 WHEN 'soft_circled' THEN 2 WHEN 'indicated' THEN 3 ELSE 4 END,created_at DESC,id DESC
-        )
-        SELECT level,currency,trim_scale(sum(amount::numeric))::text AS amount,count(*)::int AS count FROM chosen GROUP BY level,currency ORDER BY level,currency`;
+          SELECT DISTINCT ON (contact_id) level,currency,amount FROM candidates
+          ORDER BY contact_id,CASE level WHEN 'indicated' THEN 1 ELSE 2 END,created_at DESC,id DESC
+        ),
+        combined AS (SELECT level,currency,amount FROM commitments UNION ALL SELECT level,currency,amount FROM chosen)
+        SELECT level,currency,trim_scale(sum(amount::numeric))::text AS amount,count(*)::int AS count FROM combined GROUP BY level,currency ORDER BY level,currency`;
       const totalsOf = (level: string) => money.filter((r) => r.level === level).map((r) => ({ currency: r.currency, amount: r.amount }));
       const countOf = (level: string) => money.filter((r) => r.level === level).reduce((sum, r) => sum + Number(r.count), 0);
       const row = totals[0]!;

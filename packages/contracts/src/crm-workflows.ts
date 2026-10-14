@@ -164,7 +164,12 @@ export const crmRaiseSchema = z
     indicated: z.array(crmMoneyTotalSchema).max(MAX_TOTALS),
     softCircled: z.array(crmMoneyTotalSchema).max(MAX_TOTALS),
     committed: z.array(crmMoneyTotalSchema).max(MAX_TOTALS),
-    /** People, not currencies: each person counts once, at their highest level (committed, soft-circled, indicated, then undecided). undecided: open investors with no commitment and no stated amount. */
+    /**
+     * indicated and undecided count PEOPLE: each person once, from their most recent open enquiry, and only if they have no
+     * commitment on any opportunity. softCircled and committed count COMMITMENTS, one per evidenced founder record (a person
+     * can hold more than one), so label them "3 commitments", not "3 investors". undecided: open investors with no commitment and
+     * no stated amount.
+     */
     counts: z.object({ indicated: count, softCircled: count, committed: count, undecided: count }).strict(),
   })
   .strict();

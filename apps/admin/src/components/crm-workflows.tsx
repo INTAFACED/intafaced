@@ -1211,7 +1211,7 @@ export function CrmCampaigns({ csrf, owners, version = 0 }: { csrf: string; owne
                 required
                 minLength={16}
                 maxLength={128}
-                pattern="[A-Za-z0-9_-]{16,128}"
+                pattern="[A-Za-z0-9_\-]{16,128}"
                 value={sourceKey}
                 onChange={(e) => setSourceKey(e.target.value)}
               />

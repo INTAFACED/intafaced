@@ -971,6 +971,88 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))(
           expect((await raise()).counts).toMatchObject({ undecided: 0 });
         });
 
+        it('sums every commitment, one per opportunity, even when one person holds several', async () => {
+          now = at(0);
+          const first = await enquire('investor', 'undecided', 'direct', 'holder@example.test');
+          now = at(1);
+          const second = await enquire('investor', 'undecided', 'direct', 'holder@example.test');
+          await crm.mergeContacts(
+            {
+              requestId: randomUUID(),
+              sourceContactId: second.contactId,
+              targetContactId: first.contactId,
+              sourceExpectedRevision: 1,
+              targetExpectedRevision: 1,
+              confirmed: true,
+              reason: 'Same person',
+            },
+            founders[0],
+          );
+          // EUR 100k committed, then that enquiry proceeds (closed); USD 50k committed on the newer, open one.
+          await setCommitment(first.id, { tier: 'committed', amount: '100000', currency: 'EUR' });
+          const current = await reload(first.id);
+          await crm.changeStage(
+            {
+              requestId: randomUUID(),
+              opportunityId: first.id,
+              expectedRevision: current.revision,
+              stage: 'closed',
+              reason: 'Documents signed',
+              closedDisposition: 'proceeded',
+              closingEvidenceRef: 'signed agreement',
+              nextAction: null,
+            },
+            founders[0],
+          );
+          await setCommitment(second.id, { tier: 'committed', amount: '50000', currency: 'USD' });
+          expect(await raise()).toEqual({
+            indicated: [],
+            softCircled: [],
+            committed: [
+              { currency: 'EUR', amount: '100000' },
+              { currency: 'USD', amount: '50000' },
+            ],
+            counts: { indicated: 0, softCircled: 0, committed: 2, undecided: 0 },
+          });
+          // A second soft-circled commitment for the same person is a second commitment, and is summed.
+          const third = await enquire('investor', 'undecided', 'direct', 'other@example.test');
+          await setCommitment(third.id, { tier: 'soft_circled', amount: '10', currency: 'EUR' });
+          const fourth = await enquire('investor', 'undecided', 'direct', 'other@example.test');
+          await setCommitment(fourth.id, { tier: 'soft_circled', amount: '15', currency: 'EUR' });
+          expect(await raise()).toMatchObject({
+            softCircled: [{ currency: 'EUR', amount: '25' }],
+            counts: { softCircled: 2, committed: 2 },
+          });
+        });
+
+        it('keeps a commitment exact at 2^53 + 1 with 18 decimals, through setCommitment and the sum', async () => {
+          const exact = '9007199254740993.000000000000000001';
+          const a = await enquire();
+          const b = await enquire();
+          const saved = await setCommitment(a.id, { tier: 'soft_circled', amount: exact, currency: 'USD' });
+          expect(saved.audience === 'investor' && saved.commitment && saved.commitment.amount).toBe(exact);
+          expect(await db.sql`SELECT record->'commitment'->>'amount' AS amount FROM ops.crm_opportunities WHERE id=${a.id}`).toEqual([
+            { amount: exact },
+          ]);
+          await setCommitment(b.id, { tier: 'soft_circled', amount: exact, currency: 'USD' });
+          // 2 x (2^53 + 1 + 10^-18), exact.
+          expect((await raise()).softCircled).toEqual([{ currency: 'USD', amount: '18014398509481986.000000000000000002' }]);
+        });
+
+        it('parses a stored 16-digit indicative amount and sums it, while new input of that size is refused', async () => {
+          const row = await enquire('investor', { amount: '5', currency: 'USD' });
+          const stored = '9007199254740993.000000000000000001';
+          await db.sql`UPDATE ops.crm_opportunities SET record=jsonb_set(record,'{indicativeContribution,amount}',${db.sql.json(stored)}) WHERE id=${row.id}`;
+          const listed = (await crm.listOpportunities({ limit: 10 })).items[0]!;
+          expect(listed.audience === 'investor' && listed.indicativeContribution).toEqual({
+            status: 'stated',
+            amount: stored,
+            currency: 'USD',
+          });
+          expect((await raise()).indicated).toEqual([{ currency: 'USD', amount: stored }]);
+          await expect(enquire('investor', { amount: stored, currency: 'USD' })).rejects.toMatchObject({ name: 'ZodError' });
+        });
+
         it('walks the waiting queue one row at a time over times finer than a millisecond, without looping or repeating', async () => {
           now = at(0);
           const rows = [await enquire(), await enquire(), await enquire(), await enquire()];

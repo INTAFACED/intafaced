@@ -458,7 +458,12 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder-controlled clust
       expect(outcomes[1]?.status).toBe('rejected');
       expect(outcomes[2]?.status).toBe('rejected');
       await finish(outcomes[0].value);
-    } else expect(outcomes[0]?.reason).toMatchObject({ code: 'ops.crm.revision_conflict' });
+    } else {
+      // Begin lost the race. It fails on whichever of the other writes landed first: an answer or capture moved the revision on
+      // (revision_conflict), or the merge landed first and left this contact an alias, so it is no longer a canonical target
+      // (canonical_target_required). Both are correct refusals; which one depends on lock order.
+      expect(['ops.crm.revision_conflict', 'ops.crm.canonical_target_required']).toContain((outcomes[0]?.reason as { code?: string }).code);
+    }
     expect((await crm.capture(capture(), randomUUID())).submissionId).not.toBe(a.receipt.submissionId);
     await expect(
       crm.resume({ submissionId: a.receipt.submissionId, continuationToken: 'A'.repeat(43) }, randomUUID()),

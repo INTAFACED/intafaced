@@ -1,10 +1,16 @@
 /**
- * Clicks through a running `pnpm preview:outreach` the way Nitro would: one
- * investor enquiry on the questionnaire, then the same enquiry in the founder CRM.
+ * Clicks through a running `pnpm preview:outreach` the way Nitro would, at 390 and 1280 px:
+ *
+ *   1. sends one investor enquiry on the questionnaire;
+ *   2. finds it in the founder Inbox ("Waiting on us") under "No reply yet", and opens it;
+ *   3. presses Mark replied and sees it leave the queue;
+ *   4. records a soft-circled commitment and sees it added to the Raise figures;
+ *   5. opens the Reply, Decline and Commitment sheets, People and the Tools menu for screenshots.
  *
  *   node tooling/preview/outreach/click-through.browser.mjs [screenshot-dir]
  *
- * It drives only the local preview; nothing leaves the machine.
+ * It drives only the local preview; nothing leaves the machine. Set PREVIEW_PUBLIC_PORT and PREVIEW_ADMIN_PORT when the
+ * preview runs on other ports than 4400 and 4401.
  */
 import { chromium, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
@@ -24,6 +30,12 @@ const control = (page, label, options) => page.getByLabel(label, options).and(pa
 async function next(page) {
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.locator('#intake-heading')).toBeFocused();
+}
+
+/** The page must never scroll sideways, least of all on a phone. */
+async function noSideways(page, width, where) {
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (wide > 0) throw new Error(`${where}: the page scrolls sideways by ${wide}px at ${width}px`);
 }
 
 const browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}) });
@@ -100,23 +112,109 @@ try {
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
     await page.goto(`${crm}/crm`);
-    const row = page.getByText(`${visitor} ${width}`).first();
-    await expect(row).toBeVisible({ timeout: 15_000 });
-    await page.screenshot({ path: join(shots, `6-crm-list-${width}.png`), fullPage: true });
-    await row.click();
-    await expect(page.getByRole('region', { name: 'Selected enquiry' })).toContainText(`${visitor} ${width}`, { timeout: 15_000 });
-    await page.getByRole('tab', { name: 'Answers' }).click();
-    await expect(
-      page
-        .getByRole('tabpanel', { name: 'Answers' })
-        .getByText(/150[,\u202f\u00a0 ]?000/)
-        .first(),
-    ).toBeVisible({
-      timeout: 15_000,
-    });
-    await page.screenshot({ path: join(shots, `7-crm-detail-${width}.png`), fullPage: true });
+
+    const name = `${visitor} ${width}`;
+    const nav = page.getByRole('navigation', { name: 'CRM sections' });
+    const toolbar = page.getByRole('toolbar', { name: 'Actions for this person' });
+    const person = page.locator('article');
+    const rowOf = (text) => page.locator('[data-enquiry-id]').filter({ hasText: text });
+    const shot = async (file, options = {}) => {
+      await page.waitForTimeout(400);
+      await noSideways(page, width, file);
+      await page.screenshot({ path: join(shots, `${file}-${width}.png`), fullPage: true, ...options });
+    };
+
+    // 2. Inbox: "Waiting on us", investors first, the new enquiry under "No reply yet".
+    await expect(page.getByRole('heading', { name: 'Waiting on us', level: 1 })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('tab', { name: /^Investors/ })).toHaveAttribute('aria-selected', 'true');
+    const noReply = page.locator('section[aria-labelledby="inbox-no_reply"]');
+    await expect(noReply.getByText(name).first()).toBeVisible({ timeout: 15_000 });
+    await expect(noReply.locator('h2, ul')).not.toHaveCount(0);
+    await shot('10-inbox');
+    await page.getByRole('tab', { name: /^Everyone else|^Others/ }).click();
+    await shot('11-inbox-everyone-else');
+    await page.getByRole('tab', { name: /^Investors/ }).click();
+
+    // Open it: their answers, the amount marked self-reported, the action bar.
+    await rowOf(name).first().click();
+    await expect(person).toContainText(name, { timeout: 15_000 });
+    await expect(person).toContainText(/150[,\u202f\u00a0 ]?000/);
+    await expect(person).toContainText('self-reported');
+    await expect(person).toContainText('Click-through test enquiry.');
+    await expect(toolbar).toBeVisible();
+    await shot('20-person');
+
+    // The sheets, for the screenshots: Reply (with the draft header), Decline, Commitment.
+    await toolbar.getByRole('button', { name: 'Reply', exact: true }).click();
+    const reply = page.getByRole('dialog', { name: 'Reply' });
+    await expect(reply).toContainText("DRAFT: awaiting Nitro's approval of wording");
+    await expect(reply.getByRole('link', { name: 'Open in my email app' })).toHaveAttribute('href', /^mailto:/);
+    await shot('21-reply-sheet');
+    await page.keyboard.press('Escape');
+    await expect(reply).toBeHidden();
+    await toolbar.getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Decline' }).click();
+    const decline = page.getByRole('dialog', { name: 'Decline' });
+    await expect(decline).toContainText('Decline reply sent by email on');
+    await shot('22-decline-sheet');
+    await page.keyboard.press('Escape');
+    await expect(decline).toBeHidden();
+
+    // 3. Mark replied: one press, and the person leaves the waiting queue.
+    await toolbar.getByRole('button', { name: 'Mark replied', exact: true }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Marked replied' }).first()).toBeVisible({ timeout: 15_000 });
+    await shot('23-marked-replied');
+    await page.getByRole('button', { name: /^← / }).click();
+    await expect(page.getByRole('heading', { name: 'Waiting on us', level: 1 })).toBeVisible();
+    await expect(rowOf(name)).toHaveCount(0, { timeout: 15_000 });
+
+    // 4. Raise: note the soft-circled euros, record 150,000 for this person, and see them added.
+    await nav.getByRole('button', { name: /^Raise/ }).click();
+    await expect(page.getByRole('heading', { name: 'Raise', level: 1 })).toBeVisible();
+    const softCircled = async () => {
+      const text = await page.getByText('Soft-circled', { exact: true }).first().locator('xpath=ancestor::div[1]').innerText();
+      const digits = /€([\d,]+)/.exec(text)?.[1]?.replaceAll(',', '');
+      if (!digits) throw new Error(`No soft-circled euros found in: ${text}`);
+      return BigInt(digits);
+    };
+    await expect(page.getByText('Not converted')).toBeVisible({ timeout: 15_000 });
+    const before = await softCircled();
+    await shot('30-raise');
+    await rowOf(name).first().click();
+    await expect(person).toContainText(name, { timeout: 15_000 });
+    await toolbar.getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Commitment' }).click();
+    const commitment = page.getByRole('dialog', { name: 'Commitment' });
+    await commitment.getByRole('button', { name: 'Soft-circled', exact: true }).click();
+    await commitment.getByRole('button', { name: /^Use their indicated/ }).click();
+    await commitment.getByRole('button', { name: 'After the call', exact: true }).click();
+    await shot('24-commitment-sheet');
+    await commitment.getByRole('button', { name: 'Save commitment' }).click();
+    await expect(commitment).toBeHidden({ timeout: 15_000 });
+    await expect(person).toContainText('Soft-circled €150,000', { timeout: 15_000 });
+    await shot('25-person-soft-circled');
+    await page.getByRole('button', { name: /^← / }).click();
+    await expect(page.getByRole('heading', { name: 'Raise', level: 1 })).toBeVisible();
+    await expect.poll(softCircled, { timeout: 15_000 }).toBe(before + 150000n);
+    await expect(rowOf(name).first()).toContainText('Soft-circled');
+    await shot('31-raise-after');
+
+    // 5. People, with the search, and the quiet Tools menu.
+    await nav.getByRole('button', { name: /^People/ }).click();
+    await expect(page.getByRole('heading', { name: 'People', level: 1 })).toBeVisible();
+    await page.getByRole('searchbox', { name: 'Search' }).fill(visitor);
+    await expect(rowOf(name).first()).toBeVisible({ timeout: 15_000 });
+    await shot('40-people');
+    await page.getByRole('button', { name: /^Tools/ }).click();
+    await expect(page.getByRole('menuitem', { name: 'Duplicates' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Sources and campaigns' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Exports' })).toBeVisible();
+    await shot('41-tools-menu');
+    await page.getByRole('menuitem', { name: 'Duplicates' }).click();
+    await expect(page.getByRole('heading', { name: 'Duplicates', level: 1 })).toBeVisible();
+    await shot('42-tools-duplicates');
     if (failures.length) throw new Error(`Page errors at ${width}px: ${failures.join(' | ')}`);
-    console.log(`✓ ${width}px: questionnaire enquiry reached the founder CRM`);
+    console.log(`✓ ${width}px: enquiry reached the Inbox, was marked replied, and its soft-circled commitment reached Raise`);
     await context.close();
   }
 } finally {

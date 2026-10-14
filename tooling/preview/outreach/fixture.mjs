@@ -161,35 +161,37 @@ export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfi
       levels[level].set(currency, (levels[level].get(currency) ?? 0n) + scaled(amount));
       counts[level] += 1;
     };
-    // Per person (the canonical contact), like svc-ops: each person once, at their highest level, and within it by their most
-    // recent qualifying investor opportunity. A commitment counts while open or closed as proceeded; a stated amount while open.
-    const rank = { committed: 1, soft_circled: 2, indicated: 3, undecided: 4 };
+    // Like svc-ops. Commitments: EVERY commitment is summed, one per opportunity (each is an evidenced founder record; a duplicate
+    // is a founder error for the Duplicates screen to catch), while its enquiry is open or was closed as proceeded.
+    // Indicated and undecided: per person (the canonical contact), from their most recent open enquiry with a stated amount, and
+    // only if they hold no commitment on any opportunity.
+    const investors = rows.filter((opportunity) => opportunity.audience === 'investor');
+    const committedPeople = new Set(investors.filter((opportunity) => opportunity.commitment).map((opportunity) => opportunity.contactId));
     const best = new Map();
-    for (const opportunity of rows) {
-      if (opportunity.audience !== 'investor') continue;
+    for (const opportunity of investors) {
       const open = opportunity.stage !== 'closed';
-      let candidate = null;
       if (opportunity.commitment) {
         if (open || opportunity.closedDisposition === 'proceeded')
-          candidate = { level: opportunity.commitment.tier, ...opportunity.commitment };
-      } else if (open) {
-        const stated = opportunity.indicativeContribution;
-        candidate = stated.status === 'stated' ? { level: 'indicated', ...stated } : { level: 'undecided' };
+          add(opportunity.commitment.tier, opportunity.commitment.currency, opportunity.commitment.amount);
+        continue;
       }
-      if (!candidate) continue;
-      candidate = { ...candidate, createdAt: Date.parse(opportunity.createdAt), id: opportunity.id };
+      if (!open || committedPeople.has(opportunity.contactId)) continue;
+      const stated = opportunity.indicativeContribution;
+      const candidate = {
+        stated: stated.status === 'stated',
+        currency: stated.currency,
+        amount: stated.amount,
+        createdAt: Date.parse(opportunity.createdAt),
+        id: opportunity.id,
+      };
       const prior = best.get(opportunity.contactId);
-      if (
-        !prior ||
-        rank[candidate.level] < rank[prior.level] ||
-        (rank[candidate.level] === rank[prior.level] &&
-          (candidate.createdAt > prior.createdAt || (candidate.createdAt === prior.createdAt && candidate.id > prior.id)))
-      )
+      const newer = (x, y) => x.createdAt > y.createdAt || (x.createdAt === y.createdAt && x.id > y.id);
+      if (!prior || (candidate.stated && !prior.stated) || (candidate.stated === prior.stated && newer(candidate, prior)))
         best.set(opportunity.contactId, candidate);
     }
     for (const candidate of best.values()) {
-      if (candidate.level === 'undecided') counts.undecided += 1;
-      else add(candidate.level, candidate.currency, candidate.amount);
+      if (candidate.stated) add('indicated', candidate.currency, candidate.amount);
+      else counts.undecided += 1;
     }
     const totals = (level) =>
       [...levels[level]]

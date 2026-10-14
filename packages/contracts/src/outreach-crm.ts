@@ -29,35 +29,44 @@ function unique<T extends z.ZodTypeAny>(schema: T, max: number) {
     .refine((values) => new Set(values).size === values.length, 'Duplicate selections are not allowed');
 }
 
-/** Decimal strings only. A stated contribution is indicative, not a balance. */
-export const outreachIndicativeAmountSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('undecided') }).strict(),
+function indicativeAmount(amount: z.ZodString) {
+  return z.discriminatedUnion('status', [
+    z.object({ status: z.literal('undecided') }).strict(),
+    z.object({ status: z.literal('stated'), amount, currency }).strict(),
+  ]);
+}
+const storedDecimal = z
+  .string()
+  .max(60)
+  .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/, 'Amount must be a non-negative decimal string');
+/** Decimal strings only. A stated contribution is indicative, not a balance. This is the STORED rule, so every record already saved still parses. */
+export const outreachIndicativeAmountSchema = indicativeAmount(storedDecimal);
+/**
+ * The same, for NEW questionnaire input only (the public capture/answer path): at most 15 integer digits and 18 decimals
+ * (about a thousand trillion), so every sum the CRM makes stays representable. Stored records keep the wider rule above.
+ */
+export const outreachIntakeIndicativeAmountSchema = indicativeAmount(
   z
-    .object({
-      status: z.literal('stated'),
-      // At most 15 integer digits and 18 decimals (about a thousand trillion), so every sum the CRM makes stays representable.
-      amount: z
-        .string()
-        .max(34)
-        .regex(/^(?:0|[1-9]\d{0,14})(?:\.\d{1,18})?$/, 'Amount must be a non-negative decimal string of at most 15 integer digits'),
-      currency,
-    })
-    .strict(),
-]);
+    .string()
+    .max(34)
+    .regex(/^(?:0|[1-9]\d{0,14})(?:\.\d{1,18})?$/, 'Amount must be a non-negative decimal string of at most 15 integer digits'),
+);
 export type OutreachIndicativeAmount = z.infer<typeof outreachIndicativeAmountSchema>;
 
 export const outreachTimingSchema = z.enum(['as_available', 'within_three_months', 'later', 'undecided']);
 const timingFields = { timing: outreachTimingSchema, message: message.optional() };
 
-const investorAnswers = z
-  .object({
-    investorType: z.enum(['individual', 'family_office', 'fund', 'strategic', 'other']),
-    participation: z.enum(['direct', 'introduction', 'both']),
-    decisionRole: z.enum(['decision_maker', 'adviser', 'introducer', 'other']),
-    indicativeContribution: outreachIndicativeAmountSchema,
-    ...timingFields,
-  })
-  .strict();
+const investorAnswersWith = <A extends z.ZodTypeAny>(indicativeContribution: A) =>
+  z
+    .object({
+      investorType: z.enum(['individual', 'family_office', 'fund', 'strategic', 'other']),
+      participation: z.enum(['direct', 'introduction', 'both']),
+      decisionRole: z.enum(['decision_maker', 'adviser', 'introducer', 'other']),
+      indicativeContribution,
+      ...timingFields,
+    })
+    .strict();
+const investorAnswers = investorAnswersWith(outreachIndicativeAmountSchema);
 
 const traderAnswers = z
   .object({
@@ -116,14 +125,19 @@ const partnerAnswers = z
   })
   .strict();
 
-/** Version is pinned to the published questions; unknown versions refuse. */
-export const outreachQuestionnaireSchema = z.discriminatedUnion('audience', [
-  z.object({ audience: z.literal('investor'), version: z.literal(1), answers: investorAnswers }).strict(),
-  z.object({ audience: z.literal('trader'), version: z.literal(1), answers: traderAnswers }).strict(),
-  z.object({ audience: z.literal('merchant'), version: z.literal(1), answers: merchantAnswers }).strict(),
-  z.object({ audience: z.literal('academy'), version: z.literal(1), answers: academyAnswers }).strict(),
-  z.object({ audience: z.literal('partner'), version: z.literal(1), answers: partnerAnswers }).strict(),
-]);
+function questionnaireUnion<I extends z.ZodTypeAny>(investor: I) {
+  return z.discriminatedUnion('audience', [
+    z.object({ audience: z.literal('investor'), version: z.literal(1), answers: investor }).strict(),
+    z.object({ audience: z.literal('trader'), version: z.literal(1), answers: traderAnswers }).strict(),
+    z.object({ audience: z.literal('merchant'), version: z.literal(1), answers: merchantAnswers }).strict(),
+    z.object({ audience: z.literal('academy'), version: z.literal(1), answers: academyAnswers }).strict(),
+    z.object({ audience: z.literal('partner'), version: z.literal(1), answers: partnerAnswers }).strict(),
+  ]);
+}
+/** Version is pinned to the published questions; unknown versions refuse. This is the STORED questionnaire. */
+export const outreachQuestionnaireSchema = questionnaireUnion(investorAnswers);
+/** The questionnaire as the public may SUBMIT it: the same, with the intake amount cap. Only the public answer path uses it. */
+export const outreachIntakeQuestionnaireSchema = questionnaireUnion(investorAnswersWith(outreachIntakeIndicativeAmountSchema));
 export type OutreachQuestionnaire = z.infer<typeof outreachQuestionnaireSchema>;
 
 export const outreachContactCaptureSchema = z
@@ -172,7 +186,7 @@ export const outreachCaptureReceiptSchema = z
 export type OutreachCaptureReceipt = z.infer<typeof outreachCaptureReceiptSchema>;
 
 export const outreachQuestionnaireInputSchema = outreachContinuationInputSchema
-  .extend({ requestId: id, expectedRevision: z.number().int().positive(), questionnaire: outreachQuestionnaireSchema })
+  .extend({ requestId: id, expectedRevision: z.number().int().positive(), questionnaire: outreachIntakeQuestionnaireSchema })
   .strict();
 export type OutreachQuestionnaireInput = z.infer<typeof outreachQuestionnaireInputSchema>;
 

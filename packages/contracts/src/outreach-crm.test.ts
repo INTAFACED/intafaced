@@ -14,6 +14,8 @@ import {
   ISO_4217_CURRENCIES,
   crmListInputSchema,
   outreachIndicativeAmountSchema,
+  outreachIntakeIndicativeAmountSchema,
+  outreachIntakeQuestionnaireSchema,
   crmStageChangeInputSchema,
   crmStageFitsAudience,
   crmSubmissionSchema,
@@ -530,15 +532,54 @@ describe('outreach and CRM boundary contracts', () => {
     });
 
     it('caps an indicative amount at 15 integer digits and 18 decimals', () => {
-      const stated = (amount: string) => outreachIndicativeAmountSchema.safeParse({ status: 'stated', amount, currency: 'EUR' }).success;
+      const stated = (amount: string) =>
+        outreachIntakeIndicativeAmountSchema.safeParse({ status: 'stated', amount, currency: 'EUR' }).success;
       expect(stated('999999999999999')).toBe(true);
       expect(stated('999999999999999.123456789012345678')).toBe(true);
       expect(stated('1000000000000000')).toBe(false);
       expect(stated('1'.repeat(40))).toBe(false);
       expect(stated('1.1234567890123456789')).toBe(false);
       // Any three-letter code is still accepted at intake; the public picker offers more than ISO 4217.
-      expect(outreachIndicativeAmountSchema.safeParse({ status: 'stated', amount: '5', currency: 'XCG' }).success).toBe(true);
-      expect(outreachIndicativeAmountSchema.safeParse({ status: 'stated', amount: '5', currency: 'BTC' }).success).toBe(true);
+      expect(outreachIntakeIndicativeAmountSchema.safeParse({ status: 'stated', amount: '5', currency: 'XCG' }).success).toBe(true);
+      expect(outreachIntakeIndicativeAmountSchema.safeParse({ status: 'stated', amount: '5', currency: 'BTC' }).success).toBe(true);
+    });
+
+    it('applies the 15-digit cap to new questionnaire input only: stored records of any earlier size still parse', () => {
+      const sixteen = '9007199254740993.000000000000000001';
+      const answers = (amount: string) => ({
+        audience: 'investor',
+        version: 1,
+        answers: {
+          investorType: 'individual',
+          participation: 'direct',
+          decisionRole: 'decision_maker',
+          indicativeContribution: { status: 'stated', amount, currency: 'USD' },
+          timing: 'undecided',
+        },
+      });
+      // Stored: the submission's questionnaire, the draft, and the opportunity's copy.
+      expect(outreachQuestionnaireSchema.safeParse(answers(sixteen)).success).toBe(true);
+      expect(outreachIndicativeAmountSchema.safeParse({ status: 'stated', amount: sixteen, currency: 'USD' }).success).toBe(true);
+      expect(outreachIndicativeAmountSchema.safeParse({ status: 'stated', amount: '1'.repeat(61), currency: 'USD' }).success).toBe(false);
+      expect(
+        crmOpportunitySchema.safeParse({
+          ...OPPORTUNITY_BASE,
+          audience: 'investor',
+          stage: 'new',
+          indicativeContribution: { status: 'stated', amount: sixteen, currency: 'USD' },
+        }).success,
+      ).toBe(true);
+      // New input: the public answer path.
+      expect(outreachIntakeQuestionnaireSchema.safeParse(answers(sixteen)).success).toBe(false);
+      expect(outreachIntakeQuestionnaireSchema.safeParse(answers('999999999999999.000000000000000001')).success).toBe(true);
+      const input = {
+        requestId: REQUEST_ID,
+        submissionId: SUBMISSION_ID,
+        continuationToken: TOKEN,
+        expectedRevision: 1,
+      };
+      expect(outreachQuestionnaireInputSchema.safeParse({ ...input, questionnaire: answers(sixteen) }).success).toBe(false);
+      expect(outreachQuestionnaireInputSchema.safeParse({ ...input, questionnaire: answers('150000') }).success).toBe(true);
     });
 
     it('accepts only real ISO 4217 currencies', () => {
