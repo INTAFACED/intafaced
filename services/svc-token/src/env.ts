@@ -43,10 +43,28 @@ const schema = serviceEnvSchema
         .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
 
       /**
-       * Auto-tick interval in ms. No default — `86400000` is a live 1-day
-       * magnitude; blank / missing is `token.emissions_tick_unset` when
-       * auto-tick is on. Explicit `86400000` is owner-present. AUTO_TICK
-       * default OFF does not excuse inventing the interval.
+       * Emission epoch length in ms: a NEW epoch cannot start sooner than this
+       * after the previous epoch was claimed (`token.epoch_too_early`, measured on
+       * the database clock). Default 86400000 = 1 day — owner-present, Nitro's
+       * pick 2026-10-14. Positive integer only. This is the cadence, NOT the
+       * amount: reward per epoch, supply cap and halving interval stay unset in
+       * `token_params` and owner-only.
+       */
+      EMISSIONS_EPOCH_MS: z.preprocess(
+        // A blank compose pass-through (`${EMISSIONS_EPOCH_MS:-}`) is "not set", not 0.
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().positive().default(86_400_000),
+      ),
+
+      /**
+       * Auto-tick POLL interval in ms (how often the in-process timer asks
+       * "is the next epoch due?"). The time gate above is what enforces the epoch
+       * length, so a poll that is too early is refused harmlessly. Blank / missing
+       * falls back to a poll of min(EMISSIONS_EPOCH_MS, 60000) in index.ts; an
+       * explicit value below 1000 or non-integer is still
+       * `token.emissions_tick_unset`. Keep it well under EMISSIONS_EPOCH_MS: a
+       * tick equal to the epoch length can land a few ms before the gate opens and
+       * wait a whole extra epoch.
        */
       EMISSIONS_TICK_MS: z.string().optional(),
 

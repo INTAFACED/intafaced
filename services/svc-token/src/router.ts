@@ -130,6 +130,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.proposal_not_allowed':
       case 'token.already_voted':
         return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+      // 429: the request is fine, the epoch clock is not ready. The service's own
+      // message says how long to wait (database clock, no secrets), so it is passed
+      // through instead of the dotted-key copy.
+      case 'token.epoch_too_early':
+        return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
       // 409: the request is well-formed, but the revenue window (or the run id)
       // is already spoken for. This is the refusal that used to arrive as a raw
       // PG 23505 — an opaque INTERNAL_SERVER_ERROR, *after* the burn had already
