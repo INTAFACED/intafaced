@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ADMIN_COOKIE,
   adminSessionConfig,
+  AdminSessionError,
+  adminSessionErrorResponse,
   assertAdminCsrf,
   assertAdminOrigin,
   assertCurrentFounder,
@@ -307,6 +309,32 @@ describe('founder admin session security boundaries', () => {
     const authorized = await authorizeAdminRequest(request);
     expect(authorized.session.userId).toBe(USER_ID);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries only a well-formed auth.* upstream code through a refusal', async () => {
+    const trpcError = (data: unknown, status: number) =>
+      vi.fn(async () => Response.json({ error: { json: { message: 'x', data } } }, { status }));
+    vi.stubGlobal('fetch', trpcError({ intafacedCode: 'auth.invite_used', httpStatus: 409 }, 409));
+    await expect(founderEdgeCall(config(), 'identity', 'auth.registerFounder', 'POST', {})).rejects.toMatchObject({
+      code: 'admin.upstream_refused',
+      status: 409,
+      upstreamCode: 'auth.invite_used',
+    });
+    vi.stubGlobal('fetch', trpcError({ cause: { code: 'auth.invalid_credentials' } }, 401));
+    await expect(founderEdgeCall(config(), 'identity', 'auth.login', 'POST', {})).rejects.toMatchObject({
+      code: 'admin.authority_refused',
+      upstreamCode: 'auth.invalid_credentials',
+    });
+    for (const odd of ['ledger.insufficient_funds', 'auth.<script>', 'auth.', 42, 'AUTH.X']) {
+      vi.stubGlobal('fetch', trpcError({ intafacedCode: odd }, 400));
+      const refusal = await founderEdgeCall(config(), 'identity', 'auth.login', 'POST', {}).catch((e: unknown) => e);
+      expect((refusal as { upstreamCode?: string }).upstreamCode).toBeUndefined();
+    }
+    const response = adminSessionErrorResponse(new AdminSessionError('admin.upstream_refused', 409, 'auth.invite_used'));
+    expect(await response.json()).toEqual({ code: 'admin.upstream_refused', upstreamCode: 'auth.invite_used' });
+    expect(await adminSessionErrorResponse(new AdminSessionError('admin.upstream_refused', 503)).json()).toEqual({
+      code: 'admin.upstream_refused',
+    });
   });
 
   it('maps upstream authorization failures to a refusal and rejects non-success status', async () => {
