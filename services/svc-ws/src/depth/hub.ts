@@ -215,7 +215,9 @@ const NO_LOG: HubLogger = { info: () => undefined, warn: () => undefined };
 export class DepthHub {
   readonly #source: DepthSource;
   readonly #registry: MarketRegistry;
-  readonly #options: Required<Omit<DepthHubOptions, 'registry' | 'muxMaxConnections' | 'onMatchingAvailabilityChange' | 'onMatchingTradingChange'>>;
+  readonly #options: Required<
+    Omit<DepthHubOptions, 'registry' | 'muxMaxConnections' | 'onMatchingAvailabilityChange' | 'onMatchingTradingChange'>
+  >;
   readonly #onMatchingAvailabilityChange?: (available: boolean) => void;
   readonly #onMatchingTradingChange?: (
     marketId: string,

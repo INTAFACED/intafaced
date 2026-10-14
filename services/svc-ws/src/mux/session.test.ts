@@ -95,7 +95,14 @@ interface Rig {
 }
 
 function rig(overrides: Partial<MuxSessionDeps> = {}, hubMax = 50, source: DepthSource = new StubSource()): Rig {
-  const depth = new DepthHub(source, { depthLimit: 50, highWaterBytes: 1000, maxLagTicks: 3, maxConnections: hubMax, muxMaxConnections: hubMax, marketsRefreshMs: 0 });
+  const depth = new DepthHub(source, {
+    depthLimit: 50,
+    highWaterBytes: 1000,
+    maxLagTicks: 3,
+    maxConnections: hubMax,
+    muxMaxConnections: hubMax,
+    marketsRefreshMs: 0,
+  });
   const trades = new TradeHub({
     highWaterBytes: 1000,
     maxLagTicks: 3,
@@ -481,7 +488,8 @@ describe('limits', () => {
     const tight = rig({ maxOpsPerSecond: 10, maxSubscriptions: 100 });
     await tight.depth.refreshMarkets();
     tight.session.start();
-    const six = (market: string) => Array.from({ length: 6 }, (_, i) => ({ ch: 'candles', market, interval: (['1m', '5m', '15m', '1h', '4h', '1d'] as const)[i] }));
+    const six = (market: string) =>
+      Array.from({ length: 6 }, (_, i) => ({ ch: 'candles', market, interval: (['1m', '5m', '15m', '1h', '4h', '1d'] as const)[i] }));
     await tight.send({ op: 'subscribe', channels: six(BTC) }); // 6 of 10 tokens
     expect(tight.socket.closed).toBeNull();
     expect(tight.session.subscriptions).toBe(6);
