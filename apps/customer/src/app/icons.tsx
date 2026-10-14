@@ -16,6 +16,17 @@ import {
   Wallet,
   ArrowUpFromLine,
   TrendingUp,
+  Coins,
+  HandCoins,
+  Scale,
+  CalendarClock,
+  Layers,
+  Copy,
+  Bot,
+  Sparkles,
+  Users,
+  CreditCard,
+  Gem,
 } from 'lucide-react';
 
 export type ShellIconName =
@@ -34,7 +45,18 @@ export type ShellIconName =
   | 'search'
   | 'bell'
   | 'user'
-  | 'chevron';
+  | 'chevron'
+  | 'earn'
+  | 'loans'
+  | 'margin'
+  | 'futures'
+  | 'options'
+  | 'copy'
+  | 'bots'
+  | 'agents'
+  | 'p2p'
+  | 'card'
+  | 'ifc';
 
 const icons: Record<ShellIconName, LucideIcon> = {
   home: House,
@@ -53,6 +75,17 @@ const icons: Record<ShellIconName, LucideIcon> = {
   bell: Bell,
   user: User,
   chevron: ChevronDown,
+  earn: Coins,
+  loans: HandCoins,
+  margin: Scale,
+  futures: CalendarClock,
+  options: Layers,
+  copy: Copy,
+  bots: Bot,
+  agents: Sparkles,
+  p2p: Users,
+  card: CreditCard,
+  ifc: Gem,
 };
 
 export function ShellIcon({ name, size = 20 }: { name: ShellIconName; size?: number }) {

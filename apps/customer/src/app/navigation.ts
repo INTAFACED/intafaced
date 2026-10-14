@@ -86,16 +86,37 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   { path: '/uc/money', title: 'Money', description: 'Your holdings', door: 'Money', area: 'money', alias: '/money' },
-  { path: '/uc/recharge', title: 'Deposit', description: 'Add funds', door: 'Money', area: 'money' },
-  { path: '/uc/withdraw', title: 'Withdraw', description: 'Withdraw available funds', door: 'Money', area: 'money' },
+  { path: '/uc/recharge', title: 'Deposit', description: 'Add funds', door: 'Money', area: 'money', screen: 'preview/deposit' },
+  {
+    path: '/uc/withdraw',
+    title: 'Withdraw',
+    description: 'Withdraw available funds',
+    door: 'Money',
+    area: 'money',
+    screen: 'preview/withdraw',
+  },
   { path: '/uc/withdraw/address', title: 'Addresses', description: 'Withdrawal destinations', door: 'Money', area: 'money' },
   { path: '/uc/record', title: 'Activity', description: 'Money moving in and out', door: 'Money', area: 'money', alias: '/money/activity' },
   { path: '/bank', title: 'Bank', description: 'The bank behind your balance', door: 'Money', area: 'money', alias: '/money' },
   { path: '/bank/spaces', title: 'Spaces', description: 'Organise funds for your goals', door: 'Money', area: 'money' },
   { path: '/bank/transfers', title: 'Transfers', description: 'Move funds between your spaces', door: 'Money', area: 'money' },
-  { path: '/bank/earn', title: 'Earn', description: 'Available earning products', door: 'Money', area: 'money' },
-  { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Money', area: 'money' },
-  { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Money', area: 'money' },
+  { path: '/bank/earn', title: 'Earn', description: 'Available earning products', door: 'Money', area: 'money', screen: 'preview/earn' },
+  {
+    path: '/bank/loans',
+    title: 'Loans',
+    description: 'Applications and repayments',
+    door: 'Money',
+    area: 'money',
+    screen: 'preview/loans',
+  },
+  {
+    path: '/bank/cards',
+    title: 'Cards',
+    description: 'Card issuer availability and controls',
+    door: 'Money',
+    area: 'money',
+    screen: 'preview/card',
+  },
   { path: '/bank/ramps', title: 'Cash and crypto', description: 'Onramps and offramps', door: 'Money', area: 'money' },
   { path: '/bank/analytics', title: 'Spending', description: 'Understand your activity', door: 'Money', area: 'money' },
   { path: '/bank/business', title: 'Business bank', description: 'Company cash accounts', door: 'Money', area: 'money', business: true },
@@ -127,11 +148,32 @@ export const rooms: readonly Room[] = [
     area: 'trade',
     screen: 'trade/buy',
   },
-  { path: '/trade/margin', title: 'Margin', description: 'Cross or isolated trading', door: 'Trade', area: 'trade' },
-  { path: '/trade/futures', title: 'Futures', description: 'Perpetual and dated contracts', door: 'Trade', area: 'trade' },
-  { path: '/trade/options', title: 'Options', description: 'Calls, strikes and puts', door: 'Trade', area: 'trade' },
-  { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade' },
-  { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
+  {
+    path: '/trade/margin',
+    title: 'Margin',
+    description: 'Cross or isolated trading',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'preview/margin',
+  },
+  {
+    path: '/trade/futures',
+    title: 'Futures',
+    description: 'Perpetual and dated contracts',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'preview/futures',
+  },
+  {
+    path: '/trade/options',
+    title: 'Options',
+    description: 'Calls, strikes and puts',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'preview/options',
+  },
+  { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade', screen: 'preview/copy' },
+  { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade', screen: 'preview/bots' },
   {
     path: '/trade/convert',
     title: 'Convert',
@@ -166,7 +208,14 @@ export const rooms: readonly Room[] = [
   { path: '/pay/receive', title: 'Receive', description: 'Receive into your account', door: 'Pay', area: 'pay', screen: 'pay' },
   { path: '/pay/bills', title: 'Bill pay', description: 'Pay a bill', door: 'Pay', area: 'pay' },
   { path: '/pay/global', title: 'Send globally', description: 'Send to a bank account abroad', door: 'Pay', area: 'pay' },
-  { path: '/p2p', title: 'Person-to-person', description: 'Offers, orders and counterparties', door: 'Pay', area: 'pay' },
+  {
+    path: '/p2p',
+    title: 'Person-to-person',
+    description: 'Offers, orders and counterparties',
+    door: 'Pay',
+    area: 'pay',
+    screen: 'preview/p2p',
+  },
   { path: '/ctc', title: 'Person-to-person', description: 'Offers and orders', door: 'Pay', area: 'pay', alias: '/p2p' },
   { path: '/uc/ad', title: 'My offers', description: 'Manage your person-to-person offers', door: 'Pay', area: 'pay' },
   { path: '/uc/ad/create', title: 'Create offer', description: 'Publish a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
@@ -233,7 +282,16 @@ export const rooms: readonly Room[] = [
     description,
     door: 'More' as const,
     area: 'more' as const,
+    ...(slug === 'agents' ? { screen: 'preview/agents' as const } : {}),
   })),
+  {
+    path: '/ifc',
+    title: 'IFC',
+    description: 'Staking tiers and fee discounts',
+    door: 'More',
+    area: 'more',
+    screen: 'preview/ifc',
+  },
   { path: '/uc/innovation/myorders', title: 'Launch orders', description: 'Your asset launch orders', door: 'More', area: 'more' },
   { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
@@ -323,7 +381,12 @@ export function doorLabel(door: Door, locale: UiLocale = currentPreferences().la
   return navigationCopy.forLocale(locale).t(door);
 }
 /** Pages offered by search: visible routes only. Aliases, parameter routes and hidden features never appear. */
-export function searchRooms(query: string, mode: 'Personal' | 'Business', locale: UiLocale = currentPreferences().language): Room[] {
+export function searchRooms(
+  query: string,
+  mode: 'Personal' | 'Business',
+  locale: UiLocale = currentPreferences().language,
+  previewEnabled: boolean = isPreviewEnabled(),
+): Room[] {
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   return rooms.filter(
     (room) =>
@@ -332,7 +395,7 @@ export function searchRooms(query: string, mode: 'Personal' | 'Business', locale
       !['team', 'parked'].includes(room.area) &&
       // Public marketing pages are not part of the signed-in app; Help is the one public page customers look for.
       (room.area !== 'public' || room.path === '/help') &&
-      !isHiddenPath(room.path) &&
+      !isHiddenPath(room.path, previewEnabled) &&
       (!room.business || mode === 'Business') &&
       words.every((word) =>
         `${room.title} ${room.description} ${room.door ?? ''} ${roomTitle(room, locale)} ${roomDescription(room, locale)} ${room.door ? doorLabel(room.door, locale) : ''}`
@@ -370,6 +433,6 @@ export const doors: ReadonlyArray<{ name: Door; path: string }> = [
 import { navigationCopy, type NavigationCopyKey } from './navigation-copy';
 import { currentPreferences } from '../shared/preferences';
 import type { UiLocale } from '../shared/i18n';
-import { isHiddenPath } from './feature-registry';
+import { isHiddenPath, isPreviewEnabled } from './feature-registry';
 import { hasPattern, matchPath } from './path-match';
 import type { ScreenId } from './screen-types';

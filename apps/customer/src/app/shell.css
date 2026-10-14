@@ -170,9 +170,16 @@
     min-width: 0;
   }
   .tb-menu-item strong {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 14px;
     line-height: 20px;
     font-weight: 500;
+  }
+  .tb-menu-item strong .if-preview-chip {
+    display: inline-flex;
+    flex-direction: row;
   }
   .tb-menu-item small {
     font-size: 12px;
@@ -454,6 +461,10 @@
   }
   .tb-tag--hidden {
     color: var(--tb-fg-2);
+  }
+  .tb-tag--preview {
+    border-color: var(--tb-line);
+    color: var(--tb-fg);
   }
 
   /* Below 1000 px the 240 px search shrinks to an icon button: tabs, search, bell and account no longer fit side by side (768 px overflowed by 75 px). The input stays in place, transparent, so a tap still opens the results and Cmd+K still focuses it. */

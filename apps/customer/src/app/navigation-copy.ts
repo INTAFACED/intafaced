@@ -82,6 +82,8 @@ const messages = {
   'Cross or isolated trading': 'Cross or isolated trading',
   Futures: 'Futures',
   'Perpetual and dated contracts': 'Perpetual and dated contracts',
+  IFC: 'IFC',
+  'Staking tiers and fee discounts': 'Staking tiers and fee discounts',
   Options: 'Options',
   'Calls, strikes and puts': 'Calls, strikes and puts',
   Copy: 'Copy',

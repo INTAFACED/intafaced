@@ -6,8 +6,15 @@ import { hasPattern, matchPath } from './path-match';
  * nothing hidden is linked anywhere. A row becomes `live` only when its screen loads
  * real data on the local stack with no refusal; whoever flips it writes the evidence
  * in the pull request.
+ *
+ * Three states (PRO-TERMINAL-PLAN section 11):
+ * - `live`: real screen, real data.
+ * - `preview`: a screen that shows clearly labelled SAMPLE data (apps/customer/src/preview) and sends nothing. It is
+ *   reachable and carries a "Preview" chip only while the build flag allows Preview (`isPreviewEnabled`). With the flag
+ *   off, a `preview` row behaves exactly like a `hidden` one.
+ * - `hidden`: not linked anywhere; a customer build redirects it to its tab home.
  */
-export type FeatureStatus = 'live' | 'hidden';
+export type FeatureStatus = 'live' | 'preview' | 'hidden';
 export type FeatureTab = 'home' | 'money' | 'trade' | 'pay' | 'more' | 'person' | 'public';
 
 export interface Feature {
@@ -50,15 +57,24 @@ export const features: readonly Feature[] = [
     id: 'deposit',
     label: 'Deposit',
     paths: ['/uc/recharge'],
-    status: 'hidden',
-    reason: 'Custody is not connected',
+    status: 'preview',
+    reason: 'Custody is not connected; the screen shows sample data and sends nothing',
     unlock: 'deposit address endpoint (U10) + custody',
     tab: 'money',
   },
   {
     id: 'withdraw',
     label: 'Withdraw',
-    paths: ['/uc/withdraw', '/uc/withdraw/address'],
+    paths: ['/uc/withdraw'],
+    status: 'preview',
+    reason: 'Custody withdrawal is not connected; the screen shows sample data and sends nothing',
+    unlock: 'custody contract',
+    tab: 'money',
+  },
+  {
+    id: 'withdraw-addresses',
+    label: 'Withdrawal addresses',
+    paths: ['/uc/withdraw/address'],
     status: 'hidden',
     reason: 'Custody withdrawal is not connected',
     unlock: 'custody contract',
@@ -76,38 +92,101 @@ export const features: readonly Feature[] = [
   {
     id: 'bank',
     label: 'Bank',
-    paths: [
-      '/bank/spaces',
-      '/bank/transfers',
-      '/bank/earn',
-      '/bank/loans',
-      '/bank/cards',
-      '/bank/ramps',
-      '/bank/analytics',
-      '/bank/business',
-    ],
+    paths: ['/bank/spaces', '/bank/transfers', '/bank/ramps', '/bank/analytics', '/bank/business'],
     status: 'hidden',
-    reason: 'Not part of the new Money tab; earn rate, loans, cards, ramps not set up',
+    reason: 'Not part of the new Money tab; ramps not set up',
     unlock: 'product decision per feature',
     tab: 'money',
   },
   {
-    id: 'margin-futures-options',
-    label: 'Margin, Futures, Options',
-    paths: ['/trade/margin', '/trade/futures', '/trade/options'],
-    status: 'hidden',
-    reason: 'Contracts or flags not live',
-    unlock: 'per contract',
+    id: 'margin',
+    label: 'Margin',
+    paths: ['/trade/margin'],
+    status: 'preview',
+    reason: 'Spot margin does not exist on the back end yet; sample data only',
+    unlock: 'margin contract + owner numbers',
     tab: 'trade',
   },
   {
-    id: 'copy-bots-execution-quote',
-    label: 'Copy, Bots, Execution, Quote desk',
-    paths: ['/trade/copy', '/trade/bots', '/execution', '/otc', '/otc/*'],
+    id: 'futures',
+    label: 'Futures',
+    paths: ['/trade/futures'],
+    status: 'preview',
+    reason: 'Futures are gated on the back end; sample data only',
+    unlock: 'TRADE_FUTURES_ENABLED + owner leverage and funding numbers',
+    tab: 'trade',
+  },
+  {
+    id: 'options',
+    label: 'Options',
+    paths: ['/trade/options'],
+    status: 'preview',
+    reason: 'Options are only partly built on the back end; sample data only',
+    unlock: 'options contract',
+    tab: 'trade',
+  },
+  {
+    id: 'copy',
+    label: 'Copy trading',
+    paths: ['/trade/copy'],
+    status: 'preview',
+    reason: 'Fee-share rules are not set; sample data only',
+    unlock: 'owner fee-share law',
+    tab: 'trade',
+  },
+  {
+    id: 'bots',
+    label: 'Trading bots',
+    paths: ['/trade/bots'],
+    status: 'preview',
+    reason: 'The algo scheduler is off; sample data only',
+    unlock: 'algo scheduler + bot product',
+    tab: 'trade',
+  },
+  {
+    id: 'execution-quote',
+    label: 'Execution and Quote desk',
+    paths: ['/execution', '/otc', '/otc/*'],
     status: 'hidden',
     reason: 'Not a first-release customer path',
     unlock: 'per contract',
     tab: 'trade',
+  },
+  {
+    id: 'earn',
+    label: 'Earn',
+    paths: ['/bank/earn'],
+    status: 'preview',
+    reason: 'Earn rate is not set (bank.earn_rate_unset); sample data only',
+    unlock: 'owner earn rates',
+    tab: 'money',
+  },
+  {
+    id: 'loans',
+    label: 'Loans',
+    paths: ['/bank/loans'],
+    status: 'preview',
+    reason: 'Owner numbers for loan terms are not set; sample data only',
+    unlock: 'owner loan numbers',
+    tab: 'money',
+  },
+  {
+    id: 'card',
+    label: 'Card',
+    paths: ['/bank/cards'],
+    status: 'preview',
+    reason: 'No card issuer; sample data only',
+    unlock: 'issuer contract',
+    tab: 'pay',
+  },
+  {
+    id: 'ifc',
+    label: 'IFC',
+    paths: ['/ifc'],
+    status: 'preview',
+    reason: 'IFC is a ledger entry with no chain yet; sample data only',
+    unlock: 'owner token decisions',
+    tab: 'more',
   },
   {
     id: 'buy-flow',
@@ -161,8 +240,17 @@ export const features: readonly Feature[] = [
   },
   {
     id: 'p2p',
-    label: 'Person-to-person',
-    paths: ['/p2p', '/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/chat', '/checkuser'],
+    label: 'Person-to-person trading',
+    paths: ['/p2p'],
+    status: 'preview',
+    reason: "Needs owner's instrument encryption provider; sample data only",
+    unlock: 'owner',
+    tab: 'pay',
+  },
+  {
+    id: 'p2p-ads-orders',
+    label: 'P2P ads, orders and chat',
+    paths: ['/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/chat', '/checkuser'],
     status: 'hidden',
     reason: "Needs owner's instrument encryption provider",
     unlock: 'owner',
@@ -179,11 +267,10 @@ export const features: readonly Feature[] = [
   },
   {
     id: 'more-rooms',
-    label: 'Academy, Agents, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
+    label: 'Academy, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
     paths: [
       '/academy',
       '/academy/:slug',
-      '/agents',
       '/quant',
       '/quant/studio',
       '/quant/backtest',
@@ -201,6 +288,15 @@ export const features: readonly Feature[] = [
     status: 'hidden',
     reason: 'Not a first-release customer path, or service/data not ready',
     unlock: 'per feature',
+    tab: 'more',
+  },
+  {
+    id: 'agents',
+    label: 'Agents',
+    paths: ['/agents'],
+    status: 'preview',
+    reason: 'The agent service is built but hidden; sample data only',
+    unlock: 'agent service launch',
     tab: 'more',
   },
   {
@@ -281,16 +377,40 @@ export function isFeatureLive(id: string): boolean {
   return featureById(id)?.status === 'live';
 }
 
+/**
+ * Does this build show Preview products? Governed by the build flag `VITE_PREVIEW_PRODUCTS` (`1` on, `0` off):
+ * - Unset: on for dev (`vite dev`) and the local test stack build, OFF in every other build, so a production build
+ *   never shows Preview by default. The founder decides about production at launch.
+ * - Staging builds set `VITE_PREVIEW_PRODUCTS=1`.
+ * Any other value is treated as off. Pass `env` in tests.
+ */
+export function isPreviewEnabled(
+  env: { DEV?: boolean; VITE_LOCAL_TEST?: string; VITE_PREVIEW_PRODUCTS?: string } = import.meta.env,
+): boolean {
+  const flag = env.VITE_PREVIEW_PRODUCTS;
+  if (flag === '1') return true;
+  if (flag !== undefined && flag !== '') return false;
+  return Boolean(env.DEV) || env.VITE_LOCAL_TEST === '1';
+}
+
+/** A `preview` row is only a preview while the build allows it; with the flag off it is hidden. */
+export function effectiveStatus(feature: Feature, previewEnabled: boolean = isPreviewEnabled()): FeatureStatus {
+  return feature.status === 'preview' && !previewEnabled ? 'hidden' : feature.status;
+}
+export function isFeaturePreview(id: string, previewEnabled: boolean = isPreviewEnabled()): boolean {
+  const feature = featureById(id);
+  return feature !== undefined && effectiveStatus(feature, previewEnabled) === 'preview';
+}
+
 function patternMatches(pattern: string, path: string): boolean {
   return pattern === path || (hasPattern(pattern) && matchPath(pattern, path) !== undefined);
 }
 
-/** The hidden feature that owns `path` (and `search`, for hidden query strings), if any. */
-export function hiddenFeatureFor(path: string, search = ''): Feature | undefined {
+function featureOwning(path: string, search: string, status: FeatureStatus, previewEnabled: boolean): Feature | undefined {
   const query = new URLSearchParams(search);
   return features.find(
     (feature) =>
-      feature.status === 'hidden' &&
+      effectiveStatus(feature, previewEnabled) === status &&
       (feature.paths.some((pattern) => patternMatches(pattern, path)) ||
         (feature.queries ?? []).some((pair) => {
           const [name = '', value = ''] = pair.split('=');
@@ -298,8 +418,23 @@ export function hiddenFeatureFor(path: string, search = ''): Feature | undefined
         })),
   );
 }
-export function isHiddenPath(path: string): boolean {
-  return hiddenFeatureFor(path) !== undefined;
+
+/**
+ * The hidden feature that owns `path` (and `search`, for hidden query strings), if any. A `preview` row counts as
+ * hidden while the build flag is off (see `isPreviewEnabled`).
+ */
+export function hiddenFeatureFor(path: string, search = '', previewEnabled: boolean = isPreviewEnabled()): Feature | undefined {
+  return featureOwning(path, search, 'hidden', previewEnabled);
+}
+export function isHiddenPath(path: string, previewEnabled: boolean = isPreviewEnabled()): boolean {
+  return hiddenFeatureFor(path, '', previewEnabled) !== undefined;
+}
+/** The Preview feature that owns `path`, when the build shows Preview; undefined otherwise. */
+export function previewFeatureFor(path: string, previewEnabled: boolean = isPreviewEnabled()): Feature | undefined {
+  return featureOwning(path, '', 'preview', previewEnabled);
+}
+export function isPreviewPath(path: string, previewEnabled: boolean = isPreviewEnabled()): boolean {
+  return previewFeatureFor(path, previewEnabled) !== undefined;
 }
 
 const tabHomes: Record<FeatureTab, string> = {

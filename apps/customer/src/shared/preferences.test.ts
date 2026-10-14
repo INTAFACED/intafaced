@@ -130,3 +130,31 @@ describe('canonical device preference admission', () => {
     expect(p.currentDailyPreferenceEpoch()).toBe(epoch);
   });
 });
+
+describe('layout mode: Pro unless the person picked a mode', () => {
+  it('defaults to Pro for a new visitor', async () => {
+    const p = await setup();
+    expect(p.currentPreferences()).toMatchObject({ layoutMode: 'pro', layoutModeChosen: false });
+  });
+  it('moves an older save that holds the old default (simple, never chosen) to Pro', async () => {
+    const p = await setup(JSON.stringify({ language: 'en', layoutMode: 'simple' }));
+    expect(p.currentPreferences().layoutMode).toBe('pro');
+    const stored = await setup(JSON.stringify({ language: 'en', timeZone: 'UTC', hideBalances: true, layoutMode: 'simple' }));
+    expect(stored.currentPreferences()).toMatchObject({ layoutMode: 'pro', hideBalances: true });
+  });
+  it('keeps Simple once the person has picked it, across a reload', async () => {
+    const p = await setup();
+    p.savePreferences({ layoutMode: 'simple' });
+    expect(p.currentPreferences()).toMatchObject({ layoutMode: 'simple', layoutModeChosen: true });
+    p.savePreferences({ hideBalances: true });
+    expect(p.currentPreferences().layoutMode).toBe('simple');
+    const again = await setup(p.raw());
+    expect(again.currentPreferences().layoutMode).toBe('simple');
+  });
+  it('keeps an explicit Pro choice and leaves other fields alone', async () => {
+    const p = await setup();
+    p.savePreferences({ layoutMode: 'pro' });
+    const again = await setup(p.raw());
+    expect(again.currentPreferences()).toMatchObject({ layoutMode: 'pro', layoutModeChosen: true });
+  });
+});

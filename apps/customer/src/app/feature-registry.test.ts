@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { featureById, features, hiddenFeatureFor, isFeatureLive, isHiddenPath, tabHome } from './feature-registry';
+import {
+  effectiveStatus,
+  featureById,
+  features,
+  hiddenFeatureFor,
+  isFeatureLive,
+  isFeaturePreview,
+  isHiddenPath,
+  isPreviewEnabled,
+  isPreviewPath,
+  previewFeatureFor,
+  tabHome,
+} from './feature-registry';
+import { previewProductIds, previewProducts } from '../preview/products';
 import { findRoom } from './navigation';
 import { matchPath } from './path-match';
 import { tabSpecs } from './menus';
@@ -41,7 +54,7 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/notice/42',
       '/partner',
     ])
-      expect(isHiddenPath(path), path).toBe(true);
+      expect(isHiddenPath(path, false), path).toBe(true);
     for (const path of [
       '/home',
       '/money',
@@ -67,21 +80,21 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/',
       '/pay/checkout',
     ])
-      expect(isHiddenPath(path), path).toBe(false);
+      expect(isHiddenPath(path, false), path).toBe(false);
   });
   it('hides simulated markets by their query string', () => {
-    expect(hiddenFeatureFor('/trade', '?simulated=true')?.id).toBe('simulated-markets');
-    expect(hiddenFeatureFor('/trade', '?simulated=false')).toBeUndefined();
-    expect(hiddenFeatureFor('/trade', '')).toBeUndefined();
+    expect(hiddenFeatureFor('/trade', '?simulated=true', false)?.id).toBe('simulated-markets');
+    expect(hiddenFeatureFor('/trade', '?simulated=false', false)).toBeUndefined();
+    expect(hiddenFeatureFor('/trade', '', false)).toBeUndefined();
   });
   it('sends a hidden path to its tab home, and none of those homes is hidden', () => {
     expect(tabHome(featureById('deposit')!)).toBe('/money');
-    expect(tabHome(featureById('margin-futures-options')!)).toBe('/trade');
+    expect(tabHome(featureById('futures')!)).toBe('/trade');
     expect(tabHome(featureById('p2p')!)).toBe('/pay');
     expect(tabHome(featureById('more-rooms')!)).toBe('/more');
     expect(tabHome(featureById('promotions-dividends')!)).toBe('/more');
     expect(tabHome(featureById('public-extras')!)).toBe('/');
-    for (const feature of features) expect(isHiddenPath(tabHome(feature)), feature.id).toBe(false);
+    for (const feature of features) expect(isHiddenPath(tabHome(feature), false), feature.id).toBe(false);
   });
   it('records the live re-check, with evidence, for Help and Notifications', () => {
     for (const id of ['help-support', 'notifications']) {
@@ -114,7 +127,7 @@ describe('path matching', () => {
 
 describe('top-bar menus list only live features', () => {
   const titles = (door: string, mode: 'simple' | 'pro' = 'simple') =>
-    tabSpecs(mode)
+    tabSpecs(mode, true, false)
       .find((tab) => tab.door === door)!
       .items.map((item) => item.title);
   it('matches the spec rows', () => {
@@ -127,25 +140,95 @@ describe('top-bar menus list only live features', () => {
   });
   it('links no hidden path and uses only plain words', () => {
     const { t } = shellCopy.forLocale('en');
-    for (const tab of tabSpecs('simple'))
-      for (const item of tab.items) {
-        expect(isHiddenPath(item.href.split('?')[0] ?? ''), item.href).toBe(false);
-        expect(`${t(item.title)} ${t(item.description)}`).not.toMatch(
-          /unavailable|not connected|restricted|fixture|lifecycle|room|door|ledger/i,
-        );
-      }
+    for (const previewEnabled of [false, true])
+      for (const tab of tabSpecs('simple', true, previewEnabled))
+        for (const item of tab.items) {
+          expect(isHiddenPath(item.href.split('?')[0] ?? '', previewEnabled), item.href).toBe(false);
+          expect(`${t(item.title)} ${t(item.description)}`).not.toMatch(
+            /unavailable|not connected|restricted|fixture|lifecycle|room|door|ledger|demo|fake|mock/i,
+          );
+        }
   });
   it('sends a signed-out visitor to the public Help centre, never to a page that needs a session', () => {
-    const more = tabSpecs('simple', false).find((tab) => tab.door === 'More')!;
+    const more = tabSpecs('simple', false, false).find((tab) => tab.door === 'More')!;
     expect(more.href).toBe('/help');
     expect(more.items.map((item) => item.href)).toEqual(['/help']);
     for (const path of ['/help']) expect(findRoom(path)?.area).toBe('public');
-    const signedIn = tabSpecs('simple', true).find((tab) => tab.door === 'More')!;
+    const signedIn = tabSpecs('simple', true, false).find((tab) => tab.door === 'More')!;
     expect(signedIn.href).toBe('/more');
     expect(signedIn.items.map((item) => item.href)).toEqual(['/support', '/view']);
   });
   it('points the Trade tab at the markets list in Simple and the desk in Pro', () => {
-    expect(tabSpecs('simple').find((tab) => tab.door === 'Trade')?.href).toBe('/trade');
-    expect(tabSpecs('pro').find((tab) => tab.door === 'Trade')?.href).toBe('/trade/spot/BTC-USDT');
+    expect(tabSpecs('simple', true, false).find((tab) => tab.door === 'Trade')?.href).toBe('/trade');
+    expect(tabSpecs('pro', true, false).find((tab) => tab.door === 'Trade')?.href).toBe('/trade/spot/BTC-USDT');
+  });
+});
+
+describe('the preview state and its build flag', () => {
+  it('is on for dev and the local test stack, off in a plain production build', () => {
+    expect(isPreviewEnabled({ DEV: true })).toBe(true);
+    expect(isPreviewEnabled({ VITE_LOCAL_TEST: '1' })).toBe(true);
+    expect(isPreviewEnabled({ DEV: false })).toBe(false);
+    expect(isPreviewEnabled({})).toBe(false);
+    expect(isPreviewEnabled({ VITE_LOCAL_TEST: '0' })).toBe(false);
+  });
+  it('lets VITE_PREVIEW_PRODUCTS decide: 1 turns it on (staging), anything else turns it off', () => {
+    expect(isPreviewEnabled({ DEV: false, VITE_PREVIEW_PRODUCTS: '1' })).toBe(true);
+    expect(isPreviewEnabled({ DEV: true, VITE_PREVIEW_PRODUCTS: '0' })).toBe(false);
+    expect(isPreviewEnabled({ DEV: true, VITE_PREVIEW_PRODUCTS: 'true' })).toBe(false);
+    expect(isPreviewEnabled({ DEV: true, VITE_PREVIEW_PRODUCTS: '' })).toBe(true);
+  });
+  it('has a preview row, a room, a screen and a fixture for every product', () => {
+    for (const id of previewProductIds) {
+      const feature = featureById(id);
+      expect(feature?.status, id).toBe('preview');
+      expect(feature?.paths, id).toEqual([previewProducts[id].path]);
+      expect(findRoom(previewProducts[id].path)?.screen, id).toBe(`preview/${id}`);
+    }
+    expect(
+      features
+        .filter((feature) => feature.status === 'preview')
+        .map((feature) => feature.id)
+        .sort(),
+    ).toEqual([...previewProductIds].sort());
+  });
+  it('treats a preview row as preview with the flag on and exactly like hidden with it off', () => {
+    const futures = featureById('futures')!;
+    expect(effectiveStatus(futures, true)).toBe('preview');
+    expect(effectiveStatus(futures, false)).toBe('hidden');
+    expect(effectiveStatus(featureById('buy-flow')!, false)).toBe('live');
+    expect(effectiveStatus(featureById('bank')!, true)).toBe('hidden');
+    for (const id of previewProductIds) {
+      const path = previewProducts[id].path;
+      expect(isPreviewPath(path, true), id).toBe(true);
+      expect(isHiddenPath(path, true), id).toBe(false);
+      expect(previewFeatureFor(path, true)?.id, id).toBe(id);
+      expect(isPreviewPath(path, false), id).toBe(false);
+      expect(isHiddenPath(path, false), id).toBe(true);
+      expect(hiddenFeatureFor(path, '', false)?.id, id).toBe(id);
+      expect(isFeaturePreview(id, true), id).toBe(true);
+      expect(isFeaturePreview(id, false), id).toBe(false);
+      expect(isFeatureLive(id), id).toBe(false);
+    }
+    expect(isPreviewPath('/trade/spot/BTC-USDT', true)).toBe(false);
+  });
+  it('keeps the other paths of a split row hidden even with preview on', () => {
+    for (const path of ['/uc/withdraw/address', '/uc/ad/create', '/otc', '/bank/spaces']) expect(isHiddenPath(path, true), path).toBe(true);
+  });
+  it('lists the preview rows in the top-bar menus with a chip flag only when the flag is on', () => {
+    const rows = (previewEnabled: boolean) =>
+      tabSpecs('pro', true, previewEnabled).flatMap((tab) => tab.items.filter((item) => item.preview).map((item) => item.id));
+    expect(rows(false)).toEqual([]);
+    expect([...rows(true)].sort()).toEqual([...previewProductIds].sort());
+    const { t } = shellCopy.forLocale('en');
+    for (const tab of tabSpecs('pro', true, true))
+      for (const item of tab.items.filter((candidate) => candidate.preview)) {
+        expect(item.href, item.id).toBe(previewProducts[item.id as keyof typeof previewProducts].path);
+        expect(t(item.title), item.id).toBe(previewProducts[item.id as keyof typeof previewProducts].name);
+        expect(t(item.description), item.id).toBe(previewProducts[item.id as keyof typeof previewProducts].line);
+      }
+  });
+  it('shows preview rows only to a signed-in visitor where the room needs a session', () => {
+    expect(tabSpecs('pro', false, true).flatMap((tab) => tab.items.map((item) => item.id))).not.toContain('ifc');
   });
 });

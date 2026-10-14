@@ -1,0 +1,98 @@
+/*
+ * Shared Preview UI: the chip, the caption, the page frame and the sheet. Only --if-* tokens (no colour values).
+ * The whole file is in `@layer components` (see screens/money/money.css for why). Sizes are px.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .if-preview-chip {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    height: 20px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line-strong);
+    border-radius: var(--if-r-pill);
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+    white-space: nowrap;
+  }
+  .if-preview-caption {
+    margin: 0;
+    color: var(--if-fg-2);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .if-preview {
+    width: min(var(--if-container-max), calc(100% - 56px));
+    margin: 0 auto;
+    padding: 32px 0 64px;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .if-preview * {
+    box-sizing: border-box;
+  }
+  .if-preview :where(h1, h2, p, ul, table) {
+    margin: 0;
+    padding: 0;
+  }
+  .if-preview :focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .if-preview__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .if-preview__title {
+    font: 700 28px/36px var(--if-font-ui);
+    letter-spacing: -0.02em;
+  }
+  .if-preview__panel {
+    margin-top: 24px;
+    padding: 20px;
+    background: var(--if-panel);
+    border: 1px solid var(--if-line);
+    border-radius: 16px;
+  }
+  .if-preview__panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .if-preview__h2 {
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .if-preview__note {
+    margin-bottom: 12px;
+    color: var(--if-fg-2);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .if-preview__table {
+    width: 100%;
+    border-collapse: collapse;
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .if-preview__table th,
+  .if-preview__table td {
+    padding: 10px 0;
+    border-top: 1px solid var(--if-line);
+    text-align: left;
+    font-weight: 400;
+  }
+  .if-preview__table thead th {
+    border-top: 0;
+    color: var(--if-fg-2);
+    font-size: 12px;
+  }
+  .if-preview__table td:nth-child(2) {
+    font-variant-numeric: tabular-nums;
+  }
+  .if-preview__actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+  }
+}

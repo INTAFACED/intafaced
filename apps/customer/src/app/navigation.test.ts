@@ -77,8 +77,11 @@ it('signed-in sign-in and fallbacks land on /home', () => {
 
 it('never offers a hidden feature in search', () => {
   for (const query of ['deposit', 'withdraw', 'bank', 'margin', 'futures', 'person-to-person', 'academy', 'bill pay', 'notices', ''])
-    for (const room of searchRooms(query, 'Personal')) expect(isHiddenPath(room.path), `${query}: ${room.path}`).toBe(false);
-  expect(searchRooms('deposit', 'Personal')).toHaveLength(0);
+    for (const room of searchRooms(query, 'Personal', 'en', false))
+      expect(isHiddenPath(room.path, false), `${query}: ${room.path}`).toBe(false);
+  expect(searchRooms('deposit', 'Personal', 'en', false)).toHaveLength(0);
+  // With Preview on (dev, local stack, staging) the Preview products are searchable; with it off they are not.
+  expect(searchRooms('deposit', 'Personal', 'en', true).map((room) => room.path)).toContain('/uc/recharge');
   expect(searchRooms('academy', 'Personal')).toHaveLength(0);
   expect(searchRooms('activity', 'Personal').map((room) => room.path)).toContain('/money/activity');
   expect(searchRooms('markets', 'Personal').map((room) => room.path)).toContain('/trade');

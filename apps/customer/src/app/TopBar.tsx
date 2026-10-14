@@ -8,6 +8,7 @@ import { BellPopover } from '../screens/notifications/BellPopover';
 import { currentReturnLocation } from './location';
 import { doorLabel, safeReturnTo, type Door } from './navigation';
 import { isFeatureLive } from './feature-registry';
+import { PreviewChip } from '../preview';
 import { ShellIcon } from './icons';
 import { accountMenu, tabSpecs, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
@@ -102,7 +103,10 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
                 <a className="tb-menu-item" href={item.href} onClick={() => setOpen(false)}>
                   <ShellIcon name={item.icon} />
                   <span>
-                    <strong>{t(item.title)}</strong>
+                    <strong>
+                      {t(item.title)}
+                      {item.preview && <PreviewChip />}
+                    </strong>
                     <small>{t(item.description)}</small>
                   </span>
                 </a>

@@ -39,14 +39,25 @@ const fields = z.object({
   confirmSend: z.boolean().default(true),
   confirmCancel: z.boolean().default(true),
   favoritesView: z.enum(['list', 'cards']).default('list'),
-  /** Simple (Robinhood-like) or Pro (dense desk). Layout only: it never changes data, prices or what an action does. */
-  layoutMode: z.enum(['simple', 'pro']).default('simple'),
+  /**
+   * Simple (Robinhood-like) or Pro (dense desk). Layout only: it never changes data, prices or what an action does.
+   * Pro is the default (M4). Until the person picks a mode (`layoutModeChosen`) it is Pro, whatever an older save holds.
+   */
+  layoutMode: z.enum(['simple', 'pro']).default('pro'),
+  layoutModeChosen: z.boolean().default(false),
 });
 /**
  * Older saves wrote the whole snapshot, so a stored `UTC` cannot be told apart from a chosen one.
  * Only a zone the person picked after this change (`timeZoneChosen`) overrides the device's own.
  */
-const schema = fields.transform((value) => (value.timeZoneChosen ? value : { ...value, timeZone: 'device' as const }));
+const schema = fields.transform((value) => {
+  const zoned = value.timeZoneChosen ? value : { ...value, timeZone: 'device' as const };
+  /*
+   * Pro became the default in M4. Older saves wrote the whole snapshot, so a stored `simple` cannot be told apart from the
+   * old default. Only a mode picked after this change (`layoutModeChosen`, set by `savePreferences`) overrides Pro.
+   */
+  return zoned.layoutModeChosen ? zoned : { ...zoned, layoutMode: 'pro' as const };
+});
 export type Preferences = z.infer<typeof schema>;
 const key = 'intafaced.customer.view.v1';
 let snapshot: Preferences = schema.parse({});
@@ -133,7 +144,12 @@ if (typeof window !== 'undefined') {
 }
 export type PreferencePersistence = 'device' | 'visit';
 export function savePreferences(patch: Partial<Preferences>): PreferencePersistence {
-  snapshot = schema.parse({ ...snapshot, ...patch, ...(patch.timeZone !== undefined ? { timeZoneChosen: true } : {}) });
+  snapshot = schema.parse({
+    ...snapshot,
+    ...patch,
+    ...(patch.timeZone !== undefined ? { timeZoneChosen: true } : {}),
+    ...(patch.layoutMode !== undefined ? { layoutModeChosen: true } : {}),
+  });
   observeDaily(snapshot);
   let persistence: PreferencePersistence = 'visit';
   try {
