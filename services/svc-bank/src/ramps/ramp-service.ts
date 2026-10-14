@@ -14,6 +14,7 @@ import {
 import { BankError } from '../errors.js';
 import { assertOfframpsListLimit, assertOnrampsListLimit } from '../owner-list-limit.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV, assertOfframpDestCoolingElapsed, requireOfframpCoolingHours } from '../offramp-cooling.js';
+import { withSessionAdvisoryLock } from '../session-lock.js';
 import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import { assertCryptoRamp, assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme, NO_RAMP_PROGRAMME } from './rails.js';
@@ -566,22 +567,12 @@ export class RampService {
    * second caller cannot settle a row this caller rejects.
    *
    * `pg_advisory_lock` is session-scoped. The connection stays reserved so
-   * unlock hits the session that took the lock.
+   * unlock hits the session that took the lock. The key is unchanged, so a
+   * replica on older code takes the same lock. See `session-lock.ts` for how the
+   * reserved connections are kept from starving the pool the body runs on.
    */
   private async withOfframpLock<T>(offrampId: string, body: () => Promise<T>): Promise<T> {
-    const reserved = await this.sql.reserve();
-    let locked = false;
-    try {
-      await reserved`SELECT pg_advisory_lock(hashtext('bank.ramp.offramp'), hashtext(${offrampId}))`;
-      locked = true;
-      return await body();
-    } finally {
-      try {
-        if (locked) await reserved`SELECT pg_advisory_unlock(hashtext('bank.ramp.offramp'), hashtext(${offrampId}))`;
-      } finally {
-        reserved.release();
-      }
-    }
+    return withSessionAdvisoryLock(this.sql, 'bank.ramp.offramp', offrampId, body);
   }
 
   private async rejectOfframp(id: string, code: string): Promise<void> {

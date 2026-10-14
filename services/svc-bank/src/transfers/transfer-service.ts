@@ -106,7 +106,7 @@ function sameScheduleWindow(storedStartsAt: Date, storedEndsAt: Date | null, sta
   return storedEndsAt.getTime() === requestedEnd.getTime();
 }
 
-export type FiringOutcome = 'settled' | 'rejected' | 'already-fired' | 'stopped';
+export type FiringOutcome = 'settled' | 'rejected' | 'already-fired' | 'stopped' | 'busy';
 
 /**
  * What `rejection_code` says on an occurrence that was skipped.
@@ -664,6 +664,7 @@ export class TransferService {
         else if (outcome === 'rejected') report.rejected++;
         else if (outcome === 'already-fired') report.alreadyFired++;
         // 'stopped' — cancel/pause mid-drive; no counter, no claim.
+        // 'busy' — another pass holds this schedule; no counter, no claim.
       }
     };
 
@@ -767,7 +768,14 @@ export class TransferService {
       // claims. Pending claims already swept above.
       if (outcome === 'stopped') break;
       outcomes.push(outcome);
+      // Another pass owns this schedule right now. Do not plan past it.
+      if (outcome === 'busy') break;
     }
+
+    // A busy firing is not an owned occurrence: the pass holding it can still
+    // roll back, and moving the watermark past it would push the retry out by a
+    // whole period. Leave the hint for the pass that owns the lock (or the next).
+    if (outcomes.includes('busy')) return outcomes;
 
     // Advance the scheduling hint LAST. If this update is lost, the next pass
     // reconsiders occurrences that the executions table already owns and skips
@@ -846,9 +854,19 @@ export class TransferService {
         // The due query freezes `status=active` at pass start; without this,
         // a concurrent cancel/pause still lets every remaining planned
         // occurrence claim and settle inside this drive.
+        //
+        // SKIP LOCKED, not wait. This row lock is held across the ledger post, so
+        // a second pass that queued on it would sit on a pool connection for that
+        // whole call, and enough overlapping passes would leave nothing for the
+        // rest of the service. A locked row is a pass that is already driving this
+        // schedule (or a pause / cancel / resume mid-write): nothing is claimed
+        // here, no value moves, and the next pass picks the occurrence up again if
+        // it is still owed. `driveSchedule` reads `busy` as "do not advance the
+        // watermark": the pass that owns the lock may still roll back.
         const live = await tx<Array<{ status: string }>>`
-          SELECT status FROM bank.scheduled_transfers WHERE id = ${schedule.id} FOR UPDATE
+          SELECT status FROM bank.scheduled_transfers WHERE id = ${schedule.id} FOR UPDATE SKIP LOCKED
         `;
+        if (live.length === 0) return 'busy' as const;
         const isActive = live[0]?.status === 'active';
 
         let executionId: string;
@@ -890,8 +908,11 @@ export class TransferService {
         let from: Awaited<ReturnType<SpaceService['get']>>;
         let to: Awaited<ReturnType<SpaceService['get']>>;
         try {
-          from = await this.spaces.resolveForDebit(schedule.fromSpaceId, now);
-          to = await this.spaces.resolveForCredit(schedule.toSpaceId);
+          // On `tx`, not the pool: this transaction already holds a connection,
+          // and a second one from the same pool is a wait with no timeout
+          // (GitHub issue #4621). Plain reads, no lock needed.
+          from = await this.spaces.resolveForDebit(schedule.fromSpaceId, now, tx);
+          to = await this.spaces.resolveForCredit(schedule.toSpaceId, tx);
         } catch (err) {
           if (err instanceof BankError && (err.code === 'bank.space_locked' || err.code === 'bank.space_archived')) {
             // Crash window: claim rolled back (or never committed settle) AFTER
