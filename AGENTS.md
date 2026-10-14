@@ -34,6 +34,8 @@ Trading stays on the house book. Base work that already exists continues. INTACH
 
 Spend the session on the product. `/grill-with-docs` may add one `GLOSSARY.md` entry, or one ADR in the existing dated `docs/adr/` shape, when a word or a hard-to-reverse decision has just settled. Do not start a `0001-` series. Status boards, LIVE-LANES, and tracker recooks stay unwritten.
 
+Rules in force: [`docs/POLICY-REGISTER.md`](docs/POLICY-REGISTER.md); decision records: [`docs/adr/README.md`](docs/adr/README.md). Only accepted ADRs bind. To change a rule, write a superseding ADR from `docs/adr/TEMPLATE.md` and update its register row.
+
 Coordination map, not a permission system: [`docs/COORDINATION-TRUTH-LAYERS.md`](docs/COORDINATION-TRUTH-LAYERS.md).
 
 ## Skills
