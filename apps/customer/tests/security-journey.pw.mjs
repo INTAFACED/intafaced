@@ -103,7 +103,7 @@ async function login(page, path = '/uc/safe') {
   await expect(page).toHaveURL(new URL(path, test.info().project.use.baseURL).href);
 }
 async function nativeSignOut(page) {
-  await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
 }
 async function returnLogin(page) {
@@ -114,7 +114,7 @@ async function returnLogin(page) {
 }
 const keys = (page) => page.getByRole('region', { name: 'Passkeys', exact: true });
 const auth = (page) => page.getByRole('region', { name: 'Authenticator app', exact: true });
-const seats = (page) => page.getByRole('region', { name: 'Signed-in identity sessions', exact: true });
+const seats = (page) => page.getByRole('region', { name: 'Where you’re signed in', exact: true });
 const unknown = (page) => page.getByRole('region', { name: 'Confirmation not received', exact: true });
 const prepUnknown = (page) => page.getByRole('region', { name: 'Setup response not received', exact: true });
 const receipt = (page) => page.getByRole('region', { name: 'Original security response', exact: true });
@@ -123,7 +123,7 @@ const fail = (route, status = 503, message = 'Isolated response lost', code = 'I
 const writeCount = (state, procedure) => state.writes.filter((row) => row.procedure === procedure).length;
 async function remove(page) {
   await keys(page)
-    .getByRole('button', { name: 'Review removal of credential ' + credential, exact: true })
+    .getByRole('button', { name: 'Remove passkey ' + credential, exact: true })
     .click();
   await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey', exact: true }).click();
 }
@@ -141,7 +141,7 @@ async function confirm(page, value) {
   await auth(page).getByRole('button', { name: 'Confirm authenticator', exact: true }).click();
 }
 async function global(page) {
-  await page.getByRole('button', { name: 'Review sign-out everywhere', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign out everywhere', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Sign out everywhere', exact: true }).click();
 }
 async function journal(page, key = securityKey) {
@@ -199,7 +199,7 @@ test('native bounded passkey discovery retains full credential and exact read sc
   const state = await network(context);
   await login(page);
   await expect(keys(page)).toContainText(credential);
-  await expect(keys(page)).toContainText('Up to 50 recent');
+  await expect(keys(page)).toContainText('Showing up to 50');
   expect(state.reads.filter((r) => r.procedure === 'webauthn.list')).toEqual([{ procedure: 'webauthn.list', owner, limit: 50 }]);
   expect(state.writes).toEqual([]);
   await shot(page, 'desktop');
@@ -207,7 +207,7 @@ test('native bounded passkey discovery retains full credential and exact read sc
 test('native empty credentials are compact with useful add and refresh', async ({ page, context }) => {
   await network(context, { empty: true });
   await login(page);
-  await expect(keys(page)).toContainText('No passkeys returned');
+  await expect(keys(page)).toContainText('No passkeys yet');
   await expect(keys(page).getByRole('button', { name: 'Add passkey', exact: true })).toBeEnabled();
   await expect(keys(page).getByRole('button', { name: 'Refresh passkeys', exact: true })).toBeEnabled();
 });
@@ -220,7 +220,7 @@ for (const [name, row] of [
     await network(context, { 'webauthn.list': (_r, _i, reply) => reply([row]) });
     await login(page);
     await expect(keys(page)).toContainText('Information could not be verified');
-    await expect(keys(page).getByRole('button', { name: /Review removal/ })).toHaveCount(0);
+    await expect(keys(page).getByRole('button', { name: /^Remove passkey / })).toHaveCount(0);
     await expect(keys(page)).not.toContainText('Invalid Date');
   });
 test('duplicate credentials reject ambiguous removal actions', async ({ page, context }) => {
@@ -233,7 +233,7 @@ test('duplicate credentials reject ambiguous removal actions', async ({ page, co
   });
   await login(page);
   await expect(keys(page)).toContainText('Information could not be verified');
-  await expect(keys(page).getByRole('button', { name: /Review removal/ })).toHaveCount(0);
+  await expect(keys(page).getByRole('button', { name: /^Remove passkey / })).toHaveCount(0);
 });
 test('failed credential read retries GET then restores bounded inspection', async ({ page, context }) => {
   let count = 0;
@@ -250,8 +250,8 @@ test('credential window expands to 200 without claiming all-history completeness
   const state = await network(context);
   await login(page);
   for (const limit of [100, 150, 200]) {
-    await keys(page).getByRole('button', { name: 'Expand credential window', exact: true }).click();
-    await expect(keys(page)).toContainText('Up to ' + limit);
+    await keys(page).getByRole('button', { name: 'Show more', exact: true }).click();
+    await expect(keys(page)).toContainText('Showing up to ' + limit);
   }
   await expect(keys(page)).toContainText('Older credentials are not represented');
   expect(state.reads.filter((r) => r.procedure === 'webauthn.list').map((r) => r.limit)).toEqual([50, 100, 150, 200]);
@@ -308,7 +308,7 @@ test('list absence cannot clear original unknown removal', async ({ page, contex
   await expect(unknown(page)).toBeVisible();
   state['webauthn.list'] = (_r, _i, reply) => reply([]);
   await keys(page).getByRole('button', { name: 'Refresh passkeys', exact: true }).click();
-  await expect(keys(page)).toContainText('No passkeys returned');
+  await expect(keys(page)).toContainText('No passkeys yet');
   await expect(unknown(page)).toContainText(credential);
   await expect(keys(page).getByRole('button', { name: 'Add passkey', exact: true })).toBeDisabled();
 });
@@ -425,7 +425,7 @@ test('held actual native ceremony after route departure never verifies account',
   await virtual(context, page);
   await add(page);
   await expect.poll(() => page.evaluate(() => Boolean(window.securityCeremonyReady))).toBe(true);
-  await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
   await page.getByRole('link', { name: 'View and language', exact: true }).click();
   await page.evaluate(() => window.releaseSecurityCeremony());
   await expect(page).toHaveURL(new URL('/view', test.info().project.use.baseURL).href);
@@ -582,8 +582,8 @@ test('unknown global sign-out preserves inspection and blocks seat/global replay
   await login(page);
   await global(page);
   await expect(unknown(page)).toContainText('Global sign-out');
-  await expect(seats(page).getByRole('button', { name: 'Review session ' + seat, exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Review sign-out everywhere', exact: true })).toBeDisabled();
+  await expect(seats(page).getByRole('button', { name: 'Sign out session ' + seat, exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Sign out everywhere', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Refresh session inspection', exact: true }).click();
   await expect(seats(page)).toContainText(seat);
   expect(writeCount(state, 'revokeSession')).toBe(0);
@@ -593,9 +593,9 @@ test('unknown original seat journal survives a separate known global sign-out', 
   const state = await network(context, { revokeSession: (r) => fail(r) });
   await login(page);
   await seats(page)
-    .getByRole('button', { name: 'Review session ' + seat, exact: true })
+    .getByRole('button', { name: 'Sign out session ' + seat, exact: true })
     .click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Revoke this session', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Sign out this session', exact: true }).click();
   await expect(seats(page)).toContainText('Original revoke is not confirmed');
   const before = await journal(page, seatKey);
   await global(page);
@@ -615,9 +615,9 @@ test('held child fresh-read excludes unsafe global dispatch under the same owner
   });
   await login(page);
   await seats(page)
-    .getByRole('button', { name: 'Review session ' + seat, exact: true })
+    .getByRole('button', { name: 'Sign out session ' + seat, exact: true })
     .click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Revoke this session', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Sign out this session', exact: true }).click();
   await expect.poll(() => reads).toBe(2);
   await global(page);
   await expect(page.locator('#main')).toContainText('Another tab is preparing');
@@ -638,7 +638,7 @@ test('held global dispatch cancels same-view child review and excludes second na
   await login(second);
   await global(page);
   await expect.poll(() => writeCount(state, 'auth.logoutAll')).toBe(1);
-  await expect(seats(second).getByRole('button', { name: 'Review session ' + seat, exact: true })).toBeDisabled();
+  await expect(seats(second).getByRole('button', { name: 'Sign out session ' + seat, exact: true })).toBeDisabled();
   expect(writeCount(state, 'revokeSession')).toBe(0);
   held.release();
   await expect(unknown(page)).toBeVisible();
@@ -668,7 +668,7 @@ for (const width of [320, 390, 768])
     await network(context, { empty: true });
     await page.setViewportSize({ width, height: 844 });
     await login(page);
-    await expect(keys(page)).toContainText('No passkeys returned');
+    await expect(keys(page)).toContainText('No passkeys yet');
     const measure = await page.evaluate(() => ({
       body: document.documentElement.scrollWidth,
       viewport: innerWidth,
@@ -676,7 +676,7 @@ for (const width of [320, 390, 768])
       doors: document.querySelector('.mobile-doors').getBoundingClientRect().top,
     }));
     expect(measure.body <= measure.viewport).toBe(true);
-    const button = page.getByRole('button', { name: 'Review sign-out everywhere', exact: true });
+    const button = page.getByRole('button', { name: 'Sign out everywhere', exact: true });
     await button.focus();
     await page.keyboard.press('Tab');
     await button.focus();
@@ -694,7 +694,7 @@ for (const width of [320, 390, 768])
 test('Security native keyboard review and bounded accessibility scan', async ({ page, context }) => {
   await network(context);
   await login(page);
-  const button = keys(page).getByRole('button', { name: 'Review removal of credential ' + credential, exact: true });
+  const button = keys(page).getByRole('button', { name: 'Remove passkey ' + credential, exact: true });
   await button.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('dialog')).toContainText(credential);
@@ -715,7 +715,7 @@ test('held removal fresh-read after native route departure sends no mutation or 
   await login(page);
   await remove(page);
   await expect.poll(() => reads).toBe(2);
-  await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
   await page.getByRole('link', { name: 'View and language', exact: true }).click();
   held.release();
   await expect(page).toHaveURL(new URL('/view', test.info().project.use.baseURL).href);

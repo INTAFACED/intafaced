@@ -1,0 +1,13 @@
+/*
+ * Redesign entry CSS (UI-SPEC 2.1). Tailwind 4 WITHOUT preflight, so legacy screens keep working;
+ * base.css supplies a scoped reset for `.if-app` and the kit. Order matters (see packages/ui/src/theme/theme.css).
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import '@intafaced/ui/theme/tokens.css';
+@import '@intafaced/ui/theme/theme.css';
+@import '@intafaced/ui/theme/base.css';
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* Tailwind classes used by screens (the kit's own components are scanned by theme.css). */
+@source '..';

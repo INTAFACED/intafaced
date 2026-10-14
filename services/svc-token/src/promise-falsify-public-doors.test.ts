@@ -210,7 +210,7 @@ describe('D26-P2-01g public doors PG-hard', () => {
       prefix: '/trpc',
       trpcOptions: {
         router: tokenRouter,
-        createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+        createContext: ({ req }) => edgeContext(req),
       } satisfies FastifyTRPCPluginOptions<typeof tokenRouter>['trpcOptions'],
     });
     await app.ready();

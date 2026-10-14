@@ -1,3 +1,4 @@
+import { Wordmark } from '@intafaced/ui';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { Invitation } from './Invitation';
@@ -10,7 +11,7 @@ import { publicCopy } from './public-copy';
 function Brand() {
   return (
     <a href="/" className="brand">
-      intafaced<span aria-hidden="true">·</span>
+      <Wordmark />
     </a>
   );
 }

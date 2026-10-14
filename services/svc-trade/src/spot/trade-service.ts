@@ -14,6 +14,7 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import {
   formatAmount,
   InsufficientFundsError,
+  LedgerError,
   mul,
   mulBps,
   orderHoldAccount,
@@ -71,15 +72,17 @@ import {
   acceptConvertQuote,
   buildFirmConvertQuote,
   estimateConvert,
+  estimateConvertForSpend,
   presentBoundConvertFill,
   presentConvertQuote,
   requireConvertQuoteTtlMs,
   requireConvertSpreadBps,
   type BoundConvertFill,
+  type ConvertQuoteResult,
   type ConvertTradeWire,
 } from '../convert/quote.js';
 import { convertSettleIdsFor } from '../convert/ids.js';
-import { planConvertSettle, postConvertSettle } from '../convert/settle.js';
+import { convertCustomerHoldKey, planConvertSettle, postConvertSettle, releaseStrandedHouseHold } from '../convert/settle.js';
 import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
 import { isHouseMmAccount } from '../mm/seed-market.js';
 import { recoverMatchingAccountId } from '../mm/fill-account.js';
@@ -283,7 +286,17 @@ export interface ConvertQuoteRequest {
   symbol?: string;
   marketId?: string;
   side: OrderSide;
-  qty: Amount;
+  /**
+   * Base amount to convert. Exactly one of `qty` or `quoteQty` — both or
+   * neither refuses `trade.convert_invalid_qty`.
+   */
+  qty?: Amount;
+  /**
+   * Spend, in the quote asset ("spend 100 USDT"), buy side only. The quote
+   * buys the largest whole number of lots whose total cost, spread included,
+   * is <= quoteQty; `inAmount` is the exact spend and never exceeds it.
+   */
+  quoteQty?: Amount;
 }
 
 export interface ConvertExecuteRequest {
@@ -1081,6 +1094,20 @@ export class TradeService {
             assertedPrice: input.maxAvgPrice ?? null,
           });
         }
+        // A recorded price (a `bound` quote, or one put back to `open` after a
+        // refused settle, #4676) is replayed on retry. With no customer hold
+        // booked nothing is committed yet, so the TTL applies: refuse before
+        // anything is posted or re-bound, else a top-up hours later (or a retry
+        // after a timed-out hold post) settles at a stale rate. With the hold
+        // booked, the original recovery semantics stand.
+        if (stored.lifecycle === 'bound' || (stored.lifecycle === 'open' && recordedBound)) {
+          const expiresAt = Date.parse(stored.quote.expiresAt);
+          if (this.now().getTime() > expiresAt && !(await this.ledger.getTxByKey(convertCustomerHoldKey(ids.takerOrderId)))) {
+            // A legacy attempt may have booked the house hold first: give it back.
+            await releaseStrandedHouseHold(this.ledger, planConvertSettle({ bound, ...ids, now: new Date(bound.acceptedAt) }));
+            throw new TradeError('convert quote expired — refuse rather than requote', 'trade.convert_quote_expired');
+          }
+        }
         // The quote's immutable original bound is the business payload. A retry
         // recovers this decision rather than sampling a new price or quantity.
         if (stored.lifecycle === 'open' || original) {
@@ -1097,7 +1124,21 @@ export class TradeService {
 
         // Expiry governs the original accept, not recovery of already bound effects.
         const plan = planConvertSettle({ bound, ...ids, now: new Date(bound.acceptedAt) });
-        await postConvertSettle(this.ledger, plan);
+        try {
+          await postConvertSettle(this.ledger, plan);
+        } catch (err) {
+          // A definite refusal posted nothing that is still held (customer
+          // shortfall posts nothing; house shortfall already released the
+          // customer hold), so the quote must not stay `bound`. Unknown
+          // outcomes stay bound: effects may exist and recovery needs them.
+          if (
+            (err instanceof LedgerError && err.code === 'ledger.insufficient_funds') ||
+            (err instanceof TradeError && err.code === 'trade.convert_liquidity_unavailable')
+          ) {
+            await this.convertStore.saveOpen(stored.quote);
+          }
+          throw err;
+        }
         const settledAt = this.now();
         await this.convertStore.saveSettled(stored.quote, bound, settledAt);
         await this.notifyDropCopyFill({
@@ -1141,21 +1182,50 @@ export class TradeService {
     // A quote for a shut / unrecognised venue is a lie (invented mid / weekend
     // EUR/USD fundable quote while place refuses market_closed).
     assertMarketOpen(market, this.now());
-    assertQty(market, input.qty);
+    if ((input.qty == null) === (input.quoteQty == null)) {
+      throw new TradeError('convert takes exactly one of qty (base amount) or quoteQty (spend)', 'trade.convert_invalid_qty');
+    }
+    // Same gate order as before: a bad base quantity refuses before the book is read.
+    if (input.qty != null) assertQty(market, input.qty);
 
     const depth = await this.matching.depth(market.id, 50);
     const levels = input.side === 'buy' ? depth.asks : depth.bids;
-    const estimate = estimateConvert({
-      side: input.side,
-      qty: input.qty,
-      levels,
-      convertSpreadBps,
-      tickSize: market.tickSize,
-    });
+    let requestedQty: Amount;
+    let estimate: ConvertQuoteResult;
+    if (input.quoteQty != null) {
+      // Spend: round DOWN to the lot grid so the charge can never exceed what the user typed.
+      const spend = estimateConvertForSpend({
+        side: input.side,
+        quoteQty: input.quoteQty,
+        levels,
+        convertSpreadBps,
+        tickSize: market.tickSize,
+        lotSize: market.lotSize,
+      });
+      requestedQty = spend.qty;
+      estimate = spend;
+      // Same floors an order meets: min qty and min notional (floored like a fill), then max qty.
+      if (requestedQty < market.minQty || spend.bookNotional < market.minNotional) {
+        throw new TradeError(
+          `spend ${formatAmount(input.quoteQty)} ${market.quoteAsset} buys ${formatAmount(requestedQty)} ${market.baseAsset}, below the ${formatAmount(market.minQty)} ${market.baseAsset} / ${formatAmount(market.minNotional)} ${market.quoteAsset} minimum`,
+          'trade.below_min_notional',
+        );
+      }
+      assertQty(market, requestedQty);
+    } else {
+      requestedQty = input.qty as Amount;
+      estimate = estimateConvert({
+        side: input.side,
+        qty: requestedQty,
+        levels,
+        convertSpreadBps,
+        tickSize: market.tickSize,
+      });
+    }
 
     if (!estimate.fullyFilled) {
       throw new TradeError(
-        `insufficient book depth to convert ${formatAmount(input.qty)} ${market.baseAsset} — only ${formatAmount(estimate.filledQty)} available`,
+        `insufficient book depth to convert ${formatAmount(requestedQty)} ${market.baseAsset} — only ${formatAmount(estimate.filledQty)} available`,
         'trade.convert_insufficient_depth',
       );
     }
@@ -1169,7 +1239,7 @@ export class TradeService {
       side: input.side,
       baseAsset: market.baseAsset,
       quoteAsset: market.quoteAsset,
-      requestedQty: input.qty,
+      requestedQty,
       estimate,
       convertSpreadBps,
       source: { kind: 'book', symbol: market.symbol, asOf: now.toISOString() },

@@ -1,0 +1,146 @@
+/**
+ * Tailwind 4 theme for the INTAFACED customer app (UI-SPEC section 2.1).
+ *
+ * Every value is a reference to a `--if-*` custom property from tokens.css, so
+ * Tailwind never holds a colour of its own. `inline` keeps utilities pointing
+ * at the variable (red-up mode swaps tokens without a rebuild).
+ *
+ * App entry CSS, in this order, WITHOUT preflight so legacy screens keep working:
+ *
+ *   @import 'tailwindcss/theme.css' layer(theme);
+ *   @import '@intafaced/ui/tokens.css';        (tokens.css, custom properties)
+ *   @import '@intafaced/ui/theme.css';         (this file)
+ *   @import '@intafaced/ui/base.css';          (fonts + .if-app base, in @layer base)
+ *   @import 'tailwindcss/utilities.css' layer(utilities);
+ *
+ * Theme key names avoid every custom property in apps/customer/src/shared/tokens.css
+ * (--color-background, --font-sans, ...); tokens.test.ts checks that.
+ */
+
+/* Scan the components for class names, relative to this file. */
+@source '../components';
+
+@theme inline {
+  /* Drop Tailwind's default palette and scales: only our names exist. */
+  --color-*: initial;
+  --text-*: initial;
+  --font-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --ease-*: initial;
+
+  /* Tailwind's spacing step is 0.25rem; the legacy root font-size is 14px, so pin it to px. Every
+     p-*, gap-*, size-*, h-* and w-* utility is then a true 4 px multiple (critic H2). */
+  --spacing: 4px;
+  /* rem containers would shrink with the legacy 14 px root too. */
+  --container-sm: 384px;
+  --container-md: 448px;
+
+  --color-bg: var(--if-bg);
+  --color-panel: var(--if-panel);
+  --color-field: var(--if-field);
+  --color-hover: var(--if-hover);
+  --color-raised: var(--if-raised);
+  --color-pill-active: var(--if-pill-active);
+  --color-line: var(--if-line);
+  --color-line-strong: var(--if-line-strong);
+  --color-line-stronger: var(--if-line-stronger);
+  --color-line-popup: var(--if-line-popup);
+  --color-fg: var(--if-fg);
+  --color-fg-2: var(--if-fg-2);
+  --color-fg-3: var(--if-fg-3);
+  --color-fg-disabled: var(--if-fg-disabled);
+  --color-overlay-hover: var(--if-overlay-hover);
+  --color-overlay-press: var(--if-overlay-press);
+  --color-overlay-disabled: var(--if-overlay-disabled);
+  --color-menu: var(--if-menu);
+  --color-tooltip: var(--if-tooltip);
+  --color-popover: var(--if-popover);
+  --color-up: var(--if-up);
+  --color-up-text: var(--if-up-text);
+  --color-on-up: var(--if-on-up);
+  --color-down: var(--if-down);
+  --color-down-text: var(--if-down-text);
+  --color-on-down: var(--if-on-down);
+  --color-up-bg: var(--if-up-bg);
+  --color-down-bg: var(--if-down-bg);
+  --color-up-hover: var(--if-up-hover);
+  --color-down-hover: var(--if-down-hover);
+  --color-up-bg-soft: var(--if-up-bg-soft);
+  --color-lime: var(--if-lime);
+  --color-lime-hover: var(--if-lime-hover);
+  --color-lime-press: var(--if-lime-press);
+  --color-on-lime: var(--if-on-lime);
+  --color-lime-soft: var(--if-lime-soft);
+  --color-warn: var(--if-warn);
+  --color-warn-text: var(--if-warn-text);
+  --color-scrim: var(--if-scrim);
+  --color-vol-up: var(--if-vol-up);
+  --color-vol-down: var(--if-vol-down);
+  --color-grid: var(--if-grid);
+  --color-alloc-1: var(--if-alloc-1);
+  --color-alloc-2: var(--if-alloc-2);
+  --color-alloc-3: var(--if-alloc-3);
+  --color-alloc-4: var(--if-alloc-4);
+  --color-alloc-5: var(--if-alloc-5);
+  --color-alloc-6: var(--if-alloc-6);
+
+  --font-ui: var(--if-font-ui);
+  --font-mono: var(--if-font-mono);
+
+  --text-2xs: var(--if-text-2xs);
+  --text-2xs--line-height: var(--if-leading-2xs);
+  --text-2xs--font-weight: var(--if-weight-2xs);
+  --text-xs: var(--if-text-xs);
+  --text-xs--line-height: var(--if-leading-xs);
+  --text-xs--font-weight: var(--if-weight-xs);
+  --text-sm: var(--if-text-sm);
+  --text-sm--line-height: var(--if-leading-sm);
+  --text-sm--font-weight: var(--if-weight-sm);
+  --text-base: var(--if-text-base);
+  --text-base--line-height: var(--if-leading-base);
+  --text-base--font-weight: var(--if-weight-base);
+  --text-md: var(--if-text-md);
+  --text-md--line-height: var(--if-leading-md);
+  --text-md--font-weight: var(--if-weight-md);
+  --text-lg: var(--if-text-lg);
+  --text-lg--line-height: var(--if-leading-lg);
+  --text-lg--font-weight: var(--if-weight-lg);
+  --text-xl: var(--if-text-xl);
+  --text-xl--line-height: var(--if-leading-xl);
+  --text-xl--font-weight: var(--if-weight-xl);
+  --text-2xl: var(--if-text-2xl);
+  --text-2xl--line-height: var(--if-leading-2xl);
+  --text-2xl--font-weight: var(--if-weight-2xl);
+  --text-hero-pro: var(--if-text-hero-pro);
+  --text-hero-pro--line-height: var(--if-leading-hero-pro);
+  --text-hero-pro--font-weight: var(--if-weight-hero-pro);
+  --text-hero: var(--if-text-hero);
+  --text-hero--line-height: var(--if-leading-hero);
+  --text-hero--font-weight: var(--if-weight-hero);
+  --text-hero--letter-spacing: var(--if-tracking-tight);
+
+  --radius-2xs: var(--if-r-2xs);
+  --radius-xs: var(--if-r-xs);
+  --radius-sm: var(--if-r-sm);
+  --radius-md: var(--if-r-md);
+  --radius-lg: var(--if-r-lg);
+  --radius-pill: var(--if-r-pill);
+
+  --shadow-menu: var(--if-shadow-menu);
+
+  --ease-if: var(--if-ease);
+}
+
+/* Skeleton pulse: a slow opacity breath, only applied under motion-safe. */
+@keyframes if-shimmer {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}

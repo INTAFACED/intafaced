@@ -45,8 +45,48 @@ export const MONEY_PATH_ROOTS = [
  */
 export const MONEY_SKIP_REGISTER = [
   // ── svc-bank ───────────────────────────
+  {
+    file: 'services/svc-bank/src/earn/position-default-pending.test.ts',
+    kind: 'infra-journalled',
+    why:
+      'Earn positions must default to pending, not active, so a claim cannot accrue before its ledger post; this also proves the 0019 up and down migrations (rolled back in a transaction). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
+      'svc-bank runs in the Tests (pay-bank) and Tests (full) shards, which set both with a live Postgres, so this runs on every pay/bank PR and skips only on a laptop without the DB. ' +
+      'LIFTS WHEN: converted to the PG-hard pattern (TEST_DATABASE_URL, no skipIf on postgresAvailable), as the svc-ledger H8a suites are.',
+  },
+  {
+    file: 'services/svc-bank/src/transfers/rejected-omits-ledger-tx.db.test.ts',
+    kind: 'infra-journalled',
+    why:
+      'A rejected transfer execution must carry a rejection code and must not point at a ledger posting (check constraint transfer_executions_rejected_omits_ledger_tx_ck), proven with raw SQL. Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
+      'svc-bank runs in the Tests (pay-bank) and Tests (full) shards, which set both with a live Postgres, so this runs on every pay/bank PR and skips only on a laptop without the DB. ' +
+      'LIFTS WHEN: converted to the PG-hard pattern (TEST_DATABASE_URL, no skipIf on postgresAvailable), as the svc-ledger H8a suites are.',
+  },
 
   // ── svc-ledger ───────────────────────
+  {
+    file: 'services/svc-ledger/src/db/durable-freeze-down.test.ts',
+    kind: 'infra-journalled',
+    why:
+      '0002 down migration must lock posting_freeze so a concurrent freeze cannot be dropped (#4532). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
+      'the Tests (money) shard sets both with a live Postgres, so this runs on every money PR and skips only on a laptop without the DB. ' +
+      'LIFTS WHEN: converted to the svc-ledger H8a PG-hard pattern (TEST_DATABASE_URL or Testcontainers, no postgresAvailable), as service.freeze.test.ts already is.',
+  },
+  {
+    file: 'services/svc-ledger/src/db/outbox-down.test.ts',
+    kind: 'infra-journalled',
+    why:
+      '0013 down migration must lock ledger_tx_outbox so an unpublished posting intent cannot be dropped (#4532). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
+      'the Tests (money) shard sets both with a live Postgres, so this runs on every money PR and skips only on a laptop without the DB. ' +
+      'LIFTS WHEN: converted to the svc-ledger H8a PG-hard pattern (TEST_DATABASE_URL or Testcontainers, no postgresAvailable), as service.freeze.test.ts already is.',
+  },
+  {
+    file: 'services/svc-ledger/src/db/purpose-keyed-holds-down.test.ts',
+    kind: 'infra-journalled',
+    why:
+      '0001 down migration must refuse (P0001) while zero-balance duplicate holds remain (#4532). Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
+      'the Tests (money) shard sets both with a live Postgres, so this runs on every money PR and skips only on a laptop without the DB. ' +
+      'LIFTS WHEN: converted to the svc-ledger H8a PG-hard pattern (TEST_DATABASE_URL or Testcontainers, no postgresAvailable), as service.freeze.test.ts already is.',
+  },
 
   // ── svc-market ───────────────────────
 

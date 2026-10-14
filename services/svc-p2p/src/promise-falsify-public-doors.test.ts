@@ -213,7 +213,7 @@ async function mountStub(
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
   });
 
@@ -820,7 +820,7 @@ describe('D26-P2-01f public doors money', () => {
       prefix: '/trpc',
       trpcOptions: {
         router,
-        createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+        createContext: ({ req }) => edgeContext(req),
       } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
     });
 

@@ -11,7 +11,10 @@ import {
   overdueLabel,
   pastDueWarning,
   quickDue,
+  deliveryText,
   sourceLine,
+  sourceValue,
+  DiscardBar,
 } from './crm-workspace';
 import { sessionStatus } from './founder-session-bar';
 
@@ -132,26 +135,28 @@ describe('overdue and source wording', () => {
     if (zone === undefined) delete process.env.TZ;
     else process.env.TZ = zone;
   });
-  it('says "1 day" for an earlier calendar day even when under 24 hours have passed, and "today" only for the same day', () => {
-    expect(overdueLabel('2026-10-14T23:30:00Z', now)).toBe('Overdue · 1 day'); // 10.5 hours ago, but yesterday
-    expect(overdueLabel('2026-10-15T00:10:00Z', now)).toBe('Overdue · today');
+  it('says "1 day overdue" for an earlier calendar day even when under 24 hours have passed, and "today" only for the same day', () => {
+    expect(overdueLabel('2026-10-14T23:30:00Z', now)).toBe('1 day overdue'); // 10.5 hours ago, but yesterday
+    expect(overdueLabel('2026-10-15T00:10:00Z', now)).toBe('Overdue today');
   });
   it("formats counts with the en-GB locale, not the Mac's", () => {
     const spy = vi.spyOn(Number.prototype, 'toLocaleString');
     try {
-      expect(overdueLabel('2023-01-01T00:00:00Z', now)).toBe('Overdue · 1,383 days');
+      expect(overdueLabel('2023-01-01T00:00:00Z', now)).toBe('1,383 days overdue');
       expect(spy).toHaveBeenCalledWith('en-GB');
     } finally {
       spy.mockRestore();
     }
   });
   it('labels overdue days, today, and nothing for the future', () => {
-    expect(overdueLabel('2026-10-13T09:00:00Z', now)).toBe('Overdue · 2 days');
-    expect(overdueLabel('2026-10-14T09:00:00Z', now)).toBe('Overdue · 1 day');
-    expect(overdueLabel('2026-10-15T08:00:00Z', now)).toBe('Overdue · today');
+    expect(overdueLabel('2026-10-13T09:00:00Z', now)).toBe('2 days overdue');
+    expect(overdueLabel('2026-10-14T09:00:00Z', now)).toBe('1 day overdue');
+    expect(overdueLabel('2026-10-15T08:00:00Z', now)).toBe('Overdue today');
     expect(overdueLabel('2026-10-16T08:00:00Z', now)).toBeNull();
   });
   it('hides an unknown source and collapses identical ones', () => {
+    expect(sourceValue('Deck', 'Email')).toBe('Deck · latest Email');
+    expect(sourceValue(undefined, null)).toBeNull();
     expect(sourceLine(undefined, null)).toBeNull();
     expect(sourceLine('Deck', 'Deck')).toBe('Source: Deck');
     expect(sourceLine('Deck', 'Email')).toBe('Source: Deck · latest Email');
@@ -173,13 +178,27 @@ describe('session bar clock', () => {
 });
 
 describe('workspace shell', () => {
-  it('offers a skip link, a Filters button for phones, and one Enquiries title and tab', () => {
+  it('offers a Filters button for phones, one Enquiries title and tab, and no skip link of its own (the page layout holds it)', () => {
     const html = renderToStaticMarkup(<CrmWorkspace csrf="csrf" userId="u-nitro" />);
-    expect(html).toContain('Skip to enquiries');
+    expect(html).not.toContain('Skip to enquiries');
     expect(html).toContain('adm-filters-toggle');
     expect(html).toContain('id="crm-enquiries"');
     expect(html.match(/>Enquiries</g)?.length).toBe(2);
     expect(html).not.toContain('Sign in');
+  });
+  it('puts search first in one compact toolbar, with the filter names inside their pills', () => {
+    const html = renderToStaticMarkup(<CrmWorkspace csrf="csrf" userId="u-nitro" />);
+    expect(html.indexOf('adm-filter-search')).toBeLessThan(html.indexOf('aria-label="Audience"'));
+    expect(html).toMatch(/<label class="adm-filter-field">Audience<select aria-label="Audience">/);
+  });
+  it('shows a quiet hint, not a card, when nothing is selected', () => {
+    const html = renderToStaticMarkup(<CrmWorkspace csrf="csrf" userId="u-nitro" />);
+    expect(html).toContain('adm-detail is-empty');
+    expect(html).toContain('adm-detail-hint');
+    expect(html).not.toContain('Pick a row');
+  });
+  it('shows no list summary line until a search is running', () => {
+    expect(renderToStaticMarkup(<CrmWorkspace csrf="csrf" userId="u-nitro" />)).not.toContain('adm-crm-page-summary');
   });
 });
 
@@ -190,5 +209,81 @@ describe('stale draft warning', () => {
     expect(html).toContain('This enquiry has changed since you wrote these edits.');
     expect(html).toContain('Discard my edits and reload');
     expect(renderToStaticMarkup(<StaleDraftWarning busy onDiscard={() => undefined} />)).toContain('disabled');
+  });
+  it('leads with the refused save only when a save was just refused', () => {
+    expect(renderToStaticMarkup(<StaleDraftWarning busy={false} onDiscard={() => undefined} />)).not.toContain('Your save was refused.');
+    const refused = renderToStaticMarkup(<StaleDraftWarning busy={false} refused onDiscard={() => undefined} />);
+    expect(refused.indexOf('Your save was refused.')).toBeGreaterThan(-1);
+    expect(refused.indexOf('Your save was refused.')).toBeLessThan(refused.indexOf('This enquiry has changed'));
+  });
+});
+
+describe('collapsed editor wording and confirmation bar', () => {
+  it('offers Cancel only when the editor can be closed', () => {
+    const props = {
+      description: 'Send the deck',
+      due: '2026-10-16T09:00',
+      unchanged: false,
+      busy: false,
+      onDescription: () => undefined,
+      onDue: () => undefined,
+      onSave: () => undefined,
+      now,
+    };
+    expect(renderToStaticMarkup(<NextActionEditor {...props} />)).not.toContain('Cancel');
+    expect(renderToStaticMarkup(<NextActionEditor {...props} onCancel={() => undefined} />)).toContain('Cancel');
+  });
+  it('marks the save button lime only when there is something to save', () => {
+    const base = {
+      description: 'Send the deck',
+      due: '2026-10-16T09:00',
+      busy: false,
+      onDescription: () => undefined,
+      onDue: () => undefined,
+      onSave: () => undefined,
+      now,
+    };
+    expect(renderToStaticMarkup(<NextActionEditor {...base} unchanged={false} />)).toContain('data-primary="true"');
+    expect(renderToStaticMarkup(<NextActionEditor {...base} unchanged />)).toContain('data-primary="false"');
+  });
+  it('asks the discard question in the panel, with Keep editing first and the same wording as before', () => {
+    const html = renderToStaticMarkup(
+      <DiscardBar prompt="Discard unsaved edits and reload this enquiry?" onKeep={() => undefined} onDiscard={() => undefined} />,
+    );
+    expect(html).toContain('role="alertdialog"');
+    expect(html).toContain('Discard unsaved edits and reload this enquiry?');
+    expect(html.indexOf('Keep editing')).toBeGreaterThan(-1);
+    expect(html.indexOf('Keep editing')).toBeLessThan(html.indexOf('>Discard<'));
+  });
+  it('makes Discard the amber irreversible choice and leaves Keep editing as the plain default', () => {
+    const html = renderToStaticMarkup(<DiscardBar prompt="Discard?" onKeep={() => undefined} onDiscard={() => undefined} />);
+    expect(html).toMatch(/<button[^>]*class="adm-irreversible"[^>]*>(<svg.*?<\/svg>)?Discard<\/button>/);
+    expect(html).not.toMatch(/<button[^>]*class="[^"]*"[^>]*>Keep editing/);
+  });
+  it('announces the stale warning once: the repeats beside other save buttons are notes, not alerts', () => {
+    expect(renderToStaticMarkup(<StaleDraftWarning busy={false} onDiscard={() => undefined} />)).toContain('role="alert"');
+    const repeat = renderToStaticMarkup(<StaleDraftWarning busy={false} role="note" onDiscard={() => undefined} />);
+    expect(repeat).toContain('role="note"');
+    expect(repeat).not.toContain('role="alert"');
+  });
+  it('keeps the next-action save neutral while the save will be refused', () => {
+    const base = {
+      description: 'Send the deck',
+      due: '2026-10-16T09:00',
+      busy: false,
+      onDescription: () => undefined,
+      onDue: () => undefined,
+      onSave: () => undefined,
+      now,
+    };
+    const html = renderToStaticMarkup(<NextActionEditor {...base} unchanged={false} refused />);
+    expect(html).toContain('data-primary="false"');
+    expect(html).not.toContain('disabled=""');
+  });
+  it('words the confirmation email in plain terms', () => {
+    expect(deliveryText({ status: 'unconfigured', errorCode: null })).toBe('Not set up yet');
+    expect(deliveryText({ status: 'failed', errorCode: 'ops.crm.notification_unconfigured' })).toBe('Not set up yet');
+    expect(deliveryText({ status: 'accepted', errorCode: null })).toBe('Handed to the email service');
+    expect(deliveryText({ status: 'failed', errorCode: null })).toBe('Sending failed');
   });
 });

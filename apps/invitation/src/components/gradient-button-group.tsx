@@ -215,7 +215,7 @@ export function GradientButtonGroup({ items: navItems, value, onValueChange, dis
                           <span
                             className="absolute inset-[-60%] origin-center will-change-transform"
                             style={{
-                              background: 'conic-gradient(from 220deg, #283325, #627f40, #b9f65a, #526443, #bccdd5, #283325)',
+                              background: 'conic-gradient(from 220deg, #283325, #627f40, #c8f64a, #526443, #bccdd5, #283325)',
                             }}
                           />
                         </motion.span>

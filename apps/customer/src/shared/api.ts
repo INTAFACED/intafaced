@@ -65,7 +65,8 @@ export function createApiClient(
   ): Promise<ApiResult<T>> {
     if (requestOptions.signal?.aborted) return authoredRefusal('aborted', { key: 'beforeDispatch' });
     if (method !== 'GET' && options.canWrite && !options.canWrite()) return authoredRefusal('aborted', { key: 'accountChanged' });
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    // A JSON content type on a body-less request (DELETE /orders/:id) makes Fastify answer 400 FST_ERR_CTP_EMPTY_JSON_BODY.
+    const headers: Record<string, string> = input === undefined ? {} : { 'content-type': 'application/json' };
     const token = options.token?.();
     if (token) headers.authorization = `Bearer ${token}`;
     if (requestOptions.idempotencyKey) headers['Idempotency-Key'] = requestOptions.idempotencyKey;

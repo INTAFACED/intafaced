@@ -9,13 +9,17 @@
  * `now = new Date()` so that hitch is live without a trade-service recut.
  */
 
-import { formatAmount, recipes, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
+import { formatAmount, LedgerError, recipes, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
 import { TradeError } from '../spot/types.js';
 import { assertFirmConvertQuote, legsForConvert, type BoundConvertFill } from './quote.js';
 
 export interface ConvertSettlePlan {
   readonly hold: PostRequest;
+  /** Compensation for `hold` when the house cannot cover its leg. Key is fixed per order — one release, ever. */
+  readonly holdRelease: PostRequest;
   readonly mmHold: PostRequest;
+  /** Compensation for `mmHold` (legacy order booked it before the customer hold). Fixed key, one release ever. */
+  readonly mmHoldRelease: PostRequest;
   readonly fill: PostRequest;
   readonly expiresAt: string;
 }
@@ -57,18 +61,24 @@ export function planConvertSettle(input: {
   const makerPaysAsset = q.side === 'buy' ? q.baseAsset : q.quoteAsset;
   const makerPaysAmount = q.side === 'buy' ? q.filledQty : input.bound.fillNotional;
 
+  const takerHold = {
+    orderId: input.takerOrderId,
+    userId: q.userId,
+    assetId: takerPaysAsset,
+    amount: takerPaysAmount,
+  };
+
+  const makerHold = {
+    orderId: input.makerOrderId,
+    assetId: makerPaysAsset,
+    amount: makerPaysAmount,
+  };
+
   return {
-    hold: recipes.orderHold({
-      orderId: input.takerOrderId,
-      userId: q.userId,
-      assetId: takerPaysAsset,
-      amount: takerPaysAmount,
-    }),
-    mmHold: recipes.marketMakerOrderHold({
-      orderId: input.makerOrderId,
-      assetId: makerPaysAsset,
-      amount: makerPaysAmount,
-    }),
+    hold: recipes.orderHold(takerHold),
+    holdRelease: recipes.orderHoldRelease({ ...takerHold, sequence: 0 }),
+    mmHold: recipes.marketMakerOrderHold(makerHold),
+    mmHoldRelease: recipes.marketMakerOrderHoldRelease({ ...makerHold, sequence: 0 }),
     fill: recipes.marketMakerMakerFill({
       fillId: input.fillId,
       takerId: q.userId,
@@ -86,7 +96,19 @@ export function planConvertSettle(input: {
   };
 }
 
-/** House inventory first — a house shortfall must not strand a customer hold. */
+/**
+ * Customer hold first, then house inventory (#4676).
+ *
+ * A customer shortfall fails on the first post, before any house coins move,
+ * so there is nothing to undo. A house shortfall releases the customer hold
+ * (`order.release:<takerOrderId>:0`, the same release spot cancel uses) and
+ * refuses `trade.convert_liquidity_unavailable`.
+ *
+ * The hold key `order.hold:<takerOrderId>` is booked forever, so after a
+ * release a retry of the same quote would "re-hold" as a ledger no-op and
+ * settle against nothing. The booked release is therefore the terminal marker:
+ * the same quote is refused again, and the customer asks for a new quote.
+ */
 export async function postConvertSettle(ledger: LedgerClient, plan: ConvertSettlePlan, now?: Date): Promise<void> {
   if (now != null) {
     const expiresAt = Date.parse(plan.expiresAt);
@@ -97,7 +119,49 @@ export async function postConvertSettle(ledger: LedgerClient, plan: ConvertSettl
       throw new TradeError('convert quote expired — refuse rather than requote', 'trade.convert_quote_expired');
     }
   }
-  await ledger.post(plan.mmHold);
-  await ledger.post(plan.hold);
+  if ((await ledger.getTxByKey(plan.holdRelease.idempotencyKey)) != null) {
+    throw liquidityUnavailable();
+  }
+  try {
+    await ledger.post(plan.hold);
+  } catch (err) {
+    if (err instanceof LedgerError && err.code === 'ledger.insufficient_funds') await releaseStrandedHouseHold(ledger, plan);
+    throw err;
+  }
+  try {
+    await ledger.post(plan.mmHold);
+  } catch (err) {
+    // Only a definite house shortfall compensates. Any other failure (timeout,
+    // unknown outcome) may have booked the house hold: do not release then.
+    if (!(err instanceof LedgerError) || err.code !== 'ledger.insufficient_funds') throw err;
+    await ledger.post(plan.holdRelease);
+    throw liquidityUnavailable();
+  }
   await ledger.post(plan.fill);
+}
+
+/**
+ * Legacy bound quotes posted the house hold BEFORE the customer hold. When such a
+ * quote is refused (expired, or the customer cannot cover), the house hold is
+ * released exactly once (`order.release.mm:<makerOrderId>:0`; a repeat is a ledger
+ * no-op). Never once the fill is booked: the hold is consumed then. Customer-first
+ * settles never book a house hold before the customer hold, so this is a no-op.
+ */
+export async function releaseStrandedHouseHold(ledger: LedgerClient, plan: ConvertSettlePlan): Promise<void> {
+  if ((await ledger.getTxByKey(plan.mmHold.idempotencyKey)) == null) return;
+  if ((await ledger.getTxByKey(plan.fill.idempotencyKey)) != null) return;
+  if ((await ledger.getTxByKey(plan.mmHoldRelease.idempotencyKey)) != null) return;
+  await ledger.post(plan.mmHoldRelease);
+}
+
+/** Ledger key of the customer hold (`recipes.orderHold`); settle.test.ts pins it to the plan. */
+export function convertCustomerHoldKey(takerOrderId: string): string {
+  return `order.hold:${takerOrderId}`;
+}
+
+function liquidityUnavailable(): TradeError {
+  return new TradeError(
+    'convert liquidity is unavailable right now — nothing was charged, request a new quote',
+    'trade.convert_liquidity_unavailable',
+  );
 }

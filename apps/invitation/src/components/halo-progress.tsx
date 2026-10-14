@@ -112,7 +112,7 @@ export function HaloProgress({
               animate={{ left: '35%' }}
               className="-bottom-3 absolute h-10 w-32 blur-xl"
               style={{
-                background: 'linear-gradient(90deg, #424c50, #455039, #bccdd5, #b9f65a)',
+                background: 'linear-gradient(90deg, #424c50, #455039, #bccdd5, #c8f64a)',
               }}
               transition={{
                 duration: reduceMotion ? 0.01 : 5.5,

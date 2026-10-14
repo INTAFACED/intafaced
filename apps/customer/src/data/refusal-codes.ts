@@ -1,0 +1,155 @@
+/**
+ * Which typed refusal codes mean what (UI-SPEC §4.3).
+ *
+ * The words customers read live in `refusals.ts`. This file only sorts service
+ * codes into kinds, so it is the one place that names the raw codes (collected
+ * from DATA-GAPS.md, EMPTY-AND-LOCKED-2026-10-13.md and the services' error maps:
+ * svc-trade `ccxt-errors.ts`, svc-bank `router.ts`, svc-pay, svc-ledger, svc-edge).
+ */
+
+export type RefusalKind =
+  | 'screening'
+  | 'region'
+  | 'verify'
+  | 'convertSpreadUnset'
+  | 'slippageCapUnset'
+  | 'noBook'
+  | 'insufficientDepth'
+  | 'quoteFailed'
+  | 'marketNotOpen'
+  | 'insufficient'
+  | 'destMissing'
+  | 'recipientNoAccount'
+  | 'signedOut'
+  | 'stepUp'
+  | 'mfaRequired'
+  | 'pricesDown'
+  | 'noPermission'
+  | 'rateLimited'
+  | 'tryAgain'
+  | 'orderGone'
+  | 'priceMoved'
+  | 'quoteExpired'
+  | 'amountInvalid'
+  | 'priceInvalid'
+  | 'belowMinimum'
+  | 'selfTrade'
+  | 'accountOnHold'
+  | 'notFound'
+  | 'duplicate'
+  | 'unknown';
+
+/** Exact codes first. */
+const EXACT: Readonly<Record<string, RefusalKind>> = {
+  'trade.convert_spread_unset': 'convertSpreadUnset',
+  'trade.slippage_cap_unset': 'slippageCapUnset',
+  'trade.no_book': 'noBook',
+  'bank.dest_user_missing': 'destMissing',
+  'bank.recipient_no_account': 'recipientNoAccount',
+
+  'auth.required': 'signedOut',
+  'trade.unauthenticated': 'signedOut',
+  'bank.unauthenticated': 'signedOut',
+  'pay.unauthenticated': 'signedOut',
+  'identity.unauthenticated': 'signedOut',
+  'token.expired': 'signedOut',
+  'token.invalid': 'signedOut',
+  'token.malformed': 'signedOut',
+  'mfa.required': 'stepUp',
+  'auth.mfa_required': 'mfaRequired',
+  'bank.prices_unavailable': 'pricesDown',
+  'scope.denied': 'noPermission',
+  'ownership.denied': 'noPermission',
+  'trade.permission_denied': 'noPermission',
+  'trade.not_owner': 'noPermission',
+  'bank.not_owner': 'noPermission',
+  'tier.insufficient': 'verify',
+  'trade.account_restricted': 'accountOnHold',
+  'ledger.frozen': 'accountOnHold',
+  'ledger.freeze': 'accountOnHold',
+  'ledger.freeze_attributed': 'accountOnHold',
+  'bank.space_locked': 'accountOnHold',
+
+  'trade.rate_limited': 'rateLimited',
+  'edge.rate_limited': 'rateLimited',
+  'trade.matching_unavailable': 'tryAgain',
+  'edge.gateway': 'tryAgain',
+  'edge.upstream_unavailable': 'tryAgain',
+  'edge.no_route': 'tryAgain',
+  'edge.module_killed': 'tryAgain',
+  'edge.kill_switch_undecidable': 'tryAgain',
+  'ledger.unavailable': 'tryAgain',
+  'bank.ledger_outcome_unknown': 'tryAgain',
+  'bank.transfers_disabled': 'tryAgain',
+  'pay.rail_outcome_unknown': 'tryAgain',
+
+  'trade.order_not_found': 'orderGone',
+  'trade.order_not_open': 'orderGone',
+  'trade.convert_price_moved': 'priceMoved',
+  'trade.price_not_accepted': 'priceMoved',
+  'trade.convert_quote_expired': 'quoteExpired',
+  'trade.convert_insufficient_depth': 'insufficientDepth',
+  // A size the screen should never send (both or neither of qty and quoteQty): an internal mistake, not the customer's.
+  'trade.convert_invalid_qty': 'quoteFailed',
+
+  'ledger.insufficient_funds': 'insufficient',
+  'market.insufficient_funds': 'insufficient',
+  'trade.hold_uncovered': 'insufficient',
+  'trade.insufficient_margin': 'insufficient',
+  'trade.algo_insufficient_balance': 'insufficient',
+
+  'trade.invalid_qty': 'amountInvalid',
+  'trade.missing_qty': 'amountInvalid',
+  'pay.invalid_amount': 'amountInvalid',
+  'bank.ramp_invalid_amount': 'amountInvalid',
+  'trade.min_qty_exceeds_qty': 'amountInvalid',
+  'bank.below_minimum': 'belowMinimum',
+  'trade.invalid_price': 'priceInvalid',
+  'trade.missing_price': 'priceInvalid',
+  'trade.outside_collar': 'priceInvalid',
+  'trade.missing_collar': 'priceInvalid',
+  'trade.self_trade': 'selfTrade',
+
+  'trade.market_not_found': 'notFound',
+  'bank.space_not_found': 'notFound',
+  'pay.payment_not_found': 'notFound',
+  'pay.link_not_found': 'notFound',
+  'pay.merchant_not_found': 'notFound',
+  'trade.client_order_id_conflict': 'duplicate',
+  'trade.idempotency_conflict': 'duplicate',
+  'bank.same_space': 'duplicate',
+};
+
+/** Prefix rules, checked in order after the exact table. */
+const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
+  ['denied.kyc', 'verify'],
+  ['denied.region', 'region'],
+  ['denied.screening', 'screening'],
+  ['denied.network', 'screening'],
+  ['denied.module', 'screening'],
+  ['denied.plane', 'screening'],
+  ['denied.', 'screening'],
+  ['kyc.', 'verify'],
+  ['kyc_', 'verify'],
+  ['trade.lifecycle', 'marketNotOpen'],
+  ['trade.market_', 'marketNotOpen'],
+  ['trade.venue_', 'marketNotOpen'],
+  ['edge.venue_', 'marketNotOpen'],
+  ['trade.spot_disabled', 'marketNotOpen'],
+  ['trade.unknown_schedule', 'marketNotOpen'],
+  ['trade.mark_', 'marketNotOpen'],
+  ['trade.fx_', 'marketNotOpen'],
+];
+
+const SUFFIXES: ReadonlyArray<readonly [suffix: string, kind: RefusalKind]> = [['.tier_required', 'verify']];
+
+/** Sort a service code into a kind; unknown and empty codes are `unknown`. */
+export function classifyRefusal(code: string | null | undefined): RefusalKind {
+  if (!code) return 'unknown';
+  const normal = code.trim().toLowerCase();
+  const exact = EXACT[normal];
+  if (exact) return exact;
+  for (const [suffix, kind] of SUFFIXES) if (normal.endsWith(suffix)) return kind;
+  for (const [prefix, kind] of PREFIXES) if (normal.startsWith(prefix)) return kind;
+  return 'unknown';
+}
