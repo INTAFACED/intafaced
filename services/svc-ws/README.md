@@ -1,7 +1,8 @@
 # svc-ws
 
-**The live public market-data stream (§5.2 `ws.gateway`).** Depth (snapshot + sequenced deltas) and a public trade
-tape, to any browser that asks.
+**The live public market-data stream (§5.2 `ws.gateway`).** Depth (snapshot + sequenced deltas), a public trade
+tape, an all-markets ticker and per-interval candles, to any browser that asks. One socket per market (the original
+door) or one socket for everything (the multiplexed door).
 
 This service owns no users, balances or database. Optional `JWT_ACCESS_SECRET` and
 `IDENTITY_OWNERSHIP_SECRET` support authenticated private reads; public `/stream` never uses them. Depth reads a public endpoint
@@ -61,18 +62,19 @@ smallest blast radius in the fleet. A second public origin on a process that hol
 HTTP + JSON, plus one websocket. Amounts in and out are **decimal strings**, never JSON numbers. The only JSON
 numbers anywhere in this service's output are integer sequences.
 
-| Route                                              | Input | Output                                                                                                                                                            |
-| -------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /stream?market=<id>` (upgrade)                | —     | `DepthSnapshot`, then `DepthDelta` frames                                                                                                                         |
-| `GET /stream?market=<id>&channel=trades` (upgrade) | —     | recent `TradePrint` frames, then live prints                                                                                                                      |
-| `GET /drop-copy/stream` (upgrade, JWT)             | —     | independent execution evidence (`drop_copy`) · empty session is `RECOVERY_REQUIRED`, never a complete tape · not `/private/stream`                                |
-| `GET /markets/:marketId/depth`                     | —     | `DepthSnapshot` · `404` `MarketNotFound` (unlisted) · `404` `NoBook` (listed, no resting depth) · `502` upstream down                                             |
-| `GET /markets/:marketId/trades`                    | —     | recent `TradePrint[]` · `404` `MarketNotFound` (unlisted) · `404` `NoTape` (listed, no prints — never `200 { trades: [] }`) · `502` listing down                  |
-| `GET /markets/:marketId/orders`                    | —     | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoBlotter` (listed — never `200 { orders: [] }`)                                                   |
-| `GET /markets/:marketId/positions`                 | —     | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoPositions` (listed — never `200 { positions: [] }`)                                              |
-| `GET /markets`                                     | —     | `{ markets: string[] }` — the listing, not the engine's books                                                                                                     |
-| `GET /health`                                      | —     | `{ ok, service, enabled, connections, capacity.{depth,trades,private}, tradesBus, privateBus, … }` — occupancy never 503s; ceilings are per-hub, not process-wide |
-| `GET /ready`                                       | —     | depth + trade counters + `tradesBus` / `privateBus` / `privateConnections` · `503` only when kill-switch off · bus down does **not** 503 (depth still works)      |
+| Route                                              | Input    | Output                                                                                                                                                            |
+| -------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /stream?market=<id>` (upgrade)                | —        | `DepthSnapshot`, then `DepthDelta` frames                                                                                                                         |
+| `GET /stream?market=<id>&channel=trades` (upgrade) | —        | recent `TradePrint` frames, then live prints                                                                                                                      |
+| `GET /stream` (upgrade, **no `market`**)           | JSON ops | the **multiplexed door**: any mix of book, trades, ticker and candles on one socket — see "The multiplexed door" below                                            |
+| `GET /drop-copy/stream` (upgrade, JWT)             | —        | independent execution evidence (`drop_copy`) · empty session is `RECOVERY_REQUIRED`, never a complete tape · not `/private/stream`                                |
+| `GET /markets/:marketId/depth`                     | —        | `DepthSnapshot` · `404` `MarketNotFound` (unlisted) · `404` `NoBook` (listed, no resting depth) · `502` upstream down                                             |
+| `GET /markets/:marketId/trades`                    | —        | recent `TradePrint[]` · `404` `MarketNotFound` (unlisted) · `404` `NoTape` (listed, no prints — never `200 { trades: [] }`) · `502` listing down                  |
+| `GET /markets/:marketId/orders`                    | —        | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoBlotter` (listed — never `200 { orders: [] }`)                                                   |
+| `GET /markets/:marketId/positions`                 | —        | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoPositions` (listed — never `200 { positions: [] }`)                                              |
+| `GET /markets`                                     | —        | `{ markets: string[] }` — the listing, not the engine's books                                                                                                     |
+| `GET /health`                                      | —        | `{ ok, service, enabled, connections, capacity.{depth,trades,private}, tradesBus, privateBus, … }` — occupancy never 503s; ceilings are per-hub, not process-wide |
+| `GET /ready`                                       | —        | depth + trade counters + `tradesBus` / `privateBus` / `privateConnections` · `503` only when kill-switch off · bus down does **not** 503 (depth still works)      |
 
 ### The wire format is not ours
 
@@ -98,11 +100,13 @@ is how a book grows phantom liquidity.
 **A delta is emitted whenever the sequence advances, even when no level changed.** Skipping the empty one would
 leave every client behind the engine, and the next real delta would gap and cost the whole fleet a resnapshot.
 
-### The subscription vocabulary is one query parameter
+### The single-market door: the subscription vocabulary is one query parameter
 
-The market is on the upgrade URL and **inbound frames are never parsed**. There is no subscribe verb, no command
-set, no JSON parser on the read side, and `maxPayload` is 1 KiB. One market per socket; a terminal that wants two
-opens two. On an unauthenticated public port, the smallest possible inbound surface is worth more than multiplexing.
+On `GET /stream?market=<id>[&channel=trades]` the market is on the upgrade URL and **inbound frames are never
+parsed**. There is no subscribe verb, no command set, no JSON parser on the read side, and `maxPayload` is 1 KiB. One
+market per socket. This door is unchanged by the multiplexed door below, and a test pins it: a mux-shaped message sent
+to it is not interpreted. On an unauthenticated public port the smallest possible inbound surface is worth keeping for
+every client that does not need more.
 
 ### The snapshot is a separate GET, on purpose
 
@@ -112,6 +116,153 @@ snapshot is an ordinary `GET`, served from the same book the deltas are diffed a
 `Access-Control-Allow-Origin: *` with no `Allow-Credentials`: the response carries nothing about the caller, so
 "any origin may read this" is a true statement rather than a relaxation, and `*` makes the browser refuse to send
 credentials.
+
+---
+
+## The multiplexed door
+
+`GET /stream` with **no `market` query parameter** upgrades to a multiplexed session: one socket, any number of
+channels, subscribed and unsubscribed at runtime. A request that names a market (even an empty one) is the original
+single-market socket and never reaches this code. If the door is not mounted, `GET /stream` with no market is still the
+`400` it always was.
+
+The product reason: a scanner, a heatmap or a multi-chart terminal needs dozens of live feeds. Fifty sockets is fifty
+heartbeats, fifty capacity seats and fifty reconnect storms; one socket is one of each.
+
+### Channels
+
+| `ch`      | needs                | what it carries                                                                                                              |
+| --------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `book`    | `market`             | exactly the legacy depth stream: a `snapshot`, then sequenced `delta`s (and the named `status` frames)                       |
+| `trades`  | `market`             | exactly the legacy tape: recent `TradePrint`s on subscribe, then live prints                                                 |
+| `ticker`  | `market` (optional)  | last, 24 h change, high, low and volume for **every** market (or the one named), throttled to one send per market per second |
+| `candles` | `market`, `interval` | the current candle for that market and interval (`1m` `5m` `15m` `1h` `4h` `1d`); the final frame of a bucket says `closed`  |
+
+`market` is a market id **or** a unified symbol (`BTC/USDT`). Symbols resolve through svc-trade's listing; the ack tells
+the client which id its frames will carry, and frames always use the id.
+
+### Client to server
+
+Text frames only, at most 8 KiB (above that the socket is closed `1009` before the frame is assembled). Three verbs,
+each with a `channels` array of 1 to 64 entries and an optional `id` (1 to 64 characters) that the ack echoes:
+
+```jsonc
+{ "op": "subscribe",   "id": "r1", "channels": [
+    { "ch": "book",    "market": "BTC/USDT" },
+    { "ch": "trades",  "market": "BTC/USDT" },
+    { "ch": "ticker" },
+    { "ch": "candles", "market": "BTC/USDT", "interval": "1m" } ] }
+{ "op": "unsubscribe", "channels": [ { "ch": "trades", "market": "BTC/USDT" } ] }
+{ "op": "resync",      "channels": [ { "ch": "book",   "market": "BTC/USDT" } ] }
+```
+
+Operations on one connection run strictly in order. Subscribing to something already subscribed is a success
+(`note: "already subscribed"`) and does not take a second seat.
+
+### Server to client
+
+Data frames are an envelope around the payload the single-market doors already send, **unchanged and unextended**:
+
+```jsonc
+{ "ch": "book",    "market": "<id>", "data": { "type": "snapshot", "marketId": "<id>", "sequence": 812, "bids": [...], "asks": [...] } }
+{ "ch": "book",    "market": "<id>", "data": { "type": "delta", "marketId": "<id>", "fromSequence": 812, "sequence": 813, "bids": [...], "asks": [...] } }
+{ "ch": "book",    "market": "<id>", "data": { "type": "status", "code": "depth.engine_unavailable", "marketId": "<id>" } }
+{ "ch": "trades",  "market": "<id>", "data": { "type": "trade", "marketId": "<id>", "sequence": 812, "price": "30000.5", "quantity": "0.25", "ts": "..." } }
+{ "ch": "ticker",  "data": { "type": "snapshot" | "update", "ts": 1760000000000, "tickers": [
+    { "market": "<id>", "symbol": "BTC/USDT", "last": "30000.5", "change24h": "120.25", "changePct24h": "0.4",
+      "high": "31000", "low": "29000", "volume": "12.5", "quoteVolume": "375000" } ] } }
+{ "ch": "candles", "market": "<id>", "interval": "1m", "data": { "type": "candle", "marketId": "<id>", "interval": "1m",
+    "t": 1760000040000, "o": "30000", "h": "30010", "l": "29990", "c": "30005", "v": "1.5", "closed": false } }
+```
+
+Control frames have `op` instead of `ch`:
+
+```jsonc
+{ "op": "ack", "for": "subscribe", "id": "r1", "results": [
+    { "i": 0, "ch": "book", "market": "<id>", "symbol": "BTC/USDT", "ok": true },
+    { "i": 1, "ch": "book", "market": "<id>", "ok": false, "code": "unknown_market", "message": "no such market" } ] }
+{ "op": "error", "code": "bad_json", "message": "frame is not JSON" }
+```
+
+An ack carries one result per requested channel, in order (`i` is the index). One bad entry is a typed result for that
+entry; the others and the connection are unaffected. Codes: `bad_json`, `bad_request`, `unknown_channel`,
+`unknown_market`, `bad_interval`, `subscription_limit`, `not_subscribed`, `unsupported`, `at_capacity`, `unavailable`.
+A channel a hub later gives up on (the listing dropped the market, an upstream stayed down) arrives as an
+`{ "op": "error", "ch", "market", "code" }` frame and the subscription is gone; the rest keep streaming.
+
+Amounts are **decimal strings**, never JSON numbers; the only numbers are integer sequences and millisecond times. A
+field the upstream did not publish is `null`, never `"0"`.
+
+### Sequence numbers and resync
+
+Every `book` payload carries the engine sequence: a `snapshot` has `sequence`; a `delta` has `fromSequence` and
+`sequence`. Applying a delta whose `fromSequence` is not the book's current sequence is refused by `applyDelta` from
+`@intafaced/market-data` — that refusal is how a client **detects a gap**; nothing else is needed. The client then sends
+`resync` for that market. The server answers with a full `snapshot` of its **current** book, written in the same
+synchronous step as the next delta would be, so the delta that follows has `fromSequence` equal to the snapshot's
+`sequence` and applies cleanly. The ack says what happened:
+
+| ack `note`                                        | meaning                                                                                    |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `snapshot sent`                                   | the repair is on the wire                                                                  |
+| `the connect snapshot is still on its way`        | the first snapshot has not been written yet; it is the repair and no second one is sent    |
+| `socket is over its buffer limit; ...follows ...` | the socket is backed up; the lag sweep sends the snapshot on the first tick it has drained |
+| `nothing to send: no live state is held ...`      | no proven book (empty is not zero); the client already knows, nothing is invented          |
+
+`resync` works for `book`, `ticker` (the full current state) and `candles` (the cached candles). Ticker and candle
+frames are latest-state, so a missed one is repaired by the next change or by `resync`; they carry no sequence because
+nothing about them needs to line up. `trades` answers `unsupported`: a print stands alone and `sequence` is only a dedupe
+key. (Legacy single-market clients keep using `GET /markets/:id/depth`.)
+
+### The ticker
+
+Source: svc-trade's `GET /api/v1/tickers` (real, non-seeded taker fills — the numbers the market table already shows),
+read only while at least one connection watches the channel, every `WS_TICKER_POLL_MS`. A market's row is sent **at
+most once per `WS_TICKER_THROTTLE_MS`** (1 s), trailing-edge and per market: a market that changes ten times in a window
+is sent once with the newest values; one that did not change is not sent; rows that became due together share one frame.
+A new subscriber gets the cached state at once (`type: "snapshot"`); everything after is `type: "update"` with only the
+changed markets. A market svc-trade omits (matching holds no book for it) gets no row. A failed read is named once
+(`{ "type": "status", "code": "ticker.unavailable" }`) and the cache is dropped so no stale price is served.
+
+### Candles: where they come from
+
+Candles **already exist**: svc-trade aggregates them in SQL from the real taker-fill tape
+(`GET /api/v1/ohlcv/:symbol`, the same rows the chart's history uses, seeded-order fills excluded). svc-ws does **not**
+build a second aggregator from the `orderFilled` stream, for two reasons: the bus carries fills that touch seeded
+orders, so a live candle built from it would disagree with the history it continues; and a subscriber joining mid-bucket
+would get a wrong `open`, because this service keeps no fill history to rebuild it from.
+
+So, per **watched** (market, interval) and only then, every `WS_CANDLE_POLL_MS` the newest two buckets are read (the
+open one, and the one before it so a rollover can finalise it) with `since` set to the start of the previous bucket, so
+each read scans two buckets of fills and not the market's history. A candle is sent when it is new or changed, and once
+more with `closed: true` when its bucket has elapsed. A bucket with no fills is **absent** — never a zero-filled candle.
+The frame's `t` is the bucket's open time in ms. History for the chart still comes from the REST endpoint; this channel
+continues it.
+
+### Limits and backpressure
+
+| Limit                                      | Behaviour when exceeded                                                                                                  |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `WS_MUX_MAX_SUBSCRIPTIONS` per socket      | that channel gets `subscription_limit`; the connection and its other channels are untouched                              |
+| `WS_MUX_MAX_OPS_PER_SECOND` per socket     | token bucket; a subscribe of N channels costs N (at most one second of budget). Over it: **close `1008`** `rate_limited` |
+| pending operations (16, protocol)          | a client that queues past it is not waiting for answers: **close `1008`**                                                |
+| frame size (8 KiB, protocol)               | the `ws` library closes `1009` before the frame is assembled                                                             |
+| `WS_MAX_CONNECTIONS` multiplexed sockets   | the newest is closed `1013` `at capacity`                                                                                |
+| `WS_MAX_CONNECTIONS` per hub               | **each channel of a multiplexed socket takes one seat in its hub**, like a legacy socket does                            |
+| `WS_HIGH_WATER_BYTES` / `WS_MAX_LAG_TICKS` | slow client: see below                                                                                                   |
+
+Every ceiling is owner-published like the rest of this service: blank is refused, never defaulted. A multiplexed
+connection with a blank subscription or operation ceiling is closed `1008` with `ws.close.mux_max_subscriptions_unset`
+or `ws.close.mux_max_ops_per_second_unset`.
+
+**Slow clients.** The hubs keep no per-client queue. All channels of a socket share the socket's one outbound buffer.
+When it is over `WS_HIGH_WATER_BYTES`: depth deltas, ticker updates and candle frames are dropped (not queued), the
+client is marked lagging, and on the first tick it has drained it gets a full snapshot of the state it missed (depth
+`snapshot`, ticker `snapshot`, the cached candles). A client still over the mark after `WS_MAX_LAG_TICKS` consecutive
+ticks in **any** hub is closed **`1013`** with a reason starting `slow consumer`. Its other channels share the same unread
+buffer, so the whole connection goes, and every seat is released. Control frames (acks, errors) obey the same mark.
+Other close codes: `1001` server shutdown or kill-switch; `1008` policy (rate, backlog, unpublished ceiling); `1009`
+frame too big; `1013` slow consumer or capacity.
 
 ---
 
@@ -300,6 +451,11 @@ After a consumer is attached, **nats.js owns TCP reconnect** for that connection
 | `WS_MAX_CONNECTIONS`                  | _(unset)_               | owner-published max sockets **per hub**; blank refuses `ws.max_connections_unset` (owner may set 5000)                           |
 | `WS_PRIVATE_MAX_CONNECTIONS_PER_USER` | _(unset)_               | private/drop-copy per user; blank refuses `ws.private_max_connections_per_user_unset` (owner may set 16)                         |
 | `WS_HEARTBEAT_MS`                     | `30000`                 | ping cadence; a socket that misses a pong is terminated                                                                          |
+| `WS_MUX_MAX_SUBSCRIPTIONS`            | _(unset)_               | owner-published channels per multiplexed socket; blank closes the socket `1008` `ws.close.mux_max_subscriptions_unset`           |
+| `WS_MUX_MAX_OPS_PER_SECOND`           | _(unset)_               | owner-published inbound operation budget per multiplexed socket; blank closes `1008` `ws.close.mux_max_ops_per_second_unset`     |
+| `WS_TICKER_THROTTLE_MS`               | `1000`                  | a market's ticker row is sent at most once per this many ms                                                                      |
+| `WS_TICKER_POLL_MS`                   | `1000`                  | how often svc-trade's `/api/v1/tickers` is read while somebody watches the ticker (needs `WS_MARKETS_LIST_LIMIT`)                |
+| `WS_CANDLE_POLL_MS`                   | `2000`                  | how often each watched (market, interval) candle is re-read from svc-trade's `/api/v1/ohlcv`                                     |
 | `WS_TRADE_RECENT_LIMIT`               | _(unset)_               | owner-published replay while watched; blank refuses `ws.trade_recent_limit_unset` (owner may set 50)                             |
 | `WS_DROP_COPY_RECENT_LIMIT`           | _(unset)_               | owner-published drop-copy session replay; blank refuses `ws.drop_copy_recent_limit_unset` (owner may set 50)                     |
 | `WS_TRADES_DURABLE`                   | `ws-trade-tape`         | JetStream durable; unique per replica for multi-instance                                                                         |
@@ -400,11 +556,17 @@ never `200 { positions: [] }`. Never invent a position frame.
   mark/funding frames stay on the trade wall. This service never invents a position frame.
 - **Aggressor side on the tape.** `orderFilled` has no side field today. Adding one is a `packages/events` PR
   (§15.2), not a silent invention here.
-- **Rate limiting.** There is none anywhere in the platform (svc-edge's README says so too). `WS_MAX_CONNECTIONS` is
-  a ceiling, not a rate limit. A failing `GET /markets` is also not rate-limited, so a reconnect storm against a
+- **Rate limiting, per client address.** There is none anywhere in the platform (svc-edge's README says so too).
+  `WS_MAX_CONNECTIONS` is a ceiling, not a rate limit. The multiplexed door does budget inbound operations per
+  connection (`WS_MUX_MAX_OPS_PER_SECOND`), but nothing limits how fast one address may open connections. A failing `GET /markets` is also not rate-limited, so a reconnect storm against a
   down svc-matching costs one upstream call per connection attempt.
 - **Horizontal scale.** Each replica keeps its own book per subscribed market and polls independently, so N replicas
   are N times the upstream read load. Fine at this cadence; a shared snapshot sink is the answer when it is not.
+- **Push candles and tickers.** Both channels are polls of svc-trade's public REST, like depth is a poll of matching
+  (`WS_TICKER_POLL_MS`, `WS_CANDLE_POLL_MS`), so a price can be that old on the wire. A push needs svc-trade to
+  publish candle / ticker events; until then the `last` in a ticker can trail the tape by up to a poll.
+- **Idle multiplexed sockets.** A multiplexed connection that never subscribes holds one seat of
+  `WS_MAX_CONNECTIONS` until it closes or misses a heartbeat. There is no idle timeout.
 - **Compression.** `perMessageDeflate` is off deliberately: a zlib context per socket (~300 KiB at default windows)
   turns "many idle subscribers" — the normal state of a market-data server — into a memory problem, and depth frames
   are small and mostly digits.
@@ -436,6 +598,14 @@ detach on close, and the HTTP half including CORS and the `502`-not-`500` rule.
 
 `depth/source.test.ts` covers refusing a JSON number where a price belongs, refusing a response with no engine
 sequence, and asserting no credential is ever attached to an upstream request.
+
+`mux/` tests: `protocol.test.ts` (the closed vocabulary and its bounds), `ticker-hub.test.ts` (the throttle on a fake
+clock, snapshot-on-connect, lag repair and eviction), `candle-hub.test.ts` (current candle, rollover and `closed`, no
+invented buckets), `sources.test.ts` (JSON numbers where an amount belongs are refused; no credential is sent),
+`poller.test.ts` (nothing is read while nobody watches; the bounded `since` window), `session.test.ts` (multiplexing,
+sequence and resync rebuilt through `applyDelta`, every limit, slow-consumer close) and `gateway.test.ts` (the same over
+a real TCP socket, **plus the backward-compatibility test**: the `?market=` doors are byte-for-byte what they were and
+still ignore inbound frames).
 
 ### Replay and backpressure limits
 
