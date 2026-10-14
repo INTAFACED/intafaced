@@ -62,6 +62,7 @@ import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { userCopy } from './user-copy.js';
+import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -279,6 +280,14 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'CONFLICT', message, cause: err });
     case 'auth.account_frozen':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    case 'auth.invite_invalid':
+    case 'auth.invite_expired':
+    case 'auth.founder_enrolment_closed':
+      // Founder enrolment (auth.registerFounder). Retrying the same call cannot help; the client
+      // branches on `intafacedCode` for the copy of each.
+      return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    case 'auth.invite_used':
+      return new TRPCError({ code: 'CONFLICT', message, cause: err });
     case 'auth.not_found':
       return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     case 'auth.sub_account_required':
@@ -377,6 +386,12 @@ export function createIdentityRouter(
      * `identity.registration_open_unset`. Explicit false → closed. Never invent true.
      */
     registrationOpen?: boolean;
+    /**
+     * Founder enrolment (`auth.registerFounder`, `auth.founderEnrolmentStatus`).
+     * `invites` is the parsed IDENTITY_FOUNDER_INVITE_HASHES + _EXPIRES_AT; absent
+     * means enrolment is closed. Independent of `registrationOpen`. `now` is a test clock.
+     */
+    founderEnrolment?: { invites?: FounderEnrolmentConfig | undefined; now?: () => Date };
     webauthnEnabled?: boolean;
     /**
      * Founder pair (user ids). These identities may not self-enrol a FIRST
@@ -434,6 +449,8 @@ export function createIdentityRouter(
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
+  const founderInvites = options.founderEnrolment?.invites;
+  const founderNow = options.founderEnrolment?.now ?? (() => new Date());
   const privilegedUserIds = options.privilegedUserIds ?? [];
   const toFactorError = (err: unknown): TRPCError => factorGateTrpcError(err) ?? toTrpcError(err);
   const referral = options.referral;
@@ -618,6 +635,47 @@ export function createIdentityRouter(
             if (referrerId) {
               await requireReferral().attribute({ userId: session.userId, referrerId });
             }
+            return { ...session, expiresAt: session.expiresAt.toISOString() };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Is the founder enrolment door open? True only while the founder pair is not
+       * pinned, invites are configured, the expiry has not passed and one is unspent.
+       * Public and input-free; reveals nothing else.
+       */
+      founderEnrolmentStatus: publicProcedure.output(z.object({ open: z.boolean() })).query(async () => {
+        try {
+          return { open: await auth.founderEnrolmentOpen(founderInvites, founderNow()) };
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+      /**
+       * Founder enrolment: an invite-gated, single-use `register`. Independent of
+       * REGISTRATION_OPEN, so public sign-up stays closed. Refuses forever once the
+       * founder pair is pinned. Same handle/email/password rules as `register`;
+       * the session it returns is a password session (mfa false) that may enrol
+       * its first factor (the account is not privileged until pinned).
+       * Errors (`intafacedCode`): auth.invite_invalid, auth.invite_used,
+       * auth.invite_expired, auth.founder_enrolment_closed, plus handle/email taken.
+       */
+      registerFounder: publicProcedure
+        .input(
+          z.object({
+            invite: z.string().min(1).max(100),
+            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
+            email: z.string().email(),
+            password: z.string().min(12).max(200),
+          }),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input }) => {
+          try {
+            const session = await auth.registerFounder({ ...input, ip: requestIpAls.getStore() }, founderInvites, founderNow());
             return { ...session, expiresAt: session.expiresAt.toISOString() };
           } catch (err) {
             throw toTrpcError(err);
