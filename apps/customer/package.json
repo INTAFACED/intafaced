@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:session-persist": "playwright test -c tests/session-persist.playwright.config.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 3200",
     "clean": "rimraf dist .turbo"
   },

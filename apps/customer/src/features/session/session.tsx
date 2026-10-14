@@ -25,6 +25,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const current = useRef(session);
   const recoveredAt = useRef(0);
+  const recovering = useRef<Promise<void> | null>(null);
   const [restoring, setRestoring] = useState(() => sync.mightBeSignedIn());
   const accessToken = session?.accessToken;
   function clear() {
@@ -50,12 +51,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           if (!requestToken || current.current?.accessToken !== requestToken) return;
           // The token may only be stale: another tab can have rotated the session (which retires this
           // tab's access token). Ask for the current one before giving up on the sign-in.
+          if (recovering.current) return; // a recovery is already in flight; it decides for every request
           if (Date.now() - recoveredAt.current < RECOVERY_COOLDOWN_MS) {
             clear();
             return;
           }
           recoveredAt.current = Date.now();
-          void sync.refresh({ staleToken: requestToken }).then((outcome) => {
+          recovering.current = sync.refresh({ staleToken: requestToken }).then((outcome) => {
+            recovering.current = null;
             if (current.current?.accessToken !== requestToken) return;
             if (outcome.kind === 'session') adopt(outcome.session);
             else clear();
@@ -69,7 +72,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!restoring) return;
     let live = true;
-    void sync.refresh().then((outcome) => {
+    void sync.restore().then((outcome) => {
       if (!live) return;
       // Never replace a session something else committed while this was in flight.
       if (outcome.kind === 'session' && !current.current) adopt(outcome.session);

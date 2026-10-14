@@ -24,6 +24,10 @@ class FakeEdge {
   reuseDetected = 0;
   logouts = 0;
   down = false;
+  /** Answer every call 403 with this code (a region or network gate, or a session refusal). */
+  forbid: string | null = null;
+  /** Rotate on the server, then drop the answer on the floor (an aborted request). */
+  loseNext = false;
   seen: Array<{ url: string; headers: Record<string, string> }> = [];
 
   /** A person signs in: the edge sets the cookie. Returns the session body the page gets. */
@@ -47,6 +51,7 @@ class FakeEdge {
     const refusal = (code: string, status = 401) =>
       json(status, { error: { message: code, code: -32001, data: { code: 'UNAUTHORIZED', httpStatus: status, intafacedCode: code } } });
     if (this.down) return json(503, { error: 'down' });
+    if (this.forbid) return refusal(this.forbid, 403);
     if (headers['x-session-request'] !== '1') return refusal('session.csrf_header_missing', 403);
     if (String(url).endsWith('/session/logout')) {
       this.logouts += 1;
@@ -72,7 +77,12 @@ class FakeEdge {
     }
     this.live.delete(cookieAtSend);
     this.retired.set(cookieAtSend, family);
-    return json(200, { result: { data: this.mint(family) } });
+    const minted = this.mint(family);
+    if (this.loseNext) {
+      this.loseNext = false;
+      throw new TypeError('aborted');
+    }
+    return json(200, { result: { data: minted } });
   };
 }
 
@@ -114,7 +124,7 @@ function memoryStorage() {
   };
 }
 
-function browser(options: { tabs: number; coordinated?: boolean; edge?: FakeEdge }) {
+function browser(options: { tabs: number; coordinated?: boolean; edge?: FakeEdge; leaseOnly?: boolean }) {
   const edge = options.edge ?? new FakeEdge();
   const locks = lockManager();
   const hub = channelHub();
@@ -122,9 +132,11 @@ function browser(options: { tabs: number; coordinated?: boolean; edge?: FakeEdge
   const tabs: SessionSync[] = Array.from({ length: options.tabs }, () =>
     createSessionSync({
       fetch: edge.fetch as typeof fetch,
-      locks: options.coordinated === false ? null : locks,
+      locks: options.coordinated === false || options.leaseOnly ? null : locks,
       channel: options.coordinated === false ? null : hub,
-      storage: () => storage,
+      // No lock, no channel and no shared storage: nothing for the lease fallback to use either.
+      storage: () => (options.coordinated === false ? null : storage),
+      peerWaitMs: 10,
     }),
   );
   return { edge, tabs, storage, hub };
@@ -331,5 +343,87 @@ describe('logout', () => {
     edge.signIn();
     edge.down = true;
     expect((await tabs[0]!.logout()).ok).toBe(false);
+  });
+});
+
+describe('refusals that are not about the session do not sign anyone out', () => {
+  it('a 403 from a region or network gate leaves the hint, the cookie and the other tabs alone', async () => {
+    const { edge, tabs, storage } = browser({ tabs: 2 });
+    edge.signIn();
+    storage.setItem('intafaced.customer.session-hint.v1', '1');
+    const heard: string[] = [];
+    tabs[1]!.subscribe((m) => heard.push(m.type));
+    edge.forbid = 'edge.geo_blocked';
+    expect((await tabs[0]!.refresh()).kind).toBe('unavailable');
+    await tick();
+    expect(heard).toEqual([]);
+    expect(tabs[0]!.mightBeSignedIn()).toBe(true);
+    expect(edge.jar).not.toBeNull();
+  });
+
+  it('a 403 that names the session does sign out', async () => {
+    const { edge, tabs } = browser({ tabs: 1 });
+    edge.signIn();
+    edge.forbid = 'session.cross_site';
+    expect((await tabs[0]!.refresh()).kind).toBe('signed-out');
+  });
+
+  it('a response lost after rotation is reported as unavailable, not as a sign-out', async () => {
+    const { edge, tabs } = browser({ tabs: 1 });
+    edge.signIn();
+    edge.loseNext = true;
+    expect((await tabs[0]!.refresh()).kind).toBe('unavailable');
+  });
+});
+
+describe('a failed logout is remembered and finished on the next load', () => {
+  it('keeps the pending flag, still tries on load, and says nothing is restored while it is pending', async () => {
+    const { edge, tabs, storage } = browser({ tabs: 1 });
+    edge.signIn();
+    edge.down = true;
+    expect((await tabs[0]!.logout()).ok).toBe(false);
+    expect(tabs[0]!.mightBeSignedIn()).toBe(true); // the page must look at it on the next load
+    expect(storage.getItem('intafaced.customer.session-logout-pending.v1')).toBe('1');
+    // Next load while still down: stays unavailable, never restores the session.
+    expect((await tabs[0]!.restore()).kind).toBe('unavailable');
+    expect(edge.jar).not.toBeNull();
+    // Edge is back: the load finishes the sign-out instead of restoring.
+    edge.down = false;
+    const refreshesBefore = edge.refreshes;
+    expect((await tabs[0]!.restore()).kind).toBe('signed-out');
+    expect(edge.refreshes).toBe(refreshesBefore);
+    expect(edge.jar).toBeNull();
+    expect(storage.getItem('intafaced.customer.session-logout-pending.v1')).toBeNull();
+  });
+
+  it('signing in again drops the pending flag', async () => {
+    const { tabs, storage } = browser({ tabs: 1 });
+    storage.setItem('intafaced.customer.session-logout-pending.v1', '1');
+    tabs[0]!.announce({ accessToken: 'a', expiresAt: new Date(Date.now() + 900_000).toISOString(), userId: USER });
+    expect(storage.getItem('intafaced.customer.session-logout-pending.v1')).toBeNull();
+  });
+});
+
+describe('without Web Locks', () => {
+  it('a storage lease still makes two tabs loading at once cause one rotation', async () => {
+    const { edge, tabs } = browser({ tabs: 3, leaseOnly: true });
+    edge.signIn();
+    const outcomes = await Promise.all(tabs.map((tab) => tab.refresh()));
+    expect(edge.reuseDetected).toBe(0);
+    expect(edge.refreshes).toBe(1);
+    expect(outcomes.every((o) => o.kind === 'session')).toBe(true);
+  });
+});
+
+describe('a new tab asks the others before rotating', () => {
+  it('adopts a live session from an open tab without touching the cookie', async () => {
+    const { edge, tabs } = browser({ tabs: 2 });
+    const first = edge.signIn();
+    tabs[0]!.announce(first);
+    const before = edge.jar;
+    const outcome = await tabs[1]!.refresh();
+    expect(outcome).toMatchObject({ kind: 'session', refreshed: false });
+    expect(edge.refreshes).toBe(0);
+    expect(edge.jar).toBe(before);
   });
 });

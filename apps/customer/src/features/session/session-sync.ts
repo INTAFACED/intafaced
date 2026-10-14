@@ -33,10 +33,18 @@ export const SESSION_TRANSPORT_HEADERS = { 'x-session-transport': 'cookie' } as 
 const CHANNEL_NAME = 'intafaced.customer.session.v1';
 const LOCK_NAME = 'intafaced.customer.session.refresh';
 const HINT_KEY = 'intafaced.customer.session-hint.v1';
+/** Set when a sign-out could not be confirmed at the edge: the cookie may still be live. Retried on the next load. */
+const PENDING_LOGOUT_KEY = 'intafaced.customer.session-logout-pending.v1';
+/** Fallback lock for browsers without Web Locks: a short lease in localStorage. */
+const LEASE_KEY = 'intafaced.customer.session-refresh-lease.v1';
+const LEASE_MS = 20_000;
+/** How long a freshly opened tab waits for another tab to hand it a live session before it rotates the cookie itself. */
+const PEER_WAIT_MS = 100;
 /** A session this close to expiry is not worth adopting; the tab asks for a fresh one. */
 const MIN_ADOPT_LIFETIME_MS = 60_000;
 
 export type SessionMessage = { type: 'session'; session: Session } | { type: 'signed-out' };
+type WireMessage = SessionMessage | { type: 'request' };
 export type RefreshOutcome =
   | { kind: 'session'; session: Session; refreshed: boolean }
   /** The edge refused: no cookie, expired, revoked, or reuse detected. The cookie is gone. */
@@ -58,6 +66,8 @@ export interface SessionSyncEnvironment {
   channel?: ((name: string) => ChannelLike | null) | null;
   storage?: () => Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null;
   now?: () => number;
+  /** How long a new tab waits for a peer's live session before rotating itself. */
+  peerWaitMs?: number;
 }
 
 function browserLocks(): LockLike | null {
@@ -75,9 +85,10 @@ function browserStorage() {
   }
 }
 
-function parseMessage(data: unknown): SessionMessage | null {
+function parseMessage(data: unknown): WireMessage | null {
   if (!data || typeof data !== 'object') return null;
   const message = data as { type?: unknown; session?: unknown };
+  if (message.type === 'request') return { type: 'request' };
   if (message.type === 'signed-out') return { type: 'signed-out' };
   if (message.type === 'session') {
     const session = sessionSchema.safeParse(message.session);
@@ -85,6 +96,8 @@ function parseMessage(data: unknown): SessionMessage | null {
   }
   return null;
 }
+
+const logoutAnswer = z.object({ ok: z.literal(true) });
 
 export function createSessionSync(environment: SessionSyncEnvironment = {}) {
   const now = environment.now ?? Date.now;
@@ -97,12 +110,21 @@ export function createSessionSync(environment: SessionSyncEnvironment = {}) {
   let latest: Session | null = null;
   let inflight: Promise<RefreshOutcome> | null = null;
 
+  /** Resolvers of tabs waiting for a peer to answer "does anyone have a live session?". */
+  const waiting = new Set<() => void>();
   if (channel) {
     channel.onmessage = (event) => {
       const message = parseMessage(event.data);
       if (!message) return;
+      if (message.type === 'request') {
+        // A new tab is asking: hand over a session that still has useful life instead of making it rotate the cookie.
+        if (latest && Date.parse(latest.expiresAt) - now() > MIN_ADOPT_LIFETIME_MS)
+          channel.postMessage({ type: 'session', session: latest });
+        return;
+      }
       latest = message.type === 'session' ? message.session : null;
       if (message.type === 'signed-out') setHint(false);
+      if (message.type === 'session') for (const done of [...waiting]) done();
       for (const listener of [...listeners]) listener(message);
     };
   }
@@ -120,14 +142,87 @@ export function createSessionSync(environment: SessionSyncEnvironment = {}) {
   function mightBeSignedIn(): boolean {
     try {
       const store = storage();
-      return store ? store.getItem(HINT_KEY) === '1' : true;
+      return store ? store.getItem(HINT_KEY) === '1' || store.getItem(PENDING_LOGOUT_KEY) === '1' : true;
     } catch {
       return true;
     }
   }
 
+  function pendingLogout(): boolean {
+    try {
+      return storage()?.getItem(PENDING_LOGOUT_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+  function setPendingLogout(on: boolean) {
+    try {
+      const store = storage();
+      if (on) store?.setItem(PENDING_LOGOUT_KEY, '1');
+      else store?.removeItem(PENDING_LOGOUT_KEY);
+    } catch {
+      /* nothing more can be done without storage */
+    }
+  }
+
+  /**
+   * Browsers without Web Locks: a lease in localStorage. Best effort (read, write, read back) but it
+   * turns "two tabs refresh at once" into "one at a time" everywhere the lock is missing.
+   */
+  async function withLease<T>(work: () => Promise<T>): Promise<T> {
+    const store = storage();
+    if (!store) return work();
+    const me = `${now()}-${Math.random().toString(36).slice(2)}`;
+    const deadline = now() + LEASE_MS;
+    for (;;) {
+      let held: string | null = null;
+      try {
+        held = store.getItem(LEASE_KEY);
+      } catch {
+        return work();
+      }
+      const [, until] = held ? [held.slice(0, held.lastIndexOf('@')), Number(held.slice(held.lastIndexOf('@') + 1))] : ['', 0];
+      if (!held || !(until > now())) {
+        try {
+          store.setItem(LEASE_KEY, `${me}@${now() + LEASE_MS}`);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          if (store.getItem(LEASE_KEY)?.startsWith(`${me}@`)) break;
+        } catch {
+          return work();
+        }
+      }
+      if (now() > deadline) break; // never wait longer than the lease itself
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    try {
+      return await work();
+    } finally {
+      try {
+        if (store.getItem(LEASE_KEY)?.startsWith(`${me}@`)) store.removeItem(LEASE_KEY);
+      } catch {
+        /* the lease expires by itself */
+      }
+    }
+  }
+
+  /** Ask other tabs for a live session; resolves when one arrives or the wait is over. */
+  function askPeers(): Promise<void> {
+    if (!channel) return Promise.resolve();
+    return new Promise((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        waiting.delete(finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, environment.peerWaitMs ?? PEER_WAIT_MS);
+      waiting.add(finish);
+      channel.postMessage({ type: 'request' });
+    });
+  }
+
   function publish(session: Session) {
     latest = session;
+    setPendingLogout(false);
     setHint(true);
     channel?.postMessage({ type: 'session', session });
   }
@@ -137,7 +232,7 @@ export function createSessionSync(environment: SessionSyncEnvironment = {}) {
     channel?.postMessage({ type: 'signed-out' });
   }
   function withLock<T>(work: () => Promise<T>): Promise<T> {
-    return locks ? locks.request(LOCK_NAME, work) : work();
+    return locks ? locks.request(LOCK_NAME, work) : withLease(work);
   }
 
   async function runRefresh(staleToken: string | undefined): Promise<RefreshOutcome> {
@@ -152,7 +247,9 @@ export function createSessionSync(environment: SessionSyncEnvironment = {}) {
         publish(answer.data);
         return { kind: 'session', session: answer.data, refreshed: true } as const;
       }
-      if (answer.reason === 'unauthorized' || answer.reason === 'forbidden') {
+      // 401, or a 403 that names the session itself (`session.*` from the edge, `auth.*` from identity).
+      // Region and network gates also answer 403 BEFORE the cookie is looked at: the cookie is still live then.
+      if (answer.reason === 'unauthorized' || (answer.reason === 'forbidden' && /^(session|auth)\./.test(answer.code ?? ''))) {
         publishSignedOut();
         return { kind: 'signed-out' } as const;
       }
@@ -166,20 +263,42 @@ export function createSessionSync(environment: SessionSyncEnvironment = {}) {
      * newer session from another tab is adopted instead of rotating the cookie again. Leave it out on load.
      */
     refresh(options: { staleToken?: string } = {}): Promise<RefreshOutcome> {
-      inflight ??= runRefresh(options.staleToken).finally(() => {
-        inflight = null;
-      });
+      inflight ??= (options.staleToken === undefined && !latest ? askPeers() : Promise.resolve())
+        .then(() => runRefresh(options.staleToken))
+        .finally(() => {
+          inflight = null;
+        });
       return inflight;
     },
     /** A sign-in happened in this tab: tell the others. */
     announce(session: Session) {
       publish(session);
     },
-    /** Sign out everywhere in this browser: revoke at the edge, clear the cookie, tell the other tabs. */
+    /**
+     * Sign out everywhere in this browser: revoke at the edge, clear the cookie, tell the other tabs.
+     * If the edge cannot confirm, the cookie may still be live: remember that and retry on the next load.
+     */
     async logout(): Promise<ApiResult<{ ok: true }>> {
       publishSignedOut();
+      setPendingLogout(true);
       // Under the lock so the request carries the cookie a refresh in another tab may have just rotated.
-      return withLock(() => api.session('logout', z.object({ ok: z.literal(true) })));
+      const result = await withLock(() => api.session('logout', logoutAnswer));
+      if (result.ok) setPendingLogout(false);
+      return result;
+    },
+    /**
+     * Page load. Finish a sign-out that could not be confirmed last time; otherwise turn the cookie into a session.
+     */
+    async restore(): Promise<RefreshOutcome> {
+      if (pendingLogout()) {
+        const result = await withLock(() => api.session('logout', logoutAnswer));
+        if (result.ok) {
+          setPendingLogout(false);
+          return { kind: 'signed-out' };
+        }
+        return { kind: 'unavailable' };
+      }
+      return this.refresh();
     },
     mightBeSignedIn,
     subscribe(listener: (message: SessionMessage) => void) {
