@@ -17,14 +17,23 @@
  *      check nor gets excused by a job of that name on main.
  *   4. The PR adds no failing check that is not ALSO failing on main's latest completed push run of ci.yml that actually
  *      ran jobs (cancelled and superseded runs, 21 of the last 60 in the 2026-10-13 audit, are skipped).
- *   5. Inside jobs that are already red on main, the PR adds no new failure: for "Doctrine gates" the set of failing gate
- *      ids (the `✖ <id>` summary lines of the job log) and for "Tests (full)" and the PR test shards the set of failing
- *      turbo tasks (the `Failed:` line) must be a subset of main's. A shard is compared with main's "Tests (full)".
+ *   5. Inside a job that is already red on main the PR adds nothing new, at three levels:
+ *        - STEPS: the failing step names of the PR job (from `gh run view --json jobs`) must be a subset of main's. This is
+ *          what catches, say, "Every infrastructure-backed suite actually ran" going red on a PR when main's job failed
+ *          only at "Run pnpm test --continue".
+ *        - "Doctrine gates": the failing gate ids (the `✖ <id>` summary lines of the job log) must be a subset of main's.
+ *        - "Tests (full)": the failing turbo tasks (the `Failed:` line of the log, `pnpm test --continue` runs turbo) must be
+ *          a subset of main's.
  *      If the failing ids cannot be read from a log, the failure counts as new.
- *   6. The PR does not change gate files (tooling/ci, workflows, ...) unless its title says so (gate-file-guard.mjs).
+ *      The PR test SHARDS ("Tests (protocol)", "(money)", "(trade)") run `pnpm --no-bail --filter ... test`, which prints no
+ *      `Failed:` line, so there is nothing to compare: EVERY red shard blocks the PR, even while main's "Tests (full)" is
+ *      red. ("Tests (pay-bank)" runs turbo but is treated the same way, on purpose, for one simple rule.)
  *
- * Limit that remains: a gate such as "secrets" that is already red on main can still gain a second finding without a new
- * id. Only a per-finding baseline would see that.
+ * Known gap that remains: the comparison stops at the package. A NEW failing test inside a package that is already red on
+ * main (today svc-indexer, svc-notify, svc-ops, svc-support in "Tests (full)") is invisible, and so is a second finding in
+ * a doctrine gate that is already red (say "secrets"). Closing it needs a per-test baseline.
+ *
+ *   6. The PR does not change gate files (tooling/ci, workflows, ...) unless its title says so (gate-file-guard.mjs).
  *
  * Docs-only PRs: ci.yml has a path filter, so a PR that only touches docs/**, *.md, NOTICE or LICENSE gets no CI run at
  * all. That is accepted when, and only when, the changed files are all excluded by that filter and every check that DID
@@ -77,15 +86,11 @@ export const KNOWN_PR_ONLY_RED = {
 
 /**
  * Jobs whose failures are compared id by id inside the log, not only by name. `source` is the main job whose log is the
- * baseline (a PR test shard is a subset of main's "Tests (full)").
+ * baseline. Test shards are deliberately absent: see the header (they print no ids, so a red shard always blocks).
  */
 export const LOG_RATCHETS = {
   [ciKey('Doctrine gates')]: { source: ciKey('Doctrine gates'), parse: 'doctrine', what: 'doctrine gate' },
   [ciKey('Tests (full)')]: { source: ciKey('Tests (full)'), parse: 'turbo', what: 'test task' },
-  [ciKey('Tests (protocol)')]: { source: ciKey('Tests (full)'), parse: 'turbo', what: 'test task' },
-  [ciKey('Tests (money)')]: { source: ciKey('Tests (full)'), parse: 'turbo', what: 'test task' },
-  [ciKey('Tests (trade)')]: { source: ciKey('Tests (full)'), parse: 'turbo', what: 'test task' },
-  [ciKey('Tests (pay-bank)')]: { source: ciKey('Tests (full)'), parse: 'turbo', what: 'test task' },
 };
 
 /**
@@ -162,7 +167,7 @@ export function collapseChecks(checks) {
  * @param {string} i.title PR title
  * @param {boolean} i.ciPresent a CI workflow run or check exists for this head
  */
-export function evaluate({ checks, mainFailing, mainJobs = new Set(), files, title, author, ciPresent }) {
+export function evaluate({ checks, mainFailing, mainJobs = new Set(), files, title, ciPresent }) {
   const reasons = [];
   const byKey = new Map(checks.map((c) => [keyOf(c), c]));
   const required = {};
@@ -179,9 +184,8 @@ export function evaluate({ checks, mainFailing, mainJobs = new Set(), files, tit
   const newFailures = [];
   for (const c of failing) {
     const k = keyOf(c);
-    const ratchet = LOG_RATCHETS[k];
-    // A PR test shard is a subset of main's "Tests (full)", so it is excused (pending the log comparison) by that job.
-    if (mainFailing?.has(k) || (ratchet && mainFailing?.has(ratchet.source))) excusedOnMain.push(c);
+    // Excused only by the SAME job failing on main; refineWithLogs then compares steps and ids inside it.
+    if (mainFailing?.has(k)) excusedOnMain.push(c);
     else if (k in KNOWN_PR_ONLY_RED && !mainJobs.has(k)) knownRed.push(c);
     else newFailures.push(c);
   }
@@ -206,7 +210,7 @@ export function evaluate({ checks, mainFailing, mainJobs = new Set(), files, tit
     else docsOnly = true;
   }
 
-  const gate = evaluateGateFileRule(title, files, { author });
+  const gate = evaluateGateFileRule(title, files);
   if (!gate.ok) reasons.push(`changes gate files without saying so in the title: ${gate.gateFiles.map((g) => g.file).join(', ')}`);
 
   return {
@@ -261,39 +265,60 @@ function* logLines(log) {
 const PARSERS = { doctrine: parseDoctrineFailures, turbo: parseTurboFailures };
 const jobIdOf = (c) => /\/job\/(\d+)/.exec(c.link ?? '')?.[1] ?? null;
 
+const FAILED_STEP = new Set(['failure', 'timed_out']);
+const failingSteps = (job) => new Set((job?.steps ?? []).filter((st) => FAILED_STEP.has(st.conclusion)).map((st) => st.name));
+const runIdOf = (c) => /\/runs\/(\d+)\//.exec(c.link ?? '')?.[1] ?? null;
+
 /**
- * For every check that name-level comparison excused because main fails the same job, compare the failing ids inside the
- * logs. Anything the PR fails that main does not, or any log that cannot be read, turns the excuse into a new failure.
- * Mutates and returns `ev`.
+ * For every check that name-level comparison excused because main fails the same job, look inside it:
+ *   1. the failing STEP names of the PR job must be a subset of the main job's (and non-empty: a red job with no red step
+ *      proves nothing);
+ *   2. for the jobs in LOG_RATCHETS, the failing ids in the log (gate ids, turbo tasks) must be a subset of main's.
+ * Anything new, or anything that cannot be read, turns the excuse into a new failure. Mutates and returns `ev`.
  */
 export function refineWithLogs(ev, { gh, repo, main }) {
   if (!main || !ev.excusedOnMain.length) return ev;
   const mainLogs = new Map();
+  const prRuns = new Map();
   const readLog = (id) => gh(['run', 'view', '--job', String(id), '-R', repo, '--log']).stdout;
+  const prJob = (c) => {
+    const runId = runIdOf(c);
+    const id = jobIdOf(c);
+    if (!runId || !id) throw new Error('no run or job id in the check link');
+    if (!prRuns.has(runId)) prRuns.set(runId, ghJson(gh, ['run', 'view', runId, '-R', repo, '--json', 'jobs']).jobs);
+    const job = prRuns.get(runId).find((j) => String(j.databaseId) === id);
+    if (!job) throw new Error(`job ${id} not found in run ${runId}`);
+    return job;
+  };
   const keep = [];
   for (const c of ev.excusedOnMain) {
     const k = keyOf(c);
     const ratchet = LOG_RATCHETS[k];
-    if (!ratchet) {
-      keep.push(c); // e.g. "Format", "CI merge seal": no ids to compare, the name-level excuse stands
-      continue;
-    }
     let detail;
     try {
-      const prId = jobIdOf(c);
-      const mainJob = main.byKey.get(ratchet.source);
-      if (!prId || !mainJob) throw new Error('no job id to read the log of');
-      if (!mainLogs.has(ratchet.source)) mainLogs.set(ratchet.source, readLog(mainJob.databaseId));
-      const parse = PARSERS[ratchet.parse];
-      const prIds = parse(readLog(prId));
-      const mainIds = parse(mainLogs.get(ratchet.source));
-      const added = [...prIds].filter((x) => !mainIds.has(x)).sort();
-      if (!prIds.size) detail = `could not read the failing ${ratchet.what} ids from the log, so nothing proves they are all on main`;
-      else if (added.length) detail = `new failing ${ratchet.what}(s) not failing on main: ${added.join(', ')}`;
-      else ev.logChecks.push(`${c.name}: ${prIds.size} failing ${ratchet.what}(s), all also failing on main`);
+      const mainJob = main.byKey.get(k);
+      if (!mainJob) throw new Error('the job is not on the main run');
+      // 1. steps
+      const prSteps = failingSteps(prJob(c));
+      const mainSteps = failingSteps(mainJob);
+      const newSteps = [...prSteps].filter((x) => !mainSteps.has(x)).sort();
+      if (!prSteps.size) detail = 'no failing step is listed for this red job, so nothing proves it fails only where main does';
+      else if (newSteps.length) detail = `new failing step(s) not failing on main: ${newSteps.join('; ')}`;
+      else ev.logChecks.push(`${c.name}: failing step(s) ${[...prSteps].join('; ')} all also fail on main`);
+      // 2. ids inside the log
+      if (!detail && ratchet) {
+        if (!mainLogs.has(ratchet.source)) mainLogs.set(ratchet.source, readLog(main.byKey.get(ratchet.source).databaseId));
+        const parse = PARSERS[ratchet.parse];
+        const prIds = parse(readLog(jobIdOf(c)));
+        const mainIds = parse(mainLogs.get(ratchet.source));
+        const added = [...prIds].filter((x) => !mainIds.has(x)).sort();
+        if (!prIds.size) detail = `could not read the failing ${ratchet.what} ids from the log, so nothing proves they are all on main`;
+        else if (added.length) detail = `new failing ${ratchet.what}(s) not failing on main: ${added.join(', ')}`;
+        else ev.logChecks.push(`${c.name}: ${prIds.size} failing ${ratchet.what}(s), all also failing on main`);
+      }
     } catch (e) {
       if (e?.name === 'GitHubRefusalError') throw e;
-      detail = `could not compare logs (${e.message})`;
+      detail = `could not compare inside the job (${e.message})`;
     }
     if (detail) {
       ev.newFailures.push({ ...c, detail });
@@ -355,9 +380,11 @@ export function renderComment({ verdict, head, pr, main, checks, evalResult }) {
   L.push(`- **Required checks:** ${REQUIRED.map((r) => `${r.name} ${e.required[r.name]}`).join(', ')}.`);
   L.push(`- **Checks reported:** ${checks.length}.`);
   if (e.docsOnly) {
+    const reported = checks.map((c) => c.name).join(', ') || 'none';
     L.push(
-      '- **Docs-only PR:** CI is skipped by its path filter, so no tests ran. Passed on the checks that did report ' +
-        `(${checks.map((c) => c.name).join(', ') || 'none'}); a failing one would have blocked it.`,
+      verdict === 'PASS'
+        ? `- **Docs-only PR:** CI is skipped by its path filter, so no tests ran. Passed on the checks that did report (${reported}); a failing one would have blocked it.`
+        : `- **Docs-only PR:** CI is skipped by its path filter, so no tests ran. Checks that reported: ${reported}. See why it is blocked below.`,
     );
   }
   if (main) {
@@ -417,7 +444,7 @@ function parseArgs(argv) {
 export async function runGate(o, { gh, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = () => {} }) {
   const { pr, head, repo } = o;
   const viewPr = () =>
-    ghJson(gh, ['pr', 'view', String(pr), '-R', repo, '--json', 'number,state,isDraft,headRefOid,baseRefName,title,mergeable,url,author']);
+    ghJson(gh, ['pr', 'view', String(pr), '-R', repo, '--json', 'number,state,isDraft,headRefOid,baseRefName,title,mergeable,url']);
   const first = viewPr();
   if (first.headRefOid !== head)
     throw new GateError(`PR #${pr} head is ${first.headRefOid}, not the reviewed ${head}. Nothing was checked.`);
@@ -425,7 +452,6 @@ export async function runGate(o, { gh, now = Date.now, sleep = (ms) => new Promi
   if (first.baseRefName !== 'main') throw new GateError(`PR #${pr} targets ${first.baseRefName}, not main.`);
   if (first.isDraft) throw new GateError(`PR #${pr} is a draft.`);
   const title = first.title;
-  const author = first.author?.login;
 
   const files = gh(['api', '--paginate', `repos/${repo}/pulls/${pr}/files`, '--jq', '.[].filename'])
     .stdout.split('\n')
@@ -504,7 +530,6 @@ export async function runGate(o, { gh, now = Date.now, sleep = (ms) => new Promi
     mainJobs: main ? main.names : new Set(),
     files,
     title,
-    author,
     ciPresent: settled.ciPresent,
   });
   refineWithLogs(evalResult, { gh, repo, main });

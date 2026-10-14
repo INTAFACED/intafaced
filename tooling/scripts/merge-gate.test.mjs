@@ -71,7 +71,7 @@ function fakeGh(world) {
       if (!(id in (world.logs ?? {}))) throw new Error(`no log fixture for job ${id}`);
       return ok(world.logs[id]);
     }
-    if (k.startsWith('run view')) return ok({ jobs: world.mainJobs[args[2]] });
+    if (k.startsWith('run view')) return ok({ jobs: world.mainJobs[args[2]] ?? [] });
     if (k.startsWith('pr comment')) return ok('');
     throw new Error(`unexpected gh call: ${k}`);
   };
@@ -174,7 +174,7 @@ test('ratchet: failure also on main is excused; failure absent from main is new'
   );
 });
 
-test('a PR test shard is excused by main "Tests (full)" only at name level; the log comparison decides', () => {
+test('a red PR test shard is never excused, even while main "Tests (full)" is red (shards print no ids)', () => {
   const r = evaluate({
     checks: [...REQ_OK, chk('Tests (money)', 'fail')],
     mainFailing: new Set([K('Tests (full)')]),
@@ -183,20 +183,10 @@ test('a PR test shard is excused by main "Tests (full)" only at name level; the 
     ciPresent: true,
   });
   assert.deepEqual(
-    r.excusedOnMain.map((c) => c.name),
+    r.newFailures.map((c) => c.name),
     ['Tests (money)'],
   );
-  const none = evaluate({
-    checks: [...REQ_OK, chk('Tests (money)', 'fail')],
-    mainFailing: new Set(),
-    files: ['a.ts'],
-    title: 'fix: x',
-    ciPresent: true,
-  });
-  assert.deepEqual(
-    none.newFailures.map((c) => c.name),
-    ['Tests (money)'],
-  );
+  assert.equal(r.pass, false);
 });
 
 test('a same-named job in another workflow neither hides nor is excused', () => {
@@ -379,7 +369,13 @@ test('selectMainRun returns null when no run ran jobs', async () => {
   assert.equal(await selectMainRun(gh, REPO), null);
 });
 
-function logWorld({ doctrinePr, turboPr, checks }) {
+const DOCTRINE_STEP = 'Doctrine gates (the same list `pnpm verify` runs)';
+const STEPS = {
+  'Doctrine gates': [DOCTRINE_STEP],
+  'Tests (full)': ['Run pnpm test --continue', 'Every infrastructure-backed suite actually ran'],
+};
+/** `extraSteps`: { 'Tests (full)': ['Foundry fuzz (S-A8)'] } adds failing steps main does not have. */
+function logWorld({ doctrinePr, turboPr, checks, extraSteps = {} }) {
   const logs = {
     [mainJobId('Doctrine gates')]: log('doctrine-main'),
     [mainJobId('Tests (full)')]: log('turbo-main'),
@@ -387,7 +383,23 @@ function logWorld({ doctrinePr, turboPr, checks }) {
   const all = [...REQ_OK, ...checks];
   if (doctrinePr) logs[prJobId('Doctrine gates')] = log(doctrinePr);
   if (turboPr) logs[prJobId('Tests (full)')] = log(turboPr);
-  return { pr: basePr(), files: ['services/svc-pay/a.ts'], checks: all, prRuns: PASSRUN, ...mainWorld, logs };
+  // The PR run's jobs, as `gh run view 1 --json jobs` returns them (the check links point at run 1).
+  const prJobs = all
+    .filter((c) => c.bucket === 'fail')
+    .map((c) => ({
+      databaseId: prJobId(c.name, c.workflow),
+      name: c.name,
+      steps: [...(STEPS[c.name] ?? [`Run ${c.name}`]), ...(extraSteps[c.name] ?? [])].map((name) => ({ name, conclusion: 'failure' })),
+    }));
+  return {
+    pr: basePr(),
+    files: ['services/svc-pay/a.ts'],
+    checks: all,
+    prRuns: PASSRUN,
+    ...mainWorld,
+    mainJobs: { ...mainWorld.mainJobs, 1: prJobs },
+    logs,
+  };
 }
 
 test('runGate: PASS posts one comment and prints the merge command, never merges', async () => {
@@ -430,12 +442,37 @@ test('runGate: a NEW failing test task inside an already-red "Tests (full)" is a
   assert.equal(r2.code, 0, r2.evalResult.reasons.join());
 });
 
-test('runGate: a failing PR shard is compared with main "Tests (full)"', async () => {
+test('runGate: every red PR shard blocks, whatever its log says', async () => {
   const w = logWorld({ checks: [chk('Tests (money)', 'fail')] });
   w.logs[prJobId('Tests (money)')] = log('turbo-pr-subset');
-  assert.equal((await runGate(opts(), { gh: fakeGh(w).gh, ...clock() })).code, 0);
-  w.logs[prJobId('Tests (money)')] = log('turbo-pr-new');
-  assert.equal((await runGate(opts(), { gh: fakeGh(w).gh, ...clock() })).code, 1);
+  const r = await runGate(opts(), { gh: fakeGh(w).gh, ...clock() });
+  assert.equal(r.code, 1);
+  assert.match(r.evalResult.reasons.join(), /Tests \(money\)/);
+});
+
+test('runGate: a new failing STEP inside an already-red "Tests (full)" blocks, even when the task ids are a subset', async () => {
+  const w = logWorld({
+    turboPr: 'turbo-pr-subset',
+    checks: [chk('Tests (full)', 'fail')],
+    extraSteps: { 'Tests (full)': ['Foundry fuzz (S-A8)'] },
+  });
+  const r = await runGate(opts(), { gh: fakeGh(w).gh, ...clock() });
+  assert.equal(r.code, 1);
+  assert.match(r.evalResult.reasons.join(), /new failing step\(s\) not failing on main: Foundry fuzz \(S-A8\)/);
+  const ok = await runGate(opts(), {
+    gh: fakeGh(logWorld({ turboPr: 'turbo-pr-subset', checks: [chk('Tests (full)', 'fail')] })).gh,
+    ...clock(),
+  });
+  assert.equal(ok.code, 0, ok.evalResult.reasons.join());
+  assert.ok(ok.evalResult.logChecks.some((l) => /failing step\(s\).*all also fail on main/.test(l)));
+});
+
+test('runGate: a red job that lists no failing step is not excused', async () => {
+  const w = logWorld({ doctrinePr: 'doctrine-main', checks: [chk('Doctrine gates', 'fail')] });
+  w.mainJobs[1] = w.mainJobs[1].map((j) => ({ ...j, steps: [] }));
+  const r = await runGate(opts(), { gh: fakeGh(w).gh, ...clock() });
+  assert.equal(r.code, 1);
+  assert.match(r.evalResult.reasons.join(), /no failing step is listed/);
 });
 
 test('runGate: ids that cannot be read from the log count as new, never as excused', async () => {
@@ -447,7 +484,7 @@ test('runGate: ids that cannot be read from the log count as new, never as excus
   delete w.logs[prJobId('Doctrine gates')];
   const r2 = await runGate(opts(), { gh: fakeGh(w).gh, ...clock() });
   assert.equal(r2.code, 1);
-  assert.match(r2.evalResult.reasons.join(), /could not compare logs/);
+  assert.match(r2.evalResult.reasons.join(), /could not compare inside the job/);
 });
 
 test('runGate: a new failure outside any ratcheted job is a FAIL (code 1), comment posted, no merge command', async () => {
@@ -562,4 +599,25 @@ test('mainCopyProblem: runs only when tooling/scripts and tooling/ci equal origi
   const seen = [];
   mainCopyProblem((args) => (seen.push(args.join(' ')), { status: 0, stderr: '' }));
   assert.deepEqual(seen, ['fetch -q origin main', 'diff --quiet origin/main -- tooling/scripts tooling/ci']);
+});
+
+test('a FAIL verdict never says the docs-only PR "passed"', () => {
+  const r = evaluate({
+    checks: [...REQ_OK, chk('Prettier (docs)', 'fail', 'Docs format')],
+    mainFailing: new Set(),
+    files: ['docs/x.md'],
+    title: 'docs: x',
+    ciPresent: false,
+  });
+  const text = renderComment({
+    verdict: 'FAIL',
+    head: HEAD,
+    pr: 7,
+    main: null,
+    checks: r.checks ?? [...REQ_OK, chk('Prettier (docs)', 'fail', 'Docs format')],
+    evalResult: r,
+  });
+  assert.match(text, /Merge gate: FAIL/);
+  assert.doesNotMatch(text, /Passed on the checks/);
+  assert.match(text, /Checks that reported/);
 });
