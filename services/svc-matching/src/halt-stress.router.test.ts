@@ -219,7 +219,7 @@ describe('H-stress HTTP — halt refuses PLACE, cancel stays, restart is not OPE
     expect(cancelled.json().cancelled).toBe(true);
 
     const resume = await post(remounted, `/markets/${MARKET}/resume`, {
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       approvalId: 'appr-1',
       operationId: 'op-1',

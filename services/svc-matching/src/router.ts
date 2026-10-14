@@ -30,8 +30,14 @@ import { missingSessionRefuse } from './engine/session.js';
 import { operatorRefuse, readConfirmOperatorId, readOperatorId } from './engine/halt.js';
 import {
   ActionApprovalConsumeError,
-  consumeMatchingApproval,
+  ACTION_APPROVAL_MISSING,
+  matchingActionPayloadHash,
+  readApprovalIds,
   unwiredApprovalConsumer,
+  sameUser,
+  ACTION_APPROVAL_NOT_OPERATOR,
+  ACTION_APPROVAL_OPERATORS_UNSET,
+  ACTION_APPROVAL_OPERATOR_MISMATCH,
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { bindPostOnlyTif, postOnlyCannotRest } from './engine/post-only.js';
@@ -487,6 +493,11 @@ export interface MatchingRouteOptions {
   sbe?: SbeCodec;
   /** Halt/resume/mode consume. Tests inject a stub. Unset → refuse. */
   approvals?: ActionApprovalConsumer;
+  /**
+   * User ids allowed to propose and approve `matching.open`
+   * (`MATCHING_OPERATOR_IDS`). Unset / empty → nobody may open.
+   */
+  operatorIds?: ReadonlySet<string>;
 }
 
 export function registerRoutes(
@@ -499,6 +510,8 @@ export function registerRoutes(
   const rulebookVersion = options.rulebookVersion ?? process.env.MATCHING_RULEBOOK_VERSION ?? '';
   const sbe = options.sbe ?? sbeCodec;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
+  const operatorIds = options.operatorIds ?? new Set<string>();
+  const isOperator = (userId: string): boolean => operatorIds.has(userId.trim().toLowerCase());
   retainRawBody(app);
 
   /** Book writes from funded trade, execution basket children, and FIX NOS. HMAC still required. Unmapped refuse. */
@@ -529,6 +542,7 @@ export function registerRoutes(
     actionType: string,
     fields: Record<string, string>,
     targetId: string,
+    guard: { readonly requireOperatorRole?: boolean } = {},
   ): Promise<
     | { readonly ok: true; readonly operatorId: string; readonly confirmOperatorId: string }
     | {
@@ -546,13 +560,44 @@ export function registerRoutes(
     if (missing || operatorId === null) {
       return { ok: false, status: 200, operatorId, confirmOperatorId: confirmTyped, rejected: missing ?? operatorRefuse(null)! };
     }
+    const refuse = (code: string, message: string) => ({ ok: false as const, status: 400 as const, body: { code, message } });
     try {
-      const consumed = await consumeMatchingApproval(approvals, parsed, actionType, fields, targetId);
-      return {
-        ok: true,
-        operatorId,
-        confirmOperatorId: consumed.approverId ?? consumed.requesterId,
-      };
+      const ids = readApprovalIds(parsed);
+      // Stop early, before the single-use approval is spent: no operator list,
+      // or a typed name that is not on it.
+      if (guard.requireOperatorRole) {
+        if (operatorIds.size === 0) {
+          return refuse(
+            ACTION_APPROVAL_OPERATORS_UNSET,
+            'MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator',
+          );
+        }
+        if (!isOperator(operatorId)) {
+          return refuse(ACTION_APPROVAL_NOT_OPERATOR, 'the requester is not an operator of this venue');
+        }
+      }
+      const consumed = await approvals.consume({
+        approvalId: ids.approvalId,
+        operationId: ids.operationId,
+        payloadHash: matchingActionPayloadHash(actionType, fields),
+        targetService: 'svc-matching',
+        targetId,
+        expectedVersion: '1',
+      });
+      // The body's operatorId is a claim. Identity recorded who actually
+      // proposed; the two must be the same person.
+      if (!sameUser(consumed.requesterId, operatorId)) {
+        return refuse(ACTION_APPROVAL_OPERATOR_MISMATCH, 'operatorId is not the person who proposed this approval');
+      }
+      // Never fall back to the requester: a second person approved, or nothing runs.
+      const approverId = consumed.approverId;
+      if (approverId === null || sameUser(approverId, consumed.requesterId)) {
+        return refuse(ACTION_APPROVAL_MISSING, 'the approval has no distinct approver');
+      }
+      if (guard.requireOperatorRole && (!isOperator(consumed.requesterId) || !isOperator(approverId))) {
+        return refuse(ACTION_APPROVAL_NOT_OPERATOR, 'both the proposer and the approver must be operators of this venue');
+      }
+      return { ok: true, operatorId: consumed.requesterId, confirmOperatorId: approverId };
     } catch (err) {
       if (err instanceof ActionApprovalConsumeError) {
         return { ok: false, status: 400, body: { code: err.code, message: err.message } };
@@ -1132,7 +1177,9 @@ export function registerRoutes(
       return reply.code(400).send({ code: 'BadRequest', issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
     }
 
-    const authz = await consumeVenueKill(parsed.data, 'matching.open', { marketId }, `open:${marketId}`);
+    const authz = await consumeVenueKill(parsed.data, 'matching.open', { marketId }, `open:${marketId}`, {
+      requireOperatorRole: true,
+    });
     if (!authz.ok && authz.status === 400) return reply.code(400).send(authz.body);
     if (!authz.ok) {
       return reply.code(200).send({
