@@ -6,7 +6,9 @@
  * reserved first, the code is claimed under `SELECT ... FOR UPDATE`, so it can never be
  * used twice, and a success clears the counter.
  */
+import { assertDelegatableScopes } from '@intafaced/auth';
 import type { Sql } from 'postgres';
+import { assertDelegateCannotGrant } from './auth-service.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 import { assertOwnLiveSession, redeemRecoveryCode, type RecoveryRedeemCode } from './recovery-redeem.js';
 
@@ -47,6 +49,9 @@ export async function mintApiKeyAfterRecoveryCode(
 ): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; sessionId: string }> {
   recoveryCodeMintsApiKey(input.code);
   const live = await assertOwnLiveSession(sql, input.userId, input.sessionId);
+  // Grantor limits are checked before the claim, so they answer the same for any code.
+  assertDelegateCannotGrant(input.grantorKid);
+  assertDelegatableScopes(input.scopes, input.grantorScopes);
   return redeemRecoveryCode(sql, { userId: input.userId, code: input.code, make }, async () => {
     const minted = await minter.createApiKey({
       userId: input.userId,

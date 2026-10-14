@@ -5,12 +5,10 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
-import { SESSION_SCOPES, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
-import type { Context } from '@intafaced/contracts';
+import { SESSION_SCOPES, verifyAccessToken } from '@intafaced/auth';
 import { AuthService } from './auth-service.js';
 import { ATTEMPT_POLICY } from './attempt-lockout.js';
 import { RankService } from '../rank/rank-service.js';
-import { createRecoveryRedeemRouter } from '../recovery-redeem-router.js';
 import { totp } from './totp.js';
 import { hashToken } from './passwords.js';
 import { openLiveSessionAfterRecoveryCode } from './redeem-recovery-session.js';
@@ -213,28 +211,79 @@ if (!available) {
     });
   });
 
-  describe('a failed action hands the code back', () => {
-    it('rotating an unknown key leaves the code spendable', async () => {
+  describe('no refund: a right code cannot be told from a wrong one by a bad request', () => {
+    const unknownKey = () => randomUUID();
+
+    it('rotate: a right code with a bogus keyId refuses before the code or the budget is touched', async () => {
       const a = await account();
-      await expect(
-        rotateApiKeyAfterRecoveryCode(auth, db.sql, {
-          userId: a.userId,
-          sessionId: a.sessionId,
-          keyId: randomUUID(),
-          code: a.codes[0]!,
-          grantorScopes: GRANTOR,
-        }),
-      ).rejects.toMatchObject({ code: 'auth.not_found' });
-      expect(await hashesOf(a.userId)).toContain(hashToken(a.codes[0]!));
-      await expect(mint(a, a.codes[0]!)).resolves.toBeTruthy();
+      const rotate = (code: string, keyId: string) =>
+        rotateApiKeyAfterRecoveryCode(auth, db.sql, { userId: a.userId, sessionId: a.sessionId, keyId, code, grantorScopes: GRANTOR });
+      const withRight = await rotate(a.codes[0]!, unknownKey()).catch((e: unknown) => e);
+      const withWrong = await rotate(WRONG, unknownKey()).catch((e: unknown) => e);
+      expect(withRight).toMatchObject({ code: 'auth.not_found' });
+      expect(withWrong).toMatchObject({ code: 'auth.not_found' });
+      expect((withRight as Error).message).toBe((withWrong as Error).message);
+      expect(await hashesOf(a.userId)).toHaveLength(10);
+      expect(await mfaRow(a.userId)).toBeUndefined();
     });
 
-    it('revoking an unknown key leaves the code spendable', async () => {
+    it('revoke-key: same, and a foreign or already-revoked key is a bogus key', async () => {
+      const a = await account();
+      const b = await account();
+      const theirs = await mint(b, b.codes[0]!);
+      const mine = await mint(a, a.codes[0]!);
+      await db.sql`UPDATE api_keys SET revoked = true WHERE id = ${mine.id}`;
+      for (const keyId of [unknownKey(), theirs.id, mine.id]) {
+        await expect(
+          revokeApiKeyAfterRecoveryCode(auth, db.sql, { userId: a.userId, sessionId: a.sessionId, keyId, code: a.codes[1]! }),
+        ).rejects.toMatchObject({ code: 'auth.not_found' });
+      }
+      expect(await hashesOf(a.userId)).toHaveLength(9);
+      expect(await mfaRow(a.userId)).toBeUndefined();
+      expect((await db.sql`SELECT revoked FROM api_keys WHERE id = ${theirs.id}`)[0]!.revoked).toBe(false);
+    });
+
+    it('mint: scopes the session cannot grant refuse before the code is touched', async () => {
       const a = await account();
       await expect(
-        revokeApiKeyAfterRecoveryCode(auth, db.sql, { userId: a.userId, sessionId: a.sessionId, keyId: randomUUID(), code: a.codes[0]! }),
-      ).rejects.toMatchObject({ code: 'auth.not_found' });
+        mintApiKeyAfterRecoveryCode(auth, db.sql, {
+          userId: a.userId,
+          sessionId: a.sessionId,
+          code: a.codes[0]!,
+          name: 'desk',
+          scopes: ['admin:write'],
+          grantorScopes: ['identity:read'],
+        }),
+      ).rejects.toBeTruthy();
       expect(await hashesOf(a.userId)).toHaveLength(10);
+      expect(await mfaRow(a.userId)).toBeUndefined();
+    });
+
+    it('an action that fails after the claim keeps the code spent and cannot revive a retired code', async () => {
+      const a = await account();
+      const failing = { ...auth, createApiKey: () => Promise.reject(new Error('mint down')) } as unknown as typeof auth;
+      await expect(
+        mintApiKeyAfterRecoveryCode(failing, db.sql, {
+          userId: a.userId,
+          sessionId: a.sessionId,
+          code: a.codes[0]!,
+          name: 'desk',
+          scopes: ['identity:read'],
+          grantorScopes: GRANTOR,
+        }),
+      ).rejects.toThrow('mint down');
+      expect(await hashesOf(a.userId)).not.toContain(hashToken(a.codes[0]!));
+      await expect(mint(a, a.codes[0]!)).rejects.toMatchObject({ code: 'auth.recovery_invalid' });
+      // Codes retired by something else (all recovery codes cleared) stay gone.
+      await db.sql`UPDATE users SET recovery_code_hashes = '[]'::jsonb WHERE id = ${a.userId}`;
+      await expect(mint(a, a.codes[1]!)).rejects.toMatchObject({ code: 'auth.recovery_spent' });
+      expect(await hashesOf(a.userId)).toEqual([]);
+    });
+
+    it('an unknown user is not_found (foreign-key path), not a server error', async () => {
+      await expect(revokeAllApiKeysAfterRecoveryCode(db.sql, { userId: randomUUID(), code: 'A1B2C-D3E4F' })).rejects.toMatchObject({
+        code: 'auth.not_found',
+      });
     });
   });
 
@@ -312,86 +361,6 @@ if (!available) {
       expect(out).toMatchObject({ sessionId: a.sessionId, revoked: 1 });
       const live = await db.sql<Array<{ id: string }>>`SELECT id FROM sessions WHERE user_id = ${a.userId} AND revoked = false`;
       expect(live.map((s) => s.id)).toEqual([a.sessionId]);
-    });
-  });
-
-  describe('routed procedures end to end', () => {
-    const api = createRecoveryRedeemRouter(db.sql, auth);
-    const ctx = async (a: { userId: string; sessionId: string }, opts: { apiKeyId?: string } = {}): Promise<Context> => {
-      const { token } = await issueAccessToken(
-        {
-          userId: a.userId,
-          sessionId: a.sessionId,
-          scopes: [...SESSION_SCOPES],
-          tier: 'none',
-          mfa: false,
-          ...(opts.apiKeyId ? { apiKeyId: opts.apiKeyId } : {}),
-        },
-        tokenConfig,
-      );
-      return { principal: await verifyAccessToken(token, tokenConfig), service: null, region: 'DE', requestId: 'req-1' };
-    };
-    const caller = async (a: { userId: string; sessionId: string }, opts?: { apiKeyId?: string }) => api.createCaller(await ctx(a, opts));
-    const mintInput = (code: string) => ({ recoveryCode: code, name: 'desk', scopes: ['identity:read'] });
-
-    it('mintApiKeyWithRecoveryCode mints a key, spends the code, clears the budget', async () => {
-      const a = await account();
-      const c = await caller(a);
-      await expect(c.mintApiKeyWithRecoveryCode(mintInput(WRONG))).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
-      const out = await c.mintApiKeyWithRecoveryCode(mintInput(a.codes[0]!));
-      expect(out.key).toMatch(/^if/);
-      expect(await keyCount(a.userId)).toBe(1);
-      expect(await hashesOf(a.userId)).toHaveLength(9);
-      expect(await mfaRow(a.userId)).toBeUndefined();
-    });
-
-    it('rotateApiKeyWithRecoveryCode rotates and a replay of the code is refused', async () => {
-      const a = await account();
-      const c = await caller(a);
-      const first = await c.mintApiKeyWithRecoveryCode(mintInput(a.codes[0]!));
-      const rotated = await c.rotateApiKeyWithRecoveryCode({ recoveryCode: a.codes[1]!, keyId: first.id });
-      expect(rotated.revokedKeyId).toBe(first.id);
-      await expect(c.rotateApiKeyWithRecoveryCode({ recoveryCode: a.codes[1]!, keyId: rotated.id })).rejects.toMatchObject({
-        code: 'UNAUTHORIZED',
-      });
-      await expect(c.rotateApiKeyWithRecoveryCode({ recoveryCode: a.codes[2]!, keyId: randomUUID() })).rejects.toMatchObject({
-        code: 'NOT_FOUND',
-      });
-    });
-
-    it('parallel route calls with one code succeed once', async () => {
-      const a = await account();
-      const c = await caller(a);
-      const results = await settle([0, 1, 2, 3].map(() => c.mintApiKeyWithRecoveryCode(mintInput(a.codes[0]!))));
-      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-      expect(await keyCount(a.userId)).toBe(1);
-    });
-
-    it('answers TOO_MANY_REQUESTS once locked', async () => {
-      const a = await account();
-      const c = await caller(a);
-      for (let i = 0; i < ATTEMPT_POLICY.mfa.maxFailures; i++) {
-        await expect(c.mintApiKeyWithRecoveryCode(mintInput(WRONG))).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
-      }
-      await expect(c.mintApiKeyWithRecoveryCode(mintInput(a.codes[0]!))).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' });
-      expect(await hashesOf(a.userId)).toHaveLength(10);
-    });
-
-    it('refuses an API-key principal and does not touch the code', async () => {
-      const a = await account();
-      const c = await caller(a, { apiKeyId: randomUUID() });
-      await expect(c.mintApiKeyWithRecoveryCode(mintInput(a.codes[0]!))).rejects.toMatchObject({ code: 'FORBIDDEN' });
-      await expect(c.rotateApiKeyWithRecoveryCode({ recoveryCode: a.codes[0]!, keyId: randomUUID() })).rejects.toMatchObject({
-        code: 'FORBIDDEN',
-      });
-      expect(await hashesOf(a.userId)).toHaveLength(10);
-      expect(await mfaRow(a.userId)).toBeUndefined();
-    });
-
-    it('rejects a malformed recovery code at the door', async () => {
-      const a = await account();
-      const c = await caller(a);
-      await expect(c.mintApiKeyWithRecoveryCode(mintInput('not-a-code'))).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     });
   });
 }

@@ -12,10 +12,12 @@
  *     The claim below runs in one transaction that takes `SELECT ... FOR UPDATE`
  *     on the user row and removes the hash BEFORE the action runs. The second
  *     redeem waits for the row, then no longer finds the hash.
- *  3. Spent-but-undone. If the action itself fails after the code was claimed
- *     (key not found, mint refused), the hash is put back so the user does not
- *     lose a code to a failed request. A crash between claim and action burns
- *     the code instead (fail closed: a code can never be used twice).
+ *  3. No refund. Once the code is claimed it stays spent, whatever the action
+ *     does. Handing it back would be an oracle (a right code with a bad request
+ *     would answer differently from a wrong code, and clear the budget) and could
+ *     revive a code the action itself retired. So every check that does not need
+ *     the code (session, key ownership, scopes) runs BEFORE the claim, and a
+ *     failure after it fails closed: a code can never be used twice.
  *
  * On a verified code the `mfa` counter is cleared (`recordSuccess`), exactly as
  * sign-in does. Any other exit leaves the reservation standing.
@@ -68,23 +70,9 @@ async function claim(sql: Sql, userId: string, trimmed: string, make: RecoveryEr
   });
 }
 
-/** Put a claimed code back after its action failed. Idempotent: never adds a hash that is already there. */
-async function refund(sql: Sql, userId: string, trimmed: string): Promise<void> {
-  const hash = hashToken(trimmed);
-  await transaction(sql, async (tx) => {
-    const rows = await tx<Array<{ recovery_code_hashes: unknown }>>`
-      SELECT recovery_code_hashes FROM users WHERE id = ${userId} FOR UPDATE
-    `;
-    if (!rows[0]) return;
-    const hashes = asStringList(rows[0].recovery_code_hashes);
-    if (hashes.includes(hash)) return;
-    await tx`UPDATE users SET recovery_code_hashes = ${tx.json([...hashes, hash] as never)}, updated_at = now() WHERE id = ${userId}`;
-  });
-}
-
 /**
  * Reserve an `mfa` attempt, spend `code` exactly once, clear the counter, then
- * run `act`. Throws (via `make`) when the code is missing, spent, wrong, or the
+ * run `act` (a failure in `act` does NOT give the code back). Throws (via `make`) when the code is missing, spent, wrong, or the
  * user is unknown; throws `auth.too_many_attempts` (AuthError) when locked.
  * Do every read-only precondition BEFORE calling this, so a refusal that has
  * nothing to do with the code never costs a guess or a code.
@@ -98,16 +86,7 @@ export async function redeemRecoveryCode<T>(
   if (!trimmed) throw input.make('Recovery code missing', 'auth.recovery_missing');
   await claim(sql, input.userId, trimmed, input.make);
   await recordSuccess(sql, input.userId, 'mfa');
-  try {
-    return await act();
-  } catch (err) {
-    try {
-      await refund(sql, input.userId, trimmed);
-    } catch {
-      // The original failure is the one the caller needs; an unrefunded code fails closed.
-    }
-    throw err;
-  }
+  return act();
 }
 
 /**
@@ -119,4 +98,22 @@ export async function assertOwnLiveSession(sql: Sql, userId: string, sessionId: 
   const live = await new PlaceDoor(sql).assertSessionLive(sessionId);
   if (live.userId !== userId) throw new PlaceDoorError('Session not found', 'auth.session_denied');
   return live;
+}
+
+/**
+ * The key must exist, be live, and belong to `userId`. Read-only, before the claim,
+ * so naming a bogus or foreign key answers the same whatever code was sent and
+ * costs no code and no attempt.
+ */
+export async function assertOwnLiveApiKey(
+  sql: Sql,
+  userId: string,
+  keyId: string,
+  make: RecoveryErrorFactory,
+): Promise<{ scopes: string[] }> {
+  const rows = await sql<
+    Array<{ scopes: string[] }>
+  >`SELECT scopes FROM api_keys WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
+  if (!rows[0]) throw make('API key not found', 'auth.not_found');
+  return { scopes: rows[0].scopes };
 }

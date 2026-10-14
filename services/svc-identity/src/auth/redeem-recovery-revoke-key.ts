@@ -8,7 +8,7 @@
  */
 import type { Sql } from 'postgres';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
-import { assertOwnLiveSession, redeemRecoveryCode, type RecoveryRedeemCode } from './recovery-redeem.js';
+import { assertOwnLiveApiKey, assertOwnLiveSession, redeemRecoveryCode, type RecoveryRedeemCode } from './recovery-redeem.js';
 
 export class RedeemRecoveryRevokeKeyError extends Error {
   constructor(
@@ -36,6 +36,7 @@ export async function revokeApiKeyAfterRecoveryCode(
 ): Promise<{ revokedKeyId: string; sessionId: string }> {
   recoveryCodeRevokesApiKey(input.code);
   const live = await assertOwnLiveSession(sql, input.userId, input.sessionId);
+  await assertOwnLiveApiKey(sql, input.userId, input.keyId, make);
   return redeemRecoveryCode(sql, { userId: input.userId, code: input.code, make }, async () => {
     const revoked = await minter.revokeApiKey(input.userId, input.keyId);
     if (!revoked) throw make('API key not found', 'auth.not_found');

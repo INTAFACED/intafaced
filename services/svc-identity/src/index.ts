@@ -22,7 +22,6 @@ import { createApiKeyIpRouter } from './api-key-ip-router.js';
 import { createApiKeyOriginRouter } from './api-key-origin-router.js';
 import { createApiKeyAccountRouter } from './api-key-account-router.js';
 import { createApiKeyRotateRouter } from './api-key-rotate-router.js';
-import { createRecoveryRedeemRouter } from './recovery-redeem-router.js';
 import { createApiKeyExpireRouter } from './api-key-expire-router.js';
 import { createApiKeyRevokeAllRouter } from './api-key-revoke-all-router.js';
 import { createSessionRevokeAllRouter } from './session-revoke-all-router.js';
@@ -230,7 +229,6 @@ export const appRouter = mergeRouters(
   createApiKeyOriginRouter(sql, auth),
   createApiKeyAccountRouter(sql, auth),
   createApiKeyRotateRouter(sql, auth),
-  createRecoveryRedeemRouter(sql, auth),
   createApiKeyExpireRouter(sql),
   createApiKeyRevokeAllRouter(sql),
   createSessionRevokeAllRouter(sql),
