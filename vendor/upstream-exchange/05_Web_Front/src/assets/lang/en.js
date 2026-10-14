@@ -200,15 +200,6 @@ module.exports = {
             tradePath: "GET /api/v1/markets",
             payPath: "GET /api/pay/trpc/health"
         },
-        infra: {
-            title: "Ramp widget",
-            lead: "Copy this iframe onto a host page. It loads the existing ramp and pay checkout — not a second pay stack. Unset licence refuses as ops.infra_licence_unset.",
-            snippetLead: "The tag iframes GET /api/widget/ramp. That page iframes /bank/ramps and pay checkout, or names the refuse.",
-            copy: "Copy snippet",
-            copied: "Copied",
-            licenceNote: "White-label is CSS and tenant env. Who is liable stays a counsel question.",
-            previewTitle: "Ramp widget preview"
-        },
         waitlist: {
             title: "Join the waitlist",
             lead: "Register interest for the next release. This does not create a balance or promise a reward.",
@@ -334,12 +325,6 @@ module.exports = {
             invalid_response: {
                 title: "The answer was the wrong shape",
                 body: "The service answered, but a field failed the desk's shape check. That is not an empty book and not a transport failure — the payload cannot be trusted, so nothing from it is shown. The field path is named where the desk can print it."
-            },
-            ops: {
-                infra_licence_unset: {
-                    title: "OS licence is unset",
-                    body: "The embeddable ramp widget is refuse-closed until an operator sets INFRA_LICENCE. This is not a missing route — it is the named refuse ops.infra_licence_unset. Setting the licence is Class X (owner)."
-                }
             }
         },
         trade: {
