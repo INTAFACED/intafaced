@@ -119,6 +119,9 @@ describe('svc-token money PG-hard', () => {
     buyback: DEFAULT_BUYBACK_PARAMS,
     loadParamsFromDb: false,
     feeScheduleTtlMs: 0,
+    // Gate OFF for the shared fixture: most emission tests walk several epochs in
+    // a row. The `emission time gate` block below turns it on with a real 1-day length.
+    emissionEpochMs: 0,
     // Test fixture only — production env has no default bar.
     governanceQuorumBps: 1000,
     governanceThresholdBps: 5000,
@@ -2051,6 +2054,176 @@ describe('svc-token money PG-hard', () => {
 
         expect(formatAmount((await ledger.balance(rewardsEngine('IFC'))).amount)).toBe('0');
         expect(await sql`SELECT epoch FROM token.emission_epochs`).toHaveLength(0);
+      });
+    });
+
+    describe('emission time gate (one epoch length between NEW epochs, database clock)', () => {
+      const DAY = 86_400_000;
+      const gated = () => new TokenService(sql, ledger, bus, { ...options, emissionEpochMs: DAY });
+      const backdate = (interval: string) =>
+        sql.unsafe(`UPDATE token.emission_epochs SET created_at = created_at - interval '${interval}'`);
+      const ifc = async () => (await ledger.balance(rewardsEngine('IFC'))).amount;
+
+      it('allows the very first epoch (no previous row)', async () => {
+        const first = await gated().mintNextEpoch();
+        expect(first.epoch).toBe(0);
+        expect(first.minted).toBeGreaterThan(0n);
+      });
+
+      it('defaults to one day when no length is passed (gate is ON unless explicitly 0)', async () => {
+        const dflt = new TokenService(sql, ledger, bus, { ...options, emissionEpochMs: undefined });
+        await dflt.mintNextEpoch();
+        await expect(dflt.mintNextEpoch()).rejects.toMatchObject({ code: 'token.epoch_too_early' });
+      });
+
+      it('rejects a bad length at construction', () => {
+        expect(() => new TokenService(sql, ledger, bus, { ...options, emissionEpochMs: -1 })).toThrow(/emissionEpochMs/);
+        expect(() => new TokenService(sql, ledger, bus, { ...options, emissionEpochMs: 1.5 })).toThrow(/emissionEpochMs/);
+      });
+
+      it('refuses a second epoch right away with token.epoch_too_early and the time left, and mints nothing', async () => {
+        const svc = gated();
+        const first = await svc.mintNextEpoch();
+        const err = await svc.mintNextEpoch().then(
+          () => null,
+          (e: unknown) => e,
+        );
+        expect(err).toBeInstanceOf(TokenError);
+        const te = err as TokenError;
+        expect(te.code).toBe('token.epoch_too_early');
+        expect(te.message).toMatch(/Epoch 1 cannot start yet/);
+        expect(te.message).toMatch(/epoch 0 was claimed/);
+        expect(te.message).toMatch(/wait 1d more/);
+        expect(te.retryAfterMs).toBeGreaterThan(DAY - 60_000);
+        expect(te.retryAfterMs).toBeLessThanOrEqual(DAY);
+        // Nothing claimed, nothing minted.
+        expect(await sql`SELECT epoch FROM token.emission_epochs`).toHaveLength(1);
+        expect(await ifc()).toBe(first.minted);
+        expect(await svc.nextEmissionEpoch()).toBe(1);
+      });
+
+      it('refuses just short of a day, allows once a day has passed on the database clock', async () => {
+        const svc = gated();
+        await svc.mintNextEpoch();
+        await backdate('23 hours');
+        const early = await svc.mintNextEpoch().then(
+          () => null,
+          (e: unknown) => e as TokenError,
+        );
+        expect(early?.code).toBe('token.epoch_too_early');
+        expect(early?.retryAfterMs).toBeGreaterThan(3_600_000 - 60_000);
+        expect(early?.retryAfterMs).toBeLessThanOrEqual(3_600_000);
+        expect(early?.message).toMatch(/wait (59m|1h)/);
+
+        await backdate('2 hours'); // now 25h ago
+        const second = await svc.mintNextEpoch();
+        expect(second.epoch).toBe(1);
+        // …and the clock restarts from the new claim.
+        await expect(svc.mintNextEpoch()).rejects.toMatchObject({ code: 'token.epoch_too_early' });
+      });
+
+      it('the gate reads the newest claim, not the first', async () => {
+        const svc = gated();
+        await svc.mintNextEpoch();
+        await backdate('3 days');
+        await svc.mintNextEpoch(); // epoch 1, created now
+        await expect(svc.mintNextEpoch()).rejects.toMatchObject({ code: 'token.epoch_too_early' });
+      });
+
+      it('resuming a claimed-but-unclosed epoch right away is NOT refused and mints exactly once', async () => {
+        const svc = gated();
+        const first = await svc.mintNextEpoch();
+        await backdate('1 day');
+
+        // Epoch 1: claim commits, the ledger applies the mint, then the reply is lost.
+        const realPost = ledger.post.bind(ledger);
+        let failOnce = true;
+        ledger.post = async (tx) => {
+          const result = await realPost(tx);
+          if (failOnce) {
+            failOnce = false;
+            throw new Error('simulated lost reply after ledger apply');
+          }
+          return result;
+        };
+        await expect(svc.mintNextEpoch()).rejects.toThrow(/lost reply/);
+        ledger.post = realPost;
+        const [open] = await sql<Array<{ epoch: number; closed: boolean; scheduled_amount: string }>>`
+          SELECT epoch, closed, scheduled_amount FROM token.emission_epochs WHERE epoch = 1
+        `;
+        expect(open?.closed).toBe(false);
+
+        // Immediate retry — well inside one epoch length of the claim — resumes epoch 1.
+        const retried = await svc.mintNextEpoch();
+        expect(retried.epoch).toBe(1);
+        expect(formatAmount(retried.minted)).toBe(formatAmount(amt(open!.scheduled_amount)));
+        expect(await sql`SELECT epoch FROM token.emission_epochs`).toHaveLength(2);
+        // One mint per epoch: balance is epoch 0 + epoch 1, not three rewards.
+        expect(await ifc()).toBe(first.minted + retried.minted);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+        // The retry did not restart the clock for a THIRD epoch.
+        await expect(svc.mintNextEpoch()).rejects.toMatchObject({ code: 'token.epoch_too_early' });
+      });
+
+      it('explicit epoch numbers behave as before: closed is epoch_closed; a skip-ahead is a NEW claim and is gated', async () => {
+        const svc = gated();
+        await svc.mintEpoch(0);
+        await expect(svc.mintEpoch(0)).rejects.toMatchObject({ code: 'token.epoch_closed' });
+        await expect(svc.mintEpoch(5)).rejects.toMatchObject({ code: 'token.epoch_too_early' });
+        expect(await sql`SELECT epoch FROM token.emission_epochs WHERE epoch = 5`).toHaveLength(0);
+        await backdate('1 day');
+        expect((await svc.mintEpoch(5)).epoch).toBe(5);
+      });
+
+      it('supply exhaustion is reported as such, not as "wait"', async () => {
+        const svc = gated();
+        await svc.mintNextEpoch();
+        await expect(svc.mintEpoch(10_000_000)).rejects.toMatchObject({ code: 'token.supply_exhausted' });
+      });
+
+      it('two concurrent mints of DIFFERENT new epochs: exactly one lands, the other is epoch_too_early', async () => {
+        const a = gated();
+        const b = new TokenService(sql, ledger, bus, { ...options, emissionEpochMs: DAY });
+        await a.mintNextEpoch();
+        await backdate('1 day');
+        const results = await Promise.allSettled([a.mintEpoch(1), b.mintEpoch(2)]);
+        const ok = results.filter((r) => r.status === 'fulfilled');
+        const bad = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+        expect(ok).toHaveLength(1);
+        expect(bad).toHaveLength(1);
+        expect(bad[0]!.reason).toMatchObject({ code: 'token.epoch_too_early' });
+        expect(await sql`SELECT epoch FROM token.emission_epochs`).toHaveLength(2);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('two concurrent mintNextEpoch both aiming at the next epoch mint it once — no second epoch opens', async () => {
+        const a = gated();
+        const b = new TokenService(sql, ledger, bus, { ...options, emissionEpochMs: DAY });
+        const first = await a.mintNextEpoch();
+        await backdate('1 day');
+        const results = await Promise.allSettled([a.mintNextEpoch(), b.mintNextEpoch()]);
+        const fulfilled = results.filter((r): r is PromiseFulfilledResult<{ epoch: number; minted: bigint }> => r.status === 'fulfilled');
+        expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+        // Every success is epoch 1 (the loser resumes/finds it closed — never opens epoch 2).
+        for (const r of results) {
+          if (r.status === 'fulfilled') expect(r.value.epoch).toBe(1);
+          else expect((r.reason as TokenError).code).toMatch(/^token\.(epoch_closed|epoch_too_early)$/);
+        }
+        const rows = await sql<Array<{ epoch: number }>>`SELECT epoch FROM token.emission_epochs ORDER BY epoch`;
+        expect(rows.map((r) => r.epoch)).toEqual([0, 1]);
+        // Exactly two epochs' worth of supply.
+        expect(await ifc()).toBe(first.minted + fulfilled[0]!.value.minted);
+      });
+
+      it('a retuned reward does not bypass the gate or change the resumed amount', async () => {
+        const svc = gated();
+        await svc.mintNextEpoch();
+        const other = new TokenService(sql, ledger, bus, {
+          ...options,
+          emissionEpochMs: DAY,
+          emission: { ...DEFAULT_EMISSION_PARAMS, initialEpochReward: amt('1') },
+        });
+        await expect(other.mintNextEpoch()).rejects.toMatchObject({ code: 'token.epoch_too_early' });
       });
     });
 
