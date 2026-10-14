@@ -1,0 +1,321 @@
+/*
+ * Earn Preview (sample rates only). Only --if-* tokens: no colour values live here.
+ * The whole file is in `@layer components` so it cannot override the kit's utilities (see screens/money/money.css).
+ * Sizes are px so the legacy 14 px root cannot shrink them.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .if-preview[data-preview-product='earn'] .ern-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .ern-right {
+    text-align: right;
+  }
+  .ern-sub {
+    display: block;
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .ern-sub--inline {
+    display: inline;
+  }
+
+  /* The notice that every rate is a sample: amber icon, plain words, always visible. */
+  .ern-notice {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-top: 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--if-line-strong);
+    border-radius: 12px;
+    background: var(--if-field);
+  }
+  .ern-notice__icon {
+    flex: none;
+    margin-top: 2px;
+    color: var(--if-warn);
+  }
+  .ern-notice__title {
+    font: 600 14px/20px var(--if-font-ui);
+  }
+  .ern-notice__body {
+    margin-top: 2px;
+    color: var(--if-fg-2);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+
+  .ern-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 24px;
+  }
+  .ern-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px 20px;
+    border: 1px solid var(--if-line);
+    border-radius: 16px;
+    background: var(--if-panel);
+  }
+  .ern-stat__label {
+    color: var(--if-fg-2);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .ern-stat__value {
+    font: 600 24px/32px var(--if-font-ui);
+    letter-spacing: -0.01em;
+  }
+
+  .ern-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(340px, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+  .ern-grid > .if-preview__panel {
+    margin-top: 24px;
+  }
+  .ern-ticket {
+    position: sticky;
+    top: calc(var(--if-topbar-h) + 16px);
+  }
+  .ern-ticket__body {
+    padding-top: 16px;
+  }
+
+  .ern-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .ern-list-head,
+  .ern-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.2fr) minmax(140px, 1.1fr) minmax(110px, 0.9fr) minmax(90px, 0.8fr);
+    gap: 12px;
+    align-items: center;
+  }
+  .ern-list-head {
+    padding: 8px 12px;
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .ern-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ern-row {
+    width: 100%;
+    min-height: 56px;
+    padding: 8px 12px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--if-fg);
+    font: 400 14px/20px var(--if-font-ui);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--if-t-fast) var(--if-ease);
+  }
+  .ern-row:hover {
+    background: var(--if-hover);
+  }
+  .ern-row[data-active] {
+    border-color: var(--if-line-stronger);
+    background: var(--if-field);
+  }
+  .ern-coin {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 500;
+  }
+  .ern-type {
+    color: var(--if-fg-2);
+  }
+  .ern-min {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A rate and the words "sample rate" always travel together. */
+  .ern-rate {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0;
+  }
+  .ern-chosen__rate .ern-rate {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .ern-rate__num {
+    font: 600 16px/24px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+  .ern-rate__tag {
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+    letter-spacing: 0.02em;
+  }
+
+  .ern-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 24px 12px;
+    color: var(--if-fg-2);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .ern-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--if-fg);
+    font: 500 14px/20px var(--if-font-ui);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .ern-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .ern-chosen {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .ern-chosen__name {
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .ern-rule {
+    margin: 0;
+  }
+  .ern-avail {
+    display: flex;
+    justify-content: space-between;
+    margin-top: -8px;
+    color: var(--if-fg-2);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .ern-estimate {
+    padding: 12px 16px;
+    border: 1px solid var(--if-line);
+    border-radius: 12px;
+    background: var(--if-field);
+  }
+  .ern-estimate__title {
+    margin-bottom: 8px;
+    font: 600 14px/20px var(--if-font-ui);
+  }
+  .ern-estimate dl {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+  }
+  .ern-estimate dl > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .ern-estimate dt {
+    color: var(--if-fg-2);
+  }
+  .ern-estimate dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .ern-estimate dd .ern-rate {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .ern-estimate dd .ern-rate__num {
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .ern-hint {
+    margin-top: 6px;
+    text-align: right;
+  }
+  .ern-estimate__note {
+    margin-top: 10px;
+    color: var(--if-fg-2);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+
+  .ern-picks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ern-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-pill);
+    background: transparent;
+    color: var(--if-fg-2);
+    font: 500 14px/20px var(--if-font-ui);
+    cursor: pointer;
+  }
+  .ern-pick[data-active] {
+    border-color: var(--if-line-stronger);
+    background: var(--if-field);
+    color: var(--if-fg);
+  }
+
+  .ern-table-wrap {
+    overflow-x: auto;
+  }
+  .ern-table th,
+  .ern-table td {
+    padding: 12px 8px;
+    vertical-align: middle;
+  }
+  .ern-table th:first-child,
+  .ern-table td:first-child {
+    padding-left: 0;
+  }
+  .ern-table th:last-child,
+  .ern-table td:last-child {
+    padding-right: 0;
+  }
+  .ern-table .ern-rate {
+    align-items: flex-end;
+  }
+  .ern-table tbody th {
+    font-weight: 500;
+  }
+
+  @media (max-width: 1100px) {
+    .ern-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .ern-ticket {
+      position: static;
+    }
+    .ern-stats {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}
