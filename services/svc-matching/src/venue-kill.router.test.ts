@@ -226,7 +226,7 @@ describe('POST /resume-all', () => {
     expect(halt.json().accepted).toBe(true);
 
     const resume = await post(app, '/resume-all', {
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       approvalId: 'appr-1',
       operationId: 'op-1',
@@ -235,7 +235,7 @@ describe('POST /resume-all', () => {
     expect(resume.json()).toMatchObject({
       accepted: true,
       halted: false,
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       rejected: null,
     });
@@ -262,7 +262,7 @@ describe('POST /resume-all', () => {
     });
     expect(halt.json().accepted).toBe(true);
     const resume = await post(app, '/resume-all', {
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       approvalId: 'appr-1',
       operationId: 'op-1',

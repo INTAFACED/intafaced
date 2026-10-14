@@ -81,6 +81,14 @@ const schema = baseEnvSchema
        * Blank / unset → those doors refuse (`action_approval.identity_unwired`).
        */
       IDENTITY_URL: z.string().url().optional(),
+
+      /**
+       * Who may open a market: comma-separated user ids of the venue's
+       * operators. Both the proposer and the approver of a `matching.open`
+       * approval must be on this list. Blank / unset → nobody may open
+       * (`action_approval.operators_unset`); matching does not guess a role.
+       */
+      MATCHING_OPERATOR_IDS: z.string().default(''),
     }),
   );
 

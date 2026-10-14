@@ -229,7 +229,7 @@ describe('POST /markets/:marketId/post-only/resume', () => {
     expect(blocked.json().accepted).toBe(false);
 
     const resume = await post(app, `/markets/${MARKET}/post-only/resume`, {
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       approvalId: 'appr-1',
       operationId: 'op-1',
@@ -238,7 +238,7 @@ describe('POST /markets/:marketId/post-only/resume', () => {
     expect(resume.json()).toMatchObject({
       accepted: true,
       postOnly: false,
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       rejected: null,
     });
