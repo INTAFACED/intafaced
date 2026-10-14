@@ -367,7 +367,7 @@ await app.register(async (api) => {
     // Refresh-token cookie transport (see `session-cookie.ts`). Planned before the principal
     // exchange: a refresh/logout is answered from the cookie alone, never from a bearer token.
     const cookieOptions = {
-      secure: cookieIsSecure(req.protocol, env.APP_ENV),
+      secure: cookieIsSecure(req.protocol, process.env.APP_ENV),
       maxAgeSeconds: env.EDGE_REFRESH_COOKIE_MAX_AGE_SECONDS,
     };
     const sessionPlan = planSessionCookie({
@@ -452,6 +452,9 @@ await app.register(async (api) => {
       delete upstreamHeaders['content-length'];
       upstreamHeaders['content-type'] = 'application/json';
     }
+    // The refresh cookie is only ever read by the two session doors above. No identity route
+    // (including a path variant of those doors) gets to see it.
+    if (target.upstream.module === 'identity') delete upstreamHeaders.cookie;
     const upstreamPath = rewritesRequest ? sessionPlan.path : target.path;
 
     return withEdgeSpan(
