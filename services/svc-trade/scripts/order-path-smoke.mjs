@@ -11,6 +11,7 @@
  * REQs: PC-L2-1 · PC-L3-1..5 · PC-L4-1..2 — docs/ORDER-ROUTE-PROD-CLAIM-AGENT-MAX-2026-08-02.md
  */
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const TRADE = process.env.TRADE_HTTP_URL ?? 'http://127.0.0.1:4004';
 const MATCHING = process.env.MATCHING_HTTP_URL ?? 'http://127.0.0.1:4005';
@@ -35,6 +36,14 @@ const STRESS_N = Math.max(0, Number(process.env.TRADE_SMOKE_STRESS_N ?? '0') || 
 const TRADE_DB = process.env.TRADE_DATABASE_URL ?? process.env.TEST_DATABASE_URL_TRADE ?? '';
 const REGION = process.env.TRADE_SMOKE_REGION ?? 'DE';
 const FILL_WAIT_MS = Number(process.env.TRADE_SMOKE_FILL_WAIT_MS ?? '15000') || 15000;
+// Two-person market-open operators. svc-matching reads its operator list ONCE at boot
+// (MATCHING_OPERATOR_IDS, #4742), so the CX-8 boot registers the operators BEFORE it starts
+// matching and hands them over through a mode-600 file it deletes at exit:
+//   CX8_PREPARE_OPERATORS_FILE  boot only: register the operators, write them there, exit.
+//   CX8_OPERATORS_FILE          the run: use those operators instead of registering.
+// Neither is set on a standalone run, which registers its own operators as before.
+const OPERATORS_FILE = process.env.CX8_OPERATORS_FILE?.trim() || '';
+const PREPARE_OPERATORS_FILE = process.env.CX8_PREPARE_OPERATORS_FILE?.trim() || '';
 
 const log = (line) => console.log(`[order-path-smoke] ${line}`);
 
@@ -279,24 +288,57 @@ async function registerLocalTestOperator(contracts, role) {
   return { handle, email, password, userId: session.userId, accessToken: session.accessToken };
 }
 
-async function openMarketInMatching(contracts, marketId) {
-  if (!EDGE) throw new Error('opening the market needs EDGE_PRINCIPAL_SECRET (the smoke acts as the edge)');
+/**
+ * Registers the two market-open operators and enrols the approver's TOTP (the secret comes back
+ * to the caller only; it is never logged). Used by the CX-8 boot's prepare step and as the
+ * standalone fallback.
+ */
+async function registerApprovalOperators(contracts) {
   const requester = await registerLocalTestOperator(contracts, 'req');
   const approver = await registerLocalTestOperator(contracts, 'apr');
-
-  // Approver: real TOTP enrolment, then a real MFA login.
   const approverPrincipal = await principalOf(approver.accessToken);
   const enrol = await identityCall(contracts, 'totp.enrol', {}, approverPrincipal);
   await identityCall(contracts, 'totp.confirm', { secret: enrol.secret, code: totpCode(enrol.secret, Date.now()) }, approverPrincipal);
+  return { requester, approver: { ...approver, totpSecret: enrol.secret } };
+}
+
+/** Operators the CX-8 boot registered before it started matching, or null on a standalone run. */
+function loadProvidedOperators() {
+  if (!OPERATORS_FILE) return null;
+  const parsed = JSON.parse(readFileSync(OPERATORS_FILE, 'utf8'));
+  for (const [role, fields] of [
+    ['requester', ['userId', 'email', 'password', 'handle']],
+    ['approver', ['userId', 'email', 'password', 'handle', 'totpSecret']],
+  ]) {
+    for (const field of fields) {
+      if (typeof parsed?.[role]?.[field] !== 'string' || !parsed[role][field]) {
+        throw new Error(`CX8_OPERATORS_FILE is missing ${role}.${field}`);
+      }
+    }
+  }
+  return parsed;
+}
+
+async function openMarketInMatching(contracts, marketId) {
+  if (!EDGE) throw new Error('opening the market needs EDGE_PRINCIPAL_SECRET (the smoke acts as the edge)');
+  const provided = loadProvidedOperators();
+  const { requester, approver } = provided ?? (await registerApprovalOperators(contracts));
+  const secret = approver.totpSecret;
+
+  // Approver: a real MFA login with the enrolled TOTP.
   // The enrolment code's step is spent (replay-protected); the next step's code is inside identity's +/-1 step drift window.
   const mfaSession = await identityCall(
     contracts,
     'auth.login',
-    { identifier: approver.email, password: approver.password, totpCode: totpCode(enrol.secret, Date.now() + 30_000) },
+    { identifier: approver.email, password: approver.password, totpCode: totpCode(secret, Date.now() + 30_000) },
     null,
   );
   const approverMfa = await principalOf(mfaSession.accessToken);
   if (!approverMfa.mfa) throw new Error('approver login did not yield an MFA session');
+  // Registered here, the requester's registration token is fresh. Registered by the boot, it may be old: log in again.
+  const requesterToken = provided
+    ? (await identityCall(contracts, 'auth.login', { identifier: requester.email, password: requester.password }, null)).accessToken
+    : requester.accessToken;
 
   // Requester proposes; approver approves; matching consumes.
   const action = { actionType: 'matching.open', targetService: 'svc-matching', targetId: `open:${marketId}`, expectedVersion: '1' };
@@ -307,7 +349,7 @@ async function openMarketInMatching(contracts, marketId) {
     contracts,
     'actionApproval.propose',
     { ...action, payloadHash, policyVersion: 'local-test:cx8-smoke-policy-v1' },
-    await principalOf(requester.accessToken),
+    await principalOf(requesterToken),
   );
   const approved = await identityCall(contracts, 'actionApproval.approve', { approvalId: proposed.approvalId }, approverMfa);
 
@@ -699,7 +741,24 @@ async function stressIdempotentPlace(contracts) {
   return 'ok';
 }
 
+/** Boot-only step: register the operators now (identity up, matching not yet started) and hand them over in a mode-600 file. */
+async function prepareOperators() {
+  if (!EDGE) throw new Error('preparing the operators needs EDGE_PRINCIPAL_SECRET (the smoke acts as the edge)');
+  const contracts = await loadContracts();
+  const { requester, approver } = await registerApprovalOperators(contracts);
+  const pick = ({ userId, handle, email, password, totpSecret }) => ({ userId, handle, email, password, totpSecret });
+  writeFileSync(PREPARE_OPERATORS_FILE, JSON.stringify({ requester: pick(requester), approver: pick(approver) }), {
+    mode: 0o600,
+    flag: 'wx',
+  });
+  log('OPERATORS prepared for the market-open approval (credentials in the mode-600 handover file, not logged)');
+}
+
 async function main() {
+  if (PREPARE_OPERATORS_FILE) {
+    await prepareOperators();
+    process.exit(0);
+  }
   log('CX-8 assembled path — trade + matching + ledger (prod-claim agent-max path C)');
   log(`TRADE=${TRADE} MATCHING=${MATCHING} LEDGER=${LEDGER} STRICT=${STRICT} L3=${L3} STRESS_N=${STRESS_N}`);
 

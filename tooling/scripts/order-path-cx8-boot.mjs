@@ -10,7 +10,8 @@
  */
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -29,6 +30,14 @@ const PG = process.env.CX8_POSTGRES ?? 'postgres://intafaced:intafaced@127.0.0.1
 const ADMISSION_SECRET = randomBytes(36).toString('base64url');
 
 const children = [];
+
+// Handover for the market-open operators (credentials + the approver's per-run TOTP secret): a mode-700
+// directory holding a mode-600 file, removed at exit. Never logged, never kept beyond the run.
+let operatorsDir = null;
+function removeOperatorsFile() {
+  if (operatorsDir) rmSync(operatorsDir, { recursive: true, force: true });
+  operatorsDir = null;
+}
 
 function log(msg) {
   console.log(`[cx8-boot] ${msg}`);
@@ -78,6 +87,7 @@ async function waitHealth(url, label, attempts = 60) {
 }
 
 function killAll() {
+  removeOperatorsFile();
   for (const { name, p } of children) {
     try {
       p.kill('SIGTERM');
@@ -91,6 +101,10 @@ process.on('exit', killAll);
 process.on('SIGINT', () => {
   killAll();
   process.exit(130);
+});
+process.on('SIGTERM', () => {
+  killAll();
+  process.exit(143);
 });
 
 const common = {
@@ -133,19 +147,6 @@ async function main() {
 
   writeFileSync(join(ROOT, '.data/matching/engine_journal.ndjson'), '');
 
-  // Matching first (no DB)
-  start('matching', 'node', ['services/svc-matching/dist/index.js'], {
-    ...common,
-    SERVICE_NAME: 'svc-matching',
-    HTTP_HOST: '127.0.0.1',
-    HTTP_PORT: '4005',
-    MATCHING_JOURNAL_PATH: join(ROOT, '.data/matching/engine_journal.ndjson'),
-    // Matching consumes the two-person approval that opens a market at identity.
-    IDENTITY_URL: 'http://127.0.0.1:4002',
-    // Owner-published, no default: blank refuses boot (services/svc-matching/src/env.ts).
-    MATCHING_SNAPSHOT_EVERY: '500', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
-  });
-
   start('ledger', 'node', ['services/svc-ledger/dist/index.js'], {
     ...common,
     SERVICE_NAME: 'svc-ledger',
@@ -179,9 +180,48 @@ async function main() {
     WEBAUTHN_ORIGIN: 'http://localhost',
   });
 
-  await waitHealth('http://127.0.0.1:4005', 'matching');
   await waitHealth('http://127.0.0.1:4001', 'ledger');
   await waitHealth('http://127.0.0.1:4002', 'identity');
+
+  // Matching starts only now: it reads its operator list once at boot, so the two market-open
+  // operators must already exist at identity. The smoke registers them (and enrols the approver's
+  // TOTP) in its prepare mode and writes them to a mode-600 file, which this boot deletes at exit.
+  operatorsDir = mkdtempSync(join(tmpdir(), 'cx8-operators-'));
+  const operatorsFile = join(operatorsDir, 'operators.json');
+  await run('pnpm', ['--filter', '@intafaced/svc-trade', 'run', 'order-path-smoke'], {
+    CX8_PREPARE_OPERATORS_FILE: operatorsFile,
+    IDENTITY_HTTP_URL: 'http://127.0.0.1:4002',
+    EDGE_PRINCIPAL_SECRET: EDGE,
+    JWT_ACCESS_SECRET: JWT,
+    JWT_ISSUER: common.JWT_ISSUER,
+    JWT_AUDIENCE: common.JWT_AUDIENCE,
+  });
+  const operators = JSON.parse(readFileSync(operatorsFile, 'utf8'));
+  const operatorIds = [operators.requester?.userId, operators.approver?.userId];
+  if (operatorIds.some((id) => typeof id !== 'string' || id.trim() === '' || id.includes(','))) {
+    throw new Error('operator preparation did not yield two usable identity user ids');
+  }
+  log('market-open operators registered at identity');
+
+  // Matching (no DB)
+  start('matching', 'node', ['services/svc-matching/dist/index.js'], {
+    ...common,
+    SERVICE_NAME: 'svc-matching',
+    HTTP_HOST: '127.0.0.1',
+    HTTP_PORT: '4005',
+    MATCHING_JOURNAL_PATH: join(ROOT, '.data/matching/engine_journal.ndjson'),
+    // Matching consumes the two-person approval that opens a market at identity.
+    IDENTITY_URL: 'http://127.0.0.1:4002',
+    // Owner-published, no default: blank refuses boot (services/svc-matching/src/env.ts).
+    MATCHING_SNAPSHOT_EVERY: '500', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
+    // SMOKE RIG ONLY — #4742: matching refuses every venue door unless the approval's requester and
+    // approver are named here (comma-separated identity userIds, read once at boot). These are the
+    // two throwaway localtest_cx8 operators registered above; not a production value. Before #4742
+    // matching ignores this variable.
+    MATCHING_OPERATOR_IDS: operatorIds.join(','),
+  });
+
+  await waitHealth('http://127.0.0.1:4005', 'matching');
 
   start('trade', 'node', ['services/svc-trade/dist/index.js'], {
     ...common,
@@ -260,6 +300,8 @@ async function main() {
     TRADE_SMOKE_STRESS_N: '3',
     // Settle + ledger post lag under JetStream; STRICT fails closed if still empty.
     TRADE_SMOKE_FILL_WAIT_MS: '25000',
+    // The operators registered before matching started (credentials stay in the file, not in env).
+    CX8_OPERATORS_FILE: operatorsFile,
   });
 
   log('CX-8 boot + smoke complete');
