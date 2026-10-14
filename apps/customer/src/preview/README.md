@@ -27,26 +27,26 @@ navigation (use `effectiveStatus`).
 
 ## Routes and screens
 
-Each product has a registry row (same id), a room (route) and a lazily loaded screen folder:
+Every Preview product lives at **`/preview/<id>`**. Each has a registry row (same id), a room (route) and a lazily loaded screen folder. An older address (for example `/trade/futures`) is an alias room that redirects to the `/preview/<id>` route; it is part of the same registry row, so it is hidden together with it.
 
-| Product id | Route            | Screen folder (you own it)  | Menu  |
-| ---------- | ---------------- | --------------------------- | ----- |
-| `futures`  | `/trade/futures` | `screens/preview/futures/`  | Trade |
-| `options`  | `/trade/options` | `screens/preview/options/`  | Trade |
-| `margin`   | `/trade/margin`  | `screens/preview/margin/`   | Trade |
-| `copy`     | `/trade/copy`    | `screens/preview/copy/`     | Trade |
-| `bots`     | `/trade/bots`    | `screens/preview/bots/`     | Trade |
-| `agents`   | `/agents`        | `screens/preview/agents/`   | Trade |
-| `p2p`      | `/p2p`           | `screens/preview/p2p/`      | Trade |
-| `earn`     | `/bank/earn`     | `screens/preview/earn/`     | Money |
-| `loans`    | `/bank/loans`    | `screens/preview/loans/`    | Money |
-| `deposit`  | `/uc/recharge`   | `screens/preview/deposit/`  | Money |
-| `withdraw` | `/uc/withdraw`   | `screens/preview/withdraw/` | Money |
-| `card`     | `/bank/cards`    | `screens/preview/card/`     | Pay   |
-| `ifc`      | `/ifc`           | `screens/preview/ifc/`      | More  |
+| Product id | Route (link here)   | Older address (redirects) | Screen folder (you own it)  | Menu  |
+| ---------- | ------------------- | ------------------------- | --------------------------- | ----- |
+| `futures`  | `/preview/futures`  | `/trade/futures`          | `screens/preview/futures/`  | Trade |
+| `options`  | `/preview/options`  | `/trade/options`          | `screens/preview/options/`  | Trade |
+| `margin`   | `/preview/margin`   | `/trade/margin`           | `screens/preview/margin/`   | Trade |
+| `copy`     | `/preview/copy`     | `/trade/copy`             | `screens/preview/copy/`     | Trade |
+| `bots`     | `/preview/bots`     | `/trade/bots`             | `screens/preview/bots/`     | Trade |
+| `agents`   | `/preview/agents`   | `/agents`                 | `screens/preview/agents/`   | Trade |
+| `p2p`      | `/preview/p2p`      | `/p2p`                    | `screens/preview/p2p/`      | Trade |
+| `earn`     | `/preview/earn`     | `/bank/earn`              | `screens/preview/earn/`     | Money |
+| `loans`    | `/preview/loans`    | `/bank/loans`             | `screens/preview/loans/`    | Money |
+| `deposit`  | `/preview/deposit`  | `/uc/recharge`            | `screens/preview/deposit/`  | Money |
+| `withdraw` | `/preview/withdraw` | `/uc/withdraw`            | `screens/preview/withdraw/` | Money |
+| `card`     | `/preview/card`     | `/bank/cards`             | `screens/preview/card/`     | Pay   |
+| `ifc`      | `/preview/ifc`      | none                      | `screens/preview/ifc/`      | More  |
+| `academy`  | `/preview/academy`  | `/academy`                | `screens/preview/academy/`  | More  |
 
-`app/screens.ts` lazy-imports `screens/preview/<id>` (its `index.tsx`, default export, props `ScreenProps`). Link to a Preview screen by its
-route above; `previewProducts[id].path` has it in code.
+Always link to `/preview/<id>` (`previewProducts[id].path`), never to an older address. `app/screens.ts` lazy-imports `screens/preview/<id>` (its `index.tsx`, default export, props `ScreenProps`).
 
 ### Folder ownership
 

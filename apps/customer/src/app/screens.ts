@@ -34,4 +34,5 @@ export const screens: Record<ScreenId, ScreenComponent> = {
   'preview/ifc': lazy(() => import('../screens/preview/ifc')),
   'preview/deposit': lazy(() => import('../screens/preview/deposit')),
   'preview/withdraw': lazy(() => import('../screens/preview/withdraw')),
+  'preview/academy': lazy(() => import('../screens/preview/academy')),
 };

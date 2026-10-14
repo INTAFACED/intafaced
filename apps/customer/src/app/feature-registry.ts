@@ -56,7 +56,7 @@ export const features: readonly Feature[] = [
   {
     id: 'deposit',
     label: 'Deposit',
-    paths: ['/uc/recharge'],
+    paths: ['/preview/deposit', '/uc/recharge'],
     status: 'preview',
     reason: 'Custody is not connected; the screen shows sample data and sends nothing',
     unlock: 'deposit address endpoint (U10) + custody',
@@ -65,7 +65,7 @@ export const features: readonly Feature[] = [
   {
     id: 'withdraw',
     label: 'Withdraw',
-    paths: ['/uc/withdraw'],
+    paths: ['/preview/withdraw', '/uc/withdraw'],
     status: 'preview',
     reason: 'Custody withdrawal is not connected; the screen shows sample data and sends nothing',
     unlock: 'custody contract',
@@ -101,7 +101,7 @@ export const features: readonly Feature[] = [
   {
     id: 'margin',
     label: 'Margin',
-    paths: ['/trade/margin'],
+    paths: ['/preview/margin', '/trade/margin'],
     status: 'preview',
     reason: 'Spot margin does not exist on the back end yet; sample data only',
     unlock: 'margin contract + owner numbers',
@@ -110,7 +110,7 @@ export const features: readonly Feature[] = [
   {
     id: 'futures',
     label: 'Futures',
-    paths: ['/trade/futures'],
+    paths: ['/preview/futures', '/trade/futures'],
     status: 'preview',
     reason: 'Futures are gated on the back end; sample data only',
     unlock: 'TRADE_FUTURES_ENABLED + owner leverage and funding numbers',
@@ -119,7 +119,7 @@ export const features: readonly Feature[] = [
   {
     id: 'options',
     label: 'Options',
-    paths: ['/trade/options'],
+    paths: ['/preview/options', '/trade/options'],
     status: 'preview',
     reason: 'Options are only partly built on the back end; sample data only',
     unlock: 'options contract',
@@ -128,7 +128,7 @@ export const features: readonly Feature[] = [
   {
     id: 'copy',
     label: 'Copy trading',
-    paths: ['/trade/copy'],
+    paths: ['/preview/copy', '/trade/copy'],
     status: 'preview',
     reason: 'Fee-share rules are not set; sample data only',
     unlock: 'owner fee-share law',
@@ -137,7 +137,7 @@ export const features: readonly Feature[] = [
   {
     id: 'bots',
     label: 'Trading bots',
-    paths: ['/trade/bots'],
+    paths: ['/preview/bots', '/trade/bots'],
     status: 'preview',
     reason: 'The algo scheduler is off; sample data only',
     unlock: 'algo scheduler + bot product',
@@ -155,7 +155,7 @@ export const features: readonly Feature[] = [
   {
     id: 'earn',
     label: 'Earn',
-    paths: ['/bank/earn'],
+    paths: ['/preview/earn', '/bank/earn'],
     status: 'preview',
     reason: 'Earn rate is not set (bank.earn_rate_unset); sample data only',
     unlock: 'owner earn rates',
@@ -164,7 +164,7 @@ export const features: readonly Feature[] = [
   {
     id: 'loans',
     label: 'Loans',
-    paths: ['/bank/loans'],
+    paths: ['/preview/loans', '/bank/loans'],
     status: 'preview',
     reason: 'Owner numbers for loan terms are not set; sample data only',
     unlock: 'owner loan numbers',
@@ -173,7 +173,7 @@ export const features: readonly Feature[] = [
   {
     id: 'card',
     label: 'Card',
-    paths: ['/bank/cards'],
+    paths: ['/preview/card', '/bank/cards'],
     status: 'preview',
     reason: 'No card issuer; sample data only',
     unlock: 'issuer contract',
@@ -182,7 +182,7 @@ export const features: readonly Feature[] = [
   {
     id: 'ifc',
     label: 'IFC',
-    paths: ['/ifc'],
+    paths: ['/preview/ifc'],
     status: 'preview',
     reason: 'IFC is a ledger entry with no chain yet; sample data only',
     unlock: 'owner token decisions',
@@ -241,7 +241,7 @@ export const features: readonly Feature[] = [
   {
     id: 'p2p',
     label: 'Person-to-person trading',
-    paths: ['/p2p'],
+    paths: ['/preview/p2p', '/p2p'],
     status: 'preview',
     reason: "Needs owner's instrument encryption provider; sample data only",
     unlock: 'owner',
@@ -267,9 +267,8 @@ export const features: readonly Feature[] = [
   },
   {
     id: 'more-rooms',
-    label: 'Academy, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
+    label: 'Academy lessons, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
     paths: [
-      '/academy',
       '/academy/:slug',
       '/quant',
       '/quant/studio',
@@ -291,9 +290,18 @@ export const features: readonly Feature[] = [
     tab: 'more',
   },
   {
+    id: 'academy',
+    label: 'Academy',
+    paths: ['/preview/academy', '/academy'],
+    status: 'preview',
+    reason: 'Lessons and certifications are not open to customers yet; sample data only',
+    unlock: 'academy launch',
+    tab: 'more',
+  },
+  {
     id: 'agents',
     label: 'Agents',
-    paths: ['/agents'],
+    paths: ['/preview/agents', '/agents'],
     status: 'preview',
     reason: 'The agent service is built but hidden; sample data only',
     unlock: 'agent service launch',

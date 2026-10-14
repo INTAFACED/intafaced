@@ -27,6 +27,7 @@ import {
   Users,
   CreditCard,
   Gem,
+  GraduationCap,
 } from 'lucide-react';
 
 export type ShellIconName =
@@ -56,7 +57,8 @@ export type ShellIconName =
   | 'agents'
   | 'p2p'
   | 'card'
-  | 'ifc';
+  | 'ifc'
+  | 'academy';
 
 const icons: Record<ShellIconName, LucideIcon> = {
   home: House,
@@ -86,6 +88,7 @@ const icons: Record<ShellIconName, LucideIcon> = {
   p2p: Users,
   card: CreditCard,
   ifc: Gem,
+  academy: GraduationCap,
 };
 
 export function ShellIcon({ name, size = 20 }: { name: ShellIconName; size?: number }) {

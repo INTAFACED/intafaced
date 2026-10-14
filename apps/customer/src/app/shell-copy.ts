@@ -120,6 +120,8 @@ const messages = {
   Card: 'Card',
   'Spend your balance anywhere': 'Spend your balance anywhere',
   IFC: 'IFC',
+  Academy: 'Academy',
+  'Lessons and certifications': 'Lessons and certifications',
   'Staking tiers and fee discounts': 'Staking tiers and fee discounts',
 } as const;
 

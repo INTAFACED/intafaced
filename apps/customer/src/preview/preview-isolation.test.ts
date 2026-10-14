@@ -55,8 +55,8 @@ const previewUi = production.filter((file) => (inside(file, previewDir) && !insi
 
 describe('preview isolation', () => {
   it('finds the files it is meant to police', () => {
-    expect(fixtureFiles.length).toBeGreaterThanOrEqual(14); // 13 products + types
-    expect(previewUi.length).toBeGreaterThan(13);
+    expect(fixtureFiles.length).toBeGreaterThanOrEqual(15); // 14 products + types
+    expect(previewUi.length).toBeGreaterThan(14);
     expect(production.length).toBeGreaterThan(200);
   });
 

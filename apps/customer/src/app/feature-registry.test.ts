@@ -182,8 +182,14 @@ describe('the preview state and its build flag', () => {
     for (const id of previewProductIds) {
       const feature = featureById(id);
       expect(feature?.status, id).toBe('preview');
-      expect(feature?.paths, id).toEqual([previewProducts[id].path]);
+      expect(feature?.paths, id).toEqual([
+        previewProducts[id].path,
+        ...(previewProducts[id].legacyPath ? [previewProducts[id].legacyPath] : []),
+      ]);
+      expect(previewProducts[id].path, id).toBe(`/preview/${id}`);
       expect(findRoom(previewProducts[id].path)?.screen, id).toBe(`preview/${id}`);
+      const legacy = previewProducts[id].legacyPath;
+      if (legacy) expect(findRoom(legacy)?.alias, id).toBe(previewProducts[id].path);
     }
     expect(
       features
@@ -199,6 +205,10 @@ describe('the preview state and its build flag', () => {
     expect(effectiveStatus(featureById('buy-flow')!, false)).toBe('live');
     expect(effectiveStatus(featureById('bank')!, true)).toBe('hidden');
     for (const id of previewProductIds) {
+      for (const path of [previewProducts[id].path, ...(previewProducts[id].legacyPath ? [previewProducts[id].legacyPath!] : [])]) {
+        expect(isPreviewPath(path, true), path).toBe(true);
+        expect(isHiddenPath(path, false), path).toBe(true);
+      }
       const path = previewProducts[id].path;
       expect(isPreviewPath(path, true), id).toBe(true);
       expect(isHiddenPath(path, true), id).toBe(false);

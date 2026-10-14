@@ -6,7 +6,7 @@ import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, useAction } from './common';
-import { isHiddenPath } from '../../app/feature-registry';
+import { isFeatureLive } from '../../app/feature-registry';
 import { SupportEvents } from './SupportEvents';
 import { supportEventsCopy } from './support-events-copy';
 const ticketSchema = z.object({
@@ -69,7 +69,8 @@ function SupportTextArea({
 }
 export function Support() {
   const { languageFor } = copy.useCopy();
-  const depositsHidden = isHiddenPath('/uc/recharge');
+  // A Preview deposit is not live either: the article that describes real deposits stays hidden until the row is `live`.
+  const depositsHidden = !isFeatureLive('deposit');
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('support');

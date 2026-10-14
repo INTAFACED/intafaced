@@ -55,6 +55,8 @@ type PlainKey =
   | 'Card'
   | 'Spend your balance anywhere'
   | 'IFC'
+  | 'Academy'
+  | 'Lessons and certifications'
   | 'Staking tiers and fee discounts';
 export interface MenuItem {
   id: string;
@@ -93,17 +95,24 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true, previewE
       items: [
         { id: 'portfolio', href: '/money', icon: 'wallet', title: 'Portfolio', description: 'Your assets and their value' },
         { id: 'activity', href: '/money/activity', icon: 'activity', title: 'Activity', description: 'Trades, orders and transfers' },
-        { id: 'deposit', href: '/uc/recharge', icon: 'receive', title: 'Deposit', description: 'Add funds to your account', preview: true },
+        {
+          id: 'deposit',
+          href: '/preview/deposit',
+          icon: 'receive',
+          title: 'Deposit',
+          description: 'Add funds to your account',
+          preview: true,
+        },
         {
           id: 'withdraw',
-          href: '/uc/withdraw',
+          href: '/preview/withdraw',
           icon: 'send',
           title: 'Withdraw',
           description: 'Send funds to your own wallet',
           preview: true,
         },
-        { id: 'earn', href: '/bank/earn', icon: 'earn', title: 'Earn', description: 'Put idle funds to work', preview: true },
-        { id: 'loans', href: '/bank/loans', icon: 'loans', title: 'Loans', description: 'Borrow against your assets', preview: true },
+        { id: 'earn', href: '/preview/earn', icon: 'earn', title: 'Earn', description: 'Put idle funds to work', preview: true },
+        { id: 'loans', href: '/preview/loans', icon: 'loans', title: 'Loans', description: 'Borrow against your assets', preview: true },
       ],
     },
     {
@@ -115,20 +124,27 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true, previewE
         { id: 'spot', href: `/trade/spot/${defaultDeskPair}`, icon: 'spot', title: 'Spot', description: 'Charts, order book and orders' },
         { id: 'buy', href: '/trade/buy', icon: 'buy', title: 'Buy and sell', description: 'Buy crypto in a few steps' },
         { id: 'convert', href: '/trade/convert', icon: 'convert', title: 'Convert', description: 'Swap one asset for another' },
-        { id: 'margin', href: '/trade/margin', icon: 'margin', title: 'Margin', description: 'Trade with borrowed funds', preview: true },
+        { id: 'margin', href: '/preview/margin', icon: 'margin', title: 'Margin', description: 'Trade with borrowed funds', preview: true },
         {
           id: 'futures',
-          href: '/trade/futures',
+          href: '/preview/futures',
           icon: 'futures',
           title: 'Futures',
           description: 'Perpetual and dated contracts',
           preview: true,
         },
-        { id: 'options', href: '/trade/options', icon: 'options', title: 'Options', description: 'Calls, puts and strikes', preview: true },
-        { id: 'copy', href: '/trade/copy', icon: 'copy', title: 'Copy trading', description: 'Follow a trader you pick', preview: true },
+        {
+          id: 'options',
+          href: '/preview/options',
+          icon: 'options',
+          title: 'Options',
+          description: 'Calls, puts and strikes',
+          preview: true,
+        },
+        { id: 'copy', href: '/preview/copy', icon: 'copy', title: 'Copy trading', description: 'Follow a trader you pick', preview: true },
         {
           id: 'bots',
-          href: '/trade/bots',
+          href: '/preview/bots',
           icon: 'bots',
           title: 'Trading bots',
           description: 'Automated grid and DCA strategies',
@@ -136,13 +152,13 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true, previewE
         },
         {
           id: 'agents',
-          href: '/agents',
+          href: '/preview/agents',
           icon: 'agents',
           title: 'Agents',
           description: 'Assistants that suggest, you approve',
           preview: true,
         },
-        { id: 'p2p', href: '/p2p', icon: 'p2p', title: 'P2P', description: 'Trade directly with other people', preview: true },
+        { id: 'p2p', href: '/preview/p2p', icon: 'p2p', title: 'P2P', description: 'Trade directly with other people', preview: true },
       ],
     },
     {
@@ -152,7 +168,7 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true, previewE
       items: [
         { id: 'send', href: '/pay/send', icon: 'send', title: 'Send', description: 'Send money to someone on INTAFACED' },
         { id: 'receive', href: '/pay/receive', icon: 'receive', title: 'Receive', description: 'Share your details to get paid' },
-        { id: 'card', href: '/bank/cards', icon: 'card', title: 'Card', description: 'Spend your balance anywhere', preview: true },
+        { id: 'card', href: '/preview/card', icon: 'card', title: 'Card', description: 'Spend your balance anywhere', preview: true },
       ],
     },
     {
@@ -163,7 +179,15 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true, previewE
         ? [
             { id: 'help', href: '/support', icon: 'help', title: 'Help', description: 'Answers and support' },
             { id: 'settings', href: '/view', icon: 'settings', title: 'Settings', description: 'Display, language and notifications' },
-            { id: 'ifc', href: '/ifc', icon: 'ifc', title: 'IFC', description: 'Staking tiers and fee discounts', preview: true },
+            {
+              id: 'academy',
+              href: '/preview/academy',
+              icon: 'academy',
+              title: 'Academy',
+              description: 'Lessons and certifications',
+              preview: true,
+            },
+            { id: 'ifc', href: '/preview/ifc', icon: 'ifc', title: 'IFC', description: 'Staking tiers and fee discounts', preview: true },
           ]
         : [{ id: 'help', href: '/help', icon: 'help', title: 'Help', description: 'Answers and support' }],
     },
