@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -17,6 +17,7 @@ import {
   Skeleton,
   StateBlock,
   toFixedString,
+  useActivity,
   useFavorites,
   useMarkets,
   useMovers,
@@ -34,11 +35,19 @@ import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
 import { listings, topCards, topMovers } from './select';
 import { HomePro } from './HomePro';
 import { Watchlist } from './Watchlist';
+import { GetStarted } from './GetStarted';
+import { PreviewChip } from './Chip';
+import { LearnStrip } from './LearnStrip';
+import { RecentActivity } from './RecentActivity';
+import { HOME_LINKS } from './links';
+import { progress, readDismissed, writeDismissed } from './started';
+import { useGetStarted } from './started-data';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
 
 /** Simple Home: Buy and Sell open the Buy card (Pro Home goes to the desk, `HomePro.tsx`). */
 const ACTIONS = [
+  { label: 'Add money', href: HOME_LINKS.deposit },
   { label: 'Buy', href: '/trade/buy' },
   { label: 'Sell', href: '/trade/buy?side=sell' },
   { label: 'Convert', href: '/trade/convert' },
@@ -51,13 +60,13 @@ type ActionLabel = (typeof ACTIONS)[number]['label'];
 type ActionMode = 'normal' | 'empty' | 'noMarkets' | 'emptyNoMarkets' | 'refused';
 const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[] | null> = {
   normal: null,
-  empty: ['Receive', 'Buy'],
+  empty: ['Add money', 'Receive', 'Buy'],
   noMarkets: ['Send', 'Receive'],
   emptyNoMarkets: ['Receive'],
   refused: ['Receive'],
 };
 /** Real pill widths, so the skeletons are the final size (critic M4). */
-const PILL_WIDTH: Record<ActionLabel, number> = { Buy: 64, Sell: 60, Convert: 88, Send: 72, Receive: 88 };
+const PILL_WIDTH: Record<ActionLabel, number> = { 'Add money': 192, Buy: 64, Sell: 60, Convert: 88, Send: 72, Receive: 88 };
 
 /** A USD decimal rounded half-up to cents, as the string HeroNumber animates. Unknown stays null. */
 function cents(value: string | null): string | null {
@@ -68,9 +77,11 @@ function cents(value: string | null): string | null {
 function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) {
   const { t } = homeCopy.useCopy();
   const wanted = ACTIONS_FOR[mode];
-  const live = (wanted ? wanted.map((label) => ACTIONS.find((action) => action.label === label)!) : [...ACTIONS]).filter(
-    (action) => !isHiddenPath(action.href.split('?')[0]!),
-  );
+  const live = (
+    wanted
+      ? wanted.map((label) => ACTIONS.find((action) => action.label === label)!)
+      : ACTIONS.filter((action) => action.label !== 'Add money')
+  ).filter((action) => !isHiddenPath(action.href.split('?')[0]!));
   return (
     <nav className="home-actions" aria-label={t('Actions')}>
       {loading
@@ -84,6 +95,7 @@ function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) 
               render={<a href={action.href} />}
             >
               {t(action.label)}
+              {action.href === HOME_LINKS.deposit ? <PreviewChip onLime /> : null}
             </Button>
           ))}
     </nav>
@@ -223,6 +235,7 @@ function HomeSimple() {
   const tickers = useTickers();
   const movers = useMovers(6);
   const { userId } = useSession();
+  const activity = useActivity();
   const { favorites, isFavorite, toggle } = useFavorites(userId);
   const favoriting = useMemo(() => ({ isFavorite, toggle }), [isFavorite, toggle]);
 
@@ -276,6 +289,21 @@ function HomeSimple() {
           : 'normal';
   const pricesAsOf = tickers.status === 'ready' ? tickers.asOf : null;
 
+  // Get started: shown until the person hides it (remembered per person on this device), and not at all once every
+  // step was already done when Home opened; the "all set" note appears only for the visit that finishes the list.
+  const [dismissed, setDismissed] = useState(() => readDismissed(userId));
+  useEffect(() => setDismissed(readDismissed(userId)), [userId]);
+  const hide = useCallback(() => {
+    writeDismissed(userId);
+    setDismissed(true);
+  }, [userId]);
+  const startedOn = userId !== null && !dismissed;
+  const steps = useGetStarted({ portfolio, activity }, startedOn);
+  const count = progress(steps);
+  const sawOpenStep = useRef(false);
+  if (steps.some((step) => step.status === 'todo' || step.status === 'review' || step.status === 'unknown')) sawOpenStep.current = true;
+  const showStarted = startedOn && (!count.complete || sawOpenStep.current);
+
   return (
     <div className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
@@ -327,13 +355,19 @@ function HomeSimple() {
               {marketsLoading || movers.status === 'loading' ? <MoversSkeleton /> : <MoversRow movers={moverItems} />}
             </section>
           ) : null}
+
+          <RecentActivity activity={activity} hidden={hideBalances} />
+          <LearnStrip />
         </div>
 
-        {showMarkets && !marketsBroken ? (
+        {showStarted || (showMarkets && !marketsBroken) ? (
           <aside className="home-side">
-            {portfolio.status === 'loading' ? <YourCryptoSkeleton /> : null}
-            {portfolio.status === 'ready' ? <YourCrypto holdings={portfolio.data.holdings} hidden={hideBalances} /> : null}
-            {marketsLoading || !popular || watchItems.length > 0 ? (
+            {showStarted ? <GetStarted steps={steps} onHide={hide} /> : null}
+            {showMarkets && !marketsBroken && portfolio.status === 'loading' ? <YourCryptoSkeleton /> : null}
+            {showMarkets && !marketsBroken && portfolio.status === 'ready' ? (
+              <YourCrypto holdings={portfolio.data.holdings} hidden={hideBalances} />
+            ) : null}
+            {showMarkets && !marketsBroken && (marketsLoading || !popular || watchItems.length > 0) ? (
               <Watchlist
                 items={watchItems}
                 popular={popular}

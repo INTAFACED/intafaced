@@ -37,6 +37,16 @@ export function YourCrypto({ holdings, hidden }: { holdings: Holding[]; hidden: 
   const copy = homeCopy.useCopy();
   const { t } = copy;
   const crypto = holdings.filter((holding) => holding.class === 'crypto');
+  // An account with nothing at all says so in one line; one that holds only cash has no crypto card to show.
+  if (holdings.length === 0)
+    return (
+      <section className="home-watch home-yours" aria-labelledby="home-yours-title">
+        <div className="home-watch__head">
+          <h2 id="home-yours-title">{t('Your crypto')}</h2>
+        </div>
+        <p className="home-side__empty">{t('No coins yet')}</p>
+      </section>
+    );
   if (crypto.length === 0) return null;
   return (
     <section className="home-watch home-yours" aria-labelledby="home-yours-title">
