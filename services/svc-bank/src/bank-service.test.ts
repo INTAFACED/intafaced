@@ -658,12 +658,19 @@ describe('svc-bank money PG-hard', () => {
       expect(executions[0]).toMatchObject({ occurrence: 0, status: 'settled' });
     });
 
-    it('fires once even when eight runs race each other', async () => {
+    // Four racers, not eight: each racer holds one pool connection for its
+    // claim transaction and needs a second (space lookup) while it holds it.
+    // The test pool is 8 connections (`createTestDatabase`), so eight racers
+    // can all hold a transaction at once, leave no connection for the winner's
+    // lookup, and deadlock the pool. The hang then outlives the test: every
+    // later test in the file times out at 20 s (CI run 38354707403: 119 of 146
+    // tests, 3,573 s). Racers x 2 must stay within the pool.
+    it('fires once even when four runs race each other', async () => {
       const { rent } = await standingOrder('100');
       await fund(USER_A, 'USDT', '1000');
 
       const now = new Date('2026-01-01T10:00:00Z');
-      await Promise.all(Array.from({ length: 8 }, () => bank.transfers.runDueTransfers({ now, limit: 200 }).catch(() => undefined)));
+      await Promise.all(Array.from({ length: 4 }, () => bank.transfers.runDueTransfers({ now, limit: 200 }).catch(() => undefined)));
 
       expect(formatAmount(await bank.spaces.balanceOf(rent))).toBe('100');
       expect(ledger.reconcile()).toEqual({ ok: true });
