@@ -193,6 +193,23 @@ controls unconfigured. `/ready` reports `founderControls.configured`. The first
 verified pair is pinned in Postgres; changing environment IDs cannot replace it,
 and restarting cannot restore revoked operator entitlement.
 
+### Founder enrolment (before the pair is pinned)
+
+The two founders create their own accounts through `auth.registerFounder
+{invite, handle, email, password}` while public sign-up (`REGISTRATION_OPEN`)
+stays closed. Apply `drizzle/0028_founder_invites_used.sql`. Run
+`pnpm --filter @intafaced/svc-identity founder:invites` on a trusted machine: it
+prints two single-use codes (160 bits, base32, grouped) and exactly two lines to
+configure, `IDENTITY_FOUNDER_INVITE_HASHES` (two lowercase sha256 hex values) and
+`IDENTITY_FOUNDER_INVITE_EXPIRES_AT` (ISO 8601, 72 h out). It touches no network, file
+or database; give each code to one founder over a separate channel. Unset means
+closed. `auth.founderEnrolmentStatus` answers `{open}`: true only while the pair is
+not pinned, both variables are set, the expiry has not passed and an invite is unspent.
+Refusals (`intafacedCode`): `auth.invite_invalid`, `auth.invite_used`,
+`auth.invite_expired`, `auth.founder_enrolment_closed`. An invite is spent in the same
+transaction as the user insert; once the founder pair is pinned the door is shut for
+good. The new account enrols TOTP/passkey through the normal first-factor path.
+
 `accountControls.change`, `compliance.freezeIdentity`, `compliance.unfreezeIdentity`
 and `disableUser` require the shared strict identity command: `requestId`,
 `target: {area: "identity", userId}`, `action`, `reason`, `expectedVersion`. The

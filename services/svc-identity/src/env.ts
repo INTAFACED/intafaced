@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
 import { assertWebauthnPosture } from './webauthn-posture.js';
+import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
 // INTERNAL_SERVICE_SECRET is required because rank.awardXp is a serviceProcedure
@@ -23,6 +24,25 @@ const registrationOpen = z.preprocess((v) => {
   return v;
 }, z.boolean().optional());
 
+/**
+ * A founder-invite value that is either unset/blank (→ undefined, enrolment closed)
+ * or valid. A malformed value fails boot with the parser's message; it is never
+ * silently dropped, because a typo here would otherwise look like a closed door.
+ */
+function founderInviteVar<T>(parse: (raw: string) => T | undefined) {
+  return z
+    .string()
+    .optional()
+    .transform((raw, ctx): string | undefined => {
+      try {
+        return parse(raw ?? '') === undefined ? undefined : (raw ?? '').trim();
+      } catch (err) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : 'invalid' });
+        return z.NEVER;
+      }
+    });
+}
+
 const schema = serviceEnvSchema
   .merge(authEnvSchema)
   .merge(edgeEnvSchema)
@@ -34,6 +54,20 @@ const schema = serviceEnvSchema
       /** Existing verified platform UUIDs. Missing/malformed/duplicate pair disables controls. */
       IDENTITY_FOUNDER_NITRO_USER_ID: z.string().optional(),
       IDENTITY_FOUNDER_PHANTOM_USER_ID: z.string().optional(),
+      /**
+       * Founder enrolment (`auth.registerFounder`): two lowercase sha256 hex values,
+       * comma-separated, of the single-use invite codes made by
+       * `pnpm --filter @intafaced/svc-identity founder:invites`. Hashes only; the
+       * codes are never configured. Blank / unset → enrolment closed. Never defaulted.
+       * Malformed → fail boot.
+       */
+      IDENTITY_FOUNDER_INVITE_HASHES: founderInviteVar(parseInviteHashes),
+      /**
+       * ISO 8601 instant (with a zone) after which the invites above are refused,
+       * about 72 h after they were generated. Blank / unset → enrolment closed.
+       * Never defaulted. Malformed → fail boot.
+       */
+      IDENTITY_FOUNDER_INVITE_EXPIRES_AT: founderInviteVar(parseInviteExpiry),
       /** Independent owner keys; generic service/read credentials cannot admit operations. */
       IDENTITY_TRADE_ADMISSION_SECRET: z.string().min(32).optional(),
       IDENTITY_PAY_ADMISSION_SECRET: z.string().min(32).optional(),
