@@ -30,6 +30,9 @@ regexes = [
   '''(?i)0x[0-9a-f]{40}''',
   '''bodyKey:\s*'notify\.''',
   '''titleKey:\s*'notify\.''',
+  # Browser localStorage key NAME for the investor intake draft (apps/invitation, copied
+  # byte-identical from the vendor tree, which is path-allowlisted). A key name, not a credential.
+  '''STORAGE_KEY = 'intafaced\.outreach\.continuation\.v1'''',
   # Hardhat/anvil well-known account #1 private key (local sandbox only)
   '''0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d''',
   # Published Keccak-256 vectors — Keccak('') and Keccak('abc'). These are
