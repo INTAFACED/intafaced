@@ -357,6 +357,9 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'trade.perks_unavailable':
         return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
+      case 'trade.ledger_outcome_unknown':
+        // Retryable: the same clientOrderId re-drives the same hold key.
+        return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: err.message, cause: err });
       case 'trade.dust_fill':
       case 'trade.fee_exceeds_fill':
       case 'trade.hold_uncovered':

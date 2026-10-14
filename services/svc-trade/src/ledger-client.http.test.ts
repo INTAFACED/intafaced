@@ -5,51 +5,29 @@
  * that into INTERNAL_SERVER_ERROR, and every `convert.accept` returned 500 on a
  * running stack while the MemoryLedger tests stayed green.
  *
- * Here the client talks to a fetch stub that answers like svc-ledger's S2S door,
- * backed by the in-memory reference ledger.
+ * Here the client talks to the fake svc-ledger door (`ledger-door-fake.ts`): it
+ * verifies the body-bound service signature and answers as svc-ledger's S2S
+ * door does, backed by the in-memory reference ledger.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MemoryLedger, parseAmount, recipes, userAvailable, formatAmount, type PostRequest } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount, recipes, userAvailable, formatAmount } from '@intafaced/ledger-client';
 import { acceptConvertQuote, buildFirmConvertQuote, estimateConvert } from './convert/quote.js';
 import { planConvertSettle, postConvertSettle } from './convert/settle.js';
 import { convertSettleIdsFor } from './convert/ids.js';
 import { createLedgerClient } from './ledger-client.js';
+import { fakeLedgerDoor } from './ledger-door-fake.js';
 
 const USER = '00000000-0000-4000-8000-000000000001';
 const NOW = new Date('2026-08-26T12:00:00.000Z');
 const ACCEPT_AT = new Date('2026-08-26T12:00:01.000Z');
 const SECRET = 'test-only-internal-service-secret-0123456789';
 
+/** The door as a stubbed global fetch; `calls` collects the paths it was asked for. */
 function ledgerDoorOver(ledger: MemoryLedger, calls: string[]) {
+  const door = fakeLedgerDoor(ledger, SECRET, []);
   return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    const path = new URL(String(input)).pathname;
-    calls.push(path);
-    const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
-    const json = (value: unknown, status = 200) =>
-      new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
-    if (path === '/trpc/txByKey') {
-      const tx = await ledger.getTxByKey(String(body.idempotencyKey));
-      return json(
-        tx
-          ? { found: true, txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString(), module: tx.module, reason: tx.reason }
-          : { found: false },
-      );
-    }
-    if (path === '/trpc/post') {
-      const request = body as unknown as Omit<PostRequest, 'entries'> & {
-        entries: Array<{ account: never; direction: 'debit' | 'credit'; amount: string }>;
-      };
-      try {
-        const tx = await ledger.post({
-          ...request,
-          entries: request.entries.map((e) => ({ account: e.account, direction: e.direction, amount: parseAmount(e.amount) })),
-        });
-        return json({ txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() });
-      } catch (err) {
-        return json({ message: (err as Error).message, code: (err as { code?: string }).code }, 400);
-      }
-    }
-    return json({ message: `no route ${path}` }, 404);
+    calls.push(new URL(String(input)).pathname);
+    return door(input, init);
   });
 }
 
@@ -94,7 +72,8 @@ describe('createLedgerClient.getTxByKey', () => {
     const ledger = new MemoryLedger();
     const deposit = recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('10'), rail: 'test', railRef: 'k1' });
     const posted = await ledger.post(deposit);
-    vi.stubGlobal('fetch', ledgerDoorOver(ledger, []));
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', ledgerDoorOver(ledger, calls));
     const client = createLedgerClient('http://ledger.test', SECRET);
     const tx = await client.getTxByKey(deposit.idempotencyKey);
     expect(tx?.id).toBe(posted.id);
@@ -102,6 +81,9 @@ describe('createLedgerClient.getTxByKey', () => {
     expect(tx?.hash).toBe(posted.hash);
     expect(tx?.module).toBe(deposit.module);
     expect(tx?.reason).toBe(deposit.reason);
+    // chained to txById, so the found transaction carries the legs the ledger booked
+    expect(calls).toEqual(['/trpc/txByKey', '/trpc/txById']);
+    expect(tx?.entries).toHaveLength(deposit.entries.length);
   });
 });
 

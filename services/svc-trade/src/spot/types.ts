@@ -405,6 +405,11 @@ export type TradeErrorCode =
   | 'trade.paper_fill_refused'
   | 'trade.hold_uncovered'
   /**
+   * The order's hold post ended without a verdict (timeout, deadline, network, 5xx, malformed ack): the ledger may or may
+   * not have booked it. The pending order row is KEPT; a retry with the same clientOrderId re-drives the same hold key.
+   */
+  | 'trade.ledger_outcome_unknown'
+  /**
    * Operator `reconcileOrder` funded engine-miss: `trade.fills` does not prove
    * no fill. Hold stays. Never an automatic refund (lost fill looks like this).
    */

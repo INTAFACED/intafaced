@@ -4,9 +4,17 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
-import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
+import {
+  formatAmount,
+  InsufficientFundsError,
+  MemoryLedger,
+  parseAmount as amt,
+  recipes,
+  userAvailable,
+  orderHoldAccount,
+} from '@intafaced/ledger-client';
 
 import { closeSpotPosition, installClosePosition } from './close-position.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
@@ -240,6 +248,57 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
       const proof = await sql<Array<{ kind: string; action: string | null }>>`
         SELECT jsonb_typeof(lifecycle_proof) AS kind, lifecycle_proof->>'action' AS action FROM trade.orders WHERE id = ${order.id}`;
       expect(proof[0]).toEqual({ kind: 'object', action: 'PLACE' });
+    });
+
+    describe('the flatten hold has no verdict', () => {
+      async function restBid() {
+        await fund(BOB, 'USDT', '100');
+        const maker = await trade.placeOrder(principalFor(BOB), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('1'),
+          price: amt('100'),
+          clientOrderId: 'bob-bid-verdict',
+        });
+        matching.closeScript = (_marketId, request) => ({
+          accepted: true,
+          sequence: 2,
+          fills: [
+            {
+              sequence: 3,
+              makerOrderId: maker.id,
+              makerAccountId: BOB,
+              takerOrderId: request.orderId,
+              takerAccountId: ALICE,
+              takerSide: 'sell',
+              price: '100',
+              qty: '1',
+            },
+          ],
+          resting: null,
+          rejected: null,
+          cancellations: [],
+          triggered: [],
+        });
+      }
+      const flattenRows = () => sql<Array<{ status: string }>>`SELECT status FROM trade.orders WHERE client_order_id = 'close-verdict'`;
+      const close = () => closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-verdict' });
+
+      it('a typed funds refusal removes the pending row', async () => {
+        await restBid(); // Alice holds no BTC, so the ledger refuses the hold before committing anything
+        await expect(close()).rejects.toBeInstanceOf(InsufficientFundsError);
+        expect(await flattenRows()).toHaveLength(0);
+      });
+
+      it('a timeout keeps the pending row (the hold may be booked) and answers with a retryable error', async () => {
+        await restBid();
+        await fund(ALICE, 'BTC', '2');
+        vi.spyOn(ledger, 'post').mockRejectedValueOnce(new Error('svc-ledger call to /trpc/post exceeded its 20000ms deadline'));
+        await expect(close()).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+        expect(await flattenRows()).toEqual([{ status: 'pending' }]);
+        expect(postsWithReason('order.hold')).toHaveLength(1); // only Bob's bid
+      });
     });
 
     it('releases leftover hold through recipes.orderHoldRelease', async () => {

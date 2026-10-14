@@ -111,6 +111,7 @@ import { alignLookbackVolumes, sliceCount, timeframeForSliceInterval } from '../
 import type { TwapParentRecord } from '../algo/parent-store.js';
 import { hydrateAlgoFromStore, hydrateAlgoIfMissing, persistAlgoCancelAttempt, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
 import type { MarketLifecyclePort } from '../market-lifecycle.js';
+import { isDefiniteLedgerRefusal, ledgerOutcomeUnknown } from './hold-outcome.js';
 import { createLifecycleAdmissionProof, type LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import {
   TradeError,
@@ -1326,10 +1327,15 @@ export class TradeService {
     const expectedSeeded = market.paper ? false : seeded;
     const orderId = orderIdFor(userId, market.id, input.clientOrderId);
     const existing = await this.findOrder(orderId);
-    if (existing) return assertSamePlaceCommand(existing, input, orderType, tif, expectedSeeded);
+    const sameExisting = existing ? assertSamePlaceCommand(existing, input, orderType, tif, expectedSeeded) : null;
+    // A live order that is not `pending` (and a paper order, which has no hold) is the answer as it stands. A `pending`
+    // row is an earlier attempt whose hold was never confirmed (its post ended without a verdict): it falls through to
+    // the stored evidence below, which re-drives the SAME hold key.
+    if (sameExisting && (sameExisting.status !== 'pending' || market.paper)) return sameExisting;
     const businessId = `order:${orderId}`;
     const request = businessPayload({ ...input, symbol: market.symbol, marketId: market.id, type: orderType, tif });
     const original = await this.accountAdmission?.original(userId, businessId);
+    if (!original && sameExisting) return sameExisting;
     if (original) {
       const evidence = original.payload as Record<string, unknown>;
       if (canonicalPayload(evidence.request) !== canonicalPayload(request)) throw new TradingControlError('operation.conflict');
@@ -1582,11 +1588,15 @@ export class TradeService {
     `;
 
     if (inserted.length === 0) {
-      // Lost a race with a concurrent identical submission. The winner owns the
-      // hold and the engine submission; return what it wrote.
+      // The row already exists: a concurrent identical submission, or an earlier attempt of this one.
       const raced = await this.findOrder(orderId);
-      if (raced) return assertSamePlaceCommand(raced, input, orderType, tif, seeded);
-      throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
+      if (!raced) throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
+      const same = assertSamePlaceCommand(raced, input, orderType, tif, seeded);
+      // Anything past `pending` is owned by whoever funded it: return what it wrote.
+      if (same.status !== 'pending') return same;
+      // Still `pending`: its hold has no verdict yet (the first attempt is in flight, or ended unknown and left the row).
+      // Re-drive the SAME hold key below. The ledger answers a reused key with the original booking, so this never holds
+      // twice; the compare-and-set to `open` decides which caller submits to the engine.
     }
 
     // ── 3 · THE HOLD ────────────────────────────────────────────────────────
@@ -1598,9 +1608,16 @@ export class TradeService {
         withLedgerAttribution(recipes.orderHold({ orderId, userId, assetId: hold.assetId, amount: hold.amount }), attribution),
       );
     } catch (err) {
-      // Insufficient funds, a frozen module, a ledger outage — whatever it was,
-      // no value moved and no engine has seen this order. Remove the intent row
-      // so the failure leaves nothing behind at all.
+      if (!isDefiniteLedgerRefusal(err)) {
+        // NO VERDICT: a timeout, the call's deadline, a network error, a 5xx, a malformed acknowledgement. The ledger may
+        // have booked the hold, so deleting the intent row would orphan it: money held against an order id that exists
+        // nowhere. The row stays `pending`. A retry with the same clientOrderId re-drives the same key (and finds the
+        // booking if there is one); a hold that never landed leaves an unfunded pending that the engine-ledger reconcile
+        // job deletes.
+        throw ledgerOutcomeUnknown(orderId, err);
+      }
+      // A typed refusal made BEFORE anything committed (insufficient funds, an invalid entry): no value moved and no
+      // engine has seen this order. Remove the intent row so the failure leaves nothing behind at all.
       //
       // Guarded on `status = 'pending'`: if a concurrent path has already
       // funded and opened this order, this delete must not touch it.
@@ -1610,7 +1627,17 @@ export class TradeService {
 
     // The order is now funded. From here on the hold exists, so every exit path
     // below must end in either a fill or a release — never in silence.
-    await this.sql`UPDATE trade.orders SET status = 'open', updated_at = now() WHERE id = ${orderId} AND status = 'pending'`;
+    //
+    // Compare-and-set: only the caller that moves it out of `pending` submits to the engine. A re-driven retry and the
+    // original attempt can both reach this line; the other one returns the row as it stands.
+    const opened = await this.sql<Array<{ id: string }>>`
+      UPDATE trade.orders SET status = 'open', updated_at = now() WHERE id = ${orderId} AND status = 'pending' RETURNING id
+    `;
+    if (opened.length === 0) {
+      const current = await this.findOrder(orderId);
+      if (!current) throw new TradeError(`order ${orderId} vanished before it could open`, 'trade.order_not_found');
+      return current;
+    }
 
     // ── 4 · THE ENGINE ──────────────────────────────────────────────────────
     let result: EngineSubmitResult;

@@ -185,9 +185,11 @@ describe('liquidation rungs (Postgres)', () => {
         async balance(ref: AccountRef) {
           return { account: ref, accountId: 'x', amount: ref.kind === 'collateral' ? pot.amount : amt('1000000') };
         },
-        // The production client cannot answer this (services/svc-trade/src/ledger-client.ts). Nothing may ask.
+        // The production client CAN answer this now (the shared client chains txByKey to txById), but the rung machine must
+        // not ask: a replay is settled by the stored plan and the idempotent post keys, and a lookup is an extra ledger round
+        // trip inside the tick. This stub keeps that pinned.
         async getTxByKey() {
-          throw new Error('getTxByKey is not exposed over the internal ledger API — query svc-ledger directly');
+          throw new Error('the liquidation rung machine must not call getTxByKey: replays rely on the stored plan and the post keys');
         },
       } as LiquidationTickDeps['ledger'],
       now: () => AT,

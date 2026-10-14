@@ -43,6 +43,11 @@ describe('CCXT error taxonomy', () => {
     }
   });
 
+  it('answers an order hold with no ledger verdict as retryable 503, so a bot resends the same clientOrderId', () => {
+    const mapped = toCcxtError(new TradeError('hold unconfirmed', 'trade.ledger_outcome_unknown'));
+    expect(mapped).toMatchObject({ status: 503, body: { code: 'ExchangeNotAvailable', intafacedCode: 'trade.ledger_outcome_unknown' } });
+  });
+
   it('emits a body that validates against exchangeErrorSchema for every TradeErrorCode', () => {
     for (const code of ALL_TRADE_CODES) {
       const mapped = toCcxtError(new TradeError('boom', code));

@@ -4,11 +4,12 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { AuthError } from '@intafaced/auth';
 import {
   InsufficientFundsError,
+  LedgerError,
   MemoryLedger,
   formatAmount,
   houseFees,
@@ -38,6 +39,9 @@ import {
 } from './testing.js';
 import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE } from './fee-schedule.js';
 import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
+import { readyTestAdmission } from '../controls/test-admission.js';
+import type { TradingAdmissionPort } from '../controls/trading-controls.js';
+import { loadTradeOrderClaims, planLocalActions } from './engine-ledger-reconcile.js';
 
 // #4494: scopes are explicit now - trade:write no longer implies trade:read.
 const TRADE_READ = ['trade:read'] as const;
@@ -560,6 +564,198 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       await expect(rest(ALICE, btcusdt, 'buy', '2', '100', 'same-key')).rejects.toThrow();
       await expect(rest(ALICE, btcusdt, 'buy', '2', '100', 'same-key')).rejects.toThrow();
       expect(await sql`SELECT id FROM trade.orders`).toHaveLength(0);
+    });
+  });
+
+  // ── Failure: the hold post ends WITHOUT a verdict ───────────────────────
+
+  /**
+   * A timeout, the call's deadline, a network error, a 5xx or a malformed acknowledgement can follow a hold the ledger
+   * DID book. Deleting the intent row then orphans the hold (money held against an order id that exists nowhere), so only a
+   * typed refusal made before anything committed removes the row. Anything else keeps it `pending`, answers with a
+   * retryable error, and a retry with the same clientOrderId re-drives the same hold key.
+   */
+  describe('hold post with no verdict', () => {
+    const deadline = () => new Error('svc-ledger call to /trpc/post exceeded its 20000ms deadline');
+    let retryTrade: TradeService;
+
+    /** Admission that remembers every committed payload, like the real one: a retry re-drives from the stored evidence. */
+    function recordingAdmission(): TradingAdmissionPort {
+      const base = readyTestAdmission();
+      const stored = new Map<string, Awaited<ReturnType<TradingAdmissionPort['original']>>>();
+      return {
+        ...base,
+        async admit(principal, kind, businessId, payload, ...rest) {
+          const admission = await base.admit(principal, kind, businessId, payload, ...rest);
+          stored.set(principal.userId + ':' + businessId, { payload, admission, grantId: admission.admissionId });
+          return admission;
+        },
+        async original(userId, businessId) {
+          return stored.get(userId + ':' + businessId) ?? null;
+        },
+      };
+    }
+
+    beforeEach(() => {
+      retryTrade = new TradeService(sql, ledger, matching, perks, bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        marketSlippageCapBps: 150,
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        accountAdmission: recordingAdmission(),
+      });
+    });
+
+    const place = (key: string) =>
+      retryTrade.placeOrder(principalFor(ALICE), {
+        marketId: btcusdt.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('2'),
+        price: amt('100'),
+        clientOrderId: key,
+      });
+    const rows = () => sql<Array<{ id: string; status: string }>>`SELECT id, status FROM trade.orders`;
+    const holdPosts = () => ledger.journal().filter((tx) => tx.reason === 'order.hold');
+
+    it('keeps the pending row on a timeout, never reaches the engine, and answers with a retryable error', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      vi.spyOn(ledger, 'post').mockRejectedValueOnce(deadline());
+
+      const failure = await place('slow-hold').catch((e: unknown) => e);
+
+      expect(failure).toBeInstanceOf(TradeError);
+      expect(failure).toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+      expect(await rows()).toEqual([expect.objectContaining({ status: 'pending' })]);
+      expect(matching.submitted).toHaveLength(0);
+      expect(holdPosts()).toHaveLength(0);
+    });
+
+    it.each([
+      ['a network error', new TypeError('fetch failed')],
+      ['a 5xx', new Error('svc-ledger /trpc/post failed (503): busy')],
+      ['a malformed acknowledgement', new Error('svc-ledger invalid post acknowledgement; outcome unknown')],
+      ['a frozen ledger (svc-bank does not treat a halt as proof either)', new LedgerError('frozen', 'ledger.frozen')],
+      ['an idempotency conflict (proves the key committed something)', new LedgerError('conflict', 'ledger.idempotency_conflict')],
+    ])('keeps the pending row on %s', async (_what, error) => {
+      await fund(ALICE, 'USDT', '1000');
+      vi.spyOn(ledger, 'post').mockRejectedValueOnce(error);
+      await expect(place('unknown-hold')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+      expect(await rows()).toHaveLength(1);
+    });
+
+    it.each(['ledger.invalid_entry', 'ledger.unbalanced', 'ledger.owner_identity_space'])(
+      'deletes the pending row on the definite refusal %s',
+      async (code) => {
+        await fund(ALICE, 'USDT', '1000');
+        vi.spyOn(ledger, 'post').mockRejectedValueOnce(new LedgerError('refused', code));
+        await expect(place('definite')).rejects.toMatchObject({ code });
+        expect(await rows()).toHaveLength(0);
+        expect(matching.submitted).toHaveLength(0);
+      },
+    );
+
+    it('a retry with the same clientOrderId books the hold ONCE when the first attempt never reached the ledger', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      vi.spyOn(ledger, 'post').mockRejectedValueOnce(deadline());
+      await expect(place('retry-unbooked')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+      const [pending] = await rows();
+
+      const order = await place('retry-unbooked');
+
+      expect(order.id).toBe(pending!.id);
+      expect(order.status).toBe('open');
+      expect(await rows()).toHaveLength(1);
+      expect(holdPosts()).toHaveLength(1);
+      expect(await held(ALICE, 'USDT')).toBe('200');
+      expect(matching.submitted).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a retry finds the booking when the hold WAS booked but its answer was lost: one hold, one order, one submit', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      const real = ledger.post.bind(ledger);
+      vi.spyOn(ledger, 'post').mockImplementationOnce(async (request) => {
+        await real(request); // booked ...
+        throw deadline(); // ... and the answer never arrived
+      });
+      await expect(place('retry-booked')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+      expect(holdPosts()).toHaveLength(1);
+      expect(await rows()).toEqual([expect.objectContaining({ status: 'pending' })]);
+
+      const order = await place('retry-booked');
+
+      expect(order.status).toBe('open');
+      expect(await rows()).toHaveLength(1);
+      expect(holdPosts()).toHaveLength(1); // the ledger answered the reused key with the original booking
+      expect(await held(ALICE, 'USDT')).toBe('200');
+      expect(matching.submitted).toHaveLength(1);
+      // and a third call is now an ordinary idempotent retry of an open order
+      expect((await place('retry-booked')).id).toBe(order.id);
+      expect(matching.submitted).toHaveLength(1);
+      expect(holdPosts()).toHaveLength(1);
+    });
+
+    it('a retry whose hold is now definitively refused removes the row', async () => {
+      await fund(ALICE, 'USDT', '10');
+      vi.spyOn(ledger, 'post').mockRejectedValueOnce(deadline());
+      await expect(place('retry-broke')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+      expect(await rows()).toHaveLength(1);
+
+      await expect(place('retry-broke')).rejects.toBeInstanceOf(InsufficientFundsError);
+
+      expect(await rows()).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+    });
+
+    it('two concurrent retries book one hold and submit to the engine once (compare-and-set to open)', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      vi.spyOn(ledger, 'post').mockRejectedValueOnce(deadline());
+      await expect(place('retry-race')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+
+      const [a, b] = await Promise.all([place('retry-race'), place('retry-race')]);
+
+      expect(a.id).toBe(b.id);
+      expect(await rows()).toHaveLength(1);
+      expect(holdPosts()).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(1);
+    });
+
+    it('an unfunded pending left by an unbooked timeout is exactly what the reconcile job deletes', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      vi.spyOn(ledger, 'post').mockRejectedValueOnce(deadline());
+      await expect(place('reconcile-me')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+      const [pending] = await rows();
+
+      const claims = await loadTradeOrderClaims(sql, ledger);
+      const claim = claims.find((c) => c.orderId === pending!.id)!;
+      expect(claim).toMatchObject({ status: 'pending', holdAmount: 0n });
+      const plan = planLocalActions(
+        {
+          findings: [{ orderId: pending!.id, verdict: 'auto', case: 'counterpart_unfunded_engine_missing' }],
+        } as unknown as Parameters<typeof planLocalActions>[0],
+        new Map(claims.map((c) => [c.orderId, c])),
+      );
+      expect(plan.deleteUnfundedPendingIds).toEqual([pending!.id]);
+    });
+
+    it('a hold that DID land keeps the pending row out of the delete list (alert only, never a silent delete)', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      const real = ledger.post.bind(ledger);
+      vi.spyOn(ledger, 'post').mockImplementationOnce(async (request) => {
+        await real(request);
+        throw deadline();
+      });
+      await expect(place('reconcile-funded')).rejects.toMatchObject({ code: 'trade.ledger_outcome_unknown' });
+      const [pending] = await rows();
+      const claims = await loadTradeOrderClaims(sql, ledger);
+      const plan = planLocalActions(
+        {
+          findings: [{ orderId: pending!.id, verdict: 'auto', case: 'counterpart_unfunded_engine_missing' }],
+        } as unknown as Parameters<typeof planLocalActions>[0],
+        new Map(claims.map((c) => [c.orderId, c])),
+      );
+      expect(plan.deleteUnfundedPendingIds).toEqual([]);
     });
   });
 
