@@ -500,7 +500,7 @@ test('sign out everywhere requires review and clears the account after the servi
     return reply(route, { revoked: 1 });
   });
   await signIn(page, '/uc/safe');
-  await page.getByRole('button', { name: 'Review sign-out everywhere', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign out everywhere', exact: true }).click();
   expect(revocations).toBe(0);
   await page
     .getByRole('dialog', { name: 'Sign out everywhere?', exact: true })

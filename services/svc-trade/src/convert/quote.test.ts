@@ -6,6 +6,7 @@ import {
   assertFirmConvertQuote,
   buildFirmConvertQuote,
   estimateConvert,
+  estimateConvertForSpend,
   presentConvertQuote,
   requireConvertQuoteTtlMs,
   snapToTick,
@@ -214,5 +215,106 @@ describe('firm convert quote (M27)', () => {
       quoteTtlMs: 15_000,
     });
     expect(q.expiresAt).toBe('2026-08-26T12:00:15.000Z');
+  });
+});
+
+describe('estimateConvertForSpend — buy by spend (quoteQty)', () => {
+  const LOT = parseAmount('0.0001');
+  const LEVELS = [
+    ['100', '1'],
+    ['110.37', '2'],
+    ['125.5', '10'],
+  ] as const;
+  const base = {
+    side: 'buy' as const,
+    levels: LEVELS,
+    convertSpreadBps: 25,
+    tickSize: TICK,
+    lotSize: LOT,
+  };
+
+  it('spends exactly what a base-quantity quote of the result charges, never more than typed', () => {
+    const typed = parseAmount('10');
+    const r = estimateConvertForSpend({ ...base, quoteQty: typed });
+    // book 100, spread 25 bps: 100.25 per unit; 10 / 100.25 = 0.0997506... -> 0.0997 on the 0.0001 lot grid.
+    expect(r.qty).toBe(parseAmount('0.0997'));
+    expect(r.filledQty).toBe(r.qty);
+    expect(r.fullyFilled).toBe(true);
+    expect(r.userNotional).toBe(parseAmount('9.994925'));
+    expect(r.userNotional <= typed).toBe(true);
+    // Same numbers as asking for that base amount directly.
+    const direct = estimateConvert({ side: 'buy', qty: r.qty, levels: LEVELS, convertSpreadBps: 25, tickSize: TICK });
+    expect(direct).toEqual({
+      filledQty: r.filledQty,
+      bookNotional: r.bookNotional,
+      userNotional: r.userNotional,
+      avgPrice: r.avgPrice,
+      fullyFilled: true,
+    });
+  });
+
+  it('is the largest lot count that fits: one more lot would exceed the spend', () => {
+    for (const typed of ['1', '10', '99.99', '100.25', '250', '1000.123456789', '1234.5']) {
+      for (const bps of [0, 1, 25, 333, 5000]) {
+        const quoteQty = parseAmount(typed);
+        let r;
+        try {
+          r = estimateConvertForSpend({ ...base, convertSpreadBps: bps, quoteQty });
+        } catch (e) {
+          // Only the documented refusals are acceptable.
+          expect(['trade.below_min_notional', 'trade.convert_insufficient_depth']).toContain((e as { code: string }).code);
+          continue;
+        }
+        expect(r.qty % LOT).toBe(0n);
+        expect(r.userNotional <= quoteQty).toBe(true);
+        const one = estimateConvert({ side: 'buy', qty: r.qty, levels: LEVELS, convertSpreadBps: bps, tickSize: TICK });
+        expect(one.userNotional).toBe(r.userNotional);
+        const next = estimateConvert({ side: 'buy', qty: r.qty + LOT, levels: LEVELS, convertSpreadBps: bps, tickSize: TICK });
+        expect(next.userNotional > quoteQty).toBe(true);
+      }
+    }
+  });
+
+  it('crosses book levels and still respects the spend', () => {
+    const typed = parseAmount('300');
+    const r = estimateConvertForSpend({ ...base, quoteQty: typed });
+    expect(r.qty > parseAmount('1')).toBe(true);
+    expect(r.userNotional <= typed).toBe(true);
+  });
+
+  it('spending exactly the cost of a lot-aligned quantity buys that quantity', () => {
+    const exact = estimateConvert({ side: 'buy', qty: parseAmount('0.5'), levels: LEVELS, convertSpreadBps: 25, tickSize: TICK });
+    const r = estimateConvertForSpend({ ...base, quoteQty: exact.userNotional });
+    expect(r.qty).toBe(parseAmount('0.5'));
+    expect(r.userNotional).toBe(exact.userNotional);
+  });
+
+  it('spending exactly the whole visible book buys all of it; one wei more is a depth refusal', () => {
+    const whole = estimateConvert({ side: 'buy', qty: parseAmount('13'), levels: LEVELS, convertSpreadBps: 25, tickSize: TICK });
+    expect(estimateConvertForSpend({ ...base, quoteQty: whole.userNotional }).qty).toBe(parseAmount('13'));
+    expect(() => estimateConvertForSpend({ ...base, quoteQty: whole.userNotional + 1n })).toThrow(
+      expect.objectContaining({ code: 'trade.convert_insufficient_depth' }),
+    );
+  });
+
+  it('refuses a spend that does not buy one lot with the existing below-minimum code', () => {
+    expect(() => estimateConvertForSpend({ ...base, quoteQty: parseAmount('0.01') })).toThrow(
+      expect.objectContaining({ code: 'trade.below_min_notional' }),
+    );
+  });
+
+  it('refuses sell, non-positive spend, unset spread and empty book without inventing anything', () => {
+    expect(() => estimateConvertForSpend({ ...base, side: 'sell', quoteQty: parseAmount('10') })).toThrow(
+      expect.objectContaining({ code: 'trade.convert_invalid_qty' }),
+    );
+    expect(() => estimateConvertForSpend({ ...base, quoteQty: 0n })).toThrow(
+      expect.objectContaining({ code: 'trade.convert_invalid_qty' }),
+    );
+    expect(() => estimateConvertForSpend({ ...base, convertSpreadBps: undefined, quoteQty: parseAmount('10') })).toThrow(
+      expect.objectContaining({ code: 'trade.convert_spread_unset' }),
+    );
+    expect(() => estimateConvertForSpend({ ...base, levels: [], quoteQty: parseAmount('10') })).toThrow(
+      expect.objectContaining({ code: 'trade.convert_no_liquidity' }),
+    );
   });
 });

@@ -9,9 +9,12 @@
  *    helper as GET) stayed accept-both under the compose default.
  * 3. Done bar: navigator register is bodyBind: 'require' — not the env.
  *    GET ownership/session/rank/account stay env. Affiliate accrue/payout
- *    already require in-module — do not recook. tRPC rank.awardXp stays
- *    createEdgeContext default: Fastify tRPC replaces retainRawBody's JSON
- *    parser, so require would 401 bound callers.
+ *    already require in-module — do not recook. The tRPC door (rank.awardXp
+ *    and the other serviceProcedures) is `require` too, hardcoded rather than
+ *    read from env. Fastify tRPC replaces retainRawBody's JSON parser, but
+ *    createEdgeContext binds the wire string it leaves on req.body, so bound
+ *    callers pass and an empty-body signature replayed over a body does not
+ *    (see controls/trpc-s2s-body-binding.test.ts).
  * 4. Class N
  * 5. Paths: services/svc-identity/src/index.ts (production mounts only)
  * 6. RED: origin/main passing env bind into the navigator mutate register
@@ -96,12 +99,18 @@ describe('the deployed svc-identity mutate mounts require body-bound HMAC', () =
     expect(block).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);
   });
 
-  it('preserves the default tRPC service mode while retaining the full request for delegated reads', () => {
+  // Was: "preserves the default tRPC service mode" and asserted `bodyBindMode:
+  // 'require'` was ABSENT, on the belief that require would 401 bound callers
+  // because the tRPC adapter bypasses retainRawBody. That belief was the bug:
+  // the context read the empty marker, so it 401'd honest callers and admitted a
+  // replayed empty-body signature. The context now binds req.body.
+  it('pins the tRPC service mode to require (not env) while handing the full request to the context', () => {
     const live = liveLines(indexSource());
     const start = live.indexOf('createIdentityRequestContext(');
     expect(start).toBeGreaterThan(-1);
     const edge = live.slice(start, live.indexOf('});', start) + 3);
-    expect(edge).not.toMatch(/bodyBindMode:\s*'require'/);
+    expect(edge).toMatch(/bodyBindMode:\s*'require'/);
+    expect(edge).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);
     expect(live).toMatch(/identityRequestContext\(req\)/);
     const factory = liveLines(readFileSync(join(HERE, 'controls/founder-context.ts'), 'utf8'));
     expect(factory).toMatch(/const regular = createEdgeContext\(options\)/);

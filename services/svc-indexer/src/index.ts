@@ -154,7 +154,7 @@ await registerIndexerPublicHttp(app, {
   dbPing: async () => {
     await db.sql`SELECT 1`;
   },
-  createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+  createContext: ({ req }) => edgeContext(req),
   onTrpcError({ path, error }) {
     app.log.error({ path, err: error }, 'trpc error');
   },

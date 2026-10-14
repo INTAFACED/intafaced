@@ -154,9 +154,12 @@ describe('liquidation waterfall hitch (source)', () => {
     const first = tick.indexOf('parkUnderfundedWithAdl');
     const second = tick.indexOf('parkUnderfundedWithAdl', first + 1);
     const third = tick.indexOf('parkUnderfundedWithAdl', second + 1);
+    const fourth = tick.indexOf('parkUnderfundedWithAdl', third + 1);
     expect(first).toBeGreaterThan(-1);
     expect(second).toBeGreaterThan(first);
-    expect(third).toBe(-1);
+    // import + the decision-time park + the replay park (a stored rung whose insurance leg the ledger refuses).
+    expect(third).toBeGreaterThan(second);
+    expect(fourth).toBe(-1);
     expect(tick).toMatch(/checkInsuranceBound/);
     const bound = tick.indexOf('checkInsuranceBound({');
     const park = tick.indexOf('parkUnderfundedWithAdl({');

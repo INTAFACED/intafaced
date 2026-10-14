@@ -1,0 +1,103 @@
+/*
+ * More (UI-SPEC 5.11). Only --if-* tokens: no colour values live here.
+ * The whole file is in `@layer components` (see screens/money/money.css for why); sizes are px.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .if-more {
+    width: min(var(--if-container-max), calc(100% - 56px));
+    margin: 0 auto;
+    padding: 32px 0 64px;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .if-more * {
+    box-sizing: border-box;
+  }
+  .if-more :where(h1, h2, ul) {
+    margin: 0;
+    padding: 0;
+  }
+  .if-more :where(ul) {
+    list-style: none;
+  }
+  .if-more :focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .more-title {
+    font: 700 28px/36px var(--if-font-ui);
+    letter-spacing: -0.02em;
+  }
+  .more-section {
+    margin-top: 32px;
+  }
+  .more-h2 {
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .more-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+    margin-top: 12px;
+  }
+  .more-tile {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 88px;
+    padding: 20px;
+    background: var(--if-panel);
+    border: 1px solid var(--if-line);
+    border-radius: 16px;
+    color: inherit;
+    text-decoration: none;
+    transition:
+      background-color var(--if-t-fast) var(--if-ease),
+      border-color var(--if-t-fast) var(--if-ease);
+  }
+  .more-tile:hover {
+    background: var(--if-hover);
+    border-color: var(--if-line-strong);
+  }
+  .more-tile__icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    background: var(--if-field);
+    color: var(--if-fg);
+  }
+  .more-tile__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .more-tile__title {
+    font: 500 16px/24px var(--if-font-ui);
+    color: var(--if-fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .more-tile__line {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  @media (max-width: 1000px) {
+    .more-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 640px) {
+    .more-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}

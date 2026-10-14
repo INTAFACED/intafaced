@@ -48,6 +48,13 @@ const SCAN = resolve(dirname(fileURLToPath(import.meta.url)), 'secret-scan.mjs')
 /** Filler that is long enough to clear MIN_SOURCE_LITERAL_LENGTH and announces itself. */
 const V = 'MUTANT-not-a-real-credential-0000';
 
+/** A password that is shaped like an environment-variable NAME but carries digits. */
+const DIGIT_BEARING_UPPER_SNAKE = 'PROD_ADMIN_PW_2026_XK9Q';
+/** A route that looks like a Slack webhook: the secret is the last segments. */
+/** A route that looks like a Telegram bot endpoint: the token sits in the first segment. */
+const TELEGRAM_BOT_SHAPED_PATH = `/bot123456789:AAH${V}/sendMessage`;
+const SLACK_WEBHOOK_SHAPED_PATH = `/services/T0AAAA/B0BBBB/${V}`;
+
 /**
  * @typedef {object} Mutant
  * @property {string}  id
@@ -125,6 +132,50 @@ const MUTANTS = [
     content: 'member.password.error=Password is incorrect\n',
     catch: false,
     why: 'i18n values are prose; scanning them is one false positive per string per language',
+  },
+
+  {
+    id: 'json-tokens-file-path-list',
+    file: 'apps/admin/.21st/design.json',
+    content:
+      '{\n  "sources": {\n    "tokens": ["src/app/globals.css", "../../packages/ui/src/tokens.css"],\n    "components": []\n  }\n}\n',
+    catch: false,
+    why: 'a `tokens` key listing design-token SOURCE FILES (the 21st design-context file) is a list of paths, not a credential',
+  },
+  {
+    id: 'json-tokens-literal-list',
+    file: 'conf/settings.json',
+    content: `{\n  "tokens": ["${V}"]\n}\n`,
+    catch: true,
+    why: 'the file-path carve-out must not become a way to hide a credential in a list: no `/`, no extension, still a finding',
+  },
+  {
+    id: 'json-tokens-path-list-with-secret',
+    file: 'conf/settings.json',
+    content: `{\n  "tokens": ["src/app/globals.css", "${V}"]\n}\n`,
+    catch: true,
+    why: 'ONE non-path element is enough to keep the whole list a finding',
+  },
+  {
+    id: 'json-password-path-shaped-list',
+    file: 'conf/settings.json',
+    content: `{\n  "password": ["p@ss/${V}.k9"]\n}\n`,
+    catch: true,
+    why: 'the file-path carve-out is for the key `tokens` only: a path-shaped value under `password` is still a credential',
+  },
+  {
+    id: 'yaml-api-key-path-shaped-list',
+    file: 'conf/settings.yml',
+    content: `api_key: ["x/${V}.abc"]\n`,
+    catch: true,
+    why: 'the file-path carve-out is for the key `tokens` only: a path-shaped value under `api_key` is still a credential',
+  },
+  {
+    id: 'json-tokens-url-with-credentials',
+    file: 'conf/settings.json',
+    content: `{\n  "tokens": ["https://u:${V}@h/a.json"]\n}\n`,
+    catch: true,
+    why: 'a URL carrying user:password@ is not a file path even when it ends in an extension',
   },
 
   // ── source: everything below was invisible to the gate before 2026-08-03 ─────
@@ -274,6 +325,85 @@ const MUTANTS = [
     catch: true,
     knownGap: true,
     why: 'GAP BY DESIGN: catching this needs entropy heuristics, which fire on minified bundles, lockfile hashes and git SHAs. The scan header rejects them explicitly and that judgement stands',
+  },
+  {
+    id: 'java-env-var-name-constant',
+    file: 'src/main/java/com/x/ServiceAuth.java',
+    content: 'public final class ServiceAuth {\n    public static final String SECRET_ENV = "INTERNAL_SERVICE_SECRET";\n}\n',
+    catch: false,
+    why: 'a constant holding the NAME of an environment variable (…_ENV = UPPER_SNAKE) is the pointer the gate asks for, not a secret',
+  },
+  {
+    id: 'java-env-constant-with-real-secret',
+    file: 'src/main/java/com/x/ServiceAuth.java',
+    content: `public final class ServiceAuth {\n    public static final String SECRET_ENV = "${V}";\n}\n`,
+    catch: true,
+    why: 'the env-name carve-out needs UPPER_SNAKE: a lower/mixed-case literal behind the same identifier is still a finding',
+  },
+  {
+    id: 'java-env-constant-digit-bearing-upper-snake',
+    file: 'src/main/java/com/x/ServiceAuth.java',
+    content: `public final class ServiceAuth {\n    public static final String SECRET_ENV = "${DIGIT_BEARING_UPPER_SNAKE}";\n}\n`,
+    catch: true,
+    why: 'env-var NAMES are letters and underscores only here: a digit-bearing UPPER_SNAKE value is a password that looks like a name',
+  },
+  {
+    id: 'ts-route-path-constant',
+    file: 'src/auth/api-key-ownership-route.ts',
+    content: "export const API_KEY_OWNERSHIP_PATH = '/internal/api-keys' as const;\n",
+    catch: false,
+    why: 'a *_PATH constant holding a /-rooted HTTP route is a URL path, not a key',
+  },
+  {
+    id: 'ts-path-constant-with-real-secret',
+    file: 'src/auth/api-key-ownership-route.ts',
+    content: `export const API_KEY_OWNERSHIP_PATH = '${V}';\n`,
+    catch: true,
+    why: 'the route carve-out needs a leading slash AND route characters: a credential behind the same identifier is still a finding',
+  },
+  {
+    id: 'ts-path-constant-slash-rooted-secret',
+    file: 'src/auth/api-key-ownership-route.ts',
+    content: `export const API_KEY_OWNERSHIP_PATH = '/${V}';\n`,
+    catch: true,
+    why: 'a leading slash is not enough: route segments are lowercase words only, so a slash-rooted credential is still a finding',
+  },
+  {
+    id: 'ts-webhook-path-with-token',
+    file: 'src/notify/slack.ts',
+    content: `export const SECRET_WEBHOOK_PATH = '${SLACK_WEBHOOK_SHAPED_PATH}';\n`,
+    catch: true,
+    why: 'a Slack-webhook-shaped path carries its secret in the last segments; mixed-case and digit-bearing segments are not route words',
+  },
+  {
+    id: 'ts-api-token-url-bot-path',
+    file: 'src/notify/telegram.ts',
+    content: `export const API_TOKEN_URL = '${TELEGRAM_BOT_SHAPED_PATH}';\n`,
+    catch: true,
+    why: 'a credential-named identifier STARTING with api_token/auth_token is a credential identifier; a Telegram bot path carries its token in the URL',
+  },
+  {
+    id: 'java-password-env-upper-snake-passphrase',
+    file: 'src/main/java/com/x/ServiceAuth.java',
+    content: 'public final class ServiceAuth {\n    public static final String PASSWORD_ENV = "CORRECT_HORSE_BATTERY_STAPLE";\n}\n',
+    catch: true,
+    knownGap: true,
+    why: 'GAP BY DESIGN: a letters-only UPPER_SNAKE value behind `*_ENV` is indistinguishable from an environment-variable NAME, so a passphrase written that way is exempt',
+  },
+  {
+    id: 'ts-secret-webhook-url-lowercase-token',
+    file: 'src/notify/hooks.ts',
+    content: "export const SECRET_WEBHOOK_URL = '/hooks/qwhzkxpmvbtnrlsd';\n",
+    catch: true,
+    knownGap: true,
+    why: 'GAP BY DESIGN: an all-lowercase token as the only path segment is indistinguishable from a route word, so a lowercase secret route segment is exempt',
+  },
+  {
+    id: 'ts-url-constant-with-versioned-route',
+    file: 'src/auth/api-key-routes.ts',
+    content: "export const API_KEY_ROTATE_URL = '/v1/api-keys/{keyId}/rotate';\n",
+    catch: false,
+    why: 'versioned, hyphenated and {param} route segments are still a route, not a key',
   },
 ];
 

@@ -426,6 +426,26 @@ describe('service credentials — the attack this closes', () => {
   });
 });
 
+describe('service credentials — a body that was announced but never read', () => {
+  const UNREAD: ServiceRawBody = { retained: false, unread: true };
+
+  it('refuses an authentic v2 signature in BOTH modes (it may be the empty digest, replayed)', () => {
+    const emptySig = serviceAuthHeadersForBody('svc-edge', SECRET, '');
+    for (const mode of ['accept-both', 'require'] as const) {
+      expect(verifyServiceHeaders(emptySig, SECRET, { rawBody: UNREAD, mode })).toEqual({
+        service: null,
+        rejected: 'body-unavailable',
+        scheme: null,
+      });
+    }
+  });
+
+  it('still lets accept-both admit an authentic v2 call when retention was never installed', () => {
+    const modern = serviceAuthHeadersForBody('svc-trade', SECRET, BODY);
+    expect(verifyServiceHeaders(modern, SECRET, { rawBody: NOT_RETAINED, mode: 'accept-both' }).service).toBe('svc-trade');
+  });
+});
+
 describe('service credentials — replay window', () => {
   it('accepts a call inside the skew window', () => {
     const at = new Date();

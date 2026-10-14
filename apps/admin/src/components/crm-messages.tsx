@@ -4,6 +4,8 @@ import type { CrmOpportunity, crmMessagePageSchema, crmQueueMessageReceiptSchema
 import { crmJson, crmWrite, workflowUrl, crmDate as date, crmLabel as label, type PendingCrmWrite } from '@/lib/crm-browser';
 import { founderName, type FounderOwner } from './founder-names';
 import { kindLabel } from './crm-workflows';
+import { Callout } from './crm-callout';
+import { submitProps } from '@/lib/crm-form-state';
 type Page = (typeof crmMessagePageSchema)['_output'];
 type Receipt = (typeof crmQueueMessageReceiptSchema)['_output'];
 type Message = (typeof crmMessageSchema)['_output'];
@@ -37,6 +39,7 @@ export function CrmMessages({
   csrf,
   opportunity,
   expectedRevision,
+  staleDraft = false,
   originalRecipient,
   owners,
   onSaved,
@@ -48,6 +51,8 @@ export function CrmMessages({
   opportunity: CrmOpportunity;
   /** The revision the console's form is based on (see crm-base-revision); defaults to the record's own. */
   expectedRevision?: number;
+  /** The form is based on an older version, so queueing will be refused: the button stays neutral. */
+  staleDraft?: boolean;
   originalRecipient: { name: string; email: string };
   owners: FounderOwner[];
   onSaved: () => Promise<boolean>;
@@ -132,14 +137,14 @@ export function CrmMessages({
         does not change who receives them.
       </p>
       {error && (
-        <p className="adm-alert" role="alert">
+        <Callout tone="danger" role="alert">
           {error}
-        </p>
+        </Callout>
       )}
       {notice && (
-        <p className="adm-save-notice" role="status">
+        <Callout role="status" icon="check">
           {notice}
-        </p>
+        </Callout>
       )}
       <ul className="adm-history">
         {page?.items.map((message) => (
@@ -235,7 +240,11 @@ export function CrmMessages({
           </p>
           <button
             type="submit"
-            disabled={busy || !confirmed || opportunity.stage === 'closed' || (kind === 'call_invitation' && !inviteAllowed)}
+            {...submitProps({
+              disabled: busy || !confirmed || opportunity.stage === 'closed' || (kind === 'call_invitation' && !inviteAllowed),
+              changed: Boolean(staffText.trim() || reason.trim() || confirmed),
+              refused: staleDraft,
+            })}
           >
             Queue message
           </button>

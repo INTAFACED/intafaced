@@ -24,11 +24,11 @@ const ROWS: Array<[string, string, ActivityKind]> = [
   ['trade', 'futures.loss.realized', 'trade'],
   ['trade', 'futures.profit.realized', 'trade'],
   ['trade', 'futures.funding.paid', 'trade'],
-  ['trade', 'order.hold', 'other'],
-  ['trade', 'order.hold.released', 'other'],
+  ['trade', 'order.hold', 'order_hold'],
+  ['trade', 'order.hold.amend', 'order_hold'],
+  ['trade', 'order.hold.released', 'order_release'],
   ['trade', 'order.hold.mm', 'other'],
   ['trade', 'order.hold.mm.released', 'other'],
-  ['trade', 'order.hold.amend', 'other'],
   ['trade', 'mm.seed.funded', 'other'],
   ['trade', 'futures.insurance.topup', 'other'],
   ['p2p', 'p2p.escrow.lock', 'trade'],
@@ -93,6 +93,16 @@ describe('classify: one test per module/reason row', () => {
   it('an unknown module/reason is `other`, never dropped or thrown', () => {
     expect(classify({ module: 'brand-new', reason: 'brand.new.reason', direction: 'debit' })).toBe('other');
     expect(classify({ module: '', reason: '', direction: 'credit' })).toBe('other');
+  });
+
+  it('a hold is order_hold, a release is order_release, fills stay trade, other stays other', () => {
+    expect(classify({ module: 'trade', reason: 'order.hold', direction: 'credit' })).toBe('order_hold');
+    expect(classify({ module: 'trade', reason: 'order.hold.released', direction: 'debit' })).toBe('order_release');
+    expect(classify({ module: 'trade', reason: 'trade.fill', direction: 'credit' })).toBe('trade');
+    expect(classify({ module: 'trade', reason: 'trade.fill', direction: 'debit' })).toBe('trade');
+    expect(classify({ module: 'bank', reason: 'bank.earn.deposited', direction: 'credit' })).toBe('other');
+    // The module matters: the same reason words from another module are not a trade hold.
+    expect(classify({ module: 'bank', reason: 'order.hold', direction: 'credit' })).toBe('other');
   });
 
   it('a deposit is `deposit`; `welcome_funds` only on the local-test rail', () => {
