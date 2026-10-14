@@ -458,7 +458,15 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder-controlled clust
       expect(outcomes[1]?.status).toBe('rejected');
       expect(outcomes[2]?.status).toBe('rejected');
       await finish(outcomes[0].value);
-    } else expect(outcomes[0]?.reason).toMatchObject({ code: 'ops.crm.revision_conflict' });
+    } else {
+      // Two legitimate losing orders (independent Opus review, 10-13): the merge commits first, so A is an
+      // alias and the erasure refuses canonical_target_required; or an answer commits first, so the
+      // revision moved and it refuses revision_conflict. Either way no erasure intent may exist.
+      expect(['ops.crm.revision_conflict', 'ops.crm.canonical_target_required']).toContain(
+        (outcomes[0] as PromiseRejectedResult).reason.code,
+      );
+      expect((await db.sql`SELECT count(*)::int AS count FROM ops.crm_erasure_intents`)[0]?.count).toBe(0);
+    }
     expect((await crm.capture(capture(), randomUUID())).submissionId).not.toBe(a.receipt.submissionId);
     await expect(
       crm.resume({ submissionId: a.receipt.submissionId, continuationToken: 'A'.repeat(43) }, randomUUID()),
