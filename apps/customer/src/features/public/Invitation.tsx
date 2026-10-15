@@ -327,19 +327,16 @@ export function Invitation() {
         : latestReceipt
           ? knownTitle(latestReceipt)
           : 'title';
-  const description = !parsed.success
-    ? capability
-      ? 'invalidBody'
-      : 'missingBody'
-    : !userId
-      ? 'guestDescription'
-      : busy
-        ? 'pendingBody'
-        : unknowns.length
-          ? 'unknownDescription'
-          : latestReceipt
-            ? knownBody(latestReceipt)
-            : 'description';
+  const linkDescription = !parsed.success ? (capability ? 'invalidBody' : 'missingBody') : null;
+  const description = !userId
+    ? (linkDescription ?? 'guestDescription')
+    : busy
+      ? 'pendingBody'
+      : unknowns.length
+        ? 'unknownDescription'
+        : latestReceipt
+          ? knownBody(latestReceipt)
+          : (linkDescription ?? 'description');
   return (
     <div className={`invitation${visibleReview ? ' invitation--review' : ''}`} lang={languageFor('title')}>
       <section className="invitation__intro">
