@@ -18,14 +18,16 @@ function read(rel) {
   const p = join(ROOT, rel);
   if (!existsSync(p)) {
     problems.push(`missing required auto-load file: ${rel}`);
-    return '';
+    return null;
   }
   return readFileSync(p, 'utf8');
 }
 
 function mustInclude(rel, needle, why) {
   const body = read(rel);
-  if (!body) return;
+  // Missing files already have a diagnostic; empty existing files must still
+  // fail every required-content check instead of silently bypassing the law.
+  if (body === null) return;
   if (!body.toLowerCase().includes(String(needle).toLowerCase())) {
     problems.push(`${rel}: missing ${JSON.stringify(needle)} — ${why}`);
   }
