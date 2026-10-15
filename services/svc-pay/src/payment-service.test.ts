@@ -2369,7 +2369,9 @@ describe('svc-pay money PG-hard', () => {
       } finally {
         globalThis.fetch = realFetch;
       }
-      expect(calls.filter((c) => c.path === '/trpc/txByKey')).toHaveLength(2);
+      // Two on the first attempt, plus one on the retry: the recovered admission asks the ledger
+      // whether the hold is booked so beforePayoutExecute can be told `recovery` (seams/guards.ts).
+      expect(calls.filter((c) => c.path === '/trpc/txByKey')).toHaveLength(3);
       expect(chain.outboundTransfers()).toHaveLength(1);
       expect(ledger.reconcile()).toEqual({ ok: true });
     });

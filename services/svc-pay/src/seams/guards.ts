@@ -21,6 +21,53 @@ import type { Amount } from '@intafaced/ledger-client';
  *     taken there holds until the admission commits. That is what makes a cap
  *     exact under concurrency.
  *
+ * LOCK ORDER (every payment-admission path, identity admission on or off, REST,
+ * tRPC and public checkout alike). A guard that takes a row lock MUST be able to
+ * rely on this order, so that it can never deadlock with a money path:
+ *
+ *     1. link row          (public checkout only: `payment_links ... FOR UPDATE`)
+ *     2. merchant row      (`pay.merchants ... FOR SHARE`, the eligibility lock)
+ *     3. >>> beforePaymentAdmit <<<     (the guard's own row locks come here)
+ *     4. payment row       (INSERT for payment.create, FOR UPDATE for authorize/capture)
+ *     5. rail and ledger calls
+ *
+ * Concretely: `beforePaymentAdmit` always runs inside the transaction that
+ * performs the effect, AFTER the merchant lock is held and BEFORE the payment row
+ * is inserted or locked. With identity admission on, that transaction is the one
+ * that follows the identity grant (a locked row is never held across the identity
+ * call); a guard refusal there does not undo the grant, so a retry re-runs the
+ * guard. `beforeRefund` runs before the payment row lock for the same reason (it
+ * has no merchant lock today, so it is the first lock taken). A guard must never
+ * take a lock that ranks earlier than the ones it is given (never lock a link or
+ * a merchant row itself on these paths), and must take its own locks in a fixed
+ * order among themselves.
+ *
+ * REPLAY AND RECOVERY. Every context carries `replay`, which says whether value
+ * has already moved for this business key:
+ *   - `{ kind: 'fresh' }`            nothing has moved yet for this key: new work
+ *                                    being admitted, or admitted work about to
+ *                                    start moving value.
+ *   - `{ kind: 'replay', reason }`   an idempotent repeat of work that is already
+ *                                    complete; the call will do nothing new.
+ *   - `{ kind: 'recovery', reason }` finishing work whose value may already be in
+ *                                    flight (a booked hold, a frozen window, a
+ *                                    held withdrawal) after a crash or a retry.
+ * RULE FOR EVERY GUARD:
+ *   - CAPS, LIMITS AND TIERS never refuse and never count a replay or a recovery.
+ *     The rail already moved that money (or the first call already counted it);
+ *     refusing it strands funds between the rail and the book. Count once, in
+ *     the admit hook (`beforePaymentAdmit`, `beforePayoutAdmit`), not in the
+ *     execute hook that resumes it.
+ *   - HALTS and screening MAY refuse `fresh` work (and a replay, which does
+ *     nothing), and MUST let a `recovery` finish. A halt that blocks recovery
+ *     leaves value in a hold the operator then has to unwind by hand.
+ *   - `replay` is classified from durable state read in the same transaction (or
+ *     the ledger, by business key). Where state cannot prove value moved it is
+ *     `fresh`: a rail capture whose ledger post rolled back leaves no trace, and
+ *     neither does a refund whose ledger post committed but whose reply was lost.
+ *     So keep caps on create/authorize and on payouts, and treat the capture and
+ *     refund guards as halts only.
+ *
  * The defaults below are no-ops that preserve behaviour from before the seams.
  *
  * REFUSING: throw `PayGuardRefusal`. Anything else a guard throws (a raw Error,
@@ -59,6 +106,24 @@ function toRefusal(error: unknown): unknown {
   return refusal;
 }
 
+/** Why a call is not fresh. Closed list, so a guard can switch on it. */
+export type GuardReplayReason =
+  | 'payment_exists'
+  | 'already_authorized'
+  | 'already_captured'
+  | 'ledger_already_booked'
+  | 'refund_already_completed'
+  | 'window_already_frozen'
+  | 'window_frozen_not_posted'
+  | 'payout_hold_booked'
+  | 'withdrawal_already_sent'
+  | 'withdrawal_hold_booked';
+
+/** Fresh admission, an idempotent repeat, or the finishing of work already admitted. See REPLAY AND RECOVERY above. */
+export type GuardReplay = { readonly kind: 'fresh' } | { readonly kind: 'replay' | 'recovery'; readonly reason: GuardReplayReason };
+
+export const FRESH: GuardReplay = Object.freeze({ kind: 'fresh' as const });
+
 /** Context for `beforePaymentAdmit`; runs inside the admission transaction. */
 export interface PaymentAdmitContext {
   readonly tx: Sql;
@@ -67,6 +132,7 @@ export interface PaymentAdmitContext {
   readonly merchantId: string;
   /** The canonical admitted payload (amounts are decimal strings). */
   readonly payload: Readonly<Record<string, unknown>>;
+  readonly replay: GuardReplay;
 }
 
 /** Context for `beforePayoutAdmit`; runs inside the transaction that records a NEW payout admission. */
@@ -79,6 +145,8 @@ export interface PayoutAdmitContext {
   readonly railId: string;
   readonly destination: { readonly kind: string; readonly ref: string };
   readonly attempt: number;
+  /** Always `fresh`: this hook only runs when a NEW admission is recorded. */
+  readonly replay: GuardReplay;
 }
 
 /**
@@ -95,6 +163,8 @@ export interface PayoutExecuteContext {
   readonly railId: string;
   readonly destination: { readonly kind: string; readonly ref: string };
   readonly attempt: number;
+  /** `recovery` when the payout's hold is already booked on the ledger (a resumed payout), otherwise `fresh`: nothing has moved yet. */
+  readonly replay: GuardReplay;
 }
 
 /** Context for `beforeSettlementRun`. `prepare` = freezing a window; `post` = posting a frozen one to the ledger. */
@@ -105,6 +175,7 @@ export interface SettlementRunContext {
   readonly assetId?: string;
   readonly window?: string;
   readonly settlementId?: string;
+  readonly replay: GuardReplay;
 }
 
 /** Context for `beforeConversion`. NOT CALLED YET: the conversion path (W6) does not exist. */
@@ -115,6 +186,41 @@ export interface ConversionContext {
   readonly fromAsset: string;
   readonly toAsset: string;
   readonly fromAmount: Amount;
+  readonly replay: GuardReplay;
+}
+
+/**
+ * Context for `beforeRefund`. Runs inside the refund's first transaction, before
+ * the payment row lock, before the merchant is debited and before any rail call.
+ * A refusal rolls that transaction back: nothing is recorded or moved.
+ */
+export interface RefundContext {
+  readonly tx: Sql;
+  readonly paymentId: string;
+  readonly merchantId: string;
+  readonly assetId: string;
+  readonly amount: Amount;
+  /** The caller's business key when it gave one; absent for an ordinal refund. */
+  readonly refundId?: string;
+  /** `replay` when `refundId` names a refund that already completed; otherwise `fresh`. */
+  readonly replay: GuardReplay;
+}
+
+/**
+ * Context for `beforeUserMoneyWithdrawal` (a user moving their own balance off the
+ * platform). Runs inside the transaction that claims `(userId, clientRef)`, before
+ * the claim row is written, so a refusal leaves no claim, hold or ledger entry.
+ */
+export interface UserMoneyWithdrawalContext {
+  readonly tx: Sql;
+  readonly userId: string;
+  readonly assetId: string;
+  readonly amount: Amount;
+  readonly rail: string;
+  readonly destination: { readonly kind: string; readonly ref: string };
+  readonly clientRef: string;
+  /** `replay` for a sent withdrawal, `recovery` once the hold is booked (held, or pending with the hold on the ledger), otherwise `fresh`. */
+  readonly replay: GuardReplay;
 }
 
 export interface PayGuards {
@@ -123,6 +229,8 @@ export interface PayGuards {
   beforePayoutExecute(ctx: PayoutExecuteContext): Promise<void>;
   beforeSettlementRun(ctx: SettlementRunContext): Promise<void>;
   beforeConversion(ctx: ConversionContext): Promise<void>;
+  beforeRefund(ctx: RefundContext): Promise<void>;
+  beforeUserMoneyWithdrawal(ctx: UserMoneyWithdrawalContext): Promise<void>;
 }
 
 export type PayGuardName = keyof PayGuards;
@@ -132,6 +240,8 @@ export const PAY_GUARD_NAMES = [
   'beforePayoutExecute',
   'beforeSettlementRun',
   'beforeConversion',
+  'beforeRefund',
+  'beforeUserMoneyWithdrawal',
 ] as const satisfies readonly PayGuardName[];
 
 /** What a stream's slot file returns: only the hooks it implements. */
@@ -146,6 +256,8 @@ export const NOOP_GUARDS: PayGuards = Object.freeze({
   beforePayoutExecute: noop,
   beforeSettlementRun: noop,
   beforeConversion: noop,
+  beforeRefund: noop,
+  beforeUserMoneyWithdrawal: noop,
 });
 
 /**
@@ -174,5 +286,7 @@ export function composeGuards(...parts: readonly PartialPayGuards[]): PayGuards 
     beforePayoutExecute: run<PayoutExecuteContext>('beforePayoutExecute'),
     beforeSettlementRun: run<SettlementRunContext>('beforeSettlementRun'),
     beforeConversion: run<ConversionContext>('beforeConversion'),
+    beforeRefund: run<RefundContext>('beforeRefund'),
+    beforeUserMoneyWithdrawal: run<UserMoneyWithdrawalContext>('beforeUserMoneyWithdrawal'),
   };
 }

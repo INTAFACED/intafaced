@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
-import { composeGuards, NOOP_GUARDS, PAY_GUARD_NAMES, PayGuardRefusal, type PartialPayGuards } from './guards.js';
+import { composeGuards, FRESH, NOOP_GUARDS, PAY_GUARD_NAMES, PayGuardRefusal, type PartialPayGuards } from './guards.js';
 import { buildPayGuards } from './registry.js';
 
 const sql = {} as Sql;
-const payment = { tx: sql, kind: 'payment.create' as const, paymentId: 'p', merchantId: 'm', payload: {} };
+const payment = { tx: sql, kind: 'payment.create' as const, paymentId: 'p', merchantId: 'm', payload: {}, replay: FRESH };
 
 describe('guard seams: defaults', () => {
   it('every named hook exists on the no-op set and resolves without effect', async () => {
     expect(Object.keys(NOOP_GUARDS).sort()).toEqual([...PAY_GUARD_NAMES].sort());
     await expect(NOOP_GUARDS.beforePaymentAdmit(payment)).resolves.toBeUndefined();
-    await expect(NOOP_GUARDS.beforeSettlementRun({ sql, phase: 'prepare' })).resolves.toBeUndefined();
+    await expect(NOOP_GUARDS.beforeSettlementRun({ sql, phase: 'prepare', replay: FRESH })).resolves.toBeUndefined();
     await expect(
-      NOOP_GUARDS.beforeConversion({ sql, merchantId: 'm', settlementId: 's', fromAsset: 'USD', toAsset: 'USDT', fromAmount: 1n }),
+      NOOP_GUARDS.beforeConversion({ sql, merchantId: 'm', settlementId: 's', fromAsset: 'USD', toAsset: 'USDT', fromAmount: 1n, replay: FRESH }),
     ).resolves.toBeUndefined();
   });
 
@@ -30,8 +30,48 @@ describe('guard seams: defaults', () => {
         railId: 'crypto-native',
         destination: { kind: 'crypto', ref: '0x0' },
         attempt: 0,
+        replay: FRESH,
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('refund and user-money withdrawal seams', () => {
+  const refund = { tx: sql, paymentId: 'p', merchantId: 'm', assetId: 'USDT', amount: 1n, replay: FRESH };
+  const withdrawal = {
+    tx: sql,
+    userId: 'u',
+    assetId: 'USDT',
+    amount: 1n,
+    rail: 'card-sandbox',
+    destination: { kind: 'bank', ref: 'x' },
+    clientRef: 'c',
+    replay: FRESH,
+  };
+
+  it('default to no-ops, also through the registry', async () => {
+    await expect(NOOP_GUARDS.beforeRefund(refund)).resolves.toBeUndefined();
+    await expect(NOOP_GUARDS.beforeUserMoneyWithdrawal(withdrawal)).resolves.toBeUndefined();
+    const guards = buildPayGuards({ sql });
+    await expect(guards.beforeRefund(refund)).resolves.toBeUndefined();
+    await expect(guards.beforeUserMoneyWithdrawal(withdrawal)).resolves.toBeUndefined();
+  });
+
+  it('refuse closed with the same error mapping as every other hook', async () => {
+    const guards = composeGuards({
+      beforeRefund: async () => {
+        throw new PayGuardRefusal('pay.guard_cap', 'refused');
+      },
+      beforeUserMoneyWithdrawal: async () => {
+        throw new Error('relation "pay.caps" does not exist');
+      },
+    });
+    await expect(guards.beforeRefund(refund)).rejects.toMatchObject({ code: 'pay.guard_cap', kind: 'refused' });
+    await expect(guards.beforeUserMoneyWithdrawal(withdrawal)).rejects.toMatchObject({
+      code: 'pay.guard_unavailable',
+      kind: 'unavailable',
+      message: 'pay.guard_unavailable',
+    });
   });
 });
 
@@ -65,7 +105,7 @@ describe('composeGuards', () => {
     const only = vi.fn(async () => undefined);
     const guards = composeGuards({ beforeSettlementRun: only }, {});
     await guards.beforePaymentAdmit(payment);
-    await guards.beforeSettlementRun({ sql, phase: 'post' });
+    await guards.beforeSettlementRun({ sql, phase: 'post', replay: FRESH });
     expect(only).toHaveBeenCalledTimes(1);
   });
 
@@ -90,6 +130,7 @@ describe('composeGuards', () => {
           railId: 'crypto-native',
           destination: { kind: 'crypto', ref: '0x0' },
           attempt: 0,
+          replay: FRESH,
         })
         .then(
           () => null,
@@ -109,7 +150,7 @@ describe('composeGuards', () => {
           throw pg;
         },
       });
-      await expect(guards.beforeSettlementRun({ sql, phase: 'prepare' })).rejects.toBe(pg);
+      await expect(guards.beforeSettlementRun({ sql, phase: 'prepare', replay: FRESH })).rejects.toBe(pg);
     }
   });
 });
