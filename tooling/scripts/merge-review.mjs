@@ -225,7 +225,13 @@ function reviewInTranscript(file, session, reviewer, head, subagent = false) {
     if (entry.sessionId !== undefined && entry.sessionId !== session) return undefined;
     if (entry.session_id !== undefined && entry.session_id !== session) return undefined;
     if (entry.type === 'user' && entry.sessionId !== session) return undefined;
-    if (subagent && (entry.agentId !== reviewer || entry.isSidechain !== true)) return undefined;
+    if (
+      subagent &&
+      ((entry.agentId !== undefined && entry.agentId !== reviewer) ||
+        (entry.isSidechain !== undefined && entry.isSidechain !== true) ||
+        (['user', 'assistant'].includes(entry.type) && (entry.agentId !== reviewer || entry.isSidechain !== true)))
+    )
+      return undefined;
     const message = entry.message;
     if (entry.type === 'user' && message?.role === 'user') {
       const prompt = textContent(message.content);

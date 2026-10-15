@@ -132,6 +132,7 @@ export function parseTestExecution(log) {
       continue;
     }
     const own = prefix ? `${prefix[1]}#test` : task;
+    if (/Unhandled (?:Error|Rejection)|^\s*Errors\s+[1-9]/.test(text)) issues.push('unhandled errors make execution incomplete');
     const summary = failureSummary(text);
     const tap = /^\s*(?:#|ℹ) (tests|pass|fail|cancelled|skipped|todo) (\d+)\s*$/.exec(text);
     if (summary || tap) {
@@ -392,6 +393,7 @@ function testExecutionProof(job, log, files, workspaceRoots) {
   const step = (job.steps ?? []).filter((s) => s.name === policy.step);
   if (step.length !== 1 || step[0].status !== 'completed' || !['success', 'failure'].includes(step[0].conclusion))
     return fail('the expected test command did not finish');
+  if (job.conclusion === 'success' && step[0].conclusion !== 'success') return fail('green job masks a failed test command step');
   const commands = linesOf(log).filter((l) => l.step === policy.step && l.text.startsWith('##[group]Run '));
   if (commands.length !== 1 || commands[0].text !== `##[group]Run ${policy.command}`)
     return fail('job log does not prove the trusted test command');
