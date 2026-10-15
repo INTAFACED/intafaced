@@ -200,7 +200,22 @@ const principal = (userId: string, extra: Partial<Principal> = {}): Principal =>
 });
 const ctxOf = (p: Principal | null): Context => ({ principal: p, service: null, region: 'DE', requestId: randomUUID() });
 
-describe('svc-pay metrics read model PG-hard', () => {
+/**
+ * 30 s per test, not vitest's 5 s default. Measured on CI (runs 38718530279 to
+ * 38737143811): this file takes 3 s on a laptop and 45 to 106 s there, because
+ * the pay package runs 145 test files against one Postgres on a shared runner. The
+ * seeded-run tests alone took 2.3 to 6.2 s on main before and after the flows were
+ * made concurrent, so a 5 s limit failed about one run in five on speed alone.
+ *
+ * It matters beyond the one red test. vitest does not cancel a test body that has
+ * timed out: the seeding and the refreshers keep running while the next test's
+ * beforeEach issues its TRUNCATE (ACCESS EXCLUSIVE on the pay tables), and the two
+ * deadlock. PR 4784's "deadlock detected" failures were exactly that, the test
+ * harness's TRUNCATE against the previous test's leftover transactions, never two
+ * product statements against each other. A timeout generous enough not to trip
+ * keeps that from starting.
+ */
+describe('svc-pay metrics read model PG-hard', { timeout: 30_000 }, () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
   let sql!: TestDatabase['sql'];
