@@ -329,12 +329,25 @@ describe('W5 treasury exposure (real Postgres)', () => {
 
     it('required: a failed withdrawal retried while a fresh one arrives at the limit admits exactly one', async () => {
       const PAUSE_KEY = 4_242_424;
-      const money = new UserMoneyService(sql, ledger, rails, {
+      const retrier = '22222222-2222-4222-8222-222222222222';
+      const fresher = '33333333-3333-4333-8333-333333333333';
+      // Exposure counts money IN FLIGHT (`pending`/`held`); a `sent` withdrawal has left and no
+      // longer counts. So "exactly one" only holds while the retry is still in flight when the fresh
+      // reads exposure. Hold the retry at its rail call until the fresh has its answer. Without this
+      // gate a slow runner can let the retry reach `sent` first, and the fresh is then (correctly)
+      // admitted: CI run 38740465686.
+      let releaseRetryRail!: () => void;
+      const retryRailGate = new Promise<void>((resolve) => (releaseRetryRail = resolve));
+      const card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+      const cardPayout = card.payout.bind(card);
+      card.payout = async (request) => {
+        if (request.merchantId === retrier) await retryRailGate;
+        return cardPayout(request);
+      };
+      const money = new UserMoneyService(sql, ledger, new RailRegistry([card, crypto, new BankPayoutAbsentAdapter()]), {
         operatorCreditRails: ['card-sandbox'],
         guards: composeGuards(createW5HaltsGuards({ sql, env: limitsEnv({ USDT: '10' }) })),
       });
-      const retrier = '22222222-2222-4222-8222-222222222222';
-      const fresher = '33333333-3333-4333-8333-333333333333';
       for (const userId of [retrier, fresher])
         await money.credit({
           userId,
@@ -398,9 +411,13 @@ describe('W5 treasury exposure (real Postgres)', () => {
         await waiters(2);
         await held`SELECT pg_advisory_unlock(${PAUSE_KEY})`;
 
-        expect(await retry).toBe('sent');
+        // The retry is parked at its rail call (claimed, held, still counted), so the fresh one,
+        // which reads exposure once the retry's claim commits, must see it and be refused.
         expect(await fresh).toBe('refused pay.guard_treasury_exposure_exceeded');
+        releaseRetryRail();
+        expect(await retry).toBe('sent');
       } finally {
+        releaseRetryRail();
         await held`SELECT pg_advisory_unlock_all()`;
         held.release();
         await holder.end({ timeout: 5 });
@@ -413,7 +430,8 @@ describe('W5 treasury exposure (real Postgres)', () => {
       >`SELECT COALESCE(SUM(amount), 0)::text AS total FROM pay.withdrawals WHERE status = 'sent'`;
       expect(sent[0]!.total).toBe('10.000000000000000000');
       expect(await sql`SELECT 1 FROM pay.withdrawals WHERE user_id = ${fresher}`).toHaveLength(0);
-    });
+      // Longer than the ~5 s `waiters` budget, so a regression fails with its message, not a timeout.
+    }, 15_000);
 
     it('off (the default): withdrawals are not limit-checked, with no limits or with limits that would be exceeded', async () => {
       await seedInFlight();
