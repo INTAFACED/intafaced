@@ -20,7 +20,7 @@ function page(items, input) {
 
 /**
  * scenario: 'active' (verified merchant with activity), 'new' (no merchant), 'quiet' (merchant, no activity yet),
- * 'soon' (operations service not switched on), 'down' (service unreachable).
+ * 'soon' (operations service not switched on), 'down' (service unreachable), 'halted' (as 'active' with payouts paused).
  */
 export function createPortalMock(scenario = 'active', { now = Date.now() } = {}) {
   const calls = [];
@@ -308,6 +308,291 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
     prefs: new Map(),
     destination: null,
   };
+  const activity = scenario === 'active' || scenario === 'halted';
+  // ---- payments, settlements, approvals, limits and pricing (W3b). All TEST data. ----
+  const hex = (prefix, n) => `${prefix}${String(n).padStart(6, '0')}-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const STATUSES = ['captured', 'settled', 'captured', 'refunded', 'failed', 'settled', 'authorized', 'captured', 'disputed', 'created'];
+  const payments = activity
+    ? Array.from({ length: 60 }, (_, i) => {
+        // newest first, as the service returns them
+        const n = i + 1;
+        const status = STATUSES[n % STATUSES.length];
+        const asset = n % 7 === 0 ? 'USD' : 'USDT';
+        const amount = `${40 + n * 7}.${String((n * 13) % 100).padStart(2, '0')}`;
+        const taken = ['captured', 'settled', 'refunded', 'disputed'].includes(status);
+        return {
+          id: n === 3 ? 'aa000003-0000-4000-8000-000000000003' : hex('aa', n),
+          merchantId: MERCHANT_ID,
+          profileId: null,
+          amount,
+          assetId: asset,
+          method: n % 2 ? 'TEST-crypto-transfer' : 'TEST-card-sandbox',
+          railAdapter: n % 2 ? 'crypto-native' : 'card-sandbox',
+          railRef: status === 'created' ? null : `TEST-rail-${String(n).padStart(4, '0')}`,
+          status,
+          capturedAmount: taken ? amount : '0',
+          refundedAmount: status === 'refunded' ? amount : '0',
+          createdAt: iso(now - n * 3 * 3600_000),
+        };
+      })
+    : [];
+  const historyOf = (p) => {
+    const t0 = Date.parse(p.createdAt);
+    const ev = (event, payload, k) => ({
+      id: hex('ee', Math.floor(Math.random() * 1e6)),
+      event,
+      payload,
+      railEventId: null,
+      ts: iso(t0 + k * 60_000),
+    });
+    const out = [
+      ev(
+        'created',
+        {
+          amount: p.amount,
+          assetId: p.assetId,
+          customerRef: 'TEST-cust-001',
+          instrument: { kind: 'token', token: 'tok_TEST_must_never_show' },
+        },
+        0,
+      ),
+      ev('rail.authorize', { raw: 'rail internals' }, 1),
+    ];
+    if (p.status !== 'created' && p.status !== 'failed') out.push(ev('authorized', { amount: p.amount, railRef: p.railRef }, 2));
+    if (['captured', 'settled', 'refunded', 'disputed'].includes(p.status))
+      out.push(ev('captured', { amount: p.amount, railRef: p.railRef, ledgerTxId: 'TEST-ledger-tx-0001' }, 5));
+    if (p.status === 'settled')
+      out.push(ev('settled', { settlementId: 'bb000002-0000-4000-8000-000000000002', window: 'TEST-2026-W40', assetId: p.assetId }, 600));
+    if (p.status === 'refunded') {
+      out.push(
+        ev('refund.posted', { refundId: 'TEST-refund-1', amount: p.amount, source: 'balance', ledgerTxId: 'TEST-ledger-tx-0002' }, 900),
+      );
+      out.push(ev('refunded', { refundId: 'TEST-refund-1', amount: p.amount, source: 'balance', railRef: 'TEST-rail-refund' }, 901));
+    }
+    if (p.status === 'disputed')
+      out.push(
+        ev('disputed', { disputeId: 'd0000001-0000-4000-8000-000000000001', reasonCode: 'fraudulent', ledgerWire: 'refused' }, 1200),
+      );
+    if (p.status === 'failed') out.push(ev('failed', { failureCode: 'rail.TEST_internal_code' }, 3));
+    return out;
+  };
+  const settlements = activity
+    ? [
+        ['bb000006', 'TEST-2026-W41', 'USDT', '2200.50', '33.01', '2167.49', 'posted', null, null],
+        ['bb000005', 'TEST-2026-W40b', 'USD', '310', '4.65', '305.35', 'failed', null, null],
+        ['bb000004', 'TEST-2026-W41b', 'USDT', '120', '1.8', '118.2', 'pending', null, null],
+        ['bb000003', 'TEST-2026-W40a', 'USDT', '980.25', '14.7', '965.55', 'posted', null, null],
+        ['bb000002', 'TEST-2026-W40', 'USDT', '4100.75', '61.51', '4039.24', 'paid_out', 'crypto-native', 'TEST-tx-0xabc123'],
+        ['bb000001', 'TEST-2026-W39', 'USDT', '3900', '58.5', '3841.5', 'paid_out', 'crypto-native', 'TEST-tx-0xdef456'],
+      ].map(([short, window, assetId, gross, fees, net, status, payoutMethod, payoutRef], i) => ({
+        id: `${short}-0000-4000-8000-00000000000${6 - i}`,
+        merchantId: MERCHANT_ID,
+        window,
+        assetId,
+        gross,
+        fees,
+        net,
+        payoutMethod,
+        payoutRef,
+        status,
+      }))
+    : [];
+  const HASH = (c) => `sha256:${c.repeat(64)}`;
+  const approvals = activity
+    ? [
+        {
+          approvalId: 'cc000001-0000-4000-8000-000000000001',
+          merchantId: MERCHANT_ID,
+          settlementId: 'bb000003-0000-4000-8000-000000000003',
+          amount: '965.55',
+          assetCode: 'USDT',
+          payloadHash: HASH('a'),
+          status: 'pending',
+          makerUserId: 'TEST-user-finance',
+          checkerUserId: null,
+          createdAt: iso(now - 5 * 3600_000),
+          decidedAt: null,
+          expiresAt: iso(now + 43 * 3600_000),
+        },
+        {
+          approvalId: 'cc000002-0000-4000-8000-000000000002',
+          merchantId: MERCHANT_ID,
+          settlementId: 'bb000006-0000-4000-8000-000000000006',
+          amount: '2167.49',
+          assetCode: 'USDT',
+          payloadHash: HASH('b'),
+          status: 'pending',
+          makerUserId: USER_ID,
+          checkerUserId: null,
+          createdAt: iso(now - 90 * 60_000),
+          decidedAt: null,
+          expiresAt: iso(now + 22 * 3600_000),
+        },
+        {
+          approvalId: 'cc000003-0000-4000-8000-000000000003',
+          merchantId: MERCHANT_ID,
+          settlementId: 'bb000002-0000-4000-8000-000000000002',
+          amount: '4039.24',
+          assetCode: 'USDT',
+          payloadHash: HASH('c'),
+          status: 'consumed',
+          makerUserId: 'TEST-user-finance',
+          checkerUserId: USER_ID,
+          createdAt: iso(now - 9 * DAY),
+          decidedAt: iso(now - 9 * DAY + 3600_000),
+          expiresAt: iso(now - 7 * DAY),
+        },
+        {
+          approvalId: 'cc000004-0000-4000-8000-000000000004',
+          merchantId: MERCHANT_ID,
+          settlementId: 'bb000005-0000-4000-8000-000000000005',
+          amount: '305.35',
+          assetCode: 'USD',
+          payloadHash: HASH('d'),
+          status: 'voided',
+          makerUserId: USER_ID,
+          checkerUserId: null,
+          createdAt: iso(now - 3 * DAY),
+          decidedAt: iso(now - 3 * DAY + 600_000),
+          expiresAt: iso(now - 1 * DAY),
+        },
+        {
+          approvalId: 'cc000005-0000-4000-8000-000000000005',
+          merchantId: MERCHANT_ID,
+          settlementId: 'bb000001-0000-4000-8000-000000000001',
+          amount: '3841.5',
+          assetCode: 'USDT',
+          payloadHash: HASH('e'),
+          status: 'rejected',
+          makerUserId: USER_ID,
+          checkerUserId: 'TEST-user-finance',
+          createdAt: iso(now - 16 * DAY),
+          decidedAt: iso(now - 16 * DAY + 7200_000),
+          expiresAt: iso(now - 14 * DAY),
+        },
+      ]
+    : [];
+  const configured = activity;
+  const control = {
+    merchantId: MERCHANT_ID,
+    tierId: configured ? 'test-tier-a' : null,
+    archetypeId: configured ? 'standard' : null,
+    caps: configured
+      ? [
+          { kind: 'per_payment', assetCode: 'USDT', limit: '5000' },
+          { kind: 'daily_intake', assetCode: 'USDT', limit: '20000' },
+          { kind: 'monthly_intake', assetCode: 'USDT', limit: '250000' },
+          { kind: 'daily_payout', assetCode: 'USDT', limit: '10000' },
+          { kind: 'beneficiaries_per_day', limit: 5 },
+        ]
+      : null,
+    pricing: configured
+      ? [
+          {
+            layer: 'tier',
+            scopeId: 'test-tier-a',
+            assetCode: 'USDT',
+            bands: [
+              { fromAmount: '0', feeBps: 150, flatFee: null },
+              { fromAmount: '10000', feeBps: 120, flatFee: '0.25' },
+            ],
+            spreadBps: 40,
+            roundingBeneficiary: 'platform',
+          },
+          {
+            layer: 'global',
+            scopeId: null,
+            assetCode: 'USD',
+            bands: [{ fromAmount: '0', feeBps: 175, flatFee: '0.1' }],
+            spreadBps: null,
+            roundingBeneficiary: 'merchant',
+          },
+        ]
+      : null,
+    reserve: configured ? { rollingReserveBps: 500, holdDays: 7 } : null,
+    version: configured ? '4' : '0',
+    updatedAt: configured ? iso(now - 12 * DAY) : null,
+  };
+  const usage = {
+    merchantId: MERCHANT_ID,
+    tierId: control.tierId,
+    asOf: iso(now - 20_000),
+    rows: configured
+      ? [
+          { kind: 'per_payment', assetCode: 'USDT', limit: '5000', used: null, remaining: null, resetsAt: null },
+          {
+            kind: 'daily_intake',
+            assetCode: 'USDT',
+            limit: '20000',
+            used: '14200.5',
+            remaining: '5799.5',
+            resetsAt: iso(Math.ceil(now / DAY) * DAY),
+          },
+          {
+            kind: 'monthly_intake',
+            assetCode: 'USDT',
+            limit: '250000',
+            used: '61250.25',
+            remaining: '188749.75',
+            resetsAt: iso(Math.ceil(now / DAY) * DAY + 14 * DAY),
+          },
+          {
+            kind: 'daily_payout',
+            assetCode: 'USDT',
+            limit: '10000',
+            used: '9800',
+            remaining: '200',
+            resetsAt: iso(Math.ceil(now / DAY) * DAY),
+          },
+          {
+            kind: 'beneficiaries_per_day',
+            assetCode: null,
+            limit: '5',
+            used: '2',
+            remaining: '3',
+            resetsAt: iso(Math.ceil(now / DAY) * DAY),
+          },
+        ]
+      : [],
+  };
+  const quote = (input) => {
+    const rule = control.pricing?.find((r) => r.assetCode === input.assetCode);
+    if (!rule) return null;
+    const S = 10n ** 18n;
+    const toS = (v) => {
+      const [w, f = ''] = String(v).split('.');
+      return BigInt(w) * S + BigInt(f.padEnd(18, '0').slice(0, 18));
+    };
+    const fromS = (b) => {
+      const w = b / S;
+      const f = (b % S).toString().padStart(18, '0').replace(/0+$/, '');
+      return f ? `${w}.${f}` : `${w}`;
+    };
+    const month = input.monthlyVolume ?? '12500';
+    const band = [...rule.bands].reverse().find((b) => toS(month) >= toS(b.fromAmount)) ?? rule.bands[0];
+    const amt = toS(input.amount);
+    const bpsFee = (amt * BigInt(band.feeBps) + 9999n) / 10000n;
+    const flat = band.flatFee ? toS(band.flatFee) : 0n;
+    const spread = input.conversion && rule.spreadBps !== null ? (amt * BigInt(rule.spreadBps) + 9999n) / 10000n : null;
+    const fee = bpsFee + flat;
+    return {
+      ruleId: 'dd000001-0000-4000-8000-000000000001',
+      appliedLayer: rule.layer,
+      monthlyVolumeBefore: month,
+      bandFrom: band.fromAmount,
+      feeBps: band.feeBps,
+      flatFee: band.flatFee,
+      spreadBps: input.conversion ? rule.spreadBps : null,
+      roundingBeneficiary: rule.roundingBeneficiary,
+      roundingMode: 'ceil',
+      bpsFee: fromS(bpsFee),
+      feeBeforeClamp: fromS(fee),
+      fee: fromS(fee),
+      spread: spread === null ? null : fromS(spread),
+      net: fromS(amt - fee - (spread ?? 0n)),
+    };
+  };
+  const halted = scenario === 'halted';
   const KINDS = [
     'payout_awaiting_approval',
     'settlement_failed',
@@ -321,7 +606,6 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
     'team_change',
   ];
   const fresh = { asOf: iso(now - 4000), lagSeconds: 4 };
-  const activity = scenario === 'active';
   const snapshot = (preset) => {
     const k = preset === 'today' ? 1 : preset === 'rolling_7d' ? 6 : 24;
     if (!activity)
@@ -365,7 +649,10 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
         { assetCode: 'USDT', amount: `${1230 * k}.75` },
         { assetCode: 'USD', amount: `${80 * k}` },
       ],
-      settlements: [],
+      settlements: [
+        { assetCode: 'USDT', gross: `${2400 * k}.5`, fees: `${36 * k}`, net: `${2364 * k}.5` },
+        { assetCode: 'USD', gross: `${300 * k}`, fees: `${5 * k}`, net: `${295 * k}` },
+      ],
       averagePayment: [
         { assetCode: 'USDT', amount: '138.97' },
         { assetCode: 'USD', amount: '26.5' },
@@ -402,10 +689,77 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
     const input = method === 'GET' ? (JSON.parse(url.searchParams.get('input') ?? 'null') ?? {}) : (route.request().postDataJSON() ?? {});
     calls.push({ procedure, method, input });
     if (scenario === 'down') return refuse(route, 503, '', 'Service unavailable');
-    if (scenario === 'soon' && (procedure.startsWith('merchantOps.') || procedure.startsWith('merchantMetrics.')))
+    if (
+      scenario === 'soon' &&
+      (procedure.startsWith('merchantOps.') ||
+        procedure.startsWith('merchantMetrics.') ||
+        procedure.startsWith('merchantControl.') ||
+        procedure.startsWith('payHalts.'))
+    )
       return refuse(route, 501, 'pay.not_built', 'pay.not_built: not built yet');
     const mine = state.members;
     switch (procedure) {
+      case 'payment.list': {
+        const rows = payments.filter((p) => !input.status || p.status === input.status).slice(0, input.limit ?? 25);
+        return ok(route, rows);
+      }
+      case 'payment.get': {
+        const p = payments.find((x) => x.id === input.paymentId);
+        return p ? ok(route, p) : refuse(route, 404, 'pay.payment_not_found');
+      }
+      case 'payment.history': {
+        const p = payments.find((x) => x.id === input.paymentId);
+        return p ? ok(route, historyOf(p)) : refuse(route, 404, 'pay.payment_not_found');
+      }
+      case 'settlement.list':
+        return ok(route, settlements.filter((x) => !input.status || x.status === input.status).slice(0, input.limit ?? 25));
+      case 'settlement.get': {
+        const x = settlements.find((y) => y.id === input.settlementId);
+        return x ? ok(route, x) : refuse(route, 404, 'pay.settlement_not_found');
+      }
+      case 'merchantControl.get':
+        return ok(route, control);
+      case 'merchantControl.usage':
+        return ok(route, usage);
+      case 'merchantControl.pricing.preview': {
+        const q = quote(input);
+        return q ? ok(route, q) : refuse(route, 412, 'pay.pricing_unconfigured');
+      }
+      case 'merchantControl.approvals.list':
+        return ok(route, approvals.filter((a) => !input.status || a.status === input.status).slice(0, input.limit ?? 50));
+      case 'merchantControl.approvals.decide': {
+        const a = approvals.find((x) => x.approvalId === input.approvalId);
+        if (!a) return refuse(route, 404, 'pay.approval_not_found');
+        if (a.makerUserId === USER_ID) return refuse(route, 403, 'pay.approval_self_approval');
+        if (a.status !== 'pending') return refuse(route, 409, 'pay.approval_not_pending');
+        if (a.payloadHash !== input.expectedPayloadHash) return refuse(route, 409, 'pay.approval_payload_mismatch');
+        a.status = input.decision === 'approve' ? 'approved' : 'rejected';
+        a.checkerUserId = USER_ID;
+        a.decidedAt = iso(Date.now());
+        return ok(route, a);
+      }
+      case 'merchantControl.approvals.cancel': {
+        const a = approvals.find((x) => x.approvalId === input.approvalId);
+        if (!a) return refuse(route, 404, 'pay.approval_not_found');
+        if (a.status !== 'pending') return refuse(route, 409, 'pay.approval_not_pending');
+        a.status = 'voided';
+        a.decidedAt = iso(Date.now());
+        return ok(route, a);
+      }
+      case 'payHalts.status':
+        return ok(route, {
+          readable: true,
+          states: halted
+            ? [
+                {
+                  scope: 'payout',
+                  target: { level: 'merchant', merchantId: MERCHANT_ID },
+                  halted: true,
+                  changedAt: iso(now - 2 * 3600_000),
+                },
+              ]
+            : [],
+        });
       case 'merchant.me':
         return ok(route, state.merchant);
       case 'railHealth':

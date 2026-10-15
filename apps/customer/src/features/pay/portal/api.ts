@@ -98,6 +98,28 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
     }) => mutate('merchantOps.exports.create', input, p.exportJobSchema),
     exportDownload: (jobId: string) => query('merchantOps.exports.download', { jobId }, p.exportDownloadSchema),
 
+    // ---- payments, settlements, payouts (W3b). The list reads take a page size and a status, nothing more; the browser
+    // narrows further (search, dates, asset) over what it has loaded and says so on the page.
+    payments: (merchantId: string, status: string, limit: number, signal?: AbortSignal) =>
+      query('payment.list', { merchantId, limit, ...(status ? { status } : {}) }, z.array(p.paymentSchema), signal),
+    payment: (paymentId: string, signal?: AbortSignal) => query('payment.get', { paymentId }, p.paymentSchema, signal),
+    paymentHistory: (paymentId: string, signal?: AbortSignal) =>
+      query('payment.history', { paymentId, limit: 200 }, z.array(p.paymentEventSchema), signal),
+    settlements: (merchantId: string, status: string, limit: number, signal?: AbortSignal) =>
+      query('settlement.list', { merchantId, limit, ...(status ? { status } : {}) }, z.array(p.settlementSchema), signal),
+    settlement: (settlementId: string, signal?: AbortSignal) => query('settlement.get', { settlementId }, p.settlementSchema, signal),
+
+    control: (merchantId: string, signal?: AbortSignal) => query('merchantControl.get', { merchantId }, p.controlProfileSchema, signal),
+    usage: (merchantId: string, signal?: AbortSignal) => query('merchantControl.usage', { merchantId }, p.usageSchema, signal),
+    pricingPreview: (input: { merchantId: string; assetCode: string; amount: string; monthlyVolume?: string; conversion?: boolean }) =>
+      query('merchantControl.pricing.preview', input, p.quoteSchema),
+    approvals: (merchantId: string, status: string, signal?: AbortSignal) =>
+      query('merchantControl.approvals.list', { merchantId, limit: 200, ...(status ? { status } : {}) }, z.array(p.approvalSchema), signal),
+    decideApproval: (input: { approvalId: string; decision: 'approve' | 'reject'; expectedPayloadHash: string; reason: string }) =>
+      mutate('merchantControl.approvals.decide', input, p.approvalSchema),
+    cancelApproval: (input: { approvalId: string; reason: string }) => mutate('merchantControl.approvals.cancel', input, p.approvalSchema),
+    haltStatus: (merchantId: string, signal?: AbortSignal) => query('payHalts.status', { merchantId }, p.haltStatusSchema, signal),
+
     notifications: (cursor: string | undefined, unreadOnly: boolean, kind: string, signal?: AbortSignal) =>
       list(
         'merchantOps.notifications.list',

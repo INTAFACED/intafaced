@@ -5,14 +5,20 @@ import { EmptyState, Page } from '../../../shared/ui';
 import { payCopy } from '../copy';
 import { businessRooms } from '../BusinessPay';
 import { createPortalApi, type PortalApi } from './api';
-import { Gate } from './components';
+import { Gate, PortalLoading } from './components';
 import { portalCopy } from './copy';
 import { Customers, CustomerDetailPage } from './Customers';
 import { Dashboard } from './Dashboard';
 import { Disputes, DisputeDetailPage } from './Disputes';
 import { Exports } from './Exports';
+import { Approvals } from './Approvals';
+import { Limits } from './Limits';
 import { Notifications } from './Notifications';
 import { Onboarding } from './Onboarding';
+import { PaymentDetailPage, Payments } from './Payments';
+import { PayoutDetailPage, Payouts } from './Payouts';
+import { Pricing } from './Pricing';
+import { SettlementDetailPage, Settlements } from './Settlements';
 import { parsePortalRoute, portalLinks, type PortalRoute } from './routes';
 import { Team } from './Team';
 import type { MemberRole, MerchantRecord } from './schemas';
@@ -88,7 +94,13 @@ const hrefFor = (route: PortalRoute) =>
       ? '/pay/disputes'
       : route.room === 'customer'
         ? '/pay/customers'
-        : `/pay/${route.room}`;
+        : route.room === 'payment'
+          ? '/pay/payments'
+          : route.room === 'settlement'
+            ? '/pay/settlements'
+            : route.room === 'payout'
+              ? '/pay/payouts'
+              : `/pay/${route.room}`;
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
@@ -135,6 +147,56 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
       };
     case 'notifications':
       return { title: t('pageNotifications'), purpose: t('purposeNotifications') };
+    case 'payments':
+      return {
+        title: t('pagePayments'),
+        purpose: t('purposePayments'),
+        action: (
+          <a className="button button--primary" href="/pay/payments?view=tools">
+            {t('actPaymentTools')}
+          </a>
+        ),
+      };
+    case 'payment':
+      return {
+        title: t('pagePayment'),
+        purpose: t('purposePayment'),
+        action: route.param ? (
+          <a className="button button--primary" href={`/pay/payments?view=tools&payment=${encodeURIComponent(route.param)}`}>
+            {t('refundOrCapture')}
+          </a>
+        ) : undefined,
+      };
+    case 'settlements':
+      return {
+        title: t('pageSettlements'),
+        purpose: t('purposeSettlements'),
+        action: (
+          <a className="button button--primary" href="/pay/settlements?view=tools">
+            {t('actSettlementTools')}
+          </a>
+        ),
+      };
+    case 'settlement':
+      return { title: t('pageSettlement'), purpose: t('purposeSettlement') };
+    case 'payouts':
+      return {
+        title: t('pagePayouts'),
+        purpose: t('purposePayouts'),
+        action: (
+          <a className="button button--primary" href="/pay/payouts?view=tools">
+            {t('actRequestPayout')}
+          </a>
+        ),
+      };
+    case 'payout':
+      return { title: t('pagePayout'), purpose: t('purposePayout') };
+    case 'approvals':
+      return { title: t('pageApprovals'), purpose: t('purposeApprovals') };
+    case 'pricing':
+      return { title: t('pagePricing'), purpose: t('purposePricing') };
+    case 'limits':
+      return { title: t('pageLimits'), purpose: t('purposeLimits') };
   }
 }
 
@@ -156,6 +218,7 @@ function PortalRoom({
   legacyHome: ReactNode;
 }) {
   const { t } = portalCopy.useCopy();
+  const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
     case 'dashboard':
       return (
@@ -208,5 +271,127 @@ function PortalRoom({
       return <Exports portal={portal} />;
     case 'notifications':
       return <Notifications portal={portal} />;
+    case 'payments':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Payments portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'payment':
+      return (
+        <WithAccount {...acct}>
+          {({ role }) => (
+            <OwnerOnly role={role}>
+              <PaymentDetailPage portal={portal} paymentId={route.param!} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'settlements':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Settlements portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'settlement':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <SettlementDetailPage portal={portal} merchantId={merchantId} settlementId={route.param!} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'payouts':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Payouts portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'payout':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role, record }) => (
+            <OwnerOnly role={role}>
+              <PayoutDetailPage portal={portal} merchantId={merchantId} payoutId={route.param!} role={role} merchant={record} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'approvals':
+      return (
+        <WithAccount {...acct}>{({ merchantId, role }) => <Approvals portal={portal} merchantId={merchantId} role={role} />}</WithAccount>
+      );
+    case 'pricing':
+      return <WithAccount {...acct}>{({ merchantId }) => <Pricing portal={portal} merchantId={merchantId} />}</WithAccount>;
+    case 'limits':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, record }) => <Limits portal={portal} merchantId={merchantId} merchant={record} />}
+        </WithAccount>
+      );
   }
+}
+
+/**
+ * The payment and settlement reads answer only the account owner for now, so every other role would meet a refusal.
+ * They are told so up front. A role we could not read is let through: the service decides.
+ */
+export function OwnerOnly({ role, children }: { role: MemberRole | null; children: ReactNode }) {
+  const { t } = portalCopy.useCopy();
+  if (role === null || role === 'owner') return <>{children}</>;
+  return <EmptyState title={t('ownerOnlyTitle')}>{t('ownerOnlyBody')}</EmptyState>;
+}
+
+type AccountProps = {
+  merchant: Resource<MerchantRecord | null>;
+  reload: () => void;
+  team: Resource<{ merchantId: string; userId: string; role: MemberRole }>;
+};
+/**
+ * Which account a page reads. The owner's record names it; a team member has no record of their own, so their team
+ * membership does. Neither is a merchant id the browser chose: both come from the signed session on the server.
+ * A person with no account at all is sent to set one up, not shown an error.
+ */
+export function WithAccount({
+  merchant,
+  reload,
+  team,
+  children,
+}: AccountProps & { children: (account: { merchantId: string; role: MemberRole | null; record: MerchantRecord | null }) => ReactNode }) {
+  const { t } = portalCopy.useCopy();
+  return (
+    <Gate resource={merchant} retry={reload} rows={4}>
+      {(record) => {
+        if (record) return <>{children({ merchantId: record.id, role: team.status === 'ready' ? team.data.role : null, record })}</>;
+        if (team.status === 'loading') return <PortalLoading rows={4} />;
+        if (team.status === 'ready') return <>{children({ merchantId: team.data.merchantId, role: team.data.role, record: null })}</>;
+        return (
+          <EmptyState
+            title={t('noMerchantTitle')}
+            action={
+              <a className="button button--primary" href="/pay/onboarding">
+                {t('startSetup')}
+              </a>
+            }
+          >
+            {t('noMerchantBody')}
+          </EmptyState>
+        );
+      }}
+    </Gate>
+  );
 }
