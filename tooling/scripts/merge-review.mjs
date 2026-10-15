@@ -100,7 +100,7 @@ function shellCommands(source) {
   };
   const flushCommand = (separator) => {
     flushWord();
-    if (words.length) commands.push({ words, before });
+    if (words.length) commands.push({ words, before, after: separator });
     words = [];
     before = separator;
   };
@@ -168,12 +168,15 @@ function reviewerMutation(commands, depth = 0) {
 }
 
 function readsExactDiff(commands, base, head) {
-  return commands.some(({ words }) => {
-    const git = gitOperation(words);
-    if (!git || words.some((word) => /[$`]/.test(word)) || git[0] !== 'diff') return false;
-    const args = git.slice(1).filter((arg) => !['--no-ext-diff', '--no-textconv', '--no-color'].includes(arg));
-    return args.length === 1 && args[0].toLowerCase() === `${base}...${head}`.toLowerCase();
-  });
+  // A range in a pipeline proves only what the filter returned. Accept one
+  // direct command; retain its terminating separator to also reject `diff &`.
+  if (commands.length !== 1) return false;
+  const { words, before, after } = commands[0];
+  if ([before, after].some((separator) => separator !== undefined && separator !== '\n')) return false;
+  const git = gitOperation(words);
+  if (!git || words.some((word) => /[$`]/.test(word)) || git[0] !== 'diff') return false;
+  const args = git.slice(1).filter((arg) => !['--no-ext-diff', '--no-textconv', '--no-color'].includes(arg));
+  return args.length === 1 && args[0].toLowerCase() === `${base}...${head}`.toLowerCase();
 }
 
 function reviewInTranscript(file, session, reviewer, head, base, subagent = false) {
