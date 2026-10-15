@@ -60,7 +60,7 @@ function fixture(t) {
   ];
   const save = (entries = [assistant()], { withDiff = true } = {}) =>
     writeFileSync(path, [...(withDiff ? diffEntries() : []), ...entries].map((entry) => JSON.stringify(entry)).join('\n'));
-  const validate = (extra = {}) => validateOpusReview({ head, declarations, projectsRoot, ...extra });
+  const validate = (extra = {}) => validateOpusReview({ head, base, declarations, projectsRoot, ...extra });
   return { root, projectsRoot, project, path, assistant, diffEntries, save, validate };
 }
 
@@ -211,11 +211,7 @@ test('review requires a successful exact-head diff read before the verdict', (t)
   }
   f.save([f.assistant(), ...f.diffEntries()], { withDiff: false });
   assert.equal(f.validate().pass, false, 'reading after the verdict cannot prove that verdict');
-  for (const command of [
-    `git -C /repo diff ${base}..${head}`,
-    `git show ${head}`,
-    `test "$(gh pr view 123 --json headRefOid --jq .headRefOid)" = "${head}" && gh pr diff 123`,
-  ]) {
+  for (const command of [`git -C /repo diff ${base}...${head}`, `git diff --no-ext-diff --no-textconv ${base}...${head}`]) {
     f.save([...f.diffEntries(command), f.assistant()], { withDiff: false });
     assert.equal(f.validate().pass, true, command);
   }
@@ -483,4 +479,24 @@ test('receipt consumer binds live head, current gate revision and a bounded nonf
   assert.equal(validate(receipt, { maxAgeMs: 59_999 }).pass, false);
   assert.equal(validate(receipt, { maxAgeMs: Infinity }).pass, false);
   assert.equal(validate(null).pass, false);
+});
+
+test('review must read the complete expected merge-base...head range, not one commit or a path subset', (t) => {
+  const f = fixture(t);
+  for (const command of [
+    `git show ${head}`,
+    `git diff ${head}^...${head}`,
+    `git diff ${'d'.repeat(40)}...${head}`,
+    `git diff ${base}...${head} -- src/a.ts`,
+    `git diff --name-only ${base}...${head}`,
+    `git diff ${base} ${head} -- src/a.ts`,
+    `git diff ${base}...${head} --diff-filter=M`,
+    `test "$(gh pr view 123 --json headRefOid --jq .headRefOid)" = "${head}" && gh pr diff 123`,
+  ]) {
+    f.save([...f.diffEntries(command), f.assistant()], { withDiff: false });
+    assert.equal(f.validate().pass, false, command);
+  }
+  f.save();
+  assert.equal(f.validate().review.base, base);
+  assert.equal(f.validate({ base: undefined }).pass, false, 'range base is mandatory');
 });

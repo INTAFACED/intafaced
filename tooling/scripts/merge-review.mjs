@@ -167,43 +167,16 @@ function reviewerMutation(commands, depth = 0) {
   });
 }
 
-function readsExactDiff(commands, head) {
-  return commands.some(({ words, before }, index) => {
+function readsExactDiff(commands, base, head) {
+  return commands.some(({ words }) => {
     const git = gitOperation(words);
-    if (git && !words.some((word) => /[$`]/.test(word))) {
-      const [operation, ...args] = git;
-      if (
-        args.some((arg) =>
-          /^(?:-s|--no-patch|--stat|--numstat|--shortstat|--name-only|--name-status|--summary|--raw|--check)(?:=|$)/.test(arg),
-        )
-      )
-        return false;
-      const refs = args.slice(0, args.includes('--') ? args.indexOf('--') : args.length).filter((arg) => !arg.startsWith('-'));
-      if (operation === 'show' && refs.some((ref) => ref.toLowerCase() === head.toLowerCase())) return true;
-      if (
-        operation === 'diff' &&
-        (refs.some((ref) => /^(?:[^.\s]+)\.{2,3}[a-f0-9]{40}$/i.test(ref) && ref.toLowerCase().endsWith(head.toLowerCase())) ||
-          (refs.length === 2 && refs[1].toLowerCase() === head.toLowerCase()))
-      )
-        return true;
-    }
-    // This supported gh form asserts the PR head in the SAME shell invocation,
-    // before reading its diff. Bare gh pr diff cannot bind a mutable PR to a SHA.
-    const args = executableWords(words);
-    if (before !== '&&' || args.length !== 4 || args[0] !== 'gh' || args[1] !== 'pr' || args[2] !== 'diff' || !/^\d+$/.test(args[3]))
-      return false;
-    const assertion = commands[index - 1]?.words;
-    return (
-      assertion?.length === 4 &&
-      assertion[0] === 'test' &&
-      assertion[1] === `$(gh pr view ${args[3]} --json headRefOid --jq .headRefOid)` &&
-      assertion[2] === '=' &&
-      assertion[3].toLowerCase() === head.toLowerCase()
-    );
+    if (!git || words.some((word) => /[$`]/.test(word)) || git[0] !== 'diff') return false;
+    const args = git.slice(1).filter((arg) => !['--no-ext-diff', '--no-textconv', '--no-color'].includes(arg));
+    return args.length === 1 && args[0].toLowerCase() === `${base}...${head}`.toLowerCase();
   });
 }
 
-function reviewInTranscript(file, session, reviewer, head, subagent = false) {
+function reviewInTranscript(file, session, reviewer, head, base, subagent = false) {
   const st = lstatSync(file);
   if (!st.isFile() || st.isSymbolicLink() || st.size > MAX_TRANSCRIPT_BYTES) return undefined;
   const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
@@ -254,7 +227,7 @@ function reviewInTranscript(file, session, reviewer, head, subagent = false) {
         const commands = shellCommands(block.input.command);
         if (!commands) return { blocked: 'Reviewer shell command cannot be safely inspected.' };
         if (reviewerMutation(commands)) return { blocked: 'Reviewer transcript executes git commit or git push.' };
-        if (typeof block.id === 'string' && readsExactDiff(commands, head)) diffCalls.add(block.id);
+        if (typeof block.id === 'string' && readsExactDiff(commands, base, head)) diffCalls.add(block.id);
       }
     }
     for (const text of plainLines(textContent(message.content))) {
@@ -279,11 +252,12 @@ function reviewInTranscript(file, session, reviewer, head, subagent = false) {
  * Author-Session: <UUID>
  * Opus-Review: <40-hex head> <reviewer UUID or agent ID> PASS
  * Any non-PASS exact-head verdict blocks. Assistant Opus PASS requires an earlier
- * successful exact-head diff read and an author-independent parent/session.
+ * successful complete merge-base...head diff read and an author-independent parent/session.
  */
-export function validateOpusReview({ head, declarations, projectsRoot = join(homedir(), '.claude/projects') }) {
+export function validateOpusReview({ head, base, declarations, projectsRoot = join(homedir(), '.claude/projects') }) {
   const fail = (reason) => ({ pass: false, reasons: [reason] });
   if (typeof head !== 'string' || !SHA.test(head)) return fail('Opus review requires a full 40-hex head SHA.');
+  if (!SHA.test(base ?? '')) return fail('Opus review requires the full PR merge-base SHA.');
   if (typeof declarations !== 'string') return fail('Author-Session and Opus-Review declarations are required.');
   const lines = plainLines(declarations).map((line) => line.trim());
   const authors = lines.filter((line) => line.startsWith('Author-Session:')).map((line) => line.slice('Author-Session:'.length).trim());
@@ -347,9 +321,9 @@ export function validateOpusReview({ head, declarations, projectsRoot = join(hom
       }
       for (const { file, session, subagent } of paths) {
         try {
-          const verified = reviewInTranscript(file, session, reviewerSession, head, subagent);
+          const verified = reviewInTranscript(file, session, reviewerSession, head, base, subagent);
           if (verified?.blocked) return fail(verified.blocked);
-          if (verified) approved = { head: head.toLowerCase(), authorSession, reviewerSession, ...verified };
+          if (verified) approved = { head: head.toLowerCase(), base: base.toLowerCase(), authorSession, reviewerSession, ...verified };
         } catch {
           /* Missing, unreadable, malformed or unsafe transcript proves nothing. */
         }
