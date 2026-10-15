@@ -482,6 +482,5 @@ describe('M: merchant isolation', () => {
         expect(text).not.toContain(createHash('sha256').update(e.signing_secret).digest('hex'));
       }
     });
-
   });
 });

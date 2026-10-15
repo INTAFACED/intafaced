@@ -355,5 +355,4 @@ describe('G: founder-only procedures', () => {
       }
     });
   });
-
 });
