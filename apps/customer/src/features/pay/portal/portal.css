@@ -569,6 +569,126 @@ a.pp-kpi:hover {
   align-items: flex-end;
 }
 
+/* Screen-reader-only text is absolutely positioned. Inside a wide table it would sit past the right edge of the table's own scroller and
+   widen the whole page, so the scroller becomes its containing block. */
+.pp .table-scroll {
+  position: relative;
+}
+
+/* W3b: not configured, test values, warnings, usage bars, approvals */
+.pp-notconf {
+  display: inline-block;
+  color: var(--color-warning);
+  border: 1px dashed var(--color-border);
+  border-radius: 999px;
+  padding: 1px var(--spacing-10);
+  font-size: var(--text-13);
+}
+.pp-test {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--color-background);
+  background: var(--color-accent);
+  border-radius: 4px;
+  padding: 1px 6px;
+  vertical-align: middle;
+}
+.pp-callout--warn {
+  border-left-color: var(--color-warning);
+}
+.pp-callout p + p {
+  margin-top: var(--spacing-8);
+}
+.pp-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+}
+.pp-stepitem--bad .pp-timeline-dot {
+  background: var(--color-negative);
+}
+.pp-stepitem--todo .pp-timeline-dot {
+  background: transparent;
+  border: 1px solid var(--color-mix-secondary);
+}
+.pp-stepitem--current .pp-timeline-dot {
+  background: var(--color-accent);
+}
+.pp-stepitem--done .pp-timeline-dot {
+  background: var(--color-positive);
+}
+.pp-steps-list li:first-child .pp-timeline-dot {
+  background: var(--color-positive);
+}
+.pp-usage {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-divider);
+  overflow: hidden;
+  margin-block: var(--spacing-8) var(--spacing-12);
+}
+.pp-usage-fill {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+.pp-usage-fill--full {
+  background: var(--color-negative);
+}
+.pp-limits,
+.pp-approvals {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pp-limit,
+.pp-approval {
+  padding-block: var(--spacing-20);
+  border-bottom: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+  min-width: 0;
+}
+.pp-limit-head,
+.pp-approval-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-12);
+  flex-wrap: wrap;
+}
+.pp-limit-head h3 {
+  font-size: var(--text-16);
+}
+.pp-approval-amount {
+  font-size: var(--text-20);
+  letter-spacing: var(--tracking-value);
+}
+.pp-agechip {
+  font-size: var(--text-13);
+  color: var(--color-muted);
+  border: 1px solid var(--color-divider);
+  border-radius: 999px;
+  padding: 2px var(--spacing-10);
+  white-space: nowrap;
+}
+.pp-decision {
+  margin-top: var(--spacing-8);
+  max-width: 560px;
+}
+.pp-reserve .pp-sub {
+  margin-top: var(--spacing-20);
+}
+
 @media (max-width: 1000px) {
   .pp-two {
     grid-template-columns: minmax(0, 1fr);

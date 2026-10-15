@@ -106,3 +106,15 @@ export function useUrlParam(name: string, fallback = ''): [string, (value: strin
   );
   return [value, set];
 }
+
+/**
+ * The moment a read finished, kept so the page can say how old its numbers are (B12). It changes only when a new
+ * answer arrives, not on every render. `null` while loading or after a refusal.
+ */
+export function useReadAt(ready: boolean, signal: unknown): string | null {
+  const [at, setAt] = useState<string | null>(null);
+  useEffect(() => {
+    setAt(ready ? new Date().toISOString() : null);
+  }, [ready, signal]);
+  return at;
+}

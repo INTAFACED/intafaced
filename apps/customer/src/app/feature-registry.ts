@@ -47,8 +47,14 @@ const businessPaySlugs = [
   'team',
   'exports',
   'notifications',
+  'approvals',
+  'pricing',
+  'limits',
   'disputes/:disputeId',
   'customers/:customerRef',
+  'payments/:paymentId',
+  'settlements/:settlementId',
+  'payouts/:payoutId',
 ] as const;
 
 export const features: readonly Feature[] = [
