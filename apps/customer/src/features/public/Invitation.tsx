@@ -532,8 +532,8 @@ export function Invitation() {
                 <p>{t('readBoundary')}</p>
               </div>
             )}
-            <a href="/uc/promotion" className="invitation__link text-link">
-              {t('account')}
+            <a href="/help" className="invitation__link text-link">
+              {t('help')}
             </a>
           </section>
         )}
