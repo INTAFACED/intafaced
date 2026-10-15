@@ -44,6 +44,7 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
     input: { requestId: id(), scope: 'intake', target: { level: 'global' }, halted: true, reason: 'drill', expectedVersion: '0' },
   },
   'payHalts.history': { founder: true, input: { limit: 10 } },
+  'payHalts.operatorStatus': { founder: true, input: {} },
   'founderAdmin.merchants.list': { founder: true, input: { limit: 10 } },
   'founderAdmin.merchants.drilldown': { founder: true, input: { merchantId, window } },
   'founderAdmin.metrics.global': { founder: true, input: { window } },
@@ -114,8 +115,9 @@ describe('W0 namespaces are mounted', () => {
 
   it('is merged into the live appRouter in index.ts together with the guard registry', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    expect(src).toContain('createPayNamespaces({ founderAuthority, metrics, registries: { sql, approvals: actionApprovals }, sql })');
+    expect(src).toMatch(/createPayNamespaces\(\{\s*founderAuthority,\s*metrics,\s*registries: \{ sql, approvals: actionApprovals \},\s*sql,/);
     expect(src).toContain('startMetricsRefresher(metrics.projector');
+    expect(src).toContain('payHalts: { store: new PayHaltStore(sql,');
     expect(src).toContain('const payGuards = buildPayGuards({ sql });');
     // One registry instance serves both the payment service and the user-money service.
     expect(src.match(/guards: payGuards,/g)).toHaveLength(2);
@@ -130,7 +132,8 @@ describe('W0 namespaces are mounted', () => {
 });
 
 describe('without a metrics runtime, every stub refuses with pay.not_built and never returns data', () => {
-  for (const [path, call] of Object.entries(CALLS)) {
+  // payHalts is built (W5): with no store wired it refuses closed instead of answering "nothing is halted".
+  for (const [path, call] of Object.entries(CALLS).filter(([p]) => !p.startsWith('payHalts.'))) {
     it(path, async () => {
       const fetcher = vi.fn<typeof fetch>(async () => entitlement('enabled'));
       const caller = build(fetcher).createCaller(ctxOf(call.founder ? base : merchant));
@@ -146,6 +149,24 @@ describe('without a metrics runtime, every stub refuses with pay.not_built and n
       expect(error!.code).toBe('NOT_IMPLEMENTED');
       expect(error!.cause?.code).toBe('pay.not_built');
       expect(fetcher).toHaveBeenCalledTimes(call.founder ? 1 : 0);
+    });
+  }
+});
+
+describe('payHalts.* without a halt store refuses closed', () => {
+  for (const [path, call] of Object.entries(CALLS).filter(([p]) => p.startsWith('payHalts.'))) {
+    it(path, async () => {
+      const fetcher = vi.fn<typeof fetch>(async () => entitlement('enabled'));
+      const caller = build(fetcher).createCaller(ctxOf(call.founder ? base : merchant));
+      const error = await procedureAt(
+        caller,
+        path,
+      )(call.input).then(
+        () => null,
+        (e: unknown) => e as { code: string; cause?: { code?: string } },
+      );
+      expect(error!.code).toBe('SERVICE_UNAVAILABLE');
+      expect(error!.cause?.code).toBe('pay.halt_store_unavailable');
     });
   }
 });
