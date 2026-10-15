@@ -53,7 +53,7 @@ W9 screening provider are not built. Their assertions are explicitly reported as
 existing payout seam; it does not claim to test an unbuilt conversion order.
 
 ```sh
-# Seven local safety/oracle/CLI tests, no PostgreSQL connection:
+# Local safety/oracle/CLI/fixture tests, no PostgreSQL connection:
 pnpm --filter @intafaced/pay-sim test:unit
 
 # Mandatory real PostgreSQL acceptance tests plus unit tests:

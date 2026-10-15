@@ -12,6 +12,7 @@ import { readProjection, listProjectionKeys } from '../../../services/svc-pay/sr
 import { Deadline, parseOptions, assertLedgerBalanced, assertOutbound, type Options, type Outbound } from './safety.js';
 import { assertProjection, recompute, type Sources } from './oracle.js';
 import { SimulationDatabase } from './database.js';
+import { syntheticPayoutAddress } from './fixtures.js';
 
 export const BASE = 'b8b8cbb220dda79f71401dadb8825ded2de91992';
 export const NOT_BUILT = [
@@ -151,7 +152,7 @@ export async function runSimulation(input: Options, signal?: AbortSignal) {
           settlement.net === amt(scenario.amount) - amt(scenario.refund),
           'payout equals actual captured less refunded TEST VALUES',
         );
-        const destination = `TEST-DATA-merchant-${merchant.id}`;
+        const destination = syntheticPayoutAddress(merchant.id);
         const request = { settlementId: settlement.id, railId: crypto.id, destination: { kind: 'crypto', ref: destination } };
         const outboundBefore = chain.outboundTransfers().length;
         for (let failure = 0; failure < 3; failure += 1) {
