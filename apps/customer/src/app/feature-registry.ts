@@ -43,6 +43,12 @@ const businessPaySlugs = [
   'subscriptions',
   'reports',
   'developer',
+  'onboarding',
+  'team',
+  'exports',
+  'notifications',
+  'disputes/:disputeId',
+  'customers/:customerRef',
 ] as const;
 
 export const features: readonly Feature[] = [

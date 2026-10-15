@@ -13,8 +13,11 @@ import { MerchantPayments } from './MerchantPayments';
 import { MerchantBilling } from './MerchantBilling';
 import { MerchantNetwork, MerchantPermissions, MerchantDeveloper } from './MerchantNetwork';
 import * as s from './schemas';
+import { portalLinks } from './portal/routes';
+import { portalCopy } from './portal/copy';
 
-const rooms = [
+/** The Business Pay menu. The merchant portal (`portal/`) shows the same entries plus its own. */
+export const businessRooms = [
   ['/pay/merchant', 'overview'],
   ['/pay/money', 'balance'],
   ['/pay/links', 'paymentLinks'],
@@ -31,6 +34,7 @@ const rooms = [
   ['/pay/permissions', 'permissions'],
   ['/pay/developer', 'developerTestMode'],
 ] as const;
+const rooms = businessRooms;
 export function BusinessPay({ path, authority }: { path: string; authority: PayBusinessAuthority | null }) {
   const { api, userId } = useSession();
   const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api, userId, authority]);
@@ -46,6 +50,11 @@ export function BusinessPay({ path, authority }: { path: string; authority: PayB
               {rooms.map(([route, label]) => (
                 <a href={route} key={route} aria-current={route === current ? 'page' : undefined}>
                   <PayCopy k={label} />
+                </a>
+              ))}
+              {portalLinks.map(([route, label]) => (
+                <a href={route} key={route}>
+                  {portalCopy.t(label)}
                 </a>
               ))}
             </nav>
@@ -117,7 +126,7 @@ export const railHealthSchema = z.array(
     reason: z.string().optional(),
   }),
 );
-function MerchantHome({ pay, merchant }: { pay: BusinessPayApi; merchant: s.Merchant }) {
+export function MerchantHome({ pay, merchant }: { pay: BusinessPayApi; merchant: s.Merchant }) {
   const [domains, setDomains] = useState('');
   const [profileCreated, setProfileCreated] = useState('');
   const rails = useResource((signal) => pay.query('railHealth', undefined, railHealthSchema, signal), `pay:rails:${merchant.id}`);
@@ -666,5 +675,17 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
         </PaySection>
       )}
     </div>
+  );
+}
+
+/** The checkout-domain and rail-availability section, for the merchant portal dashboard when a verified business account is supplied. */
+export function BusinessHomeSection({ authority }: { authority: PayBusinessAuthority }) {
+  const { api, userId } = useSession();
+  const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api, userId, authority]);
+  const merchant = useResource((signal) => pay.merchant(signal), `pay:home-section:${userId}:${authority.companyId}`);
+  return (
+    <PayState resource={merchant.resource} retry={merchant.reload}>
+      {(record) => <MerchantHome pay={pay} merchant={record} />}
+    </PayState>
   );
 }
