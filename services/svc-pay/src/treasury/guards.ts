@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { compare, type Amount } from '@intafaced/ledger-client';
+import { compare, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { PayGuardRefusal, type PartialPayGuards } from '../seams/guards.js';
 import type { TreasuryLimits, TreasuryMode } from './config.js';
 import { assetExposure, type ConversionInventorySource } from './exposure.js';
@@ -9,6 +9,9 @@ import { assetExposure, type ConversionInventorySource } from './exposure.js';
  *
  *   beforePayoutAdmit  adds the payout's amount to the asset's exposure
  *   beforeConversion   adds the conversion's from-amount to the from-asset's exposure
+ *   beforeUserMoneyWithdrawal  adds the withdrawal's amount to the asset's exposure
+ *                      (in-flight withdrawals already count in pending payouts, see
+ *                      exposure.ts, so a limit that ignored a NEW one would be a hole)
  *
  * A fresh operation is refused when it would take exposure ABOVE the limit by even
  * one minor unit (1e-18); exactly AT the limit passes. No limit configured for
@@ -36,13 +39,24 @@ export function createTreasuryGuards(deps: {
   limits: TreasuryLimits;
   inventory: ConversionInventorySource;
 }): PartialPayGuards {
-  async function admit(conn: Sql, assetId: string, candidate: Amount): Promise<void> {
+  async function admit(conn: Sql, assetId: string, candidate: Amount, alreadyCounted: Amount = 0n): Promise<void> {
     const limit = deps.limits.byAsset.get(assetId);
     if (limit === undefined) throw new PayGuardRefusal(GUARD_TREASURY_LIMIT_UNSET, 'refused');
     await conn`SELECT pg_advisory_xact_lock(hashtext(${`pay.treasury:${assetId}`}))`;
     const current = await assetExposure(conn, assetId, deps.limits, deps.inventory);
-    const total = current.openConversionInventory + current.pendingPayouts + candidate;
+    const total = current.openConversionInventory + current.pendingPayouts - alreadyCounted + candidate;
     if (compare(total, limit) > 0) throw new PayGuardRefusal(GUARD_TREASURY_EXCEEDED, 'refused');
+  }
+
+  async function admitWithdrawal(conn: Sql, ctx: { userId: string; clientRef: string; assetId: string; amount: Amount }): Promise<void> {
+    if (deps.limits.byAsset.get(ctx.assetId) === undefined) throw new PayGuardRefusal(GUARD_TREASURY_LIMIT_UNSET, 'refused');
+    // Take the lock first, then read the own row, so the read cannot go stale.
+    await conn`SELECT pg_advisory_xact_lock(hashtext(${`pay.treasury:${ctx.assetId}`}))`;
+    const own = await conn<Array<{ amount: string }>>`
+      SELECT amount::text AS amount FROM pay.withdrawals
+       WHERE user_id = ${ctx.userId} AND client_ref = ${ctx.clientRef} AND asset_id = ${ctx.assetId} AND status IN ('pending', 'held')
+    `;
+    await admit(conn, ctx.assetId, ctx.amount, own[0] ? parseAmount(own[0].amount) : 0n);
   }
 
   // Enforcement off: exposure stays readable, nothing here ever refuses.
@@ -58,6 +72,12 @@ export function createTreasuryGuards(deps: {
       // The zero from an unwired source is not evidence of an empty book.
       if (!deps.inventory.wired) throw new PayGuardRefusal(GUARD_TREASURY_INVENTORY_UNWIRED, 'unavailable');
       await admit(ctx.sql, ctx.fromAsset, ctx.fromAmount);
+    },
+    beforeUserMoneyWithdrawal: async (ctx) => {
+      if (ctx.replay.kind !== 'fresh') return;
+      // A `pending` claim with no hold on the ledger is classified fresh but its row
+      // is already in the pending sum. Take that row out so a retry does not count twice.
+      await admitWithdrawal(ctx.tx, ctx);
     },
   };
 }

@@ -7,6 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PayService } from '../payment-service.js';
+import { UserMoneyService } from '../user-money-service.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { memoryPayoutDestinations } from '../merchant-payout-destination.js';
 import { RailRegistry } from '../rails/registry.js';
@@ -29,6 +30,7 @@ const migrations = [
   '0006_pay_merchant_status_history.sql',
   '0014_pay_merchant_payout_destinations.sql',
   '0018_pay_founder_controls_admission.sql',
+  '0037_pay_withdrawal_rail_attempts.sql',
   '0058_pay_halts.sql',
   '0059_pay_treasury_exposure_indexes.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
@@ -69,7 +71,7 @@ describe('W5 treasury exposure (real Postgres)', () => {
     await truncatePayForTest(
       sql,
       'pay',
-      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
+      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants, pay.withdrawals, pay.deposits RESTART IDENTITY CASCADE`,
     );
     ledger = new MemoryLedger();
     chain = new MemoryChain();
@@ -241,6 +243,96 @@ describe('W5 treasury exposure (real Postgres)', () => {
 
     const noLimit = composeGuards(createW5HaltsGuards({ sql, env: { PAY_TREASURY_LIMITS: 'required' }, conversionInventory: inventory }));
     await expect(noLimit.beforeConversion(ctx(1n))).rejects.toMatchObject({ code: 'pay.guard_treasury_limit_unset' });
+  });
+
+  describe('user-money withdrawals', () => {
+    const withdrawalCtx = (
+      over: Partial<{ userId: string; assetId: string; amount: bigint; clientRef: string; replay: typeof FRESH }> = {},
+    ) => ({
+      tx: sql as never,
+      userId: 'u-new',
+      assetId: 'USDT',
+      amount: amt('3'),
+      rail: 'crypto-native',
+      destination: DEST,
+      clientRef: 'c-new',
+      replay: FRESH as never,
+      ...over,
+    });
+    const seedInFlight = () =>
+      sql`INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status) VALUES
+        ('u1', 'USDT', 4, 'crypto-native', '{}'::jsonb, 'c1', 'held'),
+        ('u2', 'USDT', 3, 'crypto-native', '{}'::jsonb, 'c2', 'pending')`;
+
+    it('required: a withdrawal that would take exposure over the limit is refused; at the limit it passes', async () => {
+      await seedInFlight(); // 7 in flight
+      const guards = composeGuards(createW5HaltsGuards({ sql, env: limitsEnv({ USDT: '10' }) }));
+      await expect(guards.beforeUserMoneyWithdrawal(withdrawalCtx({ amount: amt('3') + 1n }))).rejects.toMatchObject({
+        code: 'pay.guard_treasury_exposure_exceeded',
+        kind: 'refused',
+      });
+      await expect(guards.beforeUserMoneyWithdrawal(withdrawalCtx({ amount: amt('3') }))).resolves.toBeUndefined();
+    });
+
+    it('required: under the limit passes, an unset limit refuses, replay and recovery never count', async () => {
+      const guards = composeGuards(createW5HaltsGuards({ sql, env: limitsEnv({ USDT: '10' }) }));
+      await expect(guards.beforeUserMoneyWithdrawal(withdrawalCtx({ amount: amt('1') }))).resolves.toBeUndefined();
+      const unset = composeGuards(createW5HaltsGuards({ sql, env: limitsEnv({ BTC: '10' }) }));
+      await expect(unset.beforeUserMoneyWithdrawal(withdrawalCtx())).rejects.toMatchObject({ code: 'pay.guard_treasury_limit_unset' });
+      await seedInFlight();
+      for (const replay of [
+        { kind: 'recovery', reason: 'withdrawal_hold_booked' },
+        { kind: 'replay', reason: 'withdrawal_already_sent' },
+      ] as const)
+        await expect(
+          guards.beforeUserMoneyWithdrawal(withdrawalCtx({ amount: amt('99'), replay: replay as never })),
+        ).resolves.toBeUndefined();
+    });
+
+    it('required: a retry of a pending claim (no hold yet) is not counted twice against itself', async () => {
+      await seedInFlight(); // 7 in flight, of which u2/c2 is 3 and pending
+      const guards = composeGuards(createW5HaltsGuards({ sql, env: limitsEnv({ USDT: '7' }) }));
+      await expect(
+        guards.beforeUserMoneyWithdrawal(withdrawalCtx({ userId: 'u2', clientRef: 'c2', amount: amt('3') })),
+      ).resolves.toBeUndefined();
+      await expect(
+        guards.beforeUserMoneyWithdrawal(withdrawalCtx({ userId: 'u-other', clientRef: 'c2', amount: amt('3') })),
+      ).rejects.toMatchObject({ code: 'pay.guard_treasury_exposure_exceeded' });
+    });
+
+    it('required: limit enforcement runs end to end through UserMoneyService and leaves no claim behind', async () => {
+      const money = new UserMoneyService(sql, ledger, rails, {
+        operatorCreditRails: ['card-sandbox'],
+        guards: composeGuards(createW5HaltsGuards({ sql, env: limitsEnv({ USDT: '10' }) })),
+      });
+      await money.credit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('50'),
+        rail: 'card-sandbox',
+        railRef: 'seed',
+        creditedBy: '99999999-9999-4999-8999-999999999999',
+      });
+      const request = (amount: string, clientRef: string) => ({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt(amount),
+        rail: 'card-sandbox',
+        destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+        clientRef,
+      });
+      await expect(money.withdraw(request('11', 'too-big'))).rejects.toMatchObject({ code: 'pay.guard_treasury_exposure_exceeded' });
+      expect(await sql`SELECT 1 FROM pay.withdrawals`).toHaveLength(0);
+      expect((await money.withdraw(request('10', 'fits'))).status).toBe('sent');
+    });
+
+    it('off (the default): withdrawals are not limit-checked, with no limits or with limits that would be exceeded', async () => {
+      await seedInFlight();
+      for (const env of [{}, { PAY_TREASURY_EXPOSURE_LIMITS: JSON.stringify({ USDT: '1' }) }]) {
+        const guards = composeGuards(createW5HaltsGuards({ sql, env }));
+        await expect(guards.beforeUserMoneyWithdrawal(withdrawalCtx({ amount: amt('999999') }))).resolves.toBeUndefined();
+      }
+    });
   });
 
   describe('PAY_TREASURY_LIMITS flag', () => {
