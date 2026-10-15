@@ -432,6 +432,7 @@ describe('merchant drill-down', () => {
         },
         halts: {
           readable: true,
+          autoTrip: { enabled: false, consecutiveFailures: null },
           states: [
             {
               scope: 'payout',
