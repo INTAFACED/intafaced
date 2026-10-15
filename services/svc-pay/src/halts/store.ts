@@ -96,10 +96,17 @@ export interface BlockingHalt {
  * the store cannot be read; the caller must treat that as halted.
  */
 export async function findBlockingHalt(conn: Sql, scope: PayHaltScope, merchantId?: string): Promise<BlockingHalt | null> {
-  const merchant = merchantId?.toLowerCase() ?? 'global';
+  return findBlockingHaltForTargets(conn, scope, [merchantId?.toLowerCase() ?? 'global']);
+}
+
+/**
+ * First halted switch for `scope` among the global switch and `targets` (lower-cased merchant ids).
+ * The one query behind `findBlockingHalt` and the user-money guard, so the two cannot drift.
+ */
+export async function findBlockingHaltForTargets(conn: Sql, scope: PayHaltScope, targets: readonly string[]): Promise<BlockingHalt | null> {
   const rows = await conn<Array<{ scope: PayHaltScope; target: string }>>`
     SELECT scope, target FROM pay.halts
-     WHERE scope = ${scope} AND halted AND target IN ('global', ${merchant})
+     WHERE scope = ${scope} AND halted AND target IN ${conn(['global', ...targets])}
      LIMIT 1
   `;
   return rows[0] ?? null;

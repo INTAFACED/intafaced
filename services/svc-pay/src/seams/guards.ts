@@ -131,6 +131,7 @@ export type GuardReplayReason =
   | 'window_frozen_not_posted'
   | 'payout_hold_booked'
   | 'withdrawal_already_sent'
+  | 'withdrawal_rail_outcome_recorded'
   | 'withdrawal_hold_booked';
 
 /** Fresh admission, an idempotent repeat, or the finishing of work already admitted. See REPLAY AND RECOVERY above. */

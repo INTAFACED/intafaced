@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { PayGuardRefusal, type GuardReplay, type PartialPayGuards } from '../seams/guards.js';
-import { findBlockingHalt, type PayHaltStore } from './store.js';
+import { findBlockingHalt, findBlockingHaltForTargets, type PayHaltStore } from './store.js';
 import type { PayHaltScope } from './types.js';
 
 /**
@@ -34,6 +34,9 @@ import type { PayHaltScope } from './types.js';
  *       money would leave. The booked hold is left exactly as it is, so the
  *       operation is PAUSED, not stranded: nothing is released or marked failed,
  *       and the same call completes once the halt clears.
+ *       A held withdrawal whose rail attempt already has a recorded outcome (accepted
+ *       with a receipt, or refused) sends nothing: `UserMoneyService` classifies it a
+ *       `replay` (settle or reverse only), so a halt never freezes that bookkeeping.
  *   - Unreadable store = refused with `pay.guard_halt_store_unavailable`
  *     (SERVICE_UNAVAILABLE). Never "not halted".
  *   - A halted scope = `pay.guard_halted` (SERVICE_UNAVAILABLE). The code does not
@@ -78,24 +81,20 @@ export async function assertNotHalted(
 }
 
 /**
- * Latest `failures` terminal rail results for `railId` since the payout switch last changed:
- * all refusals means the rail has failed that many times in a row.
- */
-/**
  * A user's money can leave through a payout switch set for any merchant they own
  * (settlement credits `userAvailable(merchant.userId)`). Refuse when the payout
  * scope is halted globally or for one of those merchants. Fails closed.
  */
 async function assertUserMoneyNotHalted(conn: Sql, userId: string, replay: GuardReplay): Promise<void> {
   if (passesRailSend(replay)) return;
-  let blocking: unknown;
+  let blocking;
   try {
     const owned = await conn<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE user_id = ${userId}`;
-    const targets = ['global', ...owned.map((m) => m.id.toLowerCase())];
-    const rows = await conn<Array<{ target: string }>>`
-      SELECT target FROM pay.halts WHERE scope = 'payout' AND halted AND target IN ${conn(targets)} LIMIT 1
-    `;
-    blocking = rows[0];
+    blocking = await findBlockingHaltForTargets(
+      conn,
+      'payout',
+      owned.map((m) => m.id.toLowerCase()),
+    );
   } catch (error) {
     if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
     throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
@@ -103,6 +102,10 @@ async function assertUserMoneyNotHalted(conn: Sql, userId: string, replay: Guard
   if (blocking) throw new PayGuardRefusal(GUARD_HALTED, 'unavailable');
 }
 
+/**
+ * Latest `failures` terminal rail results for `railId` since the payout switch last changed:
+ * all refusals means the rail has failed that many times in a row.
+ */
 async function railFailureStreakReached(conn: Sql, store: PayHaltStore, railId: string, failures: number): Promise<boolean> {
   const since = await store.lastChangeAt(conn, 'payout', { level: 'global' });
   const rows = await conn<Array<{ kind: string }>>`

@@ -94,7 +94,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
     await truncatePayForTest(
       poolA,
       'pay',
-      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
+      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants, pay.withdrawals, pay.deposits RESTART IDENTITY CASCADE`,
     );
     ledger = new MemoryLedger();
     chain = new MemoryChain();
@@ -496,6 +496,136 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       const sent = await money.withdraw(request);
       expect(sent.status).toBe('sent');
       expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(amt('30'));
+    });
+  });
+
+  describe('a payout halt pauses rail sends, never withdrawal bookkeeping', () => {
+    const request = { userId: USER, assetId: 'USDT', amount: amt('20'), rail: 'card-sandbox', destination: BANK, clientRef: 'w-recover' };
+    let card: CardSandboxAdapter;
+    let railCalls: number;
+    let money: UserMoneyService;
+
+    const available = async () => (await ledger.balance(userAvailable(USER, 'USDT'))).amount;
+    const haltPayout = (g: ReturnType<typeof replica>) => g.store.set(FOUNDER_A, setInput({ scope: 'payout', reason: 'rail outage' }));
+    const attemptOutcome = async () => (await poolA`SELECT outcome FROM pay.withdrawal_rail_attempts`).map((r) => r.outcome);
+    const rowStatus = async () => (await poolA`SELECT status FROM pay.withdrawals`).map((r) => r.status);
+
+    beforeEach(async () => {
+      card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+      railCalls = 0;
+      const realPayout = card.payout.bind(card);
+      card.payout = async (instruction) => {
+        railCalls++;
+        return realPayout(instruction);
+      };
+      money = new UserMoneyService(poolA, ledger, new RailRegistry([card]), {
+        operatorCreditRails: ['card-sandbox'],
+        guards: replica(poolA).guards,
+      });
+      await money.credit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('50'),
+        rail: 'card-sandbox',
+        railRef: 'seed_recover',
+        creditedBy: FOUNDER_A,
+      });
+    });
+
+    it('rail accepted, settle lost, then halted: the retry settles from the receipt and the rail is not asked again', async () => {
+      const realPost = ledger.post.bind(ledger);
+      let lost = false;
+      ledger.post = async (req) => {
+        if (req.reason === 'withdraw.settled' && !lost) {
+          lost = true;
+          throw new Error('settle lost');
+        }
+        return realPost(req);
+      };
+      await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.ledger_outcome_unknown' });
+      expect(await rowStatus()).toEqual(['held']);
+      expect(await attemptOutcome()).toEqual(['accepted']);
+      expect(railCalls).toBe(1);
+
+      const g = replica(poolA);
+      await haltPayout(g);
+      // Fresh withdrawals are still refused, so the halt is genuinely on.
+      await expect(money.withdraw({ ...request, clientRef: 'w-fresh' })).rejects.toMatchObject({ code: 'pay.guard_halted' });
+
+      const done = await money.withdraw(request);
+      expect(done.status).toBe('sent');
+      expect(await rowStatus()).toEqual(['sent']);
+      expect(railCalls).toBe(1);
+      expect(await available()).toBe(amt('30'));
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('rail refused, reverse lost, then halted: the retry reverses the hold and the rail is not asked again', async () => {
+      card.payout = async (instruction) => {
+        railCalls++;
+        return railFailure({
+          railRef: 'refused_1',
+          amount: instruction.amount,
+          assetId: instruction.assetId,
+          failureCode: 'card.declined',
+          failureReason: 'declined',
+        });
+      };
+      const realPost = ledger.post.bind(ledger);
+      let lost = false;
+      ledger.post = async (req) => {
+        if (req.reason === 'withdraw.reversed' && !lost) {
+          lost = true;
+          throw new Error('process died before the reverse');
+        }
+        return realPost(req);
+      };
+      await expect(money.withdraw(request)).rejects.toThrow('process died before the reverse');
+      expect(await rowStatus()).toEqual(['held']);
+      expect(await attemptOutcome()).toEqual(['refused']);
+      expect(await available()).toBe(amt('30'));
+
+      await haltPayout(replica(poolA));
+      await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(await rowStatus()).toEqual(['failed']);
+      expect(railCalls).toBe(1);
+      expect(await available()).toBe(amt('50'));
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('held with no rail outcome, halted: refused and still held with no rail call; it completes after the two-founder clear', async () => {
+      const realPayout = card.payout.bind(card);
+      let died = false;
+      card.payout = async (instruction) => {
+        if (!died) {
+          died = true;
+          railCalls++;
+          throw new Error('process died');
+        }
+        return realPayout(instruction); // the counting wrapper from beforeEach
+      };
+      await expect(money.withdraw(request)).rejects.toThrow('process died');
+      expect(await rowStatus()).toEqual(['held']);
+      expect(await attemptOutcome()).toEqual(['requested']);
+      expect(railCalls).toBe(1);
+
+      const g = replica(poolA);
+      await haltPayout(g);
+      await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      expect(railCalls).toBe(1);
+      expect(await rowStatus()).toEqual(['held']);
+      expect(await attemptOutcome()).toEqual(['requested']);
+      expect(await available()).toBe(amt('30'));
+
+      const clear = setInput({ scope: 'payout', halted: false, expectedVersion: '1', reason: 'all clear' });
+      await g.store.set(FOUNDER_A, clear);
+      await g.store.set(FOUNDER_B, clear);
+      const done = await money.withdraw(request);
+      expect(done.status).toBe('sent');
+      expect(railCalls).toBe(2);
+      expect(await available()).toBe(amt('30'));
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
   });
 

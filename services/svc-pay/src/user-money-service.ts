@@ -606,7 +606,10 @@ export class UserMoneyService {
    * Fresh, replay or recovery for a withdrawal claim, from the stored row.
    *   none or `failed`  fresh (a failed row opens a NEW attempt with a new hold).
    *   `sent`            replay: the money is gone, the call returns the record.
-   *   `held`            recovery: the hold is acknowledged.
+   *   `held`            recovery: the hold is acknowledged. EXCEPT when the rail has already
+   *                     answered for this attempt (`accepted` with a receipt, or `refused`):
+   *                     finishing it is bookkeeping only (settle, or reverse), no rail call,
+   *                     so it is a replay and a halt or limit must not freeze the user's money.
    *   `pending`         recovery only if the hold is already on the ledger (a ledger
    *                     throw can follow a remote commit); else fresh, nothing moved.
    */
@@ -617,7 +620,16 @@ export class UserMoneyService {
     const row = rows[0];
     if (!row || row.status === 'failed') return FRESH;
     if (row.status === 'sent') return { kind: 'replay', reason: 'withdrawal_already_sent' };
-    if (row.status === 'held') return { kind: 'recovery', reason: 'withdrawal_hold_booked' };
+    if (row.status === 'held') {
+      const [attempt] = await tx<Array<{ outcome: string; rail_ref: string | null }>>`
+        SELECT outcome, rail_ref FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${row.id} AND attempt = ${row.attempts}
+      `;
+      // Mirror `withdraw`: an acceptance counts only with its receipt (else the adapter is asked again).
+      const railAnswered = attempt?.outcome === 'refused' || (attempt?.outcome === 'accepted' && Boolean(attempt.rail_ref));
+      return railAnswered
+        ? { kind: 'replay', reason: 'withdrawal_rail_outcome_recorded' }
+        : { kind: 'recovery', reason: 'withdrawal_hold_booked' };
+    }
     return (await this.ledger.getTxByKey(`withdraw.hold:${row.id}:${row.attempts}`))
       ? { kind: 'recovery', reason: 'withdrawal_hold_booked' }
       : FRESH;
