@@ -71,7 +71,13 @@ export class OperatorNotes {
     return view(rows[0]!);
   }
 
-  async list(input: { merchantId: string; limit?: number | undefined; cursor?: string; flaggedOnly?: boolean; includeRetracted?: boolean }) {
+  async list(input: {
+    merchantId: string;
+    limit?: number | undefined;
+    cursor?: string;
+    flaggedOnly?: boolean;
+    includeRetracted?: boolean;
+  }) {
     await this.assertMerchant(input.merchantId);
     const limit = requireLimit(input.limit);
     const after = decodeCursor(input.cursor);

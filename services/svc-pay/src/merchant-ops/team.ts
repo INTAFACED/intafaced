@@ -291,7 +291,12 @@ export class TeamService {
     return rows[0];
   }
 
-  private async markRemoved(tx: TransactionSql, merchantId: string, target: { id: string; user_id: string; role: TeamRole }, actorId: string) {
+  private async markRemoved(
+    tx: TransactionSql,
+    merchantId: string,
+    target: { id: string; user_id: string; role: TeamRole },
+    actorId: string,
+  ) {
     await tx`UPDATE pay.merchant_team_members SET status = 'removed', removed_at = now(), updated_at = now() WHERE id = ${target.id}`;
     await tx`
       INSERT INTO pay.merchant_team_events (merchant_id, member_user_id, action, from_role, actor_id)

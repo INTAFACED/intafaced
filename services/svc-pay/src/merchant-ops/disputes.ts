@@ -76,10 +76,7 @@ export class DisputeOpsService {
     return c;
   }
 
-  list(
-    caller: MerchantCaller,
-    input: { limit?: number | undefined; cursor?: string; status?: DisputeCaseStatus; paymentId?: string },
-  ) {
+  list(caller: MerchantCaller, input: { limit?: number | undefined; cursor?: string; status?: DisputeCaseStatus; paymentId?: string }) {
     assertPermission(caller, 'disputes.read');
     const limit = requireLimit(input.limit);
     const after = decodeCursor(input.cursor);
@@ -105,7 +102,11 @@ export class DisputeOpsService {
       byStatus[c.status] += 1;
       if (OPEN.has(c.status)) risk.set(c.assetId, (risk.get(c.assetId) ?? 0n) + parseAmount(c.amount));
     }
-    return { total: cases.length, byStatus, amountAtRisk: [...risk].map(([assetId, amount]) => ({ assetId, amount: formatAmount(amount) })) };
+    return {
+      total: cases.length,
+      byStatus,
+      amountAtRisk: [...risk].map(([assetId, amount]) => ({ assetId, amount: formatAmount(amount) })),
+    };
   }
 
   async get(caller: MerchantCaller, disputeId: string) {
@@ -118,7 +119,15 @@ export class DisputeOpsService {
        WHERE merchant_id = ${caller.merchantId} AND dispute_id = ${c.disputeId}
        ORDER BY created_at, id`;
     const responses = await sql<
-      Array<{ id: string; action: string; note: string | null; resulting_status: string; evidence_count: number; responded_by: string; created_at: Date }>
+      Array<{
+        id: string;
+        action: string;
+        note: string | null;
+        resulting_status: string;
+        evidence_count: number;
+        responded_by: string;
+        created_at: Date;
+      }>
     >`
       SELECT id, action, note, resulting_status, evidence_count, responded_by, created_at
         FROM pay.merchant_dispute_responses
@@ -155,7 +164,15 @@ export class DisputeOpsService {
   /** Attach evidence METADATA (name, type, size, sha256). No file bytes are stored. */
   async addEvidence(
     caller: MerchantCaller,
-    input: { disputeId: string; kind: EvidenceKind; fileName: string; contentType: string; sizeBytes: number; sha256: string; note?: string },
+    input: {
+      disputeId: string;
+      kind: EvidenceKind;
+      fileName: string;
+      contentType: string;
+      sizeBytes: number;
+      sha256: string;
+      note?: string;
+    },
   ) {
     assertPermission(caller, 'disputes.respond');
     const c = this.owned(caller, input.disputeId);
@@ -174,13 +191,17 @@ export class DisputeOpsService {
    * evidence item; accepting liability closes the case and moves NO value
    * (the chargeback ledger wire stays its named refuse).
    */
-  async respond(caller: MerchantCaller, input: { requestId: string; disputeId: string; action: 'contest' | 'accept_liability'; note?: string }) {
+  async respond(
+    caller: MerchantCaller,
+    input: { requestId: string; disputeId: string; action: 'contest' | 'accept_liability'; note?: string },
+  ) {
     assertPermission(caller, 'disputes.respond');
     const sql = this.sql;
     const prior = await sql<Array<{ dispute_id: string; action: string }>>`
       SELECT dispute_id, action FROM pay.merchant_dispute_responses WHERE merchant_id = ${caller.merchantId} AND request_id = ${input.requestId}::uuid`;
     if (prior[0]) {
-      if (prior[0].dispute_id !== input.disputeId || prior[0].action !== input.action) throw new MerchantOpsError('pay.request_id_reused', 'conflict');
+      if (prior[0].dispute_id !== input.disputeId || prior[0].action !== input.action)
+        throw new MerchantOpsError('pay.request_id_reused', 'conflict');
       return this.get(caller, input.disputeId);
     }
     const c = this.owned(caller, input.disputeId);
@@ -204,7 +225,10 @@ export class DisputeOpsService {
         else this.store.accept(c.disputeId);
       } catch (error) {
         if (error instanceof DisputeCaseError) {
-          throw new MerchantOpsError(error.code === 'pay.dispute_not_found' ? 'pay.dispute_not_found' : 'pay.dispute_closed', error.code === 'pay.dispute_not_found' ? 'not_found' : 'conflict');
+          throw new MerchantOpsError(
+            error.code === 'pay.dispute_not_found' ? 'pay.dispute_not_found' : 'pay.dispute_closed',
+            error.code === 'pay.dispute_not_found' ? 'not_found' : 'conflict',
+          );
         }
         throw error;
       }

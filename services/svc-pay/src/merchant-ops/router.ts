@@ -78,7 +78,8 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
     });
 
   /** Resolve once per call: the merchant and role of whoever is calling. */
-  const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) => resolveMerchantCaller(need().sql, ctx.principal);
+  const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
+    resolveMerchantCaller(need().sql, ctx.principal);
   return router({
     merchantOps: router({
       disputes: router({
@@ -149,14 +150,20 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           .input(z.object({ limit: limitInput, cursor: cursorInput }))
           .query(({ ctx, input }) => wrapOps(async () => need().team.history(await callerOf(ctx), input))),
         /** Which role the caller holds, so the portal can hide what they cannot do. */
-        me: read
-          .input(z.object({}).strict())
-          .query(({ ctx }) => wrapOps(async () => {
+        me: read.input(z.object({}).strict()).query(({ ctx }) =>
+          wrapOps(async () => {
             const c = await callerOf(ctx);
             return { merchantId: c.merchantId, userId: c.userId, role: c.role };
-          })),
+          }),
+        ),
         invite: write
-          .input(z.object({ userId: z.string().trim().min(1).max(128), role: z.enum(TEAM_ROLES), label: z.string().trim().min(1).max(120).optional() }))
+          .input(
+            z.object({
+              userId: z.string().trim().min(1).max(128),
+              role: z.enum(TEAM_ROLES),
+              label: z.string().trim().min(1).max(120).optional(),
+            }),
+          )
           .mutation(({ ctx, input }) => wrapOps(async () => need().team.invite(await callerOf(ctx), input))),
         changeRole: write
           .input(z.object({ memberId: id, role: z.enum(TEAM_ROLES) }))
@@ -164,24 +171,22 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         remove: write
           .input(z.object({ memberId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().team.remove(await callerOf(ctx), input))),
-        leave: write
-          .input(z.object({}).strict())
-          .mutation(({ ctx }) => wrapOps(async () => need().team.leave(await callerOf(ctx)))),
+        leave: write.input(z.object({}).strict()).mutation(({ ctx }) => wrapOps(async () => need().team.leave(await callerOf(ctx)))),
         myInvitations: read
           .input(z.object({}).strict())
           .query(({ ctx }) => wrapOps(async () => need().team.myInvitations(ctx.principal.userId))),
-        acceptInvite: write
-          .input(z.object({ memberId: id }))
-          .mutation(({ ctx, input }) => wrapOps(async () => {
+        acceptInvite: write.input(z.object({ memberId: id })).mutation(({ ctx, input }) =>
+          wrapOps(async () => {
             if (!isInteractivePrincipal(ctx.principal)) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
             return need().team.acceptInvite(ctx.principal.userId, input.memberId);
-          })),
-        declineInvite: write
-          .input(z.object({ memberId: id }))
-          .mutation(({ ctx, input }) => wrapOps(async () => {
+          }),
+        ),
+        declineInvite: write.input(z.object({ memberId: id })).mutation(({ ctx, input }) =>
+          wrapOps(async () => {
             if (!isInteractivePrincipal(ctx.principal)) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
             return need().team.declineInvite(ctx.principal.userId, input.memberId);
-          })),
+          }),
+        ),
       }),
 
       kyb: router({
@@ -231,7 +236,14 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
 
       notifications: router({
         list: read
-          .input(z.object({ limit: limitInput, cursor: cursorInput, unreadOnly: z.boolean().optional(), kind: z.enum(NOTIFICATION_KINDS).optional() }))
+          .input(
+            z.object({
+              limit: limitInput,
+              cursor: cursorInput,
+              unreadOnly: z.boolean().optional(),
+              kind: z.enum(NOTIFICATION_KINDS).optional(),
+            }),
+          )
           .query(({ ctx, input }) => wrapOps(async () => need().notifications.list(await callerOf(ctx), input))),
         unreadCount: read
           .input(z.object({}).strict())
@@ -251,7 +263,10 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               z.object({
                 kind: z.enum(NOTIFICATION_KINDS),
                 inApp: z.boolean(),
-                threshold: z.string().regex(/^[0-9]+(\.[0-9]{1,18})?$/).nullish(),
+                threshold: z
+                  .string()
+                  .regex(/^[0-9]+(\.[0-9]{1,18})?$/)
+                  .nullish(),
               }),
             )
             .mutation(({ ctx, input }) => wrapOps(async () => need().notifications.setPreference(await callerOf(ctx), input))),
@@ -306,4 +321,3 @@ export function createFounderOpsRouter(deps: MerchantOpsDeps) {
   });
 }
 export type FounderOpsRouter = ReturnType<typeof createFounderOpsRouter>;
-

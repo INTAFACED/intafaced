@@ -58,7 +58,10 @@ export async function recordMerchantNotification(sql: Sql, n: NewNotification): 
 export class NotificationService {
   constructor(private readonly sql: Sql) {}
 
-  async list(caller: MerchantCaller, input: { limit?: number | undefined; cursor?: string; unreadOnly?: boolean; kind?: NotificationKind }) {
+  async list(
+    caller: MerchantCaller,
+    input: { limit?: number | undefined; cursor?: string; unreadOnly?: boolean; kind?: NotificationKind },
+  ) {
     assertPermission(caller, 'notifications.read');
     const limit = requireLimit(input.limit);
     const after = decodeCursor(input.cursor);
@@ -145,7 +148,8 @@ export class NotificationService {
 
   async setPreference(caller: MerchantCaller, input: { kind: NotificationKind; inApp: boolean; threshold?: string | null }) {
     assertPermission(caller, 'notifications.manage');
-    if (input.threshold != null && input.kind !== 'limit_threshold') throw new MerchantOpsError('pay.notification_threshold_unsupported', 'bad_request');
+    if (input.threshold != null && input.kind !== 'limit_threshold')
+      throw new MerchantOpsError('pay.notification_threshold_unsupported', 'bad_request');
     await this.sql`
       INSERT INTO pay.merchant_notification_preferences (merchant_id, kind, in_app, threshold, updated_by)
       VALUES (${caller.merchantId}, ${input.kind}, ${input.inApp}, ${input.threshold ?? null}, ${caller.userId})

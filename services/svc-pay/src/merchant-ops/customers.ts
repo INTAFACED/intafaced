@@ -84,8 +84,16 @@ export class CustomerDirectory {
          ${after ? sql`AND (last_seen, ref) < ((${after.ts}::text)::timestamptz, ${after.key})` : sql``}
        ORDER BY last_seen DESC, ref DESC
        LIMIT ${limit + 1}`;
-    const page = toPage(rows, limit, (x) => x, (x) => encodeCursor(x.cursor_ts, x.ref));
-    const totals = await this.totalsFor(caller.merchantId, page.items.map((x) => x.ref));
+    const page = toPage(
+      rows,
+      limit,
+      (x) => x,
+      (x) => encodeCursor(x.cursor_ts, x.ref),
+    );
+    const totals = await this.totalsFor(
+      caller.merchantId,
+      page.items.map((x) => x.ref),
+    );
     return {
       items: page.items.map((x) => ({
         customerRef: x.ref,
@@ -119,7 +127,9 @@ export class CustomerDirectory {
     assertPermission(caller, 'customers.read');
     const recentLimit = requireLimit(input.recentPaymentsLimit);
     const sql = this.sql;
-    const found = await sql<Array<{ payment_count: number; subscription_count: number; mandate_count: number; first_seen: Date; last_seen: Date }>>`
+    const found = await sql<
+      Array<{ payment_count: number; subscription_count: number; mandate_count: number; first_seen: Date; last_seen: Date }>
+    >`
       WITH r AS (${refs(sql, caller.merchantId)})
       SELECT count(*) FILTER (WHERE source = 'payment')::int AS payment_count,
              count(*) FILTER (WHERE source = 'subscription')::int AS subscription_count,
@@ -173,7 +183,12 @@ export class CustomerDirectory {
        ORDER BY pr.ref, p.currency`;
     for (const row of rows) {
       const list = out.get(row.ref) ?? [];
-      list.push({ assetId: row.asset_id, capturedAmount: money(row.captured), refundedAmount: money(row.refunded), paymentCount: row.payments });
+      list.push({
+        assetId: row.asset_id,
+        capturedAmount: money(row.captured),
+        refundedAmount: money(row.refunded),
+        paymentCount: row.payments,
+      });
       out.set(row.ref, list);
     }
     return out;

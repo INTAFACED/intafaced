@@ -141,7 +141,11 @@ export class ExportService {
     const prior = await sql<JobRow[]>`
       SELECT ${JOB_FIELDS(sql)} FROM pay.merchant_export_jobs WHERE merchant_id = ${caller.merchantId} AND request_id = ${input.requestId}::uuid`;
     const row = prior[0]!;
-    if (row.kind !== input.kind || JSON.stringify(sorted(row.filters)) !== JSON.stringify(sorted(input.filters)) || row.requested_by !== caller.userId) {
+    if (
+      row.kind !== input.kind ||
+      JSON.stringify(sorted(row.filters)) !== JSON.stringify(sorted(input.filters)) ||
+      row.requested_by !== caller.userId
+    ) {
       throw new MerchantOpsError('pay.request_id_reused', 'conflict');
     }
     return { job: jobView(row), created: false as const };
@@ -257,8 +261,31 @@ export class ExportService {
     let cursor: { ts: string; id: string } | null = null;
     const sql = this.sql;
     const header = {
-      payments: ['payment_id', 'created_at', 'status', 'asset', 'amount', 'captured_amount', 'refunded_amount', 'method', 'rail', 'rail_reference', 'customer_reference'],
-      settlements: ['settlement_id', 'window', 'asset', 'gross', 'fees', 'net', 'status', 'payout_method', 'payout_reference', 'created_at'],
+      payments: [
+        'payment_id',
+        'created_at',
+        'status',
+        'asset',
+        'amount',
+        'captured_amount',
+        'refunded_amount',
+        'method',
+        'rail',
+        'rail_reference',
+        'customer_reference',
+      ],
+      settlements: [
+        'settlement_id',
+        'window',
+        'asset',
+        'gross',
+        'fees',
+        'net',
+        'status',
+        'payout_method',
+        'payout_reference',
+        'created_at',
+      ],
       payouts: ['settlement_id', 'window', 'asset', 'net_paid', 'status', 'payout_method', 'payout_reference', 'created_at'],
     }[kind];
     lines.push(header.join(','));
@@ -316,11 +343,31 @@ export class ExportService {
           );
         } else if (kind === 'settlements') {
           lines.push(
-            [csvRaw(s('id')), csvText(s('window')), csvText(s('asset_id')), money(s('gross')), money(s('fees')), money(s('net')), csvRaw(s('status')), csvText(s('payout_method')), csvText(s('payout_ref')), at].join(','),
+            [
+              csvRaw(s('id')),
+              csvText(s('window')),
+              csvText(s('asset_id')),
+              money(s('gross')),
+              money(s('fees')),
+              money(s('net')),
+              csvRaw(s('status')),
+              csvText(s('payout_method')),
+              csvText(s('payout_ref')),
+              at,
+            ].join(','),
           );
         } else {
           lines.push(
-            [csvRaw(s('id')), csvText(s('window')), csvText(s('asset_id')), money(s('net')), csvRaw(s('status')), csvText(s('payout_method')), csvText(s('payout_ref')), at].join(','),
+            [
+              csvRaw(s('id')),
+              csvText(s('window')),
+              csvText(s('asset_id')),
+              money(s('net')),
+              csvRaw(s('status')),
+              csvText(s('payout_method')),
+              csvText(s('payout_ref')),
+              at,
+            ].join(','),
           );
         }
       }
@@ -333,5 +380,9 @@ export class ExportService {
 }
 
 function sorted(f: ExportFilters): Record<string, string> {
-  return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b))) as Record<string, string>;
+  return Object.fromEntries(
+    Object.entries(f)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  ) as Record<string, string>;
 }

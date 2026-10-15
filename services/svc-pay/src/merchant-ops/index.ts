@@ -1,4 +1,10 @@
-export { createFounderOpsRouter, createMerchantOpsRouter, type FounderOpsRouter, type MerchantOpsDeps, type MerchantOpsRouter } from './router.js';
+export {
+  createFounderOpsRouter,
+  createMerchantOpsRouter,
+  type FounderOpsRouter,
+  type MerchantOpsDeps,
+  type MerchantOpsRouter,
+} from './router.js';
 export {
   MERCHANT_PERMISSIONS,
   TEAM_ROLES,

@@ -43,7 +43,13 @@ export function decodeCursor(cursor: string | undefined): { ts: string; key: str
   if (cursor === undefined) return null;
   try {
     const parsed: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    if (Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === 'string' && typeof parsed[1] === 'string' && MICRO_TS.test(parsed[0])) {
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 2 &&
+      typeof parsed[0] === 'string' &&
+      typeof parsed[1] === 'string' &&
+      MICRO_TS.test(parsed[0])
+    ) {
       return { ts: parsed[0], key: parsed[1] };
     }
   } catch {

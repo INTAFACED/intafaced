@@ -20,7 +20,7 @@ import {
 import { z } from 'zod';
 import type { FounderAuthority } from '../founder-authority.js';
 import { metricsToTrpcError, type MetricsRuntime } from '../metrics/index.js';
-import type { FounderOpsRouter } from '../merchant-ops/router.js';
+import { createFounderOpsRouter, type FounderOpsRouter } from '../merchant-ops/router.js';
 import { notBuilt } from './errors.js';
 import { founderProcedure } from './founder-procedure.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
@@ -38,12 +38,13 @@ export interface FounderAdminMounts {
   metrics?: MetricsRuntime;
   /** W16: editable venue, network and wallet-route registries. Mounted only when supplied. */
   registries?: RegistriesMountDeps;
-  /** W15: operator notes (`founderAdmin.ops.*`). Mounted only when supplied. */
+  /** W15: operator notes (`founderAdmin.ops.*`). Always mounted; without a supplied router it runs with no database and refuses with `pay.not_built`. */
   ops?: FounderOpsRouter;
 }
 
 export function createFounderAdminRouter(founderAuthority: FounderAuthority, mounts: FounderAdminMounts = {}) {
-  const { metrics, registries, ops } = mounts;
+  const { metrics, registries } = mounts;
+  const ops = mounts.ops ?? createFounderOpsRouter({ founderAuthority });
   const founder = founderProcedure(founderAuthority);
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -57,7 +58,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
       // W16: editable venue, network and wallet-route registries (src/registries). Mounted only when its deps are supplied.
       ...(registries ? { registries: createRegistriesRouter({ founderAuthority, ...registries }) } : {}),
       // W15 operator notes. A router cannot be merged beside this one (tRPC rejects a second `founderAdmin`), so it is mounted here.
-      ...(ops ? { ops } : {}),
+      ops,
       merchants: router({
         list: founder
           .input(founderMerchantListInputSchema)

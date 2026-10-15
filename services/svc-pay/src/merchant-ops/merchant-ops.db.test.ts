@@ -57,7 +57,12 @@ const principalOf = (userId: string, over: Partial<Principal> = {}): Principal =
   expiresAt: new Date(Date.now() + 600_000),
   ...over,
 });
-const ctxOf = (principal: Principal | null, service: string | null = null): Context => ({ principal, service, region: 'DE', requestId: id() });
+const ctxOf = (principal: Principal | null, service: string | null = null): Context => ({
+  principal,
+  service,
+  region: 'DE',
+  requestId: id(),
+});
 
 type Fn = (input?: unknown) => Promise<unknown>;
 const at = (caller: unknown, path: string): Fn => path.split('.').reduce((n, k) => (n as Record<string, unknown>)[k], caller) as Fn;
@@ -102,7 +107,8 @@ describe('W15 merchant operations (Postgres)', () => {
   /** The same composition the live mount uses: merchantOps.* merged beside founderAdmin.* with ops mounted inside it. */
   const compose = (deps: MerchantOpsDeps) =>
     mergeRouters(createMerchantOpsRouter(deps), createFounderAdminRouter(deps.founderAuthority, { ops: createFounderOpsRouter(deps) }));
-  const build = (over: { rowCeiling?: number } = {}) => compose({ sql, founderAuthority, disputes, exportKick: noKick, exports: { ...over } });
+  const build = (over: { rowCeiling?: number } = {}) =>
+    compose({ sql, founderAuthority, disputes, exportKick: noKick, exports: { ...over } });
   const as = (userId: string, over: Partial<Principal> = {}, router = build()) => router.createCaller(ctxOf(principalOf(userId, over)));
 
   async function seedPayment(merchantId: string, customerRef: string | null, amount: string, status = 'captured') {
@@ -156,9 +162,30 @@ describe('W15 merchant operations (Postgres)', () => {
              (${merchantB}, 'none', 'pending', 'dossier-b', 'b submitted', ${userB}, 'pay:write')`;
 
     // Disputes: two for A, one for B.
-    disputes.open({ disputeId: 'dp-a1', paymentId: paymentsA[0]!, merchantId: merchantA, amount: '10', assetId: 'USDT', reasonCode: '4853' });
-    disputes.open({ disputeId: 'dp-a2', paymentId: paymentsA[1]!, merchantId: merchantA, amount: '5.5', assetId: 'USDT', reasonCode: '4837' });
-    disputes.open({ disputeId: 'dp-b1', paymentId: paymentsB[0]!, merchantId: merchantB, amount: '100', assetId: 'USDT', reasonCode: '4853' });
+    disputes.open({
+      disputeId: 'dp-a1',
+      paymentId: paymentsA[0]!,
+      merchantId: merchantA,
+      amount: '10',
+      assetId: 'USDT',
+      reasonCode: '4853',
+    });
+    disputes.open({
+      disputeId: 'dp-a2',
+      paymentId: paymentsA[1]!,
+      merchantId: merchantA,
+      amount: '5.5',
+      assetId: 'USDT',
+      reasonCode: '4837',
+    });
+    disputes.open({
+      disputeId: 'dp-b1',
+      paymentId: paymentsB[0]!,
+      merchantId: merchantB,
+      amount: '100',
+      assetId: 'USDT',
+      reasonCode: '4853',
+    });
   }, 120_000);
 
   afterAll(async () => {
@@ -172,15 +199,29 @@ describe('W15 merchant operations (Postgres)', () => {
       // B owns: a dispute (dp-b1), a customer ref, an export job, a notification, a team member.
       const b = as(userB);
       const bExport = (await b.merchantOps.exports.create({ requestId: id(), kind: 'payments', filters: {} })) as { jobId: string };
-      const bNote = (await sql<Array<{ id: string }>>`
-        INSERT INTO pay.merchant_notifications (merchant_id, kind, title) VALUES (${merchantB}, 'export_ready', 'b only') RETURNING id`)[0]!.id;
+      const bNote = (
+        await sql<Array<{ id: string }>>`
+        INSERT INTO pay.merchant_notifications (merchant_id, kind, title) VALUES (${merchantB}, 'export_ready', 'b only') RETURNING id`
+      )[0]!.id;
       const member = id();
       const invited = (await b.merchantOps.team.invite({ userId: member, role: 'viewer' })) as { memberId: string };
 
       const a = as(userA);
       const cases: Array<[string, (v: string) => unknown, string, string]> = [
         ['disputes.get', (v) => ({ disputeId: v }), 'dp-b1', 'dp-nonexistent'],
-        ['disputes.addEvidence', (v) => ({ disputeId: v, kind: 'receipt', fileName: 'r.pdf', contentType: 'application/pdf', sizeBytes: 1, sha256: 'a'.repeat(64) }), 'dp-b1', 'dp-nonexistent'],
+        [
+          'disputes.addEvidence',
+          (v) => ({
+            disputeId: v,
+            kind: 'receipt',
+            fileName: 'r.pdf',
+            contentType: 'application/pdf',
+            sizeBytes: 1,
+            sha256: 'a'.repeat(64),
+          }),
+          'dp-b1',
+          'dp-nonexistent',
+        ],
         ['disputes.respond', (v) => ({ requestId: id(), disputeId: v, action: 'accept_liability' }), 'dp-b1', 'dp-nonexistent'],
         ['customers.get', (v) => ({ customerRef: v, recentPaymentsLimit: 5 }), 'cust-b1', 'cust-nonexistent'],
         ['exports.get', (v) => ({ jobId: v }), bExport.jobId, id()],
@@ -224,20 +265,27 @@ describe('W15 merchant operations (Postgres)', () => {
   });
 
   // ── M2 ────────────────────────────────────────────────────────────────────
-  describe('M2: lists return only the caller\'s rows', () => {
+  describe("M2: lists return only the caller's rows", () => {
     it('disputes', async () => {
       const a = (await as(userA).merchantOps.disputes.list({ limit: 10 })) as { items: Array<{ disputeId: string }> };
       expect(a.items.map((d) => d.disputeId).sort()).toEqual(['dp-a1', 'dp-a2']);
       const b = (await as(userB).merchantOps.disputes.list({ limit: 10 })) as { items: Array<{ disputeId: string }> };
       expect(b.items.map((d) => d.disputeId)).toEqual(['dp-b1']);
-      const s = (await as(userA).merchantOps.disputes.summary({})) as { total: number; amountAtRisk: Array<{ assetId: string; amount: string }> };
+      const s = (await as(userA).merchantOps.disputes.summary({})) as {
+        total: number;
+        amountAtRisk: Array<{ assetId: string; amount: string }>;
+      };
       expect(s.total).toBe(2);
       expect(s.amountAtRisk).toEqual([{ assetId: 'USDT', amount: '15.5' }]);
     });
 
     it('customers: a ref only the other merchant used is absent, and a shared ref counts only own money', async () => {
       const a = (await as(userA).merchantOps.customers.list({ limit: 50 })) as {
-        items: Array<{ customerRef: string; paymentCount: number; totals: Array<{ assetId: string; capturedAmount: string; refundedAmount: string; paymentCount: number }> }>;
+        items: Array<{
+          customerRef: string;
+          paymentCount: number;
+          totals: Array<{ assetId: string; capturedAmount: string; refundedAmount: string; paymentCount: number }>;
+        }>;
       };
       const refs = a.items.map((c) => c.customerRef);
       expect(refs).toContain('cust-a1');
@@ -254,9 +302,11 @@ describe('W15 merchant operations (Postgres)', () => {
     });
 
     it('customer detail: lifetime totals, recent payments, and subscriptions/mandates feed the directory', async () => {
-      const mandate = (await sql<Array<{ id: string }>>`
+      const mandate = (
+        await sql<Array<{ id: string }>>`
         INSERT INTO pay.subscription_mandates (merchant_id, customer_id, asset_id, amount, cadence, starts_at)
-        VALUES (${merchantA}, 'cust-sub', 'USDT', '9', 'monthly', now()) RETURNING id`)[0]!.id;
+        VALUES (${merchantA}, 'cust-sub', 'USDT', '9', 'monthly', now()) RETURNING id`
+      )[0]!.id;
       await sql`
         INSERT INTO pay.subscriptions (mandate_id, merchant_id, customer_id, next_run_at)
         VALUES (${mandate}, ${merchantA}, 'cust-sub', now() + interval '1 day')`;
@@ -267,11 +317,18 @@ describe('W15 merchant operations (Postgres)', () => {
       };
       expect(d.recentPayments).toHaveLength(1);
       expect(paymentsA).toContain(d.recentPayments[0]!.paymentId);
-      const sub = (await a.merchantOps.customers.get({ customerRef: 'cust-sub', recentPaymentsLimit: 1 })) as { subscriptionCount: number; mandateCount: number; paymentCount: number };
+      const sub = (await a.merchantOps.customers.get({ customerRef: 'cust-sub', recentPaymentsLimit: 1 })) as {
+        subscriptionCount: number;
+        mandateCount: number;
+        paymentCount: number;
+      };
       expect(sub.subscriptionCount).toBe(1);
       expect(sub.mandateCount).toBe(1);
       expect(sub.paymentCount).toBe(0);
-      const summary = (await a.merchantOps.customers.summary({ activeSince: '2000-01-01T00:00:00Z' })) as { customerCount: number; repeatCustomerCount: number };
+      const summary = (await a.merchantOps.customers.summary({ activeSince: '2000-01-01T00:00:00Z' })) as {
+        customerCount: number;
+        repeatCustomerCount: number;
+      };
       expect(summary.customerCount).toBe(4); // cust-a1, shared, the formula-looking ref, cust-sub
       expect(summary.repeatCustomerCount).toBe(1); // cust-a1 has two payments
     });
@@ -292,7 +349,7 @@ describe('W15 merchant operations (Postgres)', () => {
 
   // ── KYB ───────────────────────────────────────────────────────────────────
   describe('merchant-scoped KYB view', () => {
-    it('shows the transitions, hides the operator and their written reason, keeps the merchant\'s own reason', async () => {
+    it("shows the transitions, hides the operator and their written reason, keeps the merchant's own reason", async () => {
       const a = as(userA);
       const cur = (await a.merchantOps.kyb.current({})) as { kybStatus: string };
       expect(cur.kybStatus).toBe('none');
@@ -309,7 +366,7 @@ describe('W15 merchant operations (Postgres)', () => {
   });
 
   // ── M6 ────────────────────────────────────────────────────────────────────
-  describe('M6: exports contain only the caller\'s rows', () => {
+  describe("M6: exports contain only the caller's rows", () => {
     const runner = () => new ExportService(sql, {});
 
     async function exportCsv(userId: string, kind: 'payments' | 'settlements' | 'payouts', filters = {}) {
@@ -319,11 +376,15 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(await runner().process(job.jobId)).toBe(true);
       const got = (await caller.merchantOps.exports.get({ jobId: job.jobId })) as { status: string; rowCount: number };
       expect(got.status).toBe('ready');
-      const file = (await caller.merchantOps.exports.download({ jobId: job.jobId })) as { content: string; rowCount: number; contentType: string };
+      const file = (await caller.merchantOps.exports.download({ jobId: job.jobId })) as {
+        content: string;
+        rowCount: number;
+        contentType: string;
+      };
       return { job, file, got };
     }
 
-    it('payments: every A payment, none of B\'s, money as decimal strings, formulas neutralised', async () => {
+    it("payments: every A payment, none of B's, money as decimal strings, formulas neutralised", async () => {
       const { file } = await exportCsv(userA, 'payments');
       for (const p of paymentsA) expect(file.content).toContain(p);
       for (const p of paymentsB) expect(file.content).not.toContain(p);
@@ -332,7 +393,9 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(file.rowCount).toBe(paymentsA.length);
       expect(file.contentType).toContain('text/csv');
       const lines = file.content.trim().split('\r\n');
-      expect(lines[0]).toBe('payment_id,created_at,status,asset,amount,captured_amount,refunded_amount,method,rail,rail_reference,customer_reference');
+      expect(lines[0]).toBe(
+        'payment_id,created_at,status,asset,amount,captured_amount,refunded_amount,method,rail,rail_reference,customer_reference',
+      );
       expect(lines).toHaveLength(paymentsA.length + 1);
       expect(file.content).not.toMatch(/risk|profile/i);
       // The cell that begins with "=" is quoted-and-prefixed, not left to run as a formula.
@@ -361,17 +424,23 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(file.rowCount).toBe(paymentsA.length);
       const none = await exportCsv(userA, 'payments', { status: 'failed' });
       expect(none.file.rowCount).toBe(0);
-      const bad = await refusal(() => as(userA).merchantOps.exports.create({ requestId: id(), kind: 'payments', filters: { status: 'paid_out' } }));
+      const bad = await refusal(() =>
+        as(userA).merchantOps.exports.create({ requestId: id(), kind: 'payments', filters: { status: 'paid_out' } }),
+      );
       expect(bad.cause).toBe('pay.export_filter_invalid');
     });
 
-    it('B cannot read or list A\'s job, and the job ready notification lands on the right merchant only', async () => {
+    it("B cannot read or list A's job, and the job ready notification lands on the right merchant only", async () => {
       const { job } = await exportCsv(userA, 'payments');
       const bList = (await as(userB).merchantOps.exports.list({ limit: 50 })) as { items: Array<{ jobId: string }> };
       expect(bList.items.map((j) => j.jobId)).not.toContain(job.jobId);
-      const aNotes = (await as(userA).merchantOps.notifications.list({ limit: 100, kind: 'export_ready' })) as { items: Array<{ subjectId: string }> };
+      const aNotes = (await as(userA).merchantOps.notifications.list({ limit: 100, kind: 'export_ready' })) as {
+        items: Array<{ subjectId: string }>;
+      };
       expect(aNotes.items.map((n) => n.subjectId)).toContain(job.jobId);
-      const bNotes = (await as(userB).merchantOps.notifications.list({ limit: 100, kind: 'export_ready' })) as { items: Array<{ subjectId: string }> };
+      const bNotes = (await as(userB).merchantOps.notifications.list({ limit: 100, kind: 'export_ready' })) as {
+        items: Array<{ subjectId: string }>;
+      };
       expect(bNotes.items.map((n) => n.subjectId)).not.toContain(job.jobId);
     });
 
@@ -411,7 +480,11 @@ describe('W15 merchant operations (Postgres)', () => {
       const job = (await a.merchantOps.exports.create({ requestId: id(), kind: 'payments', filters: {} })) as { jobId: string };
       await tiny.process(job.jobId);
       const file = (await a.merchantOps.exports.download({ jobId: job.jobId })) as { content: string };
-      const ids = file.content.trim().split('\r\n').slice(1).map((l) => l.split(',')[0]!);
+      const ids = file.content
+        .trim()
+        .split('\r\n')
+        .slice(1)
+        .map((l) => l.split(',')[0]!);
       expect(ids).toHaveLength(paymentsA.length);
       expect(new Set(ids).size).toBe(paymentsA.length);
       expect([...ids].sort()).toEqual([...paymentsA].sort());
@@ -428,7 +501,11 @@ describe('W15 merchant operations (Postgres)', () => {
   // ── pagination ────────────────────────────────────────────────────────────
   describe('cursor pagination is stable and complete', () => {
     /** Walk a list with a small page size; the walk must equal the one-page answer, in the same order. */
-    async function walk(call: (input: { limit: number; cursor?: string }) => Promise<unknown>, key: (item: any) => string, pageSize: number) {
+    async function walk(
+      call: (input: { limit: number; cursor?: string }) => Promise<unknown>,
+      key: (item: any) => string,
+      pageSize: number,
+    ) {
       const walked: string[] = [];
       let cursor: string | undefined;
       let pages = 0;
@@ -446,12 +523,28 @@ describe('W15 merchant operations (Postgres)', () => {
 
     it('customers, disputes, kyb history and exports page without skipping or repeating a row', async () => {
       const a = as(userA);
-      const c = await walk((i) => a.merchantOps.customers.list(i), (x) => x.customerRef, 1);
+      const c = await walk(
+        (i) => a.merchantOps.customers.list(i),
+        (x) => x.customerRef,
+        1,
+      );
       expect(c.walked.length).toBeGreaterThanOrEqual(4);
       expect(c.pages).toBe(c.walked.length);
-      await walk((i) => a.merchantOps.disputes.list(i), (x) => x.disputeId, 1);
-      await walk((i) => a.merchantOps.kyb.history(i), (x) => x.seq, 1);
-      await walk((i) => a.merchantOps.exports.list(i), (x) => x.jobId, 2);
+      await walk(
+        (i) => a.merchantOps.disputes.list(i),
+        (x) => x.disputeId,
+        1,
+      );
+      await walk(
+        (i) => a.merchantOps.kyb.history(i),
+        (x) => x.seq,
+        1,
+      );
+      await walk(
+        (i) => a.merchantOps.exports.list(i),
+        (x) => x.jobId,
+        2,
+      );
     });
 
     it('sequence-keyed lists order numerically past 9 rows (text ordering would put 10 before 9)', async () => {
@@ -463,14 +556,24 @@ describe('W15 merchant operations (Postgres)', () => {
           VALUES (${merchant}, 'none', 'pending', ${'r' + i}, ${owner}, 'pay:write')`;
       }
       const c = as(owner);
-      const walked = await walk((i) => c.merchantOps.kyb.history(i), (x) => x.seq, 5);
+      const walked = await walk(
+        (i) => c.merchantOps.kyb.history(i),
+        (x) => x.seq,
+        5,
+      );
       expect(walked.walked).toHaveLength(12);
       expect(walked.walked.map(Number)).toEqual([...walked.walked.map(Number)].sort((x, y) => y - x));
       const f = as(founderUser);
       for (let i = 0; i < 12; i += 1) await f.founderAdmin.ops.notes.add({ merchantId: merchant, body: `n${i}`, tags: [], flagged: false });
-      const notes = await walk((i) => f.founderAdmin.ops.notes.list({ merchantId: merchant, ...i }), (x) => x.noteId, 5);
+      const notes = await walk(
+        (i) => f.founderAdmin.ops.notes.list({ merchantId: merchant, ...i }),
+        (x) => x.noteId,
+        5,
+      );
       expect(notes.walked).toHaveLength(12);
-      const bodies = ((await f.founderAdmin.ops.notes.list({ merchantId: merchant, limit: 200 })) as { items: Array<{ body: string }> }).items.map((n) => n.body);
+      const bodies = (
+        (await f.founderAdmin.ops.notes.list({ merchantId: merchant, limit: 200 })) as { items: Array<{ body: string }> }
+      ).items.map((n) => n.body);
       expect(bodies).toEqual(Array.from({ length: 12 }, (_, i) => `n${11 - i}`));
     });
   });
@@ -479,7 +582,12 @@ describe('W15 merchant operations (Postgres)', () => {
   describe('disputes over the existing case mechanism', () => {
     it('detail shows the case, the linked payment, and no response deadline invented', async () => {
       const d = (await as(userA).merchantOps.disputes.get({ disputeId: 'dp-a1' })) as {
-        status: string; amount: string; responseDueAt: null; canRespond: boolean; ledgerWire: string; payment: { paymentId: string } | null;
+        status: string;
+        amount: string;
+        responseDueAt: null;
+        canRespond: boolean;
+        ledgerWire: string;
+        payment: { paymentId: string } | null;
       };
       expect(d).toMatchObject({ status: 'open', amount: '10', responseDueAt: null, canRespond: true, ledgerWire: 'refused' });
       expect(d.payment?.paymentId).toBe(paymentsA[0]);
@@ -493,20 +601,33 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(disputes.get('dp-a1')?.status).toBe('open');
 
       const ev = (await a.merchantOps.disputes.addEvidence({
-        disputeId: 'dp-a1', kind: 'shipping_proof', fileName: 'ups.pdf', contentType: 'application/pdf', sizeBytes: 1234, sha256: 'AB'.repeat(32), note: 'tracking',
+        disputeId: 'dp-a1',
+        kind: 'shipping_proof',
+        fileName: 'ups.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 1234,
+        sha256: 'AB'.repeat(32),
+        note: 'tracking',
       })) as { sha256: string; sizeBytes: string };
       expect(ev.sha256).toBe('ab'.repeat(32));
       expect(ev.sizeBytes).toBe('1234');
 
       const done = (await a.merchantOps.disputes.respond({ requestId, disputeId: 'dp-a1', action: 'contest', note: 'proof attached' })) as {
-        status: string; evidence: unknown[]; responses: Array<{ action: string }>;
+        status: string;
+        evidence: unknown[];
+        responses: Array<{ action: string }>;
       };
       expect(done.status).toBe('contested');
       expect(done.evidence).toHaveLength(1);
       expect(done.responses).toHaveLength(1);
       expect(disputes.get('dp-a1')?.status).toBe('contested');
 
-      const replay = (await a.merchantOps.disputes.respond({ requestId, disputeId: 'dp-a1', action: 'contest', note: 'proof attached' })) as { responses: unknown[] };
+      const replay = (await a.merchantOps.disputes.respond({
+        requestId,
+        disputeId: 'dp-a1',
+        action: 'contest',
+        note: 'proof attached',
+      })) as { responses: unknown[] };
       expect(replay.responses).toHaveLength(1);
       const reused = await refusal(() => a.merchantOps.disputes.respond({ requestId, disputeId: 'dp-a1', action: 'accept_liability' }));
       expect(reused.cause).toBe('pay.request_id_reused');
@@ -517,17 +638,27 @@ describe('W15 merchant operations (Postgres)', () => {
     it('accepting liability closes the case, moves no value, and a closed case takes no more evidence', async () => {
       const a = as(userA);
       const done = (await a.merchantOps.disputes.respond({ requestId: id(), disputeId: 'dp-a2', action: 'accept_liability' })) as {
-        status: string; canRespond: boolean; ledgerWire: string; closedAt: string | null;
+        status: string;
+        canRespond: boolean;
+        ledgerWire: string;
+        closedAt: string | null;
       };
       expect(done).toMatchObject({ status: 'accepted', canRespond: false, ledgerWire: 'refused' });
       expect(done.closedAt).not.toBeNull();
       const late = await refusal(() =>
-        a.merchantOps.disputes.addEvidence({ disputeId: 'dp-a2', kind: 'other', fileName: 'x.txt', contentType: 'text/plain', sizeBytes: 1, sha256: 'c'.repeat(64) }),
+        a.merchantOps.disputes.addEvidence({
+          disputeId: 'dp-a2',
+          kind: 'other',
+          fileName: 'x.txt',
+          contentType: 'text/plain',
+          sizeBytes: 1,
+          sha256: 'c'.repeat(64),
+        }),
       );
       expect(late.cause).toBe('pay.dispute_closed');
     });
 
-    it('the merchant\'s evidence and decisions cannot be edited or deleted', async () => {
+    it("the merchant's evidence and decisions cannot be edited or deleted", async () => {
       await expect(sql`UPDATE pay.merchant_dispute_evidence SET note = 'x'`).rejects.toThrow(/append-only/);
       await expect(sql`DELETE FROM pay.merchant_dispute_responses`).rejects.toThrow(/append-only/);
     });
@@ -548,7 +679,10 @@ describe('W15 merchant operations (Postgres)', () => {
     const ownerCaller = () => as(owner);
 
     it('an invitation grants nothing until the invited account accepts it', async () => {
-      const inv = (await ownerCaller().merchantOps.team.invite({ userId: people.admin, role: 'admin', label: 'Ops lead' })) as { memberId: string; status: string };
+      const inv = (await ownerCaller().merchantOps.team.invite({ userId: people.admin, role: 'admin', label: 'Ops lead' })) as {
+        memberId: string;
+        status: string;
+      };
       expect(inv.status).toBe('invited');
       memberIds.admin = inv.memberId;
       const before = await refusal(() => as(people.admin).merchantOps.team.list({ limit: 10 }));
@@ -591,16 +725,22 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(gone.cause).toBe('pay.merchant_ops_not_merchant');
     });
 
-    it('an invite reveals nothing about an outside account; a merchant owner or another team\'s member cannot accept', async () => {
+    it("an invite reveals nothing about an outside account; a merchant owner or another team's member cannot accept", async () => {
       // Inviting the owner of merchant B, or a member of another team, looks exactly like inviting anyone else.
-      const otherOwner = (await ownerCaller().merchantOps.team.invite({ userId: userB, role: 'viewer' })) as { memberId: string; status: string };
+      const otherOwner = (await ownerCaller().merchantOps.team.invite({ userId: userB, role: 'viewer' })) as {
+        memberId: string;
+        status: string;
+      };
       expect(otherOwner.status).toBe('invited');
       const elsewhere = id();
       const otherMerchantOwner = id();
       await sql`INSERT INTO pay.merchants (user_id) VALUES (${otherMerchantOwner})`;
       const theirs = (await as(otherMerchantOwner).merchantOps.team.invite({ userId: elsewhere, role: 'viewer' })) as { memberId: string };
       await as(elsewhere).merchantOps.team.acceptInvite({ memberId: theirs.memberId });
-      const busy = (await ownerCaller().merchantOps.team.invite({ userId: elsewhere, role: 'viewer' })) as { memberId: string; status: string };
+      const busy = (await ownerCaller().merchantOps.team.invite({ userId: elsewhere, role: 'viewer' })) as {
+        memberId: string;
+        status: string;
+      };
       expect(busy.status).toBe('invited');
       // The one-team rule holds where it matters: on accept. One answer for both.
       const a = await refusal(() => as(userB).merchantOps.team.acceptInvite({ memberId: otherOwner.memberId }));
@@ -618,12 +758,20 @@ describe('W15 merchant operations (Postgres)', () => {
       await as(people.viewer).merchantOps.team.leave({});
       const gone = await refusal(() => as(people.viewer).merchantOps.team.list({ limit: 5 }));
       expect(gone.cause).toBe('pay.merchant_ops_not_merchant');
-      const again = (await ownerCaller().merchantOps.team.invite({ userId: people.viewer, role: 'viewer' })) as { memberId: string; status: string };
+      const again = (await ownerCaller().merchantOps.team.invite({ userId: people.viewer, role: 'viewer' })) as {
+        memberId: string;
+        status: string;
+      };
       expect(again.status).toBe('invited');
       expect(again.memberId).toBe(memberIds.viewer);
       await as(people.viewer).merchantOps.team.acceptInvite({ memberId: again.memberId });
-      const history = (await ownerCaller().merchantOps.team.history({ limit: 100 })) as { items: Array<{ action: string; memberUserId: string }> };
-      const forViewer = history.items.filter((e) => e.memberUserId === people.viewer).map((e) => e.action).reverse();
+      const history = (await ownerCaller().merchantOps.team.history({ limit: 100 })) as {
+        items: Array<{ action: string; memberUserId: string }>;
+      };
+      const forViewer = history.items
+        .filter((e) => e.memberUserId === people.viewer)
+        .map((e) => e.action)
+        .reverse();
       expect(forViewer).toEqual(['invited', 'accepted', 'removed', 'invited', 'accepted']);
       await expect(sql`UPDATE pay.merchant_team_events SET actor_id = 'x'`).rejects.toThrow(/append-only/);
     });
@@ -652,7 +800,14 @@ describe('W15 merchant operations (Postgres)', () => {
 
     it('role matrix on the operations APIs: viewer reads only, developer exports, finance answers disputes', async () => {
       disputes.open({ disputeId: 'dp-team', paymentId: id(), merchantId: merchant, amount: '3', assetId: 'USDT' });
-      const evidence = { disputeId: 'dp-team', kind: 'receipt' as const, fileName: 'r.pdf', contentType: 'application/pdf', sizeBytes: 1, sha256: 'd'.repeat(64) };
+      const evidence = {
+        disputeId: 'dp-team',
+        kind: 'receipt' as const,
+        fileName: 'r.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 1,
+        sha256: 'd'.repeat(64),
+      };
       const viewer = as(people.viewer);
       const dev = as(people.developer);
       const fin = as(people.finance);
@@ -666,8 +821,12 @@ describe('W15 merchant operations (Postgres)', () => {
       }
       // viewer cannot write anything
       expect((await refusal(() => viewer.merchantOps.disputes.addEvidence(evidence))).cause).toBe('pay.team_role_forbidden');
-      expect((await refusal(() => viewer.merchantOps.exports.create({ requestId: id(), kind: 'payments', filters: {} }))).cause).toBe('pay.team_role_forbidden');
-      expect((await refusal(() => viewer.merchantOps.notifications.preferences.set({ kind: 'dispute_due', inApp: false }))).cause).toBe('pay.team_role_forbidden');
+      expect((await refusal(() => viewer.merchantOps.exports.create({ requestId: id(), kind: 'payments', filters: {} }))).cause).toBe(
+        'pay.team_role_forbidden',
+      );
+      expect((await refusal(() => viewer.merchantOps.notifications.preferences.set({ kind: 'dispute_due', inApp: false }))).cause).toBe(
+        'pay.team_role_forbidden',
+      );
       expect((await refusal(() => viewer.merchantOps.team.invite({ userId: id(), role: 'viewer' }))).cause).toBe('pay.team_role_forbidden');
       // developer: exports yes, disputes no
       expect((await refusal(() => dev.merchantOps.disputes.addEvidence(evidence))).cause).toBe('pay.team_role_forbidden');
@@ -686,9 +845,15 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(rolesWithPermission('payout.approve').sort()).toEqual(['admin', 'finance', 'owner']);
       const fin = await requireMerchantPermission(sql, { userId: people.finance }, 'payout.approve');
       expect(fin).toMatchObject({ merchantId: merchant, role: 'finance' });
-      await expect(requireMerchantPermission(sql, { userId: people.viewer }, 'payout.approve')).rejects.toMatchObject({ code: 'pay.team_role_forbidden' });
-      await expect(requireMerchantPermission(sql, { userId: people.developer }, 'payout.approve')).rejects.toMatchObject({ code: 'pay.team_role_forbidden' });
-      await expect(requireMerchantPermission(sql, { userId: id() }, 'payout.approve')).rejects.toMatchObject({ code: 'pay.merchant_ops_not_merchant' });
+      await expect(requireMerchantPermission(sql, { userId: people.viewer }, 'payout.approve')).rejects.toMatchObject({
+        code: 'pay.team_role_forbidden',
+      });
+      await expect(requireMerchantPermission(sql, { userId: people.developer }, 'payout.approve')).rejects.toMatchObject({
+        code: 'pay.team_role_forbidden',
+      });
+      await expect(requireMerchantPermission(sql, { userId: id() }, 'payout.approve')).rejects.toMatchObject({
+        code: 'pay.merchant_ops_not_merchant',
+      });
     });
   });
 
@@ -700,7 +865,7 @@ describe('W15 merchant operations (Postgres)', () => {
       merchant = (await sql<Array<{ id: string }>>`INSERT INTO pay.merchants (user_id) VALUES (${owner}) RETURNING id`)[0]!.id;
     });
 
-    it('producers are idempotent on the dedupe key and honour the merchant\'s preference', async () => {
+    it("producers are idempotent on the dedupe key and honour the merchant's preference", async () => {
       const c = as(owner);
       const n = { merchantId: merchant, kind: 'settlement_failed' as const, title: 'Settlement failed', dedupeKey: 's:1' };
       const first = await recordMerchantNotification(sql, n);
@@ -708,18 +873,26 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(await recordMerchantNotification(sql, n)).toBeNull();
       await c.merchantOps.notifications.preferences.set({ kind: 'payout_failed', inApp: false });
       expect(await recordMerchantNotification(sql, { merchantId: merchant, kind: 'payout_failed', title: 'nope' })).toBeNull();
-      const prefs = (await c.merchantOps.notifications.preferences.list({})) as Array<{ kind: string; inApp: boolean; threshold: string | null }>;
+      const prefs = (await c.merchantOps.notifications.preferences.list({})) as Array<{
+        kind: string;
+        inApp: boolean;
+        threshold: string | null;
+      }>;
       expect(prefs.find((p) => p.kind === 'payout_failed')?.inApp).toBe(false);
       expect(prefs.find((p) => p.kind === 'dispute_due')).toMatchObject({ inApp: true, threshold: null });
     });
 
-    it('thresholds are the merchant\'s own decimal string, only on limit_threshold', async () => {
+    it("thresholds are the merchant's own decimal string, only on limit_threshold", async () => {
       const c = as(owner);
-      const set = (await c.merchantOps.notifications.preferences.set({ kind: 'limit_threshold', inApp: true, threshold: '80.5' })) as { threshold: string };
+      const set = (await c.merchantOps.notifications.preferences.set({ kind: 'limit_threshold', inApp: true, threshold: '80.5' })) as {
+        threshold: string;
+      };
       expect(set.threshold).toBe('80.5');
       const bad = await refusal(() => c.merchantOps.notifications.preferences.set({ kind: 'dispute_due', inApp: true, threshold: '5' }));
       expect(bad.cause).toBe('pay.notification_threshold_unsupported');
-      await expect(c.merchantOps.notifications.preferences.set({ kind: 'limit_threshold', inApp: true, threshold: '-1' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      await expect(
+        c.merchantOps.notifications.preferences.set({ kind: 'limit_threshold', inApp: true, threshold: '-1' }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     });
 
     it('cursor pagination walks every row once, read state works, bad cursors are refused', async () => {
@@ -731,7 +904,8 @@ describe('W15 merchant operations (Postgres)', () => {
       let cursor: string | undefined;
       for (let guard = 0; guard < 10; guard += 1) {
         const page = (await c.merchantOps.notifications.list({ limit: 2, kind: 'webhook_failing', ...(cursor ? { cursor } : {}) })) as {
-          items: Array<{ notificationId: string; title: string }>; nextCursor: string | null;
+          items: Array<{ notificationId: string; title: string }>;
+          nextCursor: string | null;
         };
         seen.push(...page.items.map((i) => i.title));
         if (!page.nextCursor) break;
@@ -742,15 +916,21 @@ describe('W15 merchant operations (Postgres)', () => {
 
       const before = (await c.merchantOps.notifications.unreadCount({})) as { unread: number };
       expect(before.unread).toBeGreaterThanOrEqual(5);
-      const one = ((await c.merchantOps.notifications.list({ limit: 1, kind: 'webhook_failing' })) as { items: Array<{ notificationId: string }> }).items[0]!;
+      const one = (
+        (await c.merchantOps.notifications.list({ limit: 1, kind: 'webhook_failing' })) as { items: Array<{ notificationId: string }> }
+      ).items[0]!;
       expect(await c.merchantOps.notifications.markRead({ notificationIds: [one.notificationId] })).toEqual({ marked: 1 });
       expect(await c.merchantOps.notifications.markRead({ notificationIds: [one.notificationId] })).toEqual({ marked: 0 });
-      const unread = (await c.merchantOps.notifications.list({ limit: 50, unreadOnly: true })) as { items: Array<{ notificationId: string }> };
+      const unread = (await c.merchantOps.notifications.list({ limit: 50, unreadOnly: true })) as {
+        items: Array<{ notificationId: string }>;
+      };
       expect(unread.items.map((i) => i.notificationId)).not.toContain(one.notificationId);
       await c.merchantOps.notifications.markAllRead({});
       expect(((await c.merchantOps.notifications.unreadCount({})) as { unread: number }).unread).toBe(0);
 
-      expect((await refusal(() => c.merchantOps.notifications.list({ limit: 2, cursor: 'not-a-cursor' }))).cause).toBe('pay.cursor_invalid');
+      expect((await refusal(() => c.merchantOps.notifications.list({ limit: 2, cursor: 'not-a-cursor' }))).cause).toBe(
+        'pay.cursor_invalid',
+      );
       expect((await refusal(() => c.merchantOps.notifications.list({}))).cause).toBe('pay.merchant_ops_list_limit_unset');
     });
   });
@@ -776,19 +956,33 @@ describe('W15 merchant operations (Postgres)', () => {
     it('G1: a merchant session (MFA, pay scopes, no founder entitlement) is refused', async () => {
       const f = vi.fn<typeof fetch>(async () => new Response('{}', { status: 403 }));
       await refusedEverywhere(principalOf(userA, { scopes: ['pay:read', 'pay:write', 'pay:payout'] }), f, ['FORBIDDEN']);
-      await refusedEverywhere(principalOf(userA), vi.fn<typeof fetch>(async () => entitlementFor(userA, 'revoked')), ['FORBIDDEN']);
+      await refusedEverywhere(
+        principalOf(userA),
+        vi.fn<typeof fetch>(async () => entitlementFor(userA, 'revoked')),
+        ['FORBIDDEN'],
+      );
     });
 
     it('G2: an API key with admin scopes is refused before identity is asked, even for a real founder', async () => {
       const f = vi.fn<typeof fetch>(async () => entitlementFor(founderUser));
-      await refusedEverywhere(principalOf(founderUser, { kid: id(), scopes: ['admin:read', 'admin:write', 'admin:compliance'] }), f, ['FORBIDDEN']);
+      await refusedEverywhere(principalOf(founderUser, { kid: id(), scopes: ['admin:read', 'admin:write', 'admin:compliance'] }), f, [
+        'FORBIDDEN',
+      ]);
       expect(f).not.toHaveBeenCalled();
     });
 
     it('G3: admin scopes without a live founder entitlement, a team admin, and a team member are refused', async () => {
-      await refusedEverywhere(principalOf(userA, { scopes: ['admin:read', 'admin:write', 'admin:compliance'] }), vi.fn<typeof fetch>(async () => entitlementFor(userA, 'revoked')), ['FORBIDDEN']);
+      await refusedEverywhere(
+        principalOf(userA, { scopes: ['admin:read', 'admin:write', 'admin:compliance'] }),
+        vi.fn<typeof fetch>(async () => entitlementFor(userA, 'revoked')),
+        ['FORBIDDEN'],
+      );
       // A merchant OWNER's "admin" role is a team role, not founder authority.
-      await refusedEverywhere(principalOf(userB), vi.fn<typeof fetch>(async () => new Response('{}', { status: 403 })), ['FORBIDDEN']);
+      await refusedEverywhere(
+        principalOf(userB),
+        vi.fn<typeof fetch>(async () => new Response('{}', { status: 403 })),
+        ['FORBIDDEN'],
+      );
     });
 
     it('anonymous, service-to-service, sub-account and no-MFA callers are refused; identity down is 503, never an allow', async () => {
@@ -799,12 +993,23 @@ describe('W15 merchant operations (Postgres)', () => {
       await refusedEverywhere(principalOf(founderUser, { sub_account: id() } as Partial<Principal>), f, ['FORBIDDEN']);
       await refusedEverywhere(principalOf(founderUser, { mfa: false }), f, ['FORBIDDEN']);
       expect(f).not.toHaveBeenCalled();
-      await refusedEverywhere(principalOf(founderUser), vi.fn<typeof fetch>(async () => { throw new Error('network'); }), ['SERVICE_UNAVAILABLE']);
+      await refusedEverywhere(
+        principalOf(founderUser),
+        vi.fn<typeof fetch>(async () => {
+          throw new Error('network');
+        }),
+        ['SERVICE_UNAVAILABLE'],
+      );
     });
 
     it('a live founder adds, lists and retracts; the note is attributed and the text is immutable', async () => {
       const f = as(founderUser, {}, build());
-      const added = (await f.founderAdmin.ops.notes.add(noteInput())) as { noteId: string; authorId: string; flagged: boolean; tags: string[] };
+      const added = (await f.founderAdmin.ops.notes.add(noteInput())) as {
+        noteId: string;
+        authorId: string;
+        flagged: boolean;
+        tags: string[];
+      };
       expect(added).toMatchObject({ authorId: founderUser, flagged: true, tags: ['watch'] });
       const list = (await f.founderAdmin.ops.notes.list({ merchantId: merchantA, limit: 10 })) as { items: Array<{ noteId: string }> };
       expect(list.items.map((n) => n.noteId)).toContain(added.noteId);
@@ -814,13 +1019,22 @@ describe('W15 merchant operations (Postgres)', () => {
       const gone = (await f.founderAdmin.ops.notes.retract({ noteId: added.noteId, reason: 'wrong merchant' })) as { retractedBy: string };
       expect(gone.retractedBy).toBe(founderUser);
       expect(((await f.founderAdmin.ops.notes.list({ merchantId: merchantA, limit: 10 })) as { items: unknown[] }).items).toHaveLength(0);
-      expect(((await f.founderAdmin.ops.notes.list({ merchantId: merchantA, limit: 10, includeRetracted: true })) as { items: unknown[] }).items).toHaveLength(1);
-      expect((await refusal(() => f.founderAdmin.ops.notes.add({ ...noteInput(), merchantId: id() }))).cause).toBe('pay.merchant_not_found');
+      expect(
+        ((await f.founderAdmin.ops.notes.list({ merchantId: merchantA, limit: 10, includeRetracted: true })) as { items: unknown[] }).items,
+      ).toHaveLength(1);
+      expect((await refusal(() => f.founderAdmin.ops.notes.add({ ...noteInput(), merchantId: id() }))).cause).toBe(
+        'pay.merchant_not_found',
+      );
     });
 
     it('no merchant-facing answer ever contains an operator note (behaviour), and no merchantOps source reads the table (static)', async () => {
       const f = as(founderUser, {}, build());
-      await f.founderAdmin.ops.notes.add({ merchantId: merchantA, body: 'SECRET-OPERATOR-OPINION-2', tags: ['internal-tag'], flagged: true });
+      await f.founderAdmin.ops.notes.add({
+        merchantId: merchantA,
+        body: 'SECRET-OPERATOR-OPINION-2',
+        tags: ['internal-tag'],
+        flagged: true,
+      });
       const a = as(userA);
       const answers = [
         await a.merchantOps.team.list({ limit: 50 }),
@@ -842,7 +1056,10 @@ describe('W15 merchant operations (Postgres)', () => {
       // In the router the table is reached only through OperatorNotes, which is wired under founderAdmin.ops.
       const routerSrc = readFileSync(join(here, 'router.ts'), 'utf8');
       expect(routerSrc).not.toContain('operator_merchant_notes');
-      const merchantOpsBlock = routerSrc.slice(routerSrc.indexOf('merchantOps: router({'), routerSrc.indexOf('export type MerchantOpsRouter'));
+      const merchantOpsBlock = routerSrc.slice(
+        routerSrc.indexOf('merchantOps: router({'),
+        routerSrc.indexOf('export type MerchantOpsRouter'),
+      );
       expect(merchantOpsBlock).not.toMatch(/\.notes\b/);
     });
   });
