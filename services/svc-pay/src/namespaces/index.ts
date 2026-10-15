@@ -1,5 +1,6 @@
 import { mergeRouters } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
+import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
@@ -28,16 +29,18 @@ export function createPayNamespaces(deps: {
   sql?: Sql;
   payHalts?: PayHaltsDeps;
   treasury?: FounderTreasuryDeps;
+  control?: ControlService;
 }) {
   const opsDeps = { founderAuthority: deps.founderAuthority, sql: deps.sql };
   return mergeRouters(
-    createMerchantControlRouter(),
+    createMerchantControlRouter(deps.control),
     createMerchantMetricsRouter(deps.metrics),
     createFounderAdminRouter(deps.founderAuthority, {
       metrics: deps.metrics,
       registries: deps.registries,
       ops: createFounderOpsRouter(opsDeps),
       treasury: deps.treasury,
+      control: deps.control,
     }),
     createConversionRouter(),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),

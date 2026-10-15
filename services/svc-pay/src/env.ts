@@ -11,6 +11,14 @@ const schema = serviceEnvSchema
       SERVICE_NAME: z.string().default('svc-pay'),
       HTTP_PORT: z.coerce.number().int().default(4006),
 
+      /**
+       * Merchant control room enforcement (caps, pricing, payout maker-checker).
+       * `off` (default) leaves payments and payouts exactly as before; `required`
+       * refuses merchants whose tier, caps, pricing or thresholds are unconfigured.
+       * Anything else fails boot. See control/mode.ts.
+       */
+      PAY_MERCHANT_CONTROLS: z.enum(['off', 'required']).default('off'),
+
       /** svc-ledger's internal address. All value movement goes through it. */
       LEDGER_URL: z.string().url().default('http://localhost:4001'),
 

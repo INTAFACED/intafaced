@@ -90,11 +90,27 @@ describe('G: founder-only procedures', () => {
         'founderAdmin.registries.walletRoutes.save',
         'founderAdmin.registries.history',
         'founderAdmin.treasury.exposure',
+        'founderAdmin.changes.submit',
+        'founderAdmin.changes.confirm',
+        'founderAdmin.approvals.list',
+        'founderAdmin.control.tiers.list',
+        'founderAdmin.control.pricing.rules',
+        'founderAdmin.control.merchant.get',
+        'founderAdmin.control.merchant.usage',
+        'founderAdmin.control.configure.submit',
+        'founderAdmin.control.configure.confirm',
+        'founderAdmin.control.approvals.decide',
         'payHalts.set',
         'payHalts.history',
         'payHalts.operatorStatus',
       ]),
     );
+  });
+
+  it('W1: every founder procedure of the control room has an explicit input in procedures.ts (a bare `{}` would only prove refusal)', () => {
+    const w1 = inventoried.filter((p) => p.startsWith('founderAdmin.control.') || /^founderAdmin\.(changes|approvals)\./.test(p));
+    expect(w1).toHaveLength(10);
+    for (const p of w1) expect(FOUNDER_INPUTS[p], `${p} has no entry in FOUNDER_INPUTS`).toBeDefined();
   });
 
   it('POSITIVE CONTROL: an entitled founder with MFA gets past every guard (the refusals below are not a broken fixture)', async () => {
@@ -379,7 +395,12 @@ describe('G: founder-only procedures', () => {
       }
       // W5: the halt store the guards read (so payHalts.* answer for real instead of refusing closed) and the
       // treasury exposure read behind founderAdmin.treasury.exposure.
-      for (const piece of ['payHalts: { store: new PayHaltStore(sql,', 'merchants: pay', 'treasury: { sql,']) {
+      for (const piece of [
+        'payHalts: { store: new PayHaltStore(sql,',
+        'merchants: pay',
+        'treasury: { sql,',
+        'control: new ControlService(sql, ownerAccessPorts(sql))',
+      ]) {
         expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
       }
       const topLevel = args.replace(/\{[^{}]*\}/g, '{}');

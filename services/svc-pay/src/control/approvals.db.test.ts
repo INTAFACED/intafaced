@@ -1,0 +1,344 @@
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
+import type { Principal } from '@intafaced/auth';
+import { PayService } from '../payment-service.js';
+import { MerchantPayoutDestinationStore } from '../merchant-payout-destination.js';
+import { RailRegistry } from '../rails/registry.js';
+import { CardSandboxAdapter } from '../rails/card-sandbox.js';
+import { CryptoNativeAdapter } from '../rails/crypto-native.js';
+import { BankPayoutAbsentAdapter } from '../rails/bank-payout.js';
+import { MemoryChain } from '../rails/chain-port.js';
+import { REFERENCE_RAIL_ROUTING_PROFILES } from '../routing/decide.js';
+import { composeGuards } from '../seams/guards.js';
+import type { ControlAccessPorts } from './access.js';
+import { ApprovalService } from './approvals.js';
+import { ChangeService } from './changes.js';
+import { createControlGuards } from './guards.js';
+import {
+  applyChange,
+  DEST_A,
+  DEST_B,
+  FINANCE,
+  FOUNDER_1,
+  FOUNDER_2,
+  MAKER,
+  migrations,
+  openAdmin,
+  OWNER_A,
+  OWNER_B,
+  principal,
+  resetControl,
+  SECRET,
+  TEST_GLOBAL_RULE,
+  TEST_TIER,
+} from './control.testkit.js';
+
+/**
+ * Maker-checker on payouts, through the real payout path.
+ * TEST VALUES: approval from 50 USDT, founders from 150 USDT.
+ */
+describe('payout maker-checker', () => {
+  let adminStop: () => Promise<void> = async () => undefined;
+  let db!: TestDatabase;
+  let sql!: TestDatabase['sql'];
+  let ledger: MemoryLedger;
+  let chain: MemoryChain;
+  let rails: RailRegistry;
+  let changes!: ChangeService;
+  let pay!: PayService;
+  let merchantId = '';
+  let otherMerchantId = '';
+  let clock = new Date();
+
+  /** A team: the owner and the finance user may approve; the maker and the finance user may see the merchant. */
+  const team = (mid: () => string): ControlAccessPorts => ({
+    canViewMerchant: async (p: Principal, m: string) =>
+      (m === mid() && [OWNER_A, MAKER, FINANCE].includes(p.userId)) || (m === otherMerchantId && p.userId === OWNER_B),
+    canApprovePayout: async (p: Principal, m: string) =>
+      (m === mid() && [OWNER_A, FINANCE].includes(p.userId)) || (m === otherMerchantId && p.userId === OWNER_B),
+  });
+  let approvals!: ApprovalService;
+
+  beforeAll(async () => {
+    const admin = await openAdmin();
+    adminStop = admin.stop;
+    db = await createTestDatabase({ service: 'pay', url: admin.url, migrations });
+    sql = db.sql;
+    changes = new ChangeService(sql);
+  }, 120_000);
+
+  beforeEach(async () => {
+    await resetControl(sql);
+    ledger = new MemoryLedger();
+    chain = new MemoryChain();
+    rails = new RailRegistry([
+      new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 }),
+      new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 }),
+      new BankPayoutAbsentAdapter(),
+    ]);
+    clock = new Date();
+    pay = new PayService(sql, ledger, rails, {
+      payoutDestinations: new MerchantPayoutDestinationStore(sql),
+      guards: composeGuards(createControlGuards({ sql, mode: 'required' })),
+      checkoutRiskBand: 'low',
+      routingProfiles: REFERENCE_RAIL_ROUTING_PROFILES.map((p) => ({ ...p })),
+      linkDefaultTtlDays: 30,
+      linkMaxTtlDays: 365,
+      checkoutSessionTtlSeconds: 900,
+      maxOpenSessionsPerLink: 25,
+    });
+    const a = await pay.createMerchant({ userId: OWNER_A, pricing: { feeBps: 0 } });
+    const b = await pay.createMerchant({ userId: OWNER_B, pricing: { feeBps: 0 } });
+    merchantId = a.id;
+    otherMerchantId = b.id;
+    await applyChange(changes, sql, { scope: 'tier', change: { kind: 'upsert_tier', tier: TEST_TIER } });
+    await applyChange(changes, sql, {
+      scope: 'pricing',
+      change: { kind: 'set_pricing_layer', layer: 'global', scopeId: null, rules: [TEST_GLOBAL_RULE] },
+    });
+    for (const id of [merchantId, otherMerchantId]) {
+      await applyChange(changes, sql, {
+        scope: 'merchant',
+        merchantId: id,
+        change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null },
+      });
+      await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref) VALUES (${id}, 'crypto-native', ${DEST_A.kind}, ${DEST_A.ref})`;
+    }
+    approvals = new ApprovalService(sql, { access: team(() => merchantId), now: () => clock });
+  }, 30_000);
+
+  afterAll(async () => {
+    await db?.drop();
+    await adminStop();
+  }, 30_000);
+
+  /** Captured payments of `amounts` for the merchant, settled in one window. */
+  async function settled(mid: string, amounts: string[], window: string) {
+    for (const amount of amounts) {
+      const created = await pay.createPayment({
+        requestId: randomUUID(),
+        merchantId: mid,
+        amount: amt(amount),
+        assetId: 'USDT',
+        method: 'crypto',
+        railAdapter: 'crypto-native',
+      });
+      const address = await chain.acceptanceAddress(created.id, 'USDT');
+      chain.credit({ address, assetId: 'USDT', amount: amt(amount), from: '0xbuyer', confirmations: 12 });
+      await pay.authorize(created.id);
+      await pay.capture(created.id);
+    }
+    return pay.settleWindow({
+      merchantId: mid,
+      window,
+      assetId: 'USDT',
+      from: new Date(Date.now() - 86_400_000),
+      to: new Date(Date.now() + 86_400_000),
+    });
+  }
+  const payout = (settlementId: string, destination = DEST_A) =>
+    pay.payoutSettlement({ settlementId, railId: 'crypto-native', destination });
+  const maker = () => principal(MAKER);
+  const finance = () => principal(FINANCE);
+  const decideInput = (a: { approvalId: string; payloadHash: string }, decision: 'approve' | 'reject' = 'approve') => ({
+    approvalId: a.approvalId,
+    decision,
+    expectedPayloadHash: a.payloadHash,
+    reason: 'checked the invoice',
+  });
+  const auditKinds = async (id: string) =>
+    (await sql<Array<{ kind: string }>>`SELECT kind FROM pay.control_audit WHERE scope_id = ${id} ORDER BY seq`).map((r) => r.kind);
+
+  it('below the threshold needs no approval and the request itself is refused as unnecessary', async () => {
+    const s = await settled(merchantId, ['40'], 'w-small');
+    await expect(approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({
+      code: 'pay.approval_not_required',
+    });
+    expect((await payout(s.id)).status).toBe('paid_out');
+  });
+
+  it('at or above the threshold a payout is refused until a different team member approves; then it goes through once', async () => {
+    const s = await settled(merchantId, ['50'], 'w-gate');
+    await expect(payout(s.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    expect(req.status).toBe('pending');
+    expect(req.makerUserId).toBe(MAKER);
+    // Asking again for the same payload returns the same request.
+    expect((await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).approvalId).toBe(req.approvalId);
+    await expect(payout(s.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+
+    const done = await approvals.decide(finance(), decideInput(req));
+    expect(done.status).toBe('approved');
+    expect(done.checkerUserId).toBe(FINANCE);
+    const paid = await payout(s.id);
+    expect(paid.status).toBe('paid_out');
+    const [row] = await sql`SELECT status, consumed_attempt FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`;
+    expect(row!.status).toBe('consumed');
+    expect(await auditKinds(req.approvalId)).toEqual(['payout.approval_requested', 'payout.approval_decided', 'payout.approval_consumed']);
+  });
+
+  it('the maker cannot approve their own request (application and database both refuse)', async () => {
+    const s = await settled(merchantId, ['60'], 'w-self');
+    const owner = principal(OWNER_A);
+    const req = await approvals.request(owner, { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    await expect(approvals.decide(owner, decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_self_approval' });
+    await expect(sql`UPDATE pay.control_payout_approvals SET checker_user_id = maker_user_id WHERE id = ${req.approvalId}`).rejects.toThrow(
+      /maker_not_checker/,
+    );
+    expect((await sql`SELECT status FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`)[0]!.status).toBe('pending');
+  });
+
+  it('a member of another merchant cannot approve: same answer as an id that does not exist', async () => {
+    const s = await settled(merchantId, ['60'], 'w-cross');
+    const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    const stranger = principal(OWNER_B);
+    const real = await approvals.decide(stranger, decideInput(req)).catch((e: Error) => e);
+    const missing = await approvals.decide(stranger, { ...decideInput(req), approvalId: randomUUID() }).catch((e: Error) => e);
+    expect(real).toMatchObject({ code: 'pay.approval_not_found' });
+    expect(missing).toMatchObject({ code: 'pay.approval_not_found', message: (real as Error).message });
+    // Nor can they see or request against it.
+    await expect(approvals.list(stranger, { merchantId, limit: 10 })).rejects.toMatchObject({ code: 'pay.merchant_not_found' });
+    await expect(approvals.request(stranger, { merchantId, settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({
+      code: 'pay.merchant_not_found',
+    });
+    expect((await sql`SELECT status FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`)[0]!.status).toBe('pending');
+  });
+
+  it('a viewer who may not approve is forbidden; an API key or a session without MFA cannot decide', async () => {
+    const s = await settled(merchantId, ['60'], 'w-role');
+    const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    const otherViewer = principal(MAKER, { sub: MAKER });
+    // The maker can see the merchant but is not in the approver set.
+    await expect(approvals.decide({ ...otherViewer, userId: MAKER } as Principal, decideInput(req))).rejects.toMatchObject({
+      code: 'pay.approval_forbidden',
+    });
+    await expect(approvals.decide(principal(FINANCE, { mfa: false }), decideInput(req))).rejects.toMatchObject({
+      code: 'pay.approval_mfa_required',
+    });
+    await expect(approvals.decide(principal(FINANCE, { kid: 'ifc_key' } as never), decideInput(req))).rejects.toMatchObject({
+      code: 'pay.approval_mfa_required',
+    });
+  });
+
+  it('a decision must carry the exact payload hash the checker reviewed', async () => {
+    const s = await settled(merchantId, ['60'], 'w-hash');
+    const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    await expect(
+      approvals.decide(finance(), { ...decideInput(req), expectedPayloadHash: `sha256:${'0'.repeat(64)}` }),
+    ).rejects.toMatchObject({
+      code: 'pay.approval_payload_mismatch',
+    });
+  });
+
+  it('the approval is void if the destination changes after the request: deciding returns voided, and a payout to the new one is refused', async () => {
+    const s = await settled(merchantId, ['60'], 'w-void');
+    const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    await sql`UPDATE pay.merchant_payout_destinations SET ref = ${DEST_B.ref} WHERE merchant_id = ${merchantId}`;
+    const decided = await approvals.decide(finance(), decideInput(req));
+    expect(decided.status).toBe('voided');
+    expect(await auditKinds(req.approvalId)).toContain('payout.approval_voided');
+    await expect(payout(s.id, DEST_B)).rejects.toMatchObject({ code: 'pay.approval_required' });
+  });
+
+  it('a payout whose destination differs from the approved one voids that approval, even after it was approved', async () => {
+    const s = await settled(merchantId, ['60'], 'w-void2');
+    const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    expect((await approvals.decide(finance(), decideInput(req))).status).toBe('approved');
+    // The payout is attempted to a different destination than the one approved.
+    await expect(payout(s.id, DEST_B)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    expect((await sql`SELECT status FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`)[0]!.status).toBe('voided');
+    // Going back to the original destination does not resurrect it.
+    await expect(payout(s.id, DEST_A)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    expect((await sql`SELECT 1 FROM pay.payout_admissions`).length).toBe(0);
+  });
+
+  it('rejected, cancelled and expired approvals do not let a payout through', async () => {
+    const s = await settled(merchantId, ['60'], 'w-nogo');
+    const r1 = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    expect((await approvals.decide(finance(), decideInput(r1, 'reject'))).status).toBe('rejected');
+    await expect(payout(s.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+
+    const r2 = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    expect(r2.approvalId).not.toBe(r1.approvalId);
+    expect((await approvals.cancel(maker(), { approvalId: r2.approvalId, reason: 'sent by mistake' })).status).toBe('voided');
+    await expect(approvals.cancel(finance(), { approvalId: r2.approvalId, reason: 'not mine' })).rejects.toMatchObject({
+      code: 'pay.approval_forbidden',
+    });
+
+    const r3 = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    expect((await approvals.decide(finance(), decideInput(r3))).status).toBe('approved');
+    clock = new Date(Date.now() + (TEST_TIER.approvalTtlSeconds + 5) * 1000);
+    const late = new PayService(sql, ledger, rails, {
+      payoutDestinations: new MerchantPayoutDestinationStore(sql),
+      guards: composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock })),
+      checkoutRiskBand: 'low',
+      routingProfiles: REFERENCE_RAIL_ROUTING_PROFILES.map((p) => ({ ...p })),
+      linkDefaultTtlDays: 30,
+      linkMaxTtlDays: 365,
+      checkoutSessionTtlSeconds: 900,
+      maxOpenSessionsPerLink: 25,
+    });
+    await expect(late.payoutSettlement({ settlementId: s.id, railId: 'crypto-native', destination: DEST_A })).rejects.toMatchObject({
+      code: 'pay.approval_required',
+    });
+    expect((await approvals.list(maker(), { merchantId, limit: 10, status: 'expired' })).map((a) => a.approvalId)).toContain(r3.approvalId);
+  });
+
+  it('above the founder threshold the merchant checker is not enough: two distinct founders must also sign', async () => {
+    const s = await settled(merchantId, ['80', '80'], 'w-founder');
+    await expect(payout(s.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    const afterChecker = await approvals.decide(finance(), decideInput(req));
+    expect(afterChecker.status).toBe('pending');
+    expect(afterChecker.checkerUserId).toBe(FINANCE);
+    await expect(payout(s.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+
+    // The founder queue shows it; founders cannot be the maker or the checker.
+    expect((await approvals.founderQueue({ limit: 10 })).approvals.map((a) => a.approvalId)).toEqual([req.approvalId]);
+    await expect(approvals.founderDecide(MAKER, decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_self_approval' });
+    await expect(approvals.founderDecide(FINANCE, decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_self_approval' });
+
+    const first = await approvals.founderDecide(FOUNDER_1, decideInput(req));
+    expect(first.status).toBe('pending');
+    expect(first.founderApprovals).toBe(1);
+    await expect(payout(s.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    // The same founder twice is not two founders.
+    await expect(approvals.founderDecide(FOUNDER_1, decideInput(req))).rejects.toMatchObject({ code: 'pay.dual_control_required' });
+
+    const second = await approvals.founderDecide(FOUNDER_2, decideInput(req));
+    expect(second.status).toBe('approved');
+    expect((await payout(s.id)).status).toBe('paid_out');
+    expect(await auditKinds(req.approvalId)).toEqual([
+      'payout.approval_requested',
+      'payout.approval_decided',
+      'payout.founder_decided',
+      'payout.founder_decided',
+      'payout.approval_consumed',
+    ]);
+  });
+
+  it('the database refuses an approved founder-required row without two founders', async () => {
+    const s = await settled(merchantId, ['80', '80'], 'w-db');
+    const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+    await approvals.decide(finance(), decideInput(req));
+    await expect(sql`UPDATE pay.control_payout_approvals SET status = 'approved' WHERE id = ${req.approvalId}`).rejects.toThrow(
+      /approved_complete/,
+    );
+    await expect(
+      sql`UPDATE pay.control_payout_approvals SET founder_first_user_id = ${FOUNDER_1}, founder_second_user_id = ${FOUNDER_1} WHERE id = ${req.approvalId}`,
+    ).rejects.toThrow(/founders_distinct/);
+  });
+
+  it('without a configured threshold or destination the request is refused, not defaulted', async () => {
+    const s = await settled(merchantId, ['60'], 'w-cfg');
+    await sql`DELETE FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchantId}`;
+    await expect(approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({
+      code: 'pay.payout_destination_missing',
+    });
+    await expect(approvals.request(maker(), { merchantId, settlementId: randomUUID(), railId: 'crypto-native' })).rejects.toMatchObject({
+      code: 'pay.settlement_not_payable',
+    });
+  });
+});

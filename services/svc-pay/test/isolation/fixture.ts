@@ -35,6 +35,8 @@ import { MerchantWebhookService, PostgresMerchantWebhookStore } from '../../src/
 import { createMetricsRuntime, type MetricsRuntime } from '../../src/metrics/index.js';
 import { loadHaltAutoTripConfig } from '../../src/halts/config.js';
 import { PayHaltStore } from '../../src/halts/store.js';
+import { ControlService } from '../../src/control/service.js';
+import { ownerAccessPorts } from '../../src/control/access.js';
 import { createPayNamespaces } from '../../src/namespaces/index.js';
 import { PayService } from '../../src/payment-service.js';
 import { PspModeService } from '../../src/psp-mode.js';
@@ -49,6 +51,7 @@ import { unwiredApprovalConsumer } from '../../src/action-approval-consume.js';
 import { loadTreasuryLimits } from '../../src/treasury/config.js';
 import { UNWIRED_CONVERSION_INVENTORY } from '../../src/treasury/exposure.js';
 import { UserMoneyService } from '../../src/user-money-service.js';
+import { seedControl, type ControlSeed } from './control-seed.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
@@ -93,6 +96,8 @@ export interface Entity {
   readonly memberId: string;
   /** W15: an invitation to the OWNER's own account onto the own team, so the owner can accept or decline it. */
   readonly inviteId: string;
+  /** W1: the pending payout approval this merchant's owner (the maker) requested on `settlementId`. */
+  readonly approvalId: string;
 }
 
 export type Entitlement = 'enabled' | 'revoked' | 'unconfigured' | 'not_operator';
@@ -129,6 +134,8 @@ export interface World {
   readonly founderUserId: string;
   /** A live operator note on merchant A, for the founder positive control of `founderAdmin.ops.notes.retract`. */
   readonly operatorNoteId: string;
+  /** W1: one-shot targets for the founder positive controls (see control-seed.ts). */
+  readonly control: ControlSeed;
   /** Every id of a merchant row seeded by `tag` (merchant, payments, settlement, link, endpoint, W15 rows). */
   idsOf(tag: Tag): string[];
   stop(): Promise<void>;
@@ -235,6 +242,8 @@ function composeRouter(parts: {
       // EMPTY environment, as in an unconfigured deployment (no defaults); the conversion reader is the unwired one.
       payHalts: { store: new PayHaltStore(parts.sql, loadHaltAutoTripConfig({})), merchants: parts.pay },
       treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: UNWIRED_CONVERSION_INVENTORY },
+      // W1: as src/index.ts, the owner is the approver until W15 swaps in the finance role.
+      control: new ControlService(parts.sql, ownerAccessPorts(parts.sql)),
     }),
   );
 }
@@ -345,6 +354,7 @@ export async function createWorld(): Promise<World> {
       notificationId: notificationId!,
       memberId: memberRows[0]!.id,
       inviteId: inviteRows[0]!.id,
+      approvalId: '', // set by seedControl below, once every merchant has a tier
     };
   }
 
@@ -384,6 +394,15 @@ export async function createWorld(): Promise<World> {
   const Q = await root('Q');
   await child('D1', Q, Q);
 
+  // W1: a tier, a destination and one pending payout approval per merchant (the owner is the maker).
+  const all = Object.values(entities);
+  const control = await seedControl(sql, all, (userId) => principal(userId), {
+    railId: 'crypto-native',
+    kind: 'crypto',
+    ref: EVM_DESTINATION,
+  });
+  for (const x of all) (entities[x.tag] as { approvalId: string }).approvalId = control.approvalIds[x.tag]!;
+
   await sql`
     INSERT INTO pay.network_registry (network_id, display_name, asset_codes, updated_by)
     VALUES (${REGISTRY_NETWORK_ID}, 'Isolation network', '["USDT"]'::jsonb, 'fixture')`;
@@ -411,6 +430,7 @@ export async function createWorld(): Promise<World> {
     e: entities,
     founderUserId,
     operatorNoteId: operatorNote[0]!.id,
+    control,
     idsOf(tag) {
       const x = entities[tag];
       return [
@@ -425,6 +445,7 @@ export async function createWorld(): Promise<World> {
         x.notificationId,
         x.memberId,
         x.inviteId,
+        x.approvalId,
       ];
     },
     async stop() {
@@ -534,6 +555,10 @@ export async function snapshotMerchant(w: World, merchantId: string): Promise<st
     exportJobs: await q('merchant_export_jobs', 'merchant_id'),
     disputeEvidence: await q('merchant_dispute_evidence', 'merchant_id'),
     disputeResponses: await q('merchant_dispute_responses', 'merchant_id'),
+    // W1
+    controlProfile: await q('control_merchant_profiles', 'merchant_id'),
+    controlApprovals: await q('control_payout_approvals', 'merchant_id'),
+    controlAudit: await q('control_audit', 'merchant_id'),
     disputeCases: defaultDisputeCaseStore.listForMerchant(merchantId),
   });
 }
