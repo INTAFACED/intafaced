@@ -26,7 +26,11 @@ const propose = {
 };
 
 async function sessionCtx(userId: string, mfa: boolean): Promise<Context> {
-  const { token } = await issueAccessToken({ userId, sessionId: SESSION, scopes: ['identity:write'], tier: 'none', mfa }, authConfig);
+  // Operators: four-eyes over operator action types needs an operator principal (#4724).
+  const { token } = await issueAccessToken(
+    { userId, sessionId: SESSION, scopes: ['identity:write', 'admin:write'], tier: 'none', mfa },
+    authConfig,
+  );
   return {
     principal: await verifyAccessToken(token, authConfig),
     service: null,

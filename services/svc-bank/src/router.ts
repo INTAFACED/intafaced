@@ -18,6 +18,20 @@ import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { describeBusinessPolicy } from './business/business-policy.js';
 import { createActivityRouter } from './activity/activity.router.js';
+import { stepUpOff, type StepUpGate } from './step-up/step-up-gate.js';
+import {
+  addMemberBinding,
+  approveBinding,
+  createTransferBinding,
+  issueCardBinding,
+  proposeTransferBinding,
+  runPayrollBinding,
+  scheduleBinding,
+  scheduleToUserBinding,
+  toUserBinding,
+  unfreezeCardBinding,
+  type DoorBinding,
+} from './step-up/money-out-fields.js';
 
 /**
  * svc-bank's API.
@@ -134,7 +148,11 @@ function publicDoorWireMessage(err: BankError): string {
     err.code === 'bank.loan_health_price_unset' ||
     err.code === 'bank.recipient_cannot_receive' ||
     err.code === 'bank.recipient_check_unavailable' ||
-    err.code === 'bank.recipient_check_unset'
+    err.code === 'bank.recipient_check_unset' ||
+    err.code === 'bank.step_up_required' ||
+    err.code === 'bank.step_up_mismatch' ||
+    err.code === 'bank.step_up_used' ||
+    err.code === 'bank.step_up_unavailable'
   ) {
     return facing + ' (' + err.code + ')';
   }
@@ -334,6 +352,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.earn_rate_unset':
       case 'bank.auto_invest_rate_unset':
       case 'bank.business_payroll_rate_unset':
+      // The client must run its step-up sheet (passkey or TOTP) and retry with `stepUpApprovalId`.
+      case 'bank.step_up_required':
+      case 'bank.step_up_mismatch':
+      case 'bank.step_up_used':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
       // Kill switches. Same 503 class as the matching HTTP job endpoints —
@@ -352,6 +374,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.ledger_outcome_unknown':
       // Identity could not answer; nothing was posted. Retry with the same id.
       case 'bank.recipient_check_unavailable':
+      // Identity could not confirm the step-up approval; nothing was posted.
+      case 'bank.step_up_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       // svc-trade's prices could not be read. A retry later may work; the
@@ -563,7 +587,16 @@ export type BankRouterOptions = {
    * injects unwired — tests pass stubApprovalConsumer(approverId).
    */
   approvals?: ActionApprovalConsumer;
+  /**
+   * Money-out step-up (BANK_STEP_UP_MONEY_OUT). Omitted or `off` leaves every door as it was. When
+   * `required`, sends to other users, business payments and membership, card unfreeze/issue and
+   * standing orders to other people need `stepUpApprovalId` (a same-person identity approval).
+   */
+  stepUp?: StepUpGate;
 };
+
+/** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
+const stepUpApprovalField = z.string().min(1).max(128).optional();
 
 const actionApprovalFields = {
   confirmOperatorId: z.string().max(128).nullish(),
@@ -579,6 +612,30 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const autoInvestEnabled = options.autoInvestEnabled ?? true;
   const autoInvestConvertWired = options.autoInvestConvertWired ?? false;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
+  const stepUp = options.stepUp ?? stepUpOff;
+  const stepUpEnforced = stepUp.mode === 'required';
+
+  async function requireStepUp(
+    principal: { readonly userId: string; readonly sid: string },
+    binding: DoorBinding,
+    approvalId: string | undefined,
+    replay = true,
+  ): Promise<void> {
+    await stepUp.require({
+      userId: principal.userId,
+      sessionId: principal.sid,
+      actionType: binding.actionType,
+      fields: binding.fields,
+      operationKey: binding.operationKey,
+      approvalId,
+      replay,
+    });
+  }
+
+  /** The asset of a space the caller names, for the hash. Unknown spaces hash as '' and the service refuses them. */
+  async function assetOfSpace(spaceId: string): Promise<string> {
+    return (await bank.spaces.find(spaceId))?.assetId ?? '';
+  }
 
   async function consumeOpsApproval(
     input: { readonly approvalId?: string | null; readonly operationId?: string | null },
@@ -707,6 +764,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           fromSpaceId: z.string().uuid(),
           toSpaceId: z.string().uuid(),
           amount: amountString,
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(z.object({ ledgerTxId: z.string(), amount: amountString }))
@@ -736,6 +794,26 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
            */
           assertSelf(ctx.principal.userId, from.userId);
 
+          // Money to somebody else's space needs a step-up. A move between the caller's OWN spaces never
+          // does. An unknown destination is treated as foreign, so this cannot tell a stranger which ids exist.
+          if (stepUpEnforced) {
+            const to = await bank.spaces.find(input.toSpaceId);
+            if (to === null || to.userId !== ctx.principal.userId) {
+              await requireStepUp(
+                ctx.principal,
+                createTransferBinding({
+                  actor: ctx.principal.userId,
+                  transferId: input.transferId,
+                  fromSpaceId: input.fromSpaceId,
+                  toSpaceId: input.toSpaceId,
+                  assetId: from.assetId,
+                  amount: input.amount,
+                }),
+                input.stepUpApprovalId,
+              );
+            }
+          }
+
           const gate = await gateDestination(bank, ctx.principal.userId, from, input.toSpaceId);
 
           const result = await bank.transfers
@@ -759,6 +837,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           fromSpaceId: z.string().uuid(),
           toUserId: z.string().min(1).max(64),
           amount: amountString,
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(z.object({ ledgerTxId: z.string(), amount: amountString }))
@@ -766,6 +845,20 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
           assertSelf(ctx.principal.userId, from.userId);
+          if (stepUpEnforced && input.toUserId !== ctx.principal.userId) {
+            await requireStepUp(
+              ctx.principal,
+              toUserBinding({
+                actor: ctx.principal.userId,
+                transferId: input.transferId,
+                fromSpaceId: input.fromSpaceId,
+                toUserId: input.toUserId,
+                assetId: from.assetId,
+                amount: input.amount,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
           const result = await bank.transfers.transferToUser({
             transferId: input.transferId,
             fromSpaceId: input.fromSpaceId,
@@ -786,6 +879,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           startsAt: z.string().datetime({ offset: true }),
           endsAt: z.string().datetime({ offset: true }).optional(),
           scheduleId: z.string().uuid(),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(z.object({ id: z.string(), nextRunAt: z.string() }))
@@ -793,6 +887,25 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
           assertSelf(ctx.principal.userId, from.userId);
+          // Approval happens at creation. The order's amount and payee are immutable afterwards and it runs
+          // without a session, so execution, pause and resume need none (cancel and pause are protective).
+          if (stepUpEnforced && input.toUserId !== ctx.principal.userId) {
+            await requireStepUp(
+              ctx.principal,
+              scheduleToUserBinding({
+                actor: ctx.principal.userId,
+                scheduleId: input.scheduleId,
+                fromSpaceId: input.fromSpaceId,
+                toUserId: input.toUserId,
+                assetId: from.assetId,
+                amount: input.amount,
+                cadence: input.cadence,
+                startsAt: input.startsAt,
+                endsAt: input.endsAt,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
           const schedule = await bank.transfers.scheduleToUser({
             userId: ctx.principal.userId,
             fromSpaceId: input.fromSpaceId,
@@ -817,6 +930,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           startsAt: z.string().datetime({ offset: true }),
           endsAt: z.string().datetime({ offset: true }).optional(),
           scheduleId: z.string().uuid(),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(z.object({ id: z.string(), nextRunAt: z.string() }))
@@ -827,6 +941,28 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           // side is the side that can lose value, and a standing order to
           // another user is the same product feature on a timer.
           assertSelf(ctx.principal.userId, from.userId);
+
+          // A standing order to another person is approved at creation; an unknown destination counts as foreign.
+          if (stepUpEnforced) {
+            const to = await bank.spaces.find(input.toSpaceId);
+            if (to === null || to.userId !== ctx.principal.userId) {
+              await requireStepUp(
+                ctx.principal,
+                scheduleBinding({
+                  actor: ctx.principal.userId,
+                  scheduleId: input.scheduleId,
+                  fromSpaceId: input.fromSpaceId,
+                  toSpaceId: input.toSpaceId,
+                  assetId: from.assetId,
+                  amount: input.amount,
+                  cadence: input.cadence,
+                  startsAt: input.startsAt,
+                  endsAt: input.endsAt,
+                }),
+                input.stepUpApprovalId,
+              );
+            }
+          }
 
           // Same gate too, and it matters MORE here. A one-off transfer asks the
           // question once; a standing order that could be created against a
@@ -1548,11 +1684,26 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           settlementAssetId: z.string().min(1).max(16).optional(),
           cashbackBps: z.number().int().min(0).max(10_000).optional(),
           perAuthorizationLimit: amountString,
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(cardOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              issueCardBinding({
+                actor: ctx.principal.userId,
+                cardId: input.cardId,
+                assetId: input.assetId,
+                settlementAssetId: input.settlementAssetId,
+                cashbackBps: input.cashbackBps,
+                perAuthorizationLimit: input.perAuthorizationLimit,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
           const card = await bank.cards.issue({
             cardId: input.cardId,
             userId: ctx.principal.userId,
@@ -1580,12 +1731,22 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * something is wrong, so it is user surface and not an operator ticket.
      */
     setStatus: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ cardId: z.string().uuid(), status: z.enum(['active', 'frozen', 'closed']) }))
+      .input(z.object({ cardId: z.string().uuid(), status: z.enum(['active', 'frozen', 'closed']), stepUpApprovalId: stepUpApprovalField }))
       .output(z.object({ id: z.string(), status: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const card = await bank.cards.card(input.cardId);
           assertSelf(ctx.principal.userId, card.userId);
+          // Only UNFREEZING loosens a safeguard. Freeze and close are protective and never prompt; asking
+          // for `active` on a card that already is changes nothing. One approval re-applies nothing: no replay.
+          if (stepUpEnforced && input.status === 'active' && card.status !== 'active') {
+            await requireStepUp(
+              ctx.principal,
+              unfreezeCardBinding({ actor: ctx.principal.userId, cardId: input.cardId, fromStatus: card.status }),
+              input.stepUpApprovalId,
+              false,
+            );
+          }
           const updated = await bank.cards.setStatus(input.cardId, input.status);
           return { id: updated.id, status: updated.status };
         }),
@@ -2869,11 +3030,19 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           accountId: z.string().uuid(),
           userId: z.string().min(1),
           role: z.enum(['admin', 'maker', 'checker']),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(['admin', 'maker', 'checker']) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              addMemberBinding({ actor: ctx.principal.userId, accountId: input.accountId, userId: input.userId, role: input.role }),
+              input.stepUpApprovalId,
+            );
+          }
           const m = await bank.business.addMember({
             accountId: input.accountId,
             actorUserId: ctx.principal.userId,
@@ -2892,6 +3061,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           toSpaceId: z.string().uuid(),
           amount: amountString,
           clientId: z.string().uuid(),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(
@@ -2909,6 +3079,21 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              proposeTransferBinding({
+                actor: ctx.principal.userId,
+                clientId: input.clientId,
+                accountId: input.accountId,
+                fromSpaceId: input.fromSpaceId,
+                toSpaceId: input.toSpaceId,
+                assetId: await assetOfSpace(input.fromSpaceId),
+                amount: input.amount,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
           const result = await bank.business.proposeTransfer({
             accountId: input.accountId,
             makerUserId: ctx.principal.userId,
@@ -2941,10 +3126,19 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     approve: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ approvalId: z.string().uuid() }))
+      .input(z.object({ approvalId: z.string().uuid(), stepUpApprovalId: stepUpApprovalField }))
       .output(z.object({ transferId: z.string(), ledgerTxId: z.string() }))
       .mutation(async ({ ctx, input }) =>
-        guard(async () => bank.business.approve({ approvalId: input.approvalId, checkerUserId: ctx.principal.userId })),
+        guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              approveBinding({ actor: ctx.principal.userId, approvalId: input.approvalId }),
+              input.stepUpApprovalId,
+            );
+          }
+          return bank.business.approve({ approvalId: input.approvalId, checkerUserId: ctx.principal.userId });
+        }),
       ),
 
     reject: scopedProcedure('bank:write', { module: 'bank' })
@@ -3014,6 +3208,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             .array(z.object({ toSpaceId: z.string().uuid(), amount: amountString }))
             .min(1)
             .max(64),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(
@@ -3029,6 +3224,20 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              runPayrollBinding({
+                actor: ctx.principal.userId,
+                payrollId: input.payrollId,
+                accountId: input.accountId,
+                fromSpaceId: input.fromSpaceId,
+                assetId: await assetOfSpace(input.fromSpaceId),
+                recipients: input.recipients,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
           const run = await bank.business.runPayroll({
             payrollId: input.payrollId,
             accountId: input.accountId,

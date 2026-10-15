@@ -2,7 +2,9 @@
  * Action-bound approval doors. Session proposes/approves; HMAC consumes.
  * A typed-in second name is not accepted on approve.
  */
+import { z } from 'zod';
 import {
+  SAME_PERSON_ACTION_TYPES,
   actionApprovalApproveInputSchema,
   actionApprovalConsumeInputSchema,
   actionApprovalProposeInputSchema,
@@ -15,6 +17,74 @@ import {
 } from '@intafaced/contracts';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { ActionApprovalError, type ActionApprovalService } from './auth/action-approval-service.js';
+import { audienceOf, isOperatorPrincipal } from './auth/action-approval-audience.js';
+import { AuthError, type AuthService } from './auth/auth-service.js';
+import { userCopy } from './user-copy.js';
+
+/**
+ * Proves ONE fresh second factor for this user and session, or throws `AuthError`.
+ * Wired in `index.ts` to `auth.stepUp`: the same TOTP / WebAuthn verification, the same
+ * attempt lockout, the same single-use passkey challenge (from `auth.stepUpOptions`). The
+ * elevated token it mints is discarded; only the proof is used here.
+ */
+export type SamePersonFactorVerifier = (input: {
+  readonly userId: string;
+  readonly sessionId: string;
+  readonly totpCode?: string;
+  readonly webauthn?: Parameters<AuthService['stepUp']>[0]['webauthn'];
+}) => Promise<void>;
+
+const webauthnShape = () =>
+  z.object({
+    id: z.string().min(1),
+    rawId: z.string().min(1),
+    type: z.literal('public-key'),
+    response: z.object({
+      clientDataJSON: z.string().min(1),
+      authenticatorData: z.string().min(1),
+      signature: z.string().min(1),
+      userHandle: z.string().nullish(),
+    }),
+    clientExtensionResults: z.record(z.unknown()).optional(),
+  });
+
+const samePersonCreateInput = z
+  .object({
+    actionType: z.enum(SAME_PERSON_ACTION_TYPES),
+    payloadHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    // Six-digit TOTP ONLY. A recovery code (XXXXX-XXXXX) is deliberately not accepted for money-out.
+    totpCode: z
+      .string()
+      .regex(/^\d{6}$/)
+      .optional(),
+    webauthn: webauthnShape().optional(),
+  })
+  .strict()
+  .refine((v) => Boolean(v.totpCode) !== Boolean(v.webauthn), {
+    message: 'Provide exactly one of totpCode or webauthn',
+  });
+
+function factorToTrpc(err: AuthError): TRPCError {
+  const message = userCopy(err.code);
+  switch (err.code) {
+    case 'auth.mfa_invalid':
+    case 'auth.webauthn_invalid':
+    case 'auth.mfa_required':
+    case 'auth.session_invalid':
+    case 'auth.session_reused':
+      return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
+    case 'auth.too_many_attempts':
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
+    case 'auth.mfa_not_enrolled':
+    case 'auth.webauthn_not_enrolled':
+    case 'auth.account_frozen':
+      return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    case 'auth.not_found':
+      return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
+    default:
+      return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+  }
+}
 
 function toTrpc(err: unknown): never {
   if (err instanceof GuardError) {
@@ -28,22 +98,81 @@ function toTrpc(err: unknown): never {
     const code =
       err.code === 'action_approval.not_found'
         ? 'NOT_FOUND'
-        : err.code === 'action_approval.not_requester' || err.code === 'action_approval.service_mismatch'
+        : err.code === 'action_approval.not_requester' ||
+            err.code === 'action_approval.service_mismatch' ||
+            err.code === 'action_approval.operator_only'
           ? 'FORBIDDEN'
-          : 'PRECONDITION_FAILED';
+          : err.code === 'action_approval.type_not_same_person' || err.code === 'action_approval.type_not_four_eyes'
+            ? 'BAD_REQUEST'
+            : 'PRECONDITION_FAILED';
     throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
   }
+  if (err instanceof AuthError) throw factorToTrpc(err);
   throw err;
 }
 
-export function createActionApprovalRouter(svc: ActionApprovalService) {
+export function createActionApprovalRouter(
+  svc: ActionApprovalService,
+  deps: { readonly verifyFactor?: SamePersonFactorVerifier; readonly privilegedUserIds?: readonly string[] } = {},
+) {
+  const privilegedUserIds = deps.privilegedUserIds ?? [];
+
+  /** Operator action types need an operator principal to propose, approve or reject. Self types never reach here. */
+  function assertOperatorFor(principal: Parameters<typeof isOperatorPrincipal>[0], actionType: string | null): void {
+    // An unknown approval id falls through to the service's own `not_found`; nothing is disclosed here.
+    if (actionType === null || audienceOf(actionType) === 'self') return;
+    if (!isOperatorPrincipal(principal, privilegedUserIds)) {
+      throw new ActionApprovalError('this action type is an operator action', 'action_approval.operator_only');
+    }
+  }
+
   return router({
     actionApproval: router({
+      /**
+       * Money-out step-up. The signed-in user proves a fresh passkey assertion (from
+       * `auth.stepUpOptions`) or a six-digit TOTP code IN THIS REQUEST, for an intent hash they
+       * computed. The result is an approval only they, in this session, can spend once at svc-bank
+       * within five minutes. A session alone is not enough, a recovery code is refused, and no
+       * bearer token is minted. Four-eyes approvals are a different door (`propose`/`approve`).
+       *
+       * Honest limit: the passkey challenge is not derived from the hash, so this buys single use and
+       * no reuse for a different payload. It does not stop a compromised page from asking the user to
+       * tap for the wrong payload; see the ADR.
+       */
+      createSamePerson: protectedProcedure
+        .input(samePersonCreateInput)
+        .output(actionApprovalSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            if (!deps.verifyFactor) {
+              throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'step-up factor verification is not wired' });
+            }
+            if (ctx.principal.kid || ctx.principal.sub_account) {
+              // An API key or a sub-account has no interactive second factor and may never mint a step-up approval.
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot create step-up approvals' });
+            }
+            await deps.verifyFactor({
+              userId: ctx.principal.userId,
+              sessionId: ctx.principal.sid,
+              ...(input.totpCode ? { totpCode: input.totpCode } : {}),
+              ...(input.webauthn ? { webauthn: input.webauthn } : {}),
+            });
+            return await svc.createSamePerson(
+              { userId: ctx.principal.userId, sessionId: ctx.principal.sid },
+              { actionType: input.actionType, payloadHash: input.payloadHash },
+            );
+          } catch (err) {
+            if (err instanceof TRPCError) throw err;
+            toTrpc(err);
+          }
+        }),
+
       propose: protectedProcedure
         .input(actionApprovalProposeInputSchema)
         .output(actionApprovalSchema)
         .mutation(async ({ ctx, input }) => {
           try {
+            assertOperatorFor(ctx.principal, input.actionType);
             return await svc.propose(ctx.principal.userId, input);
           } catch (err) {
             toTrpc(err);
@@ -56,6 +185,7 @@ export function createActionApprovalRouter(svc: ActionApprovalService) {
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
+            assertOperatorFor(ctx.principal, await svc.actionTypeOf(input.approvalId));
             return await svc.approve(ctx.principal.userId, input.approvalId);
           } catch (err) {
             toTrpc(err);
@@ -68,6 +198,7 @@ export function createActionApprovalRouter(svc: ActionApprovalService) {
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
+            assertOperatorFor(ctx.principal, await svc.actionTypeOf(input.approvalId));
             return await svc.reject(ctx.principal.userId, input.approvalId);
           } catch (err) {
             toTrpc(err);

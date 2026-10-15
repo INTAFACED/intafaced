@@ -12,6 +12,9 @@ import {
   type ActionApprovalConsumeInput,
 } from '@intafaced/contracts';
 
+/** How long bank waits for identity to answer a consume before refusing closed. */
+export const IDENTITY_CONSUME_TIMEOUT_MS = 5000;
+
 export const ACTION_APPROVAL_UNWIRED = 'action_approval.identity_unwired' as const;
 export const ACTION_APPROVAL_MISSING = 'action_approval.missing' as const;
 
@@ -87,6 +90,8 @@ export function createIdentityApprovalClient(baseUrl: string, internalSecret: st
           ...serviceAuthHeadersForBody('svc-bank', internalSecret, payload),
         },
         body: payload,
+        // Fail closed, never hang a money door on identity: a timeout is "unavailable", and nothing posts.
+        signal: AbortSignal.timeout(IDENTITY_CONSUME_TIMEOUT_MS),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
