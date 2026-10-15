@@ -13,12 +13,12 @@ export function Campaigns() {
         </p>
       </Panel>
       <Panel title={copyText('campaigns.discover')}>
-        <p>
+        <p role="status">
+          <Text k="campaigns.discovery.unavailable" />
+        </p>
+        <p className="muted">
           <Text k="campaigns.public.details" />
         </p>
-        <a className="text-link" href="/lab">
-          <Text k="campaigns.open.public.campaigns" />
-        </a>
       </Panel>
     </div>
   );

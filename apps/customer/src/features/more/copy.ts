@@ -369,8 +369,9 @@ const messages = {
   'campaigns.participation.unavailable':
     'Your joined campaigns, eligibility and reward status cannot be loaded because the campaign activity service is not connected. This does not mean you have no participation records.',
   'campaigns.discover': 'Discover campaigns',
+  'campaigns.discovery.unavailable': 'Campaign discovery unavailable',
   'campaigns.public.details':
-    'Open the public campaign room to check published campaign details. Joining and reward claims need verified eligibility and a connected participation service.',
+    'Public campaign details cannot be viewed here yet. Joining campaigns and claiming rewards are unavailable.',
   'campaigns.signed.in.campaign.proposal': 'Signed-in campaign proposal',
   'campaigns.prepare.a.proposal.for.human.review.the':
     'Prepare a proposal for human review. The service requires an available analytics warehouse, rejects return claims and undecided incentive budgets, and never publishes automatically.',
@@ -1317,8 +1318,9 @@ const es = {
   'campaigns.participation.unavailable':
     'Tus campañas, elegibilidad y estado de recompensas no pueden cargarse porque el servicio de actividad de campañas no está conectado. Esto no significa que no tengas registros de participación.',
   'campaigns.discover': 'Descubrir campañas',
+  'campaigns.discovery.unavailable': 'Descubrimiento de campañas no disponible',
   'campaigns.public.details':
-    'Abre la sala pública de campañas para consultar los detalles publicados. Unirse y reclamar recompensas requiere elegibilidad verificada y un servicio de participación conectado.',
+    'Todavía no se pueden consultar aquí los detalles de las campañas públicas. Unirse a campañas y reclamar recompensas no está disponible.',
   'campaigns.signed.in.campaign.proposal': 'Propuesta de campaña con sesión iniciada',
   'campaigns.prepare.a.proposal.for.human.review.the':
     'Prepara una propuesta para revisión humana. El servicio requiere un almacén de análisis disponible, rechaza afirmaciones de rentabilidad y presupuestos de incentivos sin decidir, y nunca publica automáticamente.',
@@ -2289,8 +2291,9 @@ const fr = {
   'campaigns.participation.unavailable':
     'Tes campagnes rejointes, ton admissibilité et l’état de tes récompenses ne peuvent pas être chargés car le service d’activité des campagnes n’est pas connecté. Cela ne signifie pas que tu n’as aucun enregistrement de participation.',
   'campaigns.discover': 'Découvrir les campagnes',
+  'campaigns.discovery.unavailable': 'Découverte des campagnes indisponible',
   'campaigns.public.details':
-    'Ouvre le salon public des campagnes pour consulter les informations publiées. Rejoindre une campagne et réclamer des récompenses nécessite une admissibilité vérifiée et un service de participation connecté.',
+    'Les informations des campagnes publiques ne peuvent pas encore être consultées ici. Rejoindre des campagnes et réclamer des récompenses est indisponible.',
   'campaigns.signed.in.campaign.proposal': 'Proposition de campagne avec connexion au compte',
   'campaigns.prepare.a.proposal.for.human.review.the':
     'Prépare une proposition pour une vérification humaine. Le service nécessite un entrepôt analytique disponible, refuse les promesses de rendement et les budgets d’incitation non décidés, et ne publie jamais automatiquement.',
