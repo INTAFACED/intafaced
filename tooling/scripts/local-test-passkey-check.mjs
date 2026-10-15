@@ -46,6 +46,7 @@ async function rpc(proc, input = {}, bearer = token, method = 'POST') {
   const route = url + '/api/identity/trpc/' + proc + (method === 'GET' ? '?input=' + encodeURIComponent(JSON.stringify(input)) : '');
   const response = await fetch(route, {
     method,
+    redirect: 'error',
     headers: { origin: url, 'content-type': 'application/json', ...(bearer ? { authorization: 'Bearer ' + bearer } : {}) },
     ...(method === 'POST' ? { body: JSON.stringify(input) } : {}),
     signal: AbortSignal.timeout(15000),
@@ -133,14 +134,14 @@ try {
       clientExtensionResults: c.getClientExtensionResults(),
     };
   }, options);
-  const registration = requireOK('live registration verify', await rpc('webauthn.registerVerify', payload));
-  credentialId = registration.credentialId;
-  // Kept only until cleanup, so a failed verification never strands a test-account factor.
+  // Export before the server write: a lost response must not strand a test-account factor.
   fs.writeFileSync(
     dir + '/signin-virtual-key-recovery.json',
     JSON.stringify({ fixture: 'market taker', ...(await cdp.send('WebAuthn.getCredentials', { authenticatorId })) }),
     { mode: 0o600 },
   );
+  const registration = requireOK('live registration verify', await rpc('webauthn.registerVerify', payload));
+  credentialId = registration.credentialId;
   let verifyPayload;
   page.on('request', (request) => {
     if (request.url().includes('/webauthn.authVerify')) verifyPayload = request.postDataJSON();
@@ -203,12 +204,15 @@ try {
         action: s === authSession ? 'logout passkey test session' : 'logout password test session',
         status: r.status,
       });
+      if (r.status !== 200) process.exitCode = 1;
     } catch (e) {
       receipt.cleanup.push({ error: e.message });
+      process.exitCode = 1;
     }
   }
 
   if (browser) await browser.close();
+  if (process.exitCode) receipt.customerResult = 'FAIL: diagnostic did not complete cleanly; see failure and cleanup';
   receipt.founderResult =
     'NOT VERIFIED: existing local stack marker provides customer only; no admin/founder app endpoint configured or started. No founder account impersonated.';
   receipt.realDevice = 'NOT VERIFIED: virtual authenticator is not Touch ID proof.';
