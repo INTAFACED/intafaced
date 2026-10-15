@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { MerchantsSubnav } from '@/components/merchants/merchants-subnav';
+import { TestDataBadge } from '@/components/merchants/test-data-badge';
 import '@/components/merchants/merchants.css';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
@@ -12,6 +13,7 @@ export default async function MerchantsLayout({ children }: { children: ReactNod
   await requireFounderPage();
   return (
     <div className="mp-page">
+      <TestDataBadge />
       <MerchantsSubnav />
       {children}
     </div>
