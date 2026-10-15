@@ -360,11 +360,12 @@ export const EXEMPT = {
       'skipped, not passed) when the file is absent, which is exactly this empty-tree run. In a real checkout they run.',
   },
   'worktree-remove-tests': {
-    proof: /ℹ pass (\d+)/,
+    proof: /(?:ℹ|#) pass (\d+)/,
     denom: 1,
     reason:
       'node:test over a throwaway git repo it builds itself under ~/.cache (init, commit, worktree add, then `worktree.mjs ' +
-      'remove` against it): the checkout is not its subject. The count of passing tests is printed on every run and ' +
+      'remove` against it): the checkout is not its subject. The count of passing tests is printed on every run (spec ' +
+      'reporter `ℹ pass N` locally, TAP `# pass N` on a non-TTY CI node) and ' +
       'asserted non-zero here, so it cannot reach zero without the printed count changing.',
   },
   'secret-scan-mutation': {
