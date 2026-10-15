@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
+import { uiCopy } from '../../shared/ui-copy';
 import { useSession, sessionSchema, type Session } from '../session/session';
 import { signInWithPasskey } from '../session/webauthn';
 import { useLocation, navigate } from '../../app/location';
@@ -35,6 +36,7 @@ type Problem = 'changed' | 'storage' | 'locks' | 'another' | 'cleared' | 'retain
 export function AuthForm({ register }: { register: boolean }) {
   const { t: p, languageFor: publicLanguageFor } = publicCopy.useCopy();
   const { t, Copy, requestedLocale, languageFor } = publicAuthCopy.useCopy();
+  const { Copy: SharedCopy } = uiCopy.useCopy();
   const { api, commit, userId } = useSession();
   const context = useLocation();
   const authContext = publicAuthContext(location.pathname, location.search);
@@ -47,6 +49,7 @@ export function AuthForm({ register }: { register: boolean }) {
     [handle, setHandle] = useState(''),
     [totp, setTotp] = useState(''),
     [region, setRegion] = useState('');
+  const [missingPasskeyIdentifier, setMissingPasskeyIdentifier] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null),
     [journal, setJournal] = useState(readAuth);
   const [selectedRef, setSelectedRef] = useState<string | null>(journal.records.at(-1)?.localRef ?? null);
@@ -103,6 +106,7 @@ export function AuthForm({ register }: { register: boolean }) {
     running.current = null;
     clearInputs();
     setIdentifier('');
+    setMissingPasskeyIdentifier(false);
     setHandle('');
     setRegion('');
     setPassword('');
@@ -154,15 +158,23 @@ export function AuthForm({ register }: { register: boolean }) {
   }, []);
   async function run(kind: 'register' | 'password' | 'options') {
     if (!sameRender() || (running.current && same(running.current)) || pending) return;
-    if (!identifier.trim()) {
-      if (kind === 'options') {
-        setResult(authoredRefusal('error', { key: 'passkeyIdentifier' }));
-        const input = form.current?.elements.namedItem('identifier');
+    let identifierForRequest = identifier.trim();
+    if (kind === 'options' && !identifierForRequest) {
+      const input = form.current?.elements.namedItem('identifier');
+      // Some autofill tools change the DOM without an input event. Capture it now:
+      // setState alone would leave this invocation using the previous blank value.
+      if (input instanceof HTMLInputElement && input.value.trim()) {
+        identifierForRequest = input.value.trim();
+        setIdentifier(input.value);
+      } else {
+        setMissingPasskeyIdentifier(true);
         if (input instanceof HTMLInputElement) input.focus();
+        return;
       }
-      return;
     }
+    if (!identifierForRequest) return;
     if (kind !== 'options' && !password) return;
+    setMissingPasskeyIdentifier(false);
     const original: Original = {
       api,
       owner: userId,
@@ -176,9 +188,9 @@ export function AuthForm({ register }: { register: boolean }) {
     // Private inputs are captured in this invocation only. No request body enters the browser journal.
     const input =
       kind === 'register'
-        ? { handle: handle.trim(), email: identifier.trim(), password, ...(region ? { region: region.toUpperCase() } : {}) }
-        : { identifier: identifier.trim(), password, ...(totp ? { totpCode: totp } : {}) };
-    const identifierForPasskey = identifier.trim();
+        ? { handle: handle.trim(), email: identifierForRequest, password, ...(region ? { region: region.toUpperCase() } : {}) }
+        : { identifier: identifierForRequest, password, ...(totp ? { totpCode: totp } : {}) };
+    const identifierForPasskey = identifierForRequest;
     const controller = new AbortController();
     abort.current = controller;
     running.current = original;
@@ -443,7 +455,12 @@ export function AuthForm({ register }: { register: boolean }) {
             disabled={pending}
             data-public-auth-sensitive="true"
             value={identifier}
-            onChange={(event) => sameRender() && setIdentifier(event.target.value)}
+            error={missingPasskeyIdentifier ? <SharedCopy k="passkeyIdentifier" /> : undefined}
+            onChange={(event) => {
+              if (!sameRender()) return;
+              setIdentifier(event.target.value);
+              setMissingPasskeyIdentifier(false);
+            }}
           />
           <Field
             label={p('Password')}
