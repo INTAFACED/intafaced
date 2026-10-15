@@ -50,7 +50,7 @@ function verdict(o: Outcome): Verdict {
 describe('G: founder-only procedures', () => {
   let w: World;
   let paths: string[];
-  /** founderAdmin.* and payHalts.set/history — the ones the static inventory covers. */
+  /** founderAdmin.* and payHalts.set/history/operatorStatus — the ones the static inventory covers. */
   let inventoried: string[];
 
   beforeAll(async () => {
@@ -89,8 +89,10 @@ describe('G: founder-only procedures', () => {
         'founderAdmin.registries.venues.save',
         'founderAdmin.registries.walletRoutes.save',
         'founderAdmin.registries.history',
+        'founderAdmin.treasury.exposure',
         'payHalts.set',
         'payHalts.history',
+        'payHalts.operatorStatus',
       ]),
     );
   });
@@ -255,7 +257,7 @@ describe('G: founder-only procedures', () => {
   });
 
   describe('G7: static route inventory', () => {
-    it('no founderAdmin.* (or operator payHalts.set/history) procedure is outside founder authority', () => {
+    it('no founderAdmin.* (or operator payHalts.set/history/operatorStatus) procedure is outside founder authority', () => {
       expect(findUnguardedFounderProcedures(w.appRouter, FOUNDER_PREFIXES)).toEqual([]);
     });
     it('every founder-only prefix matched at least one procedure (a typo cannot make the inventory vacuous)', () => {
@@ -373,6 +375,11 @@ describe('G: founder-only procedures', () => {
       expect(mount, 'src/index.ts no longer calls createPayNamespaces({ ... })').not.toBeNull();
       const args = mount![1]!;
       for (const piece of ['founderAuthority', 'metrics', 'registries: { sql, approvals: actionApprovals }']) {
+        expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
+      }
+      // W5: the halt store the guards read (so payHalts.* answer for real instead of refusing closed) and the
+      // treasury exposure read behind founderAdmin.treasury.exposure.
+      for (const piece of ['payHalts: { store: new PayHaltStore(sql,', 'merchants: pay', 'treasury: { sql,']) {
         expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
       }
       const topLevel = args.replace(/\{[^{}]*\}/g, '{}');
