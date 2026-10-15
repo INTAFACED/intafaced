@@ -130,6 +130,10 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
   'founderAdmin.changes.confirm': () => ({ requestId: randomUUID(), decision: 'confirm', reason: 'second founder agrees' }),
   'founderAdmin.approvals.list': () => ({ limit: 10 }),
   'founderAdmin.treasury.exposure': () => ({}),
+  // W15 operator notes: A is a real merchant, and the seeded note is live exactly until the positive control retracts it.
+  'founderAdmin.ops.notes.add': (w) => ({ merchantId: w.e.A.merchantId, body: 'isolation drill', tags: ['drill'], flagged: false }),
+  'founderAdmin.ops.notes.list': (w) => ({ merchantId: w.e.A.merchantId, limit: 10 }),
+  'founderAdmin.ops.notes.retract': (w) => ({ noteId: w.operatorNoteId, reason: 'isolation drill' }),
   'accountControls.change': () => control(),
   'merchantState.set': () => control(),
   'accountControls.getState': () => ({ target: { area: 'merchant', merchantId: NOBODY } }),
@@ -146,6 +150,13 @@ export interface ProbeIds {
   settlementId: string;
   linkId: string;
   endpointId: string;
+  /** W15 merchant operations ids. */
+  disputeId: string;
+  customerRef: string;
+  exportJobId: string;
+  notificationId: string;
+  memberId: string;
+  inviteId: string;
 }
 
 export const idsOfEntity = (e: Entity): ProbeIds => ({
@@ -154,6 +165,12 @@ export const idsOfEntity = (e: Entity): ProbeIds => ({
   settlementId: e.settlementId,
   linkId: e.linkId,
   endpointId: e.endpointId,
+  disputeId: e.disputeId,
+  customerRef: e.customerRef,
+  exportJobId: e.exportJobId,
+  notificationId: e.notificationId,
+  memberId: e.memberId,
+  inviteId: e.inviteId,
 });
 export const ghostIds = (): ProbeIds => ({
   merchantId: ghost(),
@@ -161,6 +178,12 @@ export const ghostIds = (): ProbeIds => ({
   settlementId: ghost(),
   linkId: ghost(),
   endpointId: ghost(),
+  disputeId: `dp-${ghost()}`,
+  customerRef: `cust-${ghost()}`,
+  exportJobId: ghost(),
+  notificationId: ghost(),
+  memberId: ghost(),
+  inviteId: ghost(),
 });
 
 export interface MerchantProc {
@@ -174,6 +197,12 @@ export interface MerchantProc {
    * `service`: the owner's call gets past the isolation fence; the service may still refuse on state.
    */
   own: 'ok' | 'service';
+  /**
+   * The owner can only do this from an interactive, MFA'd session: an `ifc_` key is refused by design
+   * (team changes), so there is no key positive control. The refusal itself is not weakened: a key still
+   * cannot call it, and the session case still proves the foreign id is refused like a missing one.
+   */
+  sessionOnly?: boolean;
   /** The body is a `pay.not_built` stub. Remove the flag when the workstream lands: strict assertions then apply. */
   stub?: boolean;
 }
@@ -283,9 +312,69 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   { path: 'conversion.execute', scope: 'pay:payout', own: 'service', stub: true, input: () => ({ requestId: ghost(), quoteId: ghost() }) },
   { path: 'conversion.get', scope: 'pay:read', own: 'service', stub: true, input: () => ({ conversionId: ghost() }) },
   { path: 'conversion.list', scope: 'pay:read', own: 'ok', stub: true, input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
+  // W15 merchantOps.*: every procedure that takes a resource id. (The caller's merchant comes from the principal,
+  // never the body, so there is no `mixed` case: the id is the only thing a caller can aim at someone else.)
+  // Order matters for the positive controls: an action that consumes the row (remove, decline, respond) comes after its siblings.
+  {
+    path: 'merchantOps.disputes.get',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ disputeId: i.disputeId }),
+  },
+  {
+    path: 'merchantOps.disputes.addEvidence',
+    scope: 'pay:write',
+    own: 'ok',
+    input: (i) => ({
+      disputeId: i.disputeId,
+      kind: 'receipt',
+      fileName: 'receipt.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 1,
+      sha256: 'a'.repeat(64),
+    }),
+  },
+  {
+    path: 'merchantOps.disputes.respond',
+    scope: 'pay:write',
+    own: 'service',
+    input: (i) => ({ requestId: ghost(), disputeId: i.disputeId, action: 'accept_liability' }),
+  },
+  {
+    path: 'merchantOps.customers.get',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ customerRef: i.customerRef, recentPaymentsLimit: 5 }),
+  },
+  { path: 'merchantOps.exports.get', scope: 'pay:read', own: 'ok', input: (i) => ({ jobId: i.exportJobId }) },
+  { path: 'merchantOps.exports.download', scope: 'pay:read', own: 'ok', input: (i) => ({ jobId: i.exportJobId }) },
+  {
+    path: 'merchantOps.notifications.markRead',
+    scope: 'pay:write',
+    own: 'ok',
+    input: (i) => ({ notificationIds: [i.notificationId] }),
+  },
+  {
+    path: 'merchantOps.team.changeRole',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ memberId: i.memberId, role: 'developer' }),
+  },
+  { path: 'merchantOps.team.remove', scope: 'pay:write', own: 'ok', sessionOnly: true, input: (i) => ({ memberId: i.memberId }) },
+  // The invited account answers its own invitation; here the invitation names the owner's own account, so the owner can.
+  // Accepting is refused as a conflict (an owner cannot join a team), which is past the fence.
+  {
+    path: 'merchantOps.team.acceptInvite',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
+    input: (i) => ({ memberId: i.inviteId }),
+  },
+  { path: 'merchantOps.team.declineInvite', scope: 'pay:write', own: 'ok', sessionOnly: true, input: (i) => ({ memberId: i.inviteId }) },
 ];
 
-export const keyCanCall = (p: MerchantProc): boolean => MERCHANT_KEY_SCOPES.includes(p.scope);
+export const keyCanCall = (p: MerchantProc): boolean => !p.sessionOnly && MERCHANT_KEY_SCOPES.includes(p.scope);
 
 // ── M2: list endpoints ──────────────────────────────────────────────────────
 

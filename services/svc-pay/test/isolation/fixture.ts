@@ -23,6 +23,8 @@ import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { encodePrincipal, mergeRouters, signPrincipalHeader, type Context } from '@intafaced/contracts';
 import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import { MerchantAccountControls } from '../../src/merchant-account-controls.js';
+import { defaultDisputeCaseStore } from '../../src/fraud/dispute-case.js';
+import { recordMerchantNotification } from '../../src/merchant-ops/index.js';
 import { createFounderAuthority, type FounderAuthority } from '../../src/founder-authority.js';
 import { createKybPspRouter } from '../../src/kyb-router.js';
 import { KybService } from '../../src/kyb-service.js';
@@ -75,6 +77,18 @@ export interface Entity {
   readonly settlementId: string;
   readonly linkId: string;
   readonly endpointId: string;
+  /** W15: a dispute case (process-wide store; the id is unique per entity) on `paymentId`. */
+  readonly disputeId: string;
+  /** W15: the opaque customer reference the merchant put on `paymentId`. */
+  readonly customerRef: string;
+  /** W15: a finished CSV export job requested by the owner. */
+  readonly exportJobId: string;
+  /** W15: an in-app notification. */
+  readonly notificationId: string;
+  /** W15: a team member row (status `invited`, a stranger's account) that the owner may change or remove. */
+  readonly memberId: string;
+  /** W15: an invitation to the OWNER's own account onto the own team, so the owner can accept or decline it. */
+  readonly inviteId: string;
 }
 
 export type Entitlement = 'enabled' | 'revoked' | 'unconfigured' | 'not_operator';
@@ -109,7 +123,9 @@ export interface World {
   readonly outbound: Outbound[];
   readonly e: Record<Tag, Entity>;
   readonly founderUserId: string;
-  /** Every id of a merchant row seeded by `tag` (merchant, payments, settlement, link, endpoint). */
+  /** A live operator note on merchant A, for the founder positive control of `founderAdmin.ops.notes.retract`. */
+  readonly operatorNoteId: string;
+  /** Every id of a merchant row seeded by `tag` (merchant, payments, settlement, link, endpoint, W15 rows). */
   idsOf(tag: Tag): string[];
   stop(): Promise<void>;
 }
@@ -205,11 +221,12 @@ function composeRouter(parts: {
     createMerchantStateRouter(new MerchantStateService(parts.sql), new MerchantAccountControls(parts.sql, parts.founderAuthority)),
     createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), actionApprovals, parts.pay),
     createSubMerchantRouter(parts.subMerchants, parts.pay),
-    // One mount list, as in src/index.ts. A workstream that adds a mount there (W15 `sql`) adds ONE line here.
+    // One mount list, as in src/index.ts. A workstream that adds a mount there adds ONE line here.
     createPayNamespaces({
       founderAuthority: parts.founderAuthority,
       metrics: parts.metrics,
       registries: { sql: parts.sql, approvals: actionApprovals },
+      sql: parts.sql, // W15: merchantOps.* and founderAdmin.ops.*
     }),
   );
 }
@@ -269,7 +286,8 @@ export async function createWorld(): Promise<World> {
   const entities = {} as Record<Tag, Entity>;
 
   async function seed(tag: Tag, merchantId: string, userId: string): Promise<void> {
-    const mk = async () =>
+    const customerRef = `cust-${tag}-${randomUUID().slice(0, 8)}`;
+    const mk = async (ref?: string) =>
       pay.createPayment({
         merchantId,
         amount: parseAmount('100'),
@@ -278,8 +296,9 @@ export async function createWorld(): Promise<World> {
         railAdapter: 'card-sandbox',
         instrument: { kind: 'card', token: 'tok_ok' },
         metadata: { tag },
+        ...(ref ? { customerRef: ref } : {}),
       });
-    const first = await mk();
+    const first = await mk(customerRef);
     await pay.authorize(first.id);
     const captured = await pay.capture(first.id);
     const second = await mk();
@@ -287,6 +306,22 @@ export async function createWorld(): Promise<World> {
     const link = await pay.createPaymentLink({ merchantId, label: `link-${tag}` });
     const endpoint = await webhooks.registerEndpoint(merchantId, `http://localhost:9/hook-${tag}`);
     await webhooks.enqueue({ type: 'payment.captured', payment: captured });
+
+    // W15 merchant operations rows. Direct inserts for the ones the product creates asynchronously
+    // (export, invitations), so seeding starts no background work.
+    const disputeId = `dp-${tag}-${randomUUID()}`;
+    defaultDisputeCaseStore.open({ disputeId, paymentId: first.id, merchantId, amount: '100', assetId: 'USDT', reasonCode: '4853' });
+    const exportRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, status, file_name, content_type, content, size_bytes, row_count, as_of)
+      VALUES (${merchantId}, ${randomUUID()}, ${userId}, 'payments', 'ready', ${`payments-${tag}.csv`}, 'text/csv; charset=utf-8', 'id\n', 3, 0, now())
+      RETURNING id`;
+    const notificationId = await recordMerchantNotification(sql, { merchantId, kind: 'export_ready', title: `isolation ${tag}` });
+    const memberRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by)
+      VALUES (${merchantId}, ${randomUUID()}, 'viewer', 'invited', ${userId}) RETURNING id`;
+    const inviteRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by)
+      VALUES (${merchantId}, ${userId}, 'viewer', 'invited', ${userId}) RETURNING id`;
     entities[tag] = {
       tag,
       userId,
@@ -296,6 +331,12 @@ export async function createWorld(): Promise<World> {
       settlementId: settlement.id,
       linkId: link.id,
       endpointId: endpoint.id,
+      disputeId,
+      customerRef,
+      exportJobId: exportRows[0]!.id,
+      notificationId: notificationId!,
+      memberId: memberRows[0]!.id,
+      inviteId: inviteRows[0]!.id,
     };
   }
 
@@ -339,6 +380,10 @@ export async function createWorld(): Promise<World> {
     INSERT INTO pay.network_registry (network_id, display_name, asset_codes, updated_by)
     VALUES (${REGISTRY_NETWORK_ID}, 'Isolation network', '["USDT"]'::jsonb, 'fixture')`;
 
+  const operatorNote = await sql<Array<{ id: string }>>`
+    INSERT INTO pay.operator_merchant_notes (merchant_id, body, author_id)
+    VALUES (${entities.A.merchantId}, 'isolation drill: operator-only note', 'fixture') RETURNING id`;
+
   const founderUserId = randomUUID();
   identity.entitlements.set(founderUserId, 'enabled');
   outbound.length = 0; // seeding enqueues only; nothing has been processed yet
@@ -357,9 +402,22 @@ export async function createWorld(): Promise<World> {
     outbound,
     e: entities,
     founderUserId,
+    operatorNoteId: operatorNote[0]!.id,
     idsOf(tag) {
       const x = entities[tag];
-      return [x.merchantId, x.paymentId, x.paymentId2, x.settlementId, x.linkId, x.endpointId];
+      return [
+        x.merchantId,
+        x.paymentId,
+        x.paymentId2,
+        x.settlementId,
+        x.linkId,
+        x.endpointId,
+        x.disputeId,
+        x.exportJobId,
+        x.notificationId,
+        x.memberId,
+        x.inviteId,
+      ];
     },
     async stop() {
       await rest.close();
@@ -461,5 +519,13 @@ export async function snapshotMerchant(w: World, merchantId: string): Promise<st
     endpoints: await q('merchant_webhook_endpoints', 'merchant_id'),
     deliveries: await q('merchant_webhook_deliveries', 'merchant_id'),
     permissions: await q('merchant_permission_events', 'subject_merchant_id'),
+    // W15
+    team: await q('merchant_team_members', 'merchant_id'),
+    teamEvents: await q('merchant_team_events', 'merchant_id'),
+    notifications: await q('merchant_notifications', 'merchant_id'),
+    exportJobs: await q('merchant_export_jobs', 'merchant_id'),
+    disputeEvidence: await q('merchant_dispute_evidence', 'merchant_id'),
+    disputeResponses: await q('merchant_dispute_responses', 'merchant_id'),
+    disputeCases: defaultDisputeCaseStore.listForMerchant(merchantId),
   });
 }

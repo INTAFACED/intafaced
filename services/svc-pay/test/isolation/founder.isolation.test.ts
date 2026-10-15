@@ -366,14 +366,17 @@ describe('G: founder-only procedures', () => {
       ]) {
         expect(src, piece).toContain(piece);
       }
-      // The namespaces mount list may grow (W15 adds `sql`); what it must keep is the one live
-      // authority, the metrics runtime and the registries wired to the real approvals consumer.
+      // The namespaces mount list may grow; what it must keep is the one live authority, the metrics
+      // runtime, the registries wired to the real approvals consumer, and (W15) the pay database, which
+      // is what mounts merchantOps.* and founderAdmin.ops.* (without it every merchantOps call refuses closed).
       const mount = /createPayNamespaces\(\{([^}]*(?:\{[^}]*\}[^}]*)*)\}\)/.exec(src);
       expect(mount, 'src/index.ts no longer calls createPayNamespaces({ ... })').not.toBeNull();
       const args = mount![1]!;
       for (const piece of ['founderAuthority', 'metrics', 'registries: { sql, approvals: actionApprovals }']) {
         expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
       }
+      const topLevel = args.replace(/\{[^{}]*\}/g, '{}');
+      expect(topLevel, 'createPayNamespaces is no longer given the pay database as its own `sql` argument').toMatch(/(^|,)\s*sql\s*(,|$)/);
       expect(src.match(/createFounderAuthority\(/g), 'exactly one live founder authority').toHaveLength(1);
     });
   });
