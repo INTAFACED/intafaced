@@ -12,9 +12,10 @@ import type { TreasuryLimits } from './config.js';
  *     settled is still pending; money has not left.
  *   - open conversion inventory: owned by the conversion path (W6). It supplies a
  *     `ConversionInventorySource` reading its own order table. Until it does, the
- *     default source is `wired: false` and reports zero: no conversion path
- *     exists to hold any, and `beforeConversion` REFUSES while it is unwired so
- *     the zero can never be relied on by a real conversion.
+ *     default source is `wired: false` and exposure reports NULL ("not measured"),
+ *     never zero: a zero would read as an empty book. Limit arithmetic counts it
+ *     as nothing, and `beforeConversion` REFUSES while it is unwired so the gap
+ *     can never be relied on by a real conversion.
  *
  * User-money withdrawals (`pay.withdrawals` in `pending` or `held`) count as
  * pending payouts too: that value is on its way off the platform. `sent` and
@@ -24,7 +25,7 @@ import type { TreasuryLimits } from './config.js';
 export interface ConversionInventorySource {
   /** False until the conversion path provides its own reader. */
   readonly wired: boolean;
-  /** Open (placed, not yet paid out or unwound) conversion size in `assetId` terms. */
+  /** Open (placed, not yet paid out or unwound) conversion size in `assetId` terms. Read only when `wired`. */
   openInventory(conn: Sql, assetId: string): Promise<Amount>;
 }
 
@@ -53,7 +54,8 @@ export async function pendingPayoutExposure(conn: Sql, assetId: string): Promise
 
 export interface AssetExposure {
   readonly assetId: string;
-  readonly openConversionInventory: Amount;
+  /** Null = the conversion inventory reader is not wired, so nothing was measured. */
+  readonly openConversionInventory: Amount | null;
   readonly pendingPayouts: Amount;
   /** Null = no limit configured (which REFUSES, it is not unlimited). */
   readonly limit: Amount | null;
@@ -67,7 +69,7 @@ export async function assetExposure(
 ): Promise<AssetExposure> {
   return {
     assetId,
-    openConversionInventory: await inventory.openInventory(conn, assetId),
+    openConversionInventory: inventory.wired ? await inventory.openInventory(conn, assetId) : null,
     pendingPayouts: await pendingPayoutExposure(conn, assetId),
     limit: limits.byAsset.get(assetId) ?? null,
   };
@@ -84,7 +86,7 @@ export async function treasuryExposureView(sql: Sql, limits: TreasuryLimits, inv
     const e = await assetExposure(sql, assetId, limits, inventory);
     perAsset.push({
       assetCode: assetId,
-      openConversionInventory: formatAmount(e.openConversionInventory),
+      openConversionInventory: e.openConversionInventory === null ? null : formatAmount(e.openConversionInventory),
       pendingPayouts: formatAmount(e.pendingPayouts),
       limit: e.limit === null ? null : formatAmount(e.limit),
     });

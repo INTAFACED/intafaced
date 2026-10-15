@@ -44,7 +44,7 @@ export function createTreasuryGuards(deps: {
     if (limit === undefined) throw new PayGuardRefusal(GUARD_TREASURY_LIMIT_UNSET, 'refused');
     await conn`SELECT pg_advisory_xact_lock(hashtext(${`pay.treasury:${assetId}`}))`;
     const current = await assetExposure(conn, assetId, deps.limits, deps.inventory);
-    const total = current.openConversionInventory + current.pendingPayouts - alreadyCounted + candidate;
+    const total = (current.openConversionInventory ?? 0n) + current.pendingPayouts - alreadyCounted + candidate;
     if (compare(total, limit) > 0) throw new PayGuardRefusal(GUARD_TREASURY_EXCEEDED, 'refused');
   }
 
@@ -69,7 +69,7 @@ export function createTreasuryGuards(deps: {
     },
     beforeConversion: async (ctx) => {
       if (ctx.replay.kind !== 'fresh') return;
-      // The zero from an unwired source is not evidence of an empty book.
+      // An unwired source measured nothing, so it is not evidence of an empty book.
       if (!deps.inventory.wired) throw new PayGuardRefusal(GUARD_TREASURY_INVENTORY_UNWIRED, 'unavailable');
       await admit(ctx.sql, ctx.fromAsset, ctx.fromAmount);
     },

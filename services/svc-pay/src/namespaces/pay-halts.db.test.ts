@@ -273,8 +273,8 @@ describe('payHalts.* with a real halt store', () => {
       });
       const result = await r.createCaller(ctxOf(principalFor(founderA))).founderAdmin.treasury.exposure({});
       expect(result.perAsset).toEqual([
-        { assetCode: 'EUR', openConversionInventory: '0', pendingPayouts: '0', limit: '50' },
-        { assetCode: 'USDT', openConversionInventory: '0', pendingPayouts: '4', limit: null },
+        { assetCode: 'EUR', openConversionInventory: null, pendingPayouts: '0', limit: '50' },
+        { assetCode: 'USDT', openConversionInventory: null, pendingPayouts: '4', limit: null },
       ]);
       await expect(r.createCaller(ctxOf(principalFor(id()))).founderAdmin.treasury.exposure({})).rejects.toMatchObject({
         code: 'FORBIDDEN',

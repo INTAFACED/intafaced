@@ -163,7 +163,7 @@ describe('W5 treasury exposure (real Postgres)', () => {
       wired: false,
       openInventory: async () => 0n,
     });
-    expect(view).toEqual([{ assetCode: 'USDT', openConversionInventory: '0', pendingPayouts: '10', limit: '25' }]);
+    expect(view).toEqual([{ assetCode: 'USDT', openConversionInventory: null, pendingPayouts: '10', limit: '25' }]);
 
     const over = await settledWindow(m.id, `15.${'0'.repeat(17)}1`, 'w-over');
     expect(formatAmount(over.net)).toBe(`15.${'0'.repeat(17)}1`);
@@ -356,7 +356,7 @@ describe('W5 treasury exposure (real Postgres)', () => {
         service(env).payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST }),
       ).rejects.toThrow('process died');
       const view = await treasuryExposureView(sql, loadTreasuryLimits(env), { wired: false, openInventory: async () => 0n });
-      expect(view).toEqual([{ assetCode: 'USDT', openConversionInventory: '0', pendingPayouts: '10', limit: '1' }]);
+      expect(view).toEqual([{ assetCode: 'USDT', openConversionInventory: null, pendingPayouts: '10', limit: '1' }]);
       const paid = await service({}).payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST });
       expect(paid.status).toBe('paid_out');
 
@@ -398,7 +398,7 @@ describe('W5 treasury exposure (real Postgres)', () => {
         wired: false,
         openInventory: async () => 0n,
       });
-      expect(view).toEqual([{ assetCode: 'USDT', openConversionInventory: '0', pendingPayouts: '7', limit: '10' }]);
+      expect(view).toEqual([{ assetCode: 'USDT', openConversionInventory: null, pendingPayouts: '7', limit: '10' }]);
       const m = await open().createMerchant({ userId: USER, pricing: { feeBps: 0 } });
       const settlement = await settledWindow(m.id, `3.${'0'.repeat(17)}1`, 'w-wd');
       await expect(
