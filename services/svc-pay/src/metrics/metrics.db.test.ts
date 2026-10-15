@@ -299,37 +299,53 @@ describe('svc-pay metrics read model PG-hard', () => {
   const settle = (merchantId: string, window: string, assetId = 'USDT') =>
     pay.settleWindow({ merchantId, window, assetId, from: new Date(Date.now() - DAY_MS), to: new Date(Date.now() + DAY_MS) });
 
-  /** Two merchants and a third in another asset, with captures, refunds, a decline, a link payment and a settlement. */
+  /**
+   * Two merchants and a third in another asset, with captures, refunds, a decline, a link payment and a settlement.
+   *
+   * Every call is a few real Postgres transactions, so run one after another this
+   * was ~55 serial commits and the test's wall clock was commit latency times
+   * 55; on a loaded CI runner that reached the 5 s default. The flows below
+   * touch different payments, so they run concurrently (the pool has 8
+   * connections), keeping only the real dependencies in order: merchants exist
+   * before payments, a payment is captured before it is refunded, and every
+   * capture and refund is in before a merchant is settled. The concurrent
+   * writers also give the projection's dirty log real interleaving to absorb.
+   */
   async function seedRun() {
-    const a = await merchant();
-    const b = await merchant();
-    const c = await merchant();
-    const a1 = await capturedPayment(a.id, '100');
-    await capturedPayment(a.id, '40.5');
-    await cryptoCaptured(a.id, '7.25');
-    await pay.refund(a1, amt('30'));
-    const declined = await pay.createPayment({
-      merchantId: a.id,
-      amount: amt('5'),
-      assetId: 'USDT',
-      method: 'card',
-      railAdapter: 'card-sandbox',
-      instrument: { kind: 'card', token: 'tok_decline' },
-    });
-    await pay.authorize(declined.id).catch(() => undefined);
-    await capturedPayment(b.id, '1000');
-    await capturedPayment(b.id, '12.000000000000000001');
-    await cryptoCaptured(c.id, '3', 'BTC');
-    // A link payment for B
-    const link = await pay.createPaymentLink({ merchantId: b.id, label: 'Invoice', amount: amt('9'), currency: 'USDT' });
-    await pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' });
-    const [row] = await sql<Array<{ payment_id: string }>>`SELECT payment_id FROM pay.checkout_sessions WHERE merchant_id = ${b.id}`;
-    const address = await chain.acceptanceAddress(row!.payment_id, 'USDT');
-    chain.credit({ address, assetId: 'USDT', amount: amt('9'), from: '0xbuyer', confirmations: 12 });
-    await pay.authorize(row!.payment_id);
-    await pay.capture(row!.payment_id);
-    await settle(a.id, 'w1');
-    await settle(b.id, 'w1');
+    const [a, b, c] = await Promise.all([merchant(), merchant(), merchant()]);
+    await Promise.all([
+      (async () => {
+        const a1 = await capturedPayment(a.id, '100');
+        await pay.refund(a1, amt('30'));
+      })(),
+      capturedPayment(a.id, '40.5'),
+      cryptoCaptured(a.id, '7.25'),
+      (async () => {
+        const declined = await pay.createPayment({
+          merchantId: a.id,
+          amount: amt('5'),
+          assetId: 'USDT',
+          method: 'card',
+          railAdapter: 'card-sandbox',
+          instrument: { kind: 'card', token: 'tok_decline' },
+        });
+        await pay.authorize(declined.id).catch(() => undefined);
+      })(),
+      capturedPayment(b.id, '1000'),
+      capturedPayment(b.id, '12.000000000000000001'),
+      cryptoCaptured(c.id, '3', 'BTC'),
+      (async () => {
+        // A link payment for B
+        const link = await pay.createPaymentLink({ merchantId: b.id, label: 'Invoice', amount: amt('9'), currency: 'USDT' });
+        await pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' });
+        const [row] = await sql<Array<{ payment_id: string }>>`SELECT payment_id FROM pay.checkout_sessions WHERE merchant_id = ${b.id}`;
+        const address = await chain.acceptanceAddress(row!.payment_id, 'USDT');
+        chain.credit({ address, assetId: 'USDT', amount: amt('9'), from: '0xbuyer', confirmations: 12 });
+        await pay.authorize(row!.payment_id);
+        await pay.capture(row!.payment_id);
+      })(),
+    ]);
+    await Promise.all([settle(a.id, 'w1'), settle(b.id, 'w1')]);
     return { a, b, c };
   }
 
