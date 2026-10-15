@@ -186,7 +186,7 @@ async function signIn(register, passwordOnly = false) {
     }
   });
   page.on('pageerror', (e) => receipt.errors.push(e.message));
-  const response = await page.goto(origin + '/login?redirect=' + (passwordOnly ? '%2Fuc%2Fsafe' : '%2Ftrade%2Fspot%2FBTC-USDT'));
+  const response = await page.goto(origin + '/login?redirect=%2Ftrade%2Fspot%2FBTC-USDT');
   check(
     'Rendered LOCAL TEST sign-in',
     response.status() === 200 && (await page.getByRole('button', { name: 'Use a passkey', exact: true }).isVisible()),
@@ -203,7 +203,15 @@ async function signIn(register, passwordOnly = false) {
     authSession = body.result.data;
     receipt.browserAuth = 'password';
     token = authSession.accessToken;
-    await page.waitForURL(origin + '/uc/safe', { timeout: 20000 });
+    await page.waitForURL(origin + '/trade/spot/BTC-USDT', { timeout: 20000 });
+    const pro = page.getByRole('button', { name: 'Pro', exact: true });
+    await pro.click();
+    await expect(pro).toHaveAttribute('aria-pressed', 'true');
+    receipt.preferenceScope = 'Pro selected through rendered toggle in this isolated browser; layout preference is stored per device';
+    await page.getByRole('tab', { name: 'Trade history', exact: true }).click();
+    await page.locator('.dk-bottom-body:visible table tbody tr').first().waitFor({ timeout: 20000 });
+    await page.screenshot({ path: path.join(dir, 'trade-pro-handoff.png'), fullPage: false });
+    await openSecurityFromMenu();
     await expect(page.getByRole('button', { name: 'Add passkey', exact: true })).toBeEnabled({ timeout: 20000 });
     const keys = await rpc('webauthn.list', { limit: 200 }, token, 'GET');
     check(
@@ -443,17 +451,20 @@ async function trade() {
   }
   await page.screenshot({ path: path.join(dir, 'trade-balances.png'), fullPage: false });
   receipt.tradeResult = 'PASS: rendered passkey sign-in, one UI buy, fill, exact ledger changes and visible balances';
-  // SessionProvider intentionally keeps credentials in memory. Use the same
-  // History/popstate navigation as app/location.ts; a document reload signs out.
-  await page.evaluate(() => {
-    history.pushState(null, '', '/uc/safe');
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  });
+  await openSecurityFromMenu();
   check(
     'Customer can enroll their own passkey from Security',
     await page.getByRole('button', { name: 'Add passkey', exact: true }).isEnabled(),
   );
   check('Customer UI completed without JavaScript errors', receipt.errors.length === 0);
+}
+
+async function openSecurityFromMenu() {
+  // The rendered account link uses App.followLink's SPA navigation, preserving
+  // SessionProvider's in-memory session. An address-bar load signs out.
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+  await page.getByRole('link', { name: 'Security', exact: true }).click();
+  await page.waitForURL(origin + '/uc/safe', { timeout: 20000 });
 }
 
 try {
