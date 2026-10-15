@@ -370,8 +370,7 @@ const messages = {
     'Your joined campaigns, eligibility and reward status cannot be loaded because the campaign activity service is not connected. This does not mean you have no participation records.',
   'campaigns.discover': 'Discover campaigns',
   'campaigns.discovery.unavailable': 'Campaign discovery unavailable',
-  'campaigns.public.details':
-    'Public campaign details cannot be viewed here yet. Joining campaigns and claiming rewards are unavailable.',
+  'campaigns.public.details': 'Public campaign details cannot be viewed here yet. Joining campaigns and claiming rewards are unavailable.',
   'campaigns.signed.in.campaign.proposal': 'Signed-in campaign proposal',
   'campaigns.prepare.a.proposal.for.human.review.the':
     'Prepare a proposal for human review. The service requires an available analytics warehouse, rejects return claims and undecided incentive budgets, and never publishes automatically.',
