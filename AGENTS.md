@@ -21,10 +21,10 @@ Locate code with `rg`, `rg --files`, and focused Git history. Graphify is retire
 
 ## One chain of work
 
-1. Work in a worktree (`pnpm wt <branch>`), never the main checkout. Bare `git worktree add` is the wrong start. Orca `worktree create` is the same thing with a sidebar card.
+1. Create worktrees with `pnpm wt <branch>` and work there, never in the main checkout. Orca's configured setup runs `pnpm install` directly; use `pnpm wt` for the helper's checks. Bare `git worktree add` bypasses them too.
 2. One service per pull request. Never push `main`.
 3. If an open pull request already touches that service, or the same files, leave it and take a different part. Several agents may work at once on different parts.
-4. When you stop and this folder is not home, remove the worktree from the home checkout with `git worktree remove --force`. `orca worktree rm` deletes the branch. `git branch -D` deletes the branch. Leave home, OS, and PSP in place. `pnpm wt <branch>` restores a folder.
+4. Once your task is merged or handed off, remove your own worktree from the home checkout with `pnpm wt:rm <branch>` under Nitro's standing permission. It refuses uncommitted edits; never use `--force`. Keep every branch, and leave home, OS, PSP, and other agents' worktrees in place. `pnpm wt <branch>` restores the folder.
 
 ## INTACHAIN
 

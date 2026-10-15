@@ -12,7 +12,7 @@
  *   pnpm wt feat/svc-identity-rank    create + install + report the path
  *   pnpm wt docs/research-topic --skip-install
  *   pnpm wt:list                      what exists, and how stale
- *   pnpm wt:rm feat/svc-identity-rank remove worktree and local branch
+ *   pnpm wt:rm feat/svc-identity-rank remove worktree, keep local branch
  *
  *   node tooling/scripts/worktree.mjs --self-test   start-point fixtures (no git, no I/O)
  */
@@ -476,8 +476,7 @@ function remove(branch) {
   const path = join(WORKTREE_ROOT, dirNameFor(branch));
   if (!existsSync(path)) fail(`No worktree at ${path}`);
 
-  // Refuse to discard work. If the branch has uncommitted changes or unmerged
-  // commits, say so and stop — this script must never be how work is lost.
+  // Refuse uncommitted edits. Keep the branch and all its commits, merged or not.
   const dirty = execFileSync('git', ['status', '--porcelain'], { cwd: path, encoding: 'utf8' }).trim();
   if (dirty) {
     fail(`${branch} has uncommitted changes:\n${dirty}\n\nCommit or discard them first, then re-run.`);
@@ -486,15 +485,7 @@ function remove(branch) {
   console.log(`· removing worktree ${path}`);
   git(['worktree', 'remove', path], { stdio: 'inherit' });
 
-  const merged = git(['branch', '--merged', baseBranch()]).includes(branch);
-  if (merged) {
-    git(['branch', '-d', branch], { stdio: 'inherit' });
-    console.log(`✓ removed worktree and merged branch ${branch}`);
-  } else {
-    console.log(`✓ removed worktree`);
-    console.log(`  Branch "${branch}" kept — it is not merged into ${baseBranch()}.`);
-    console.log(`  Delete it with: git branch -D ${branch}`);
-  }
+  console.log(`✓ removed worktree; branch "${branch}" kept`);
 }
 
 /** The start point `create` resolves, plus how far HEAD is from it. */
@@ -714,7 +705,7 @@ Worktree manager — CONTRIBUTING.md §2
   pnpm wt <branch> --skip-install  create without dependencies (same space floor)
   pnpm wt:base           what a new worktree would be cut from, and how stale this checkout is
   pnpm wt:list           list worktrees and how stale they are
-  pnpm wt:rm <branch>    remove a worktree (refuses if work is uncommitted)
+  pnpm wt:rm <branch>    remove a worktree, keep its branch (refuses uncommitted work)
 
 Worktrees live in ${WORKTREE_ROOT}
 `);
