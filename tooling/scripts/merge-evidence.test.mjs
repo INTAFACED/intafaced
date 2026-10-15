@@ -597,3 +597,27 @@ test('new or untested workspace roots cannot disappear from known-workspace cove
     assert.match(result.reasons.join('; '), /svc-new-money.*unknown.*coverage/);
   }
 });
+
+for (const side of ['head', 'base'])
+  for (const failure of ['unhandled', 'step'])
+    test(`green ${side} execution refuses ${failure} failure evidence`, async () => {
+      const f = shardFixture({ green: true, baseName: 'Tests (full)', baseConclusion: 'success' });
+      const target = side === 'head' ? f.headRun.jobs[0] : f.baseRun.jobs[0];
+      if (failure === 'step') target.steps[0].conclusion = 'failure';
+      const original = f.options.gh;
+      f.options.gh = (args) => {
+        const result = original(args);
+        if (failure === 'unhandled' && args.includes('--log') && (args[3] === '201') === (side === 'head'))
+          return {
+            ...result,
+            stdout: result.stdout.replace(
+              '##[endgroup]',
+              'Unhandled Errors\nUnhandled Error\nError: invariant crashed\nErrors  1 error\n##[endgroup]',
+            ),
+          };
+        return result;
+      };
+      const result = await collectEvidence(f.options);
+      assert.equal(result.pass, false, `${side} ${failure}`);
+      assert.match(result.reasons.join('; '), /unhandled|error|test.*step/i);
+    });

@@ -277,6 +277,14 @@ test('genuine subagent transcript binds agent ID to a distinct parent session', 
   assert.equal(result.review.reviewerSession, agent);
   assert.equal(result.review.parentSession, parent);
   assert.equal(result.review.transcriptPath, path);
+  // Observed in real local Claude sub-agent JSONL: telemetry entries bind
+  // agent/session but omit isSidechain; only conversation entries carry it.
+  const telemetry = ['api-request-shape', 'api-request-blob', 'api-request'].map((type) => ({ type, agentId: agent, sessionId: parent }));
+  save([...telemetry, ...entries]);
+  assert.equal(validate().pass, true, 'real telemetry metadata is not a conversation verdict');
+  save([{ ...telemetry[0], agentId: 'b1234567890abcdef' }, ...entries]);
+  assert.equal(validate().pass, false, 'conflicting telemetry identity must still block');
+  save();
   const receipt = writePassReceipt({
     repo: 'Owner/repo',
     pr: 42,
