@@ -141,6 +141,52 @@ async function nativeKey(context, page, state) {
   return cdp;
 }
 
+for (const identifier of ['', '   ']) {
+  test(`passkey ${identifier ? 'whitespace' : 'blank'} identifier shows a field error without starting authentication`, async ({
+    page,
+    context,
+  }) => {
+    const state = await network(context);
+    await page.goto('/login');
+    const email = page.getByRole('textbox', { name: 'Email or handle', exact: true });
+    await email.fill(identifier);
+    await page.getByRole('button', { name: 'Use a passkey', exact: true }).click();
+    await expect(email).toHaveAttribute('aria-invalid', 'true');
+    await expect(email).toHaveAccessibleDescription('Enter your email or handle before using a passkey.');
+    await expect(email).toBeFocused();
+    await expect(page.locator('.failure')).toHaveCount(0);
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
+    expect(state.writes).toEqual([]);
+    expect(await journal(page)).toBeNull();
+    await email.fill('passkey-click@example.invalid');
+    await expect(email).toHaveAttribute('aria-invalid', 'false');
+    await expect(page.getByText('Enter your email or handle before using a passkey.', { exact: true })).toHaveCount(0);
+    expect(state.writes).toEqual([]);
+  });
+}
+test('passkey captures autofill without an input event on the same click, with an empty password', async ({ page, context }) => {
+  let captured;
+  const state = await network(context, {
+    'webauthn.authOptions': async (route, input) => {
+      captured = input;
+      return failure(route);
+    },
+  });
+  await page.goto('/login');
+  const email = page.getByRole('textbox', { name: 'Email or handle', exact: true });
+  await page.getByRole('button', { name: 'Use a passkey', exact: true }).click();
+  await email.evaluate((input) => {
+    input.value = '  passkey-click@example.invalid  ';
+  });
+  await page.getByRole('button', { name: 'Use a passkey', exact: true }).click();
+  await expect.poll(() => count(state, 'webauthn.authOptions')).toBe(1);
+  expect(captured).toEqual({ identifier: 'passkey-click@example.invalid' });
+  expect(state.writes).toEqual(['webauthn.authOptions']);
+  await expect(email).toHaveAttribute('aria-invalid', 'false');
+  await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Use a passkey', exact: true })).toBeEnabled();
+});
+
 test('actual password sign-in returns to the original supported room and persists no credentials', async ({ page, context }) => {
   const state = await network(context);
   await login(page, '/uc/safe');
