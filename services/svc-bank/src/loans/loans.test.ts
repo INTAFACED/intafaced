@@ -2700,11 +2700,11 @@ describe('svc-bank loans PG-hard', () => {
       }
 
       /**
-       * Two sweeps already in flight each read MAX(tranche)+1 before either
-       * claim commits, then each posts loan.liquidated against the collateral
-       * the plan was priced on. The second read is held until the first sale
-       * is in the journal so the unlocked read observes tranche 0 and allocates
-       * tranche 1. One open loan, one sale.
+       * Two sweeps read debt before the first sale; the second reads collateral
+       * after that sale. Even though its remaining collateral still matches at
+       * claim time, its debt is stale and must not authorize another tranche.
+       * The first sale is held until the second waits on the real session lock.
+       * One open loan, one sale.
        */
       it('two overlapping sweeps of one open loan do not each sell the same collateral', async () => {
         const opened = await openAt('5200');
@@ -2726,6 +2726,26 @@ describe('svc-bank loans PG-hard', () => {
             await park;
           }
           return posted;
+        };
+
+        // Both sweeps read the old debt. Let the second read its collateral
+        // only after the first sale posts: its plan then mixes old debt with
+        // the remaining collateral, which the collateral-only guard accepts.
+        const originalOutstanding = loans.outstanding.bind(loans);
+        let debtReads = 0;
+        let bothDebtsRead!: () => void;
+        const debtsRead = new Promise<void>((resolve) => {
+          bothDebtsRead = resolve;
+        });
+        loans.outstanding = async (loanId) => {
+          const debt = await originalOutstanding(loanId);
+          const place = ++debtReads;
+          if (place <= 2) {
+            if (place === 2) bothDebtsRead();
+            await debtsRead;
+            if (place === 2) await firstSale;
+          }
+          return debt;
         };
 
         let trancheReads = 0;
@@ -2771,6 +2791,8 @@ describe('svc-bank loans PG-hard', () => {
           firstSaleLanded();
           ledger.post = innerPost;
           sql.unsafe = originalUnsafe;
+          loans.outstanding = originalOutstanding;
+          bothDebtsRead();
           await watcher;
         }
 
@@ -2784,6 +2806,9 @@ describe('svc-bank loans PG-hard', () => {
         expect(rows[0]!.status).toBe('settled');
         const after = await loans.loan(opened.loan.id);
         expect(after.status === 'margin_call' || after.status === 'liquidated').toBe(true);
+        expect(await loans.collateralOf(after)).toBe(amt('0.75'));
+        expect((await loans.outstanding(after.id)).principal).toBe(amt('3700'));
+        expect(ledger.reconcile()).toEqual({ ok: true });
       }, 20_000);
 
       it('does not sell a loan that is already liquidating', async () => {

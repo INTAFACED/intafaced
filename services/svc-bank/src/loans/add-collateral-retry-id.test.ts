@@ -276,70 +276,88 @@ describe('LoanService.addCollateral — timed-out retry is one lock', () => {
     expect((await ledger.balance(userAvailable(BORROWER, 'BTC'))).amount).toBe(amt('1'));
   });
 
-  it('two overlapping addCollateral with the same eventId lock once', async () => {
-    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
-    });
-    const opened = await seedOpenLoan(bank, ledger);
-    const locksAtOpen = lockCount(ledger);
-    const eventId = randomUUID();
+  it.each(['first', 'second'] as const)(
+    'two overlapping addCollateral with the same eventId lock once (%s arrives first)',
+    async (winner) => {
+      const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+        loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      });
+      const opened = await seedOpenLoan(bank, ledger);
+      const locksAtOpen = lockCount(ledger);
+      const eventId = randomUUID();
 
-    type Sequencer = { nextCollateralSequence: (loanId: string) => Promise<number> };
-    const loans = bank.loans as unknown as Sequencer;
-    if (typeof loans.nextCollateralSequence !== 'function') {
-      throw new Error('nextCollateralSequence missing — overlap harness cannot force distinct sequences');
-    }
-    const origNext = loans.nextCollateralSequence.bind(bank.loans);
-    let nextHits = 0;
-    let bothAtNext!: () => void;
-    const bothReachedNext = new Promise<void>((resolve) => {
-      bothAtNext = resolve;
-    });
-    let loserMayAllocate!: () => void;
-    const loserAllowed = new Promise<void>((resolve) => {
-      loserMayAllocate = resolve;
-    });
-    loans.nextCollateralSequence = async (loanId: string) => {
-      const place = ++nextHits;
-      if (place === 2) bothAtNext();
-      await bothReachedNext;
-      if (place === 1) return origNext(loanId);
-      await loserAllowed;
-      return origNext(loanId);
-    };
-
-    const innerPost = ledger.post.bind(ledger);
-    let firstTopUpSeen = false;
-    let releaseFirstPost!: () => void;
-    const firstPostHeld = new Promise<void>((resolve) => {
-      releaseFirstPost = resolve;
-    });
-    ledger.post = async (request) => {
-      if (!firstTopUpSeen && isTopUpLock(request)) {
-        firstTopUpSeen = true;
-        loserMayAllocate();
-        await firstPostHeld;
+      type Sequencer = { nextCollateralSequence: (loanId: string) => Promise<number> };
+      const loans = bank.loans as unknown as Sequencer;
+      if (typeof loans.nextCollateralSequence !== 'function') {
+        throw new Error('nextCollateralSequence missing — overlap harness cannot force distinct sequences');
       }
-      return innerPost(request);
-    };
+      const origNext = loans.nextCollateralSequence.bind(bank.loans);
+      let nextHits = 0;
+      let firstAtNext!: () => void;
+      const firstReachedNext = new Promise<void>((resolve) => {
+        firstAtNext = resolve;
+      });
+      let bothAtNext!: () => void;
+      const bothReachedNext = new Promise<void>((resolve) => {
+        bothAtNext = resolve;
+      });
+      let loserMayAllocate!: () => void;
+      const loserAllowed = new Promise<void>((resolve) => {
+        loserMayAllocate = resolve;
+      });
+      loans.nextCollateralSequence = async (loanId: string) => {
+        const place = ++nextHits;
+        if (place === 1) firstAtNext();
+        if (place === 2) bothAtNext();
+        await bothReachedNext;
+        if (place === 1) return origNext(loanId);
+        await loserAllowed;
+        return origNext(loanId);
+      };
 
-    const first = bank.loans.addCollateral({ loanId: opened.loan.id, eventId, amount: amt('1'), now: NOW });
-    const second = bank.loans.addCollateral({ loanId: opened.loan.id, eventId, amount: amt('1'), now: NOW });
-    const secondResult = await second;
-    releaseFirstPost();
-    const firstResult = await first;
+      const innerPost = ledger.post.bind(ledger);
+      let firstTopUpSeen = false;
+      let releaseFirstPost!: () => void;
+      const firstPostHeld = new Promise<void>((resolve) => {
+        releaseFirstPost = resolve;
+      });
+      ledger.post = async (request) => {
+        if (!firstTopUpSeen && isTopUpLock(request)) {
+          firstTopUpSeen = true;
+          loserMayAllocate();
+          await firstPostHeld;
+        }
+        return innerPost(request);
+      };
 
-    expect(firstResult.sequence).toBe(secondResult.sequence);
-    expect(firstResult.ledgerTxId).toBe(secondResult.ledgerTxId);
-    expect(lockCount(ledger)).toBe(locksAtOpen + 1);
-    const events = await sql<Array<{ id: string; sequence: number }>>`
+      const arrivingFirst = bank.loans.addCollateral({ loanId: opened.loan.id, eventId, amount: amt('1'), now: NOW });
+      await firstReachedNext;
+      const arrivingSecond = bank.loans.addCollateral({ loanId: opened.loan.id, eventId, amount: amt('1'), now: NOW });
+      const [first, second] = winner === 'first' ? [arrivingFirst, arrivingSecond] : [arrivingSecond, arrivingFirst];
+      // The held post belongs to whichever call reaches the sequencer first.
+      // Waiting for a named caller can wait on that very post under CI scheduling.
+      // The other retry can finish the shared claim; release the held post once
+      // either caller completes, then compare both receipts and all money facts.
+      try {
+        await Promise.race([first, second]);
+      } finally {
+        releaseFirstPost();
+      }
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+
+      expect(firstResult.sequence).toBe(secondResult.sequence);
+      expect(firstResult.ledgerTxId).toBe(secondResult.ledgerTxId);
+      expect(lockCount(ledger)).toBe(locksAtOpen + 1);
+      const events = await sql<Array<{ id: string; sequence: number }>>`
       SELECT id, sequence FROM bank.loan_collateral_events
        WHERE loan_id = ${opened.loan.id} AND sequence > 0
     `;
-    expect(events).toHaveLength(1);
-    expect(events[0]!.id).toBe(eventId);
-    expect((await ledger.balance(userAvailable(BORROWER, 'BTC'))).amount).toBe(amt('1'));
-  }, 20_000);
+      expect(events).toHaveLength(1);
+      expect(events[0]!.id).toBe(eventId);
+      expect((await ledger.balance(userAvailable(BORROWER, 'BTC'))).amount).toBe(amt('1'));
+    },
+    20_000,
+  );
 
   it('same eventId with a different amount refuses and does not post a second lock', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
