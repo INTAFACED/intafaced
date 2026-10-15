@@ -40,7 +40,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
-import { localStackState } from './local-test-state.mjs';
+import { localStackState, assertActiveLocalStack } from './local-test-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
@@ -1451,6 +1451,7 @@ async function cmdFund(rawArgs) {
   }
   if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
   if (!ownedAlive(readProcs().ledger)) fail('refusing: the local stack ledger is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['ledger'] });
 
   // `who` = "house": stock the house market-maker pot, which Convert settles against (quotes are principal
   // inventory, not book trades: services/svc-trade/src/convert/settle.ts). Without BTC in that pot an accepted

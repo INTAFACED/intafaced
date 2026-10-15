@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localStackState } from './local-test-state.mjs';
+import { localStackState, assertActiveLocalStack } from './local-test-state.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
@@ -261,6 +261,7 @@ class EdgeClient {
     this.tokenAt = 0;
   }
   async http(method, route, body, auth = true) {
+    if (method !== 'GET') assertActiveLocalStack({ services: ['edge', 'identity', 'ledger', 'bank'] });
     if (auth && (!this.token || Date.now() - this.tokenAt > 8 * 60_000)) await this.login();
     const headers = { origin: CUSTOMER_ORIGIN, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) };
     if (auth) headers.authorization = `Bearer ${this.token}`;
@@ -472,6 +473,7 @@ function guard() {
 
 async function cmdWatch() {
   const { paths: p } = guard();
+  assertActiveLocalStack({ stateDir: p.stateDir, services: ['edge', 'identity', 'ledger', 'bank'] });
   const log = makeLogger(p.log);
   const secrets = readJson(p.secrets, null);
   if (!secrets) die('secrets.json missing in the local stack state directory');
@@ -528,6 +530,7 @@ async function cmdWatch() {
 
 async function cmdSeed() {
   const { paths: p } = guard();
+  assertActiveLocalStack({ stateDir: p.stateDir, services: ['edge', 'identity', 'ledger', 'bank'] });
   const log = makeLogger(p.log);
   const secrets = readJson(p.secrets, null);
   if (!secrets) die('secrets.json missing in the local stack state directory');

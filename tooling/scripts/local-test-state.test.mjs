@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { localStackState } from './local-test-state.mjs';
+import { localStackState, assertStackOwnership } from './local-test-state.mjs';
 import { stackPaths as marketPaths } from './local-test-market.mjs';
 import { stackPaths as worldPaths } from './local-test-world.mjs';
 import { gatePaths } from './local-test-gates.mjs';
@@ -68,8 +68,9 @@ try {
   while ((!fs.existsSync(log) || !fs.readFileSync(log, 'utf8').includes('EXIT pid')) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  assert.ok(fs.existsSync(path.join(state, 'market-accounts.json')), 'detached child must use selected state');
+  assert.equal(fs.existsSync(path.join(state, 'market-accounts.json')), false, 'ownership refusal must precede account creation');
   assert.match(fs.readFileSync(log, 'utf8'), /EXIT pid \d+ code 1: crashed/);
+  assert.match(fs.readFileSync(log, 'utf8'), /missing ownership records/);
   assert.deepEqual(fs.readdirSync(oldState), ['sentinel']);
   assert.equal(fs.readFileSync(path.join(oldState, 'sentinel'), 'utf8'), 'old state must stay untouched');
 } finally {
@@ -78,3 +79,51 @@ try {
   fs.rmSync(home, { recursive: true, force: true });
 }
 console.log('local-test-state: helper isolation, read-only plan, fund refusal and detached child checks passed');
+
+// A valid marker plus stale records must not authorize traffic to a different stack on the same ports.
+const stateDir = '/fixture/fresh';
+const repo = '/fixture/checkout';
+const startedAt = Date.parse('2026-10-15T12:00:00Z');
+const command = '/usr/bin/node /fixture/checkout/services/svc-edge/dist/index.js';
+const fixture = () => ({
+  stateDir,
+  marker: { kind: 'intafaced-local-test-stack', repo, ports: { postgres: 15460, edge: 14500 } },
+  records: { edge: { pid: 20, argv: command.split(' '), startedAt: new Date(startedAt + 123).toISOString() } },
+  postgres: ['10', '/fixture/fresh/data/postgres', String(startedAt / 1000), '15460'],
+  processes: new Map([
+    [10, { command: '/bin/postgres -D /fixture/fresh/data/postgres -p 15460', startedAt }],
+    [20, { command, startedAt }],
+  ]),
+  listeners: new Map([
+    [10, new Set(['127.0.0.1:15460'])],
+    [20, new Set(['127.0.0.1:14500'])],
+  ]),
+  services: ['edge'],
+});
+assert.doesNotThrow(() => assertStackOwnership(fixture()));
+for (const alter of [
+  (f) => {
+    f.postgres[1] = '/fixture/old/data/postgres';
+  },
+  (f) => {
+    f.processes.delete(20);
+  },
+  (f) => {
+    f.processes.get(20).command = '/usr/bin/node /fixture/old/services/svc-edge/dist/index.js';
+  },
+  (f) => {
+    f.processes.get(20).startedAt += 10_000;
+  },
+  (f) => {
+    f.listeners.set(20, new Set());
+    f.listeners.set(30, new Set(['127.0.0.1:14500']));
+  },
+  (f) => {
+    f.listeners.set(20, new Set(['*:14500']));
+  },
+]) {
+  const example = fixture();
+  alter(example);
+  assert.throws(() => assertStackOwnership(example), /refusing: selected local stack is not active/);
+}
+console.log('local-test-state: database, process reuse, checkout and listener ownership checks passed');

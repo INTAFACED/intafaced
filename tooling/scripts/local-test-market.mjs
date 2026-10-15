@@ -37,7 +37,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localStackState } from './local-test-state.mjs';
+import { localStackState, assertActiveLocalStack } from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -290,6 +290,7 @@ class EdgeClient {
     this.tokenAt = 0;
   }
   async http(method, route, body, { auth = true } = {}) {
+    if (method !== 'GET') assertActiveLocalStack();
     if (auth && (!this.token || Date.now() - this.tokenAt > 8 * 60_000)) await this.login();
     const headers = { origin: DEFAULT_CUSTOMER_ORIGIN, ...(body ? { 'content-type': 'application/json' } : {}) };
     if (auth) headers.authorization = `Bearer ${this.token}`;
@@ -487,6 +488,7 @@ async function discoverMarkets(edge, wanted) {
 async function runLoop(opts, home) {
   const { paths: p } = assertLocalTarget({ home, urls: [opts.edge] });
   installExitLogging(p.log, { echo: ECHO });
+  assertActiveLocalStack({ stateDir: p.stateDir });
   const accounts = loadAccounts(p);
   const maker = new EdgeClient(opts.edge, accounts.maker);
   const taker = new EdgeClient(opts.edge, accounts.taker);
