@@ -1,6 +1,6 @@
 /*
  * Pro desk (UI-SPEC 5.7, MEASURED-TOKENS). Only --if-* tokens: no colour values live here.
- * Panels are the black page colour (--if-bg) on a 3 px --if-line gutter, as OKX paints them.
+ * Classic composition follows the measured public spot desk; local density is an INTAFACED proposal.
  *
  * The whole file is in `@layer components`; the layer order is declared again so it holds in any bundle order
  * (a kit utility class such as `text-on-up` must keep beating this file, the Home lesson, critic H1).
@@ -9,7 +9,7 @@
 @layer components {
   .if-desk {
     display: grid;
-    gap: 3px;
+    gap: 1px;
     min-width: 0;
     background: var(--if-line);
     color: var(--if-fg);
@@ -167,17 +167,17 @@
     color: var(--if-fg);
   }
 
-  /* Three columns: 280 | centre | 280 */
+  /* Classic spot composition: compact watchlist | chart + paired ticket | book. */
   .dk-grid {
     display: grid;
-    grid-template-columns: 280px minmax(0, 1fr) 280px;
-    gap: 3px;
+    grid-template-columns: 216px minmax(0, 1fr) 264px;
+    gap: 1px;
     min-width: 0;
   }
   .dk-centre {
     display: grid;
     grid-template-rows: auto auto;
-    gap: 3px;
+    gap: 1px;
     min-width: 0;
     background: var(--if-line);
   }
@@ -300,7 +300,7 @@
   .dk-mk-row {
     display: flex;
     align-items: center;
-    height: 60px;
+    height: 48px;
     padding: 0 16px 0 8px;
     transition: background-color var(--if-t-fast) var(--if-ease);
   }
@@ -322,7 +322,7 @@
     justify-content: space-between;
     gap: 8px;
     min-width: 0;
-    height: 60px;
+    height: 48px;
   }
   .dk-mk-name,
   .dk-mk-figures {
@@ -356,9 +356,9 @@
     padding: 0 16px;
   }
 
-  /* Chart panel: 440 px */
+  /* Keep the complete ticket and monitoring tabs reachable in the desktop viewport. */
   .dk-chart {
-    height: 440px;
+    height: clamp(220px, calc(100vh - 650px), 430px);
   }
   .dk-chart:fullscreen {
     height: 100vh;
@@ -603,17 +603,17 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 12px 16px 16px;
+    padding: 10px 14px 12px;
   }
   .dk-forms {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 24px;
+    gap: 20px;
   }
   .dk-form {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     min-width: 0;
   }
   .dk-percents {
@@ -732,7 +732,7 @@
 
   /* Bottom strip */
   .dk-bottom {
-    min-height: 360px;
+    min-height: 156px;
   }
   .dk-bottom-head {
     display: flex;
@@ -888,6 +888,73 @@
     padding: 0;
   }
 
+  /* Dense desk values remain local; shared controls and shell retain their own scale. */
+  .if-desk {
+    font-variant-numeric: tabular-nums;
+  }
+  .dk-tab-title {
+    height: 36px;
+  }
+  .dk-tabs {
+    gap: 20px;
+    padding: 0 14px;
+  }
+  .dk-order {
+    border-top: 1px solid var(--if-line);
+  }
+  .dk-percents button {
+    height: 24px;
+  }
+  .dk-mk-search {
+    margin: 10px 12px 0;
+  }
+  .dk-mk-chips {
+    gap: 2px;
+    padding: 8px 12px 0;
+    overflow-x: auto;
+  }
+  .dk-mk-chips button {
+    font-size: 12px;
+  }
+  .dk-mk-head {
+    padding: 10px 12px 6px;
+  }
+  .dk-mk-row {
+    padding-right: 12px;
+    border-left: 2px solid transparent;
+  }
+  .dk-mk-row[data-selected] {
+    border-left-color: var(--if-lime);
+    background: var(--if-field);
+  }
+  .dk-mk-pair,
+  .dk-mk-price {
+    font-size: 12px;
+  }
+  .dk-chart-bar {
+    height: 34px;
+  }
+  .dk-bottom-body {
+    padding: 0 14px 12px;
+  }
+  @media (min-width: 1180px) and (max-width: 1359px) {
+    .dk-grid {
+      grid-template-columns: 184px minmax(0, 1fr) 264px;
+    }
+    .dk-mk-star {
+      width: 24px;
+    }
+    .dk-mk-head {
+      gap: 4px;
+    }
+    .dk-mk-head button {
+      font-size: 12px;
+    }
+    .dk-forms {
+      gap: 14px;
+    }
+  }
+
   /* Narrower screens: the left list moves into the pair picker, then the columns stack. No horizontal page scroll. */
   @media (max-width: 1179px) {
     .dk-grid {
@@ -916,5 +983,23 @@
     .dk-stat:nth-child(n + 3) {
       display: none;
     }
+  }
+}
+
+/* Scoped dimensions after kit utilities; semantic color utilities still own their colors. */
+@layer utilities {
+  .if-desk .dk-tabs [data-slot='tabs-tab'] {
+    height: 36px;
+    font-size: 13px;
+  }
+  .if-desk .dk-form [data-slot='amount-input'] > div:first-child {
+    padding-inline: 10px;
+  }
+  .if-desk .dk-form [data-slot='amount-input'] input {
+    font-size: 14px;
+  }
+  .if-desk .dk-form [data-slot='amount-input'] label,
+  .if-desk .dk-form [data-slot='amount-input'] span {
+    font-size: 12px;
   }
 }

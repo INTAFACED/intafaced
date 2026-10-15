@@ -86,6 +86,31 @@ const openReview = async (page) => {
   await expect(page.getByRole('alertdialog')).toBeVisible();
 };
 
+test('classic desktop keeps the complete ticket and monitoring tabs in view at three widths', async ({ page }) => {
+  const mounted = await mount(page);
+  await ready(page);
+  for (const [width, height] of [
+    [1280, 800],
+    [1440, 900],
+    [1920, 1080],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await expect(page.locator('.dk-left')).toBeVisible();
+    for (const selector of [
+      '.dk-form[data-side="buy"] button[type="submit"]',
+      '.dk-form[data-side="sell"] button[type="submit"]',
+      '.dk-bottom-head',
+    ]) {
+      const rectangle = await page.locator(selector).boundingBox();
+      expect(rectangle, selector).not.toBeNull();
+      expect(rectangle.y + rectangle.height, `${selector} at ${width}`).toBeLessThanOrEqual(height);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await shot(page, `classic-compact-${width}x${height}`);
+  }
+  expect(mounted.errors).toEqual([]);
+});
+
 test('ready state at 1440x900: the three columns, ticker, chart, book, form, strip and the words', async ({ page }) => {
   const m = await mount(page);
   await ready(page);
@@ -93,17 +118,17 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
   await expect(page.locator('.pc-host a[href*="tradingview"]')).toHaveCount(1); // attribution kept
   await page.waitForTimeout(800);
 
-  // Columns: 280 | centre | 280, panels separated by 3 px gutters
+  // Classic compact: watchlist | chart and dual ticket | book, with 1 px dividers.
   const box = async (selector) => await page.locator(selector).first().boundingBox();
-  expect(Math.abs((await box('.dk-left')).width - 280)).toBeLessThanOrEqual(2);
-  expect(Math.abs((await box('.dk-book')).width - 280)).toBeLessThanOrEqual(2);
+  expect(Math.abs((await box('.dk-left')).width - 216)).toBeLessThanOrEqual(2);
+  expect(Math.abs((await box('.dk-book')).width - 264)).toBeLessThanOrEqual(2);
   const centre = await box('.dk-centre');
-  expect(Math.abs(centre.width - (1440 - 280 - 280 - 6))).toBeLessThanOrEqual(2);
+  expect(Math.abs(centre.width - (1440 - 216 - 264 - 2))).toBeLessThanOrEqual(2);
   expect((await box('.dk-ticker')).height).toBe(48);
   const gutter = await page
     .locator('.if-desk')
     .evaluate((node) => getComputedStyle(node).rowGap + ' ' + getComputedStyle(node).backgroundColor);
-  expect(gutter).toContain('3px');
+  expect(gutter).toContain('1px');
 
   // Ticker strip: every figure from /ticker; plain quote prices, no "$" (critic L8)
   await expect(page.locator('.dk-pair')).toHaveText('BTC/USDT');
