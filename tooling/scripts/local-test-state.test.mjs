@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { localStackState, assertStackOwnership } from './local-test-state.mjs';
+import { localStackState, assertStackOwnership, processRecordMatches, postgresProcessMatches } from './local-test-state.mjs';
 import { stackPaths as marketPaths } from './local-test-market.mjs';
 import { stackPaths as worldPaths } from './local-test-world.mjs';
 import { gatePaths } from './local-test-gates.mjs';
@@ -85,6 +85,51 @@ const stateDir = '/fixture/fresh';
 const repo = '/fixture/checkout';
 const startedAt = Date.parse('2026-10-15T12:00:00Z');
 const command = '/usr/bin/node /fixture/checkout/services/svc-edge/dist/index.js';
+const processRecord = { pid: 20, argv: command.split(' '), startedAt: new Date(startedAt + 123).toISOString() };
+const processIdentity = { command, startedAt };
+assert.equal(processRecordMatches(processRecord, processIdentity), true, 'correct process matches without any other services');
+assert.equal(processRecordMatches(processRecord, null), false, 'dead process');
+assert.equal(
+  processRecordMatches(processRecord, { ...processIdentity, startedAt: startedAt + 2124 }),
+  false,
+  'outside ps precision allowance',
+);
+assert.equal(
+  processRecordMatches(processRecord, { ...processIdentity, startedAt: startedAt + 10_000 }),
+  false,
+  'reused PID, identical argv',
+);
+assert.equal(processRecordMatches(processRecord, { ...processIdentity, command: `${command} --other-root` }), false, 'extra argv');
+assert.equal(
+  processRecordMatches(processRecord, { ...processIdentity, command: command.replace('/checkout/', '/other-checkout/') }),
+  false,
+  'other checkout',
+);
+assert.equal(processRecordMatches({ ...processRecord, startedAt: undefined }, processIdentity), false, 'missing birth time refuses');
+assert.equal(processRecordMatches({ ...processRecord, argv: undefined }, processIdentity), false, 'missing argv refuses');
+assert.equal(
+  postgresProcessMatches('/fixture/fresh/data/postgres', startedAt, {
+    command: '/bin/postgres -D /fixture/fresh/data/postgres -p 15460',
+    startedAt,
+  }),
+  true,
+);
+assert.equal(
+  postgresProcessMatches('/fixture/fresh/data/postgres', startedAt, {
+    command: '/bin/postgres -D /fixture/fresh/data/postgres-other -p 15460',
+    startedAt,
+  }),
+  false,
+  'Postgres data-dir prefix',
+);
+assert.equal(
+  postgresProcessMatches('/fixture/fresh/data/postgres', startedAt, {
+    command: '/bin/postgres -D /fixture/fresh/data/postgres -p 15460',
+    startedAt: startedAt + 10_000,
+  }),
+  false,
+  'Postgres PID reuse',
+);
 const fixture = () => ({
   stateDir,
   marker: { kind: 'intafaced-local-test-stack', repo, ports: { postgres: 15460, edge: 14500 } },

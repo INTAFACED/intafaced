@@ -40,7 +40,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
-import { localStackState, assertActiveLocalStack } from './local-test-state.mjs';
+import {
+  localStackState,
+  assertActiveLocalStack,
+  processRecordMatches,
+  readProcessIdentity,
+  postgresProcessMatches,
+} from './local-test-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
@@ -232,12 +238,9 @@ function readProcs() {
 }
 const writeProcs = (procs) => writePrivate(P.procs, JSON.stringify(procs, null, 2));
 
-/** A record is "ours and alive" only if the pid is alive AND its argv still matches. */
+/** Verify each record independently, including while other stack services are down. */
 function ownedAlive(rec) {
-  if (!rec?.pid) return false;
-  const cmd = psCommand(rec.pid);
-  if (!cmd) return false;
-  return cmd.startsWith(rec.argv[0]) && rec.argv.slice(1).every((a) => cmd.includes(a));
+  return processRecordMatches(rec, readProcessIdentity(rec?.pid));
 }
 
 function startProc(name, argv, env, cwd) {
@@ -284,8 +287,8 @@ function psql(secrets, sql, { db = 'postgres', user = DB_ADMIN, password = secre
 function pgRunning() {
   const pidFile = path.join(P.pgdata, 'postmaster.pid');
   if (!fs.existsSync(pidFile)) return false;
-  const pid = Number(fs.readFileSync(pidFile, 'utf8').split('\n')[0]);
-  return Boolean(pid) && psCommand(pid).includes(P.pgdata);
+  const [pid, directory, started] = fs.readFileSync(pidFile, 'utf8').split('\n');
+  return directory === P.pgdata && postgresProcessMatches(P.pgdata, Number(started) * 1000, readProcessIdentity(Number(pid)));
 }
 
 function ensurePostgres(secrets) {
@@ -1197,7 +1200,7 @@ async function cmdStop(names = []) {
     const rec = procs[name];
     if (!rec) continue;
     if (rec.pid && psCommand(rec.pid) && !ownedAlive(rec)) {
-      say(`  ${name}: pid ${rec.pid} no longer matches the recorded command line, refusing to signal it`);
+      say(`  ${name}: pid ${rec.pid} no longer matches the recorded command line or start time, refusing to signal it`);
       bad = true;
       continue;
     }
