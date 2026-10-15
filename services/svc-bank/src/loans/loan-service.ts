@@ -2273,11 +2273,16 @@ export class LoanService {
         }
       : null;
 
-    // A new sale needs the loan still open and the collateral the plan was
-    // priced against. A second sweep that waited out the first sale finds one
-    // of those false and does not post. A pending rung is not a new sale.
+    // A new sale needs the loan still open and BOTH sides of the priced LTV
+    // unchanged. markAndAct reads debt before collateral, outside this lock:
+    // another sale can land between them, leaving old debt paired with the
+    // remaining collateral. A collateral-only check accepts that mixed plan
+    // and sells a second tranche. Re-read debt under the same lock as the sale.
+    // A pending rung instead finishes its stored sale, even if debt changed.
     let openStatus: 'active' | 'margin_call' | null = null;
     if (!pending) {
+      const debtNow = await this.outstanding(loan.id);
+      if (debtNow.principal !== input.debt.principal || debtNow.interest !== input.debt.interest) return;
       const heldNow = await this.collateralOf(loan);
       if (heldNow !== input.collateralAtPlan) return;
       const statusRows = await this.sql<Array<{ status: string }>>`
