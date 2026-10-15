@@ -589,3 +589,25 @@ describe('treasury and halts', () => {
     expect(out).toContain('Venue failing');
   });
 });
+
+describe('test-data label', () => {
+  beforeEach(signIn);
+
+  it.each(['dev', 'test', 'staging'])('the module header says "Test data" when APP_ENV is %s', async (appEnv) => {
+    services({});
+    configure({ APP_ENV: appEnv });
+    const out = html(await MerchantsLayout({ children: null }));
+    expect(out).toContain('data-testid="test-data-badge"');
+    expect(out).toContain('Test data');
+    expect(out).toContain('Not real money');
+  });
+
+  it('is absent in production', async () => {
+    services({});
+    configure({ APP_ENV: 'prod' });
+    const out = html(await MerchantsLayout({ children: null }));
+    expect(out).not.toContain('Test data');
+    expect(out).not.toContain('test-data-badge');
+    expect(out).toContain('Merchants sections');
+  });
+});

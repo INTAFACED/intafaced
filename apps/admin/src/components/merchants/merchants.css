@@ -61,6 +61,35 @@
   max-width: 100ch;
 }
 
+/* ── Test-data label (shown whenever APP_ENV is not prod) ───────────────── */
+.mp-testdata {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--if-warn) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--if-warn) 9%, transparent);
+  font-size: 12px;
+  color: var(--if-warn);
+}
+.mp-testdata strong {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.mp-testdata__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--if-warn);
+}
+.mp-testdata__hint {
+  color: var(--if-text-muted);
+}
+
 /* ── Section navigation ─────────────────────────────────────────────────── */
 .mp-subnav {
   display: flex;
