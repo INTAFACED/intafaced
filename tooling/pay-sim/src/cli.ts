@@ -6,7 +6,7 @@ if (process.argv.slice(2).join(' ') === '--help') {
     'APP_ENV=test TEST_DATABASE_URL=<local *_test database> pnpm --filter @intafaced/pay-sim simulate [--iterations 1..100] [--timeout-ms 1..120000]',
   );
   console.log('Defaults: 1 iteration per PSP/broker/gaming TEST DATA merchant; 60000ms. Cleanup allowance: at most 10000ms.');
-  console.log('At pinned base 34e6db45: W1 caps, W5 halts/exposure, W6 conversions and W9 screening are not built or asserted.');
+  console.log('At pinned base b8b8cbb2: W1 caps, W5 halts/exposure, W6 conversions and W9 screening are not built or asserted.');
 } else {
   let watchdog: ReturnType<typeof setTimeout> | undefined;
   const abort = new AbortController();
