@@ -327,15 +327,19 @@ export function Invitation() {
         : latestReceipt
           ? knownTitle(latestReceipt)
           : 'title';
-  const description = !userId
-    ? 'guestDescription'
-    : busy
-      ? 'pendingBody'
-      : unknowns.length
-        ? 'unknownDescription'
-        : latestReceipt
-          ? knownBody(latestReceipt)
-          : 'description';
+  const description = !parsed.success
+    ? capability
+      ? 'invalidBody'
+      : 'missingBody'
+    : !userId
+      ? 'guestDescription'
+      : busy
+        ? 'pendingBody'
+        : unknowns.length
+          ? 'unknownDescription'
+          : latestReceipt
+            ? knownBody(latestReceipt)
+            : 'description';
   return (
     <div className={`invitation${visibleReview ? ' invitation--review' : ''}`} lang={languageFor('title')}>
       <section className="invitation__intro">
@@ -356,8 +360,8 @@ export function Invitation() {
           <section className="invitation__card">
             <h2>{t(capability ? 'invalid' : 'missing')}</h2>
             <p className="muted">{t(capability ? 'invalidBody' : 'missingBody')}</p>
-            <a className="button button--primary" href="/uc/promotion">
-              {t('account')}
+            <a className="button button--primary" href="/help">
+              {t('help')}
             </a>
           </section>
         )}

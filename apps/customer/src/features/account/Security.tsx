@@ -599,6 +599,11 @@ export function Security() {
             <p>
               <Copy k="authenticatorBody" />
             </p>
+            {!visibleSetup && (
+              <p className="muted">
+                <Copy k="statusBoundary" />
+              </p>
+            )}
             <p className="security__announcement" role="status" aria-live="polite" aria-atomic="true">
               {visibleSetup && !visibleSetup.confirmed ? <Copy k="setupReady" /> : null}
             </p>
