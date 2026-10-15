@@ -35,7 +35,7 @@ export const helpCopy = defineCopy(
     support: 'View your support tickets →',
     signInBoundary: 'Sign in to see tickets for your account.',
     stillNeed: 'Still need help?',
-    recoveryBody: 'Open account recovery to check what is available, or sign in to view your support tickets.',
+    recoveryBody: 'Password reset is not connected. Public guidance cannot restore access; account support tickets require sign-in.',
     recovery: 'Account recovery →',
     readLatest: 'Read latest published version →',
     readLatestShort: 'Read latest version',
@@ -91,7 +91,7 @@ export const helpCopy = defineCopy(
       signInBoundary: 'Inicia sesión para ver las solicitudes de tu cuenta.',
       stillNeed: '¿Aún necesitas ayuda?',
       recoveryBody:
-        'Abre la recuperación de cuenta para comprobar qué está disponible o inicia sesión para ver tus solicitudes de soporte.',
+        'El restablecimiento de contraseña no está conectado. La orientación pública no puede recuperar el acceso; las solicitudes de soporte requieren iniciar sesión.',
       recovery: 'Recuperación de cuenta →',
       readLatest: 'Leer la última versión publicada →',
       readLatestShort: 'Leer la última versión',
@@ -148,7 +148,7 @@ export const helpCopy = defineCopy(
       signInBoundary: 'Connectez-vous pour voir les demandes de votre compte.',
       stillNeed: 'Vous avez encore besoin d’aide ?',
       recoveryBody:
-        'Ouvrez la récupération du compte pour vérifier les options disponibles ou connectez-vous pour voir vos demandes d’assistance.',
+        'La réinitialisation du mot de passe n’est pas connectée. Les conseils publics ne rétablissent pas l’accès ; les demandes d’assistance du compte nécessitent une connexion.',
       recovery: 'Récupération du compte →',
       readLatest: 'Lire la dernière version publiée →',
       readLatestShort: 'Lire la dernière version',

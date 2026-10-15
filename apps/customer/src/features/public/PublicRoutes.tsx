@@ -189,9 +189,9 @@ function PublicInformation({ path }: { path: string }) {
     '/findPwd': {
       title: t('Password recovery is not connected'),
       body: t(
-        'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.',
+        'Password reset is not available. No reset email can be requested here. Account support tickets require sign-in; public Help cannot restore account access.',
       ),
-      action: t('Contact support'),
+      action: t('Read public Help'),
     },
     '/notice': {
       title: t('No public announcements service is connected'),
@@ -228,13 +228,15 @@ function PublicInformation({ path }: { path: string }) {
         ? details['/lab']
         : undefined);
   const href =
-    path === '/notice' || path.startsWith('/notice/')
-      ? '/notifications'
-      : path === '/app'
-        ? '/money'
-        : path === '/invite'
-          ? '/uc/promotion'
-          : '/support';
+    path === '/findPwd'
+      ? '/help'
+      : path === '/notice' || path.startsWith('/notice/')
+        ? '/notifications'
+        : path === '/app'
+          ? '/money'
+          : path === '/invite'
+            ? '/uc/promotion'
+            : '/support';
   return (
     <Page title={room ? roomTitle(room, requestedLocale) : t('Page unavailable')}>
       <EmptyState
