@@ -479,7 +479,7 @@ test('keyboard path: amount, then ⌘/Ctrl+Enter opens the review with focus ins
   await page.keyboard.press('ControlOrMeta+Enter');
   const dialog = page.getByRole('alertdialog');
   await expect(dialog).toBeVisible();
-  expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[role="alertdialog"]')))).toBe(true);
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest('[role="alertdialog"]')))).toBe(true);
   for (let i = 0; i < 4; i += 1) {
     await page.keyboard.press('Tab');
     // Focus guards hand focus back to the dialog a moment after a Tab; it never settles outside.
