@@ -1,7 +1,8 @@
 /**
  * THE TABLES. Adding a procedure to an isolation suite is one entry here.
  *
- *   FOUNDER_INPUTS   founder-only procedures (G suites). A founder-only procedure
+ *   FOUNDER_INPUTS   founder-only procedures (G suites), each a function of the world
+ *                    (so an input can name a seeded merchant). A founder-only procedure
  *                    with no entry still gets every G test, called with `{}`:
  *                    authority runs before input parsing, so `{}` is enough to
  *                    prove refusal. Add an entry only to prove the founder PASSES.
@@ -14,10 +15,20 @@
  *   TREE_PROCS       procedures probed across the PayFac tree (M3).
  */
 import { randomUUID } from 'node:crypto';
-import { EVM_DESTINATION, MERCHANT_KEY_SCOPES, type Entity, type RestCall } from './fixture.js';
+import {
+  EVM_DESTINATION,
+  MERCHANT_KEY_SCOPES,
+  REGISTRY_NETWORK_ID,
+  REGISTRY_VENUE_ID,
+  type Entity,
+  type RestCall,
+  type World,
+} from './fixture.js';
 
 const hash = `sha256:${'a'.repeat(64)}`;
 const window = { kind: 'preset', preset: 'today' } as const;
+/** An explicit range must sit on UTC midnights. */
+const series = { from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day' } as const;
 export const ghost = (): string => randomUUID();
 
 // ── G: founder-only ─────────────────────────────────────────────────────────
@@ -45,7 +56,38 @@ const control = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-export const FOUNDER_INPUTS: Record<string, () => unknown> = {
+/**
+ * Registry saves create real rows. Venue ids are a closed list (a venue adapter must exist), and a wallet
+ * route needs a network the fixture seeded, so these two are fixed; a network id is free, so it is fresh.
+ */
+const fresh = (): string => `iso-${randomUUID().slice(0, 8)}`;
+const registryReason = 'isolation drill';
+const venueChange = () => ({
+  venueId: REGISTRY_VENUE_ID,
+  displayName: 'Isolation drill venue',
+  mode: 'disabled',
+  priority: 1,
+  enabled: false,
+  minOrder: null,
+  maxOrder: null,
+  supportedPairs: [],
+  expectedVersion: null,
+  reason: registryReason,
+});
+
+const networkChange = () => ({
+  networkId: fresh(),
+  displayName: 'Isolation drill network',
+  assetCodes: ['USDT'],
+  confirmationsRequired: null,
+  enabled: false,
+  feeEstimateSource: null,
+  feeEstimateAmount: null,
+  expectedVersion: null,
+  reason: registryReason,
+});
+
+export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
   'payHalts.set': () => ({
     requestId: randomUUID(),
     scope: 'intake',
@@ -58,6 +100,26 @@ export const FOUNDER_INPUTS: Record<string, () => unknown> = {
   'founderAdmin.merchants.list': () => ({ limit: 10 }),
   'founderAdmin.merchants.drilldown': () => ({ merchantId: NOBODY, window }),
   'founderAdmin.metrics.global': () => ({ window }),
+  // A real merchant: founder authority replaces ownership, so the founder gets A's figures.
+  'founderAdmin.metrics.merchant': (w) => ({ merchantId: w.e.A.merchantId, window }),
+  'founderAdmin.metrics.merchantSeries': (w) => ({ merchantId: w.e.A.merchantId, ...series }),
+  'founderAdmin.registries.venues.list': () => ({}),
+  'founderAdmin.registries.venues.save': () => venueChange(),
+  'founderAdmin.registries.networks.list': () => ({}),
+  'founderAdmin.registries.networks.save': () => networkChange(),
+  'founderAdmin.registries.walletRoutes.list': () => ({}),
+  'founderAdmin.registries.walletRoutes.save': () => ({
+    assetCode: 'USDT',
+    networkId: REGISTRY_NETWORK_ID,
+    payoutAllowed: false,
+    merchantAllow: [],
+    merchantDeny: [],
+    maxSinglePayout: null,
+    expectedVersion: null,
+    reason: registryReason,
+  }),
+  'founderAdmin.registries.preview': () => ({ registry: 'network', change: networkChange() }),
+  'founderAdmin.registries.history': () => ({ registry: 'venue', limit: 10 }),
   'founderAdmin.changes.submit': () => ({
     requestId: randomUUID(),
     merchantId: NOBODY,
@@ -187,7 +249,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   { path: 'submerchant.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'submerchantPermission.list', scope: 'pay:read', own: 'ok', input: (i) => ({ subjectMerchantId: i.merchantId, limit: 50 }) },
   { path: 'submerchantPermission.history', scope: 'pay:read', own: 'ok', input: (i) => ({ subjectMerchantId: i.merchantId, limit: 50 }) },
-  // W0 stubs: the table is ready for W1/W2/W6. Drop `stub` when the body lands.
+  // W0 stubs: the table is ready for W1/W6. Drop `stub` when the body lands.
   { path: 'merchantControl.get', scope: 'pay:read', own: 'ok', stub: true, input: (i) => ({ merchantId: i.merchantId }) },
   {
     path: 'merchantControl.approvals.list',
@@ -203,13 +265,13 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     stub: true,
     input: () => ({ approvalId: ghost(), decision: 'approve', expectedPayloadHash: hash, reason: 'checked' }),
   },
-  { path: 'merchantMetrics.snapshot', scope: 'pay:read', own: 'ok', stub: true, input: (i) => ({ merchantId: i.merchantId, window }) },
+  // W2 landed: the metrics runtime is mounted, so these answer for real and the strict assertions apply.
+  { path: 'merchantMetrics.snapshot', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, window }) },
   {
     path: 'merchantMetrics.series',
     scope: 'pay:read',
     own: 'ok',
-    stub: true,
-    input: (i) => ({ merchantId: i.merchantId, from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day' }),
+    input: (i) => ({ merchantId: i.merchantId, ...series }),
   },
   {
     path: 'conversion.quote',
@@ -428,6 +490,9 @@ export const TREE_PROCS: TreeProc[] = [
   { path: 'payment.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.list', area: 'settlement', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.get', area: 'settlement', input: (i) => ({ settlementId: i.settlementId }) },
+  // The merchant metrics need BOTH `payment` and `settlement` over the subject; neither is a default grant, so one name stands for the pair.
+  { path: 'merchantMetrics.snapshot', area: 'payment', input: (i) => ({ merchantId: i.merchantId, window }) },
+  { path: 'merchantMetrics.series', area: 'payment', input: (i) => ({ merchantId: i.merchantId, ...series }) },
 ];
 
 /** Default grants every sub-merchant gets from its parent (submerchants.ts DEFAULT_GRANTED_AREAS). */

@@ -10,7 +10,7 @@
  * a server on import, so it cannot be imported; `composition pin` in the founder
  * suite fails if index.ts stops composing the same routers).
  *
- * Later workstreams (W1 control room, W2 metrics, W3/W4, W6) add their procedures
+ * Later workstreams (W1 control room, W3/W4, W6) add their procedures
  * to the TABLES in `procedures.ts`. They never touch this file's seeding.
  */
 import { randomUUID } from 'node:crypto';
@@ -30,6 +30,7 @@ import { MerchantStateService } from '../../src/merchant-state-service.js';
 import { createMerchantStateRouter } from '../../src/merchant-state-router.js';
 import { MerchantPayoutDestinationStore } from '../../src/merchant-payout-destination.js';
 import { MerchantWebhookService, PostgresMerchantWebhookStore } from '../../src/merchant-webhooks.js';
+import { createMetricsRuntime, type MetricsRuntime } from '../../src/metrics/index.js';
 import { createPayNamespaces } from '../../src/namespaces/index.js';
 import { PayService } from '../../src/payment-service.js';
 import { PspModeService } from '../../src/psp-mode.js';
@@ -55,6 +56,10 @@ export const MERCHANT_SESSION_SCOPES = [...SESSION_SCOPES, 'pay:read', 'pay:writ
 /** What a merchant's long-lived `ifc_` key may carry (pay:payout is interactive-only, see INTERACTIVE_ONLY_SCOPES). */
 export const MERCHANT_KEY_SCOPES = ['pay:read', 'pay:write', 'pay:refund'];
 export const ADMIN_SCOPES = ['admin:read', 'admin:write', 'admin:compliance'];
+
+/** A venue key the registries recognise (KNOWN_VENUE_KEYS) and a network the fixture seeds, for the founder positive control's registry saves. */
+export const REGISTRY_VENUE_ID = 'binance-spot';
+export const REGISTRY_NETWORK_ID = 'isolation-network';
 
 export type Tag = 'A' | 'B' | 'P' | 'C1' | 'G1' | 'C2' | 'Q' | 'D1';
 
@@ -100,6 +105,7 @@ export interface World {
   readonly rest: FastifyInstance;
   readonly identity: IdentityDouble;
   readonly founderAuthority: FounderAuthority;
+  readonly metrics: MetricsRuntime;
   readonly outbound: Outbound[];
   readonly e: Record<Tag, Entity>;
   readonly founderUserId: string;
@@ -190,14 +196,21 @@ function composeRouter(parts: {
   destinations: MerchantPayoutDestinationStore;
   sql: TestDatabase['sql'];
   founderAuthority: FounderAuthority;
+  metrics: MetricsRuntime;
 }) {
-  const approvals = unwiredApprovalConsumer();
+  // src/index.ts: `actionApprovals` is the identity client when IDENTITY_URL is set, else this refusing consumer.
+  const actionApprovals = unwiredApprovalConsumer();
   return mergeRouters(
-    createPayRouter(parts.pay, parts.rails, parts.userMoney, parts.subMerchants, parts.destinations, approvals),
+    createPayRouter(parts.pay, parts.rails, parts.userMoney, parts.subMerchants, parts.destinations, actionApprovals),
     createMerchantStateRouter(new MerchantStateService(parts.sql), new MerchantAccountControls(parts.sql, parts.founderAuthority)),
-    createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), approvals, parts.pay),
+    createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), actionApprovals, parts.pay),
     createSubMerchantRouter(parts.subMerchants, parts.pay),
-    createPayNamespaces({ founderAuthority: parts.founderAuthority }),
+    // One mount list, as in src/index.ts. A workstream that adds a mount there (W15 `sql`) adds ONE line here.
+    createPayNamespaces({
+      founderAuthority: parts.founderAuthority,
+      metrics: parts.metrics,
+      registries: { sql: parts.sql, approvals: actionApprovals },
+    }),
   );
 }
 
@@ -243,7 +256,8 @@ export async function createWorld(): Promise<World> {
     principalSecret: EDGE_SECRET,
     fetcher: identity.fetcher,
   });
-  const appRouter = composeRouter({ pay, rails, userMoney, subMerchants, destinations, sql, founderAuthority });
+  const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
+  const appRouter = composeRouter({ pay, rails, userMoney, subMerchants, destinations, sql, founderAuthority, metrics });
 
   const rest = Fastify();
   await registerPublicPayRest(rest, { edgeSecret: EDGE_SECRET, serviceName: 'svc-pay', pay, webhooks, trees: subMerchants });
@@ -321,6 +335,10 @@ export async function createWorld(): Promise<World> {
   const Q = await root('Q');
   await child('D1', Q, Q);
 
+  await sql`
+    INSERT INTO pay.network_registry (network_id, display_name, asset_codes, updated_by)
+    VALUES (${REGISTRY_NETWORK_ID}, 'Isolation network', '["USDT"]'::jsonb, 'fixture')`;
+
   const founderUserId = randomUUID();
   identity.entitlements.set(founderUserId, 'enabled');
   outbound.length = 0; // seeding enqueues only; nothing has been processed yet
@@ -335,6 +353,7 @@ export async function createWorld(): Promise<World> {
     rest,
     identity,
     founderAuthority,
+    metrics,
     outbound,
     e: entities,
     founderUserId,

@@ -9,8 +9,9 @@
  *
  * Table-driven: the procedure list is READ FROM THE ROUTER. A new `founderAdmin.*`
  * or operator `payHalts.*` procedure is covered by every test here with no edit.
- * (Inputs for the positive control live in procedures.ts; without one the call
- * uses `{}`, which still proves refusal because authority runs before parsing.)
+ * (Inputs for the positive control live in procedures.ts. Without an entry the call
+ * uses `{}`, which still proves refusal because authority runs before parsing, but the
+ * POSITIVE CONTROL then names the procedure as `other:BAD_REQUEST`: add its input there.)
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -67,7 +68,7 @@ describe('G: founder-only procedures', () => {
     w.identity.calls.length = 0;
   });
 
-  const call = (ctx: Context, path: string) => callTrpc(w, ctx, path, FOUNDER_INPUTS[path]?.() ?? {});
+  const call = (ctx: Context, path: string) => callTrpc(w, ctx, path, FOUNDER_INPUTS[path]?.(w) ?? {});
 
   /** Run every founder-only procedure as `ctx`; return `path -> verdict`. */
   async function sweep(ctx: Context): Promise<Record<string, Verdict>> {
@@ -78,8 +79,20 @@ describe('G: founder-only procedures', () => {
   const everyone = (v: Verdict): Record<string, Verdict> => Object.fromEntries(paths.map((p) => [p, v]));
 
   it('the table is not empty and covers the namespaces that must be founder-only', () => {
-    expect(inventoried.length).toBeGreaterThanOrEqual(9);
-    expect(inventoried).toEqual(expect.arrayContaining(['founderAdmin.merchants.list', 'payHalts.set', 'payHalts.history']));
+    expect(inventoried.length).toBeGreaterThanOrEqual(19);
+    expect(inventoried).toEqual(
+      expect.arrayContaining([
+        'founderAdmin.merchants.list',
+        'founderAdmin.metrics.global',
+        'founderAdmin.metrics.merchant',
+        'founderAdmin.metrics.merchantSeries',
+        'founderAdmin.registries.venues.save',
+        'founderAdmin.registries.walletRoutes.save',
+        'founderAdmin.registries.history',
+        'payHalts.set',
+        'payHalts.history',
+      ]),
+    );
   });
 
   it('POSITIVE CONTROL: an entitled founder with MFA gets past every guard (the refusals below are not a broken fixture)', async () => {
@@ -347,12 +360,21 @@ describe('G: founder-only procedures', () => {
         'createMerchantStateRouter(',
         'createKybPspRouter(',
         'createSubMerchantRouter(subMerchants, pay)',
-        'createPayNamespaces({ founderAuthority })',
         'new MerchantAccountControls(sql, founderAuthority',
+        'createMetricsRuntime({ sql, pay, trees: subMerchants, rails })',
         'registerPublicPayRest(app',
       ]) {
         expect(src, piece).toContain(piece);
       }
+      // The namespaces mount list may grow (W15 adds `sql`); what it must keep is the one live
+      // authority, the metrics runtime and the registries wired to the real approvals consumer.
+      const mount = /createPayNamespaces\(\{([^}]*(?:\{[^}]*\}[^}]*)*)\}\)/.exec(src);
+      expect(mount, 'src/index.ts no longer calls createPayNamespaces({ ... })').not.toBeNull();
+      const args = mount![1]!;
+      for (const piece of ['founderAuthority', 'metrics', 'registries: { sql, approvals: actionApprovals }']) {
+        expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
+      }
+      expect(src.match(/createFounderAuthority\(/g), 'exactly one live founder authority').toHaveLength(1);
     });
   });
 });
