@@ -500,3 +500,21 @@ test('review must read the complete expected merge-base...head range, not one co
   assert.equal(f.validate().review.base, base);
   assert.equal(f.validate({ base: undefined }).pass, false, 'range base is mandatory');
 });
+
+test('review diff proof requires direct output, not a filtered pipeline or background command', (t) => {
+  const f = fixture(t);
+  const diff = `git diff ${base}...${head}`;
+  for (const command of [
+    `${diff} | head -n 6`,
+    `${diff} | sed -n '1,6p'`,
+    `${diff} |& head -n 6`,
+    `${diff} &`,
+    `${diff} > patch.txt`,
+    `(${diff}) | head -n 6`,
+  ]) {
+    f.save([...f.diffEntries(command), f.assistant()], { withDiff: false });
+    assert.equal(f.validate().pass, false, command);
+  }
+  f.save([...f.diffEntries(`${diff}\n`), f.assistant()], { withDiff: false });
+  assert.equal(f.validate().pass, true, 'direct complete-range patch still qualifies');
+});
