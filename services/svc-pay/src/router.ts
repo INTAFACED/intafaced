@@ -155,9 +155,10 @@ type WithdrawalViewOut = z.infer<typeof withdrawalView>;
  * exactly one merchant per user. Self-action is ownership. Parent action is
  * area (`payment`, `payment.refund`, `settlement`, `settlement.payout`, …).
  *
- * WHY FORBIDDEN AND NOT NOT_FOUND — same call, same reasoning, as svc-bank's
- * `assertSelf`. NOT_FOUND leaks less because it never confirms the id exists,
- * but every id here is a v4 uuid the caller already holds.
+ * WHY NOT_FOUND AND NOT FORBIDDEN — a distinct "exists but not yours" answer
+ * is an existence oracle, so a foreign id is refused exactly like a missing one
+ * (merchant-ownership.ts `merchantNotFound` / `refuseAsMissing`). The real
+ * reason is operator-only (isolation-log.ts). Do not reintroduce FORBIDDEN here.
  */
 export function createPayRouter(
   pay: PayService,
