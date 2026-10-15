@@ -359,6 +359,14 @@ export const EXEMPT = {
       'one compares the dependabot prefix with the title rule; both read the repo, and both skip themselves (reported as ' +
       'skipped, not passed) when the file is absent, which is exactly this empty-tree run. In a real checkout they run.',
   },
+  'worktree-remove-tests': {
+    proof: /ℹ pass (\d+)/,
+    denom: 1,
+    reason:
+      'node:test over a throwaway git repo it builds itself under ~/.cache (init, commit, worktree add, then `worktree.mjs ' +
+      'remove` against it): the checkout is not its subject. The count of passing tests is printed on every run and ' +
+      'asserted non-zero here, so it cannot reach zero without the printed count changing.',
+  },
   'secret-scan-mutation': {
     proof: /(\d+)\/(\d+) planted defects caught/,
     denom: 2,
@@ -369,7 +377,8 @@ export const EXEMPT = {
 };
 // Raised 5 → 6 (2026-10-13) for gate-tools-tests, whose subject is its own fixtures; every earlier raise had the same reason.
 // Raised 3 → 5 in the same commit that classified worktree-selftest + claim-check-selftest (gates main added after branch).
-export const EXEMPT_MAX = 6;
+// Raised 6 → 7 (2026-10-15) for worktree-remove-tests, whose subject is its own throwaway git fixture.
+export const EXEMPT_MAX = 7;
 
 // ───────────────────────────────────────────────────────────────────────────
 // 3. BLIND — measured, printing clean over nothing, frozen as debt.
