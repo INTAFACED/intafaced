@@ -517,7 +517,7 @@ describe('merchant drill-down', () => {
           version: '1',
           updatedAt: null,
         },
-        halts: { readable: true, states: [] },
+        halts: { readable: true, autoTrip: { enabled: false, consecutiveFailures: null }, states: [] },
         pendingApprovals: [],
         operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
       },

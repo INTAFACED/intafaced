@@ -166,7 +166,7 @@ describe('founder merchant names', () => {
       legalName: 'Acme Trading Ltd',
       metrics: snapshot,
       control: { merchantId, tierId: null, archetypeId: null, caps: null, pricing: null, reserve: null, version: '1', updatedAt: null },
-      halts: { readable: true, states: [] },
+      halts: { readable: true, autoTrip: { enabled: false, consecutiveFailures: null }, states: [] },
       pendingApprovals: [],
       operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
     };
