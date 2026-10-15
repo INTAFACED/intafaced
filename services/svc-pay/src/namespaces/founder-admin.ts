@@ -20,6 +20,7 @@ import {
 import { z } from 'zod';
 import type { FounderAuthority } from '../founder-authority.js';
 import { metricsToTrpcError, type MetricsRuntime } from '../metrics/index.js';
+import { createFounderOpsRouter, type FounderOpsRouter } from '../merchant-ops/router.js';
 import { notBuilt } from './errors.js';
 import { founderProcedure } from './founder-procedure.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
@@ -31,16 +32,19 @@ import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/
  * `scopedProcedure('admin:read')`: that scope can sit on a long-lived API key.
  * The static inventory test (G7) fails the build if one is not.
  */
-/** Optional mounts for `founderAdmin`. Each workstream adds its own key here (W15 will add `ops`). */
+/** Optional mounts for `founderAdmin`. Each workstream adds its own key here. */
 export interface FounderAdminMounts {
   /** W2: metrics reader. Without it the metrics and merchant-list procedures refuse with `pay.not_built`. */
   metrics?: MetricsRuntime;
   /** W16: editable venue, network and wallet-route registries. Mounted only when supplied. */
   registries?: RegistriesMountDeps;
+  /** W15: operator notes (`founderAdmin.ops.*`). Always mounted; without a supplied router it runs with no database and refuses with `pay.not_built`. */
+  ops?: FounderOpsRouter;
 }
 
 export function createFounderAdminRouter(founderAuthority: FounderAuthority, mounts: FounderAdminMounts = {}) {
   const { metrics, registries } = mounts;
+  const ops = mounts.ops ?? createFounderOpsRouter({ founderAuthority });
   const founder = founderProcedure(founderAuthority);
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -53,6 +57,8 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
     founderAdmin: router({
       // W16: editable venue, network and wallet-route registries (src/registries). Mounted only when its deps are supplied.
       ...(registries ? { registries: createRegistriesRouter({ founderAuthority, ...registries }) } : {}),
+      // W15 operator notes. A router cannot be merged beside this one (tRPC rejects a second `founderAdmin`), so it is mounted here.
+      ops,
       merchants: router({
         list: founder
           .input(founderMerchantListInputSchema)

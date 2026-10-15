@@ -1,7 +1,9 @@
 import { mergeRouters } from '@intafaced/contracts';
+import type { Sql } from 'postgres';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
+import { createFounderOpsRouter, createMerchantOpsRouter } from '../merchant-ops/index.js';
 import { createConversionRouter } from './conversion.js';
 import { createFounderAdminRouter } from './founder-admin.js';
 import { createMerchantControlRouter } from './merchant-control.js';
@@ -23,13 +25,20 @@ export function createPayNamespaces(deps: {
   founderAuthority: FounderAuthority;
   metrics?: MetricsRuntime;
   registries?: RegistriesMountDeps;
+  sql?: Sql;
 }) {
+  const opsDeps = { founderAuthority: deps.founderAuthority, sql: deps.sql };
   return mergeRouters(
     createMerchantControlRouter(),
     createMerchantMetricsRouter(deps.metrics),
-    createFounderAdminRouter(deps.founderAuthority, { metrics: deps.metrics, registries: deps.registries }),
+    createFounderAdminRouter(deps.founderAuthority, {
+      metrics: deps.metrics,
+      registries: deps.registries,
+      ops: createFounderOpsRouter(opsDeps),
+    }),
     createConversionRouter(),
     createPayHaltsRouter(deps.founderAuthority),
+    createMerchantOpsRouter(opsDeps), // W15: merchantOps.*  (founderAdmin.ops.* is mounted via createFounderAdminRouter above)
   );
 }
 export type PayNamespacesRouter = ReturnType<typeof createPayNamespaces>;

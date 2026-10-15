@@ -10,6 +10,8 @@ import { createFounderAuthority } from '../founder-authority.js';
 import { createPayNamespaces, FOUNDER_ONLY_PREFIXES, findUnguardedFounderProcedures, founderProcedure } from './index.js';
 
 const NAMESPACES = ['merchantControl', 'merchantMetrics', 'founderAdmin', 'conversion', 'payHalts'] as const;
+/** W15 owns these and tests them in merchant-ops/merchant-ops.test.ts; they are real, not W0 stubs. */
+const isW15 = (path: string) => path.startsWith('merchantOps.') || path.startsWith('founderAdmin.ops.');
 
 const id = () => randomUUID();
 const merchantId = id();
@@ -100,7 +102,8 @@ function procedureAt(caller: unknown, path: string): Callable {
   return path.split('.').reduce((node, key) => (node as Record<string, unknown>)[key], caller) as Callable;
 }
 
-const procedures = (r: unknown) => Object.keys((r as { _def: { procedures: Record<string, unknown> } })._def.procedures).sort();
+const allProcedures = (r: unknown) => Object.keys((r as { _def: { procedures: Record<string, unknown> } })._def.procedures).sort();
+const procedures = (r: unknown) => allProcedures(r).filter((p) => !isW15(p));
 
 describe('W0 namespaces are mounted', () => {
   it('lists every new namespace and covers every procedure with a test input', () => {
@@ -111,7 +114,7 @@ describe('W0 namespaces are mounted', () => {
 
   it('is merged into the live appRouter in index.ts together with the guard registry', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    expect(src).toContain('createPayNamespaces({ founderAuthority, metrics, registries: { sql, approvals: actionApprovals } })');
+    expect(src).toContain('createPayNamespaces({ founderAuthority, metrics, registries: { sql, approvals: actionApprovals }, sql })');
     expect(src).toContain('startMetricsRefresher(metrics.projector');
     expect(src).toContain('const payGuards = buildPayGuards({ sql });');
     // One registry instance serves both the payment service and the user-money service.
