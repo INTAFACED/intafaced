@@ -123,8 +123,8 @@ export function ApprovePanel() {
         {done?.kind === 'mismatch' ? (
           <StateBlock kind="error" title="Approved, but for a different change">
             The approval on that reference covers a different change than the one shown above, and it is now approved. It cannot save the
-            change shown here, but it could save the change you did not see. Treat this as a security incident: stop, tell engineering
-            and the other founder now, and do not approve anything else from this request.
+            change shown here, but it could save the change you did not see. Treat this as a security incident: stop, tell engineering and
+            the other founder now, and do not approve anything else from this request.
           </StateBlock>
         ) : null}
         {done?.kind === 'declined' ? (
