@@ -367,7 +367,7 @@ describe('D26-P2-01b public doors — settle refuse invent fees', () => {
       signedHeaders(principal({ sub: STRANGER, userId: STRANGER })),
     );
 
-    expect(statusCode).toBe(403);
+    expect(statusCode).toBe(404);
     expect(settleWindow).not.toHaveBeenCalled();
     await app.close();
   });

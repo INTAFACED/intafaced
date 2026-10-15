@@ -167,7 +167,7 @@ describe('subscription merchant surface', () => {
   it('stranger cannot get a mandate', async () => {
     owner = OTHER;
     const api = await caller(['pay:read'], USER);
-    await expect(api.mandate.get({ mandateId: MANDATE })).rejects.toThrow(/merchant_forbidden|FORBIDDEN/i);
+    await expect(api.mandate.get({ mandateId: MANDATE })).rejects.toThrow(/mandate_not_found/);
   });
 
   it('owner can create, get, and cancel a subscription', async () => {
@@ -208,7 +208,7 @@ describe('subscription merchant surface', () => {
   it('stranger cannot list executions', async () => {
     owner = OTHER;
     const api = await caller(['pay:read'], USER);
-    await expect(api.subscription.listExecutions({ subscriptionId: SUB })).rejects.toThrow(/merchant_forbidden|FORBIDDEN/i);
+    await expect(api.subscription.listExecutions({ subscriptionId: SUB })).rejects.toThrow(/subscription_not_found/);
     expect(calls).not.toContain('listExecutions');
   });
 
@@ -224,7 +224,7 @@ describe('subscription merchant surface', () => {
   it('stranger cannot list mandates', async () => {
     owner = OTHER;
     const api = await caller(['pay:read'], USER);
-    await expect(api.mandate.list({ merchantId: MERCHANT })).rejects.toThrow(/merchant_forbidden|FORBIDDEN/i);
+    await expect(api.mandate.list({ merchantId: MERCHANT })).rejects.toThrow(/merchant_not_found/);
     expect(calls).not.toContain('listMandates');
   });
 
@@ -240,7 +240,7 @@ describe('subscription merchant surface', () => {
   it('stranger cannot list subscriptions', async () => {
     owner = OTHER;
     const api = await caller(['pay:read'], USER);
-    await expect(api.subscription.list({ merchantId: MERCHANT })).rejects.toThrow(/merchant_forbidden|FORBIDDEN/i);
+    await expect(api.subscription.list({ merchantId: MERCHANT })).rejects.toThrow(/merchant_not_found/);
     expect(calls).not.toContain('listSubscriptions');
   });
 

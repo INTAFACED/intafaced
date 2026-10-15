@@ -191,6 +191,10 @@ export const rooms: readonly Room[] = [
       ['subscriptions', 'Subscriptions', 'Recurring billing'],
       ['reports', 'Reports', 'Export business activity'],
       ['developer', 'Developer', 'Test keys and webhooks'],
+      ['onboarding', 'Set up your account', 'Open your merchant account in three steps'],
+      ['team', 'Team and roles', 'Who can do what on this account'],
+      ['exports', 'Exports', 'Download payment, settlement and payout reports'],
+      ['notifications', 'Business alerts', 'Disputes, payouts and exports that need you'],
     ] as const
   ).map(([slug, title, description]) => ({
     path: `/pay/${slug}`,
@@ -200,6 +204,24 @@ export const rooms: readonly Room[] = [
     area: 'pay' as const,
     business: true,
   })),
+  {
+    path: '/pay/disputes/:disputeId',
+    title: 'Dispute',
+    description: 'One dispute',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/customers/:customerRef',
+    title: 'Customer',
+    description: 'One customer',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
   { path: '/more', title: 'More', description: 'Explore the rest of Intafaced', door: 'More', area: 'more', screen: 'more' },
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {

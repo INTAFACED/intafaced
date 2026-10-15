@@ -169,8 +169,8 @@ describe('ownership — the only thing standing between a query string and anoth
       headers: signed(principal({ sub: STRANGER, userId: STRANGER })),
     });
 
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error.code).toBe('pay.merchant_forbidden');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('pay.payment_not_found');
     expect(res.body).not.toContain(MERCHANT);
     expect(res.body).not.toContain('1.10');
   });
@@ -184,8 +184,8 @@ describe('ownership — the only thing standing between a query string and anoth
       headers: signed(principal({ sub: STRANGER, userId: STRANGER })),
     });
 
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error.code).toBe('pay.merchant_forbidden');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('pay.merchant_not_found');
   });
 
   it('REFUSES a balance for a merchant the caller does not own', async () => {
@@ -197,7 +197,7 @@ describe('ownership — the only thing standing between a query string and anoth
       headers: signed(principal({ sub: STRANGER, userId: STRANGER })),
     });
 
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(404);
     expect(res.body).not.toContain('7.25');
   });
 
@@ -553,7 +553,7 @@ describe('step 2 — mutating paths + Idempotency-Key (ADR §2.2)', () => {
       headers: { ...stranger, 'content-type': 'application/json', 'idempotency-key': 'stranger:create' },
       payload: createBody,
     });
-    expect(create.statusCode).toBe(403);
+    expect(create.statusCode).toBe(404);
     expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(0);
 
     const capture = await app.inject({
@@ -562,7 +562,7 @@ describe('step 2 — mutating paths + Idempotency-Key (ADR §2.2)', () => {
       headers: { ...stranger, 'content-type': 'application/json', 'idempotency-key': 'stranger:capture' },
       payload: {},
     });
-    expect(capture.statusCode).toBe(403);
+    expect(capture.statusCode).toBe(404);
     expect(pay.calls.filter((c) => c.method === 'capture')).toHaveLength(0);
   });
 
@@ -708,8 +708,8 @@ describe('webhooks step 3 — register + ownership + dashboard', () => {
       payload: { merchantId: MERCHANT, url: 'https://evil.example/x' },
     });
 
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error.code).toBe('pay.merchant_forbidden');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('pay.merchant_not_found');
   });
 
   it('lists deliveries for the failure dashboard under pay:read', async () => {
@@ -1131,8 +1131,8 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
       headers: { ...stranger, 'content-type': 'application/json', 'idempotency-key': 'stranger:link' },
       payload: linkBody,
     });
-    expect(create.statusCode).toBe(403);
-    expect(create.json().error.code).toBe('pay.merchant_forbidden');
+    expect(create.statusCode).toBe(404);
+    expect(create.json().error.code).toBe('pay.merchant_not_found');
     expect(pay.calls.filter((c) => c.method === 'createPaymentLink')).toHaveLength(0);
 
     const list = await app.inject({
@@ -1140,7 +1140,7 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
       url: `/v1/payment-links?merchantId=${MERCHANT}`,
       headers: stranger,
     });
-    expect(list.statusCode).toBe(403);
+    expect(list.statusCode).toBe(404);
     expect(pay.calls.filter((c) => c.method === 'listPaymentLinks')).toHaveLength(0);
 
     const deactivate = await app.inject({
@@ -1148,7 +1148,7 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
       url: `/v1/payment-links/${LINK}?merchantId=${MERCHANT}`,
       headers: stranger,
     });
-    expect(deactivate.statusCode).toBe(403);
+    expect(deactivate.statusCode).toBe(404);
     expect(pay.calls.filter((c) => c.method === 'deactivatePaymentLink')).toHaveLength(0);
   });
 

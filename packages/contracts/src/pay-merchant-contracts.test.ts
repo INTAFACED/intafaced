@@ -54,7 +54,10 @@ describe('pay contracts: halts', () => {
       version: '3',
       changedAt: '2026-10-15T00:00:00Z',
     };
-    expect(payHaltOperatorStatusSchema.safeParse({ readable: true, states: [full] }).success).toBe(true);
+    expect(
+      payHaltOperatorStatusSchema.safeParse({ readable: true, autoTrip: { enabled: false, consecutiveFailures: null }, states: [full] })
+        .success,
+    ).toBe(true);
     expect(payHaltStatusSchema.safeParse({ readable: true, states: [full] }).success).toBe(false);
     const safe = { scope: full.scope, target: full.target, halted: full.halted, changedAt: full.changedAt };
     expect(payHaltStatusSchema.safeParse({ readable: true, states: [safe] }).success).toBe(true);

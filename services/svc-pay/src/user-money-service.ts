@@ -386,18 +386,11 @@ export class UserMoneyService {
         }
 
         // Residual #8: a terminal `failed` row is "this attempt is done", not
-        // "this clientRef is dead forever". `attempts` advanced on finalize; the
-        // next call with the same clientRef (same money + destination) opens the
-        // next attempt key `withdraw:<id>:<attempts>` so it cannot reuse a
-        // released hold. Different money/destination still conflicts above.
-        if (claimed.status === 'failed') {
-          await connection`
-            UPDATE pay.withdrawals
-               SET status = 'pending', failure_code = NULL, updated_at = now()
-             WHERE id = ${claimed.id} AND status = 'failed'
-          `;
-          claimed = { ...claimed, status: 'pending', failureCode: null };
-        }
+        // "this clientRef is dead forever". `claimWithdrawal` has already reopened
+        // it as `pending` (inside the claim transaction, after the guards ran and
+        // while the treasury lock was held), so `claimed.attempts` is the next
+        // attempt key `withdraw:<id>:<attempts>` and cannot reuse a released
+        // hold. Different money/destination still conflicts there.
 
         const attempt = claimed.attempts;
         const ledgerInput = {
@@ -591,6 +584,20 @@ export class UserMoneyService {
         );
       }
 
+      // Residual #8: a terminal `failed` row opens its next attempt as `pending`.
+      // The reset happens HERE, after the guards ran and in the same transaction, so
+      // the treasury advisory lock is still held while the row turns `pending`
+      // (and starts to count as exposure). Resetting after the commit would let a
+      // concurrent fresh withdrawal read this row as `failed`, i.e. not counted.
+      if (existing.status === 'failed') {
+        await tx`
+          UPDATE pay.withdrawals
+             SET status = 'pending', failure_code = NULL, updated_at = now()
+           WHERE id = ${existing.id} AND status = 'failed'
+        `;
+        return { ...existing, status: 'pending', failureCode: null };
+      }
+
       return existing;
     });
   }
@@ -599,7 +606,10 @@ export class UserMoneyService {
    * Fresh, replay or recovery for a withdrawal claim, from the stored row.
    *   none or `failed`  fresh (a failed row opens a NEW attempt with a new hold).
    *   `sent`            replay: the money is gone, the call returns the record.
-   *   `held`            recovery: the hold is acknowledged.
+   *   `held`            recovery: the hold is acknowledged. EXCEPT when the rail has already
+   *                     answered for this attempt (`accepted` with a receipt, or `refused`):
+   *                     finishing it is bookkeeping only (settle, or reverse), no rail call,
+   *                     so it is a replay and a halt or limit must not freeze the user's money.
    *   `pending`         recovery only if the hold is already on the ledger (a ledger
    *                     throw can follow a remote commit); else fresh, nothing moved.
    */
@@ -610,7 +620,16 @@ export class UserMoneyService {
     const row = rows[0];
     if (!row || row.status === 'failed') return FRESH;
     if (row.status === 'sent') return { kind: 'replay', reason: 'withdrawal_already_sent' };
-    if (row.status === 'held') return { kind: 'recovery', reason: 'withdrawal_hold_booked' };
+    if (row.status === 'held') {
+      const [attempt] = await tx<Array<{ outcome: string; rail_ref: string | null }>>`
+        SELECT outcome, rail_ref FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${row.id} AND attempt = ${row.attempts}
+      `;
+      // Mirror `withdraw`: an acceptance counts only with its receipt (else the adapter is asked again).
+      const railAnswered = attempt?.outcome === 'refused' || (attempt?.outcome === 'accepted' && Boolean(attempt.rail_ref));
+      return railAnswered
+        ? { kind: 'replay', reason: 'withdrawal_rail_outcome_recorded' }
+        : { kind: 'recovery', reason: 'withdrawal_hold_booked' };
+    }
     return (await this.ledger.getTxByKey(`withdraw.hold:${row.id}:${row.attempts}`))
       ? { kind: 'recovery', reason: 'withdrawal_hold_booked' }
       : FRESH;
