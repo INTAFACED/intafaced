@@ -76,8 +76,17 @@ export interface MerchantCaller {
   readonly merchantId: string;
   readonly userId: string;
   readonly role: MerchantRole;
-  /** True for a long-lived `ifc_` key. Team changes are interactive-only. */
+  /** True for a long-lived `ifc_` key. */
   readonly viaApiKey: boolean;
+  /** No API key, MFA passed, not a sub-account. Team changes require it. */
+  readonly interactive: boolean;
+}
+
+type CallerPrincipal = Pick<Principal, 'userId' | 'kid'> & Partial<Pick<Principal, 'mfa' | 'sub_account'>>;
+
+/** An interactive, MFA-verified, first-party session: the only kind that may change who holds which role. */
+export function isInteractivePrincipal(principal: CallerPrincipal): boolean {
+  return principal.kid === undefined && principal.mfa === true && principal.sub_account === undefined;
 }
 
 export function assertPermission(caller: MerchantCaller, permission: MerchantPermission): void {
@@ -89,17 +98,18 @@ export function assertPermission(caller: MerchantCaller, permission: MerchantPer
  * else the one team it is an ACTIVE member of. A principal that is neither is
  * refused as `pay.merchant_ops_not_merchant`; it learns nothing about any merchant.
  */
-export async function resolveMerchantCaller(sql: Sql, principal: Pick<Principal, 'userId' | 'kid'>): Promise<MerchantCaller> {
+export async function resolveMerchantCaller(sql: Sql, principal: CallerPrincipal): Promise<MerchantCaller> {
   const viaApiKey = principal.kid !== undefined;
+  const interactive = isInteractivePrincipal(principal);
   const owned = await sql<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE user_id = ${principal.userId} LIMIT 1`;
-  if (owned[0]) return { merchantId: owned[0].id, userId: principal.userId, role: 'owner', viaApiKey };
+  if (owned[0]) return { merchantId: owned[0].id, userId: principal.userId, role: 'owner', viaApiKey, interactive };
   const member = await sql<Array<{ merchant_id: string; role: TeamRole }>>`
     SELECT m.merchant_id, m.role
       FROM pay.merchant_team_members m
      WHERE m.user_id = ${principal.userId} AND m.status = 'active'
      LIMIT 1`;
   if (!member[0]) throw new MerchantOpsError('pay.merchant_ops_not_merchant', 'forbidden');
-  return { merchantId: member[0].merchant_id, userId: principal.userId, role: member[0].role, viaApiKey };
+  return { merchantId: member[0].merchant_id, userId: principal.userId, role: member[0].role, viaApiKey, interactive };
 }
 
 /**
@@ -109,7 +119,7 @@ export async function resolveMerchantCaller(sql: Sql, principal: Pick<Principal,
  */
 export async function requireMerchantPermission(
   sql: Sql,
-  principal: Pick<Principal, 'userId' | 'kid'>,
+  principal: CallerPrincipal,
   permission: MerchantPermission,
 ): Promise<MerchantCaller> {
   const caller = await resolveMerchantCaller(sql, principal);

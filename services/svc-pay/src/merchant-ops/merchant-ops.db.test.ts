@@ -591,11 +591,27 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(gone.cause).toBe('pay.merchant_ops_not_merchant');
     });
 
-    it('cannot invite a merchant owner or someone already on a team (one answer for both)', async () => {
-      const a = await refusal(() => ownerCaller().merchantOps.team.invite({ userId: userB, role: 'viewer' }));
-      const b = await refusal(() => ownerCaller().merchantOps.team.invite({ userId: people.viewer, role: 'viewer' }));
+    it('an invite reveals nothing about an outside account; a merchant owner or another team\'s member cannot accept', async () => {
+      // Inviting the owner of merchant B, or a member of another team, looks exactly like inviting anyone else.
+      const otherOwner = (await ownerCaller().merchantOps.team.invite({ userId: userB, role: 'viewer' })) as { memberId: string; status: string };
+      expect(otherOwner.status).toBe('invited');
+      const elsewhere = id();
+      const otherMerchantOwner = id();
+      await sql`INSERT INTO pay.merchants (user_id) VALUES (${otherMerchantOwner})`;
+      const theirs = (await as(otherMerchantOwner).merchantOps.team.invite({ userId: elsewhere, role: 'viewer' })) as { memberId: string };
+      await as(elsewhere).merchantOps.team.acceptInvite({ memberId: theirs.memberId });
+      const busy = (await ownerCaller().merchantOps.team.invite({ userId: elsewhere, role: 'viewer' })) as { memberId: string; status: string };
+      expect(busy.status).toBe('invited');
+      // The one-team rule holds where it matters: on accept. One answer for both.
+      const a = await refusal(() => as(userB).merchantOps.team.acceptInvite({ memberId: otherOwner.memberId }));
+      const b = await refusal(() => as(elsewhere).merchantOps.team.acceptInvite({ memberId: busy.memberId }));
       expect(a).toEqual(b);
       expect(a.cause).toBe('pay.team_member_unavailable');
+      // Someone already on THIS team is this merchant's own business.
+      const same = await refusal(() => ownerCaller().merchantOps.team.invite({ userId: people.viewer, role: 'viewer' }));
+      expect(same.cause).toBe('pay.team_member_unavailable');
+      await as(userB).merchantOps.team.declineInvite({ memberId: otherOwner.memberId });
+      await as(elsewhere).merchantOps.team.declineInvite({ memberId: busy.memberId });
     });
 
     it('a removed member can be invited again and the history records every change in order', async () => {
@@ -620,6 +636,18 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(invite.cause).toBe('pay.team_interactive_only');
       const remove = await refusal(() => key.merchantOps.team.remove({ memberId: memberIds.developer! }));
       expect(remove.cause).toBe('pay.team_interactive_only');
+      // A password-only session or a sub-account cannot hand out roles either (finance carries payout.approve).
+      for (const over of [{ mfa: false }, { sub_account: id() }] as Array<Partial<Principal>>) {
+        const r = await refusal(() => as(owner, over).merchantOps.team.invite({ userId: id(), role: 'finance' }));
+        expect(r.cause).toBe('pay.team_interactive_only');
+        const c = await refusal(() => as(owner, over).merchantOps.team.changeRole({ memberId: memberIds.developer!, role: 'finance' }));
+        expect(c.cause).toBe('pay.team_interactive_only');
+      }
+      const invited = id();
+      const inv = (await ownerCaller().merchantOps.team.invite({ userId: invited, role: 'viewer' })) as { memberId: string };
+      const noMfa = await refusal(() => as(invited, { mfa: false }).merchantOps.team.acceptInvite({ memberId: inv.memberId }));
+      expect(noMfa.cause).toBe('pay.team_interactive_only');
+      await as(invited).merchantOps.team.declineInvite({ memberId: inv.memberId });
     });
 
     it('role matrix on the operations APIs: viewer reads only, developer exports, finance answers disputes', async () => {

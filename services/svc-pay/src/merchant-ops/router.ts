@@ -12,7 +12,7 @@ import { MerchantKybView } from './kyb.js';
 import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
 import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
-import { resolveMerchantCaller, TEAM_ROLES } from './roles.js';
+import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
 import { TeamService } from './team.js';
 
 /**
@@ -78,7 +78,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
     });
 
   /** Resolve once per call: the merchant and role of whoever is calling. */
-  const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined } }) => resolveMerchantCaller(need().sql, ctx.principal);
+  const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) => resolveMerchantCaller(need().sql, ctx.principal);
   return router({
     merchantOps: router({
       disputes: router({
@@ -173,13 +173,13 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         acceptInvite: write
           .input(z.object({ memberId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => {
-            if (ctx.principal.kid !== undefined) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
+            if (!isInteractivePrincipal(ctx.principal)) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
             return need().team.acceptInvite(ctx.principal.userId, input.memberId);
           })),
         declineInvite: write
           .input(z.object({ memberId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => {
-            if (ctx.principal.kid !== undefined) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
+            if (!isInteractivePrincipal(ctx.principal)) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
             return need().team.declineInvite(ctx.principal.userId, input.memberId);
           })),
       }),

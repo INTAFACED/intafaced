@@ -8,17 +8,18 @@ import { assertPermission, type MerchantCaller, type MerchantRole, type TeamRole
  * changed whom. The owner is `pay.merchants.user_id` and is listed first.
  *
  * RULES (each names the mistake it prevents)
- *   - Only an interactive session changes the team. A leaked API key must not
- *     be able to hand out roles.
+ *   - Only an interactive session changes the team: no API key, MFA passed, not
+ *     a sub-account. A leaked key or a password-only session must not be able to
+ *     hand out roles (finance carries payout.approve).
  *   - Only the owner grants, changes or removes `admin`. Otherwise one admin
  *     could remove the others and lock the owner's delegates out.
  *   - Nobody changes their own role (self-promotion).
  *   - The owner is never a row, so "cannot remove the last admin" holds by
  *     construction: the owner is always there.
  *   - An invitation only becomes access when the invited person accepts it.
- *   - Someone who owns a merchant, or is on another team, cannot be invited
- *     (one active team per account). The refusal is the same code in every
- *     case so it does not reveal which one it was.
+ *   - Someone who owns a merchant, or is on another team, cannot JOIN (one
+ *     active team per account). That is checked when they accept, never when
+ *     they are invited, so an invite reveals nothing about an outside account.
  */
 
 export interface TeamMemberView {
@@ -162,11 +163,10 @@ export class TeamService {
     return this.sql.begin(async (tx) => {
       // One writer per merchant at a time, so two admins cannot race an invite and a role change.
       await tx`SELECT id FROM pay.merchants WHERE id = ${caller.merchantId} FOR UPDATE`;
+      // Whether the invited account owns a merchant or sits on ANOTHER team is not
+      // checked here: answering differently would tell one merchant something about
+      // an account outside it. acceptInvite enforces one-team-per-account instead.
       const unavailable = new MerchantOpsError('pay.team_member_unavailable', 'conflict');
-      const owns = await tx`SELECT 1 FROM pay.merchants WHERE user_id = ${userId} LIMIT 1`;
-      if (owns[0]) throw unavailable;
-      const busy = await tx`SELECT 1 FROM pay.merchant_team_members WHERE user_id = ${userId} AND status = 'active' LIMIT 1`;
-      if (busy[0]) throw unavailable;
       const existing = await tx<Array<{ id: string; status: string }>>`
         SELECT id, status FROM pay.merchant_team_members WHERE merchant_id = ${caller.merchantId} AND user_id = ${userId} FOR UPDATE`;
       let id: string;
@@ -211,7 +211,7 @@ export class TeamService {
   }
 
   async remove(caller: MerchantCaller, input: { memberId: string }): Promise<TeamMemberView> {
-    if (caller.viaApiKey) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
+    if (!caller.interactive) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
     assertPermission(caller, 'team.manage');
     return this.sql.begin(async (tx) => {
       await tx`SELECT id FROM pay.merchants WHERE id = ${caller.merchantId} FOR UPDATE`;
@@ -226,7 +226,7 @@ export class TeamService {
 
   /** A member leaves their own team. No `team.manage` needed: it is their own access. */
   async leave(caller: MerchantCaller): Promise<{ left: true }> {
-    if (caller.viaApiKey) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
+    if (!caller.interactive) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
     if (caller.role === 'owner') throw new MerchantOpsError('pay.team_owner_cannot_leave', 'forbidden');
     await this.sql.begin(async (tx) => {
       const rows = await tx<Array<{ id: string; user_id: string; role: TeamRole; status: string }>>`
@@ -249,7 +249,13 @@ export class TeamService {
       const owns = await tx`SELECT 1 FROM pay.merchants WHERE user_id = ${userId} LIMIT 1`;
       const busy = await tx`SELECT 1 FROM pay.merchant_team_members WHERE user_id = ${userId} AND status = 'active' LIMIT 1`;
       if (owns[0] || busy[0]) throw new MerchantOpsError('pay.team_member_unavailable', 'conflict');
-      await tx`UPDATE pay.merchant_team_members SET status = 'active', activated_at = now(), updated_at = now() WHERE id = ${row.id}`;
+      try {
+        await tx`UPDATE pay.merchant_team_members SET status = 'active', activated_at = now(), updated_at = now() WHERE id = ${row.id}`;
+      } catch (error) {
+        // Two invitations accepted at once: the one-active-team index decides, and the loser gets the same answer as above.
+        if ((error as { code?: string }).code === '23505') throw new MerchantOpsError('pay.team_member_unavailable', 'conflict');
+        throw error;
+      }
       await tx`
         INSERT INTO pay.merchant_team_events (merchant_id, member_user_id, action, to_role, actor_id)
         VALUES (${row.merchant_id}, ${userId}, 'accepted', ${row.role}, ${userId})`;
@@ -272,7 +278,7 @@ export class TeamService {
   }
 
   private assertManage(caller: MerchantCaller, grantedRole: TeamRole): void {
-    if (caller.viaApiKey) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
+    if (!caller.interactive) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
     assertPermission(caller, 'team.manage');
     if (grantedRole === 'admin' && caller.role !== 'owner') throw new MerchantOpsError('pay.team_role_forbidden', 'forbidden');
   }
