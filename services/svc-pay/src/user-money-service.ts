@@ -386,18 +386,11 @@ export class UserMoneyService {
         }
 
         // Residual #8: a terminal `failed` row is "this attempt is done", not
-        // "this clientRef is dead forever". `attempts` advanced on finalize; the
-        // next call with the same clientRef (same money + destination) opens the
-        // next attempt key `withdraw:<id>:<attempts>` so it cannot reuse a
-        // released hold. Different money/destination still conflicts above.
-        if (claimed.status === 'failed') {
-          await connection`
-            UPDATE pay.withdrawals
-               SET status = 'pending', failure_code = NULL, updated_at = now()
-             WHERE id = ${claimed.id} AND status = 'failed'
-          `;
-          claimed = { ...claimed, status: 'pending', failureCode: null };
-        }
+        // "this clientRef is dead forever". `claimWithdrawal` has already reopened
+        // it as `pending` (inside the claim transaction, after the guards ran and
+        // while the treasury lock was held), so `claimed.attempts` is the next
+        // attempt key `withdraw:<id>:<attempts>` and cannot reuse a released
+        // hold. Different money/destination still conflicts there.
 
         const attempt = claimed.attempts;
         const ledgerInput = {
@@ -589,6 +582,20 @@ export class UserMoneyService {
           'pay.withdrawal_conflict',
           { withdrawalId: existing.id },
         );
+      }
+
+      // Residual #8: a terminal `failed` row opens its next attempt as `pending`.
+      // The reset happens HERE, after the guards ran and in the same transaction, so
+      // the treasury advisory lock is still held while the row turns `pending`
+      // (and starts to count as exposure). Resetting after the commit would let a
+      // concurrent fresh withdrawal read this row as `failed`, i.e. not counted.
+      if (existing.status === 'failed') {
+        await tx`
+          UPDATE pay.withdrawals
+             SET status = 'pending', failure_code = NULL, updated_at = now()
+           WHERE id = ${existing.id} AND status = 'failed'
+        `;
+        return { ...existing, status: 'pending', failureCode: null };
       }
 
       return existing;

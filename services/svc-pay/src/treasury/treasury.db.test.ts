@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import postgres from 'postgres';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
@@ -324,6 +325,94 @@ describe('W5 treasury exposure (real Postgres)', () => {
       await expect(money.withdraw(request('11', 'too-big'))).rejects.toMatchObject({ code: 'pay.guard_treasury_exposure_exceeded' });
       expect(await sql`SELECT 1 FROM pay.withdrawals`).toHaveLength(0);
       expect((await money.withdraw(request('10', 'fits'))).status).toBe('sent');
+    });
+
+    it('required: a failed withdrawal retried while a fresh one arrives at the limit admits exactly one', async () => {
+      const PAUSE_KEY = 4_242_424;
+      const money = new UserMoneyService(sql, ledger, rails, {
+        operatorCreditRails: ['card-sandbox'],
+        guards: composeGuards(createW5HaltsGuards({ sql, env: limitsEnv({ USDT: '10' }) })),
+      });
+      const retrier = '22222222-2222-4222-8222-222222222222';
+      const fresher = '33333333-3333-4333-8333-333333333333';
+      for (const userId of [retrier, fresher])
+        await money.credit({
+          userId,
+          assetId: 'USDT',
+          amount: amt('50'),
+          rail: 'card-sandbox',
+          railRef: `seed-${userId}`,
+          creditedBy: '99999999-9999-4999-8999-999999999999',
+        });
+      const bank = { kind: 'bank', ref: 'DE89370400440532013000' };
+      // The retrier's earlier attempt was refused by the rail: terminal `failed`, attempts advanced.
+      await sql`INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, attempts, failure_code)
+        VALUES (${retrier}, 'USDT', 10, 'card-sandbox', ${sql.json(bank)}, 'retry-me', 'failed', 1, 'rail.failed')`;
+
+      // Test-only barrier. The failed -> pending reset parks on a session advisory lock this test
+      // holds. Wherever the reset runs, the paused retry is observable and deterministic: inside the
+      // claim transaction (the fix) it still holds the treasury lock; outside it (the bug) it does not.
+      await sql.unsafe(`
+        CREATE OR REPLACE FUNCTION pay.test_pause_failed_retry() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF OLD.status = 'failed' AND NEW.status = 'pending' THEN
+            PERFORM pg_advisory_lock(${PAUSE_KEY});
+            PERFORM pg_advisory_unlock(${PAUSE_KEY});
+          END IF;
+          RETURN NEW;
+        END $$;
+        CREATE TRIGGER test_pause_failed_retry BEFORE UPDATE ON pay.withdrawals
+          FOR EACH ROW EXECUTE FUNCTION pay.test_pause_failed_retry();`);
+      const holder = postgres(db.url, { max: 1, onnotice: () => undefined });
+      const held = await holder.reserve();
+      const waiters = async (atLeast: number) => {
+        for (let i = 0; i < 250; i++) {
+          const [row] = await sql<Array<{ n: number }>>`
+            SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
+          if (row!.n >= atLeast) return;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        throw new Error(`fewer than ${atLeast} sessions are waiting on an advisory lock`);
+      };
+      const request = (userId: string, clientRef: string) => ({
+        userId,
+        assetId: 'USDT',
+        amount: amt('10'),
+        rail: 'card-sandbox',
+        destination: bank,
+        clientRef,
+      });
+      try {
+        await held`SELECT pg_advisory_lock(${PAUSE_KEY})`;
+        const retry = money.withdraw(request(retrier, 'retry-me')).then(
+          (r) => r.status,
+          (e: { code?: string }) => `refused ${e.code}`,
+        );
+        await waiters(1); // the retry is parked at the reset, past the guard
+        const fresh = money.withdraw(request(fresher, 'fresh')).then(
+          (r) => r.status,
+          (e: { code?: string }) => `refused ${e.code}`,
+        );
+        // The fresh withdrawal must be QUEUED behind the retry's treasury lock. Under the bug it is not
+        // (the retry's lock is already gone), so this never reaches two and the test fails here.
+        await waiters(2);
+        await held`SELECT pg_advisory_unlock(${PAUSE_KEY})`;
+
+        expect(await retry).toBe('sent');
+        expect(await fresh).toBe('refused pay.guard_treasury_exposure_exceeded');
+      } finally {
+        await held`SELECT pg_advisory_unlock_all()`;
+        held.release();
+        await holder.end({ timeout: 5 });
+        await sql.unsafe(
+          `DROP TRIGGER IF EXISTS test_pause_failed_retry ON pay.withdrawals; DROP FUNCTION IF EXISTS pay.test_pause_failed_retry();`,
+        );
+      }
+      const sent = await sql<
+        Array<{ total: string }>
+      >`SELECT COALESCE(SUM(amount), 0)::text AS total FROM pay.withdrawals WHERE status = 'sent'`;
+      expect(sent[0]!.total).toBe('10.000000000000000000');
+      expect(await sql`SELECT 1 FROM pay.withdrawals WHERE user_id = ${fresher}`).toHaveLength(0);
     });
 
     it('off (the default): withdrawals are not limit-checked, with no limits or with limits that would be exceeded', async () => {
