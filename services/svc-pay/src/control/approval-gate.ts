@@ -66,7 +66,19 @@ export async function requirePayoutApproval(tx: Sql, pool: Sql, payload: PayoutP
     `;
     return;
   }
-  await voidStaleApprovals(pool, payload, hash);
+  // Best effort and bounded. This runs on a second connection while the caller's
+  // transaction still holds the merchant and settlement locks; a concurrent
+  // `request` holding a stale row and waiting on that settlement would otherwise
+  // be a wait Postgres cannot see as a deadlock. A stale approval cannot match
+  // this payload anyway, so a failed void never changes the refusal.
+  try {
+    await pool.begin(async (t) => {
+      await t`SET LOCAL lock_timeout = '2s'`;
+      await voidStaleApprovals(t as unknown as Sql, payload, hash);
+    });
+  } catch {
+    // Refuse below regardless; the next decision or request voids it.
+  }
   throw new ControlRefusal('pay.approval_required');
 }
 
