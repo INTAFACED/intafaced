@@ -46,8 +46,8 @@ import { UserMoneyService } from '../../src/user-money-service.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
 
-export const EDGE_SECRET = 'w14-isolation-edge-secret-0123456789abcdef';
-const RAIL_SECRET = 'w14-isolation-rail-secret-0123456789abcdef';
+export const EDGE_SECRET = 'dev-only-w14-isolation-edge-secret-0123456789abcdef';
+const RAIL_SECRET = 'dev-only-w14-isolation-rail-secret-0123456789abcdef';
 export const EVM_DESTINATION = '0x000000000000000000000000000000000000dEaD';
 
 /** What a merchant account's interactive session carries after onboarding (pay:* is granted by onboarding). */
