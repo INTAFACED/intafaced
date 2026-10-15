@@ -512,7 +512,7 @@ const webhookDrain = setInterval(() => {
 webhookDrain.unref?.();
 
 /** Keep the metrics projection within seconds of source; lag is reported on every metrics response. */
-startMetricsRefresher(metrics.projector, {
+const metricsRefresher = startMetricsRefresher(metrics.projector, {
   onError: (err) => app.log.warn({ err }, 'metrics refresh failed'),
   onFailedKeys: (failed) => app.log.warn({ failed }, 'metrics refresh left merchant-days marked'),
 });
@@ -661,6 +661,8 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       watcher?.stop();
+      // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
+      metricsRefresher.stop();
       // Draining, not dropping: an in-flight capture finishes before the
       // process exits, because the alternative is a payment captured at a rail
       // that this service never got to book.
