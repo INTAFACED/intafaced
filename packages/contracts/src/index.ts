@@ -29,3 +29,8 @@ export * from './crm-notifications.js';
 export * from './outreach-interests.js';
 export * from './guest-notifications.js';
 export * from './crm-privacy.js';
+export * from './merchant-control.js';
+export * from './merchant-metrics.js';
+export * from './conversion.js';
+export * from './pay-halts.js';
+export * from './founder-admin.js';

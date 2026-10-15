@@ -1,6 +1,7 @@
 import { postPayLedger } from './ledger-receipt.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { withPaymentAdmission, preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
+import { NOOP_GUARDS, type PayGuards } from './seams/guards.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -650,6 +651,12 @@ export interface WebhookOutcome {
 
 export interface PayServiceOptions {
   /**
+   * Guard hooks called on payment admission, payout, settlement and conversion
+   * paths (seams/guards.ts). Omitted = no-ops, i.e. behaviour before the seams.
+   */
+  readonly guards?: PayGuards;
+
+  /**
    * Fee rate used when a merchant's pricing does not state one.
    *
    * There is no silent default of zero: a merchant settled at 0 bps by accident
@@ -940,6 +947,7 @@ export class PayService {
   private readonly identityOperationAdmission: IdentityPayoutAdmissionPort | undefined;
   private readonly identityAuthorityGuard: OwnerIdentityAuthorityPort | undefined;
   private readonly afterPayoutAdmission: (() => void | Promise<void>) | undefined;
+  private readonly guards: PayGuards;
 
   constructor(
     private readonly sql: Sql,
@@ -967,6 +975,7 @@ export class PayService {
     this.identityOperationAdmission = options.identityOperationAdmission;
     this.identityAuthorityGuard = options.identityAuthorityGuard;
     this.afterPayoutAdmission = options.afterPayoutAdmission;
+    this.guards = options.guards ?? NOOP_GUARDS;
   }
 
   /**
@@ -1634,6 +1643,15 @@ export class PayService {
             async () => this.assertMerchantActive(merchant),
             this.identityAuthorityGuard,
           );
+        // Seam: public checkout is intake too. Same hook as createPayment, in
+        // this transaction, after the link and merchant locks, before the row.
+        await this.guards.beforePaymentAdmit({
+          tx,
+          kind: 'payment.create',
+          paymentId,
+          merchantId: link.merchantId,
+          payload: paymentCreationPayload(creationInput, paymentId),
+        });
         const payment = await insertPayment(tx, { ...creationInput, id: paymentId });
 
         // SPEC §5 — reason per decision. Taxonomy only (no cost/approval invent).
@@ -1842,7 +1860,18 @@ export class PayService {
         this.identityOperationAdmission,
         input,
         async (tx) => this.assertMerchantActive(await this.lockMerchantEligibility(tx, input.merchantId)),
-        effect,
+        // Seam: runs inside the effect transaction on both the identity and the
+        // no-identity path, so no admission skips it.
+        async (tx, admitted) => {
+          await this.guards.beforePaymentAdmit({
+            tx,
+            kind: input.kind,
+            paymentId: input.paymentId,
+            merchantId: input.merchantId,
+            payload: input.payload,
+          });
+          return effect(tx, admitted);
+        },
         this.identityAuthorityGuard,
       );
     } catch (error) {
@@ -2820,6 +2849,13 @@ export class PayService {
       'pay.settleWindow',
       { operation: 'settlement', merchantId: input.merchantId, window: input.window, assetId: input.assetId },
       async (span) => {
+        await this.guards.beforeSettlementRun({
+          sql: this.sql,
+          phase: 'prepare',
+          merchantId: input.merchantId,
+          assetId: input.assetId,
+          window: input.window,
+        });
         const prepared = await this.prepareSettlement(input);
         if (prepared.status !== 'pending') return prepared;
         return this.postPendingSettlement(prepared.id, span);
@@ -2843,6 +2879,14 @@ export class PayService {
     const current = head[0];
     if (!current) throw new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found');
     if (current.status !== 'pending') return toSettlement(current);
+    await this.guards.beforeSettlementRun({
+      sql: this.sql,
+      phase: 'post',
+      merchantId: current.merchant_id,
+      assetId: current.asset_id,
+      window: current.window,
+      settlementId: current.id,
+    });
 
     // The unlocked merchant read is not the credit gate. Eligibility is locked
     // below, on this transaction, before the ledger post.
@@ -3304,6 +3348,16 @@ export class PayService {
                 if (adapter.id === 'crypto-native' && input.destination) {
                   await this.payoutDestinations.persist({ merchantId: merchant.id, railId: adapter.id, ...destination, connection: tx });
                 }
+                await this.guards.beforePayoutAdmit({
+                  tx,
+                  settlementId: settlement.id,
+                  merchantId: merchant.id,
+                  assetId: settlement.assetId,
+                  amount: settlement.net,
+                  railId: adapter.id,
+                  destination: { kind: destination.kind, ref: destination.ref },
+                  attempt: settlement.payoutAttempts,
+                });
               },
               this.identityOperationAdmission,
               input.identityAuthority,
@@ -3337,6 +3391,17 @@ export class PayService {
           let refused = outcomes.find((outcome) => outcome.kind === 'rail_refused')?.payload as
             { failureReason: string; failureCode: string } | undefined;
           if (!refused && !accepted) {
+            // Seam: before any hold is posted or rail asked, including crash recovery.
+            await this.guards.beforePayoutExecute({
+              sql: connection,
+              settlementId: admission.settlement_id,
+              merchantId: admission.merchant_id,
+              assetId: admission.asset_id,
+              amount: parseAmount(admission.net),
+              railId: admission.rail_id,
+              destination: { kind: admission.destination_kind, ref: admission.destination_ref },
+              attempt: admission.attempt,
+            });
             await postPayLedger(this.ledger, plan.hold);
             const result = await withRailSpan(adapter.id, 'payout', () =>
               adapter.payout({

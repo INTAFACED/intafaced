@@ -21,6 +21,7 @@ import type { UserMoneyService, WithdrawalRecord } from './user-money-service.js
 import type { RailRegistry } from './rails/registry.js';
 import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
+import { PayGuardRefusal } from './seams/guards.js';
 import { assertMerchantAreaAccess, type MerchantAreaFence } from './merchant-ownership.js';
 import { areaForSurface, type PayfacSurface } from './payfac-permissions.js';
 import { assertRoutingInputsPresent, RoutingInputError } from './routing-inputs.js';
@@ -1698,6 +1699,14 @@ function toSettlementOut(row: Awaited<ReturnType<PayService['getSettlement']>>):
  * a day guessing.
  */
 function toTrpcError(err: unknown): unknown {
+  /**
+   * A guard seam refused (seams/guards.ts). Typed, so it never falls into the
+   * PayError default below (BAD_REQUEST reads as "fix your request"). The
+   * message is the code only: composeGuards already stripped any internals.
+   */
+  if (err instanceof PayGuardRefusal) {
+    return new TRPCError({ code: err.kind === 'unavailable' ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN', message: err.code, cause: err });
+  }
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
