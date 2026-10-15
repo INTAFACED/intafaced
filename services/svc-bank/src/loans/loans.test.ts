@@ -2699,6 +2699,42 @@ describe('svc-bank loans PG-hard', () => {
         return ledger.journal().filter((tx) => tx.reason === 'loan.liquidated').length;
       }
 
+      it('does not sell a stale collateral plan after an addCollateral top-up with unchanged debt', async () => {
+        const opened = await openAt('5200');
+        await fund(BORROWER, 'BTC', '1');
+        const debtBefore = await loans.outstanding(opened.loan.id);
+        const originalCollateralOf = loans.collateralOf.bind(loans);
+        const collateralReads: string[] = [];
+        let toppedUp = false;
+
+        loans.collateralOf = async (loan) => {
+          const held = await originalCollateralOf(loan);
+          collateralReads.push(formatAmount(held));
+          if (!toppedUp) {
+            toppedUp = true;
+            // Complete a real top-up after the sweep reads its collateral,
+            // before it can acquire the liquidation lock. Debt stays the same.
+            await loans.addCollateral({ loanId: loan.id, eventId: randomUUID(), amount: amt('1'), now });
+          }
+          return held;
+        };
+
+        try {
+          const sweep = await sweepAt(now);
+          expect(sweep.refused).toEqual([]);
+        } finally {
+          loans.collateralOf = originalCollateralOf;
+        }
+
+        expect(toppedUp).toBe(true);
+        expect(collateralReads.slice(0, 2)).toEqual(['1', '2']);
+        expect(saleCount()).toBe(0);
+        expect(await sql`SELECT id FROM bank.loan_liquidations WHERE loan_id = ${opened.loan.id}`).toHaveLength(0);
+        expect(await loans.outstanding(opened.loan.id)).toEqual(debtBefore);
+        expect(await loans.collateralOf(opened.loan)).toBe(amt('2'));
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
       /**
        * Two sweeps read debt before the first sale; the second reads collateral
        * after that sale. Even though its remaining collateral still matches at

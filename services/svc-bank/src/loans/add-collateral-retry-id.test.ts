@@ -277,8 +277,8 @@ describe('LoanService.addCollateral — timed-out retry is one lock', () => {
   });
 
   it.each(['first', 'second'] as const)(
-    'two overlapping addCollateral with the same eventId lock once (%s arrives first)',
-    async (winner) => {
+    'two overlapping addCollateral with the same eventId lock once (%s promise is held)',
+    async (heldCaller) => {
       const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
         loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
       });
@@ -333,7 +333,7 @@ describe('LoanService.addCollateral — timed-out retry is one lock', () => {
       const arrivingFirst = bank.loans.addCollateral({ loanId: opened.loan.id, eventId, amount: amt('1'), now: NOW });
       await firstReachedNext;
       const arrivingSecond = bank.loans.addCollateral({ loanId: opened.loan.id, eventId, amount: amt('1'), now: NOW });
-      const [first, second] = winner === 'first' ? [arrivingFirst, arrivingSecond] : [arrivingSecond, arrivingFirst];
+      const [first, second] = heldCaller === 'first' ? [arrivingFirst, arrivingSecond] : [arrivingSecond, arrivingFirst];
       // The held post belongs to whichever call reaches the sequencer first.
       // Waiting for a named caller can wait on that very post under CI scheduling.
       // The other retry can finish the shared claim; release the held post once
