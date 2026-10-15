@@ -1,5 +1,6 @@
 import { mergeRouters } from '@intafaced/contracts';
 import type { FounderAuthority } from '../founder-authority.js';
+import type { MetricsRuntime } from '../metrics/index.js';
 import { createConversionRouter } from './conversion.js';
 import { createFounderAdminRouter } from './founder-admin.js';
 import { createMerchantControlRouter } from './merchant-control.js';
@@ -17,11 +18,11 @@ export const FOUNDER_ONLY_PREFIXES = ['founderAdmin.', 'payHalts.set', 'payHalts
  * replaces the stub bodies there and nowhere else:
  *   merchantControl W1 · merchantMetrics W2 · founderAdmin W2/W4 · conversion W6 · payHalts W5
  */
-export function createPayNamespaces(deps: { founderAuthority: FounderAuthority }) {
+export function createPayNamespaces(deps: { founderAuthority: FounderAuthority; metrics?: MetricsRuntime }) {
   return mergeRouters(
     createMerchantControlRouter(),
-    createMerchantMetricsRouter(),
-    createFounderAdminRouter(deps.founderAuthority),
+    createMerchantMetricsRouter(deps.metrics),
+    createFounderAdminRouter(deps.founderAuthority, deps.metrics),
     createConversionRouter(),
     createPayHaltsRouter(deps.founderAuthority),
   );

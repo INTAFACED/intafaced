@@ -45,6 +45,11 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
   'founderAdmin.merchants.list': { founder: true, input: { limit: 10 } },
   'founderAdmin.merchants.drilldown': { founder: true, input: { merchantId, window } },
   'founderAdmin.metrics.global': { founder: true, input: { window } },
+  'founderAdmin.metrics.merchant': { founder: true, input: { merchantId, window } },
+  'founderAdmin.metrics.merchantSeries': {
+    founder: true,
+    input: { merchantId, from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day' },
+  },
   'founderAdmin.changes.submit': {
     founder: true,
     input: {
@@ -106,7 +111,8 @@ describe('W0 namespaces are mounted', () => {
 
   it('is merged into the live appRouter in index.ts together with the guard registry', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    expect(src).toContain('createPayNamespaces({ founderAuthority })');
+    expect(src).toContain('createPayNamespaces({ founderAuthority, metrics })');
+    expect(src).toContain('startMetricsRefresher(metrics.projector');
     expect(src).toContain('const payGuards = buildPayGuards({ sql });');
     // One registry instance serves both the payment service and the user-money service.
     expect(src.match(/guards: payGuards,/g)).toHaveLength(2);
@@ -120,7 +126,7 @@ describe('W0 namespaces are mounted', () => {
   });
 });
 
-describe('every stub refuses with pay.not_built and never returns data', () => {
+describe('without a metrics runtime, every stub refuses with pay.not_built and never returns data', () => {
   for (const [path, call] of Object.entries(CALLS)) {
     it(path, async () => {
       const fetcher = vi.fn<typeof fetch>(async () => entitlement('enabled'));
