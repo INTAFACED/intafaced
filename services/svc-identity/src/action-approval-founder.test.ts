@@ -100,20 +100,23 @@ describe('audience table: what each registered approval type needs', () => {
     targetId,
     expected,
   });
+  // Protective verbs (a brake must not need both founders online) are operator; everything that opens or re-enables is founder.
+  const protectiveMatching = [
+    ['halt', 'halt:market-1'],
+    ['halt_all', 'halt_all'],
+    ['reduce_only', 'reduce_only:market-1'],
+    ['post_only', 'post_only:market-1'],
+  ].map(([v, target]) => T(`matching.${v}`, 'svc-matching', target!, 'operator'));
   const matching = [
-    'halt',
-    'resume',
-    'halt_all',
-    'resume_all',
-    'reduce_only',
-    'reduce_only_resume',
-    'post_only',
-    'post_only_resume',
-    'prelaunch',
-    'open',
-    'expire',
-    'delist',
-  ].map((v) => T(`matching.${v}`, 'svc-matching', `${v}:market-1`, 'founder'));
+    ['resume', 'resume:market-1'],
+    ['resume_all', 'resume_all'],
+    ['reduce_only_resume', 'reduce_only_resume:market-1'],
+    ['post_only_resume', 'post_only_resume:market-1'],
+    ['prelaunch', 'prelaunch:market-1'],
+    ['open', 'open:market-1'],
+    ['expire', 'expire:market-1'],
+    ['delist', 'delist:market-1'],
+  ].map(([v, target]) => T(`matching.${v}`, 'svc-matching', target!, 'founder'));
   const registered = [
     // svc-pay (every pay.* type, including the W16 registry change and deposit credit)
     ...[
@@ -127,9 +130,10 @@ describe('audience table: what each registered approval type needs', () => {
       'pay.deposit_credit',
       'pay.registry_change',
     ].map((t) => T(t, 'svc-pay', t, 'founder')),
+    ...protectiveMatching,
     ...matching,
     T('ledger.reconcile', 'svc-ledger', 'posting_reconcile', 'founder'),
-    T('ledger.freeze', 'svc-ledger', 'posting_freeze', 'founder'),
+    T('ledger.freeze', 'svc-ledger', 'posting_freeze', 'operator'),
     T('ledger.unfreeze', 'svc-ledger', 'posting_unfreeze', 'founder'),
     ...[
       'bank.fund_pool',
@@ -177,7 +181,7 @@ describe('audience table: what each registered approval type needs', () => {
   it('same-person step-up types stay self', () => {
     for (const t of SAME_PERSON_ACTION_TYPES) {
       expect(audienceOf(t)).toBe('self');
-      expect(audienceOfApproval({ actionType: t, targetService: 'svc-bank', targetId: t })).toBe('self');
+      expect(audienceOfApproval({ actionType: t, targetService: 'svc-bank', targetId: t, kind: 'same_person' })).toBe('self');
     }
   });
 
@@ -189,10 +193,106 @@ describe('audience table: what each registered approval type needs', () => {
   it('is decided from the whole request: a founder target filed under a harmless type, or a different case, is still founder', () => {
     expect(audienceOfApproval({ actionType: 'harmless.note', targetService: 'svc-pay', targetId: 'whatever' })).toBe('founder');
     expect(audienceOfApproval({ actionType: 'harmless.note', targetService: 'svc-x', targetId: 'pay.deposit_credit' })).toBe('founder');
-    expect(audienceOfApproval({ actionType: 'harmless.note', targetService: 'svc-x', targetId: 'open:market-1' })).toBe('operator');
+    expect(audienceOfApproval({ actionType: 'harmless.note', targetService: 'svc-edge', targetId: 'open:market-1' })).toBe('operator');
     expect(audienceOfApproval({ actionType: 'harmless.note', targetService: 'svc-x', targetId: 'matching.open' })).toBe('founder');
     expect(audienceOfApproval({ actionType: ' Pay.Deposit_Credit ', targetService: 'svc-x', targetId: 'x' })).toBe('founder');
     expect(audienceOfApproval({ actionType: 'harmless.note', targetService: ' SVC-LEDGER ', targetId: 'x' })).toBe('founder');
+  });
+});
+
+describe('protective verbs, unknown services and the self kind', () => {
+  const sub = (actionType: string, targetService: string, targetId: string, kind?: 'four_eyes' | 'same_person') => ({
+    actionType,
+    targetService,
+    targetId,
+    kind,
+  });
+
+  it('a protective verb is operator only when type, service and target verb all agree', () => {
+    expect(audienceOfApproval(sub('matching.halt', 'svc-matching', 'halt:market-1'))).toBe('operator');
+    expect(audienceOfApproval(sub('ledger.freeze', 'svc-ledger', 'posting_freeze'))).toBe('operator');
+    // type says halt but the target opens a market
+    expect(audienceOfApproval(sub('matching.halt', 'svc-matching', 'open:market-1'))).toBe('founder');
+    // type says halt but the target is another service, or the target is the unfreeze verb
+    expect(audienceOfApproval(sub('matching.halt', 'svc-pay', 'halt:market-1'))).toBe('founder');
+    expect(audienceOfApproval(sub('ledger.freeze', 'svc-ledger', 'posting_unfreeze'))).toBe('founder');
+    // a harmless type filed against a halt target is not the protective exception
+    expect(audienceOfApproval(sub('harmless.note', 'svc-matching', 'halt:market-1'))).toBe('founder');
+    // the re-enabling verbs are never protective
+    for (const [t, id] of [
+      ['matching.resume', 'resume:market-1'],
+      ['matching.reduce_only_resume', 'reduce_only_resume:market-1'],
+      ['ledger.unfreeze', 'posting_unfreeze'],
+    ] as const) {
+      expect(audienceOfApproval(sub(t, t.startsWith('ledger') ? 'svc-ledger' : 'svc-matching', id))).toBe('founder');
+    }
+  });
+
+  it('two plain operators can complete a halt end to end, and a founder-only resume still needs the founders', async () => {
+    const { r } = build();
+    const a1 = r.createCaller(await admin(ADMIN));
+    const a2 = r.createCaller(await admin(ADMIN2));
+    const halt = { ...payDeposit, actionType: 'matching.halt', targetService: 'svc-matching', targetId: 'halt:market-1' };
+    const pending = await a1.actionApproval.propose(halt);
+    await expect(a2.actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_A })).resolves.toMatchObject({
+      status: 'APPROVED',
+    });
+    const resume = { ...halt, actionType: 'matching.resume', targetId: 'resume:market-1' };
+    await expect(a1.actionApproval.propose(resume)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('a target service that is not on the operator list is founder-only, including one that does not exist yet', () => {
+    expect(audienceOfApproval(sub('newthing.do_it', 'svc-newmoney', 'newthing.do_it'))).toBe('founder');
+    expect(audienceOfApproval(sub('harmless.note', 'svc-treasury', 'x'))).toBe('founder');
+    expect(audienceOfApproval(sub('harmless.note', 'svc-trade', 'x'))).toBe('founder');
+    for (const svc of ['svc-edge', 'svc-market', 'svc-academy', 'svc-p2p', 'svc-identity']) {
+      expect(audienceOfApproval(sub('harmless.note', svc, 'x'))).toBe('operator');
+    }
+  });
+
+  it('a made-up money service is refused to an admin operator at the door', async () => {
+    const { r } = build();
+    const input = { ...payDeposit, actionType: 'newthing.do_it', targetService: 'svc-newmoney', targetId: 'newthing.do_it' };
+    await expect(r.createCaller(await admin(ADMIN)).actionApproval.propose(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(r.createCaller(await founder(F1)).actionApproval.propose(input)).resolves.toMatchObject({ status: 'PENDING' });
+  });
+
+  it('self counts only for a stored same_person row; a four-eyes request with a step-up type is judged by type and target', async () => {
+    const stepUp = 'bank.step_up.transfers.toUser';
+    expect(audienceOfApproval(sub(stepUp, 'svc-bank', stepUp, 'same_person'))).toBe('self');
+    expect(audienceOfApproval(sub(stepUp, 'svc-bank', stepUp))).toBe('founder');
+    expect(audienceOfApproval(sub(stepUp, 'svc-bank', stepUp, 'four_eyes'))).toBe('founder');
+    // at the door: an admin operator is refused, a founder is told it is the wrong door (not skipped)
+    const { r } = build();
+    const input = { ...payDeposit, actionType: stepUp, targetService: 'svc-bank', targetId: stepUp };
+    await expect(r.createCaller(await admin(ADMIN)).actionApproval.propose(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(r.createCaller(await founder(F1)).actionApproval.propose(input)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  });
+
+  it('a four-eyes row that carries a step-up type gets the founder check at approve and consume, not a skip', async () => {
+    const { r, service, store } = build();
+    const stepUp = 'bank.step_up.transfers.toUser';
+    const row = await seedApproved(
+      store,
+      { requesterId: ADMIN, approverId: ADMIN2 },
+      { actionType: stepUp, targetService: 'svc-bank', targetId: stepUp },
+    );
+    await expect(service.consume('svc-bank', consumeOf(row, 'svc-bank'))).rejects.toMatchObject({ code: 'action_approval.founder_only' });
+    const pendingRow = await seedApproved(
+      store,
+      { requesterId: F1, approverId: F2 },
+      {
+        actionType: stepUp,
+        targetService: 'svc-bank',
+        targetId: stepUp,
+        status: 'PENDING',
+        approverId: null,
+        approvedAt: null,
+      },
+    );
+    await expect(
+      r.createCaller(await admin(ADMIN)).actionApproval.approve({ approvalId: pendingRow.approvalId, expectedPayloadHash: HASH_A }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });
 
@@ -424,14 +524,37 @@ describe('consume re-checks the approver and the proposer (no grandfathering)', 
     await expect(service.consume('svc-pay', consumeOf(row, 'svc-pay'))).rejects.toMatchObject({ code: 'action_approval.founder_only' });
   });
 
-  it('refuses closed when the founder directory throws', async () => {
+  it('a founder directory that cannot answer is founders_unavailable (still refused, row not burned), distinct from founder_only', async () => {
     const { service, store } = build({
       isFounder: async () => {
         throw new Error('db down');
       },
     });
     const row = await seedApproved(store, { requesterId: F1, approverId: F2 });
-    await expect(service.consume('svc-pay', consumeOf(row, 'svc-pay'))).rejects.toMatchObject({ code: 'action_approval.founder_only' });
+    await expect(service.consume('svc-pay', consumeOf(row, 'svc-pay'))).rejects.toMatchObject({
+      code: 'action_approval.founders_unavailable',
+    });
+    expect((await store.get(row.approvalId))?.status).toBe('APPROVED');
+  });
+
+  it('an outage at the door is SERVICE_UNAVAILABLE on propose, approve and consume, and operator types are unaffected', async () => {
+    const { r, store, service } = build({
+      isFounder: async () => {
+        throw new Error('db down');
+      },
+    });
+    await expect(r.createCaller(await founder(F1)).actionApproval.propose(payDeposit)).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: expect.stringContaining('action_approval.founders_unavailable'),
+    });
+    const row = await seedApproved(store, { requesterId: F1, approverId: F2 });
+    await expect(
+      r
+        .createCaller({ principal: null, service: 'svc-pay', region: 'DE', requestId: 'x' })
+        .actionApproval.consume(consumeOf(row, 'svc-pay')),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    const pending = await service.propose(ADMIN, edgeKill);
+    await expect(service.approve(ADMIN2, pending.approvalId, HASH_A)).resolves.toMatchObject({ status: 'APPROVED' });
   });
 
   it('a founder-target row filed under a harmless type is checked at consume too', async () => {
@@ -463,5 +586,19 @@ describe('consume re-checks the approver and the proposer (no grandfathering)', 
     const pending = await service.propose(ADMIN, edgeKill);
     const approved = await service.approve(ADMIN2, pending.approvalId, HASH_A);
     await expect(service.consume('svc-edge', consumeOf(approved, 'svc-edge'))).resolves.toMatchObject({ status: 'CONSUMED' });
+  });
+});
+
+describe('consume compares the payload hash in constant time and still refuses a mismatch', () => {
+  it('refuses a different, shorter or empty payload hash at consume with the typed code', async () => {
+    const { service } = build();
+    const pending = await service.propose(F1, payDeposit);
+    const approved = await service.approve(F2, pending.approvalId, HASH_A);
+    for (const wrong of [HASH_B, HASH_A.slice(0, -1), '']) {
+      await expect(service.consume('svc-pay', { ...consumeOf(approved, 'svc-pay'), payloadHash: wrong })).rejects.toMatchObject({
+        code: 'action_approval.payload_mismatch',
+      });
+    }
+    await expect(service.consume('svc-pay', consumeOf(approved, 'svc-pay'))).resolves.toMatchObject({ status: 'CONSUMED' });
   });
 });

@@ -380,20 +380,17 @@ export class FounderControls {
 
   /**
    * Is this user a founder right now? Pair membership, an enabled entitlement and an active account, read fresh
-   * (no cache). Used to re-check an approval's proposer and approver when it is consumed. Any failure answers
-   * `false`: a founder-only action refuses closed.
+   * (no cache). Used to re-check an approval's proposer and approver when it is consumed. Not a founder (or controls
+   * not configured) answers `false`. A storage failure THROWS, so the caller can tell "cannot tell" from "no" and
+   * still refuse closed.
    */
   async isLiveFounder(userId: string): Promise<boolean> {
     const parsed = canonicalUuid.safeParse(userId);
     if (!parsed.success || !this.configured || !this.pair || !this.pair.includes(parsed.data)) return false;
-    try {
-      const rows = await this.sql<
-        Array<{ enabled: boolean; status: string }>
-      >`SELECT e.enabled, u.status FROM founder_operator_entitlements e JOIN users u ON u.id = e.user_id WHERE e.user_id = ${parsed.data}`;
-      return rows[0]?.enabled === true && rows[0].status === 'active';
-    } catch {
-      return false;
-    }
+    const rows = await this.sql<
+      Array<{ enabled: boolean; status: string }>
+    >`SELECT e.enabled, u.status FROM founder_operator_entitlements e JOIN users u ON u.id = e.user_id WHERE e.user_id = ${parsed.data}`;
+    return rows[0]?.enabled === true && rows[0].status === 'active';
   }
 
   async operatorStatus(context: Context): Promise<AccountOperatorEntitlement> {

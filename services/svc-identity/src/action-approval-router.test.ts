@@ -45,7 +45,7 @@ function serviceCtx(service: string | null): Context {
 }
 
 function router() {
-  // `ledger.freeze` is a founder-only type: A and B are the founder pair here.
+  // A and B are the founder pair here (and also admin operators).
   return createActionApprovalRouter(
     new ActionApprovalService(new MemoryActionApprovalStore(), { ttlSeconds: 60, founders: staticFounderDirectory([A, B]) }),
   );

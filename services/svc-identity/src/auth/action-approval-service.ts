@@ -10,7 +10,7 @@ import {
   isSamePersonActionType,
   namesAreNotActionApproval,
 } from '@intafaced/contracts';
-import { type FounderDirectory, audienceOfApproval } from './action-approval-audience.js';
+import { type ApprovalSubject, type FounderDirectory, audienceOfApproval } from './action-approval-audience.js';
 import { type ActionApprovalStore, type StoredApproval, newApprovalIds, toActionApproval } from './action-approval-store.js';
 
 export const ACTION_APPROVAL_TTL_UNSET = 'action_approval.ttl_unset' as const;
@@ -30,6 +30,7 @@ export type ActionApprovalErrorCode =
   | 'action_approval.type_not_four_eyes'
   | 'action_approval.operator_only'
   | 'action_approval.founder_only'
+  | 'action_approval.founders_unavailable'
   | 'action_approval.type_not_same_person'
   | 'action_approval.already_terminal';
 
@@ -193,7 +194,7 @@ export class ActionApprovalService {
     if (callerService !== input.targetService || callerService !== row.targetService) {
       throw new ActionApprovalError('consume is only for the target service', 'action_approval.service_mismatch');
     }
-    if (row.payloadHash !== input.payloadHash) {
+    if (!payloadHashesEqual(row.payloadHash, input.payloadHash)) {
       throw new ActionApprovalError('payload hash does not match the approved action', 'action_approval.payload_mismatch');
     }
     if (row.targetId !== input.targetId || row.expectedVersion !== input.expectedVersion || row.operationId !== input.operationId) {
@@ -221,7 +222,7 @@ export class ActionApprovalService {
     // every consume, so a row approved before this check existed (by an operator who is not a founder) is refused
     // here, not grandfathered. The result is attested to the target service on the returned row.
     const founderAttestation =
-      !samePerson && audienceOfApproval(row) === 'founder' ? await this.requireFounders(row, { approverId: row.approverId }) : null;
+      audienceOfApproval(row) === 'founder' ? await this.requireFounders(row, { approverId: row.approverId }) : null;
     const next = await this.store.casConsume({ ...input, now: this.clock() });
     if (!next) {
       const again = await this.loadLive(input.approvalId);
@@ -235,24 +236,29 @@ export class ActionApprovalService {
 
   /**
    * The audience-relevant fields of a stored approval, or null. Lets a door classify it before acting on it.
-   * Only the request's own type, target service and target id: nothing else is disclosed.
+   * Only the request's own type, target service, target id and kind: nothing else is disclosed.
    */
-  async subjectOf(approvalId: string): Promise<{ actionType: string; targetService: string; targetId: string } | null> {
+  async subjectOf(approvalId: string): Promise<ApprovalSubject | null> {
     const row = await this.store.get(approvalId);
-    return row ? { actionType: row.actionType, targetService: row.targetService, targetId: row.targetId } : null;
+    return row ? { actionType: row.actionType, targetService: row.targetService, targetId: row.targetId, kind: row.kind } : null;
   }
 
-  /** Is this user a founder right now, according to the wired directory. False when no directory is wired. */
+  /**
+   * Is this user a founder right now, according to the wired directory. False when no directory is wired or the
+   * directory says no. A directory that cannot answer (it throws) is `founders_unavailable`: still refused, but
+   * told apart from "not a founder" so an outage is not read as a policy refusal.
+   */
   async isFounder(userId: string): Promise<boolean> {
     try {
       return (await this.policy.founders?.isFounder(userId)) === true;
     } catch {
-      return false;
+      throw new ActionApprovalError('the founder list could not be read; nothing was changed', 'action_approval.founders_unavailable');
     }
   }
 
   /**
-   * Both parties of a founder-only approval must be live founders and distinct. Refuses with `founder_only`.
+   * Both parties of a founder-only approval must be live founders and distinct. Refuses with `founder_only`, or
+   * `founders_unavailable` when the founder list cannot be read (nothing is consumed either way).
    * `approverId` is null when nobody approved (a consume of an unapproved row never reaches here).
    */
   private async requireFounders(

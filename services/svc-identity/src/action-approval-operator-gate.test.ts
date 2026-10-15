@@ -124,7 +124,7 @@ describe('operator action types need an operator principal', () => {
     await expect(key.actionApproval.propose(matchingOpen)).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
-  it('self (same-person) types are unaffected: an ordinary user creates one, and four-eyes still refuses them', async () => {
+  it('self (same-person) types are unaffected: an ordinary user creates one, and four-eyes refuses them', async () => {
     const verify = vi.fn(async () => undefined);
     const service = new ActionApprovalService(new MemoryActionApprovalStore(), { ttlSeconds: 60 });
     const r = createActionApprovalRouter(service, { verifyFactor: verify });
@@ -134,7 +134,7 @@ describe('operator action types need an operator principal', () => {
     ).resolves.toMatchObject({ kind: 'same_person', status: 'APPROVED' });
     await expect(
       u1.actionApproval.propose({ ...matchingOpen, actionType: 'bank.step_up.transfers.toUser', targetService: 'svc-bank' }),
-    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' }); // a four-eyes request is judged by type and target, never skipped as "self"
   });
 
   it('an approve for an unknown approval id is not_found, not a role disclosure', async () => {
@@ -149,7 +149,7 @@ describe('operator action types need an operator principal', () => {
 describe('action type audience registry', () => {
   it('lists the same-person types as self, money/venue/treasury types as founder; every other type, known or not, is operator', () => {
     for (const t of SAME_PERSON_ACTION_TYPES) expect(audienceOf(t)).toBe('self');
-    for (const t of ['matching.open', 'ledger.freeze', 'bank.fund_pool', 'token.revenue.distribute']) {
+    for (const t of ['matching.open', 'ledger.unfreeze', 'bank.fund_pool', 'token.revenue.distribute']) {
       expect(audienceOf(t)).toBe('founder');
     }
     for (const t of ['edge.kill', 'market.vendor.vet', 'academy.ambassador.appoint', 'halt:BTC-USDT', 'other', '']) {

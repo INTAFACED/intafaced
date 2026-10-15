@@ -630,6 +630,11 @@ const COPY: Record<string, PlainRefusal> = {
     body: 'This kind of change needs two different founders, and one of them is not an enabled founder right now.',
     next: 'Ask the other founder, or have a founder check the access list.',
   },
+  'action_approval.founders_unavailable': {
+    title: 'The founder list could not be checked right now',
+    body: 'Nothing was approved or changed. This is a temporary problem on our side, not a refusal.',
+    next: 'Wait a minute and try again. If it keeps happening, tell engineering.',
+  },
   'action_approval.not_founders': {
     title: 'Only the two founders can approve this',
     body: 'The approval was not made by two different, enabled founders.',

@@ -109,9 +109,11 @@ function toTrpc(err: unknown): never {
             err.code === 'action_approval.operator_only' ||
             err.code === 'action_approval.founder_only'
           ? 'FORBIDDEN'
-          : err.code === 'action_approval.type_not_same_person' || err.code === 'action_approval.type_not_four_eyes'
-            ? 'BAD_REQUEST'
-            : 'PRECONDITION_FAILED';
+          : err.code === 'action_approval.founders_unavailable'
+            ? 'SERVICE_UNAVAILABLE'
+            : err.code === 'action_approval.type_not_same_person' || err.code === 'action_approval.type_not_four_eyes'
+              ? 'BAD_REQUEST'
+              : 'PRECONDITION_FAILED';
     throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
   }
   if (err instanceof AuthError) throw factorToTrpc(err);
@@ -127,7 +129,7 @@ export function createActionApprovalRouter(
   /**
    * Who may propose, approve or reject. `founder` types need a live founder: an interactive MFA principal (no API key,
    * no sub-account) that identity's founder directory still lists; an `admin:*` scope does not count. `operator` types
-   * need an operator principal. `self` types never reach here. Decided from the whole request (type, target service and
+   * need an operator principal. `self` is only a stored same-person row (its own door). Decided from the whole request (type, target service and
    * target id), not the type string alone.
    */
   async function assertAudienceFor(principal: Parameters<typeof isOperatorPrincipal>[0], subject: ApprovalSubject | null): Promise<void> {

@@ -2,7 +2,8 @@
  * Who may propose, approve, reject or consume an action type.
  *
  * `founder`: money, venue and treasury actions (`pay.*`, `matching.*`, `ledger.*`, `bank.*`, `token.*`, and a short list of
- * identity types that set fees, limits or pay out). Only a live founder (the founder pair, with an enabled founder
+ * identity types that set fees, limits or pay out), except the protective verbs (halt, reduce-only, post-only, ledger freeze),
+ * which stay operator so a brake never waits for both founders. Any target service not on the operator list is founder-only. Only a live founder (the founder pair, with an enabled founder
  * entitlement, an interactive MFA session, no API key or sub-account) may propose, approve or reject one, and identity
  * re-checks that BOTH the proposer and the approver are still live founders when the approval is consumed. A broad
  * `admin:*` scope, `market:ops` or `support:ops` does not make a founder.
@@ -33,15 +34,38 @@ export const FOUNDER_ACTION_PREFIXES: readonly string[] = ['pay.', 'matching.', 
 /** Individual types outside those namespaces that are treasury or fee/limit policy. */
 export const FOUNDER_ACTION_TYPES: readonly string[] = ['identity.change_fee_tier', 'identity.change_limit', 'affiliates.payout'];
 
-/** A request filed against one of these services is founder-only whatever type string it carries. */
-export const FOUNDER_TARGET_SERVICES: readonly string[] = ['svc-pay', 'svc-matching', 'svc-ledger', 'svc-bank', 'svc-token'];
+/**
+ * Target services whose approvals are operator-level (they do not move money, a venue or the book). A request filed
+ * against ANY OTHER service, including one that does not exist yet, is founder-only: new money services are protected
+ * the day they are invented. Unknown types inside these services stay operator.
+ */
+export const OPERATOR_TARGET_SERVICES: readonly string[] = ['svc-edge', 'svc-market', 'svc-academy', 'svc-p2p', 'svc-identity'];
+
+/**
+ * Protective verbs: a brake must not need both founders online, so these are operator-level even though they sit in a
+ * founder namespace. The exception holds only when the type, the target service AND the target verb all agree (a
+ * `matching.halt` filed against an `open:` target, or against another service, gets the strict answer). Verbs that open
+ * or re-enable things (`resume`, `open`, `unfreeze`, ...) are deliberately absent.
+ */
+export const PROTECTIVE_ACTIONS: readonly { readonly actionType: string; readonly targetService: string; readonly targetVerb: string }[] = [
+  { actionType: 'matching.halt', targetService: 'svc-matching', targetVerb: 'halt' },
+  { actionType: 'matching.halt_all', targetService: 'svc-matching', targetVerb: 'halt_all' },
+  { actionType: 'matching.reduce_only', targetService: 'svc-matching', targetVerb: 'reduce_only' },
+  { actionType: 'matching.post_only', targetService: 'svc-matching', targetVerb: 'post_only' },
+  { actionType: 'ledger.freeze', targetService: 'svc-ledger', targetVerb: 'posting_freeze' },
+];
 
 const norm = (v: string): string => v.trim().toLowerCase();
+/** `halt:market-1` -> `halt`; `posting_freeze` -> `posting_freeze`. */
+const verbOf = (targetId: string): string => {
+  const n = norm(targetId);
+  return n.includes(':') ? n.slice(0, n.indexOf(':')) : n;
+};
 
 function isFounderName(name: string): boolean {
   const n = norm(name);
   // Target ids of some services carry a verb and a subject (`open:market-1`, `kill:trade`): the verb is the type.
-  const head = n.includes(':') ? n.slice(0, n.indexOf(':')) : n;
+  const head = verbOf(name);
   return [n, head].some((x) => FOUNDER_ACTION_TYPES.includes(x) || FOUNDER_ACTION_PREFIXES.some((p) => x.startsWith(p)));
 }
 
@@ -55,18 +79,27 @@ export type ApprovalSubject = {
   readonly actionType: string;
   readonly targetService: string;
   readonly targetId: string;
+  /** Absent means `four_eyes`. Only a `same_person` row can be `self`. */
+  readonly kind?: 'four_eyes' | 'same_person' | undefined;
 };
 
 /**
- * Audience of a whole approval request. Founder when the type, the target id or the target service says so;
- * the strictest reading wins. A `self` type is only ever `self` on its own door, so it is checked first.
+ * Audience of a whole approval request.
+ * - `self` only for a stored `same_person` row (its own door). A four-eyes request carrying a same-person type string
+ *   is judged by type and target like any other, so the type cannot be used to skip the check.
+ * - `operator` for a protective verb whose type, service and target verb all agree.
+ * - `founder` when the type or the target id sits in a founder namespace, or the target service is not on the
+ *   operator list. The strictest reading wins.
+ * - `operator` otherwise.
  */
 export function audienceOfApproval(subject: ApprovalSubject): ActionAudience {
-  const byType = audienceOf(subject.actionType);
-  if (byType === 'self') return 'self';
-  if (byType === 'founder') return 'founder';
-  if (isFounderName(subject.targetId)) return 'founder';
-  if (FOUNDER_TARGET_SERVICES.includes(norm(subject.targetService))) return 'founder';
+  if (subject.kind === 'same_person') return 'self';
+  const type = norm(subject.actionType);
+  const service = norm(subject.targetService);
+  const verb = verbOf(subject.targetId);
+  if (PROTECTIVE_ACTIONS.some((p) => p.actionType === type && p.targetService === service && p.targetVerb === verb)) return 'operator';
+  if (isFounderName(subject.actionType) || isFounderName(subject.targetId)) return 'founder';
+  if (!OPERATOR_TARGET_SERVICES.includes(service)) return 'founder';
   return 'operator';
 }
 
