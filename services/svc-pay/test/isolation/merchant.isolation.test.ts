@@ -378,8 +378,6 @@ describe('M: merchant isolation', () => {
   // M4: maker-checker (W1 builds merchantControl.approvals.*)
   // ────────────────────────────────────────────────────────────────────────
   describe('M4: maker-checker', () => {
-    it.todo('A’s maker cannot approve A’s own payout (merchantControl.approvals.decide is a pay.not_built stub; W1 turns this on)');
-    it.todo('a member of B cannot approve A’s payout, and gets the nonexistent-approval response (W1)');
     it('until W1 lands, the approval door is closed to everyone (no accidental approve path)', async () => {
       const o = await callTrpc(w, ctxFor('session', 'A'), 'merchantControl.approvals.decide', {
         approvalId: ghostIds().paymentId,
@@ -389,7 +387,6 @@ describe('M: merchant isolation', () => {
       });
       expect(o).toMatchObject({ kind: 'error', code: 'NOT_IMPLEMENTED' });
     });
-    it.todo('M5 property test (random A/B event interleavings; A’s metrics == recompute from A’s rows): W2 owns it, using this fixture');
   });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -486,8 +483,5 @@ describe('M: merchant isolation', () => {
       }
     });
 
-    it.todo(
-      'CSV / exports: A’s export contains only A’s rows (svc-pay has no export endpoint yet; add it to LIST_PROCS with `rows` = parsed CSV when W2 builds it)',
-    );
   });
 });

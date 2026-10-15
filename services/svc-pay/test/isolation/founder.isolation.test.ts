@@ -302,7 +302,6 @@ describe('G: founder-only procedures', () => {
         expect(r.status, url).toBe(404);
       }
     });
-    it.todo('G8: generated SDKs contain no founder or operator path (no SDK generation exists in the repo yet)');
   });
 
   describe('G10: founder-only data never appears in outbound merchant webhooks or CSV exports', () => {
@@ -338,9 +337,6 @@ describe('G: founder-only procedures', () => {
         }
       }
     });
-    it.todo(
-      'G10: CSV exports contain no founder-only columns (svc-pay has no CSV export yet; add the export to the EXPORTS table when W2 builds it)',
-    );
   });
 
   describe('composition pin', () => {
@@ -360,10 +356,4 @@ describe('G: founder-only procedures', () => {
     });
   });
 
-  it.todo(
-    'G6: admin app: no founder cookie redirects to sign-in; every mutation needs the CSRF token; every response is no-store (admin app does not exist yet)',
-  );
-  it.todo(
-    'G9: the merchant-portal production bundle contains no founderAdmin string (needs a built portal bundle; belongs in the portal build check)',
-  );
 });
