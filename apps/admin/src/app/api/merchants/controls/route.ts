@@ -1,3 +1,4 @@
+import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import {
   founderChangeConfirmInputSchema,
   founderChangeSubmitInputSchema,
@@ -20,12 +21,16 @@ import { moduleDisabledResponse } from '@/lib/modules';
  * same founder confirming their own change.
  *
  *   POST { action: 'submit',  requestId, merchantId, change, reason, expectedVersion }   founder 1 records the change as pending
- *   POST { action: 'confirm', requestId, reason }                                          founder 2 applies it
- *   POST { action: 'decline', requestId, reason }                                          founder 2 refuses it
+ *   POST { action: 'confirm', requestId, merchantId, expectedVersion, change, reason }     founder 2 applies it
+ *   POST { action: 'decline', requestId, merchantId, expectedVersion, change, reason }     founder 2 refuses it
  *   POST { action: 'decide',  approvalId, decision, expectedPayloadHash, reason }          a founder signs a payout approval
  *
  * Every input is checked against the contract schema before anything is forwarded, so a malformed body is a
  * 400 here and never reaches the service.
+ *
+ * A confirm or decline names the change the second founder was SHOWN (the pasted request). This route hashes it
+ * with the same canonical function svc-pay used when the first founder submitted, and sends the hash as
+ * `expectedChangeHash`: the service refuses (`pay.change_hash_mismatch`) unless the change on file is exactly that one.
  */
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +49,7 @@ export async function GET(request: Request) {
   }
 }
 
+const lower = (v: unknown): unknown => (typeof v === 'string' ? v.toLowerCase() : v);
 const bad = () => new AdminSessionError('admin.merchants_input', 400);
 
 export async function POST(request: Request) {
@@ -58,7 +64,7 @@ export async function POST(request: Request) {
     if (action === 'submit') {
       const input = founderChangeSubmitInputSchema.safeParse({
         requestId: body.requestId,
-        merchantId: body.merchantId,
+        merchantId: lower(body.merchantId),
         change: body.change,
         reason: body.reason,
         expectedVersion: body.expectedVersion,
@@ -70,14 +76,27 @@ export async function POST(request: Request) {
     }
 
     if (action === 'confirm' || action === 'decline') {
-      const input = founderChangeConfirmInputSchema.safeParse({
+      // The change the second founder read, validated as strictly as a submit, then hashed exactly as svc-pay hashed it.
+      const shown = founderChangeSubmitInputSchema.safeParse({
         requestId: body.requestId,
-        decision: action === 'confirm' ? 'confirm' : 'reject',
+        merchantId: lower(body.merchantId),
+        change: body.change,
         reason: body.reason,
+        expectedVersion: body.expectedVersion,
+      });
+      if (!shown.success) throw bad();
+      const input = founderChangeConfirmInputSchema.safeParse({
+        requestId: shown.data.requestId,
+        decision: action === 'confirm' ? 'confirm' : 'reject',
+        reason: shown.data.reason,
+        expectedChangeHash: founderChangeHash(
+          { scope: 'merchant', merchantId: shown.data.merchantId, change: shown.data.change },
+          shown.data.expectedVersion,
+        ),
       });
       if (!input.success) throw bad();
       const result = await payCall(ctx, 'founderAdmin.changes.confirm', 'POST', input.data, parseWith(founderChangeSubmitResultSchema));
-      if (result.kind !== 'ok') return fromFailure(result, { notBuilt: RESERVE_NOT_BUILT, notFoundCode: 'pay.merchant_not_found' });
+      if (result.kind !== 'ok') return fromFailure(result, { notBuilt: RESERVE_NOT_BUILT, notFoundCode: 'pay.change_not_found' });
       return json({ ok: true, result: result.data });
     }
 

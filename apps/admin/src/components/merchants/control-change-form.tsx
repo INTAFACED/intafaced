@@ -11,6 +11,7 @@ import {
   EMPTY_BAND,
   EMPTY_CAP,
   formFromProfile,
+  isSameChange,
   makeHandoff,
   summariseControlChange,
   type ChangeErrors,
@@ -81,8 +82,10 @@ export function ControlChangeForm({ merchantId, profile, tiers, tiersReadable, m
     }
     setErrors({});
     setRefusal(null);
-    // A new reference for every distinct review: the same reference with a different change is refused by the service.
-    setBuilt({ change: attempt.change, reason: attempt.reason, requestId: newRequestId() });
+    // One reference per distinct change: going Back and Review again with the SAME change keeps it (so a submit that was
+    // already sent is recognised, not duplicated); any edit gets a new one, because the service refuses a reference reused for another change.
+    const unchanged = isSameChange(built, attempt);
+    setBuilt({ change: attempt.change, reason: attempt.reason, requestId: unchanged && built ? built.requestId : newRequestId() });
     setStage('review');
   }
 
@@ -120,6 +123,7 @@ export function ControlChangeForm({ merchantId, profile, tiers, tiersReadable, m
         onAgain={() => {
           setStage('edit');
           setResult(null);
+          setBuilt(null);
         }}
       />
     );

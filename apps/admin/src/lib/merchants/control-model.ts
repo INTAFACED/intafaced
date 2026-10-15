@@ -482,7 +482,8 @@ export function acceptControlChange(raw: unknown, merchantId: string): ControlCh
   }
   if (raw.kind === 'set_reserve') {
     const reserve = Object.keys(raw).sort().join(',') === 'kind,reserve' ? asReserve(raw.reserve) : undefined;
-    return reserve ? { kind: 'set_reserve', reserve } : null;
+    // A reserve is a percentage AND a hold period, or neither: the same rule the form and the service apply.
+    return reserve && (reserve.rollingReserveBps === null) === (reserve.holdDays === null) ? { kind: 'set_reserve', reserve } : null;
   }
   if (raw.kind === 'set_pricing' && Object.keys(raw).sort().join(',') === 'kind,pricing') {
     const rules = listOf(raw.pricing, (r): PayPricingRule | null => {
@@ -494,6 +495,8 @@ export function acceptControlChange(raw: unknown, merchantId: string): ControlCh
         r.layer !== 'merchant' ||
         r.scopeId !== merchantId ||
         !isStr(r.assetCode) ||
+        r.assetCode.length < 1 ||
+        r.assetCode.length > 16 ||
         !(r.spreadBps === null || isBps(r.spreadBps)) ||
         !(r.roundingBeneficiary === 'platform' || r.roundingBeneficiary === 'merchant')
       )
@@ -610,7 +613,9 @@ export function parseHandoff(text: string): Handoff | null {
     const raw = JSON.parse(text) as unknown;
     if (!isRec(raw) || raw.v !== 1) return null;
     if (!isStr(raw.requestId) || !UUID.test(raw.requestId) || !isStr(raw.merchantId) || !UUID.test(raw.merchantId)) return null;
-    if (!isStr(raw.expectedVersion) || !/^(?:0|[1-9]\d*)$/.test(raw.expectedVersion) || !isStr(raw.reason)) return null;
+    if (!isStr(raw.expectedVersion) || !/^(?:0|[1-9]\d{0,39})$/.test(raw.expectedVersion) || !isStr(raw.reason)) return null;
+    // The reason is read by the second founder: bounded like the service bounds it, never an unlimited block of text.
+    if (validateReason(raw.reason) !== null || raw.reason.trim() !== raw.reason) return null;
     const change = acceptControlChange(raw.change, raw.merchantId.toLowerCase());
     return change
       ? {
@@ -631,25 +636,95 @@ const stable = (v: unknown): string =>
     isRec(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x,
   );
 
-/**
- * After a confirm, does the profile the service now reports hold exactly what the confirming founder was
- * shown? The second founder reads the change from a pasted request, not from the service (there is no read
- * of a pending change yet), so this is the check that catches a request that was altered on the way.
- */
-export function appliedMatches(change: ControlChange, profile: MerchantControlProfile | null): boolean {
-  if (!profile) return false;
-  if (change.kind === 'set_tier')
-    return profile.tierId === change.tierId && (change.archetypeId === null || profile.archetypeId === change.archetypeId);
-  if (change.kind === 'set_caps') {
-    const key = (c: PayCap) => (c.kind === 'beneficiaries_per_day' ? c.kind : `${c.kind}:${c.assetCode}`);
-    const sorted = (list: readonly PayCap[]) => [...list].sort((a, b) => (key(a) < key(b) ? -1 : 1));
-    return profile.caps !== null && stable(sorted(profile.caps)) === stable(sorted(change.caps));
+/** Is this the same change, for the same reason, as the one a request reference was already issued for? */
+export function isSameChange(a: { change: ControlChange; reason: string } | null, b: { change: ControlChange; reason: string }): boolean {
+  return a !== null && a.reason === b.reason && stable(a.change) === stable(b.change);
+}
+
+const sortCaps = (list: readonly PayCap[]) => {
+  const key = (c: PayCap) => (c.kind === 'beneficiaries_per_day' ? c.kind : `${c.kind}:${c.assetCode}`);
+  return [...list].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+};
+const sortRules = <T extends { assetCode: string }>(list: readonly T[]) =>
+  [...list].sort((a, b) => (a.assetCode < b.assetCode ? -1 : a.assetCode > b.assetCode ? 1 : 0));
+const sameJson = (a: unknown, b: unknown) => stable(a) === stable(b);
+
+const contractRule = (r: PayPricingRule): PayPricingRule => ({
+  layer: r.layer,
+  scopeId: r.scopeId,
+  assetCode: r.assetCode,
+  bands: r.bands,
+  spreadBps: r.spreadBps,
+  roundingBeneficiary: r.roundingBeneficiary,
+});
+
+/** The profile that should hold after `change` is applied to `before`, or null when it cannot be worked out (never guessed). */
+export function expectedProfileAfter(
+  change: ControlChange,
+  before: MerchantControlProfile,
+  tiers: readonly TierView[],
+): MerchantControlProfile | null {
+  const version = String(BigInt(before.version) + 1n);
+  const next: MerchantControlProfile = { ...before, version };
+  if (change.kind === 'set_caps') return { ...next, caps: sortCaps(change.caps) };
+  if (change.kind === 'set_reserve') return { ...next, reserve: { ...change.reserve } };
+  if (change.kind === 'set_pricing') {
+    const assets = new Set(change.pricing.map((r) => r.assetCode));
+    const kept = (before.pricing ?? []).filter((r) => !assets.has(r.assetCode));
+    return { ...next, pricing: sortRules([...kept, ...change.pricing].map(contractRule)) };
   }
-  if (change.kind === 'set_reserve') return profile.reserve !== null && stable(profile.reserve) === stable(change.reserve);
-  return change.pricing.every((rule) => {
-    const live = profile.pricing?.find((p) => p.assetCode === rule.assetCode);
-    return !!live && live.layer === 'merchant' && stable({ ...live, scopeId: null }) === stable({ ...rule, scopeId: null });
-  });
+  // set_tier: the archetype is the one asked for or, when none was, the new tier's own. Without the tier definition it cannot be known.
+  const tier = tiers.find((t) => t.id === change.tierId);
+  if (!tier) return null;
+  return { ...next, tierId: change.tierId, archetypeId: change.archetypeId ?? tier.archetype };
+}
+
+/**
+ * After a confirm, does what the service reports hold exactly the change the second founder was shown, and nothing else?
+ *
+ * The second founder reads the change from a pasted request, so this is a check on the service's answer, on top of the
+ * service refusing a confirm whose hash differs. It compares the WHOLE profile against the pre-confirm profile plus the
+ * pasted change: same merchant, same request, version advanced once, and every section either equal to what it was or
+ * equal to what the change sets. A confirm that also touched another section, another merchant or another asset fails.
+ */
+export function verifyConfirmResult(input: {
+  handoff: Handoff;
+  pageMerchantId: string;
+  before: MerchantControlProfile;
+  tiers: readonly TierView[];
+  result: { requestId: string; merchantId: string; profile: MerchantControlProfile | null };
+}): boolean {
+  const { handoff, pageMerchantId, before, tiers, result } = input;
+  const page = pageMerchantId.toLowerCase();
+  const after = result.profile;
+  if (!after) return false;
+  if (result.requestId.toLowerCase() !== handoff.requestId) return false;
+  if (result.merchantId.toLowerCase() !== page || handoff.merchantId !== page) return false;
+  if (before.merchantId.toLowerCase() !== page || after.merchantId.toLowerCase() !== page) return false;
+  if (handoff.expectedVersion !== before.version) return false;
+  const want = expectedProfileAfter(handoff.change, before, tiers);
+  if (!want || after.version !== want.version) return false;
+  const { change } = handoff;
+  if (change.kind === 'set_tier') {
+    // A new tier brings its own caps and reserve unless this merchant has its own: equal to before, or to the new tier's.
+    const tier = tiers.find((t) => t.id === change.tierId)!;
+    const capsOk =
+      sameJson(after.caps && sortCaps(after.caps), before.caps && sortCaps(before.caps)) ||
+      sameJson(after.caps && sortCaps(after.caps), sortCaps(tier.caps));
+    const tierReserve = tier.reserve ?? { rollingReserveBps: null, holdDays: null };
+    const reserveOk = sameJson(after.reserve, before.reserve) || sameJson(after.reserve, tierReserve);
+    const own = (p: MerchantControlProfile) => sortRules((p.pricing ?? []).filter((r) => r.layer === 'merchant').map(contractRule));
+    return (
+      after.tierId === want.tierId && after.archetypeId === want.archetypeId && capsOk && reserveOk && sameJson(own(after), own(before))
+    );
+  }
+  return (
+    after.tierId === want.tierId &&
+    after.archetypeId === want.archetypeId &&
+    sameJson(after.caps && sortCaps(after.caps), want.caps && sortCaps(want.caps)) &&
+    sameJson(after.reserve, want.reserve) &&
+    sameJson(after.pricing && sortRules(after.pricing.map(contractRule)), want.pricing && sortRules(want.pricing.map(contractRule)))
+  );
 }
 
 // ── approvals: age and expiry in words ──────────────────────────────────────

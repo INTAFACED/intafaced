@@ -109,8 +109,19 @@ export type FounderGlobalMetrics = z.infer<typeof founderGlobalMetricsSchema>;
 /** Operator changes go through dual control; above a threshold two distinct founders must approve. */
 export const founderChangeSubmitInputSchema = merchantControlChangeInputSchema;
 export const founderChangeSubmitResultSchema = merchantControlChangeResultSchema;
+/** `sha256:<hex>` of the change the confirmer was shown (`founderChangeHash`, entry `@intafaced/contracts/founder-change-hash`). */
+export const payChangeHashSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 export const founderChangeConfirmInputSchema = z
-  .object({ requestId: payRequestIdSchema, decision: z.enum(['confirm', 'reject']), reason: payReasonSchema })
+  .object({
+    requestId: payRequestIdSchema,
+    decision: z.enum(['confirm', 'reject']),
+    reason: payReasonSchema,
+    /**
+     * REQUIRED. The hash of the change this founder reviewed. svc-pay refuses (`pay.change_hash_mismatch`, nothing applied or
+     * declined) unless it equals the hash stored when the first founder submitted: a confirm can only apply what its confirmer saw.
+     */
+    expectedChangeHash: payChangeHashSchema,
+  })
   .strict();
 
 export const founderApprovalQueueInputSchema = z

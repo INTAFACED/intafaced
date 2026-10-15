@@ -1,3 +1,4 @@
+import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from './route';
 import { ADMIN_COOKIE, founderCookie, sealFounderSession, type FounderSession } from '../../../../lib/founder-session';
@@ -75,6 +76,7 @@ afterEach(() => {
 
 const change = { kind: 'set_caps', caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '1000' }] };
 const submitBody = { action: 'submit', requestId: REQ, merchantId: MID, change, reason: 'Raise the cap', expectedVersion: '0' };
+const shown = { requestId: REQ, merchantId: MID, change, expectedVersion: '3', reason: 'Checked it' };
 const profile = {
   merchantId: MID,
   tierId: null,
@@ -166,7 +168,11 @@ describe('POST as a signed-in founder', () => {
       { ...submitBody, change: { kind: 'set_caps', caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: 1000 }] } },
       { ...submitBody, actorUserId: USER_ID, change: { kind: 'wipe' } },
       { action: 'confirm', requestId: REQ },
-      { action: 'confirm', requestId: 'x', reason: 'fine' },
+      { action: 'confirm', requestId: REQ, reason: 'fine' },
+      { ...shown, action: 'confirm', requestId: 'x', reason: 'fine' },
+      { ...shown, action: 'confirm', change: { kind: 'wipe' } },
+      { ...shown, action: 'decline', merchantId: 'nope' },
+      { ...shown, action: 'confirm', expectedVersion: '01' },
       { action: 'decide', approvalId: APPROVAL, decision: 'maybe', expectedPayloadHash: HASH, reason: 'fine' },
       { action: 'decide', approvalId: APPROVAL, decision: 'approve', expectedPayloadHash: 'sha256:short', reason: 'fine' },
       { action: 'decide', approvalId: 'not-a-uuid', decision: 'approve', expectedPayloadHash: HASH, reason: 'fine' },
@@ -200,14 +206,56 @@ describe('POST as a signed-in founder', () => {
     });
   });
 
-  it('confirm and decline map to the service decisions confirm and reject', async () => {
+  it('confirm and decline map to the service decisions confirm and reject, and carry the hash of the change that was shown', async () => {
     configure();
     const calls = upstream({ 'founderAdmin.changes.confirm': () => ok(result('changed')) });
-    expect((await POST(post({ action: 'confirm', requestId: REQ, reason: 'Checked it' }, authed()))).status).toBe(200);
-    expect((await POST(post({ action: 'decline', requestId: REQ, reason: 'Not now' }, authed()))).status).toBe(200);
+    expect((await POST(post({ action: 'confirm', ...shown }, authed()))).status).toBe(200);
+    expect((await POST(post({ action: 'decline', ...shown, reason: 'Not now' }, authed()))).status).toBe(200);
+    const hash = founderChangeHash({ scope: 'merchant', merchantId: MID, change }, '3');
+    expect(hash).toMatch(/^sha256:[a-f0-9]{64}$/);
     const [a, b] = serviceCalls(calls).map((c) => JSON.parse(String(c.init.body)));
-    expect(a).toEqual({ requestId: REQ, decision: 'confirm', reason: 'Checked it' });
-    expect(b).toEqual({ requestId: REQ, decision: 'reject', reason: 'Not now' });
+    expect(a).toEqual({ requestId: REQ, decision: 'confirm', reason: 'Checked it', expectedChangeHash: hash });
+    expect(b).toEqual({ requestId: REQ, decision: 'reject', reason: 'Not now', expectedChangeHash: hash });
+  });
+
+  it('the hash follows what was shown: another merchant, kind, version or extra rule hashes differently, and key order does not matter', async () => {
+    configure();
+    const calls = upstream({ 'founderAdmin.changes.confirm': () => ok(result('changed')) });
+    const send = async (over: Record<string, unknown>) => {
+      await POST(post({ action: 'confirm', ...shown, ...over }, authed()));
+      return JSON.parse(String(serviceCalls(calls).at(-1)!.init.body)).expectedChangeHash as string;
+    };
+    const base = await send({});
+    const other = [
+      await send({ merchantId: '99999999-9999-4999-8999-999999999999' }),
+      await send({ change: { kind: 'set_reserve', reserve: { rollingReserveBps: 0, holdDays: 0 } } }),
+      await send({ expectedVersion: '4' }),
+      await send({ change: { kind: 'set_caps', caps: [...change.caps, { kind: 'beneficiaries_per_day', limit: 3 }] } }),
+    ];
+    expect(new Set([base, ...other]).size).toBe(5);
+    expect(await send({ change: { caps: [{ limit: '1000', assetCode: 'USDT', kind: 'daily_intake' }], kind: 'set_caps' } })).toBe(base);
+    // an upper-case merchant id is the same merchant
+    expect(await send({ merchantId: MID.toUpperCase() })).toBe(base);
+  });
+
+  it('a hash mismatch from the service is a plain refusal, and a missing request is "no pending change", not "no merchant"', async () => {
+    configure();
+    upstream({ 'founderAdmin.changes.confirm': () => refusedWith(409, 'pay.change_hash_mismatch') });
+    const res = await POST(post({ action: 'confirm', ...shown }, authed()));
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { refusal: { title: string; body: string } };
+    expect(body.refusal.title).toBe('That is not the change on file');
+    expect(body.refusal.title).not.toContain('pay.');
+    upstream({
+      'founderAdmin.changes.confirm': () =>
+        Response.json(
+          { error: { message: 'x', data: { code: 'NOT_FOUND', httpStatus: 404, cause: { code: 'pay.merchant_not_found' } } } },
+          { status: 404 },
+        ),
+    });
+    const gone = await POST(post({ action: 'decline', ...shown }, authed()));
+    expect(gone.status).toBe(404);
+    expect(((await gone.json()) as { refusal: { title: string } }).refusal.title).toBe('No pending change with that reference');
   });
 
   it('decide signs the exact payload hash it was given', async () => {
@@ -244,7 +292,7 @@ describe('POST as a signed-in founder', () => {
         post(
           code.startsWith('pay.approval')
             ? { action: 'decide', approvalId: APPROVAL, decision: 'approve', expectedPayloadHash: HASH, reason: 'fine' }
-            : { action: 'confirm', requestId: REQ, reason: 'fine' },
+            : { action: 'confirm', ...shown },
           authed(),
         ),
       );

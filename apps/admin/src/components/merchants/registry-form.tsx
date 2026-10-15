@@ -672,6 +672,12 @@ export function RefusalBlock({ refusal }: { refusal: RefusalView | null }) {
   return (
     <StateBlock kind="error" title={refusal.title} requestId={refusal.requestId}>
       {refusal.body} {refusal.next}
+      {refusal.code === 'pay.dual_control_required' ? (
+        <>
+          {' '}
+          <strong>You already signed this one first: a different founder has to do this step.</strong>
+        </>
+      ) : null}
     </StateBlock>
   );
 }

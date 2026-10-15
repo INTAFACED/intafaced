@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   acceptControlChange,
   ageView,
-  appliedMatches,
   asCap,
   asPricingRule,
   asTier,
   asUsage,
+  isSameChange,
   bpsText,
   buildControlChange,
   EMPTY_CHANGE_FORM,
@@ -19,10 +19,12 @@ import {
   ttlText,
   usageMeter,
   validateReason,
+  verifyConfirmResult,
   waitedText,
   type ChangeFormValues,
   type ControlChange,
   type PricingRuleView,
+  type TierView,
 } from './control-model';
 
 const MID = '22222222-2222-4222-8222-222222222222';
@@ -324,7 +326,7 @@ describe('the request that travels between the two founders', () => {
   });
 
   it('refuses anything that is not exactly that shape', () => {
-    const ok = JSON.parse(makeHandoff({ requestId: REQ, merchantId: MID, expectedVersion: '3', change, reason: 'r' })) as Record<
+    const ok = JSON.parse(makeHandoff({ requestId: REQ, merchantId: MID, expectedVersion: '3', change, reason: 'routine' })) as Record<
       string,
       unknown
     >;
@@ -354,42 +356,183 @@ describe('the request that travels between the two founders', () => {
     expect(acceptControlChange({ kind: 'set_pricing', pricing: [{ ...pricing, scopeId: 'someone-else' }] }, MID)).toBeNull();
   });
 
-  it('after a confirm, what the service holds is compared with what the second founder was shown', () => {
-    const profile = (over: Partial<MerchantControlProfile>): MerchantControlProfile => ({
-      merchantId: MID,
-      tierId: 'standard',
-      archetypeId: null,
-      caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '10' }],
-      pricing: null,
-      reserve: null,
-      version: '4',
-      updatedAt: null,
-      ...over,
-    });
-    expect(appliedMatches(change, profile({}))).toBe(true);
-    expect(appliedMatches(change, profile({ caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '11' }] }))).toBe(false);
-    expect(appliedMatches(change, null)).toBe(false);
-    expect(appliedMatches({ kind: 'set_tier', tierId: 'standard', archetypeId: null }, profile({}))).toBe(true);
-    expect(appliedMatches({ kind: 'set_tier', tierId: 'gold', archetypeId: null }, profile({}))).toBe(false);
-    expect(
-      appliedMatches(
-        { kind: 'set_reserve', reserve: { rollingReserveBps: 5, holdDays: 1 } },
-        profile({ reserve: { rollingReserveBps: 5, holdDays: 1 } }),
-      ),
-    ).toBe(true);
-    expect(appliedMatches({ kind: 'set_reserve', reserve: { rollingReserveBps: 5, holdDays: 1 } }, profile({ reserve: null }))).toBe(false);
-    const pricing = {
-      layer: 'merchant' as const,
-      scopeId: MID,
-      assetCode: 'USDT',
-      bands: [{ fromAmount: '0', feeBps: 1, flatFee: null }],
+  describe('after a confirm, the service’s answer is checked strictly against what the second founder was shown', () => {
+    const OTHER = '55555555-5555-4555-8555-555555555555';
+    const tiers: TierView[] = [
+      {
+        id: 'standard',
+        name: 'Standard',
+        archetype: 'standard',
+        caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '1000' }],
+        reserve: null,
+        approvalThresholds: [],
+        founderThresholds: [],
+        approvalTtlSeconds: 60,
+        version: '1',
+        merchants: 1,
+      },
+      {
+        id: 'gold',
+        name: 'Gold',
+        archetype: 'psp',
+        caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '9000' }],
+        reserve: { rollingReserveBps: 100, holdDays: 3 },
+        approvalThresholds: [],
+        founderThresholds: [],
+        approvalTtlSeconds: 60,
+        version: '1',
+        merchants: 1,
+      },
+    ];
+    const rule = (assetCode: string, feeBps: number, layer: 'merchant' | 'global' = 'merchant') => ({
+      layer,
+      scopeId: layer === 'merchant' ? MID : null,
+      assetCode,
+      bands: [{ fromAmount: '0', feeBps, flatFee: null }],
       spreadBps: null,
       roundingBeneficiary: 'platform' as const,
+    });
+    const before: MerchantControlProfile = {
+      merchantId: MID,
+      tierId: 'gold',
+      archetypeId: 'psp',
+      caps: [{ kind: 'per_payment', assetCode: 'USD', limit: '100' }],
+      pricing: [rule('USD', 100), rule('USDT', 50, 'global')],
+      reserve: { rollingReserveBps: 500, holdDays: 7 },
+      version: '4',
+      updatedAt: null,
     };
-    expect(appliedMatches({ kind: 'set_pricing', pricing: [pricing] }, profile({ pricing: [pricing] }))).toBe(true);
+    const handoffOf = (change: ControlChange, over: Partial<{ merchantId: string; expectedVersion: string }> = {}) => ({
+      requestId: REQ,
+      merchantId: MID,
+      expectedVersion: '4',
+      change,
+      reason: 'routine',
+      ...over,
+    });
+    const verify = (
+      change: ControlChange,
+      after: MerchantControlProfile | null,
+      over: { merchantId?: string; requestId?: string; handoff?: ReturnType<typeof handoffOf> } = {},
+    ) =>
+      verifyConfirmResult({
+        handoff: over.handoff ?? handoffOf(change),
+        pageMerchantId: MID,
+        before,
+        tiers,
+        result: { requestId: over.requestId ?? REQ, merchantId: over.merchantId ?? MID, profile: after },
+      });
+    const next = (over: Partial<MerchantControlProfile>): MerchantControlProfile => ({ ...before, version: '5', ...over });
+
+    it('accepts exactly the shown change for each kind', () => {
+      const caps: ControlChange = { kind: 'set_caps', caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '10' }] };
+      expect(verify(caps, next({ caps: caps.caps }))).toBe(true);
+      const reserve: ControlChange = { kind: 'set_reserve', reserve: { rollingReserveBps: 5, holdDays: 1 } };
+      expect(verify(reserve, next({ reserve: reserve.reserve }))).toBe(true);
+      const pricing: ControlChange = { kind: 'set_pricing', pricing: [rule('USDT', 80)] };
+      expect(verify(pricing, next({ pricing: [rule('USD', 100), rule('USDT', 80)] }))).toBe(true);
+      const tier: ControlChange = { kind: 'set_tier', tierId: 'standard', archetypeId: null };
+      expect(verify(tier, next({ tierId: 'standard', archetypeId: 'standard', caps: tiers[0]!.caps }))).toBe(true);
+    });
+
+    it('(a) refuses a result for another merchant, even when the pasted change looks the same', () => {
+      const caps: ControlChange = { kind: 'set_caps', caps: before.caps! };
+      expect(verify(caps, next({ merchantId: OTHER }), { merchantId: OTHER })).toBe(false);
+      expect(verify(caps, next({}), { merchantId: OTHER })).toBe(false);
+      // a pasted request that names another merchant than the page
+      expect(verify(caps, next({}), { handoff: handoffOf(caps, { merchantId: OTHER }) })).toBe(false);
+      // a result for another request
+      expect(verify(caps, next({}), { requestId: '66666666-6666-4666-8666-666666666666' })).toBe(false);
+    });
+
+    it('(b) refuses a different kind of change: shown set_caps equal to the current caps, but the reserve moved', () => {
+      const caps: ControlChange = { kind: 'set_caps', caps: before.caps! };
+      expect(verify(caps, next({ reserve: { rollingReserveBps: 0, holdDays: 0 } }))).toBe(false);
+      expect(verify(caps, next({ pricing: [rule('USD', 1)] }))).toBe(false);
+      expect(verify(caps, next({ tierId: 'standard' }))).toBe(false);
+    });
+
+    it('(c) refuses an extra pricing rule that the shown change did not contain', () => {
+      const pricing: ControlChange = { kind: 'set_pricing', pricing: [rule('USD', 100)] };
+      expect(verify(pricing, next({ pricing: [rule('USD', 100), rule('USDT', 0)] }))).toBe(false);
+      expect(verify(pricing, next({ pricing: [rule('USD', 100), rule('USDT', 50, 'global')] }))).toBe(true);
+    });
+
+    it('(d) refuses a stored archetype the shown change did not name: null means the tier’s own', () => {
+      const tier: ControlChange = { kind: 'set_tier', tierId: 'gold', archetypeId: null };
+      expect(verify(tier, next({ archetypeId: 'broker' }))).toBe(false);
+      expect(verify(tier, next({ archetypeId: 'psp' }))).toBe(true);
+      // an unknown tier cannot be checked, so it is not accepted
+      expect(verify({ kind: 'set_tier', tierId: 'ghost', archetypeId: null }, next({ tierId: 'ghost' }))).toBe(false);
+    });
+
+    it('refuses a version that did not advance exactly once, a request made on another version, and no profile at all', () => {
+      const reserve: ControlChange = { kind: 'set_reserve', reserve: { rollingReserveBps: 5, holdDays: 1 } };
+      expect(verify(reserve, { ...next({ reserve: reserve.reserve }), version: '6' })).toBe(false);
+      expect(verify(reserve, { ...next({ reserve: reserve.reserve }), version: '4' })).toBe(false);
+      expect(verify(reserve, next({ reserve: reserve.reserve }), { handoff: handoffOf(reserve, { expectedVersion: '3' }) })).toBe(false);
+      expect(verify(reserve, null)).toBe(false);
+    });
+
+    it('a tier change may bring the new tier’s caps and reserve, but not anything else', () => {
+      const tier: ControlChange = { kind: 'set_tier', tierId: 'standard', archetypeId: null };
+      expect(
+        verify(
+          tier,
+          next({ tierId: 'standard', archetypeId: 'standard', caps: tiers[0]!.caps, reserve: { rollingReserveBps: null, holdDays: null } }),
+        ),
+      ).toBe(true);
+      expect(
+        verify(
+          tier,
+          next({ tierId: 'standard', archetypeId: 'standard', caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '1' }] }),
+        ),
+      ).toBe(false);
+      expect(verify(tier, next({ tierId: 'standard', archetypeId: 'standard', pricing: [rule('USD', 100), rule('EUR', 1)] }))).toBe(false);
+    });
+  });
+
+  it('keeps the same request reference only for the same change and reason', () => {
+    const a = { change: change, reason: 'because' };
+    expect(isSameChange(a, { change: { ...change }, reason: 'because' })).toBe(true);
+    expect(isSameChange(a, { change, reason: 'other' })).toBe(false);
     expect(
-      appliedMatches({ kind: 'set_pricing', pricing: [pricing] }, profile({ pricing: [{ ...pricing, layer: 'global', scopeId: null }] })),
+      isSameChange(a, {
+        change: { kind: 'set_caps', caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '11' }] },
+        reason: 'because',
+      }),
     ).toBe(false);
+    expect(isSameChange(null, a)).toBe(false);
+  });
+
+  it('the pasted request is bounded and strict: reason length, asset code length, a reserve is both fields or neither', () => {
+    const ok = JSON.parse(makeHandoff({ requestId: REQ, merchantId: MID, expectedVersion: '3', change, reason: 'Raise cap' })) as Record<
+      string,
+      unknown
+    >;
+    const parse = (over: Record<string, unknown>) => parseHandoff(JSON.stringify({ ...ok, ...over }));
+    expect(parse({})).not.toBeNull();
+    expect(parse({ reason: 'x'.repeat(100_000) })).toBeNull();
+    expect(parse({ reason: 'x'.repeat(501) })).toBeNull();
+    expect(parse({ reason: 'x'.repeat(500) })).not.toBeNull();
+    expect(parse({ reason: 'ab' })).toBeNull();
+    expect(parse({ reason: ' padded ' })).toBeNull();
+    expect(parse({ expectedVersion: '9'.repeat(41) })).toBeNull();
+    expect(parse({ change: { kind: 'set_caps', caps: [{ kind: 'daily_intake', assetCode: 'A'.repeat(17), limit: '1' }] } })).toBeNull();
+    expect(parse({ change: { kind: 'set_caps', caps: [{ kind: 'daily_intake', assetCode: '', limit: '1' }] } })).toBeNull();
+    const pricing = {
+      layer: 'merchant',
+      scopeId: MID,
+      assetCode: 'A'.repeat(17),
+      bands: [{ fromAmount: '0', feeBps: 1, flatFee: null }],
+      spreadBps: null,
+      roundingBeneficiary: 'platform',
+    };
+    expect(parse({ change: { kind: 'set_pricing', pricing: [pricing] } })).toBeNull();
+    expect(parse({ change: { kind: 'set_reserve', reserve: { rollingReserveBps: 5, holdDays: null } } })).toBeNull();
+    expect(parse({ change: { kind: 'set_reserve', reserve: { rollingReserveBps: null, holdDays: 5 } } })).toBeNull();
+    expect(parse({ change: { kind: 'set_reserve', reserve: { rollingReserveBps: null, holdDays: null } } })).not.toBeNull();
+    expect(parse({ change: { kind: 'set_reserve', reserve: { rollingReserveBps: 5, holdDays: 1 } } })).not.toBeNull();
   });
 
   it('describes each change in words, with the tier by name when known', () => {

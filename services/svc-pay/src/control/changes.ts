@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import type { MerchantControlChange, PayCap } from '@intafaced/contracts';
+import { changeHashesEqual, founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError, requireDualControl } from '../dual-control.js';
@@ -70,7 +70,8 @@ const stable = (value: unknown): string =>
       ? Object.fromEntries(Object.entries(v as object).sort(([a], [b]) => a.localeCompare(b)))
       : v,
   );
-const sha = (value: unknown): string => `sha256:${createHash('sha256').update(stable(value)).digest('hex')}`;
+/** The canonical hash is shared with the admin BFF through `@intafaced/contracts/founder-change-hash`: one definition. */
+const sha = (value: { target: ChangeTarget; expectedVersion: string }): string => founderChangeHash(value.target, value.expectedVersion);
 
 const capKey = (cap: PayCap): string => (cap.kind === 'beneficiaries_per_day' ? cap.kind : `${cap.kind}:${cap.assetCode}`);
 
@@ -523,7 +524,7 @@ export class ChangeService {
   /** Second founder: confirm (applies) or reject. The same founder, or a typed-in name, cannot. */
   async confirm(
     founderUserId: string,
-    input: { requestId: string; decision: 'confirm' | 'reject'; reason: string },
+    input: { requestId: string; decision: 'confirm' | 'reject'; reason: string; expectedChangeHash: string },
   ): Promise<ChangeOutcome> {
     const at = this.now();
     return transaction(
@@ -541,13 +542,16 @@ export class ChangeService {
             checker_id: string | null;
             status: string;
             reason: string;
+            change_hash: string;
           }>
         >`
-          SELECT request_id, scope, scope_id, merchant_id, change, expected_version, maker_id, checker_id, status, reason
+          SELECT request_id, scope, scope_id, merchant_id, change, expected_version, maker_id, checker_id, status, reason, change_hash
             FROM pay.control_changes WHERE request_id = ${input.requestId} FOR UPDATE
         `;
         const row = rows[0];
         if (!row) throw new ControlError('pay.change_not_found');
+        // Before ANYTHING else (a repeat, a decline, an apply): the confirmer must have been shown exactly the change on file.
+        if (!changeHashesEqual(row.change_hash, input.expectedChangeHash)) throw new ControlError('pay.change_hash_mismatch');
         if (row.status === 'applied' && row.checker_id === founderUserId && input.decision === 'confirm') {
           return this.result(row, 'changed', founderUserId, BigInt(row.expected_version) + 1n, at);
         }

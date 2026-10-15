@@ -63,7 +63,10 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
       expectedVersion: '0',
     },
   },
-  'founderAdmin.changes.confirm': { founder: true, input: { requestId: id(), decision: 'confirm', reason: 'second founder agrees' } },
+  'founderAdmin.changes.confirm': {
+    founder: true,
+    input: { requestId: id(), decision: 'confirm', reason: 'second founder agrees', expectedChangeHash: `sha256:${'a'.repeat(64)}` },
+  },
   'founderAdmin.approvals.list': { founder: true, input: { limit: 10 } },
   'founderAdmin.treasury.exposure': { founder: true, input: {} },
 };

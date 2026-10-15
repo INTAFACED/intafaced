@@ -2,6 +2,7 @@ import type { MerchantControlProfile, PayHaltEvent } from '@intafaced/contracts'
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApprovalsTable } from './approvals-queue';
+import { RefusalBlock } from './registry-form';
 import { DecisionPanel, DecisionResult, ApprovalDecision, type DecisionSubject } from './approval-decision';
 import { ConfirmChangeView } from './confirm-change-panel';
 import { ControlChangeForm, currentAsChange, ReviewStage, SubmittedStage } from './control-change-form';
@@ -224,6 +225,43 @@ describe('confirming a change as the second founder', () => {
   });
 });
 
+describe('confirm panel, safety rails', () => {
+  const p = { requestId: REQ, merchantId: MID, expectedVersion: '3', change: capsChange, reason: 'Raise the cap' };
+
+  it('an out-of-date request turns confirming off, says why and still allows a decline', () => {
+    const out = html(<ConfirmChangeView merchantId={MID} tiers={[tier]} text="{}" parsed={p} stale="5" reason="" />);
+    expect(out).toContain('This request is out of date');
+    expect(out).toContain('version 5');
+    expect(out).toMatch(/<button[^>]*disabled[^>]*>Confirm this change/);
+    expect(out).not.toMatch(/<button[^>]*disabled[^>]*>Decline/);
+  });
+
+  it('"you already signed this one first" appears with the dual-control refusal and not with others', () => {
+    const refusal = (code: string) => ({ title: 'A different founder has to do this step', body: 'b', next: 'n', code, requestId: null });
+    expect(html(<RefusalBlock refusal={refusal('pay.dual_control_required')} />)).toContain('You already signed this one first');
+    expect(html(<RefusalBlock refusal={refusal('pay.change_not_found')} />)).not.toContain('You already signed this one first');
+    expect(
+      html(
+        <ConfirmChangeView merchantId={MID} tiers={[]} text="" parsed={null} reason="" refusal={refusal('pay.dual_control_required')} />,
+      ),
+    ).toContain('You already signed this one first');
+  });
+
+  it('success says the result matches what you were shown', () => {
+    const result = {
+      requestId: REQ,
+      merchantId: MID,
+      outcome: 'changed',
+      actorUserId: ME,
+      profile: null,
+      occurredAt: '2026-10-15T10:00:00.000Z',
+    } as const;
+    expect(
+      html(<ConfirmChangeView merchantId={MID} tiers={[]} text="{}" parsed={p} reason="" done={{ kind: 'confirmed', result }} />),
+    ).toContain('matches what you were shown');
+  });
+});
+
 describe('payout approval decision', () => {
   const subject: DecisionSubject = {
     approvalId: '00000001-0000-4000-8000-000000000000',
@@ -389,6 +427,7 @@ describe('halt panels', () => {
 });
 
 describe('browser client for controls', () => {
+  const shown = { merchantId: MID, expectedVersion: '0', change: capsChange };
   afterEach(() => vi.unstubAllGlobals());
 
   it('fetches the session nonce first and sends it with the request, never a token', async () => {
@@ -403,7 +442,7 @@ describe('browser client for controls', () => {
           : Response.json({ ok: true, result: { outcome: 'pending_second_approval' } });
       }),
     );
-    const reply = await postControl({ action: 'confirm', requestId: REQ, reason: 'looks right' });
+    const reply = await postControl({ action: 'confirm', requestId: REQ, ...shown, reason: 'looks right' });
     expect(reply.ok).toBe(true);
     expect(calls.map((c) => c.url)).toEqual(['/api/session', '/api/merchants/controls']);
     expect((calls[1]!.init!.headers as Record<string, string>)['x-intafaced-csrf']).toBe(csrf);
@@ -415,7 +454,7 @@ describe('browser client for controls', () => {
       'fetch',
       vi.fn(async () => new Response('no', { status: 401 })),
     );
-    const out = await postControl({ action: 'decline', requestId: REQ, reason: 'no' });
+    const out = await postControl({ action: 'decline', requestId: REQ, ...shown, reason: 'no' });
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.refusal.title).toBe('You are signed out');
     const csrf = 'B'.repeat(43);
@@ -425,7 +464,7 @@ describe('browser client for controls', () => {
         url === '/api/session' ? Response.json({ csrf }) : Response.json({ code: 'admin.founder_required' }, { status: 403 }),
       ),
     );
-    const gated = await postControl({ action: 'decline', requestId: REQ, reason: 'no' });
+    const gated = await postControl({ action: 'decline', requestId: REQ, ...shown, reason: 'no' });
     expect(gated.ok).toBe(false);
     if (!gated.ok) expect(gated.refusal.title).toBe('Not allowed');
     vi.stubGlobal(
@@ -435,7 +474,7 @@ describe('browser client for controls', () => {
         throw new Error('offline');
       }),
     );
-    const down = await postControl({ action: 'decline', requestId: REQ, reason: 'no' });
+    const down = await postControl({ action: 'decline', requestId: REQ, ...shown, reason: 'no' });
     expect(down.ok).toBe(false);
     if (!down.ok) expect(down.refusal.body).toContain('nothing was changed');
   });

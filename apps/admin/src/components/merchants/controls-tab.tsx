@@ -182,7 +182,13 @@ export function ControlsTab({ data, merchantId, here }: { data: ControlsData; me
           confirm it below. Payout approvals that are waiting are listed on the Approvals tab.
         </StateBlock>
         <div className="mp-mt">
-          <ConfirmChangePanel merchantId={merchantId} tiers={tiers ?? []} />
+          {profile ? (
+            <ConfirmChangePanel merchantId={merchantId} tiers={tiers ?? []} before={profile} />
+          ) : (
+            <StateBlock kind="info" title="Confirming is off while the controls cannot be read">
+              The page needs this merchant’s current values to check the result of a confirm against what you were shown.
+            </StateBlock>
+          )}
         </div>
       </Card>
 

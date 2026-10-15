@@ -31,6 +31,11 @@ export const CONTROL_COPY: Record<string, PlainRefusal> = {
     body: 'Each change needs its own reference.',
     next: 'Go back, review the change again and submit it as a new request.',
   },
+  'pay.change_hash_mismatch': {
+    title: 'That is not the change on file',
+    body: 'The request on file for that reference is a different change from the one you were shown (another merchant, another kind of change or other values). Nothing was applied or declined.',
+    next: 'Do not confirm it. Ask the other founder to send the request again, and read it carefully. If it keeps happening, tell engineering.',
+  },
   'pay.dual_control_required': {
     title: 'A different founder has to do this step',
     body: 'The same founder cannot both submit and confirm a change. Dual control needs two different people, each signed in themselves.',

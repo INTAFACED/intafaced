@@ -1,13 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import type { MerchantControlChangeResult } from '@intafaced/contracts';
+import type { MerchantControlChangeResult, MerchantControlProfile } from '@intafaced/contracts';
 import { postControl } from '@/lib/merchants/control-client';
 import {
-  appliedMatches,
   parseHandoff,
   summariseControlChange,
   validateReason,
+  verifyConfirmResult,
   type Handoff,
   type TierView,
 } from '@/lib/merchants/control-model';
@@ -23,7 +23,16 @@ type Done = { kind: 'confirmed' | 'declined' | 'mismatch' | 'conflict' | 'other'
  * pasted text, not a record from the service: the panel says so, and after a confirm it compares what the
  * service now holds with what was shown. The service itself refuses the founder who submitted.
  */
-export function ConfirmChangePanel({ merchantId, tiers }: { merchantId: string; tiers: readonly TierView[] }) {
+export function ConfirmChangePanel({
+  merchantId,
+  tiers,
+  before,
+}: {
+  merchantId: string;
+  tiers: readonly TierView[];
+  /** This merchant's controls as this page loaded them: what the after-confirm check compares the result against. */
+  before: MerchantControlProfile;
+}) {
   const [text, setText] = useState('');
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState<string | null>(null);
@@ -39,7 +48,14 @@ export function ConfirmChangePanel({ merchantId, tiers }: { merchantId: string; 
     if (problem) return;
     setBusy(true);
     setRefusal(null);
-    const reply = await postControl({ action, requestId: parsed.requestId, reason: reason.trim() });
+    const reply = await postControl({
+      action,
+      requestId: parsed.requestId,
+      merchantId: parsed.merchantId,
+      expectedVersion: parsed.expectedVersion,
+      change: parsed.change,
+      reason: reason.trim(),
+    });
     setBusy(false);
     if (!reply.ok || !reply.result) {
       if (!reply.ok) setRefusal(reply.refusal);
@@ -48,7 +64,8 @@ export function ConfirmChangePanel({ merchantId, tiers }: { merchantId: string; 
     const { result } = reply;
     if (action === 'decline') return setDone({ kind: result.outcome === 'refused' ? 'declined' : 'other', result });
     if (result.outcome === 'changed') {
-      return setDone({ kind: appliedMatches(parsed.change, result.profile) ? 'confirmed' : 'mismatch', result });
+      const matches = verifyConfirmResult({ handoff: parsed, pageMerchantId: merchantId, before, tiers, result });
+      return setDone({ kind: matches ? 'confirmed' : 'mismatch', result });
     }
     setDone({ kind: result.outcome === 'conflict' ? 'conflict' : 'other', result });
   }
@@ -64,6 +81,7 @@ export function ConfirmChangePanel({ merchantId, tiers }: { merchantId: string; 
         setRefusal(null);
       }}
       parsed={parsed}
+      stale={parsed !== null && parsed.expectedVersion !== before.version ? before.version : null}
       reason={reason}
       onReason={setReason}
       reasonError={reasonError}
@@ -81,6 +99,7 @@ export function ConfirmChangeView({
   text,
   onText,
   parsed,
+  stale = null,
   reason,
   onReason,
   reasonError,
@@ -94,6 +113,8 @@ export function ConfirmChangeView({
   text: string;
   onText?: (v: string) => void;
   parsed: Handoff | null;
+  /** The version this merchant's controls are at now, when it is not the one the request was made on. */
+  stale?: string | null;
   reason: string;
   onReason?: (v: string) => void;
   reasonError?: string | null;
@@ -145,6 +166,13 @@ export function ConfirmChangeView({
             changing. After you confirm, this page checks what the service now holds against what you were shown, and says so loudly if they
             differ.
           </StateBlock>
+          {stale !== null ? (
+            <StateBlock kind="error" title="This request is out of date">
+              This merchant’s controls were changed after the other founder made the request (they are now at version {stale}; the request
+              was made on version {parsed.expectedVersion}), so the service would refuse it. Confirming is off. Ask them to submit it again
+              from the current values. You can still decline it.
+            </StateBlock>
+          ) : null}
           <dl className="mp-kv mp-kv--summary mp-kv--stack">
             {summariseControlChange(parsed.change, tiers).map((row) => (
               <div key={row.key}>
@@ -183,7 +211,13 @@ export function ConfirmChangeView({
             )}
           </div>
           <div className="mp-inline">
-            <button type="button" className="mp-btn mp-btn--primary" onClick={() => onDecide?.('confirm')} disabled={busy}>
+            <button
+              type="button"
+              className="mp-btn mp-btn--primary"
+              onClick={() => onDecide?.('confirm')}
+              disabled={busy || stale !== null}
+              title={stale !== null ? 'The merchant’s controls changed since this request was made.' : undefined}
+            >
               {busy ? 'Working…' : 'Confirm this change'}
             </button>
             <button type="button" className="mp-btn" onClick={() => onDecide?.('decline')} disabled={busy}>
@@ -195,13 +229,14 @@ export function ConfirmChangeView({
       <RefusalBlock refusal={refusal} />
       {done?.kind === 'confirmed' ? (
         <StateBlock kind="success" title="Confirmed and applied">
-          The service now holds exactly what you were shown. Reload this page to see it in force; it is recorded with both founders.
+          The service now holds what matches what you were shown, and nothing else changed. Reload this page to see it in force; it is
+          recorded with both founders.
         </StateBlock>
       ) : null}
       {done?.kind === 'mismatch' ? (
         <StateBlock kind="error" title="Applied, but not what you were shown">
-          The request on file differs from the text you pasted, and it has now been applied. Treat this as a security incident: stop, tell
-          engineering and the other founder now, and do not confirm anything else from this request.
+          What the service now holds is not what the text you pasted would produce, and it has been applied. Treat this as a security
+          incident: stop, tell engineering and the other founder now, and do not confirm anything else from this request.
         </StateBlock>
       ) : null}
       {done?.kind === 'declined' ? (

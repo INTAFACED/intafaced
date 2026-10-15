@@ -19,7 +19,15 @@ const UNREACHABLE: RefusalView = {
 
 export type ControlRequest =
   | { action: 'submit'; requestId: string; merchantId: string; change: ControlChange; reason: string; expectedVersion: string }
-  | { action: 'confirm' | 'decline'; requestId: string; reason: string }
+  | {
+      action: 'confirm' | 'decline';
+      /** The request the second founder was shown, whole: the console hashes it and the service refuses a confirm for anything else. */
+      requestId: string;
+      merchantId: string;
+      expectedVersion: string;
+      change: ControlChange;
+      reason: string;
+    }
   | { action: 'decide'; approvalId: string; decision: 'approve' | 'reject'; expectedPayloadHash: string; reason: string };
 
 export async function postControl(request: ControlRequest, signal?: AbortSignal): Promise<ControlReply> {
