@@ -312,7 +312,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe('authority is asserted before value moves, not after', () => {
-    it('a stranger capturing another merchant’s payment refuses BY CODE and moves nothing', async () => {
+    it('a stranger capturing another merchant’s payment is told it does not exist, BY CODE and moves nothing', async () => {
       const http = await build(new MemoryRestIdempotencyStore());
       const m = await merchant();
       const id = await authorizedPayment(http, m.id, '100');
@@ -324,7 +324,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
         payload: {},
       });
 
-      expect(res.json().error.code).toBe('pay.merchant_forbidden');
+      expect(res.json().error.code).toBe('pay.payment_not_found');
       expect(await clearingOf(m.id)).toBe('0');
       expect(keysMatching('payment.capture:')).toEqual([]);
     });

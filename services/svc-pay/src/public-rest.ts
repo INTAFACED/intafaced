@@ -5,12 +5,13 @@ import swagger from '@fastify/swagger';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { assertMerchantAreaAccess, type MerchantAreaFence } from './merchant-ownership.js';
+import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { areaForSurface, isPayfacPermissionPort, resolveActorMerchantId, type PayfacPermissionPort } from './payfac-permissions.js';
 import { PERMISSION_AREAS, SubMerchantError, type PermissionArea } from './submerchants.js';
 import { type MerchantWebhookService, type WebhookDeliveryStatus } from './merchant-webhooks.js';
 import { PayError, type PayService, type PaymentStatus } from './payment-service.js';
 import { SandboxRailRefusal } from './rails/posture.js';
+import { PayGuardRefusal } from './seams/guards.js';
 import { fingerprintRequest, MemoryRestIdempotencyStore, type RestIdempotencyStore } from './rest-idempotency.js';
 import { assertSandboxKeyDoesNotLookLive, isSandboxRailId, paymentModeFromRail, resolveMerchantRail } from './sandbox-key-routing.js';
 
@@ -344,6 +345,12 @@ function statusFor(code: string): number {
 }
 
 function send(reply: FastifyReply, err: unknown): FastifyReply {
+  if (err instanceof PayGuardRefusal) {
+    // A guard seam refused (seams/guards.ts). Code only: composeGuards already
+    // stripped internals, and the message is the code by construction.
+    const body: ErrorBody = { error: { code: err.code, message: err.code } };
+    return reply.code(err.kind === 'unavailable' ? 503 : 403).send(body);
+  }
   if (err instanceof SandboxRailRefusal) {
     const body: ErrorBody = {
       error: {
@@ -367,6 +374,9 @@ function send(reply: FastifyReply, err: unknown): FastifyReply {
 export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRestDeps): Promise<void> {
   const assertAccess = (userId: string | undefined, merchantId: string, area: PermissionArea) =>
     assertMerchantAreaAccess(deps.pay, userId, merchantId, area, deps.trees ?? null);
+  /** A payment id the caller may not touch is refused exactly like one that does not exist. */
+  const assertPaymentAccess = (userId: string | undefined, paymentId: string, merchantId: string, area: PermissionArea) =>
+    refuseAsMissing(assertAccess(userId, merchantId, area), () => new PayError(`Payment ${paymentId} not found`, 'pay.payment_not_found'));
   const edge = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
   const idempotency = deps.idempotency ?? new MemoryRestIdempotencyStore();
 
@@ -573,7 +583,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       if (!principal) return reply;
       try {
         const payment = await deps.pay.getPayment(req.params.id);
-        await assertAccess(principal.userId, payment.merchantId, areaForSurface('rest.payments.read'));
+        await assertPaymentAccess(principal.userId, req.params.id, payment.merchantId, areaForSurface('rest.payments.read'));
         assertSandboxKeyDoesNotLookLive(principal.key_env, payment.railAdapter);
         return reply.send(toPaymentBody(payment));
       } catch (err) {
@@ -757,7 +767,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       return withIdempotency(req, reply, principal.userId, key, req.body ?? {}, async () => {
         try {
           const existing = await deps.pay.getPayment(req.params.id);
-          await assertAccess(principal.userId, existing.merchantId, areaForSurface('rest.payments.authorize'));
+          await assertPaymentAccess(principal.userId, req.params.id, existing.merchantId, areaForSurface('rest.payments.authorize'));
           assertSandboxKeyDoesNotLookLive(principal.key_env, existing.railAdapter);
           const payment = await deps.pay.authorize(req.params.id, { identityAuthority: credentialAuthority(principal) });
           return reply.send(toPaymentBody(payment));
@@ -798,7 +808,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       return withIdempotency(req, reply, principal.userId, key, req.body ?? {}, async () => {
         try {
           const existing = await deps.pay.getPayment(req.params.id);
-          await assertAccess(principal.userId, existing.merchantId, areaForSurface('rest.payments.capture'));
+          await assertPaymentAccess(principal.userId, req.params.id, existing.merchantId, areaForSurface('rest.payments.capture'));
           assertSandboxKeyDoesNotLookLive(principal.key_env, existing.railAdapter);
           const opts = req.body?.amount === undefined ? {} : { amount: parseAmount(requireDecimalString(req.body.amount, 'amount')) };
           const payment = await deps.pay.capture(req.params.id, { ...opts, identityAuthority: credentialAuthority(principal) });
@@ -840,7 +850,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       return withIdempotency(req, reply, principal.userId, key, req.body, async () => {
         try {
           const existing = await deps.pay.getPayment(req.params.id);
-          await assertAccess(principal.userId, existing.merchantId, areaForSurface('rest.payments.refund'));
+          await assertPaymentAccess(principal.userId, req.params.id, existing.merchantId, areaForSurface('rest.payments.refund'));
           assertSandboxKeyDoesNotLookLive(principal.key_env, existing.railAdapter);
           const amount = requireDecimalString(req.body.amount, 'amount');
           // The caller's own business key wins; otherwise their Idempotency-Key

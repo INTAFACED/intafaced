@@ -689,7 +689,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const api = await caller(['pay:read']);
 
     const err = await api.payment.get({ paymentId: PAYMENT }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
   });
 
   it('still serves payment.get to the merchant who owns it', async () => {
@@ -702,7 +702,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const api = await caller(['pay:read']);
 
     const err = await api.payment.history({ paymentId: PAYMENT }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
     // Refused before the read, not after it. `payment_events` carries
     // instrument metadata and customer references; not returning it is not the
     // same as not fetching it.
@@ -731,7 +731,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const api = await caller(['pay:read']);
 
     const err = await api.settlement.get({ settlementId: SETTLEMENT }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
   });
 
   it('still serves settlement.get to the merchant who owns it', async () => {
@@ -756,7 +756,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     stub.ownedBy(ANOTHER_USER);
     const api = await caller(['pay:read']);
     const err = await api.settlement.list({ merchantId: MERCHANT }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
     expect(stub.calls.filter((c) => c.method === 'listSettlements')).toHaveLength(0);
   });
 
@@ -847,13 +847,14 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     expect(p.inventsSecondCheckoutBook).toBe(false);
   });
 
-  it('refuses with FORBIDDEN rather than NOT_FOUND, consistently, on all three', async () => {
+  it('refuses with NOT_FOUND, consistently, on all three (someone else’s row is indistinguishable from a missing one)', async () => {
     stub.ownedBy(ANOTHER_USER);
     const api = await caller(['pay:read']);
 
     // Stated as its own test because the value here is the CONSISTENCY: a
     // client that learns to branch on one of these must be able to branch on
-    // all of them. See `assertMerchantOwner` for why this direction was chosen.
+    // all of them. NOT_FOUND, never FORBIDDEN: a distinct refusal for "exists but
+    // not yours" is an existence oracle (see merchant-ownership.ts).
     const codes = await Promise.all(
       [
         api.payment.get({ paymentId: PAYMENT }),
@@ -861,14 +862,14 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
         api.settlement.get({ settlementId: SETTLEMENT }),
       ].map((p) => p.catch((e: unknown) => codeOf(e))),
     );
-    expect(codes).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN']);
+    expect(codes).toEqual(['NOT_FOUND', 'NOT_FOUND', 'NOT_FOUND']);
   });
 
   it('refuses payment.capture on another merchant’s payment before the rail runs', async () => {
     stub.ownedBy(ANOTHER_USER);
     const api = await caller(['pay:write']);
     const err = await api.payment.capture({ paymentId: PAYMENT }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
     expect(stub.calls.filter((c) => c.method === 'capture')).toHaveLength(0);
   });
 
@@ -878,7 +879,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const err = await api.settlement
       .payout({ settlementId: SETTLEMENT, railId: 'card-sandbox', destination: { kind: 'bank', ref: 'GB82WEST12345698765432' } })
       .catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
     expect(stub.calls.filter((c) => c.method === 'payoutSettlement')).toHaveLength(0);
   });
 
