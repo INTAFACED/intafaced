@@ -1,0 +1,19 @@
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.0648700Z ^[[;31m@intafaced/svc-identity:test^[[;0m
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7522696Z ^[[31m⎯⎯⎯⎯⎯⎯⎯^[[39m^[[1m^[[41m Failed Tests 1 ^[[49m^[[22m^[[31m⎯⎯⎯⎯⎯⎯⎯^[[39m
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7523151Z
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7524270Z ^[[41m^[[1m FAIL ^[[22m^[[49m src/identity.test.ts^[[2m > ^[[22mlogin^[[2m > ^[[22maccepts the right password
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7524925Z
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7525345Z ^[[31m^[[1mPostgresError^[[22m: deadlock detected^[[39m
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7526975Z ^[[90m ^[[2m❯^[[22m ErrorResponse ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:^[[2m815:30^[[22m^[[39m
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7528926Z ^[[90m ^[[2m❯^[[22m handle ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:^[[2m489:6^[[22m^[[39m
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7530903Z ^[[90m ^[[2m❯^[[22m Socket.data ../../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:^[[2m324:9^[[22m^[[39m
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7531695Z
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7532251Z ^[[31m^[[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯^[[22m^[[39m
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7532671Z
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7547746Z ^[[2m Test Files ^[[22m ^[[1m^[[31m1 failed^[[39m^[[22m^[[2m | ^[[22m^[[1m^[[32m150 passed^[[39m^[[22m^[[90m (151)^[[39m
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7549406Z ^[[2m      Tests ^[[22m ^[[1m^[[31m1 failed^[[39m^[[22m^[[2m | ^[[22m^[[1m^[[32m1291 passed^[[39m^[[22m^[[90m (1292)^[[39m
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7550337Z ^[[2m   Start at ^[[22m 10:15:54
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7551712Z ^[[2m   Duration ^[[22m 446.66s^[[2m (transform 33.31s, setup 0ms, collect 564.48s, tests 427.16s, environment 271ms, prepare 140.42s)^[[22m
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7552568Z
+Tests (full)	Run pnpm test --continue	2026-10-15T10:23:23.7553111Z  ELIFECYCLE  Test failed. See above for more details.
+Tests (full)	Run pnpm test --continue	2026-10-15T10:26:21.0814792Z Failed:    @intafaced/svc-bank#test, @intafaced/svc-dex#test, @intafaced/svc-identity#test, @intafaced/svc-indexer#test, @intafaced/svc-matching#test, @intafaced/svc-notify#test, @intafaced/svc-p2p#test, @intafaced/svc-pay#test, @intafaced/svc-support#test

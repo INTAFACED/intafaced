@@ -47,9 +47,10 @@ export const CI_PR_PATHS = ['**', '!docs/**', '!**/*.md', '!NOTICE', '!LICENSE',
 
 const FAIL_BUCKETS = new Set(['fail', 'cancel']);
 const LIVE_CLI = Symbol('verified live CLI');
+const trustedComments = (comments) => comments.filter((c) => ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c.author_association));
 const declarationCommentsFingerprint = (comments) =>
   JSON.stringify(
-    comments
+    trustedComments(comments)
       .map((c) => ({
         id: c.id ?? null,
         // Markdown context changes whether a marker is a declaration or a quoted example.
@@ -184,8 +185,10 @@ export async function runGate(
   const compared = ghJson(gh, ['api', `repos/${repo}/compare/${targetBase}...${head}`]);
   const base = compared.merge_base_commit?.sha;
   if (!/^[0-9a-f]{40}$/.test(base ?? '')) throw new GateError('PR merge base could not be resolved; exact-base evidence is required.');
-  const comments = ghJson(gh, ['api', '--paginate', '--slurp', `repos/${repo}/issues/${pr}/comments`]).flat();
-  const declarationComments = declarationCommentsFingerprint(comments);
+  const comments = ghJson(gh, ['api', '--paginate', '--slurp', `repos/${repo}/issues/${pr}/comments`])
+    .flat()
+    .filter((c) => ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c.author_association));
+  const declarationComments = declarationCommentsFingerprint(trustedComments(comments));
   const declarations = [first.body ?? '', ...comments.map((c) => c.body ?? '')].join('\n');
   const docsOnly = !ciWouldRun(files);
   const readChecks = () => {
@@ -391,6 +394,7 @@ export async function runVerifiedGate(
     productionToken,
     runGateFn = runGate,
     writeReceipt = writePassReceipt,
+    reviewValidator = validateOpusReview,
     invalidate = invalidateReceipt,
     log = () => {},
   } = {},
@@ -429,8 +433,10 @@ export async function runVerifiedGate(
       ]);
       if (checkFingerprint(checks) !== checkFingerprint(result.checks) || runs.some((r) => r.status !== 'completed'))
         throw new GateError('Checks changed or restarted before receipt; run the gate again.');
-      const comments = ghJson(gh, ['api', '--paginate', '--slurp', `repos/${o.repo}/issues/${o.pr}/comments`]).flat();
-      if (declarationCommentsFingerprint(comments) !== result.declarationComments)
+      const comments = ghJson(gh, ['api', '--paginate', '--slurp', `repos/${o.repo}/issues/${o.pr}/comments`])
+        .flat()
+        .filter((c) => ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c.author_association));
+      if (declarationCommentsFingerprint(trustedComments(comments)) !== result.declarationComments)
         throw new GateError('PR review or failure declarations changed before receipt; run the gate again.');
       const cur = ghJson(gh, [
         'pr',
@@ -453,10 +459,25 @@ export async function runVerifiedGate(
         cur.mergeable === 'CONFLICTING'
       )
         throw new GateError('PR changed before receipt; run the gate again.');
+      if (result.evalResult.protectedFiles.length) {
+        const fresh = reviewValidator({ head: o.head, declarations: [cur.body ?? '', ...comments.map((c) => c.body ?? '')].join('\n') });
+        const earlier = result.evalResult.review;
+        if (
+          !fresh.pass ||
+          !fresh.review ||
+          fresh.review.head !== o.head ||
+          fresh.review.authorSession !== earlier?.authorSession ||
+          fresh.review.reviewerSession !== earlier?.reviewerSession ||
+          fresh.review.parentSession !== earlier?.parentSession
+        )
+          throw new GateError('Opus review changed or was withdrawn before receipt; review the exact head again.');
+        result.evalResult.review = fresh.review;
+      }
       result.receipt = writeReceipt({
         ...receiptKey,
         pr: o.pr,
         base: result.base,
+        liveHead: cur.headRefOid,
         gateSha,
         evidence: result.evalResult.evidence,
         review: result.evalResult.review,

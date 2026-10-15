@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   actualCheckoutSha,
+  TEST_JOB_POLICY,
+  normalizeTestLog,
+  parseTestExecution,
   classifyFailure,
   collectEvidence,
   parseFailureSignatures,
@@ -16,6 +19,12 @@ const REPO = 'owner/repo';
 const ui = readFileSync(new URL('./fixtures/merge-gate/evidence-ui.log', import.meta.url), 'utf8');
 const other = readFileSync(new URL('./fixtures/merge-gate/evidence-ui-other-defect.log', import.meta.url), 'utf8');
 const money = readFileSync(new URL('./fixtures/merge-gate/evidence-money.log', import.meta.url), 'utf8');
+const passedUi = ui
+  .replace(/ FAIL [\s\S]*?(?=Test Files)/, '')
+  .replaceAll('1 failed', '1 passed')
+  .replace(/^Failed:.*$/m, '');
+const backstopOutput =
+  '\nTests (full)\tEvery infrastructure-backed suite actually ran\t2026-10-15T00:00:03Z   ✓ COMPLETE — every infrastructure-backed suite executed.\n';
 const declaration = { owner: '@frontend', evidence: 'https://github.com/owner/repo/issues/123' };
 // Explicit repository-manifest fixture: this suite also runs in tooling-only copies.
 const workspaceRoots = new Map([
@@ -36,7 +45,7 @@ const job = (id, conclusion = 'failure') => ({
   ],
 });
 const checkout = (sha, log = '') =>
-  `Tests (full)\tCheckout repository\t2026-10-15T00:00:00.000Z [command]/usr/bin/git log -1 --format=%H\nTests (full)\tCheckout repository\t2026-10-15T00:00:00.001Z ${sha}\n${log}`;
+  `Tests (full)\tCheckout repository\t2026-10-15T00:00:00.000Z [command]/usr/bin/git log -1 --format=%H\nTests (full)\tCheckout repository\t2026-10-15T00:00:00.001Z ${sha}\nTests (full)\tRun pnpm test --continue\t2026-10-15T00:00:00.002Z ##[group]Run pnpm test --continue\n${log}${backstopOutput}`;
 const pure = (overrides = {}) =>
   classifyFailure({ check, headJob: job(201), baseJob: job(101), headLog: ui, baseLog: ui, declaration, workspaceRoots, ...overrides });
 
@@ -67,6 +76,7 @@ function fixture({
   const headRun = run(200, headSha, [headJob], headWorkflow);
   const baseRun = run(100, baseSha, [job(101, baseConclusion)], 'CI', baseWorkflowId);
   if (unfinished) baseRun.jobs.push({ ...job(102), status: 'in_progress' });
+  if (baseConclusion === 'success' && baseLog === ui) baseLog = passedUi;
   const gh = (args) => {
     calls.push(args);
     let data;
@@ -78,7 +88,13 @@ function fixture({
     else throw new Error(`unexpected gh ${args.join(' ')}`);
     return { status: 0, stdout: JSON.stringify(data), stderr: '' };
   };
-  return { calls, gh, headRun, options: { gh, repo: REPO, head: HEAD, base: BASE, checks: [check], files, declarations, workspaceRoots } };
+  return {
+    calls,
+    gh,
+    headRun,
+    baseRun,
+    options: { gh, repo: REPO, head: HEAD, base: BASE, checks: [check], files, declarations, workspaceRoots },
+  };
 }
 
 test('strict parser records complete error, assertion diff, location, and task', () => {
@@ -88,6 +104,63 @@ test('strict parser records complete error, assertion diff, location, and task',
   assert.match(parsed.failures[0].signature, /expected 'Save'/);
   assert.match(parsed.failures[0].signature, /42:17/);
   assert.match(parsed.failures[0].signature, /\\n- Send/);
+});
+
+test('failed summary totals must account for every test and file with complete footers', () => {
+  for (const headLog of [
+    ui.replace('Tests  1 failed (1)', 'Tests  2 failed (2)'),
+    ui.replace('Test Files  1 failed (1)', 'Test Files  2 failed (2)'),
+    ui.replace('Tests  1 failed (1)', ''),
+    ui.replace('Test Files  1 failed (1)', ''),
+    ui.slice(0, ui.indexOf('Test Files')) + '\nFailed: @intafaced/ui#test',
+    ui.replace('Tests  1 failed (1)', 'Tests  1 failed (2)'),
+    ui.replace('Tests  1 failed (1)', 'Tests  1 failed (1)\nTests  1 failed (1)'),
+  ]) {
+    assert.equal(parseFailureSignatures(headLog).readable, false, headLog);
+    assert.equal(pure({ headLog }).classification, 'unknown', headLog);
+  }
+});
+
+test('accounts for repeated names and multiple files without collapsing failures', () => {
+  const block = ui.slice(ui.indexOf(' FAIL '), ui.indexOf('Test Files'));
+  const repeated = ui.replace('Test Files', `${block}Test Files`).replace('Tests  1 failed (1)', 'Tests  2 failed (2)');
+  const sameFile = parseFailureSignatures(repeated);
+  assert.equal(sameFile.readable, true, sameFile.issues.join('; '));
+  assert.equal(sameFile.failures.length, 2);
+  const multiFile = repeated
+    .replace(block, block.replaceAll('src/card.test.ts', 'src/other.test.ts'))
+    .replace('Test Files  1 failed (1)', 'Test Files  2 failed (2)');
+  const parsed = parseFailureSignatures(multiFile);
+  assert.equal(parsed.readable, true, parsed.issues.join('; '));
+  assert.equal(new Set(parsed.failures.map((f) => f.file)).size, 2);
+  assert.equal(parseFailureSignatures(multiFile.replace(block, '')).readable, false, 'omitted second FAIL cannot match the footer');
+});
+
+test('each failing task needs its own accounting, including prefixed task logs', () => {
+  const combined =
+    ui.replace('Failed:    @intafaced/ui#test', '') +
+    ui
+      .replaceAll('@intafaced/ui', '@intafaced/i18n')
+      .replace('Failed:    @intafaced/i18n#test', 'Failed: @intafaced/ui#test, @intafaced/i18n#test');
+  assert.equal(parseFailureSignatures(combined).readable, true);
+  assert.equal(parseFailureSignatures(combined.replace('Tests  1 failed (1)', 'Tests  2 failed (2)')).readable, false);
+  const prefixed = ui
+    .split('\n')
+    .map((line) => (line.startsWith('Failed:') || line.startsWith('##[') ? line : `@intafaced/ui:test: ${line}`))
+    .join('\n');
+  assert.equal(parseFailureSignatures(prefixed).readable, true);
+});
+
+test('suite load failures count as failed files rather than failed tests', () => {
+  const suite = ui
+    .replace(' FAIL src/card.test.ts > Card > renders label', ' FAIL src/card.test.ts [ src/card.test.ts ]')
+    .replace('Tests  1 failed (1)', 'Tests  no tests');
+  const parsed = parseFailureSignatures(suite);
+  assert.equal(parsed.readable, true, parsed.issues.join('; '));
+  assert.equal(parsed.failures[0].kind, 'suite');
+  assert.equal(parseFailureSignatures(suite.replace('Tests  no tests', 'Tests  1 failed (1)')).readable, false);
+  assert.equal(parseFailureSignatures(suite.replace(/AssertionError:.*\n/, '')).readable, false);
+  assert.equal(parseFailureSignatures(suite.replace(/ ❯.*\n/, '')).readable, false);
 });
 
 test('introduced failure: exact-base passing job blocks', () => {
@@ -132,7 +205,7 @@ test('missing signature, location, task attribution and extra unhandled errors b
 
 test('money invariant identical at base is blocked on unrelated UI PR', () => {
   const result = pure({ headLog: money, baseLog: money });
-  assert.equal(result.classification, 'unknown');
+  assert.equal(result.classification, 'inherited');
   assert.equal(result.allowed, false);
   assert.match(result.reason, /protected/);
 });
@@ -193,7 +266,7 @@ test('collector uses exact commits and head check run/job link, no historical wi
 });
 
 test('collector classifies introduced with exact actual base passing evidence', async () => {
-  const f = fixture({ baseConclusion: 'success', baseLog: '' });
+  const f = fixture({ baseConclusion: 'success', baseLog: passedUi });
   const result = await collectEvidence(f.options);
   assert.equal(result.classifications[0].classification, 'introduced');
   assert.equal(result.pass, false);
@@ -235,22 +308,18 @@ test('foreign repository or mismatched job link cannot bind check to another run
   }
 });
 
-test('green checks perform no baseline calls, mandatory failures are handled by caller', async () => {
-  const gh = () => {
-    throw new Error('unexpected call');
-  };
-  const result = await collectEvidence({
-    gh,
-    repo: REPO,
-    head: HEAD,
-    base: BASE,
-    checks: [
-      { ...check, bucket: 'pass' },
-      { workflow: 'Gitleaks', name: 'Gitleaks', bucket: 'fail' },
-    ],
-  });
-  assert.equal(result.pass, true);
-  assert.deepEqual(result.classifications, []);
+test('green checks require actual exact head and base coverage', async () => {
+  const f = fixture({ headJob: job(201, 'success'), headLog: passedUi, baseConclusion: 'success', baseLog: passedUi });
+  f.options.checks = [{ ...check, bucket: 'pass' }];
+  const result = await collectEvidence(f.options);
+  assert.equal(result.pass, true, result.reasons.join('; '));
+  assert.equal(result.coverage.length, 1);
+  assert.ok(f.calls.some((args) => args.includes('--commit') && args.includes(BASE)));
+  for (const options of [{ fakeCheckoutSha: 'c'.repeat(40) }, { runs: false }]) {
+    const missing = fixture({ headJob: job(201, 'success'), headLog: passedUi, baseConclusion: 'success', baseLog: passedUi, ...options });
+    missing.options.checks = [{ ...check, bucket: 'pass' }];
+    assert.equal((await collectEvidence(missing.options)).pass, false);
+  }
 });
 
 test('GitHub refusal escapes immediately without fallback or retry', async () => {
@@ -264,96 +333,267 @@ test('GitHub refusal escapes immediately without fallback or retry', async () =>
   assert.equal(calls, 1);
 });
 
-const sealLog = readFileSync(new URL('./fixtures/merge-gate/evidence-seal.log', import.meta.url), 'utf8');
-function sealFixture({
-  log = sealLog,
-  sha = HEAD,
-  additionalStep = false,
-  additionalJob = false,
-  differentRun = false,
-  fullLog = ui,
-  owner = declarations,
-} = {}) {
-  const f = fixture({ headLog: fullLog });
-  const seal = {
-    databaseId: 202,
-    name: 'CI merge seal',
-    status: 'completed',
-    conclusion: 'failure',
-    steps: [{ name: 'Require needed jobs', status: 'completed', conclusion: 'failure' }],
-  };
-  if (additionalStep) seal.steps.push({ name: 'Checkout', status: 'completed', conclusion: 'failure' });
-  f.headRun.jobs.push(
-    seal,
-    ...['Affected shards', 'Doctrine gates', 'Format', 'Typecheck & build'].map((name, i) => ({
-      databaseId: 210 + i,
-      name,
-      status: 'completed',
-      conclusion: 'success',
-      steps: [],
-    })),
-  );
-  if (additionalJob) f.headRun.jobs.find((j) => j.name === 'Doctrine gates').conclusion = 'failure';
-  const originalGh = f.gh;
-  f.options.gh = (args) => {
-    if (args.includes('--log') && args[3] === '202') return { status: 0, stdout: checkout(sha, log), stderr: '' };
-    if (args[0] === 'run' && args[1] === 'view' && args[2] === '300')
-      return { status: 0, stdout: JSON.stringify({ ...f.headRun, databaseId: 300 }), stderr: '' };
-    return originalGh(args);
-  };
-  f.options.checks = [
-    { ...check, name: 'CI merge seal', link: `https://github.com/${REPO}/actions/runs/${differentRun ? 300 : 200}/job/202` },
-    check,
-  ];
-  f.options.declarations = owner;
-  return f;
-}
+test('matching signature multiplicity cannot excuse an added identical occurrence', () => {
+  const block = ui.slice(ui.indexOf(' FAIL '), ui.indexOf('Test Files'));
+  const repeated = ui.replace('Test Files', `${block}Test Files`).replace('Tests  1 failed (1)', 'Tests  2 failed (2)');
+  const result = pure({ headLog: repeated });
+  assert.equal(result.classification, 'introduced');
+  assert.equal(result.allowed, false);
+  assert.equal(result.failures.length, 1);
+});
 
-test('derived merge seal passes only for sole allowed inherited full test in same actual-head run', async () => {
-  const f = sealFixture();
+const exactLog = (sha, name, body = '') => {
+  const policy = TEST_JOB_POLICY[name];
+  return `${name}\tCheckout repository\t2026-10-15T00:00:00Z [command]/usr/bin/git log -1 --format=%H\n${name}\tCheckout repository\t2026-10-15T00:00:01Z ${sha}\n${name}\t${policy.step}\t2026-10-15T00:00:02Z ##[group]Run ${policy.command}\n${body}${backstopOutput}`;
+};
+function shardFixture({ baseName = 'Tests (pay-bank)', baseConclusion = 'failure', green = false, missing = false } = {}) {
+  const name = 'Tests (pay-bank)';
+  const log = money.replaceAll('@intafaced/ledger-client', '@intafaced/svc-bank');
+  const passed = log
+    .replace(/ FAIL [\s\S]*?(?=Test Files)/, '')
+    .replaceAll('1 failed', '1 passed')
+    .replace(/^Failed:.*$/m, '');
+  const coveredJob = (id, jobName, conclusion) => ({
+    ...job(id, conclusion),
+    name: jobName,
+    steps: [{ name: TEST_JOB_POLICY[jobName].step, status: 'completed', conclusion }, job(id).steps[1]],
+  });
+  const headRun = {
+    databaseId: 200,
+    headSha: HEAD,
+    workflowName: 'CI',
+    workflowDatabaseId: 9,
+    status: 'completed',
+    jobs: [coveredJob(201, name, green ? 'success' : 'failure')],
+  };
+  const baseRun = { ...headRun, databaseId: 100, headSha: BASE, jobs: [coveredJob(101, baseName, baseConclusion)] };
+  const gh = (args) => {
+    let value;
+    if (args.includes('--log'))
+      return {
+        status: 0,
+        stderr: '',
+        stdout:
+          args[3] === '201'
+            ? exactLog(HEAD, name, green ? passed : log)
+            : exactLog(BASE, baseName, baseConclusion === 'success' ? passed : log),
+      };
+    if (args[1] === 'list') value = missing ? [] : [baseRun];
+    else value = args[2] === '200' ? headRun : baseRun;
+    return { status: 0, stderr: '', stdout: JSON.stringify(value) };
+  };
+  return {
+    headRun,
+    baseRun,
+    gh,
+    options: {
+      gh,
+      repo: REPO,
+      head: HEAD,
+      base: BASE,
+      files: ['services/svc-bank/src/a.ts'],
+      workspaceRoots: new Map([['@intafaced/svc-bank', 'services/svc-bank']]),
+      checks: [{ ...check, name, bucket: green ? 'pass' : 'fail' }],
+      declarations: `Inherited-Failure: CI/${name} | owner=@bank | evidence=https://github.com/owner/repo/issues/123`,
+    },
+  };
+}
+test('paired pay-bank base evidence classifies introduced, inherited protected, and missing unknown', async () => {
+  for (const [options, classification] of [
+    [{ baseConclusion: 'success' }, 'introduced'],
+    [{}, 'inherited'],
+    [{ missing: true }, 'unknown'],
+  ]) {
+    const result = await collectEvidence(shardFixture(options).options);
+    assert.equal(result.classifications[0].classification, classification, result.reasons.join('; '));
+    assert.equal(result.pass, false);
+  }
+});
+test('a failed shard missing its exact-name base job blocks instead of substituting main full', async () => {
+  const result = await collectEvidence(shardFixture({ baseName: 'Tests (full)' }).options);
+  assert.equal(result.classifications[0].classification, 'unknown', result.reasons.join('; '));
+  assert.equal(result.classifications[0].allowed, false);
+  assert.equal(result.coverage.length, 0);
+});
+test('green shard requires exact base coverage and accepts completed full coverage at base', async () => {
+  const result = await collectEvidence(shardFixture({ green: true, baseName: 'Tests (full)', baseConclusion: 'success' }).options);
+  assert.equal(result.pass, true, result.reasons.join('; '));
+  assert.equal(result.coverage.length, 1);
+});
+test('pnpm workspace streams use trusted paths and preserve complete signatures for shard diagnosis', () => {
+  const stream = money
+    .split('\n')
+    .filter((l) => !l.startsWith('##[') && !l.startsWith('Failed:'))
+    .map((l) => `packages/ledger-client test: ${l}`)
+    .join('\n');
+  const normalized = normalizeTestLog(stream, 'Tests (money)', workspaceRoots);
+  const parsed = parseFailureSignatures(normalized);
+  assert.equal(parsed.readable, true, parsed.issues.join('; '));
+  assert.equal(parsed.failures[0].signature, parseFailureSignatures(money).failures[0].signature);
+});
+test('green statuses cannot replace the expected test command or successful infrastructure execution', async () => {
+  const f = fixture({ headJob: job(201, 'success'), headLog: passedUi, baseConclusion: 'success', baseLog: passedUi });
+  f.options.checks = [{ ...check, bucket: 'pass' }];
+  f.headRun.jobs[0].steps[1].conclusion = 'failure';
+  assert.equal((await collectEvidence(f.options)).pass, false);
+  f.headRun.jobs[0].steps[1].conclusion = 'success';
+  const original = f.options.gh;
+  f.options.gh = (args) => {
+    const result = original(args);
+    return args.includes('--log')
+      ? { ...result, stdout: result.stdout.replace('##[group]Run pnpm test --continue', '##[group]Run echo fake-pass') }
+      : result;
+  };
+  assert.equal((await collectEvidence(f.options)).pass, false);
+});
+
+test('green job and backstop statuses cannot replace missing test execution output', async () => {
+  const f = fixture({ headJob: job(201, 'success'), headLog: '', baseConclusion: 'success', baseLog: '' });
+  f.options.checks = [{ ...check, bucket: 'pass' }];
+  const result = await collectEvidence(f.options);
+  assert.equal(result.pass, false);
+  assert.match(result.reasons.join('; '), /execution|summary|output/);
+});
+
+test('trimmed real CI log preserves a deadlock signature through literal colour codes and refuses omitted tasks', () => {
+  const real = readFileSync(new URL('./fixtures/merge-gate/real-ci-identity-deadlock.log', import.meta.url), 'utf8');
+  assert.ok(real.includes('^[[41m'));
+  const parsed = parseFailureSignatures(real);
+  assert.equal(parsed.failures.length, 1, parsed.issues.join('; '));
+  assert.equal(parsed.failures[0].task, '@intafaced/svc-identity#test');
+  assert.match(parsed.failures[0].signature, /PostgresError: deadlock detected/);
+  assert.match(parsed.failures[0].signature, /connection\.js:815:30/);
+  assert.equal(parsed.readable, false, 'other original failed-task bodies were deliberately trimmed');
+});
+
+test('execution proof distinguishes actual tests from skipped, absent and conflicting green output', async () => {
+  for (const [body, expected] of [
+    [passedUi, true],
+    [passedUi.replaceAll('1 passed', '1 skipped'), false],
+    [passedUi.replaceAll('1 passed', '1 todo'), false],
+    [ui, false],
+    [passedUi.replaceAll('@intafaced/ui', '@intafaced/i18n'), false],
+    [passedUi.replace('Tests  1 passed (1)', 'Tests  1 passed (2)'), false],
+  ]) {
+    const f = fixture({ headJob: job(201, 'success'), headLog: body, baseConclusion: 'success', baseLog: passedUi });
+    f.options.checks = [{ ...check, bucket: 'pass' }];
+    assert.equal((await collectEvidence(f.options)).pass, expected, body);
+  }
+});
+test('backstop output must positively attest execution beyond a successful exit code', async () => {
+  for (const replacement of ['', 'no infrastructure records found']) {
+    const f = fixture({ headJob: job(201, 'success'), headLog: passedUi, baseConclusion: 'success', baseLog: passedUi });
+    f.options.checks = [{ ...check, bucket: 'pass' }];
+    const original = f.options.gh;
+    f.options.gh = (args) => {
+      const result = original(args);
+      return args.includes('--log')
+        ? { ...result, stdout: result.stdout.replace('✓ COMPLETE — every infrastructure-backed suite executed.', replacement) }
+        : result;
+    };
+    assert.equal((await collectEvidence(f.options)).pass, false);
+  }
+});
+test('protected skipped tests and unreported infrastructure suites cannot establish coverage', async () => {
+  for (const suffix of ['', '\nTests (full)\tEvery infrastructure-backed suite actually ran\t · packages/ledger-client/src/db.test.ts']) {
+    const body =
+      passedUi
+        .replaceAll('@intafaced/ui', '@intafaced/ledger-client')
+        .replace('Tests  1 passed (1)', suffix ? 'Tests  1 passed (1)' : 'Tests  1 passed | 1 skipped (2)') + suffix;
+    const f = fixture({
+      headJob: job(201, 'success'),
+      headLog: body,
+      baseConclusion: 'success',
+      baseLog: body,
+      files: ['packages/ledger-client/src/a.ts'],
+    });
+    f.options.checks = [{ ...check, bucket: 'pass' }];
+    assert.equal((await collectEvidence(f.options)).pass, false);
+  }
+});
+test('Node reporters need complete internally consistent nonempty execution totals', () => {
+  const body = '##[group]@intafaced/ui:test\n# tests 2\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n##[endgroup]';
+  assert.equal(parseTestExecution(body).tasks.get('@intafaced/ui#test').valid, true);
+  for (const broken of [
+    body.replace('# tests 2', '# tests 3'),
+    body.replace('# todo 0', ''),
+    body.replace('# pass 2', '# pass 0').replace('# tests 2', '# tests 0'),
+  ])
+    assert.equal(parseTestExecution(broken).tasks.get('@intafaced/ui#test').valid, false);
+});
+
+test('broad coverage denominator comes from trusted workspaces, never only emitted output', async () => {
+  const f = fixture({
+    headJob: job(201, 'success'),
+    headLog: passedUi,
+    baseConclusion: 'success',
+    baseLog: passedUi,
+    files: ['package.json'],
+  });
+  f.options.checks = [{ ...check, bucket: 'pass' }];
+  f.options.workspaceRoots = new Map([
+    ['@intafaced/ui', 'packages/ui'],
+    ['@intafaced/svc-bank', 'services/svc-bank'],
+  ]);
+  const partial = await collectEvidence(f.options);
+  assert.equal(partial.pass, false);
+  assert.match(partial.reasons.join('; '), /svc-bank.*execution/);
+  const original = f.options.gh;
+  f.options.gh = (args) => {
+    const result = original(args);
+    return args.includes('--log')
+      ? { ...result, stdout: result.stdout + passedUi.replaceAll('@intafaced/ui', '@intafaced/svc-bank') }
+      : result;
+  };
+  assert.equal((await collectEvidence(f.options)).pass, true);
+});
+
+test('changed workspaces may be covered by separate exact-commit shards, with no workspace omitted', async () => {
+  const f = shardFixture({ green: true, baseName: 'Tests (full)', baseConclusion: 'success' });
+  const bank = passedUi.replaceAll('@intafaced/ui', '@intafaced/svc-bank');
+  const trade = passedUi.replaceAll('@intafaced/ui', '@intafaced/svc-trade');
+  const tradeJob = {
+    ...f.headRun.jobs[0],
+    databaseId: 202,
+    name: 'Tests (trade)',
+    steps: [
+      { name: TEST_JOB_POLICY['Tests (trade)'].step, status: 'completed', conclusion: 'success' },
+      { name: 'Every infrastructure-backed suite actually ran', status: 'completed', conclusion: 'success' },
+    ],
+  };
+  f.headRun.jobs.push(tradeJob);
+  f.options.files.push('services/svc-trade/src/a.ts');
+  f.options.workspaceRoots.set('@intafaced/svc-trade', 'services/svc-trade');
+  f.options.checks.push({ ...check, name: 'Tests (trade)', bucket: 'pass', link: `https://github.com/${REPO}/actions/runs/200/job/202` });
+  const original = f.options.gh;
+  f.options.gh = (args) =>
+    args.includes('--log')
+      ? {
+          status: 0,
+          stderr: '',
+          stdout:
+            args[3] === '201'
+              ? exactLog(HEAD, 'Tests (pay-bank)', bank)
+              : args[3] === '202'
+                ? exactLog(HEAD, 'Tests (trade)', trade.replaceAll('@intafaced/svc-trade:test: ', 'services/svc-trade test: '))
+                : exactLog(BASE, 'Tests (full)', bank + trade),
+        }
+      : original(args);
   const result = await collectEvidence(f.options);
   assert.equal(result.pass, true, result.reasons.join('; '));
-  const seal = result.classifications.find((c) => c.check === 'CI/CI merge seal');
-  assert.equal(seal.classification, 'inherited');
-  assert.equal(seal.derived, true);
-  assert.equal(seal.derivedFrom, 'CI/Tests (full)');
-  assert.equal(seal.owner, declaration.owner);
-  assert.equal(seal.evidence, declaration.evidence);
-  assert.equal(seal.headRunId, '200');
-  assert.equal(seal.baseRunId, '100');
-  const renderedAnnotation = sealLog.replace('::error title=CI merge seal::', '##[error]');
-  assert.equal((await collectEvidence(sealFixture({ log: renderedAnnotation }).options)).pass, true);
+  f.options.checks.pop();
+  const incomplete = await collectEvidence(f.options);
+  assert.equal(incomplete.pass, false);
+  assert.match(incomplete.reasons.join('; '), /svc-trade.*coverage/);
 });
 
-test('derived merge seal blocks extra failure reasons, error annotations, and errors', async () => {
-  const extra = (text) => `CI merge seal\tRequire needed jobs\t2026-10-15T00:00:00.009Z ${text}\n`;
-  for (const log of [
-    sealLog + extra('  - format was failure (required)'),
-    sealLog + extra('::error title=CI merge seal::format was failure (required)'),
-    sealLog + extra('Error: failed to execute script'),
-    sealLog.replace('tests-full was failure (full run required)', 'tests-full was skipped (full run required)'),
-  ]) {
-    const result = await collectEvidence(sealFixture({ log }).options);
-    assert.equal(result.pass, false);
-    assert.equal(result.classifications.find((c) => c.check === 'CI/CI merge seal').allowed, false);
+test('new or untested workspace roots cannot disappear from known-workspace coverage', async () => {
+  for (const files of [['services/svc-new-money/src/a.ts'], ['packages/ui/src/card.ts', 'services/svc-new-money/src/a.ts']]) {
+    const f = fixture({ headJob: job(201, 'success'), headLog: passedUi, baseConclusion: 'success', baseLog: passedUi, files });
+    f.options.workspaceRoots = new Map([['@intafaced/ui', 'packages/ui']]);
+    f.options.checks = [{ ...check, bucket: 'pass' }];
+    const result = await collectEvidence(f.options);
+    assert.equal(result.pass, false, files.join(','));
+    assert.match(result.reasons.join('; '), /svc-new-money.*unknown.*coverage/);
   }
-});
-
-test('derived merge seal blocks other failed steps/jobs and mismatching head or run', async () => {
-  for (const config of [{ additionalStep: true }, { additionalJob: true }, { sha: BASE }, { differentRun: true }]) {
-    const result = await collectEvidence(sealFixture(config).options);
-    assert.equal(result.pass, false, JSON.stringify(config));
-    assert.equal(result.classifications.find((c) => c.check === 'CI/CI merge seal').allowed, false);
-  }
-});
-
-test('derived merge seal never upgrades unknown, introduced, missing or ownerless upstream', async () => {
-  for (const config of [{ fullLog: '' }, { fullLog: other }, { owner: '' }]) {
-    const result = await collectEvidence(sealFixture(config).options);
-    assert.equal(result.pass, false);
-    assert.equal(result.classifications.find((c) => c.check === 'CI/CI merge seal').allowed, false);
-  }
-  const f = sealFixture();
-  f.options.checks = [f.options.checks[0]];
-  assert.equal((await collectEvidence(f.options)).pass, false);
 });
