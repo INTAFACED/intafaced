@@ -37,7 +37,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localStackState, assertActiveLocalStack } from './local-test-state.mjs';
+import { localStackState, assertActiveLocalStack, processRecordMatches, readProcessIdentity } from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -601,9 +601,6 @@ async function runLoop(opts, home) {
 // ── Process control ─────────────────────────────────────────────────────────
 
 export const STALE_AFTER_MS = 2 * 60 * 1000;
-const psCommand = (pid) => spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
-// Matched on the file name, not the full path: a copy started from another checkout or worktree is still the market.
-const isMarketCommand = (cmd) => cmd.includes('local-test-market.mjs') && cmd.includes('__run');
 function readRecord(p) {
   try {
     const rec = JSON.parse(fs.readFileSync(p.pidFile, 'utf8'));
@@ -614,7 +611,10 @@ function readRecord(p) {
 }
 function runningPid(p) {
   const rec = readRecord(p);
-  return rec && isMarketCommand(psCommand(rec.pid)) ? rec.pid : null;
+  if (!rec) return null;
+  // Older records stored options only; they may identify this checkout, never a basename match in another checkout.
+  const argv = rec.argv ?? [process.execPath, SCRIPT, '__run', ...(rec.args ?? [])];
+  return processRecordMatches({ ...rec, argv }, readProcessIdentity(rec.pid)) ? rec.pid : null;
 }
 
 /**
@@ -676,7 +676,8 @@ async function startBackground(p, args, { wait }) {
   try {
     if (runningPid(p)) return console.log(`already running (pid ${runningPid(p)}); log ${p.log}`);
     const fd = fs.openSync(p.log, 'a', 0o600);
-    const child = spawn(process.execPath, [SCRIPT, '__run', ...args], {
+    const argv = [process.execPath, SCRIPT, '__run', ...args];
+    const child = spawn(argv[0], argv.slice(1), {
       cwd: REPO,
       detached: true,
       stdio: ['ignore', fd, fd],
@@ -684,7 +685,7 @@ async function startBackground(p, args, { wait }) {
     });
     child.unref();
     fs.closeSync(fd);
-    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), args }), { mode: 0o600 });
+    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), args, argv }), { mode: 0o600 });
     console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);
   } finally {
     release();

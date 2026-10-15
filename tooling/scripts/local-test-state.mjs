@@ -12,6 +12,48 @@ export function localStackState(home = os.homedir(), env = process.env) {
 }
 
 const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'customer'];
+
+/** ps exposes seconds; launch records are written immediately after spawn, in milliseconds. */
+export function processStartMatches(startedAt, actual) {
+  const recorded = typeof startedAt === 'number' ? startedAt : Date.parse(startedAt);
+  return Number.isFinite(recorded) && Number.isFinite(actual?.startedAt) && Math.abs(actual.startedAt - recorded) <= 2000;
+}
+
+/** A stale PID, including one reused by an identical command, must not authorize a signal. */
+export function processRecordMatches(record, actual) {
+  return Boolean(
+    Number.isSafeInteger(record?.pid) &&
+    record.pid > 0 &&
+    Array.isArray(record.argv) &&
+    record.argv.length > 0 &&
+    record.argv.every((arg) => typeof arg === 'string') &&
+    actual?.command === record.argv.join(' ') &&
+    processStartMatches(record.startedAt, actual),
+  );
+}
+
+/** Read only command and birth time, never the process environment. */
+export function readProcessIdentity(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+  const ps = spawnSync('ps', ['-p', String(pid), '-o', 'lstart=,command='], {
+    encoding: 'utf8',
+    env: { ...process.env, LC_ALL: 'C' },
+  });
+  if (ps.status !== 0) return null;
+  const match = ps.stdout?.trim().match(/^(\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/);
+  return match ? { startedAt: Date.parse(match[1]), command: match[2] } : null;
+}
+
+/** Match the whole -D value, so a sibling directory with the same prefix cannot pass. */
+export function postgresProcessMatches(pgdata, startedAt, actual) {
+  return Boolean(
+    actual?.command &&
+    /^(?:\S*\/)?postgres\s/.test(actual.command) &&
+    `${actual.command} `.includes(` -D ${pgdata} `) &&
+    processStartMatches(startedAt, actual),
+  );
+}
+
 const refuse = (reason) => {
   throw new Error(`refusing: selected local stack is not active (${reason})`);
 };
@@ -28,7 +70,7 @@ export function assertStackOwnership({ stateDir, marker, records, postgres, proc
       pid: Number(pgPid),
       port: marker.ports.postgres,
       startedAt: Number(pgStarted) * 1000,
-      matches: (command) => command.includes('postgres') && `${command} `.includes(` -D ${pgdata} `),
+      matches: (actual) => postgresProcessMatches(pgdata, Number(pgStarted) * 1000, actual),
     },
   ];
   for (const name of services) {
@@ -44,16 +86,14 @@ export function assertStackOwnership({ stateDir, marker, records, postgres, proc
       pid: record.pid,
       port: marker.ports[name],
       startedAt: Date.parse(record.startedAt),
-      matches: (command) => command === record.argv.join(' '),
+      matches: (actual) => actual.command === record.argv.join(' '),
     });
   }
   for (const check of checks) {
     const actual = processes.get(check.pid);
-    if (!Number.isSafeInteger(check.pid) || check.pid <= 0 || !actual || !check.matches(actual.command))
-      refuse(`${check.name} process differs`);
+    if (!Number.isSafeInteger(check.pid) || check.pid <= 0 || !actual || !check.matches(actual)) refuse(`${check.name} process differs`);
     // ps reports seconds, while the stack records milliseconds immediately after spawning.
-    if (!Number.isFinite(check.startedAt) || Math.abs(actual.startedAt - check.startedAt) > 2000)
-      refuse(`${check.name} process was replaced`);
+    if (!processStartMatches(check.startedAt, actual)) refuse(`${check.name} process was replaced`);
     if (!listeners.get(check.pid)?.has(`127.0.0.1:${check.port}`)) refuse(`${check.name} does not own its loopback port`);
   }
   return { stateDir, marker };
