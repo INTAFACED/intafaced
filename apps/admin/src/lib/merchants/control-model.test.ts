@@ -532,6 +532,9 @@ describe('the request that travels between the two founders', () => {
       const edited = tiers.map((t) => (t.id === 'standard' ? { ...t, version: '9', caps: [cap('daily_intake', '1')] } : t));
       expect(relevantTiersChanged(handoff, before, tiers, tiers)).toBe(false);
       expect(relevantTiersChanged(handoff, before, tiers, edited)).toBe(true);
+      // the set_tier itself moves the merchant count (and nothing a check reads): still verifiable, so a mismatch stays an incident
+      const counted = tiers.map((t) => ({ ...t, merchants: t.merchants + 1, version: `${t.version}0`, name: `${t.name}!` }));
+      expect(relevantTiersChanged(handoff, before, tiers, counted)).toBe(false);
       // gold is this merchant's current tier, so it counts too; an unrelated tier does not
       expect(
         relevantTiersChanged(

@@ -804,10 +804,12 @@ export function relevantTiersChanged(
   const ids = new Set(
     [before.tierId, handoff.change.kind === 'set_tier' ? handoff.change.tierId : null].filter((x): x is string => x !== null),
   );
+  // Only the fields verifyConfirmResult reads. A set_tier itself bumps `merchants`, which must not count as an edit.
+  const relevant = (t: TierView | undefined) => (t ? { id: t.id, archetype: t.archetype, caps: t.caps, reserve: t.reserve } : null);
   return [...ids].some((id) => {
     const a = pageTiers.find((t) => t.id === id);
     const b = freshTiers.find((t) => t.id === id);
-    return stable(a ?? null) !== stable(b ?? null);
+    return stable(relevant(a)) !== stable(relevant(b));
   });
 }
 
