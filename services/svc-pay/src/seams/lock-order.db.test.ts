@@ -42,6 +42,8 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     const pay = new PayService(sql, new MemoryLedger(), new RailRegistry([]), {});
     ownerUserId = randomUUID();
     merchantId = (await pay.createMerchant({ userId: ownerUserId, pricing: { feeBps: 0 } })).id;
+    // The owner has settled USDT, so the withdrawal hook holds the owner's USDT withdrawals to this merchant's caps.
+    await sql`INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net) VALUES (${merchantId}, 'lock-order', 'USDT', 10, 0, 10)`;
     await applyChange(changes, sql, { scope: 'tier', change: { kind: 'upsert_tier', tier: TEST_TIER } });
     await applyChange(changes, sql, {
       scope: 'pricing',
@@ -226,5 +228,32 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     const results = await Promise.allSettled(jobs);
     expect(results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason)).toEqual([]);
     expect(Number(await used())).toBe(100);
+  });
+  it('a capture takes its counters last, after a bounded lock timeout is set, and no advisory lock; daily intake before monthly', async () => {
+    const guards = buildPayGuards({ sql });
+    const seen: string[] = [];
+    const paymentId = randomUUID();
+    await sql.begin(async (tx) => {
+      const spy = new Proxy(tx, {
+        apply: (target, thisArg, args: unknown[]) => {
+          if (Array.isArray(args[0])) seen.push((args[0] as string[]).join('?').replace(/\s+/g, ' ').trim());
+          return Reflect.apply(target as unknown as (...a: unknown[]) => unknown, thisArg, args);
+        },
+        get: (target, prop, receiver) => {
+          const value = Reflect.get(target, prop, receiver) as unknown;
+          return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+      await guards.afterPaymentCaptureBooked({ tx: spy as never, paymentId, merchantId, assetId: 'USDT', amount: amt('10') });
+    });
+    const timeout = seen.findIndex((st) => st.includes("set_config('lock_timeout'"));
+    const firstCounter = seen.findIndex((st) => st.includes('pay.control_cap_usage'));
+    expect(timeout).toBeGreaterThanOrEqual(0);
+    expect(firstCounter).toBeGreaterThan(timeout);
+    expect(seen.some((st) => st.includes('pg_advisory_xact_lock'))).toBe(false);
+    const rows = await sql<
+      Array<{ cap_kind: string }>
+    >`SELECT cap_kind FROM pay.control_cap_events WHERE event_key = ${`payment.capture:${paymentId}`} ORDER BY created_at, cap_kind`;
+    expect(rows.map((r) => r.cap_kind).sort()).toEqual(['daily_intake', 'monthly_intake']);
   });
 });

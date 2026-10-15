@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import type { PartialPayGuards, PaymentAdmitContext } from '../seams/guards.js';
+import type { PartialPayGuards, PaymentAdmitContext, PaymentCaptureBookedContext } from '../seams/guards.js';
+import { writeAudit } from './audit.js';
 import { requirePayoutApproval } from './approval-gate.js';
 import { alreadyCounted, consumeBeneficiary, consumeMoney, markCounted, readUsage } from './counters.js';
 import { ControlRefusal } from './errors.js';
@@ -25,19 +26,24 @@ import {
  * W1 GUARDS (registered in seams/slots/w1-control.ts).
  *
  * Rules these hooks follow, from seams/guards.ts:
- *  - Counted ONCE per business key, in the admit hooks only:
- *      intake       `payment.capture:<paymentId>`   (CAPTURED volume, see below)
- *      daily_payout `payout:<settlementId>`         (once per settlement, not per attempt)
- *      daily_payout `withdrawal:<merchantId>:<userId>:<clientRef>` (an owner's user-money exit)
- *  - A replay is never refused and never counted. A recovery is never refused; a
- *    recovered CAPTURE is counted (idempotently) if the first call's count rolled back.
+ *  - Counted ONCE per business key (the day is part of every money key, so a retry
+ *    on a later day is counted on its own day and a same-day retry stays free):
+ *      intake       `payment.capture:<paymentId>`   (CAPTURED volume, in `afterPaymentCaptureBooked`)
+ *      daily_payout `payout:<settlementId>:<day>`   (once per settlement per day, not per attempt)
+ *      daily_payout `withdrawal:<merchantId>:<userId>:<clientRef>:<day>` (an owner's user-money exit)
+ *  - A replay is never refused and never counted. A recovery is never refused.
  *  - INTAKE IS CAPTURED VOLUME, NOT CREATED PAYMENTS. Public checkout lets anyone
  *    create a payment, so counting at create would let a stranger fill a merchant's
- *    caps or push its pricing band without paying. Create only checks the config
- *    exists, the single-payment bound (no counter) and, read-only, that the caps
- *    still have room. The counters move at capture, when the money has arrived.
- *  - Row locks (the cap counters) are taken inside the caller's transaction,
- *    after the merchant lock, in a fixed order: daily, then monthly.
+ *    caps or push its pricing band without paying. Create checks the config exists,
+ *    the single-payment bound (no counter) and, read-only, that the caps still have
+ *    room: that is the ONLY point a cap refuses intake. The counters move at capture,
+ *    after the ledger post, and a capture is never refused (its money has moved, or a
+ *    webhook or chain watcher says it has): one over a cap is counted and FLAGGED
+ *    (`payment.captured_over_cap` in `pay.control_audit`) for ops.
+ *  - Row locks (the cap counters) are taken inside the caller's transaction. Payout
+ *    and withdrawal admissions take them after the merchant lock and the treasury
+ *    lock; the capture counter is taken LAST in the capture transaction, after the
+ *    rail and ledger calls, with a 2s lock timeout. Always daily, then monthly.
  *  - Nothing unconfigured gets a default: no tier, no cap, no rule, no
  *    threshold = a typed refusal and nothing moves.
  *  - Anything unreadable refuses (`pay.control_unreadable`, unavailable).
@@ -94,6 +100,19 @@ function intakeLimits(control: MerchantControl, assetCode: string): { perPayment
   return { perPayment, daily, monthly };
 }
 
+/**
+ * Bound the wait on a counter row lock. A timeout (55P03) is not retryable inside this
+ * transaction, so it surfaces as `pay.guard_unavailable` (SERVICE_UNAVAILABLE, retry later),
+ * the capture rolls back, and the retry finishes it as a recovery.
+ */
+async function withCounterLockTimeout<T>(tx: Sql, fn: () => Promise<T>): Promise<T> {
+  const rows = await tx<Array<{ prev: string }>>`SELECT current_setting('lock_timeout') AS prev`;
+  await tx`SELECT set_config('lock_timeout', '2s', true)`;
+  const result = await fn();
+  await tx`SELECT set_config('lock_timeout', ${rows[0]!.prev}, true)`;
+  return result;
+}
+
 /** Event kind for "this payout attempt was admitted"; carries no amount (the amount is counted once per settlement). */
 const PAYOUT_ATTEMPT_MARKER = 'payout_attempt';
 
@@ -127,61 +146,87 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
   }
 
   /**
-   * Payment CAPTURE: the one place intake is counted. Runs before the rail is asked and rolls back with
-   * the capture, so only a capture that commits is counted. A fresh capture past a cap is refused, and
-   * nothing has moved yet. A recovery (the ledger already holds the capture, the projection did not
-   * commit) is never refused but IS counted, once, because its first count rolled back with it.
+   * Payment CAPTURE, after the ledger post (`afterPaymentCaptureBooked`): the one place intake is
+   * counted. NEVER refuses for a cap, the per-payment bound included: a capture is classified fresh
+   * even when the payer's money has already moved (a rail capture whose ledger post rolled back, a
+   * webhook, a chain-watcher event), and refusing it would strand that money in `authorized`. A
+   * capture over a cap is counted and flagged for ops instead; create-time headroom is the only gate.
+   * The counter row locks are taken here, last, so they never span a rail or ledger call, and a
+   * wait on one is bounded (a timeout rolls the capture back to be retried as a recovery).
    */
-  async function admitCapture(ctx: PaymentAdmitContext): Promise<void> {
-    if (ctx.replay.kind === 'replay') return;
-    const recovery = ctx.replay.kind === 'recovery';
-    const { tx } = ctx;
-    const { assetCode, amount } = readPaymentPayload(ctx.payload);
+  async function countCapture(ctx: PaymentCaptureBookedContext): Promise<void> {
+    const { tx, assetCode, amount } = { tx: ctx.tx, assetCode: ctx.assetId, amount: ctx.amount };
     const eventKey = `payment.capture:${ctx.paymentId.toLowerCase()}`;
-    // Already counted by an earlier call (two racing first calls both read `fresh`): done.
+    // Already counted by an earlier call (two racing first calls, or a recovery): done.
     if (await alreadyCounted(tx, eventKey, 'daily_intake')) return;
 
-    const control = await loadMerchantControl(tx, ctx.merchantId);
-    let perPayment = 0n;
-    let daily = 0n;
-    let monthly = 0n;
+    let limits: { perPayment: Amount; daily: Amount; monthly: Amount } | null = null;
     let resolved: ResolvedRule | null = null;
     try {
+      const control = await loadMerchantControl(tx, ctx.merchantId);
       requireTier(control);
-      ({ perPayment, daily, monthly } = intakeLimits(control, assetCode));
+      limits = intakeLimits(control, assetCode);
       resolved = await requireRule(tx, control, ctx.merchantId, assetCode);
     } catch (error) {
-      // Config removed since the payment was admitted: finishing a recovery is never refused.
-      if (!(recovery && error instanceof ControlRefusal && error.kind === 'refused')) throw error;
+      // Config removed or unreadable since the payment was created: the capture still finishes.
+      if (!(error instanceof ControlRefusal)) throw error;
     }
-    const enforce = !recovery;
-    if (enforce && amount > perPayment) throw new ControlRefusal('pay.cap_per_payment_exceeded');
 
     const at = now();
-    const dailyResult = await consumeMoney(tx, {
-      merchantId: ctx.merchantId,
-      kind: 'daily_intake',
-      assetCode,
-      periodKey: dayKey(at),
-      eventKey,
-      amount,
-      limit: daily,
-      enforce,
-    });
-    const monthlyResult = await consumeMoney(tx, {
-      merchantId: ctx.merchantId,
-      kind: 'monthly_intake',
-      assetCode,
-      periodKey: monthKey(at),
-      eventKey,
-      amount,
-      limit: monthly,
-      enforce,
-    });
-    if (!resolved || (!dailyResult.counted && !monthlyResult.counted)) return;
+    const [dailyResult, monthlyResult] = await withCounterLockTimeout(tx, async () => [
+      await consumeMoney(tx, {
+        merchantId: ctx.merchantId,
+        kind: 'daily_intake',
+        assetCode,
+        periodKey: dayKey(at),
+        eventKey,
+        amount,
+        limit: limits?.daily ?? 0n,
+        enforce: false,
+      }),
+      await consumeMoney(tx, {
+        merchantId: ctx.merchantId,
+        kind: 'monthly_intake',
+        assetCode,
+        periodKey: monthKey(at),
+        eventKey,
+        amount,
+        limit: limits?.monthly ?? 0n,
+        enforce: false,
+      }),
+    ]);
+    if (!dailyResult.counted && !monthlyResult.counted) return;
 
+    const over: string[] = [];
+    if (!limits) over.push('config_missing');
+    else {
+      if (amount > limits.perPayment) over.push('per_payment');
+      if (dailyResult.usedBefore + amount > limits.daily) over.push('daily_intake');
+      if (monthlyResult.usedBefore + amount > limits.monthly) over.push('monthly_intake');
+    }
+    if (over.length > 0) {
+      await writeAudit(tx, {
+        scope: 'merchant',
+        scopeId: ctx.merchantId,
+        merchantId: ctx.merchantId,
+        kind: 'payment.captured_over_cap',
+        outcome: 'flagged',
+        actorId: 'system:capture_guard',
+        reason: `captured payment exceeded: ${over.join(', ')}`,
+        after: { paymentId: ctx.paymentId, assetCode, amount: formatAmount(amount), exceeded: over },
+      });
+    }
+
+    // The pricing snapshot is bookkeeping: a rule that is gone or cannot be computed skips it, never the capture.
+    if (!resolved) return;
     const rule = resolved;
-    const quote = wrapConfig(() => computePricing(rule.rule, { amount, monthlyVolumeBefore: monthlyResult.usedBefore }));
+    let quote;
+    try {
+      quote = computePricing(rule.rule, { amount, monthlyVolumeBefore: monthlyResult.usedBefore });
+    } catch (error) {
+      if (error instanceof PricingConfigError) return;
+      throw error;
+    }
     await writePricingSnapshot(tx, {
       subjectKind: 'payment',
       subjectId: ctx.paymentId,
@@ -199,8 +244,10 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
       // Authorize moves nothing and is halts' business only.
       if (ctx.kind === 'payment.authorize') return;
       if (ctx.kind === 'payment.create') return admitCreate(ctx);
-      return admitCapture(ctx);
+      // Capture: nothing before the rail. Counted after the ledger post (afterPaymentCaptureBooked).
     },
+
+    afterPaymentCaptureBooked: countCapture,
 
     async beforePayoutAdmit(ctx) {
       if (ctx.replay.kind !== 'fresh') return;
@@ -247,7 +294,7 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
         kind: 'daily_payout',
         assetCode: ctx.assetId,
         periodKey: dayKey(at),
-        eventKey: `payout:${ctx.settlementId.toLowerCase()}`,
+        eventKey: `payout:${ctx.settlementId.toLowerCase()}:${dayKey(at)}`,
         amount: ctx.amount,
         limit: dailyPayout,
       });
@@ -272,8 +319,13 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
      * `withdrawal.create` debits that same account. Without this hook an owner could move
      * settled funds out through a withdrawal and skip every payout control. So a
      * withdrawal by a merchant owner is held to the same daily payout cap, beneficiary cap
-     * and approval threshold of each merchant the user owns. (Funds in the account cannot
-     * be told apart by origin, so every owned merchant's limits apply.)
+     * and approval threshold of each merchant the user owns THAT HAS SETTLED THIS ASSET.
+     * (Funds in the account cannot be told apart by origin, so every such merchant's limits
+     * apply. A merchant that never settled the asset, or has no settlements, holds nothing.)
+     *
+     * THIS IS NOT THE WHOLE EXIT. The owner's user-money account has other ways out (card
+     * spend, bank transfers, trading) that this hook does not see; see
+     * services/svc-pay/src/control/README.md "Known residual".
      *
      * An amount at or above the approval threshold is refused `pay.approval_required`: a
      * maker-checker approval is bound to a settlement, and a withdrawal has none, so there
@@ -286,7 +338,14 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
     async beforeUserMoneyWithdrawal(ctx) {
       if (ctx.replay.kind !== 'fresh') return;
       const { tx } = ctx;
-      const owned = await tx<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE user_id = ${ctx.userId} ORDER BY id`;
+      // Only a merchant that has SETTLED this asset puts its proceeds in the owner's account in this
+      // asset. A dormant merchant, or one that never settled this asset, does not hold a withdrawal of it.
+      const owned = await tx<Array<{ id: string }>>`
+        SELECT m.id FROM pay.merchants m
+         WHERE m.user_id = ${ctx.userId}
+           AND EXISTS (SELECT 1 FROM pay.settlements s WHERE s.merchant_id = m.id AND s.asset_id = ${ctx.assetId})
+         ORDER BY m.id
+      `;
       if (owned.length === 0) return;
       const at = now();
       for (const { id } of owned) {
@@ -301,7 +360,7 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
         if (approvalThreshold === undefined) throw new ControlRefusal('pay.approval_threshold_unconfigured');
         if (ctx.amount >= approvalThreshold) throw new ControlRefusal('pay.approval_required');
 
-        const eventKey = `withdrawal:${merchantId}:${ctx.userId.toLowerCase()}:${ctx.clientRef}`;
+        const eventKey = `withdrawal:${merchantId}:${ctx.userId.toLowerCase()}:${ctx.clientRef}:${dayKey(at)}`;
         await consumeMoney(tx, {
           merchantId,
           kind: 'daily_payout',

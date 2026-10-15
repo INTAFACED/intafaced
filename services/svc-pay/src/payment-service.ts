@@ -2233,6 +2233,16 @@ export class PayService {
             }),
           );
 
+          // Seam: the money has moved. Intake is counted here, after the ledger post and with the
+          // counter locks held only from this point to the commit (seams/guards.ts). Never refuses a cap.
+          await this.guards.afterPaymentCaptureBooked({
+            tx,
+            paymentId: row.id,
+            merchantId: row.merchant_id,
+            assetId: row.currency,
+            amount: result.amount,
+          });
+
           await appendEvent(tx, row.id, 'captured', {
             amount: formatAmount(result.amount),
             railRef: result.railRef,

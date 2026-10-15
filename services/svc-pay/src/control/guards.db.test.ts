@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { formatAmount, MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
+import { signPayload } from '../rails/webhook-signature.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { UserMoneyService } from '../user-money-service.js';
 import { memoryPayoutDestinations } from '../merchant-payout-destination.js';
@@ -134,6 +135,7 @@ describe('W1 control guards', () => {
       expect(createControlGuards({ sql, mode: 'off' })).toEqual({});
       expect(createW1ControlGuards({ sql, merchantControls: 'off' })).toEqual({});
       expect(Object.keys(createW1ControlGuards({ sql, merchantControls: 'required' })).sort()).toEqual([
+        'afterPaymentCaptureBooked',
         'beforePaymentAdmit',
         'beforePayoutAdmit',
         'beforeSettlementRun',
@@ -250,7 +252,23 @@ describe('W1 control guards', () => {
       await expect(pay(p, m.id, '1')).rejects.toMatchObject({ code: 'pay.cap_monthly_intake_exceeded' });
     });
 
-    it('8 parallel captures of 33.333333333333333333 against a daily cap of 100: exactly 3 commit, the 4th unit never fits', async () => {
+    it('create refuses to the minor unit once captured volume has used the headroom; the cap is enforced there and only there', async () => {
+      const p = service();
+      const m = await merchant('99999999-9999-4999-8999-999999999999', p);
+      await configure(m.id, {
+        tier: { ...TEST_TIER, caps: TEST_TIER.caps.map((c) => (c.kind === 'daily_intake' ? { ...c, limit: '100' } : c)) },
+      });
+      for (let i = 0; i < 3; i += 1) await captured(p, m.id, '33.333333333333333333');
+      expect(await usage(m.id, 'daily_intake')).toBe('99.999999999999999999');
+      // One minor unit of headroom is left: it fits. One more does not.
+      expect((await captured(p, m.id, '0.000000000000000001')).status).toBe('captured');
+      expect(await usage(m.id, 'daily_intake')).toBe('100');
+      await expect(pay(p, m.id, '0.000000000000000001')).rejects.toMatchObject({ code: 'pay.cap_daily_intake_exceeded' });
+      expect(await usage(m.id, 'daily_intake')).toBe('100');
+      expect((await sql`SELECT 1 FROM pay.control_audit WHERE kind = 'payment.captured_over_cap'`).length).toBe(0);
+    }, 60_000);
+
+    it('8 payments created inside the headroom and captured in parallel all land: none refused or stranded, all counted, the 5 over the cap flagged', async () => {
       const p = service();
       const m = await merchant('99999999-9999-4999-8999-999999999999', p);
       await configure(m.id, {
@@ -264,21 +282,61 @@ describe('W1 control guards', () => {
       }
       expect(await usage(m.id, 'daily_intake')).toBe('0');
       const results = await Promise.allSettled(ids.map((id) => p.capture(id)));
-      const ok = results.filter((r) => r.status === 'fulfilled');
-      const refused = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-      expect(ok).toHaveLength(3);
-      expect(refused).toHaveLength(5);
-      for (const r of refused) expect(r.reason).toMatchObject({ code: 'pay.cap_daily_intake_exceeded' });
-      expect(await usage(m.id, 'daily_intake')).toBe('99.999999999999999999');
-      // A refused capture moved nothing: those payments are still authorized, not captured.
-      expect((await sql`SELECT 1 FROM pay.payments WHERE status = 'captured'`).length).toBe(3);
-      expect((await sql`SELECT 1 FROM pay.payments WHERE status = 'authorized'`).length).toBe(5);
-      // One minor unit of headroom is left: it fits. One more does not.
-      expect((await captured(p, m.id, '0.000000000000000001')).status).toBe('captured');
-      expect(await usage(m.id, 'daily_intake')).toBe('100');
-      await expect(pay(p, m.id, '0.000000000000000001')).rejects.toMatchObject({ code: 'pay.cap_daily_intake_exceeded' });
-      expect(await usage(m.id, 'daily_intake')).toBe('100');
+      expect(results.filter((r) => r.status === 'rejected')).toEqual([]);
+      expect((await sql`SELECT 1 FROM pay.payments WHERE status = 'captured'`).length).toBe(8);
+      expect((await sql`SELECT 1 FROM pay.payments WHERE status = 'authorized'`).length).toBe(0);
+      expect(await usage(m.id, 'daily_intake')).toBe('266.666666666666666664');
+      expect(await usage(m.id, 'monthly_intake')).toBe('266.666666666666666664');
+      const flags = await sql<
+        Array<{ after: { exceeded: string[] } }>
+      >`SELECT after FROM pay.control_audit WHERE kind = 'payment.captured_over_cap'`;
+      expect(flags).toHaveLength(5);
+      for (const f of flags) expect(f.after.exceeded).toContain('daily_intake');
     }, 60_000);
+
+    it('a rail `captured` webhook past the monthly cap is captured, counted once and flagged, never left authorized', async () => {
+      const p = service();
+      const m = await merchant('99999999-9999-4999-8999-999999999999', p);
+      await configure(m.id, {
+        tier: { ...TEST_TIER, caps: TEST_TIER.caps.map((c) => (c.kind === 'monthly_intake' ? { ...c, limit: '150' } : c)) },
+      });
+      const cardAuthorized = async () => {
+        const created = await p.createPayment({
+          requestId: randomUUID(),
+          merchantId: m.id,
+          amount: amt('100'),
+          assetId: 'USDT',
+          method: 'card',
+          railAdapter: 'card-sandbox',
+          instrument: { kind: 'card', token: 'tok_ok' },
+        });
+        return p.authorize(created.id);
+      };
+      const first = await cardAuthorized();
+      const second = await cardAuthorized();
+      await p.capture(first.id);
+      expect(await usage(m.id, 'monthly_intake')).toBe('100');
+      const webhook = (id: string) => {
+        const body = JSON.stringify({ id, type: 'captured', ref: second.railRef, amount: '100', assetId: 'USDT' });
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        return {
+          headers: { 'x-sandbox-signature': signPayload(SECRET, timestamp, body), 'x-sandbox-timestamp': timestamp },
+          body,
+        };
+      };
+      const outcome = await p.handleWebhook('card-sandbox', webhook('evt_capture_over_cap'));
+      expect(outcome.applied).toBe(true);
+      expect((await p.getPayment(second.id)).status).toBe('captured');
+      expect(await usage(m.id, 'monthly_intake')).toBe('200');
+      const flags = await sql<Array<{ after: { paymentId: string; exceeded: string[] } }>>`
+        SELECT after FROM pay.control_audit WHERE kind = 'payment.captured_over_cap'`;
+      expect(flags).toHaveLength(1);
+      expect(flags[0]!.after).toMatchObject({ paymentId: second.id, exceeded: ['monthly_intake'] });
+      // A redelivery with a new event id finds it captured: nothing changes.
+      expect((await p.handleWebhook('card-sandbox', webhook('evt_capture_over_cap_2'))).applied).toBe(false);
+      expect(await usage(m.id, 'monthly_intake')).toBe('200');
+      expect((await sql`SELECT 1 FROM pay.control_audit WHERE kind = 'payment.captured_over_cap'`).length).toBe(1);
+    });
 
     it('a per-merchant override replaces the tier cap of the same kind and asset', async () => {
       const p = service();
@@ -292,30 +350,91 @@ describe('W1 control guards', () => {
       await expect(pay(p, m.id, '21')).rejects.toMatchObject({ code: 'pay.cap_per_payment_exceeded' });
       expect((await captured(p, m.id, '20')).status).toBe('captured');
     });
+  });
 
-    it('a capture is refused before the rail is asked, so a refused capture leaves the payment authorized and uncounted', async () => {
+  describe('the capture counters are held only after the rail and ledger calls', () => {
+    /** Backends that currently hold any lock on the cap counter table. */
+    const counterLockHolders = async () =>
+      (
+        await sql<Array<{ pid: number }>>`
+          SELECT DISTINCT l.pid FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+           WHERE c.relname = 'control_cap_usage' AND l.granted AND l.pid <> pg_backend_pid()`
+      ).length;
+
+    it("a slow rail capture holds no counter lock and does not block the merchant's other captures", async () => {
       const p = service();
       const m = await merchant('99999999-9999-4999-8999-999999999999', p);
-      await configure(m.id, {
-        tier: { ...TEST_TIER, caps: TEST_TIER.caps.map((c) => (c.kind === 'daily_intake' ? { ...c, limit: '100' } : c)) },
+      await configure(m.id);
+      const card = () =>
+        p
+          .createPayment({
+            requestId: randomUUID(),
+            merchantId: m.id,
+            amount: amt('10'),
+            assetId: 'USDT',
+            method: 'card',
+            railAdapter: 'card-sandbox',
+            instrument: { kind: 'card', token: 'tok_ok' },
+          })
+          .then((c) => p.authorize(c.id));
+      const slow = await card();
+      const other = await card();
+      const adapter = rails.get('card-sandbox');
+      const realCapture = adapter.capture.bind(adapter);
+      let entered!: () => void;
+      const inRail = new Promise<void>((resolve) => (entered = resolve));
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      adapter.capture = async (ref: string) => {
+        if (ref === slow.railRef) {
+          entered();
+          await gate;
+        }
+        return realCapture(ref);
+      };
+      try {
+        const slowCapture = p.capture(slow.id);
+        await inRail;
+        // The slow capture is inside the rail call, holding its transaction open.
+        expect(await counterLockHolders()).toBe(0);
+        // Another capture for the SAME merchant and asset completes meanwhile.
+        expect((await p.capture(other.id)).status).toBe('captured');
+        expect(await usage(m.id, 'daily_intake')).toBe('10');
+        release();
+        expect((await slowCapture).status).toBe('captured');
+        expect(await usage(m.id, 'daily_intake')).toBe('20');
+      } finally {
+        release();
+        adapter.capture = realCapture;
+      }
+    }, 30_000);
+
+    it('a counter lock that cannot be had in 2s refuses as unavailable (retry later), leaves the payment authorized, and the retry counts once', async () => {
+      const p = service();
+      const m = await merchant('99999999-9999-4999-8999-999999999999', p);
+      await configure(m.id);
+      await captured(p, m.id, '10');
+      const created = await pay(p, m.id, '10');
+      await fund(p, created.id, '10');
+      let holding!: () => void;
+      const held = new Promise<void>((resolve) => (holding = resolve));
+      let letGo!: () => void;
+      const hold = new Promise<void>((resolve) => (letGo = resolve));
+      const blocker = sql.begin(async (tx) => {
+        await tx`SELECT 1 FROM pay.control_cap_usage WHERE merchant_id = ${m.id} FOR UPDATE`;
+        holding();
+        await hold;
       });
-      const a = await pay(p, m.id, '60');
-      const b = await pay(p, m.id, '60');
-      await fund(p, a.id, '60');
-      await fund(p, b.id, '60');
-      await p.capture(a.id);
-      await expect(p.capture(b.id)).rejects.toMatchObject({ code: 'pay.cap_daily_intake_exceeded' });
-      expect((await p.getPayment(b.id)).status).toBe('authorized');
-      expect(await usage(m.id, 'daily_intake')).toBe('60');
-      // Room appears (the day rolls over, here: the owner raises the cap) and the same capture then lands.
-      await applyChange(changes, sql, {
-        scope: 'merchant',
-        merchantId: m.id,
-        change: { kind: 'set_caps', caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '200' }] },
-      });
-      expect((await p.capture(b.id)).status).toBe('captured');
-      expect(await usage(m.id, 'daily_intake')).toBe('120');
-    });
+      await held;
+      const started = Date.now();
+      await expect(p.capture(created.id)).rejects.toMatchObject({ code: 'pay.guard_unavailable' });
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect((await p.getPayment(created.id)).status).toBe('authorized');
+      letGo();
+      await blocker;
+      expect((await p.capture(created.id)).status).toBe('captured');
+      expect(await usage(m.id, 'daily_intake')).toBe('20');
+    }, 30_000);
   });
 
   describe('replay and recovery are never refused', () => {
@@ -347,73 +466,81 @@ describe('W1 control guards', () => {
       expect(await usage(m.id, 'daily_intake')).toBe('70');
     });
 
-    it('the guard counts only a fresh CAPTURE, once per payment even when two racing calls both read fresh', async () => {
+    it('create and authorize never count; the capture hook counts once per payment even when two racing calls both run', async () => {
       const m = await merchant('99999999-9999-4999-8999-999999999999');
       await configure(m.id);
       const guards = required();
       const paymentId = randomUUID();
-      const ctx = (
-        kind: 'payment.create' | 'payment.authorize' | 'payment.capture',
-        replay: Parameters<typeof guards.beforePaymentAdmit>[0]['replay'],
-        tx: typeof sql,
-      ) => ({ tx, kind, paymentId, merchantId: m.id, payload: { assetId: 'USDT', amount: '40' }, replay });
-      // Create and authorize never count, fresh or not.
+      const admit = (kind: 'payment.create' | 'payment.authorize', tx: typeof sql) =>
+        guards.beforePaymentAdmit({ tx, kind, paymentId, merchantId: m.id, payload: { assetId: 'USDT', amount: '40' }, replay: FRESH });
+      const booked = (tx: typeof sql) =>
+        guards.afterPaymentCaptureBooked({ tx, paymentId, merchantId: m.id, assetId: 'USDT', amount: amt('40') });
       await sql.begin(async (tx) => {
-        await guards.beforePaymentAdmit(ctx('payment.create', FRESH, tx as never));
-        await guards.beforePaymentAdmit(ctx('payment.authorize', FRESH, tx as never));
-        await guards.beforePaymentAdmit(ctx('payment.capture', { kind: 'replay', reason: 'already_captured' }, tx as never));
+        await admit('payment.create', tx as never);
+        await admit('payment.authorize', tx as never);
+        await guards.beforePaymentAdmit({
+          tx: tx as never,
+          kind: 'payment.capture',
+          paymentId,
+          merchantId: m.id,
+          payload: { assetId: 'USDT', amount: '40' },
+          replay: FRESH,
+        });
       });
       expect(await usage(m.id, 'daily_intake')).toBe('0');
-      await Promise.all([
-        sql.begin((tx) => guards.beforePaymentAdmit(ctx('payment.capture', FRESH, tx as never))),
-        sql.begin((tx) => guards.beforePaymentAdmit(ctx('payment.capture', FRESH, tx as never))),
-      ]);
+      await Promise.all([sql.begin((tx) => booked(tx as never)), sql.begin((tx) => booked(tx as never))]);
       expect(await usage(m.id, 'daily_intake')).toBe('40');
       expect(await usage(m.id, 'monthly_intake')).toBe('40');
       expect((await sql`SELECT 1 FROM pay.control_pricing_snapshots WHERE subject_id = ${paymentId}`).length).toBe(1);
-      // A later recovery of the same payment finds it counted already.
-      await sql.begin((tx) =>
-        guards.beforePaymentAdmit(ctx('payment.capture', { kind: 'recovery', reason: 'ledger_already_booked' }, tx as never)),
-      );
+      // A later recovery of the same capture finds it counted already.
+      await sql.begin((tx) => booked(tx as never));
       expect(await usage(m.id, 'daily_intake')).toBe('40');
     });
 
-    it('a recovered capture is never refused, and is counted once when its first count rolled back with the capture', async () => {
+    it('a capture over every cap, or with its config gone, is counted and flagged once and never refused', async () => {
       const m = await merchant('99999999-9999-4999-8999-999999999999');
       await configure(m.id, {
         tier: { ...TEST_TIER, caps: TEST_TIER.caps.map((c) => (c.kind === 'daily_intake' ? { ...c, limit: '30' } : c)) },
       });
       const guards = required();
       const paymentId = randomUUID();
-      const recover = () =>
+      const booked = (id: string, amount: string) =>
         sql.begin((tx) =>
-          guards.beforePaymentAdmit({
-            tx: tx as never,
-            kind: 'payment.capture',
-            paymentId,
-            merchantId: m.id,
-            payload: { assetId: 'USDT', amount: '40' },
-            replay: { kind: 'recovery', reason: 'ledger_already_booked' },
-          }),
+          guards.afterPaymentCaptureBooked({ tx: tx as never, paymentId: id, merchantId: m.id, assetId: 'USDT', amount: amt(amount) }),
         );
-      // 40 is over the 30 cap, but the money is already on the ledger: counted, not refused.
-      await recover();
-      expect(await usage(m.id, 'daily_intake')).toBe('40');
-      await recover();
-      expect(await usage(m.id, 'daily_intake')).toBe('40');
-      // And a fresh capture now finds no room.
-      await expect(
-        sql.begin((tx) =>
-          guards.beforePaymentAdmit({
-            tx: tx as never,
-            kind: 'payment.capture',
-            paymentId: randomUUID(),
-            merchantId: m.id,
-            payload: { assetId: 'USDT', amount: '1' },
-            replay: FRESH,
-          }),
-        ),
-      ).rejects.toMatchObject({ code: 'pay.cap_daily_intake_exceeded' });
+      // 150 is over the per-payment (100) and the day (30): counted all the same.
+      await booked(paymentId, '150');
+      await booked(paymentId, '150');
+      expect(await usage(m.id, 'daily_intake')).toBe('150');
+      const flags = await sql<
+        Array<{ after: { exceeded: string[] } }>
+      >`SELECT after FROM pay.control_audit WHERE kind = 'payment.captured_over_cap'`;
+      expect(flags).toHaveLength(1);
+      expect(flags[0]!.after.exceeded).toEqual(['per_payment', 'daily_intake']);
+      // A merchant with no tier at all: still counted, flagged as config_missing, no pricing snapshot.
+      const bare = await merchant('99999999-9999-4999-8999-999999999998');
+      const bareId = randomUUID();
+      await sql.begin((tx) =>
+        guards.afterPaymentCaptureBooked({ tx: tx as never, paymentId: bareId, merchantId: bare.id, assetId: 'USDT', amount: amt('5') }),
+      );
+      expect(await usage(bare.id, 'daily_intake')).toBe('5');
+      expect((await sql`SELECT 1 FROM pay.control_audit WHERE merchant_id = ${bare.id} AND reason LIKE '%config_missing%'`).length).toBe(1);
+      expect((await sql`SELECT 1 FROM pay.control_pricing_snapshots WHERE subject_id = ${bareId}`).length).toBe(0);
+    });
+
+    it('a pricing rule that cannot be computed skips the snapshot, never the capture', async () => {
+      const m = await merchant('99999999-9999-4999-8999-999999999999');
+      await configure(m.id);
+      // A rule whose arithmetic fails (a fee that would exceed the amount's scale) is stored as config; make it unreadable.
+      await sql`ALTER TABLE pay.control_pricing_rules DISABLE TRIGGER USER`;
+      await sql`UPDATE pay.control_pricing_rules SET bands = '[{"fromAmount":"0","feeBps":-1,"flatFee":null}]'::jsonb WHERE layer = 'global'`;
+      await sql`ALTER TABLE pay.control_pricing_rules ENABLE TRIGGER USER`;
+      const paymentId = randomUUID();
+      await sql.begin((tx) =>
+        required().afterPaymentCaptureBooked({ tx: tx as never, paymentId, merchantId: m.id, assetId: 'USDT', amount: amt('5') }),
+      );
+      expect(await usage(m.id, 'daily_intake')).toBe('5');
+      expect((await sql`SELECT 1 FROM pay.control_pricing_snapshots WHERE subject_id = ${paymentId}`).length).toBe(0);
     });
   });
 
@@ -494,6 +621,36 @@ describe('W1 control guards', () => {
       ).rejects.toMatchObject({ code: 'pay.cap_beneficiaries_exceeded' });
     });
 
+    it('a retry on a LATER day is counted on its own day; a same-day retry stays free', async () => {
+      const m = await merchant('99999999-9999-4999-8999-999999999999');
+      await configure(m.id, {
+        tier: { ...TEST_TIER, caps: TEST_TIER.caps.map((c) => (c.kind === 'daily_payout' ? { ...c, limit: '30' } : c)) },
+      });
+      let clock = new Date('2026-03-10T10:00:00Z');
+      const g = composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock }));
+      const settlementId = randomUUID();
+      const byDay = async () =>
+        Object.fromEntries(
+          (
+            await sql<Array<{ period_key: string; used: string }>>`
+              SELECT period_key, used FROM pay.control_cap_usage WHERE merchant_id = ${m.id} AND cap_kind = 'daily_payout'`
+          ).map((r) => [r.period_key, formatAmount(amt(r.used))]),
+        );
+      await sql.begin((tx) => g.beforePayoutAdmit(payoutCtx(tx, m.id, { settlementId, amount: amt('20'), attempt: 0 })));
+      await sql.begin((tx) => g.beforePayoutAdmit(payoutCtx(tx, m.id, { settlementId, amount: amt('20'), attempt: 1 })));
+      expect(await byDay()).toEqual({ '2026-03-10': '20' });
+      clock = new Date('2026-03-11T00:00:01Z');
+      await sql.begin((tx) => g.beforePayoutAdmit(payoutCtx(tx, m.id, { settlementId, amount: amt('20'), attempt: 2 })));
+      await sql.begin((tx) => g.beforePayoutAdmit(payoutCtx(tx, m.id, { settlementId, amount: amt('20'), attempt: 3 })));
+      expect(await byDay()).toEqual({ '2026-03-10': '20', '2026-03-11': '20' });
+      // The later day's count is real: it takes its share of that day's cap.
+      await expect(
+        sql.begin((tx) => g.beforePayoutAdmit(payoutCtx(tx, m.id, { amount: amt('10.000000000000000001') }))),
+      ).rejects.toMatchObject({
+        code: 'pay.cap_daily_payout_exceeded',
+      });
+    });
+
     it('beneficiaries per day: a third distinct destination is refused, a known one is not', async () => {
       const m = await merchant('99999999-9999-4999-8999-999999999999');
       await configure(m.id);
@@ -538,6 +695,23 @@ describe('W1 control guards', () => {
       await truncatePayForTest(sql, 'pay', 'TRUNCATE pay.withdrawals, pay.deposits RESTART IDENTITY CASCADE');
     });
 
+    /** A USDT settlement for the merchant, made with the controls off so nothing is counted. */
+    let windowSeq = 0;
+    async function settle(merchantId: string, assetId = 'USDT') {
+      const off = service(composeGuards({}));
+      const created = await pay(off, merchantId, '10');
+      await fund(off, created.id, '10');
+      await off.capture(created.id);
+      windowSeq += 1;
+      return off.settleWindow({
+        merchantId,
+        window: `wd-${windowSeq}`,
+        assetId,
+        from: new Date(Date.now() - 86_400_000),
+        to: new Date(Date.now() + 86_400_000),
+      });
+    }
+
     function money(guards: ReturnType<typeof required>) {
       return new UserMoneyService(sql, ledger, rails, { operatorCreditRails: ['card-sandbox'], guards });
     }
@@ -565,6 +739,7 @@ describe('W1 control guards', () => {
     it("required: a withdrawal over the owner merchant's daily payout cap is refused, leaves no claim, and counts nothing", async () => {
       const m = await merchant(OWNER);
       await configure(m.id, { tier: wdTier('30') });
+      await settle(m.id);
       const svc = await funded(required());
       expect((await svc.withdraw(request('w1', '20'))).status).toBe('sent');
       expect(await usage(m.id, 'daily_payout')).toBe('20');
@@ -589,6 +764,7 @@ describe('W1 control guards', () => {
     it('required: the beneficiary cap applies to withdrawals and is shared with payouts', async () => {
       const m = await merchant(OWNER);
       await configure(m.id);
+      await settle(m.id);
       const svc = await funded(required());
       const g = required();
       // One beneficiary used by a payout today, one by a withdrawal: the third distinct destination is refused.
@@ -617,14 +793,16 @@ describe('W1 control guards', () => {
     it('required: at or above the approval threshold is refused (no approval can exist for a withdrawal); just under goes through', async () => {
       const m = await merchant(OWNER);
       await configure(m.id);
+      await settle(m.id);
       const svc = await funded(required());
       await expect(svc.withdraw(request('t1', '50'))).rejects.toMatchObject({ code: 'pay.approval_required' });
       expect((await sql`SELECT 1 FROM pay.withdrawals`).length).toBe(0);
       expect((await svc.withdraw(request('t2', '49.999999999999999999'))).status).toBe('sent');
     });
 
-    it('required: a merchant owner with nothing configured is refused (no defaults); a user who owns no merchant is untouched', async () => {
-      await merchant(OWNER);
+    it('required: an owner with USDT settlements and nothing configured is refused (no defaults) for USDT; a user who owns no merchant is untouched', async () => {
+      const m = await merchant(OWNER);
+      await settle(m.id);
       const svc = await funded(required());
       await expect(svc.withdraw(request('u1', '5'))).rejects.toMatchObject({ code: 'pay.tier_unassigned' });
       const PLAIN = '88888888-8888-4888-8888-888888888888';
@@ -633,32 +811,41 @@ describe('W1 control guards', () => {
       expect((await sql`SELECT 1 FROM pay.control_cap_usage`).length).toBe(0);
     });
 
-    it('required: an owner of two merchants is held to both, so neither cap can be bypassed through the other', async () => {
-      const m1 = await merchant(OWNER);
-      const m2 = await merchant(OWNER);
-      await configure(m1.id, { tier: wdTier('100') });
-      await applyChange(changes, sql, {
-        scope: 'merchant',
-        merchantId: m2.id,
-        change: { kind: 'set_caps', caps: [{ kind: 'daily_payout', assetCode: 'USDT', limit: '15' }] },
-      });
-      await applyChange(changes, sql, {
-        scope: 'merchant',
-        merchantId: m2.id,
-        change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null },
-      });
+    it('required: an owner whose merchant only ever settled USDT can withdraw personal BTC, and is still held to the USDT caps', async () => {
+      const m = await merchant(OWNER);
+      await configure(m.id, { tier: wdTier('30') });
+      await settle(m.id);
       const svc = await funded(required());
-      await expect(svc.withdraw(request('two', '20'))).rejects.toMatchObject({ code: 'pay.cap_daily_payout_exceeded' });
+      await svc.credit({
+        userId: OWNER,
+        assetId: 'BTC',
+        amount: amt('5'),
+        rail: 'card-sandbox',
+        railRef: `seed-btc-${randomUUID()}`,
+        creditedBy: '99999999-9999-4999-8999-999999999999',
+      });
+      const btc = { ...request('btc-1', '2'), assetId: 'BTC' };
+      expect((await svc.withdraw(btc)).status).toBe('sent');
       expect((await sql`SELECT 1 FROM pay.control_cap_usage`).length).toBe(0);
-      expect((await svc.withdraw(request('two-ok', '10'))).status).toBe('sent');
-      expect(await usage(m1.id, 'daily_payout')).toBe('10');
-      expect(await usage(m2.id, 'daily_payout')).toBe('10');
+      // The same user is still held to the USDT caps for USDT.
+      await expect(svc.withdraw(request('usdt-over', '31'))).rejects.toMatchObject({ code: 'pay.cap_daily_payout_exceeded' });
+      expect((await svc.withdraw(request('usdt-ok', '20'))).status).toBe('sent');
+      expect(await usage(m.id, 'daily_payout')).toBe('20');
+    });
+
+    it('required: an owner whose only merchant is dormant (no settlements, no config) withdraws freely', async () => {
+      await merchant(OWNER);
+      const svc = await funded(required());
+      expect((await svc.withdraw(request('dormant', '150'))).status).toBe('sent');
+      expect((await sql`SELECT 1 FROM pay.control_cap_usage`).length).toBe(0);
     });
 
     it('the guard counts a withdrawal once per client reference, ignores replay and recovery, and refuses nothing it did not count', async () => {
       const m = await merchant(OWNER);
       await configure(m.id, { tier: wdTier('30') });
-      const g = required();
+      await settle(m.id);
+      let clock = new Date('2026-03-10T10:00:00Z');
+      const g = composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock }));
       const ctx = (tx: unknown, over: Record<string, unknown> = {}) => ({
         tx: tx as never,
         userId: OWNER,
@@ -679,6 +866,18 @@ describe('W1 control guards', () => {
         ),
       );
       expect(await usage(m.id, 'daily_payout')).toBe('20');
+      // The same reference retried on a later day is counted on that day (and its beneficiary too).
+      clock = new Date('2026-03-11T00:00:01Z');
+      await sql.begin((tx) => g.beforeUserMoneyWithdrawal(ctx(tx)));
+      const days = await sql<Array<{ period_key: string; used: string }>>`
+        SELECT period_key, used FROM pay.control_cap_usage WHERE merchant_id = ${m.id} AND cap_kind = 'daily_payout' ORDER BY period_key`;
+      expect(days.map((d) => [d.period_key, formatAmount(amt(d.used))])).toEqual([
+        ['2026-03-10', '20'],
+        ['2026-03-11', '20'],
+      ]);
+      const benefs = await sql<Array<{ period_key: string }>>`
+        SELECT period_key FROM pay.control_beneficiaries WHERE merchant_id = ${m.id} ORDER BY period_key`;
+      expect(benefs.map((b) => b.period_key)).toEqual(['2026-03-10', '2026-03-11']);
     });
   });
 
