@@ -7,7 +7,7 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0000-0037 | shipped on main                                       | applied; gaps at 0019, 0031 and 0034 already exist |
 | 0038-0042 | branch `fix/svc-pay-onto-main` (unpushed)             | taken, do not use                               |
 | 0043-0049 | unassigned                                            | free; ask W0 before using                       |
-| 0050-0054 | W1 merchant control room                              | reserved                                        |
+| 0050-0054 | W1 merchant control room                              | used                                            |
 | 0055-0057 | W2 metrics read model                                 | reserved                                        |
 | 0058-0059 | W5 halts and treasury exposure                        | used                                            |
 | 0060-0061 | W6 conversion                                         | reserved                                        |

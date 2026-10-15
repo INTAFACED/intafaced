@@ -11,9 +11,12 @@
  * tRPC code + message (ids normalised) + cause code; REST status + error code +
  * message. Anything that differs is an existence oracle.
  */
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Context } from '@intafaced/contracts';
+import { ControlService } from '../../src/control/service.js';
+import { ownerAccessPorts } from '../../src/control/access.js';
+import { createPayNamespaces } from '../../src/namespaces/index.js';
 import {
   callRest,
   callTrpc,
@@ -250,6 +253,11 @@ describe('M: merchant isolation', () => {
           return;
         }
         expect(o.kind === 'error' && o.causeCode === 'pay.not_built', 'built now: remove `stub: true` from procedures.ts').toBe(false);
+        if (proc.ownCause) {
+          // Refused by design, for this exact reason: the owner reached the row. A foreign or missing id never gets this cause.
+          expect(o, JSON.stringify(o)).toMatchObject({ kind: 'error', causeCode: proc.ownCause });
+          return;
+        }
         if (proc.own === 'ok') expect(o, JSON.stringify(o)).toMatchObject({ kind: 'ok' });
         else expect(passedFence(o), `owner blocked by the fence: ${JSON.stringify(shapeOf(o))}`).toBe(true);
       },
@@ -375,17 +383,122 @@ describe('M: merchant isolation', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // M4: maker-checker (W1 builds merchantControl.approvals.*)
+  // M4: maker-checker (merchantControl.approvals.*)
   // ────────────────────────────────────────────────────────────────────────
   describe('M4: maker-checker', () => {
-    it('until W1 lands, the approval door is closed to everyone (no accidental approve path)', async () => {
-      const o = await callTrpc(w, ctxFor('session', 'A'), 'merchantControl.approvals.decide', {
-        approvalId: ghostIds().paymentId,
-        decision: 'approve',
-        expectedPayloadHash: `sha256:${'a'.repeat(64)}`,
-        reason: 'checked',
+    const FINANCE = randomUUID();
+    /** The router the way index.ts builds it, except that FINANCE may see and approve for ONE merchant (what W15 team roles will grant). */
+    const withFinance = (financeFor: string) => {
+      const owner = ownerAccessPorts(w.sql);
+      const control = new ControlService(w.sql, {
+        canViewMerchant: async (p, m) => (p.userId === FINANCE ? m === financeFor : owner.canViewMerchant(p, m)),
+        canApprovePayout: async (p, m) => (p.userId === FINANCE ? m === financeFor : owner.canApprovePayout(p, m)),
       });
-      expect(o).toMatchObject({ kind: 'error', code: 'NOT_IMPLEMENTED' });
+      return createPayNamespaces({ founderAuthority: w.founderAuthority, control });
+    };
+    const decideInput = (approvalId: string, hash: string) =>
+      ({ approvalId, decision: 'approve', expectedPayloadHash: hash, reason: 'checked' }) as const;
+    const rowOf = async (approvalId: string) =>
+      (await w.sql`SELECT status, checker_user_id, founder_first_user_id FROM pay.control_payout_approvals WHERE id = ${approvalId}`)[0]!;
+    const fail = async (p: Promise<unknown>) =>
+      p.then(
+        () => null,
+        (e: { code: string; message: string; cause?: { code?: string } }) => ({ code: e.code, cause: e.cause?.code }),
+      );
+    const hashOf = async (approvalId: string) =>
+      (await w.sql<Array<{ payload_hash: string }>>`SELECT payload_hash FROM pay.control_payout_approvals WHERE id = ${approvalId}`)[0]!
+        .payload_hash;
+
+    it('the seeded approvals are real: every merchant has one pending request made by its own owner', async () => {
+      for (const t of ['A', 'B', 'P', 'Q'] as const) {
+        const r = await w.sql<Array<{ status: string; maker_user_id: string; merchant_id: string }>>`
+          SELECT status, maker_user_id, merchant_id FROM pay.control_payout_approvals WHERE id = ${w.e[t].approvalId}`;
+        expect(r[0], t).toMatchObject({ maker_user_id: w.e[t].userId, merchant_id: w.e[t].merchantId });
+      }
+    });
+
+    it('a maker cannot approve their own payout, on a session with MFA, and the approval does not move', async () => {
+      // C2 is untouched by the M1 probes, so its approval is still pending.
+      const C2 = w.e.C2;
+      const before = await rowOf(C2.approvalId);
+      expect(before.status).toBe('pending');
+      const o = await callTrpc(
+        w,
+        ctxFor('session', 'C2'),
+        'merchantControl.approvals.decide',
+        decideInput(C2.approvalId, await hashOf(C2.approvalId)),
+      );
+      expect(o).toMatchObject({ kind: 'error', code: 'FORBIDDEN', causeCode: 'pay.approval_self_approval' });
+      expect(await rowOf(C2.approvalId)).toEqual(before);
+    });
+
+    it('... even when the access rules would let the maker approve (the database also refuses a checker equal to the maker)', async () => {
+      const C2 = w.e.C2;
+      const router = withFinance(C2.merchantId); // the owner keeps owner rights, so only the self-approval rule stands in the way
+      const caller = router.createCaller(ctxOf(sessionOf(C2.userId)));
+      const e = await fail(caller.merchantControl.approvals.decide(decideInput(C2.approvalId, await hashOf(C2.approvalId))));
+      expect(e).toMatchObject({ code: 'FORBIDDEN', cause: 'pay.approval_self_approval' });
+      await expect(
+        w.sql`UPDATE pay.control_payout_approvals SET checker_user_id = maker_user_id WHERE id = ${C2.approvalId}`,
+      ).rejects.toMatchObject({ constraint_name: 'control_approvals_maker_not_checker' });
+    });
+
+    it('a member of merchant B cannot approve A’s payout and gets the answer a nonexistent approval gets', async () => {
+      const A = w.e.A;
+      const before = await rowOf(A.approvalId);
+      const asB = ctxFor('session', 'B');
+      const real = await callTrpc(w, asB, 'merchantControl.approvals.decide', decideInput(A.approvalId, await hashOf(A.approvalId)));
+      const none = await callTrpc(
+        w,
+        asB,
+        'merchantControl.approvals.decide',
+        decideInput(ghostIds().approvalId, `sha256:${'a'.repeat(64)}`),
+      );
+      expect(real).toMatchObject({ kind: 'error', code: 'NOT_FOUND', causeCode: 'pay.approval_not_found' });
+      expect(shapeOf(real)).toEqual(shapeOf(none));
+      expect(await rowOf(A.approvalId)).toEqual(before);
+    });
+
+    it('... and cannot cancel it or list it either', async () => {
+      const A = w.e.A;
+      const before = await rowOf(A.approvalId);
+      const asB = ctxFor('session', 'B');
+      const cancel = await callTrpc(w, asB, 'merchantControl.approvals.cancel', { approvalId: A.approvalId, reason: 'not yours' });
+      const none = await callTrpc(w, asB, 'merchantControl.approvals.cancel', { approvalId: ghostIds().approvalId, reason: 'not yours' });
+      expect(shapeOf(cancel)).toEqual(shapeOf(none));
+      expect(cancel).toMatchObject({ kind: 'error', code: 'NOT_FOUND' });
+      const list = await callTrpc(w, asB, 'merchantControl.approvals.list', { merchantId: A.merchantId, limit: 10 });
+      expect(list).toMatchObject({ kind: 'error', code: 'NOT_FOUND', causeCode: 'pay.merchant_not_found' });
+      expect(await rowOf(A.approvalId)).toEqual(before);
+    });
+
+    it('an API key (no interactive session) cannot decide, whoever owns the approval', async () => {
+      const key = ctxFor('key', 'C2');
+      const real = await callTrpc(
+        w,
+        key,
+        'merchantControl.approvals.decide',
+        decideInput(w.e.C2.approvalId, await hashOf(w.e.C2.approvalId)),
+      );
+      const foreign = await callTrpc(
+        w,
+        key,
+        'merchantControl.approvals.decide',
+        decideInput(w.e.D1.approvalId, await hashOf(w.e.D1.approvalId)),
+      );
+      expect(real).toMatchObject({ kind: 'error', causeCode: 'pay.approval_mfa_required' });
+      expect(shapeOf(foreign)).toEqual(shapeOf(real));
+    });
+
+    it('POSITIVE CONTROL: a different person with the approver right for THAT merchant can approve, so the refusals above are not a broken fixture', async () => {
+      const C2 = w.e.C2;
+      const router = withFinance(C2.merchantId);
+      const asFinance = router.createCaller(ctxOf(sessionOf(FINANCE)));
+      // The same person has no standing on another merchant: that approval looks missing.
+      const other = await fail(asFinance.merchantControl.approvals.decide(decideInput(w.e.G1.approvalId, await hashOf(w.e.G1.approvalId))));
+      expect(other).toMatchObject({ code: 'NOT_FOUND', cause: 'pay.approval_not_found' });
+      const ok = await asFinance.merchantControl.approvals.decide(decideInput(C2.approvalId, await hashOf(C2.approvalId)));
+      expect(ok).toMatchObject({ approvalId: C2.approvalId, status: 'approved', checkerUserId: FINANCE, makerUserId: C2.userId });
     });
   });
 

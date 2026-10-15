@@ -15,6 +15,7 @@
  *   TREE_PROCS       procedures probed across the PayFac tree (M3).
  */
 import { randomUUID } from 'node:crypto';
+import { ISOLATION_TIER } from './control-seed.js';
 import {
   EVM_DESTINATION,
   MERCHANT_KEY_SCOPES,
@@ -124,15 +125,43 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
   }),
   'founderAdmin.registries.preview': () => ({ registry: 'network', change: networkChange() }),
   'founderAdmin.registries.history': () => ({ registry: 'venue', limit: 10 }),
-  'founderAdmin.changes.submit': () => ({
+  // W1 control room. The two `confirm` procedures and `control.approvals.decide` are one-shot: each aims at a request
+  // another founder opened (or an approval whose merchant-side checker is done) in control-seed.ts, so the positive
+  // control signs a real row. A repeat would answer a business refusal, which is why the sweep runs it once.
+  'founderAdmin.changes.submit': (w) => ({
     requestId: randomUUID(),
-    merchantId: NOBODY,
-    change: { kind: 'set_tier', tierId: 'tier-a', archetypeId: null },
-    reason: 'review',
+    merchantId: w.control.changeMerchantId,
+    change: { kind: 'set_tier', tierId: ISOLATION_TIER.id, archetypeId: 'psp' },
+    reason: 'isolation drill',
+    expectedVersion: w.control.changeMerchantVersion,
+  }),
+  'founderAdmin.changes.confirm': (w) => ({
+    requestId: w.control.pendingMerchantChangeId,
+    decision: 'confirm',
+    reason: 'second founder agrees',
+  }),
+  'founderAdmin.approvals.list': () => ({ limit: 10 }),
+  'founderAdmin.control.tiers.list': () => ({}),
+  'founderAdmin.control.pricing.rules': () => ({ layer: 'global' }),
+  'founderAdmin.control.merchant.get': (w) => ({ merchantId: w.e.A.merchantId }),
+  'founderAdmin.control.merchant.usage': (w) => ({ merchantId: w.e.A.merchantId }),
+  'founderAdmin.control.configure.submit': () => ({
+    requestId: randomUUID(),
+    change: { kind: 'upsert_tier', tier: { ...ISOLATION_TIER, id: `iso-${randomUUID().slice(0, 8)}`, name: 'TEST VALUE drill tier' } },
+    reason: 'isolation drill',
     expectedVersion: '0',
   }),
-  'founderAdmin.changes.confirm': () => ({ requestId: randomUUID(), decision: 'confirm', reason: 'second founder agrees' }),
-  'founderAdmin.approvals.list': () => ({ limit: 10 }),
+  'founderAdmin.control.configure.confirm': (w) => ({
+    requestId: w.control.pendingConfigureId,
+    decision: 'confirm',
+    reason: 'second founder agrees',
+  }),
+  'founderAdmin.control.approvals.decide': (w) => ({
+    approvalId: w.control.founderApprovalId,
+    decision: 'approve',
+    expectedPayloadHash: w.control.founderApprovalHash,
+    reason: 'isolation drill',
+  }),
   'founderAdmin.treasury.exposure': () => ({}),
   // W15 operator notes: A is a real merchant, and the seeded note is live exactly until the positive control retracts it.
   'founderAdmin.ops.notes.add': (w) => ({ merchantId: w.e.A.merchantId, body: 'isolation drill', tags: ['drill'], flagged: false }),
@@ -161,6 +190,8 @@ export interface ProbeIds {
   notificationId: string;
   memberId: string;
   inviteId: string;
+  /** W1: a pending payout approval (the owner of that merchant is its maker). */
+  approvalId: string;
 }
 
 export const idsOfEntity = (e: Entity): ProbeIds => ({
@@ -175,6 +206,7 @@ export const idsOfEntity = (e: Entity): ProbeIds => ({
   notificationId: e.notificationId,
   memberId: e.memberId,
   inviteId: e.inviteId,
+  approvalId: e.approvalId,
 });
 export const ghostIds = (): ProbeIds => ({
   merchantId: ghost(),
@@ -188,6 +220,7 @@ export const ghostIds = (): ProbeIds => ({
   notificationId: ghost(),
   memberId: ghost(),
   inviteId: ghost(),
+  approvalId: ghost(),
 });
 
 export interface MerchantProc {
@@ -207,6 +240,12 @@ export interface MerchantProc {
    * cannot call it, and the session case still proves the foreign id is refused like a missing one.
    */
   sessionOnly?: boolean;
+  /**
+   * The owner's own call is refused BY DESIGN with this typed cause (a maker deciding their own payout). The positive
+   * control then asserts exactly that cause: the owner reached the row and was refused for the right reason, which a
+   * foreign or missing id never is. The refusal is not weakened; B's id must still equal a ghost's.
+   */
+  ownCause?: string;
   /** The body is a `pay.not_built` stub. Remove the flag when the workstream lands: strict assertions then apply. */
   stub?: boolean;
 }
@@ -284,21 +323,40 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   { path: 'submerchant.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'submerchantPermission.list', scope: 'pay:read', own: 'ok', input: (i) => ({ subjectMerchantId: i.merchantId, limit: 50 }) },
   { path: 'submerchantPermission.history', scope: 'pay:read', own: 'ok', input: (i) => ({ subjectMerchantId: i.merchantId, limit: 50 }) },
-  // W0 stubs: the table is ready for W1/W6. Drop `stub` when the body lands.
-  { path: 'merchantControl.get', scope: 'pay:read', own: 'ok', stub: true, input: (i) => ({ merchantId: i.merchantId }) },
+  // W1 merchant control room. Reads first; the actions that consume the owner's approval (decide, cancel) come last.
+  { path: 'merchantControl.get', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchantControl.usage', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   {
-    path: 'merchantControl.approvals.list',
+    path: 'merchantControl.pricing.preview',
     scope: 'pay:read',
     own: 'ok',
-    stub: true,
-    input: (i) => ({ merchantId: i.merchantId, limit: 10 }),
+    input: (i) => ({ merchantId: i.merchantId, assetCode: 'USDT', amount: '10' }),
   },
+  { path: 'merchantControl.approvals.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
+  // pay:payout is interactive-only, so there is no key case. "My merchant + their settlement" must look like a missing settlement.
+  {
+    path: 'merchantControl.approvals.request',
+    scope: 'pay:payout',
+    own: 'service',
+    mixed: true,
+    sessionOnly: true,
+    input: (i) => ({ merchantId: i.merchantId, settlementId: i.settlementId, railId: 'crypto-native' }),
+  },
+  // A maker cannot approve their own payout: the owner's call is refused as self-approval, B's id as "no such approval".
   {
     path: 'merchantControl.approvals.decide',
     scope: 'pay:write',
     own: 'service',
-    stub: true,
-    input: () => ({ approvalId: ghost(), decision: 'approve', expectedPayloadHash: hash, reason: 'checked' }),
+    sessionOnly: true,
+    ownCause: 'pay.approval_self_approval',
+    input: (i) => ({ approvalId: i.approvalId, decision: 'approve', expectedPayloadHash: hash, reason: 'checked' }),
+  },
+  {
+    path: 'merchantControl.approvals.cancel',
+    scope: 'pay:payout',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ approvalId: i.approvalId, reason: 'isolation drill' }),
   },
   // W2 landed: the metrics runtime is mounted, so these answer for real and the strict assertions apply.
   { path: 'merchantMetrics.snapshot', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, window }) },
