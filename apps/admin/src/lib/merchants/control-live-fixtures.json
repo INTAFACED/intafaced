@@ -1,2518 +1,2518 @@
 [
- {
-  "label": "set_tier from nothing",
-  "handoff": {
-   "requestId": "733c3be5-a7e0-4cba-873c-dbd28505cb54",
-   "merchantId": "593947ef-55a2-4915-8ba5-52206b8c728f",
-   "expectedVersion": "0",
-   "change": {
-    "kind": "set_tier",
-    "tierId": "test-tier",
-    "archetypeId": null
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "593947ef-55a2-4915-8ba5-52206b8c728f",
-   "tierId": null,
-   "archetypeId": null,
-   "caps": null,
-   "pricing": null,
-   "reserve": null,
-   "version": "0",
-   "updatedAt": null
-  },
-  "after": {
-   "merchantId": "593947ef-55a2-4915-8ba5-52206b8c728f",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
+  {
+    "label": "set_tier from nothing",
+    "handoff": {
+      "requestId": "733c3be5-a7e0-4cba-873c-dbd28505cb54",
+      "merchantId": "593947ef-55a2-4915-8ba5-52206b8c728f",
+      "expectedVersion": "0",
+      "change": {
+        "kind": "set_tier",
+        "tierId": "test-tier",
+        "archetypeId": null
+      },
+      "reason": "honest"
     },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
+    "before": {
+      "merchantId": "593947ef-55a2-4915-8ba5-52206b8c728f",
+      "tierId": null,
+      "archetypeId": null,
+      "caps": null,
+      "pricing": null,
+      "reserve": null,
+      "version": "0",
+      "updatedAt": null
     },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:06.904Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
-    },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_tier from nothing with archetype",
-  "handoff": {
-   "requestId": "df10bc08-8297-4762-9060-01b5abfa3b8b",
-   "merchantId": "db94ca50-c989-4b67-bde6-9f113a338e73",
-   "expectedVersion": "0",
-   "change": {
-    "kind": "set_tier",
-    "tierId": "second-tier",
-    "archetypeId": "standard"
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "db94ca50-c989-4b67-bde6-9f113a338e73",
-   "tierId": null,
-   "archetypeId": null,
-   "caps": null,
-   "pricing": null,
-   "reserve": null,
-   "version": "0",
-   "updatedAt": null
-  },
-  "after": {
-   "merchantId": "db94ca50-c989-4b67-bde6-9f113a338e73",
-   "tierId": "second-tier",
-   "archetypeId": "standard",
-   "caps": [
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "90"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "40"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": null,
-    "holdDays": null
-   },
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:06.950Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
-    },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_tier A -> B (no overrides)",
-  "handoff": {
-   "requestId": "8ef4c936-9064-4a91-93c5-07d994dde117",
-   "merchantId": "58dbaff9-e32b-40df-a265-24464594ef6b",
-   "expectedVersion": "1",
-   "change": {
-    "kind": "set_tier",
-    "tierId": "second-tier",
-    "archetypeId": null
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "58dbaff9-e32b-40df-a265-24464594ef6b",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
-    },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:06.995Z"
-  },
-  "after": {
-   "merchantId": "58dbaff9-e32b-40df-a265-24464594ef6b",
-   "tierId": "second-tier",
-   "archetypeId": "broker",
-   "caps": [
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "90"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "40"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": null,
-    "holdDays": null
-   },
-   "version": "2",
-   "updatedAt": "2026-10-15T15:34:06.998Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
-    },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 1
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_caps one kind on a tiered merchant",
-  "handoff": {
-   "requestId": "4a249ef9-90a4-499b-a59a-10ecf2c85759",
-   "merchantId": "cf83a59c-5e10-4f08-aa4c-d02c43e2cd07",
-   "expectedVersion": "1",
-   "change": {
-    "kind": "set_caps",
-    "caps": [
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "7"
-     }
-    ]
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "cf83a59c-5e10-4f08-aa4c-d02c43e2cd07",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
-    },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:07.041Z"
-  },
-  "after": {
-   "merchantId": "cf83a59c-5e10-4f08-aa4c-d02c43e2cd07",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
-    },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "7"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "2",
-   "updatedAt": "2026-10-15T15:34:07.044Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
-    },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 1
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_caps two kinds incl. count cap",
-  "handoff": {
-   "requestId": "9c531f85-9c74-40f0-b90f-81d002d8c22b",
-   "merchantId": "3e08bbd5-a6aa-4e6a-8cee-f1933b21711b",
-   "expectedVersion": "1",
-   "change": {
-    "kind": "set_caps",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "12.50"
-     },
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 9
-     }
-    ]
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "3e08bbd5-a6aa-4e6a-8cee-f1933b21711b",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
-    },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:07.087Z"
-  },
-  "after": {
-   "merchantId": "3e08bbd5-a6aa-4e6a-8cee-f1933b21711b",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 9
-    },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "12.50"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "2",
-   "updatedAt": "2026-10-15T15:34:07.090Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
-    },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 1
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_caps equal to the tier value",
-  "handoff": {
-   "requestId": "7978dab3-7ab8-4f81-8456-1058a3512ce7",
-   "merchantId": "7176395c-cdd2-4183-9b9a-b07900ba642d",
-   "expectedVersion": "1",
-   "change": {
-    "kind": "set_caps",
-    "caps": [
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100.0"
-     }
-    ]
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "7176395c-cdd2-4183-9b9a-b07900ba642d",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
-    },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:07.132Z"
-  },
-  "after": {
-   "merchantId": "7176395c-cdd2-4183-9b9a-b07900ba642d",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
-    },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100.0"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "2",
-   "updatedAt": "2026-10-15T15:34:07.135Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
-    },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 1
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_tier B with existing caps+reserve override",
-  "handoff": {
-   "requestId": "a46f6ed9-bcaa-4f99-96c3-27698a2467f4",
-   "merchantId": "e9912e71-348a-48b4-a5d8-2bdaf9f8004b",
-   "expectedVersion": "3",
-   "change": {
-    "kind": "set_tier",
-    "tierId": "second-tier",
-    "archetypeId": "standard"
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "e9912e71-348a-48b4-a5d8-2bdaf9f8004b",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
-    },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "55"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "7"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 250,
-    "holdDays": 3
-   },
-   "version": "3",
-   "updatedAt": "2026-10-15T15:34:07.181Z"
-  },
-  "after": {
-   "merchantId": "e9912e71-348a-48b4-a5d8-2bdaf9f8004b",
-   "tierId": "second-tier",
-   "archetypeId": "standard",
-   "caps": [
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "90"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "7"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "55"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 250,
-    "holdDays": 3
-   },
-   "version": "4",
-   "updatedAt": "2026-10-15T15:34:07.183Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
-    },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 1
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_tier B, override equal to tier A value",
-  "handoff": {
-   "requestId": "ba11e5ad-f43f-4fea-9ffb-8e43e7a0610c",
-   "merchantId": "9f868f3b-a237-4e0c-b401-1fedf504d8d6",
-   "expectedVersion": "2",
-   "change": {
-    "kind": "set_tier",
-    "tierId": "second-tier",
-    "archetypeId": null
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "9f868f3b-a237-4e0c-b401-1fedf504d8d6",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
-    },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "2",
-   "updatedAt": "2026-10-15T15:34:07.228Z"
-  },
-  "after": {
-   "merchantId": "9f868f3b-a237-4e0c-b401-1fedf504d8d6",
-   "tierId": "second-tier",
-   "archetypeId": "broker",
-   "caps": [
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "90"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "40"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": null,
-    "holdDays": null
-   },
-   "version": "3",
-   "updatedAt": "2026-10-15T15:34:07.230Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
-    },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 1
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_pricing flatFee 0.30",
-  "handoff": {
-   "requestId": "93c03d58-1309-4f7a-9144-17807dbca633",
-   "merchantId": "0f947948-1a88-4b07-9954-f67c2e85fd79",
-   "expectedVersion": "1",
-   "change": {
-    "kind": "set_pricing",
-    "pricing": [
-     {
-      "layer": "merchant",
-      "scopeId": "0f947948-1a88-4b07-9954-f67c2e85fd79",
-      "assetCode": "USD",
-      "bands": [
-       {
-        "fromAmount": "0",
-        "feeBps": 100,
-        "flatFee": "0.30"
-       }
+    "after": {
+      "merchantId": "593947ef-55a2-4915-8ba5-52206b8c728f",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
       ],
-      "spreadBps": null,
-      "roundingBeneficiary": "platform"
-     }
-    ]
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "0f947948-1a88-4b07-9954-f67c2e85fd79",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:06.904Z"
     },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:07.273Z"
-  },
-  "after": {
-   "merchantId": "0f947948-1a88-4b07-9954-f67c2e85fd79",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
-    },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
-    },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
-    },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": [
-    {
-     "layer": "merchant",
-     "scopeId": "0f947948-1a88-4b07-9954-f67c2e85fd79",
-     "assetCode": "USD",
-     "bands": [
+    "tiers": [
       {
-       "fromAmount": "0",
-       "feeBps": 100,
-       "flatFee": "0.3"
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
       }
-     ],
-     "spreadBps": null,
-     "roundingBeneficiary": "platform"
-    }
-   ],
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "2",
-   "updatedAt": "2026-10-15T15:34:07.276Z"
+    ],
+    "outcome": "changed"
   },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
+  {
+    "label": "set_tier from nothing with archetype",
+    "handoff": {
+      "requestId": "df10bc08-8297-4762-9060-01b5abfa3b8b",
+      "merchantId": "db94ca50-c989-4b67-bde6-9f113a338e73",
+      "expectedVersion": "0",
+      "change": {
+        "kind": "set_tier",
+        "tierId": "second-tier",
+        "archetypeId": "standard"
+      },
+      "reason": "honest"
     },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 1
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_pricing flatFee 0.3 + no tier",
-  "handoff": {
-   "requestId": "443ed408-15f9-46c8-99d4-a11f1f4c941f",
-   "merchantId": "2d3953b0-c866-40e2-8ccd-1fc32c9b474a",
-   "expectedVersion": "0",
-   "change": {
-    "kind": "set_pricing",
-    "pricing": [
-     {
-      "layer": "merchant",
-      "scopeId": "2d3953b0-c866-40e2-8ccd-1fc32c9b474a",
-      "assetCode": "USD",
-      "bands": [
-       {
-        "fromAmount": "0",
-        "feeBps": 100,
-        "flatFee": "0.3"
-       }
+    "before": {
+      "merchantId": "db94ca50-c989-4b67-bde6-9f113a338e73",
+      "tierId": null,
+      "archetypeId": null,
+      "caps": null,
+      "pricing": null,
+      "reserve": null,
+      "version": "0",
+      "updatedAt": null
+    },
+    "after": {
+      "merchantId": "db94ca50-c989-4b67-bde6-9f113a338e73",
+      "tierId": "second-tier",
+      "archetypeId": "standard",
+      "caps": [
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "90"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "40"
+        }
       ],
-      "spreadBps": null,
-      "roundingBeneficiary": "platform"
-     }
-    ]
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "2d3953b0-c866-40e2-8ccd-1fc32c9b474a",
-   "tierId": null,
-   "archetypeId": null,
-   "caps": null,
-   "pricing": null,
-   "reserve": null,
-   "version": "0",
-   "updatedAt": null
-  },
-  "after": {
-   "merchantId": "2d3953b0-c866-40e2-8ccd-1fc32c9b474a",
-   "tierId": null,
-   "archetypeId": null,
-   "caps": null,
-   "pricing": [
-    {
-     "layer": "merchant",
-     "scopeId": "2d3953b0-c866-40e2-8ccd-1fc32c9b474a",
-     "assetCode": "USD",
-     "bands": [
-      {
-       "fromAmount": "0",
-       "feeBps": 100,
-       "flatFee": "0.3"
-      }
-     ],
-     "spreadBps": null,
-     "roundingBeneficiary": "platform"
-    }
-   ],
-   "reserve": null,
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:07.319Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": null,
+        "holdDays": null
+      },
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:06.950Z"
     },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      }
     ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_pricing second asset keeps the first",
-  "handoff": {
-   "requestId": "f4a13f7b-3930-453f-9e8d-d033dd84b461",
-   "merchantId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
-   "expectedVersion": "1",
-   "change": {
-    "kind": "set_pricing",
-    "pricing": [
-     {
-      "layer": "merchant",
-      "scopeId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
-      "assetCode": "USDT",
-      "bands": [
-       {
-        "fromAmount": "0",
-        "feeBps": 80,
-        "flatFee": "1.10"
-       }
+    "outcome": "changed"
+  },
+  {
+    "label": "set_tier A -> B (no overrides)",
+    "handoff": {
+      "requestId": "8ef4c936-9064-4a91-93c5-07d994dde117",
+      "merchantId": "58dbaff9-e32b-40df-a265-24464594ef6b",
+      "expectedVersion": "1",
+      "change": {
+        "kind": "set_tier",
+        "tierId": "second-tier",
+        "archetypeId": null
+      },
+      "reason": "honest"
+    },
+    "before": {
+      "merchantId": "58dbaff9-e32b-40df-a265-24464594ef6b",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
       ],
-      "spreadBps": null,
-      "roundingBeneficiary": "platform"
-     }
-    ]
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
-   "tierId": null,
-   "archetypeId": null,
-   "caps": null,
-   "pricing": [
-    {
-     "layer": "merchant",
-     "scopeId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
-     "assetCode": "USD",
-     "bands": [
-      {
-       "fromAmount": "0",
-       "feeBps": 100,
-       "flatFee": "0.3"
-      }
-     ],
-     "spreadBps": null,
-     "roundingBeneficiary": "platform"
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:06.995Z"
     },
-    {
-     "layer": "global",
-     "scopeId": null,
-     "assetCode": "USDT",
-     "bands": [
-      {
-       "fromAmount": "0",
-       "feeBps": 250,
-       "flatFee": "0.3"
-      }
-     ],
-     "spreadBps": 40,
-     "roundingBeneficiary": "platform"
-    }
-   ],
-   "reserve": null,
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:07.363Z"
-  },
-  "after": {
-   "merchantId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
-   "tierId": null,
-   "archetypeId": null,
-   "caps": null,
-   "pricing": [
-    {
-     "layer": "merchant",
-     "scopeId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
-     "assetCode": "USD",
-     "bands": [
-      {
-       "fromAmount": "0",
-       "feeBps": 100,
-       "flatFee": "0.3"
-      }
-     ],
-     "spreadBps": null,
-     "roundingBeneficiary": "platform"
-    },
-    {
-     "layer": "merchant",
-     "scopeId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
-     "assetCode": "USDT",
-     "bands": [
-      {
-       "fromAmount": "0",
-       "feeBps": 80,
-       "flatFee": "1.1"
-      }
-     ],
-     "spreadBps": null,
-     "roundingBeneficiary": "platform"
-    }
-   ],
-   "reserve": null,
-   "version": "2",
-   "updatedAt": "2026-10-15T15:34:07.366Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
-    },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_pricing overriding a global rule",
-  "handoff": {
-   "requestId": "94a5a19d-3673-4d27-8ef7-7a50bd818411",
-   "merchantId": "d4e61a2c-3914-41f6-9a0d-a6ac3eedab7b",
-   "expectedVersion": "0",
-   "change": {
-    "kind": "set_pricing",
-    "pricing": [
-     {
-      "layer": "merchant",
-      "scopeId": "d4e61a2c-3914-41f6-9a0d-a6ac3eedab7b",
-      "assetCode": "USDT",
-      "bands": [
-       {
-        "fromAmount": "0",
-        "feeBps": 10,
-        "flatFee": null
-       }
+    "after": {
+      "merchantId": "58dbaff9-e32b-40df-a265-24464594ef6b",
+      "tierId": "second-tier",
+      "archetypeId": "broker",
+      "caps": [
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "90"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "40"
+        }
       ],
-      "spreadBps": null,
-      "roundingBeneficiary": "platform"
-     }
-    ]
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "d4e61a2c-3914-41f6-9a0d-a6ac3eedab7b",
-   "tierId": null,
-   "archetypeId": null,
-   "caps": null,
-   "pricing": [
-    {
-     "layer": "global",
-     "scopeId": null,
-     "assetCode": "USDT",
-     "bands": [
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": null,
+        "holdDays": null
+      },
+      "version": "2",
+      "updatedAt": "2026-10-15T15:34:06.998Z"
+    },
+    "tiers": [
       {
-       "fromAmount": "0",
-       "feeBps": 250,
-       "flatFee": "0.3"
-      }
-     ],
-     "spreadBps": 40,
-     "roundingBeneficiary": "platform"
-    }
-   ],
-   "reserve": null,
-   "version": "0",
-   "updatedAt": null
-  },
-  "after": {
-   "merchantId": "d4e61a2c-3914-41f6-9a0d-a6ac3eedab7b",
-   "tierId": null,
-   "archetypeId": null,
-   "caps": null,
-   "pricing": [
-    {
-     "layer": "merchant",
-     "scopeId": "d4e61a2c-3914-41f6-9a0d-a6ac3eedab7b",
-     "assetCode": "USDT",
-     "bands": [
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
       {
-       "fromAmount": "0",
-       "feeBps": 10,
-       "flatFee": null
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 1
       }
-     ],
-     "spreadBps": null,
-     "roundingBeneficiary": "platform"
-    }
-   ],
-   "reserve": null,
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:07.410Z"
+    ],
+    "outcome": "changed"
   },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
+  {
+    "label": "set_caps one kind on a tiered merchant",
+    "handoff": {
+      "requestId": "4a249ef9-90a4-499b-a59a-10ecf2c85759",
+      "merchantId": "cf83a59c-5e10-4f08-aa4c-d02c43e2cd07",
+      "expectedVersion": "1",
+      "change": {
+        "kind": "set_caps",
+        "caps": [
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "7"
+          }
+        ]
+      },
+      "reason": "honest"
     },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
+    "before": {
+      "merchantId": "cf83a59c-5e10-4f08-aa4c-d02c43e2cd07",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:07.041Z"
+    },
+    "after": {
+      "merchantId": "cf83a59c-5e10-4f08-aa4c-d02c43e2cd07",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "7"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "2",
+      "updatedAt": "2026-10-15T15:34:07.044Z"
+    },
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 1
+      }
     ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_reserve 500/7 on a tiered merchant",
-  "handoff": {
-   "requestId": "9188c95d-747b-4a0b-9829-67cdb3d6b43d",
-   "merchantId": "9c95a5cd-1788-4f1b-8854-e81e89f8e223",
-   "expectedVersion": "1",
-   "change": {
-    "kind": "set_reserve",
-    "reserve": {
-     "rollingReserveBps": 500,
-     "holdDays": 7
-    }
-   },
-   "reason": "honest"
+    "outcome": "changed"
   },
-  "before": {
-   "merchantId": "9c95a5cd-1788-4f1b-8854-e81e89f8e223",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
+  {
+    "label": "set_caps two kinds incl. count cap",
+    "handoff": {
+      "requestId": "9c531f85-9c74-40f0-b90f-81d002d8c22b",
+      "merchantId": "3e08bbd5-a6aa-4e6a-8cee-f1933b21711b",
+      "expectedVersion": "1",
+      "change": {
+        "kind": "set_caps",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "12.50"
+          },
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 9
+          }
+        ]
+      },
+      "reason": "honest"
     },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
+    "before": {
+      "merchantId": "3e08bbd5-a6aa-4e6a-8cee-f1933b21711b",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:07.087Z"
     },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
+    "after": {
+      "merchantId": "3e08bbd5-a6aa-4e6a-8cee-f1933b21711b",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 9
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "12.50"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "2",
+      "updatedAt": "2026-10-15T15:34:07.090Z"
     },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:07.451Z"
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 1
+      }
+    ],
+    "outcome": "changed"
   },
-  "after": {
-   "merchantId": "9c95a5cd-1788-4f1b-8854-e81e89f8e223",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
+  {
+    "label": "set_caps equal to the tier value",
+    "handoff": {
+      "requestId": "7978dab3-7ab8-4f81-8456-1058a3512ce7",
+      "merchantId": "7176395c-cdd2-4183-9b9a-b07900ba642d",
+      "expectedVersion": "1",
+      "change": {
+        "kind": "set_caps",
+        "caps": [
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100.0"
+          }
+        ]
+      },
+      "reason": "honest"
     },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
+    "before": {
+      "merchantId": "7176395c-cdd2-4183-9b9a-b07900ba642d",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:07.132Z"
     },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
+    "after": {
+      "merchantId": "7176395c-cdd2-4183-9b9a-b07900ba642d",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100.0"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "2",
+      "updatedAt": "2026-10-15T15:34:07.135Z"
     },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 500,
-    "holdDays": 7
-   },
-   "version": "2",
-   "updatedAt": "2026-10-15T15:34:07.453Z"
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 1
+      }
+    ],
+    "outcome": "changed"
   },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
+  {
+    "label": "set_tier B with existing caps+reserve override",
+    "handoff": {
+      "requestId": "a46f6ed9-bcaa-4f99-96c3-27698a2467f4",
+      "merchantId": "e9912e71-348a-48b4-a5d8-2bdaf9f8004b",
+      "expectedVersion": "3",
+      "change": {
+        "kind": "set_tier",
+        "tierId": "second-tier",
+        "archetypeId": "standard"
+      },
+      "reason": "honest"
     },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
+    "before": {
+      "merchantId": "e9912e71-348a-48b4-a5d8-2bdaf9f8004b",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "55"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "7"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 250,
+        "holdDays": 3
+      },
+      "version": "3",
+      "updatedAt": "2026-10-15T15:34:07.181Z"
+    },
+    "after": {
+      "merchantId": "e9912e71-348a-48b4-a5d8-2bdaf9f8004b",
+      "tierId": "second-tier",
+      "archetypeId": "standard",
+      "caps": [
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "90"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "7"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "55"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 250,
+        "holdDays": 3
+      },
+      "version": "4",
+      "updatedAt": "2026-10-15T15:34:07.183Z"
+    },
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 1
+      }
     ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 1
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_reserve none on a tier with a reserve",
-  "handoff": {
-   "requestId": "cb6d3472-8f40-487e-8d61-932e7f13523f",
-   "merchantId": "4bea8991-a11d-4219-8bc2-408efc2415eb",
-   "expectedVersion": "1",
-   "change": {
-    "kind": "set_reserve",
-    "reserve": {
-     "rollingReserveBps": null,
-     "holdDays": null
-    }
-   },
-   "reason": "honest"
+    "outcome": "changed"
   },
-  "before": {
-   "merchantId": "4bea8991-a11d-4219-8bc2-408efc2415eb",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
+  {
+    "label": "set_tier B, override equal to tier A value",
+    "handoff": {
+      "requestId": "ba11e5ad-f43f-4fea-9ffb-8e43e7a0610c",
+      "merchantId": "9f868f3b-a237-4e0c-b401-1fedf504d8d6",
+      "expectedVersion": "2",
+      "change": {
+        "kind": "set_tier",
+        "tierId": "second-tier",
+        "archetypeId": null
+      },
+      "reason": "honest"
     },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
+    "before": {
+      "merchantId": "9f868f3b-a237-4e0c-b401-1fedf504d8d6",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "2",
+      "updatedAt": "2026-10-15T15:34:07.228Z"
     },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
+    "after": {
+      "merchantId": "9f868f3b-a237-4e0c-b401-1fedf504d8d6",
+      "tierId": "second-tier",
+      "archetypeId": "broker",
+      "caps": [
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "90"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "40"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": null,
+        "holdDays": null
+      },
+      "version": "3",
+      "updatedAt": "2026-10-15T15:34:07.230Z"
     },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 1000,
-    "holdDays": 7
-   },
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:07.494Z"
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 1
+      }
+    ],
+    "outcome": "changed"
   },
-  "after": {
-   "merchantId": "4bea8991-a11d-4219-8bc2-408efc2415eb",
-   "tierId": "test-tier",
-   "archetypeId": "psp",
-   "caps": [
-    {
-     "kind": "beneficiaries_per_day",
-     "limit": 2
+  {
+    "label": "set_pricing flatFee 0.30",
+    "handoff": {
+      "requestId": "93c03d58-1309-4f7a-9144-17807dbca633",
+      "merchantId": "0f947948-1a88-4b07-9954-f67c2e85fd79",
+      "expectedVersion": "1",
+      "change": {
+        "kind": "set_pricing",
+        "pricing": [
+          {
+            "layer": "merchant",
+            "scopeId": "0f947948-1a88-4b07-9954-f67c2e85fd79",
+            "assetCode": "USD",
+            "bands": [
+              {
+                "fromAmount": "0",
+                "feeBps": 100,
+                "flatFee": "0.30"
+              }
+            ],
+            "spreadBps": null,
+            "roundingBeneficiary": "platform"
+          }
+        ]
+      },
+      "reason": "honest"
     },
-    {
-     "kind": "daily_intake",
-     "assetCode": "USDT",
-     "limit": "300"
+    "before": {
+      "merchantId": "0f947948-1a88-4b07-9954-f67c2e85fd79",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:07.273Z"
     },
-    {
-     "kind": "daily_payout",
-     "assetCode": "USDT",
-     "limit": "500"
+    "after": {
+      "merchantId": "0f947948-1a88-4b07-9954-f67c2e85fd79",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": [
+        {
+          "layer": "merchant",
+          "scopeId": "0f947948-1a88-4b07-9954-f67c2e85fd79",
+          "assetCode": "USD",
+          "bands": [
+            {
+              "fromAmount": "0",
+              "feeBps": 100,
+              "flatFee": "0.3"
+            }
+          ],
+          "spreadBps": null,
+          "roundingBeneficiary": "platform"
+        }
+      ],
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "2",
+      "updatedAt": "2026-10-15T15:34:07.276Z"
     },
-    {
-     "kind": "monthly_intake",
-     "assetCode": "USDT",
-     "limit": "1000"
-    },
-    {
-     "kind": "per_payment",
-     "assetCode": "USDT",
-     "limit": "100"
-    }
-   ],
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": null,
-    "holdDays": null
-   },
-   "version": "2",
-   "updatedAt": "2026-10-15T15:34:07.496Z"
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 1
+      }
+    ],
+    "outcome": "changed"
   },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
+  {
+    "label": "set_pricing flatFee 0.3 + no tier",
+    "handoff": {
+      "requestId": "443ed408-15f9-46c8-99d4-a11f1f4c941f",
+      "merchantId": "2d3953b0-c866-40e2-8ccd-1fc32c9b474a",
+      "expectedVersion": "0",
+      "change": {
+        "kind": "set_pricing",
+        "pricing": [
+          {
+            "layer": "merchant",
+            "scopeId": "2d3953b0-c866-40e2-8ccd-1fc32c9b474a",
+            "assetCode": "USD",
+            "bands": [
+              {
+                "fromAmount": "0",
+                "feeBps": 100,
+                "flatFee": "0.3"
+              }
+            ],
+            "spreadBps": null,
+            "roundingBeneficiary": "platform"
+          }
+        ]
+      },
+      "reason": "honest"
     },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 1
-   }
-  ],
-  "outcome": "changed"
- },
- {
-  "label": "set_reserve 500/7, no tier",
-  "handoff": {
-   "requestId": "e9320c03-3f67-4629-b036-b957de9c817e",
-   "merchantId": "6af4ac75-302f-4cc9-b0e5-583ebbe07709",
-   "expectedVersion": "0",
-   "change": {
-    "kind": "set_reserve",
-    "reserve": {
-     "rollingReserveBps": 500,
-     "holdDays": 7
-    }
-   },
-   "reason": "honest"
-  },
-  "before": {
-   "merchantId": "6af4ac75-302f-4cc9-b0e5-583ebbe07709",
-   "tierId": null,
-   "archetypeId": null,
-   "caps": null,
-   "pricing": null,
-   "reserve": null,
-   "version": "0",
-   "updatedAt": null
-  },
-  "after": {
-   "merchantId": "6af4ac75-302f-4cc9-b0e5-583ebbe07709",
-   "tierId": null,
-   "archetypeId": null,
-   "caps": null,
-   "pricing": null,
-   "reserve": {
-    "rollingReserveBps": 500,
-    "holdDays": 7
-   },
-   "version": "1",
-   "updatedAt": "2026-10-15T15:34:07.540Z"
-  },
-  "tiers": [
-   {
-    "id": "second-tier",
-    "name": "TEST VALUE second",
-    "archetype": "broker",
-    "caps": [
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "90"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "40"
-     }
-    ],
-    "reserve": null,
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
-    ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
-    ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   },
-   {
-    "id": "test-tier",
-    "name": "TEST VALUE tier",
-    "archetype": "psp",
-    "caps": [
-     {
-      "kind": "beneficiaries_per_day",
-      "limit": 2
-     },
-     {
-      "kind": "daily_intake",
-      "assetCode": "USDT",
-      "limit": "300"
-     },
-     {
-      "kind": "daily_payout",
-      "assetCode": "USDT",
-      "limit": "500"
-     },
-     {
-      "kind": "monthly_intake",
-      "assetCode": "USDT",
-      "limit": "1000"
-     },
-     {
-      "kind": "per_payment",
-      "assetCode": "USDT",
-      "limit": "100"
-     }
-    ],
-    "reserve": {
-     "rollingReserveBps": 1000,
-     "holdDays": 7
+    "before": {
+      "merchantId": "2d3953b0-c866-40e2-8ccd-1fc32c9b474a",
+      "tierId": null,
+      "archetypeId": null,
+      "caps": null,
+      "pricing": null,
+      "reserve": null,
+      "version": "0",
+      "updatedAt": null
     },
-    "approvalThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "50"
-     }
+    "after": {
+      "merchantId": "2d3953b0-c866-40e2-8ccd-1fc32c9b474a",
+      "tierId": null,
+      "archetypeId": null,
+      "caps": null,
+      "pricing": [
+        {
+          "layer": "merchant",
+          "scopeId": "2d3953b0-c866-40e2-8ccd-1fc32c9b474a",
+          "assetCode": "USD",
+          "bands": [
+            {
+              "fromAmount": "0",
+              "feeBps": 100,
+              "flatFee": "0.3"
+            }
+          ],
+          "spreadBps": null,
+          "roundingBeneficiary": "platform"
+        }
+      ],
+      "reserve": null,
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:07.319Z"
+    },
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      }
     ],
-    "founderThresholds": [
-     {
-      "assetCode": "USDT",
-      "amount": "150"
-     }
+    "outcome": "changed"
+  },
+  {
+    "label": "set_pricing second asset keeps the first",
+    "handoff": {
+      "requestId": "f4a13f7b-3930-453f-9e8d-d033dd84b461",
+      "merchantId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
+      "expectedVersion": "1",
+      "change": {
+        "kind": "set_pricing",
+        "pricing": [
+          {
+            "layer": "merchant",
+            "scopeId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
+            "assetCode": "USDT",
+            "bands": [
+              {
+                "fromAmount": "0",
+                "feeBps": 80,
+                "flatFee": "1.10"
+              }
+            ],
+            "spreadBps": null,
+            "roundingBeneficiary": "platform"
+          }
+        ]
+      },
+      "reason": "honest"
+    },
+    "before": {
+      "merchantId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
+      "tierId": null,
+      "archetypeId": null,
+      "caps": null,
+      "pricing": [
+        {
+          "layer": "merchant",
+          "scopeId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
+          "assetCode": "USD",
+          "bands": [
+            {
+              "fromAmount": "0",
+              "feeBps": 100,
+              "flatFee": "0.3"
+            }
+          ],
+          "spreadBps": null,
+          "roundingBeneficiary": "platform"
+        },
+        {
+          "layer": "global",
+          "scopeId": null,
+          "assetCode": "USDT",
+          "bands": [
+            {
+              "fromAmount": "0",
+              "feeBps": 250,
+              "flatFee": "0.3"
+            }
+          ],
+          "spreadBps": 40,
+          "roundingBeneficiary": "platform"
+        }
+      ],
+      "reserve": null,
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:07.363Z"
+    },
+    "after": {
+      "merchantId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
+      "tierId": null,
+      "archetypeId": null,
+      "caps": null,
+      "pricing": [
+        {
+          "layer": "merchant",
+          "scopeId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
+          "assetCode": "USD",
+          "bands": [
+            {
+              "fromAmount": "0",
+              "feeBps": 100,
+              "flatFee": "0.3"
+            }
+          ],
+          "spreadBps": null,
+          "roundingBeneficiary": "platform"
+        },
+        {
+          "layer": "merchant",
+          "scopeId": "0b9a8ae5-f86f-4fc8-beef-1fc493301e5a",
+          "assetCode": "USDT",
+          "bands": [
+            {
+              "fromAmount": "0",
+              "feeBps": 80,
+              "flatFee": "1.1"
+            }
+          ],
+          "spreadBps": null,
+          "roundingBeneficiary": "platform"
+        }
+      ],
+      "reserve": null,
+      "version": "2",
+      "updatedAt": "2026-10-15T15:34:07.366Z"
+    },
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      }
     ],
-    "approvalTtlSeconds": 3600,
-    "version": "1",
-    "merchants": 0
-   }
-  ],
-  "outcome": "changed"
- }
+    "outcome": "changed"
+  },
+  {
+    "label": "set_pricing overriding a global rule",
+    "handoff": {
+      "requestId": "94a5a19d-3673-4d27-8ef7-7a50bd818411",
+      "merchantId": "d4e61a2c-3914-41f6-9a0d-a6ac3eedab7b",
+      "expectedVersion": "0",
+      "change": {
+        "kind": "set_pricing",
+        "pricing": [
+          {
+            "layer": "merchant",
+            "scopeId": "d4e61a2c-3914-41f6-9a0d-a6ac3eedab7b",
+            "assetCode": "USDT",
+            "bands": [
+              {
+                "fromAmount": "0",
+                "feeBps": 10,
+                "flatFee": null
+              }
+            ],
+            "spreadBps": null,
+            "roundingBeneficiary": "platform"
+          }
+        ]
+      },
+      "reason": "honest"
+    },
+    "before": {
+      "merchantId": "d4e61a2c-3914-41f6-9a0d-a6ac3eedab7b",
+      "tierId": null,
+      "archetypeId": null,
+      "caps": null,
+      "pricing": [
+        {
+          "layer": "global",
+          "scopeId": null,
+          "assetCode": "USDT",
+          "bands": [
+            {
+              "fromAmount": "0",
+              "feeBps": 250,
+              "flatFee": "0.3"
+            }
+          ],
+          "spreadBps": 40,
+          "roundingBeneficiary": "platform"
+        }
+      ],
+      "reserve": null,
+      "version": "0",
+      "updatedAt": null
+    },
+    "after": {
+      "merchantId": "d4e61a2c-3914-41f6-9a0d-a6ac3eedab7b",
+      "tierId": null,
+      "archetypeId": null,
+      "caps": null,
+      "pricing": [
+        {
+          "layer": "merchant",
+          "scopeId": "d4e61a2c-3914-41f6-9a0d-a6ac3eedab7b",
+          "assetCode": "USDT",
+          "bands": [
+            {
+              "fromAmount": "0",
+              "feeBps": 10,
+              "flatFee": null
+            }
+          ],
+          "spreadBps": null,
+          "roundingBeneficiary": "platform"
+        }
+      ],
+      "reserve": null,
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:07.410Z"
+    },
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      }
+    ],
+    "outcome": "changed"
+  },
+  {
+    "label": "set_reserve 500/7 on a tiered merchant",
+    "handoff": {
+      "requestId": "9188c95d-747b-4a0b-9829-67cdb3d6b43d",
+      "merchantId": "9c95a5cd-1788-4f1b-8854-e81e89f8e223",
+      "expectedVersion": "1",
+      "change": {
+        "kind": "set_reserve",
+        "reserve": {
+          "rollingReserveBps": 500,
+          "holdDays": 7
+        }
+      },
+      "reason": "honest"
+    },
+    "before": {
+      "merchantId": "9c95a5cd-1788-4f1b-8854-e81e89f8e223",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:07.451Z"
+    },
+    "after": {
+      "merchantId": "9c95a5cd-1788-4f1b-8854-e81e89f8e223",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 500,
+        "holdDays": 7
+      },
+      "version": "2",
+      "updatedAt": "2026-10-15T15:34:07.453Z"
+    },
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 1
+      }
+    ],
+    "outcome": "changed"
+  },
+  {
+    "label": "set_reserve none on a tier with a reserve",
+    "handoff": {
+      "requestId": "cb6d3472-8f40-487e-8d61-932e7f13523f",
+      "merchantId": "4bea8991-a11d-4219-8bc2-408efc2415eb",
+      "expectedVersion": "1",
+      "change": {
+        "kind": "set_reserve",
+        "reserve": {
+          "rollingReserveBps": null,
+          "holdDays": null
+        }
+      },
+      "reason": "honest"
+    },
+    "before": {
+      "merchantId": "4bea8991-a11d-4219-8bc2-408efc2415eb",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 1000,
+        "holdDays": 7
+      },
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:07.494Z"
+    },
+    "after": {
+      "merchantId": "4bea8991-a11d-4219-8bc2-408efc2415eb",
+      "tierId": "test-tier",
+      "archetypeId": "psp",
+      "caps": [
+        {
+          "kind": "beneficiaries_per_day",
+          "limit": 2
+        },
+        {
+          "kind": "daily_intake",
+          "assetCode": "USDT",
+          "limit": "300"
+        },
+        {
+          "kind": "daily_payout",
+          "assetCode": "USDT",
+          "limit": "500"
+        },
+        {
+          "kind": "monthly_intake",
+          "assetCode": "USDT",
+          "limit": "1000"
+        },
+        {
+          "kind": "per_payment",
+          "assetCode": "USDT",
+          "limit": "100"
+        }
+      ],
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": null,
+        "holdDays": null
+      },
+      "version": "2",
+      "updatedAt": "2026-10-15T15:34:07.496Z"
+    },
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 1
+      }
+    ],
+    "outcome": "changed"
+  },
+  {
+    "label": "set_reserve 500/7, no tier",
+    "handoff": {
+      "requestId": "e9320c03-3f67-4629-b036-b957de9c817e",
+      "merchantId": "6af4ac75-302f-4cc9-b0e5-583ebbe07709",
+      "expectedVersion": "0",
+      "change": {
+        "kind": "set_reserve",
+        "reserve": {
+          "rollingReserveBps": 500,
+          "holdDays": 7
+        }
+      },
+      "reason": "honest"
+    },
+    "before": {
+      "merchantId": "6af4ac75-302f-4cc9-b0e5-583ebbe07709",
+      "tierId": null,
+      "archetypeId": null,
+      "caps": null,
+      "pricing": null,
+      "reserve": null,
+      "version": "0",
+      "updatedAt": null
+    },
+    "after": {
+      "merchantId": "6af4ac75-302f-4cc9-b0e5-583ebbe07709",
+      "tierId": null,
+      "archetypeId": null,
+      "caps": null,
+      "pricing": null,
+      "reserve": {
+        "rollingReserveBps": 500,
+        "holdDays": 7
+      },
+      "version": "1",
+      "updatedAt": "2026-10-15T15:34:07.540Z"
+    },
+    "tiers": [
+      {
+        "id": "second-tier",
+        "name": "TEST VALUE second",
+        "archetype": "broker",
+        "caps": [
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "90"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "40"
+          }
+        ],
+        "reserve": null,
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      },
+      {
+        "id": "test-tier",
+        "name": "TEST VALUE tier",
+        "archetype": "psp",
+        "caps": [
+          {
+            "kind": "beneficiaries_per_day",
+            "limit": 2
+          },
+          {
+            "kind": "daily_intake",
+            "assetCode": "USDT",
+            "limit": "300"
+          },
+          {
+            "kind": "daily_payout",
+            "assetCode": "USDT",
+            "limit": "500"
+          },
+          {
+            "kind": "monthly_intake",
+            "assetCode": "USDT",
+            "limit": "1000"
+          },
+          {
+            "kind": "per_payment",
+            "assetCode": "USDT",
+            "limit": "100"
+          }
+        ],
+        "reserve": {
+          "rollingReserveBps": 1000,
+          "holdDays": 7
+        },
+        "approvalThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "50"
+          }
+        ],
+        "founderThresholds": [
+          {
+            "assetCode": "USDT",
+            "amount": "150"
+          }
+        ],
+        "approvalTtlSeconds": 3600,
+        "version": "1",
+        "merchants": 0
+      }
+    ],
+    "outcome": "changed"
+  }
 ]
