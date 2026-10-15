@@ -51,6 +51,7 @@ import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metr
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { createEdgeContext, mergeRouters, retainRawBody, createIdentityOperationDecisionClient } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { setIsolationDenialSink } from './isolation-log.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -390,6 +391,8 @@ export type { SubscriptionRouter } from './subscription-router.js';
 export type { PayNamespacesRouter } from './namespaces/index.js';
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+// Callers get a uniform not-found; operators get the real reason (log only).
+setIsolationDenialSink((denial) => app.log.warn({ isolation: denial }, 'pay.isolation_denied'));
 
 // Keep the exact request bytes so S2S verifiers can check the signed digest
 // (L2-6). Installed once here; internal registers pass `installRawBody: false`

@@ -22,7 +22,7 @@ import type { RailRegistry } from './rails/registry.js';
 import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { PayGuardRefusal } from './seams/guards.js';
-import { assertMerchantAreaAccess, type MerchantAreaFence } from './merchant-ownership.js';
+import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { areaForSurface, type PayfacSurface } from './payfac-permissions.js';
 import { assertRoutingInputsPresent, RoutingInputError } from './routing-inputs.js';
 import {
@@ -177,6 +177,18 @@ export function createPayRouter(
 
   const assertAccess = (principalUserId: string | undefined, merchantId: string, surface: PayfacSurface) =>
     assertMerchantAreaAccess(pay, principalUserId, merchantId, areaForSurface(surface), trees);
+
+  /** Fence on a payment's merchant; somebody else's payment id reads as a payment that does not exist. */
+  const assertPaymentAccess = (principalUserId: string | undefined, paymentId: string, merchantId: string, surface: PayfacSurface) =>
+    refuseAsMissing(
+      assertAccess(principalUserId, merchantId, surface),
+      () => new PayError(`Payment ${paymentId} not found`, 'pay.payment_not_found'),
+    );
+  const assertSettlementAccess = (principalUserId: string | undefined, settlementId: string, merchantId: string, surface: PayfacSurface) =>
+    refuseAsMissing(
+      assertAccess(principalUserId, merchantId, surface),
+      () => new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found'),
+    );
 
   return router({
     health: publicProcedure
@@ -638,7 +650,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
-            await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.authorize');
+            await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.authorize');
             return toPaymentOut(await pay.authorize(input.paymentId, { identityAuthority: credentialAuthority(ctx.principal) }));
           }),
         ),
@@ -649,7 +661,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
-            await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.capture');
+            await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.capture');
             return toPaymentOut(
               await pay.capture(input.paymentId, {
                 ...(input.amount === undefined ? {} : { amount: parseAmount(input.amount) }),
@@ -679,7 +691,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
-            await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.refund');
+            await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.refund');
             return toPaymentOut(await pay.refund(input.paymentId, parseAmount(input.amount), { refundId: input.refundId }));
           }),
         ),
@@ -694,7 +706,7 @@ export function createPayRouter(
             // is the RESPONSE, and it must come before the return, not after
             // the caller has the object.
             const payment = await pay.getPayment(input.paymentId);
-            await assertAccess(ctx.principal.userId, payment.merchantId, 'trpc.payment.get');
+            await assertPaymentAccess(ctx.principal.userId, input.paymentId, payment.merchantId, 'trpc.payment.get');
             return toPaymentOut(payment);
           }),
         ),
@@ -750,7 +762,7 @@ export function createPayRouter(
             // `payment_events` carries instrument metadata, customer refs and
             // rail references, so this is the more sensitive of the two reads.
             const payment = await pay.getPayment(input.paymentId);
-            await assertAccess(ctx.principal.userId, payment.merchantId, 'trpc.payment.history');
+            await assertPaymentAccess(ctx.principal.userId, input.paymentId, payment.merchantId, 'trpc.payment.history');
             return (await pay.history(input.paymentId, input.limit)).map((e) => ({
               id: e.id,
               event: e.event,
@@ -786,7 +798,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
-            await assertAccess(ctx.principal?.userId, settlement.merchantId, 'trpc.settlement.payout');
+            await assertSettlementAccess(ctx.principal?.userId, input.settlementId, settlement.merchantId, 'trpc.settlement.payout');
             return toSettlementOut(
               await pay.payoutSettlement({
                 ...input,
@@ -804,7 +816,7 @@ export function createPayRouter(
             // A settlement names gross, fees and net for a window — another
             // merchant's revenue and the rate we charge them.
             const settlement = await pay.getSettlement(input.settlementId);
-            await assertAccess(ctx.principal.userId, settlement.merchantId, 'trpc.settlement.get');
+            await assertSettlementAccess(ctx.principal.userId, input.settlementId, settlement.merchantId, 'trpc.settlement.get');
             return toSettlementOut(settlement);
           }),
         ),
@@ -842,7 +854,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
-            await assertAccess(ctx.principal?.userId, settlement.merchantId, 'trpc.settlement.release');
+            await assertSettlementAccess(ctx.principal?.userId, input.settlementId, settlement.merchantId, 'trpc.settlement.release');
             return toSettlementOut(await pay.releasePendingSettlement(input));
           }),
         ),
