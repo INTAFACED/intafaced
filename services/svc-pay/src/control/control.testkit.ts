@@ -27,7 +27,7 @@ export async function openAdmin(): Promise<{ url: string; stop: () => Promise<vo
   return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
 }
 
-export const SECRET = 'svc-pay-control-test-secret-at-least-32-characters';
+export const SECRET = 'dev-only-svc-pay-control-test-secret-0123456789abcdef';
 export const OWNER_A = '11111111-1111-4111-8111-111111111111';
 export const OWNER_B = '22222222-2222-4222-8222-222222222222';
 export const MAKER = '33333333-3333-4333-8333-333333333333';
