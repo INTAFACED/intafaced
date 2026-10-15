@@ -42,6 +42,26 @@ describe('previewIsOrderable', () => {
 });
 
 describe('refusal words', () => {
+  it('explains an unavailable order book without showing service text or its market ID', () => {
+    const failure = failureOf(
+      {
+        ok: false,
+        reason: 'error',
+        code: 'trade.matching_market_missing',
+        message: 'matching holds no book for 00000000-0000-4000-8000-000000000001',
+      },
+      {},
+    );
+    expect(failure).toMatchObject({
+      kind: 'refusal',
+      copy: {
+        title: 'No one is trading this market right now',
+        body: 'Prices will show when the first orders arrive.',
+      },
+    });
+    expect(JSON.stringify(failure)).not.toContain('00000000');
+  });
+
   it('an unverified account gets the Verify path and a support reference, never the raw code', () => {
     const failure = refusalFailure('tier.insufficient', {});
     expect(failure).toMatchObject({ kind: 'refusal', copy: { title: 'Verify your identity first', action: { href: '/verification' } } });
