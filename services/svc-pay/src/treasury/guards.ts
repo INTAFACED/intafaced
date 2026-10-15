@@ -20,7 +20,8 @@ import { assetExposure, type ConversionInventorySource } from './exposure.js';
  *
  * Concurrency: a per-asset advisory lock is taken inside the caller's transaction
  * and held until it commits, so two admissions cannot both read the same headroom.
- * (Taken last, after the merchant lock, as the seam lock order requires.) A caller
+ * (Taken after the merchant lock, in the guard step of the seam lock order, and before
+ * any W9/W1 guard lock: the registry runs W5 first, so the order is fixed.) A caller
  * that passes a pool instead of a transaction gets no such protection; the
  * conversion path must pass its transaction.
  */

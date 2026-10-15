@@ -36,6 +36,9 @@ const RETRYABLE_PG = new Set(['40001', '40P01']);
 export const GUARD_HALTED = 'pay.guard_halted' as const;
 export const GUARD_HALT_STORE_UNAVAILABLE = 'pay.guard_halt_store_unavailable' as const;
 
+/** How long a refused payout waits for its auto-trip write before refusing anyway. */
+const TRIP_WAIT_MS = 2_000;
+
 const passes = (replay: GuardReplay): boolean => replay.kind !== 'fresh';
 
 /** Throw unless `scope` is running for this merchant. Reads through `conn`. */
@@ -85,11 +88,17 @@ export function createHaltGuards(deps: { sql: Sql; store: PayHaltStore }): Parti
       throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
     }
     if (!reached) return;
-    try {
-      await deps.store.trip('payout', { level: 'global' }, `auto_trip: ${failures} consecutive refusals by rail ${railId}`);
-    } catch {
-      // The refusal below is what matters; a failed trip write must not let the payout through.
-    }
+    // The trip needs a SECOND pool connection while the caller still holds its own
+    // (a reserved payout connection, often inside a transaction). In a failure storm
+    // every pool connection can be such a caller, so an unbounded await here could
+    // wait forever for a connection none of them will release. Wait briefly, then
+    // refuse anyway; a trip still queued completes once a connection frees up.
+    const tripping = deps.store
+      .trip('payout', { level: 'global' }, `auto_trip: ${failures} consecutive refusals by rail ${railId}`)
+      .catch(() => false); // The refusal below is what matters; a failed trip write must not let the payout through.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([tripping, new Promise<void>((resolve) => (timer = setTimeout(resolve, TRIP_WAIT_MS)))]);
+    clearTimeout(timer);
     throw new PayGuardRefusal(GUARD_HALTED, 'unavailable');
   }
 
