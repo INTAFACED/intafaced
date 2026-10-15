@@ -21,6 +21,7 @@ import {
 const HEAD = 'a'.repeat(40),
   TARGET = 'b'.repeat(40),
   BASE = 'c'.repeat(40),
+  MERGE = 'd'.repeat(40),
   REPO = 'o/r';
 const chk = (name, bucket = 'pass', workflow = 'CI') => ({
   name,
@@ -41,6 +42,8 @@ const pr = (extra = {}) => ({
   baseRefName: 'main',
   title: 'fix: work',
   body: '',
+  authorAssociation: 'OWNER',
+  mergeCommitSha: MERGE,
   changedFiles: 1,
   mergeable: 'MERGEABLE',
   ...extra,
@@ -67,12 +70,25 @@ function world(extra = {}) {
     ...extra,
   };
   w.comments = w.comments.map((c) => ({ author_association: 'OWNER', ...c }));
+  let lastPr;
   const gh = (args, options = {}) => {
     const key = args.join(' ');
     calls.push({ args, input: options.input });
     if (w.refuse && key.startsWith(w.refuse)) throw new GitHubRefusalError('HTTP 403: denied');
     const json = (v) => ({ status: 0, stdout: JSON.stringify(v), stderr: '' });
-    if (key.startsWith('pr view')) return json(typeof w.pr === 'function' ? w.pr() : w.pr);
+    if (key.startsWith('pr view')) {
+      lastPr = typeof w.pr === 'function' ? w.pr() : w.pr;
+      return json(lastPr);
+    }
+    if (key === `api repos/${REPO}/pulls/7`)
+      return json({
+        number: 7,
+        author_association: lastPr.authorAssociation,
+        head: { sha: lastPr.headRefOid },
+        merge_commit_sha: lastPr.mergeCommitSha,
+      });
+    if (key === `api repos/${REPO}/commits/${MERGE}`)
+      return json({ sha: MERGE, parents: [{ sha: w.mergeBaseTip ?? TARGET }, { sha: HEAD }] });
     if (key.includes('/files')) return json([w.files]);
     if (key.includes('/compare/')) return json({ merge_base_commit: { sha: w.base ?? BASE } });
     if (key.includes('/comments')) return json([w.comments]);
@@ -129,16 +145,17 @@ test('coverage requires common jobs and the affected shard or full suite', () =>
   assert.match(coverageProblems(['tooling/scripts/a.mjs'], [...common, chk('Tests (trade)')]).join(), /Tests \(full\)/);
   assert.match(coverageProblems(['apps/web/a.ts'], [chk('changes')]).join(), /Doctrine gates.*Typecheck.*Format.*Tests/);
 });
-test('PASS uses exact PR merge base, emits report and command, never merges or writes receipt', async () => {
+test('PASS distinguishes full review merge base from tested target tip, never merges or writes receipt', async () => {
   const w = world();
   const r = await w.run();
   assert.equal(r.code, 0);
-  assert.equal(r.base, BASE);
+  assert.equal(r.base, TARGET);
+  assert.equal(r.reviewBase, BASE);
   assert.equal(r.targetBase, TARGET);
-  assert.equal(w.observed[0].base, BASE);
+  assert.equal(w.observed[0].base, TARGET);
   assert.equal(w.observed[0].head, HEAD);
   assert.equal(r.mergeCommand, mergeCommand(7, HEAD, REPO));
-  assert.match(r.comment, /Exact PR merge base/);
+  assert.match(r.comment, /Review merge base/);
   assert.equal(r.receipt, undefined);
   assert.equal(w.calls.filter((c) => c.args[1] === 'comment').length, 1);
   assert.ok(!w.calls.some((c) => c.args.includes('merge')));
@@ -429,11 +446,11 @@ test('verified lifecycle saves exact bound receipt before posting PASS', async (
       },
     });
     assert.equal(writeInput.gateSha, HEAD);
-    assert.equal(writeInput.base, BASE);
+    assert.equal(writeInput.base, TARGET);
     assert.ok(existsSync(r.receipt.path));
     const saved = JSON.parse(readFileSync(r.receipt.path, 'utf8'));
     assert.equal(saved.head, HEAD);
-    assert.equal(saved.base, BASE);
+    assert.equal(saved.base, TARGET);
     assert.equal(saved.status, 'PASS');
     assert.equal(w.calls.filter((c) => c.args[1] === 'comment').length, 1);
   }));
@@ -665,4 +682,50 @@ test('only trusted comment associations contribute declarations', async () => {
     assert.match(declarations, new RegExp(`trusted-association=${association}`));
   for (const association of ['CONTRIBUTOR', 'FIRST_TIMER', 'NONE'])
     assert.doesNotMatch(declarations, new RegExp(`trusted-association=${association}`));
+});
+
+test('outsider PR body cannot supply or poison declarations; trusted commenters still can', async () => {
+  for (const association of ['NONE', 'FIRST_TIMER', 'FIRST_TIME_CONTRIBUTOR', 'CONTRIBUTOR', null]) {
+    const w = world({
+      pr: pr({
+        authorAssociation: association,
+        body: 'Author-Session: outsider\nInherited-Failure: CI/Tests (full) | owner=outsider | evidence=https://example.com/fake',
+      }),
+      comments: [{ id: 1, body: 'trusted comment', author_association: 'COLLABORATOR' }],
+    });
+    const result = await w.run();
+    assert.equal(result.code, 0);
+    assert.equal(w.observed[0].declarations, '\ntrusted comment');
+  }
+  for (const association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+    const w = world({ pr: pr({ authorAssociation: association, body: 'trusted body' }) });
+    assert.equal((await w.run()).code, 0);
+    assert.equal(w.observed[0].declarations, 'trusted body');
+  }
+});
+test('ignored outsider body drift does not force a rerun; trusted author status drift does', async () => {
+  for (const elevate of [false, true]) {
+    const w = world({ pr: pr({ authorAssociation: 'NONE', body: 'outsider initial' }) });
+    const run = () =>
+      w.run(
+        {},
+        {
+          evidenceCollector: async () => {
+            w.w.pr.body = 'outsider edit';
+            if (elevate) w.w.pr.authorAssociation = 'COLLABORATOR';
+            return { pass: true, reasons: [], classifications: [], summary: [] };
+          },
+        },
+      );
+    if (elevate) await assert.rejects(run(), /declarations changed/);
+    else assert.equal((await run()).code, 0);
+  }
+});
+
+test('tested base is the merge result main parent, not the PR creation base or merge-base', async () => {
+  const w = world({ pr: pr({ baseRefOid: BASE }) });
+  const result = await w.run();
+  assert.equal(result.base, TARGET);
+  assert.equal(result.reviewBase, BASE);
+  assert.equal(w.observed[0].mergeSha, MERGE);
 });

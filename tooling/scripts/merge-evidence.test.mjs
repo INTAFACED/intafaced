@@ -15,6 +15,7 @@ import { GitHubRefusalError } from './gate-gh.mjs';
 
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
+const MERGE = 'e'.repeat(40);
 const REPO = 'owner/repo';
 const ui = readFileSync(new URL('./fixtures/merge-gate/evidence-ui.log', import.meta.url), 'utf8');
 const other = readFileSync(new URL('./fixtures/merge-gate/evidence-ui-other-defect.log', import.meta.url), 'utf8');
@@ -61,12 +62,13 @@ function fixture({
   unfinished = false,
   runs = true,
   headJob = job(201),
-  fakeCheckoutSha = headSha,
+  fakeCheckoutSha = MERGE,
 } = {}) {
   const calls = [];
   const run = (id, sha, jobs, workflowName = 'CI', workflowDatabaseId = 9) => ({
     databaseId: id,
     headSha: sha,
+    event: id === 200 ? 'pull_request' : 'push',
     workflowName,
     workflowDatabaseId,
     status: 'completed',
@@ -80,7 +82,8 @@ function fixture({
   const gh = (args) => {
     calls.push(args);
     let data;
-    if (args[0] === 'run' && args[1] === 'list') data = runs ? [baseRun] : [];
+    if (args[0] === 'api' && args[1] === `repos/${REPO}/commits/${MERGE}`) data = { sha: MERGE, parents: [{ sha: BASE }, { sha: HEAD }] };
+    else if (args[0] === 'run' && args[1] === 'list') data = runs ? [baseRun] : [];
     else if (args.includes('--log'))
       return { status: 0, stdout: args[3] === '201' ? checkout(fakeCheckoutSha, headLog) : checkout(BASE, baseLog), stderr: '' };
     else if (args[2] === '200') data = headRun;
@@ -93,7 +96,7 @@ function fixture({
     gh,
     headRun,
     baseRun,
-    options: { gh, repo: REPO, head: HEAD, base: BASE, checks: [check], files, declarations, workspaceRoots },
+    options: { gh, repo: REPO, head: HEAD, base: BASE, mergeSha: MERGE, checks: [check], files, declarations, workspaceRoots },
   };
 }
 
@@ -361,6 +364,7 @@ function shardFixture({ baseName = 'Tests (pay-bank)', baseConclusion = 'failure
   const headRun = {
     databaseId: 200,
     headSha: HEAD,
+    event: 'pull_request',
     workflowName: 'CI',
     workflowDatabaseId: 9,
     status: 'completed',
@@ -375,10 +379,11 @@ function shardFixture({ baseName = 'Tests (pay-bank)', baseConclusion = 'failure
         stderr: '',
         stdout:
           args[3] === '201'
-            ? exactLog(HEAD, name, green ? passed : log)
+            ? exactLog(MERGE, name, green ? passed : log)
             : exactLog(BASE, baseName, baseConclusion === 'success' ? passed : log),
       };
-    if (args[1] === 'list') value = missing ? [] : [baseRun];
+    if (args[0] === 'api' && args[1] === `repos/${REPO}/commits/${MERGE}`) value = { sha: MERGE, parents: [{ sha: BASE }, { sha: HEAD }] };
+    else if (args[1] === 'list') value = missing ? [] : [baseRun];
     else value = args[2] === '200' ? headRun : baseRun;
     return { status: 0, stderr: '', stdout: JSON.stringify(value) };
   };
@@ -391,6 +396,7 @@ function shardFixture({ baseName = 'Tests (pay-bank)', baseConclusion = 'failure
       repo: REPO,
       head: HEAD,
       base: BASE,
+      mergeSha: MERGE,
       files: ['services/svc-bank/src/a.ts'],
       workspaceRoots: new Map([['@intafaced/svc-bank', 'services/svc-bank']]),
       checks: [{ ...check, name, bucket: green ? 'pass' : 'fail' }],
@@ -573,9 +579,9 @@ test('changed workspaces may be covered by separate exact-commit shards, with no
           stderr: '',
           stdout:
             args[3] === '201'
-              ? exactLog(HEAD, 'Tests (pay-bank)', bank)
+              ? exactLog(MERGE, 'Tests (pay-bank)', bank)
               : args[3] === '202'
-                ? exactLog(HEAD, 'Tests (trade)', trade.replaceAll('@intafaced/svc-trade:test: ', 'services/svc-trade test: '))
+                ? exactLog(MERGE, 'Tests (trade)', trade.replaceAll('@intafaced/svc-trade:test: ', 'services/svc-trade test: '))
                 : exactLog(BASE, 'Tests (full)', bank + trade),
         }
       : original(args);
@@ -621,3 +627,32 @@ for (const side of ['head', 'base'])
       assert.equal(result.pass, false, `${side} ${failure}`);
       assert.match(result.reasons.join('; '), /unhandled|error|test.*step/i);
     });
+
+test('merge result is bound to target-main tip and PR head; raw head alone cannot prove integration', async () => {
+  const f = fixture({ headJob: job(201, 'success'), headLog: passedUi, baseConclusion: 'success', baseLog: passedUi });
+  f.options.checks = [{ ...check, bucket: 'pass' }];
+  const good = await collectEvidence(f.options);
+  assert.equal(good.pass, true, good.reasons.join('; '));
+  assert.equal(good.coverage[0].head.testedSha, MERGE);
+  assert.equal(good.coverage[0].base.sha, BASE);
+  for (const parents of [
+    [{ sha: 'c'.repeat(40) }, { sha: HEAD }],
+    [{ sha: BASE }, { sha: 'd'.repeat(40) }],
+    [{ sha: HEAD }, { sha: BASE }],
+    [{ sha: BASE }],
+  ]) {
+    const original = f.gh;
+    f.options.gh = (args) =>
+      args[0] === 'api' ? { status: 0, stdout: JSON.stringify({ sha: MERGE, parents }), stderr: '' } : original(args);
+    assert.equal((await collectEvidence(f.options)).pass, false, JSON.stringify(parents));
+  }
+  const raw = fixture({
+    fakeCheckoutSha: HEAD,
+    headJob: job(201, 'success'),
+    headLog: passedUi,
+    baseConclusion: 'success',
+    baseLog: passedUi,
+  });
+  raw.options.checks = [{ ...check, bucket: 'pass' }];
+  assert.equal((await collectEvidence(raw.options)).pass, false);
+});

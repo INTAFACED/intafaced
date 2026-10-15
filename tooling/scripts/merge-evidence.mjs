@@ -1,10 +1,10 @@
 /**
- * Exact-commit evidence for failed non-required checks. No recent-main window.
+ * Head-bound merge-result / main-tip evidence for non-required checks. No recent-main window.
  *
  * PR body/comment declaration (one per check, plain line):
  * Inherited-Failure: CI/Tests (full) | owner=@team | evidence=https://.../issues/123
  * The declaration is accountability, never evidence by itself. GitHub run/job logs
- * must independently prove the same complete failure at the actual base/head.
+ * must independently prove the same complete failure at the tested main tip and bound merge result.
  * Environmental failures remain blocked: a stopped runner does not prove tests ran.
  */
 import { ghJson } from './gate-gh.mjs';
@@ -534,7 +534,7 @@ function coverageProblem(check, files) {
 
 // workspaceRoots injects manifest fixtures for tooling-only offline test copies.
 // Production callers omit it and use manifests from the trusted gate checkout.
-export async function collectEvidence({ gh, repo, head, base, checks, files = [], declarations = '', workspaceRoots }) {
+export async function collectEvidence({ gh, repo, head, base, mergeSha, checks, files = [], declarations = '', workspaceRoots }) {
   const failed = checks.filter(
     (c) => (isFailed(c) && !REQUIRED.has(keyOf(c))) || (c.workflow === 'CI' && TEST_JOB_POLICY[c.name] && c.bucket === 'pass'),
   );
@@ -637,8 +637,18 @@ export async function collectEvidence({ gh, repo, head, base, checks, files = []
       const baseJob = baseMatches[0];
       const headLog = normalizeTestLog(getLog(headJob.databaseId), headJob.name, workspaceRoots);
       const baseLog = normalizeTestLog(getLog(baseJob.databaseId), baseJob.name, workspaceRoots);
-      if (actualCheckoutSha(headLog) !== head || actualCheckoutSha(baseLog) !== base)
-        throw new Error('checkout logs do not prove execution at the actual exact head and base (merge refs do not qualify)');
+      const testedSha = actualCheckoutSha(headLog);
+      if (
+        !SHA.test(mergeSha ?? '') ||
+        testedSha !== mergeSha ||
+        testedSha === head ||
+        actualCheckoutSha(baseLog) !== base ||
+        headRun.event !== 'pull_request'
+      )
+        throw new Error('checkout logs do not prove a PR merge result and the exact tested main tip');
+      const merge = ghJson(gh, ['api', `repos/${repo}/commits/${testedSha}`]);
+      if (merge.sha !== testedSha || merge.parents?.length !== 2 || merge.parents[0]?.sha !== base || merge.parents[1]?.sha !== head)
+        throw new Error('tested merge parents do not match target-main tip and exact PR head');
       if (TEST_JOB_POLICY[check.name]) {
         const headProof = testExecutionProof(headJob, headLog, files, workspaceRoots),
           baseProof = testExecutionProof(baseJob, baseLog, files, workspaceRoots);
@@ -649,6 +659,7 @@ export async function collectEvidence({ gh, repo, head, base, checks, files = []
           check: keyOf(check),
           head: {
             sha: head,
+            testedSha,
             runId: headRunId,
             jobId: headJob.databaseId,
             job: headJob.name,
@@ -703,7 +714,10 @@ export async function collectEvidence({ gh, repo, head, base, checks, files = []
     classifications,
     coverage,
     summary: [
-      ...coverage.map((c) => `${c.check}: exact head ${c.head.sha} and base ${c.base.sha} executed (${c.head.job} / ${c.base.job})`),
+      ...coverage.map(
+        (c) =>
+          `${c.check}: head ${c.head.sha} in tested merge ${c.head.testedSha}, versus main tip ${c.base.sha} (${c.head.job} / ${c.base.job})`,
+      ),
       ...classifications.map(
         (c) => `${c.check}: ${c.classification}${c.allowed ? ' (owner/evidence recorded)' : ' (blocks)'}; ${c.reason}`,
       ),

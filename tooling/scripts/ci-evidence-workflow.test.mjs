@@ -4,11 +4,13 @@ import { existsSync, readFileSync } from 'node:fs';
 const path = new URL('../../.github/workflows/ci.yml', import.meta.url);
 const present = existsSync(path);
 const workflow = present ? readFileSync(path, 'utf8') : '';
-test('CI tests exact PR head instead of a synthetic merge at every checkout', { skip: !present }, () => {
-  const checkouts = [...workflow.matchAll(/- uses: actions\/checkout@[^\n]+\n((?: +[^\n]*\n)*?)(?= *- uses:| *- (?:run|name|id):|\n)/g)];
-  assert.ok(checkouts.length >= 9);
-  for (const checkout of checkouts) assert.match(checkout[1], /ref: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/);
-  assert.doesNotMatch(workflow, /evidence_ref|CI_EVIDENCE_SCOPE/);
+test('normal CI test jobs use GitHub merge-result checkout, never raw PR-head pinning', { skip: !present }, () => {
+  for (const scope of ['full', 'protocol', 'money', 'trade', 'paybank']) {
+    const block = workflow.match(new RegExp('^  test-' + scope + ':\\n([\\s\\S]*?)(?=^  [a-z][a-z-]*:)', 'm'))?.[1];
+    assert.ok(block, scope);
+    const checkout = block.match(/- uses: actions\/checkout@[^\n]+\n((?: +[^\n]*\n)*?)(?= *- uses:| *- (?:run|name|id):|\n)/)?.[1] ?? '';
+    assert.doesNotMatch(checkout, /ref:/, scope + ' must use the default pull_request merge ref');
+  }
 });
 test('each selected shard runs the infrastructure execution backstop even after a test failure', { skip: !present }, () => {
   for (const scope of ['protocol', 'money', 'trade', 'paybank']) {

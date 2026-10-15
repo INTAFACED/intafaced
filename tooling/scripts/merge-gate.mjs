@@ -48,6 +48,16 @@ export const CI_PR_PATHS = ['**', '!docs/**', '!**/*.md', '!NOTICE', '!LICENSE',
 const FAIL_BUCKETS = new Set(['fail', 'cancel']);
 const LIVE_CLI = Symbol('verified live CLI');
 const trustedComments = (comments) => comments.filter((c) => ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c.author_association));
+const trustedBody = (pr) => (['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.authorAssociation) ? String(pr.body ?? '') : '');
+const bodyFingerprint = (pr) => JSON.stringify([['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.authorAssociation), trustedBody(pr)]);
+function readPrSnapshot(gh, repo, pr, fields) {
+  const value = ghJson(gh, ['pr', 'view', String(pr), '-R', repo, '--json', fields]);
+  const metadata = ghJson(gh, ['api', `repos/${repo}/pulls/${pr}`]);
+  if (metadata.number !== pr || metadata.head?.sha !== value.headRefOid)
+    throw new GateError('PR author metadata does not match the live head.');
+  return { ...value, authorAssociation: metadata.author_association, mergeCommitSha: metadata.merge_commit_sha };
+}
+
 const declarationCommentsFingerprint = (comments) =>
   JSON.stringify(
     trustedComments(comments)
@@ -147,15 +157,7 @@ export async function runGate(
 ) {
   const { pr, head, repo } = o;
   const viewPr = () =>
-    ghJson(gh, [
-      'pr',
-      'view',
-      String(pr),
-      '-R',
-      repo,
-      '--json',
-      'number,state,isDraft,headRefOid,baseRefOid,baseRefName,title,body,changedFiles,mergeable,url',
-    ]);
+    readPrSnapshot(gh, repo, pr, 'number,state,isDraft,headRefOid,baseRefOid,baseRefName,title,body,changedFiles,mergeable,url');
   const first = viewPr();
   const targetBase = first.baseRefOid;
   const assertSnapshot = (cur, initial = false) => {
@@ -170,7 +172,9 @@ export async function runGate(
     if (cur.baseRefName !== 'main') throw new GateError(`PR #${pr} targets ${cur.baseRefName}, not main.`);
     if (!/^[0-9a-f]{40}$/.test(cur.baseRefOid ?? '')) throw new GateError('PR target base commit could not be read.');
     if (cur.baseRefOid !== targetBase) throw new GateError('PR base moved while checking; run the gate again against its current base.');
-    if (cur.title !== first.title || cur.body !== first.body)
+    if (cur.mergeCommitSha !== first.mergeCommitSha)
+      throw new GateError('PR merge result changed while checking; rerun against its current main parent.');
+    if (cur.title !== first.title || bodyFingerprint(cur) !== bodyFingerprint(first))
       throw new GateError('PR title or declarations changed while checking; run the gate again.');
   };
   assertSnapshot(first, true);
@@ -182,15 +186,30 @@ export async function runGate(
     throw new GateError('Changed-file list is incomplete; cannot prove scope (GitHub limits this endpoint to 3000 files).');
   // Both sides of a rename carry scope: moving a protected or gate file cannot erase its review requirement.
   const files = [...new Set(entries.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean)))];
-  const compared = ghJson(gh, ['api', `repos/${repo}/compare/${targetBase}...${head}`]);
-  const base = compared.merge_base_commit?.sha;
-  if (!/^[0-9a-f]{40}$/.test(base ?? '')) throw new GateError('PR merge base could not be resolved; exact-base evidence is required.');
+  const docsOnly = !ciWouldRun(files);
+  const mergeSha = first.mergeCommitSha;
+  let base = targetBase;
+  if (!docsOnly) {
+    if (!/^[0-9a-f]{40}$/.test(mergeSha ?? '')) throw new GateError('No current GitHub merge result is available.');
+    const merge = ghJson(gh, ['api', `repos/${repo}/commits/${mergeSha}`]);
+    if (
+      merge.sha !== mergeSha ||
+      merge.parents?.length !== 2 ||
+      !/^[0-9a-f]{40}$/.test(merge.parents[0]?.sha ?? '') ||
+      merge.parents[1]?.sha !== head
+    )
+      throw new GateError('GitHub merge result does not bind the target main parent and exact PR head.');
+    base = merge.parents[0].sha;
+  }
+  const compared = ghJson(gh, ['api', `repos/${repo}/compare/${base}...${head}`]);
+  const reviewBase = compared.merge_base_commit?.sha;
+  if (!/^[0-9a-f]{40}$/.test(reviewBase ?? ''))
+    throw new GateError('PR merge base could not be resolved; exact-base evidence is required.');
   const comments = ghJson(gh, ['api', '--paginate', '--slurp', `repos/${repo}/issues/${pr}/comments`])
     .flat()
     .filter((c) => ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c.author_association));
   const declarationComments = declarationCommentsFingerprint(trustedComments(comments));
-  const declarations = [first.body ?? '', ...comments.map((c) => c.body ?? '')].join('\n');
-  const docsOnly = !ciWouldRun(files);
+  const declarations = [trustedBody(first), ...comments.map((c) => c.body ?? '')].join('\n');
   const readChecks = () => {
     const r = gh(['pr', 'checks', String(pr), '-R', repo, '--json', 'name,state,bucket,workflow,link,completedAt'], { allowFail: true });
     if (r.stdout.trim()) return collapseChecks(JSON.parse(r.stdout));
@@ -253,12 +272,12 @@ export async function runGate(
   if (docsOnly) {
     for (const c of settled.checks) if (FAIL_BUCKETS.has(c.bucket)) reasons.push(`docs-only reported check failed: ${keyOf(c)}`);
   } else if (settled.ciPresent) {
-    evidence = await evidenceCollector({ gh, repo, head, base, checks: settled.checks, files, declarations });
+    evidence = await evidenceCollector({ gh, repo, head, base, mergeSha, checks: settled.checks, files, declarations });
     reasons.push(...evidence.reasons);
     if (!evidence.pass && !evidence.reasons.length) reasons.push('Exact-base/head evidence did not pass.');
   }
   const protectedFiles = files.filter(isProtectedPath);
-  const reviewResult = protectedFiles.length ? reviewValidator({ head, declarations }) : { pass: true, reasons: [] };
+  const reviewResult = protectedFiles.length ? reviewValidator({ head, base: reviewBase, declarations }) : { pass: true, reasons: [] };
   reasons.push(...reviewResult.reasons);
   if (!reviewResult.pass && !reviewResult.reasons.length) reasons.push('Independent Opus review did not pass.');
   const final = viewPr();
@@ -289,7 +308,7 @@ export async function runGate(
     review: reviewResult.review,
   };
   const verdict = evalResult.pass ? 'PASS' : 'FAIL';
-  const comment = renderEvidenceComment({ verdict, head, base, targetBase, pr, repo, checks: settled.checks, evalResult });
+  const comment = renderEvidenceComment({ verdict, head, base, reviewBase, targetBase, pr, repo, checks: settled.checks, evalResult });
   if (o.comment) gh(['pr', 'comment', String(pr), '-R', repo, '--body-file', '-'], { input: comment });
   return {
     code: evalResult.pass ? 0 : 1,
@@ -297,6 +316,8 @@ export async function runGate(
     evalResult,
     comment,
     base,
+    reviewBase,
+    mergeSha,
     targetBase,
     snapshot: first,
     checks: settled.checks,
@@ -325,12 +346,12 @@ export function coverageProblems(files, checks) {
   return problems;
 }
 
-export function renderEvidenceComment({ verdict, head, base, targetBase, pr, repo, checks, evalResult: e }) {
+export function renderEvidenceComment({ verdict, head, base, reviewBase, targetBase, pr, repo, checks, evalResult: e }) {
   const lines = [
     MARKER,
     `**Merge gate: ${verdict}** for head \`${head}\``,
     '',
-    `- Exact PR merge base: \`${base}\`; target main: \`${targetBase}\`.`,
+    `- Review merge base: \`${reviewBase}\`; tested target main: \`${base}\`.`,
     `- Required checks: ${REQUIRED.map((r) => `${r.name} ${e.required[r.name]}`).join(', ')}.`,
     `- Finished checks reported: ${checks.length}.`,
   ];
@@ -438,15 +459,7 @@ export async function runVerifiedGate(
         .filter((c) => ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c.author_association));
       if (declarationCommentsFingerprint(trustedComments(comments)) !== result.declarationComments)
         throw new GateError('PR review or failure declarations changed before receipt; run the gate again.');
-      const cur = ghJson(gh, [
-        'pr',
-        'view',
-        String(o.pr),
-        '-R',
-        o.repo,
-        '--json',
-        'state,isDraft,headRefOid,baseRefOid,baseRefName,title,body,mergeable',
-      ]);
+      const cur = readPrSnapshot(gh, o.repo, o.pr, 'state,isDraft,headRefOid,baseRefOid,baseRefName,title,body,mergeable');
       const before = result.snapshot;
       if (
         cur.state !== 'OPEN' ||
@@ -455,17 +468,23 @@ export async function runVerifiedGate(
         cur.baseRefOid !== result.targetBase ||
         cur.baseRefName !== 'main' ||
         cur.title !== before.title ||
-        cur.body !== before.body ||
+        bodyFingerprint(cur) !== bodyFingerprint(before) ||
+        cur.mergeCommitSha !== before.mergeCommitSha ||
         cur.mergeable === 'CONFLICTING'
       )
         throw new GateError('PR changed before receipt; run the gate again.');
       if (result.evalResult.protectedFiles.length) {
-        const fresh = reviewValidator({ head: o.head, declarations: [cur.body ?? '', ...comments.map((c) => c.body ?? '')].join('\n') });
+        const fresh = reviewValidator({
+          head: o.head,
+          base: result.reviewBase,
+          declarations: [trustedBody(cur), ...comments.map((c) => c.body ?? '')].join('\n'),
+        });
         const earlier = result.evalResult.review;
         if (
           !fresh.pass ||
           !fresh.review ||
           fresh.review.head !== o.head ||
+          fresh.review.base !== result.reviewBase ||
           fresh.review.authorSession !== earlier?.authorSession ||
           fresh.review.reviewerSession !== earlier?.reviewerSession ||
           fresh.review.parentSession !== earlier?.parentSession
