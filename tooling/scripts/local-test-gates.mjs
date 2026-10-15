@@ -42,7 +42,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localStackState } from './local-test-state.mjs';
+import { localStackState, assertActiveLocalStack } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
@@ -308,6 +308,7 @@ class Edge {
     this.origin = origin;
   }
   async call(method, route, body, token) {
+    if (method !== 'GET') assertActiveLocalStack();
     const headers = { origin: this.origin, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) };
     if (token) headers.authorization = `Bearer ${token}`;
     const res = await fetch(`${this.base}${route}`, {
@@ -355,6 +356,7 @@ function decodeJwtPayload(token) {
 
 export async function makeContext({ home = os.homedir(), log = say } = {}) {
   const { paths, marker } = assertLocalTarget({ home });
+  assertActiveLocalStack({ stateDir: paths.stateDir });
   const p = gatePaths(home);
   const secrets = readJson(p.secrets, null);
   if (!secrets?.internal || !secrets?.jwt) throw new Error('secrets.json is missing the internal or jwt secret');
@@ -493,6 +495,7 @@ async function twoPerson(ctx, sessions, proposal) {
 // ── 1. Lifecycle (the owner stand-in) ───────────────────────────────────────
 
 async function signedTrade(ctx, method, route, bodyObj) {
+  if (method !== 'GET') assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
   const raw = bodyObj === undefined ? '' : JSON.stringify(bodyObj);
   const headers = { ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw) };
   if (raw) headers['content-type'] = 'application/json';
@@ -551,6 +554,7 @@ export async function openBooks(ctx) {
   for (const m of markets) {
     const ids = await twoPerson(ctx, sessions, openProposal(m.id));
     const raw = JSON.stringify({ operatorId: sessions.a.op.userId, approvalId: ids.approvalId, operationId: ids.operationId });
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
     const res = await fetch(`${matchingBase}/markets/${encodeURIComponent(m.id)}/open`, {
       redirect: 'error',
       method: 'POST',

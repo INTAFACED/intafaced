@@ -33,6 +33,8 @@ State lives in `~/.intafaced/local-test-stack/` (data, logs, `secrets.json` mode
 
 For a fresh database without altering an existing one, set `export LOCAL_STACK_STATE="$HOME/.intafaced/my-fresh-test-stack"` before running any command. The path must be absolute. Stack, funding, market, gates and world commands all use that folder, including background children. Use the same setting for later status, restart and stop commands. Ports stay fixed: stop the previous stack with its original state setting before starting another. The old data and secrets stay in their original folder; nothing is copied automatically. `plan --json` reports `stateDir` so the selected folder can be checked before starting.
 
+Helpers also check that this folder's Postgres and recorded services still own their loopback ports, with the expected checkout, database directory and process start time. A stale marker cannot authorize mutations against a different stack that has taken over the fixed ports. Missing ownership evidence refuses the action before account creation, funding or order submission.
+
 ## Real vs test
 
 Real: the code. Identity, Ledger, Trade, Matching, Pay, Bank and Edge are the repository's own services, running their own migrations against a real Postgres and a real NATS JetStream. Funds move only through the ledger (`packages/ledger-client` recipes into `svc-ledger`); amounts are decimal strings on the wire.
