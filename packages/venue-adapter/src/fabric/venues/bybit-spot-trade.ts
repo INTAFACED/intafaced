@@ -264,6 +264,9 @@ export class BybitSpotTrade implements TradeAdapter {
     if (request.type === 'limit') {
       payload.price = formatAmount(request.price!);
       payload.timeInForce = request.postOnly ? 'PostOnly' : (request.timeInForce ?? 'GTC');
+    } else {
+      // Unified amounts are base quantity; Bybit market buys default to quote value.
+      payload.marketUnit = 'baseCoin';
     }
     await this.#signed('POST', '/v5/order/create', payload, keys, 'placeOrder', false);
     try {
