@@ -6,6 +6,8 @@
  * run: register a virtual passkey, sign in through the rendered button, buy the
  * smallest safe BTC amount through Review/Confirm, check fills and ledger balances.
  * recover: restore an interrupted virtual passkey, sign in, remove it, logout.
+ * inspect-security: password sign-in and first-passkey UI availability only;
+ * never enrolls a key or places an order, including when order intent exists.
  * Required: LOCAL_STACK_STATE=~/.intafaced/s3-trade-20261015 (expanded absolute),
  * S3_TRADE_RECEIPTS=<absolute private directory>. S3_BROWSER optionally selects
  * installed Chromium. Credentials/recovery material stay mode 0600, never stdout.
@@ -23,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { assertActiveLocalStack } from './local-test-state.mjs';
 
 const mode = process.argv[2];
-if (!['prepare', 'run', 'recover'].includes(mode)) throw Error('Use prepare, run, or recover');
+if (!['prepare', 'run', 'recover', 'inspect-security'].includes(mode)) throw Error('Use prepare, run, recover, or inspect-security');
 const expectedState = path.join(os.homedir(), '.intafaced', 's3-trade-20261015');
 if (process.env.LOCAL_STACK_STATE !== expectedState) throw Error('Refusing: explicitly select the fresh S3 state root');
 const state = fs.realpathSync(expectedState);
@@ -140,7 +142,7 @@ function parseRendered(v, asset = '') {
   return units(plain);
 }
 
-async function signIn(register) {
+async function signIn(register, passwordOnly = false) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   const playwright = createRequire(path.join(root, 'package.json'))('@playwright/test');
   const { chromium } = playwright;
@@ -184,11 +186,34 @@ async function signIn(register) {
     }
   });
   page.on('pageerror', (e) => receipt.errors.push(e.message));
-  const response = await page.goto(origin + '/login?redirect=%2Ftrade%2Fspot%2FBTC-USDT');
+  const response = await page.goto(origin + '/login?redirect=' + (passwordOnly ? '%2Fuc%2Fsafe' : '%2Ftrade%2Fspot%2FBTC-USDT'));
   check(
     'Rendered LOCAL TEST sign-in',
     response.status() === 200 && (await page.getByRole('button', { name: 'Use a passkey', exact: true }).isVisible()),
   );
+  if (passwordOnly) {
+    const verified = page.waitForResponse((r) => r.url() === origin + '/api/identity/trpc/auth.login', { timeout: 20000 });
+    await page.getByRole('textbox', { name: 'Email or handle', exact: true }).fill(account.email);
+    await page.getByLabel('Password', { exact: true }).fill(account.password);
+    assertActiveLocalStack({ stateDir: state });
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    const r = await verified,
+      body = await r.json();
+    check('Rendered password sign-in succeeds for customer handoff', r.status() === 200 && body.result?.data?.userId === account.userId);
+    authSession = body.result.data;
+    receipt.browserAuth = 'password';
+    token = authSession.accessToken;
+    await page.waitForURL(origin + '/uc/safe', { timeout: 20000 });
+    await expect(page.getByRole('button', { name: 'Add passkey', exact: true })).toBeEnabled({ timeout: 20000 });
+    const keys = await rpc('webauthn.list', { limit: 200 }, token, 'GET');
+    check(
+      'Customer can enroll their first passkey after proof cleanup',
+      keys.length === 0 && (await page.getByRole('button', { name: 'Add passkey', exact: true }).isVisible()),
+    );
+    check('Security inspection submitted no order', receipt.orderRequests.length === 0);
+    await page.screenshot({ path: path.join(dir, 'trade-customer-security-ready.png'), fullPage: false });
+    return;
+  }
   cdp = await context.newCDPSession(page);
   await cdp.send('WebAuthn.enable');
   const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
@@ -417,7 +442,13 @@ async function trade() {
     );
   }
   await page.screenshot({ path: path.join(dir, 'trade-balances.png'), fullPage: false });
-  await page.goto(origin + '/uc/safe');
+  receipt.tradeResult = 'PASS: rendered passkey sign-in, one UI buy, fill, exact ledger changes and visible balances';
+  // SessionProvider intentionally keeps credentials in memory. Use the same
+  // History/popstate navigation as app/location.ts; a document reload signs out.
+  await page.evaluate(() => {
+    history.pushState(null, '', '/uc/safe');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
   check(
     'Customer can enroll their own passkey from Security',
     await page.getByRole('button', { name: 'Add passkey', exact: true }).isEnabled(),
@@ -465,6 +496,8 @@ try {
     check('Customer self-submitted explicitly synthetic KYC', Boolean(submission.id), { requestId: submission.id, jurisdiction: 'ZZ' });
     receipt.nextAction = 'Parent: approve this LOCAL TEST request and locally fund the dedicated email before run.';
     receipt.credentialsFile = accountFile;
+  } else if (mode === 'inspect-security') {
+    await signIn(false, true);
   } else {
     let needsSignIn = true;
     if (mode === 'recover') {
@@ -508,7 +541,7 @@ try {
     process.exitCode = 1;
   }
   for (const [name, session] of [
-    ['passkey', authSession],
+    [receipt.browserAuth ?? 'passkey', authSession],
     ['password', passwordSession],
   ]) {
     if (!session?.refreshToken) continue;
