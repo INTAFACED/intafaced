@@ -535,7 +535,7 @@ export const reconcileRuns = ledger.table(
   },
   (t) => [
     index('reconcile_runs_ok_idx')
-      .on(t.id.desc())
+      .on(t.throughSeq.desc(), t.id.desc())
       .where(sql`outcome = 'ok'`),
     check('reconcile_runs_outcome_ck', sql`outcome IN ('ok', 'mismatch', 'incomplete')`),
     check('reconcile_runs_kind_ck', sql`kind IN ('full', 'incremental')`),

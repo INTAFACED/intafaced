@@ -313,9 +313,9 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   }
 
   /**
-   * A completed failed proof: freeze under actor `reconciliation` in its own
-   * READ COMMITTED transaction (the proof's snapshot transaction is already
-   * committed), publish the freeze, then page a real drift.
+   * A completed failed proof already committed its halt with the mismatch run.
+   * Retry that freeze for the fallback where recording failed, publish the
+   * committed freeze intent, then emit the drift event.
    *
    * Prefer a freeze under actor `reconciliation`. If an operator already halted
    * the book, writeFreeze refuses the overwrite (STOP §4.2b #3) — catch that
@@ -332,7 +332,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     await this.publishReconciliationDrift(report);
   }
 
-  /** When the book was last proved consistent. Backs `/health`, the staleness backstop and the metric. */
+  /** When the book was last proved consistent. Backs `/health`, staleness reporting and the metric. */
   lastVerified(): Promise<LastVerified> {
     return readLastVerified(this.sql);
   }

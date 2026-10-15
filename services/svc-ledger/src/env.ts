@@ -64,8 +64,8 @@ const schema = serviceEnvSchema
       ),
 
       /**
-       * Staleness backstop: when no `ok` reconciliation run is newer than this many hours, the
-       * next tick freezes posting with reason `reconciliation stale`. Default 24.
+       * Staleness reporting: an older or absent proof produces a fatal log each tick.
+       * This threshold never changes posting. Default 24 hours.
        */
       LEDGER_RECONCILE_MAX_STALE_HOURS: z.preprocess(
         blankIsUnset,

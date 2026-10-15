@@ -16,16 +16,13 @@ export const MIN_RECONCILE_STATEMENT_TIMEOUT_MS = 1_000;
 export const MAX_RECONCILE_STATEMENT_TIMEOUT_MS = 3_600_000;
 
 /**
- * Staleness backstop. If no `ok` run is on file newer than this, the next tick
- * freezes posting (`reconciliation stale`). A book nobody has been able to prove
- * for a day is not a book we keep writing to unattended: no alert subscriber
- * exists yet, so this is the only guaranteed signal.
+ * Staleness reporting threshold. A proof older than this produces a fatal log
+ * on every tick, but never freezes: an incomplete proof is not a mismatch.
  */
 export const DEFAULT_RECONCILE_MAX_STALE_HOURS = 24;
 export const MIN_RECONCILE_MAX_STALE_HOURS = 1;
 export const MAX_RECONCILE_MAX_STALE_HOURS = 24 * 30;
 
-export const RECONCILE_STALE_REASON = 'reconciliation stale';
 export const RECONCILE_MISMATCH_REASON = 'reconciliation mismatch';
 export const RECONCILE_ACTOR = 'reconciliation';
 

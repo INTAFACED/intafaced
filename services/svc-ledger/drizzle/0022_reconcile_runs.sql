@@ -9,9 +9,9 @@
 -- outcome
 --   ok          the proof completed and the book is consistent through through_seq.
 --   mismatch    the proof completed and found drift, a broken chain or an
---               unbalanced asset. Posting is frozen (a separate transaction).
+--               unbalanced asset. Posting is frozen in the same short verdict transaction.
 --   incomplete  the proof could not reach a verdict. NOTHING is frozen by this
---               row; the staleness backstop freezes if no ok run lands in time.
+--               row, even if verification stays stale.
 --
 -- through_seq / through_entry_id / tip_hash name the committed prefix of the
 -- book the proof read (one REPEATABLE READ snapshot). They are NULL on an
@@ -39,4 +39,4 @@ CREATE TABLE "ledger"."reconcile_runs" (
 );
 
 -- "When was the book last proved?" is asked on every /health call and every tick.
-CREATE INDEX "reconcile_runs_ok_idx" ON "ledger"."reconcile_runs" USING btree ("id" DESC NULLS LAST) WHERE outcome = 'ok';
+CREATE INDEX "reconcile_runs_ok_idx" ON "ledger"."reconcile_runs" USING btree ("through_seq" DESC NULLS LAST, "id" DESC NULLS LAST) WHERE outcome = 'ok';

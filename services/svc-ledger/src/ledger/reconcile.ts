@@ -1,8 +1,10 @@
-import type { Sql, TransactionSql } from 'postgres';
+import postgres, { type Sql, type TransactionSql } from 'postgres';
 
 type ReconciliationDb = Sql | TransactionSql;
 import { formatAmount, LedgerError } from '@intafaced/ledger-client';
 import { parseStoredAmount } from './live-money.js';
+import { writeFreezeInTransaction } from './freeze.js';
+import { RECONCILE_ACTOR, RECONCILE_MISMATCH_REASON } from './reconcile-config.js';
 import { hashTx } from './postgres-ledger.js';
 import { DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS, validReconcileStatementTimeoutMs } from './reconcile-config.js';
 
@@ -279,11 +281,11 @@ export interface SnapshotRunOptions {
 }
 
 /**
- * Same key in every replica and in the operator path: `pg_try_advisory_xact_lock` on it is the
+ * Same key in every replica and in the operator path: `pg_try_advisory_lock` on it is the
  * single-flight gate. Advisory locks are per DATABASE, so the key carries the schema: one book,
  * one lock. (Production schema is `ledger`; every test database gets its own schema, so test
- * files running in parallel cannot make each other skip.) The transaction-scoped form releases
- * itself on commit, rollback or a dropped connection: no unlock call can be forgotten.
+ * files running in parallel cannot make each other skip.) A reserved connection holds the session lock across the proof and snapshot-write
+ * transactions; cleanup explicitly unlocks it before returning that connection.
  */
 export const RECONCILE_LOCK_SQL = "hashtext('ledger.reconcile:' || current_schema())::bigint";
 
@@ -333,12 +335,29 @@ async function insertRunRow(
   return rows[0]!.id;
 }
 
+/** A completed mismatch and its durable halt share one short commit. */
+async function freezeMismatch(tx: TransactionSql): Promise<void> {
+  try {
+    await writeFreezeInTransaction(tx, { frozen: true, reason: RECONCILE_MISMATCH_REASON, actor: RECONCILE_ACTOR });
+  } catch (error) {
+    if (!(error instanceof LedgerError && error.code === 'ledger.freeze_attributed')) throw error;
+  }
+}
+
 /** Best effort, on a fresh short transaction of its own: the snapshot one is gone or poisoned. */
 async function recordAfterRollback(
   sql: ReconciliationDb,
   row: Parameters<typeof insertRunRow>[1],
 ): Promise<{ runId: string | null; recordError?: unknown }> {
   try {
+    if (row.outcome === 'mismatch' && 'begin' in sql) {
+      return {
+        runId: await sql.begin(async (tx) => {
+          await freezeMismatch(tx);
+          return insertRunRow(tx, row);
+        }),
+      };
+    }
     return { runId: await insertRunRow(sql, row) };
   } catch (recordError) {
     return { runId: null, recordError };
@@ -348,7 +367,7 @@ async function recordAfterRollback(
 /**
  * Prove the book from one REPEATABLE READ snapshot and write the verdict.
  *
- * Own pooled connection for the whole run (`sql.reserve()`), READ WRITE, no
+ * Owned dedicated connection for the whole run, READ WRITE, no
  * `chain_tip` lock, no retry loop: a retry would be a second ten-minute
  * snapshot inside one tick.
  *
@@ -367,11 +386,11 @@ async function recordAfterRollback(
  *
  * Outcomes:
  *   ok         proof green. Snapshot rows and an `ok` run row are committed.
- *   mismatch   proof finished and failed. A `mismatch` run row is committed; the
- *              CALLER freezes, in a separate READ COMMITTED transaction.
+ *   mismatch   proof finished and failed. The `mismatch` run row and durable halt
+ *              commit together in a short READ COMMITTED transaction.
  *   incomplete anything went wrong before a verdict (timeout, connection, insert
  *              failure, bug). Rolled back, a best-effort `incomplete` row is
- *              written on a fresh transaction. This function never freezes.
+ *              written on a fresh transaction. Only a completed mismatch freezes.
  *   skipped    another run holds the advisory lock.
  */
 export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOptions = {}): Promise<SnapshotRun> {
@@ -387,10 +406,49 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
     verdict: null,
   };
 
-  const conn = await sql.reserve();
+  // Own this connection's lifecycle. A dropped proof connection must never end
+  // or retain a session lock in the posting pool. Preserve its configured SQL
+  // types, transforms, credentials and search_path without logging any options.
+  const source = sql.options;
+  const proofSql = postgres({
+    host: source.host.map((host, index) => `${host}:${source.port[index] ?? source.port[0]}`).join(','),
+    database: source.database,
+    user: source.user,
+    // postgres.js exposes the parsed credential as `pass`; its declarations
+    // incorrectly narrow that runtime string/function to null.
+    password: (source as unknown as { pass: postgres.Options<{}>['password'] }).pass,
+    ssl: source.ssl,
+    path: source.path,
+    connection: source.connection,
+    types: source.types,
+    transform: source.transform,
+    prepare: source.prepare,
+    fetch_types: source.fetch_types,
+    connect_timeout: source.connect_timeout,
+    idle_timeout: source.idle_timeout,
+    max_lifetime: source.max_lifetime,
+    onnotice: source.onnotice,
+    max: 1,
+  });
+  let conn: postgres.ReservedSql;
+  try {
+    conn = await proofSql.reserve();
+  } catch (error) {
+    await proofSql.end({ timeout: 0 });
+    const errorCode = reconcileErrorCode(error);
+    const recorded = await recordAfterRollback(sql, {
+      startedAt,
+      outcome: 'incomplete',
+      tip: null,
+      errorCode,
+      detail: { phase: 'start', message: boundedMessage(error) },
+    });
+    return { outcome: 'incomplete', phase: 'start', error, errorCode, ...recorded };
+  }
   let open = false;
   let staged = false;
   let released = false;
+  let locked = false;
   // Hand the connection back BEFORE anything else needs the pool (a max:1 pool would deadlock on it).
   const cleanup = async () => {
     if (open) await conn.unsafe('ROLLBACK').catch(() => undefined);
@@ -398,8 +456,19 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
     // The temp table lives as long as the session, and the session goes back to the pool.
     if (staged) await conn.unsafe(`DROP TABLE IF EXISTS pg_temp.${STAGING_TABLE}`).catch(() => undefined);
     staged = false;
+    if (locked) {
+      try {
+        await conn.unsafe(`SELECT pg_advisory_unlock(${RECONCILE_LOCK_SQL})`);
+      } catch {
+        // Never return a session with an unknown advisory-lock state to the pool.
+        // Closing this proof-only client releases any remaining lock.
+        await proofSql.end({ timeout: 0 });
+      }
+      locked = false;
+    }
     if (!released) conn.release();
     released = true;
+    await proofSql.end({ timeout: 0 });
   };
   const begin = async (isolation: string) => {
     await conn.unsafe(`BEGIN ISOLATION LEVEL ${isolation} READ WRITE`);
@@ -416,8 +485,9 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
     await begin('REPEATABLE READ');
 
     // First snapshot-taking statement: from here every read sees one commit prefix.
+    locked = true; // unlock is harmless even if acquisition is canceled before its reply
     const [gate] = await conn.unsafe<Array<{ got: boolean; at: Date }>>(
-      `SELECT pg_try_advisory_xact_lock(${RECONCILE_LOCK_SQL}) AS got, clock_timestamp() AS at`,
+      `SELECT pg_try_advisory_lock(${RECONCILE_LOCK_SQL}) AS got, clock_timestamp() AS at`,
     );
     if (!gate?.got) {
       await conn.unsafe('ROLLBACK');
@@ -425,6 +495,7 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
       return { outcome: 'skipped' };
     }
 
+    locked = true;
     state.phase = 'tip';
     const tipRows = await conn<Array<{ hash: string | null; seq: string; through_entry_id: string | null }>>`
       SELECT t.hash, t.seq::text AS seq, (SELECT max(id)::text FROM ledger_entries) AS through_entry_id
@@ -432,27 +503,39 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
        WHERE t.id = true
     `;
     const row = tipRows[0];
-    if (!row) {
-      throw new LedgerError('chain_tip row is missing — the ledger is not initialised', 'ledger.uninitialised');
-    }
-    if (typeof row.seq !== 'string' || (row.hash !== null && typeof row.hash !== 'string')) {
+    if (row && (typeof row.seq !== 'string' || (row.hash !== null && typeof row.hash !== 'string'))) {
       throw new LedgerError('chain_tip arrived as a non-text value — refusing to anchor a snapshot on it', 'ledger.uninitialised');
     }
-    const tip: ReconciledTip = { seq: row.seq, hash: row.hash, throughEntryId: row.through_entry_id, snapshotAt: gate.at };
+    const tip: ReconciledTip | null = row
+      ? { seq: row.seq, hash: row.hash, throughEntryId: row.through_entry_id, snapshotAt: gate.at }
+      : null;
     state.tip = tip;
 
     state.phase = 'proof';
-    const report = await prove(conn);
+    const proved = await prove(conn);
+    // A successful read showing a missing singleton is structural corruption,
+    // not an interrupted proof. Preserve the completed mismatch verdict.
+    const report: ReconciliationReport = tip
+      ? proved
+      : {
+          ...proved,
+          ok: false,
+          chain: { ok: false, brokenAt: 'chain_tip', length: proved.chain.length },
+        };
     state.verdict = report;
 
     if (!report.ok) {
       // A completed not-ok report: record it and let the caller freeze. No snapshot rows:
       // writing the drifted cache as an anchor would heal the break as success.
+      await commit();
+      await begin('READ COMMITTED');
+      await freezeMismatch(conn as unknown as TransactionSql);
       const runId = await insertRunRow(conn, { startedAt, outcome: 'mismatch', tip, errorCode: null, detail: reportDetail(report) });
       await commit();
       return { outcome: 'mismatch', report, tip, runId, snapshotted: false };
     }
 
+    if (!tip) throw new Error('verified reconciliation has no tip');
     state.phase = 'snapshot';
     // Still inside the proof's snapshot: these are the balances the proof just checked.
     await conn.unsafe(`DROP TABLE IF EXISTS pg_temp.${STAGING_TABLE}`);
@@ -512,7 +595,7 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
 /**
  * When the book was last proved consistent, from the latest `ok` run. `at` and
  * `seq` are null before the first one. `firstAttemptAt` is only read in that
- * case: it gives the staleness backstop a durable "not verified since" origin
+ * case: it gives the staleness reporting a durable "not verified since" origin
  * that survives restarts.
  */
 export interface LastVerified {
@@ -526,7 +609,7 @@ export async function readLastVerified(sql: ReconciliationDb): Promise<LastVerif
     SELECT finished_at, through_seq::text AS through_seq
       FROM reconcile_runs
      WHERE outcome = 'ok'
-     ORDER BY id DESC
+     ORDER BY through_seq DESC, id DESC
      LIMIT 1
   `;
   const row = rows[0];

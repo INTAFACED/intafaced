@@ -1,6 +1,6 @@
 import { LedgerError } from '@intafaced/ledger-client';
 import type { LastVerified, ScheduledReconcileResult } from './reconcile.js';
-import { RECONCILE_ACTOR, RECONCILE_MISMATCH_REASON, RECONCILE_STALE_REASON } from './reconcile-config.js';
+import { RECONCILE_ACTOR, RECONCILE_MISMATCH_REASON } from './reconcile-config.js';
 
 /**
  * Hourly timer seam.
@@ -12,15 +12,13 @@ import { RECONCILE_ACTOR, RECONCILE_MISMATCH_REASON, RECONCILE_STALE_REASON } fr
  * (issue #4755). An incomplete run is logged fatal and retried on a later tick
  * with backoff.
  *
- * What the tick DOES own is the staleness backstop. No alert subscriber exists
- * for these logs yet, so a book that cannot be proved for `maxStaleHours` is
- * frozen under `reconciliation stale`. An operator freeze already standing is
- * left standing (`ledger.freeze_attributed`).
+ * Staleness is reported on every tick, including backoff. An old or absent
+ * proof is still no verdict: staleness never changes the posting switch.
  */
 
-const FROZEN_LOG = 'LEDGER RECONCILIATION FAILED — posting frozen, operator paged';
-const INCOMPLETE_LOG = 'LEDGER RECONCILIATION INCOMPLETE — the book was NOT verified and NOT frozen, operator paged';
-const STALE_LOG = 'LEDGER RECONCILIATION STALE — posting frozen, operator paged';
+const FROZEN_LOG = 'LEDGER RECONCILIATION FAILED — posting frozen, operator attention required';
+const INCOMPLETE_LOG = 'LEDGER RECONCILIATION INCOMPLETE — the book was NOT verified and NOT frozen, operator attention required';
+const STALE_LOG = 'LEDGER RECONCILIATION STALE — the book is NOT verified, posting unchanged, operator attention required';
 
 export interface ReconcileTickLog {
   fatal(obj: object, msg: string): void;
@@ -31,7 +29,7 @@ interface TickLedger {
   freeze(reason: string, actor: string): Promise<unknown>;
   /** Present on `LedgerService`. A publish throw can land after the switch commits. */
   status?(): Promise<{ postingEnabled: boolean }>;
-  /** Present on `LedgerService`. Without it the staleness backstop is off. */
+  /** Present on `LedgerService`. Without it staleness reporting is off. */
   lastVerified?(): Promise<LastVerified>;
 }
 
@@ -48,7 +46,7 @@ export function createReconcileTickState(now: Date = new Date()): ReconcileTickS
 }
 
 export interface ReconcileTickOptions {
-  /** Freeze `reconciliation stale` when the last `ok` run is older than this. Omitted: no backstop. */
+  /** Report staleness when the last `ok` run is older than this. Omitted: no threshold. */
   readonly maxStaleHours?: number;
   readonly state?: ReconcileTickState;
   readonly now?: () => Date;
@@ -137,11 +135,11 @@ export async function runScheduledReconciliationTick(
     }
   }
 
-  await freezeWhenStale(ledger, log, state, options, now);
+  await reportWhenStale(ledger, log, state, options, now);
 }
 
-/** The backstop: runs every tick, including skipped ones, so backoff can never outlast the stale window. */
-async function freezeWhenStale(
+/** Report every tick, including skipped ones, so backoff cannot hide stale evidence. */
+async function reportWhenStale(
   ledger: TickLedger,
   log: ReconcileTickLog,
   state: ReconcileTickState,
@@ -167,7 +165,6 @@ async function freezeWhenStale(
   const ageMs = now().getTime() - since.getTime();
   if (ageMs <= options.maxStaleHours * 3_600_000) return;
 
-  await freezeAsReconciliation(ledger, RECONCILE_STALE_REASON);
   log.fatal(
     {
       lastVerifiedAt: last.at?.toISOString() ?? null,

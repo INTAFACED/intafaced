@@ -20,13 +20,13 @@ import { truncateBook } from '../db/journal-guards.testkit.js';
  * The hourly timer. Only a COMPLETED proof that found a break freezes posting
  * (the run itself writes that freeze before it returns). A throw or an
  * `incomplete` run used to freeze the book as `reconciliation mismatch`; since
- * issue #4755 it logs fatal, backs off across ticks, and freezes nothing. The
- * one freeze the tick owns is the staleness backstop.
+ * issue #4755 it logs fatal, backs off across ticks, and freezes nothing. Staleness
+ * is reported on every tick without changing posting.
  */
 
-const FROZEN_LOG = 'LEDGER RECONCILIATION FAILED — posting frozen, operator paged';
-const INCOMPLETE_LOG = 'LEDGER RECONCILIATION INCOMPLETE — the book was NOT verified and NOT frozen, operator paged';
-const STALE_LOG = 'LEDGER RECONCILIATION STALE — posting frozen, operator paged';
+const FROZEN_LOG = 'LEDGER RECONCILIATION FAILED — posting frozen, operator attention required';
+const INCOMPLETE_LOG = 'LEDGER RECONCILIATION INCOMPLETE — the book was NOT verified and NOT frozen, operator attention required';
+const STALE_LOG = 'LEDGER RECONCILIATION STALE — the book is NOT verified, posting unchanged, operator attention required';
 
 function logSink(): { log: ReconcileTickLog; fatal: Array<{ obj: object; msg: string }>; info: Array<{ obj: object; msg: string }> } {
   const fatal: Array<{ obj: object; msg: string }> = [];
@@ -203,16 +203,16 @@ describe('scheduled reconciliation tick — returned result', () => {
   });
 });
 
-describe('scheduled reconciliation tick — staleness backstop', () => {
+describe('scheduled reconciliation tick — staleness reporting', () => {
   const HOUR = 3_600_000;
   const now = new Date('2026-10-14T12:00:00.000Z');
   const at = (hoursAgo: number) => new Date(now.getTime() - hoursAgo * HOUR);
 
-  it('freezes `reconciliation stale` when the last ok run is older than the limit', async () => {
+  it('reports without freezing when the last ok run is older than the limit', async () => {
     const { log, fatal } = logSink();
     const { ledger, froze } = recordingLedger({ at: at(25), seq: '41', firstAttemptAt: null });
     await runScheduledReconciliationTick(async () => incompleteResult(), ledger, log, { maxStaleHours: 24, now: () => now });
-    expect(froze).toEqual([['reconciliation stale', 'reconciliation']]);
+    expect(froze).toEqual([]);
     expect(fatal.map((entry) => entry.msg)).toEqual([INCOMPLETE_LOG, STALE_LOG]);
     expect(fatal[1]?.obj).toMatchObject({ lastVerifiedSeq: '41', maxStaleHours: 24 });
   });
@@ -245,14 +245,14 @@ describe('scheduled reconciliation tick — staleness backstop', () => {
       { maxStaleHours: 24, now: () => now, state },
     );
     expect(ran).toBe(false);
-    expect(froze).toEqual([['reconciliation stale', 'reconciliation']]);
+    expect(froze).toEqual([]);
   });
 
   it('never verified: measures from the first recorded attempt, else from boot', async () => {
     const { log } = logSink();
     const first = recordingLedger({ at: null, seq: null, firstAttemptAt: at(30) });
     await runScheduledReconciliationTick(async () => incompleteResult(), first.ledger, log, { maxStaleHours: 24, now: () => now });
-    expect(first.froze).toEqual([['reconciliation stale', 'reconciliation']]);
+    expect(first.froze).toEqual([]);
 
     const fresh = recordingLedger({ at: null, seq: null, firstAttemptAt: null });
     await runScheduledReconciliationTick(async () => incompleteResult(), fresh.ledger, log, {
@@ -351,7 +351,10 @@ describe('scheduled reconciliation tick — against a real book', () => {
 
   beforeEach(async () => {
     const opened = requireDb();
-    await truncateBook(opened.sql, 'reconcile_runs, ledger_freeze_outbox, ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE');
+    await truncateBook(
+      opened.sql,
+      'reconcile_runs, ledger_freeze_outbox, ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE',
+    );
     await opened.sql`UPDATE chain_tip SET hash = NULL, seq = 0 WHERE id = true`;
     await opened.sql`UPDATE posting_freeze SET frozen = false, reason = NULL, actor = NULL WHERE id = true`;
   });
@@ -443,7 +446,7 @@ describe('scheduled reconciliation tick — against a real book', () => {
     await expect(reader.freezeState()).resolves.toMatchObject({ frozen: true, reason: 'operator: suspected drift', actor: OPERATOR });
   });
 
-  it('the staleness backstop freezes a book whose last ok run is too old, attributed to reconciliation', async () => {
+  it('the staleness reporting reports an old proof without freezing or refusing a post', async () => {
     const opened = requireDb();
     const writerSql = connect();
     const writer = new LedgerService(writerSql, new MemoryEventBus('writer'));
@@ -458,11 +461,11 @@ describe('scheduled reconciliation tick — against a real book', () => {
 
     expect(fatal.map((entry) => entry.msg)).toEqual([STALE_LOG]);
     await expect(reader.status()).resolves.toEqual({
-      postingEnabled: false,
-      frozenReason: 'reconciliation stale',
-      frozenBy: 'reconciliation',
+      postingEnabled: true,
+      frozenReason: null,
+      frozenBy: null,
     });
-    await expect(reader.post(deposit())).rejects.toMatchObject({ code: 'ledger.frozen' });
+    await expect(reader.post(deposit())).resolves.toMatchObject({ module: 'ledger' });
   });
 
   it('a fresh ok run keeps the backstop quiet, and an operator freeze beats a stale one', async () => {

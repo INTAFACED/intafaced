@@ -4,7 +4,7 @@
  * Both carry a published default (10 minutes, 24 hours) because they are
  * operational limits, not money magnitudes. A value that is set must pass the
  * bounds: the timeout is interpolated into `SET LOCAL statement_timeout`, and a
- * stale window of 0 would freeze the book on every tick.
+ * stale window of 0 would raise a stale log on every tick.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

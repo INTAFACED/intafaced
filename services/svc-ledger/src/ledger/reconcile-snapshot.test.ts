@@ -3,14 +3,21 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import postgres, { type Sql } from 'postgres';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { LedgerService } from '../service.js';
 import { reconcileGauges, registerMetrics } from '../metrics.js';
 import { lastVerifiedFields, registerLedgerStatusHttp } from '../status-http.js';
-import { RECONCILE_LOCK_SQL, readLastVerified, runScheduledReconciliation, runSnapshotReconciliation } from './reconcile.js';
+import {
+  RECONCILE_LOCK_SQL,
+  readLastVerified,
+  runReconciliation,
+  runScheduledReconciliation,
+  runSnapshotReconciliation,
+} from './reconcile.js';
+import { truncateBook } from '../db/journal-guards.testkit.js';
 import type { ReconciliationReport } from './reconcile.js';
 
 /**
@@ -78,8 +85,10 @@ describe('reconciliation snapshot runner — real book', () => {
   }, 120_000);
 
   beforeEach(async () => {
-    await d()
-      .sql`TRUNCATE reconcile_runs, ledger_freeze_outbox, ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE`;
+    await truncateBook(
+      d().sql,
+      'reconcile_runs, ledger_freeze_outbox, ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE',
+    );
     await d().sql`UPDATE chain_tip SET hash = NULL, seq = 0 WHERE id = true`;
     await d().sql`UPDATE posting_freeze SET frozen = false, reason = NULL, actor = NULL WHERE id = true`;
   });
@@ -177,6 +186,78 @@ describe('reconciliation snapshot runner — real book', () => {
     release();
     expect(second.outcome).toBe('skipped');
     expect((await first).outcome).toBe('ok');
+  });
+
+  it('single-flight remains held during the short snapshot write after the proof committed', async () => {
+    await service(connect()).post(deposit());
+    const blocker = await d().sql.reserve();
+    let first: Promise<Awaited<ReturnType<typeof runSnapshotReconciliation>>> | undefined;
+    let backend: number | undefined;
+    try {
+      await blocker.unsafe('BEGIN');
+      await blocker.unsafe('SELECT id FROM accounts FOR UPDATE');
+      first = runSnapshotReconciliation(connect(), {
+        async prove(tx) {
+          backend = (await tx<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`)[0]!.pid;
+          return runReconciliation(tx);
+        },
+      });
+      let waiting = false;
+      for (let attempt = 0; attempt < 200; attempt++) {
+        if (backend !== undefined) {
+          const rows = await d()
+            .sql`SELECT 1 FROM pg_stat_activity WHERE pid = ${backend} AND wait_event_type = 'Lock' AND query LIKE '%INSERT INTO balance_snapshots%'`;
+          if (rows.length) {
+            waiting = true;
+            break;
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBe(true);
+      expect(await runSnapshotReconciliation(connect())).toEqual({ outcome: 'skipped' });
+    } finally {
+      await blocker.unsafe('ROLLBACK');
+      blocker.release();
+      if (first) expect((await first).outcome).toBe('ok');
+    }
+    expect((await d().sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual(['ok']);
+  });
+
+  it('failed advisory unlock closes only the proof session, releases its lock, and leaves the posting pool usable', async () => {
+    const postingPool = connect(1);
+    const first = await runSnapshotReconciliation(postingPool, {
+      async prove(tx) {
+        const unsafe = tx.unsafe.bind(tx);
+        vi.spyOn(tx, 'unsafe').mockImplementation((...args) => {
+          if (args[0].includes('pg_advisory_unlock')) throw new Error('injected unlock connection failure');
+          return unsafe(...args);
+        });
+        return runReconciliation(tx);
+      },
+    });
+    expect(first.outcome).toBe('ok');
+    await expect(postingPool`SELECT 1`).resolves.toHaveLength(1);
+    await expect(service(postingPool).post(deposit())).resolves.toMatchObject({ module: 'ledger' });
+    expect((await runSnapshotReconciliation(postingPool)).outcome).toBe('ok');
+  });
+
+  it('a completed structural mismatch commits its halt and outbox even when no caller publishes it', async () => {
+    await service(connect()).post(deposit());
+    await d().sql`DELETE FROM chain_tip WHERE id = true`;
+    try {
+      expect((await runSnapshotReconciliation(connect())).outcome).toBe('mismatch');
+      expect((await d().sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual(['mismatch']);
+      expect((await d().sql`SELECT frozen, actor FROM posting_freeze`)[0]).toMatchObject({ frozen: true, actor: 'reconciliation' });
+      expect(await d().sql`SELECT 1 FROM ledger_freeze_outbox WHERE published_at IS NULL`).toHaveLength(1);
+    } finally {
+      await d().sql`INSERT INTO chain_tip (id, hash, seq) VALUES (true, NULL, 0)`;
+    }
+  });
+
+  it('last verified never moves back to an older prefix if older evidence is recorded later', async () => {
+    await d().sql`INSERT INTO reconcile_runs (started_at, outcome, through_seq) VALUES (now(), 'ok', 20), (now(), 'ok', 10)`;
+    expect((await readLastVerified(d().sql)).seq).toBe('20');
   });
 
   it('applies the per-run statement_timeout inside the transaction only (default 10 min, env override)', async () => {
@@ -352,8 +433,8 @@ describe('reconciliation source pins', () => {
     expect(reconcile).toContain('BEGIN ISOLATION LEVEL ${isolation} READ WRITE');
     expect(reconcile).toContain('SET LOCAL statement_timeout');
     const tick = strip(read('scheduled-reconcile-tick.ts'));
-    // The only reasons the tick may freeze with: a mismatch whose freeze failed, and stale.
+    // The only reasons the tick may freeze with: a mismatch whose freeze failed, only.
     const reasons = [...tick.matchAll(/freezeAsReconciliation\(ledger, (\w+)\)/g)].map((m) => m[1]);
-    expect(reasons.sort()).toEqual(['RECONCILE_MISMATCH_REASON', 'RECONCILE_STALE_REASON']);
+    expect(reasons.sort()).toEqual(['RECONCILE_MISMATCH_REASON']);
   });
 });
