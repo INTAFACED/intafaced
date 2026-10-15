@@ -118,3 +118,30 @@ export function useReadAt(ready: boolean, signal: unknown): string | null {
   }, [ready, signal]);
   return at;
 }
+
+/** The current time, refreshed on a timer, so a request that expires while the page is open is seen to expire. */
+export function useNow(everyMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), everyMs);
+    return () => clearInterval(id);
+  }, [everyMs]);
+  return now;
+}
+
+/** Names for team members, where the team list can be read. If it cannot (a role that may not list the team), ids are shown short instead. */
+export function useMemberNames(portal: import('./api').PortalApi): ReadonlyMap<string, string> {
+  const [names, setNames] = useState<ReadonlyMap<string, string>>(() => new Map());
+  useEffect(() => {
+    const controller = new AbortController();
+    void portal
+      .teamList(undefined, '', controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted || !result.ok) return;
+        setNames(new Map(result.data.items.flatMap((m) => (m.label ? [[m.userId, m.label] as const] : []))));
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [portal]);
+  return names;
+}

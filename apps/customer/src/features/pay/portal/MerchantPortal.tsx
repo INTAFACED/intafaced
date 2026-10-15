@@ -272,24 +272,62 @@ function PortalRoom({
     case 'notifications':
       return <Notifications portal={portal} />;
     case 'payments':
-      return <WithAccount {...acct}>{({ merchantId }) => <Payments portal={portal} merchantId={merchantId} />}</WithAccount>;
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Payments portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
     case 'payment':
-      return <PaymentDetailPage portal={portal} paymentId={route.param!} />;
+      return (
+        <WithAccount {...acct}>
+          {({ role }) => (
+            <OwnerOnly role={role}>
+              <PaymentDetailPage portal={portal} paymentId={route.param!} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
     case 'settlements':
-      return <WithAccount {...acct}>{({ merchantId }) => <Settlements portal={portal} merchantId={merchantId} />}</WithAccount>;
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Settlements portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
     case 'settlement':
       return (
         <WithAccount {...acct}>
-          {({ merchantId }) => <SettlementDetailPage portal={portal} merchantId={merchantId} settlementId={route.param!} />}
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <SettlementDetailPage portal={portal} merchantId={merchantId} settlementId={route.param!} />
+            </OwnerOnly>
+          )}
         </WithAccount>
       );
     case 'payouts':
-      return <WithAccount {...acct}>{({ merchantId }) => <Payouts portal={portal} merchantId={merchantId} />}</WithAccount>;
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Payouts portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
     case 'payout':
       return (
         <WithAccount {...acct}>
           {({ merchantId, role, record }) => (
-            <PayoutDetailPage portal={portal} merchantId={merchantId} payoutId={route.param!} role={role} merchant={record} />
+            <OwnerOnly role={role}>
+              <PayoutDetailPage portal={portal} merchantId={merchantId} payoutId={route.param!} role={role} merchant={record} />
+            </OwnerOnly>
           )}
         </WithAccount>
       );
@@ -306,6 +344,16 @@ function PortalRoom({
         </WithAccount>
       );
   }
+}
+
+/**
+ * The payment and settlement reads answer only the account owner for now, so every other role would meet a refusal.
+ * They are told so up front. A role we could not read is let through: the service decides.
+ */
+export function OwnerOnly({ role, children }: { role: MemberRole | null; children: ReactNode }) {
+  const { t } = portalCopy.useCopy();
+  if (role === null || role === 'owner') return <>{children}</>;
+  return <EmptyState title={t('ownerOnlyTitle')}>{t('ownerOnlyBody')}</EmptyState>;
 }
 
 type AccountProps = {

@@ -414,8 +414,8 @@ export function statementTies(s: Pick<Settlement, 'gross' | 'fees' | 'net'>): bo
   return parseAmount(s.gross) - parseAmount(s.fees) === parseAmount(s.net);
 }
 
-export type PayoutState = 'not_ready' | 'ready' | 'awaiting_approval' | 'approved' | 'rejected' | 'paid_out' | 'failed';
-export const payoutStates: readonly PayoutState[] = ['ready', 'awaiting_approval', 'approved', 'rejected', 'paid_out', 'failed'];
+export type PayoutState = 'not_ready' | 'unknown' | 'ready' | 'awaiting_approval' | 'approved' | 'rejected' | 'paid_out' | 'failed';
+export const payoutStates: readonly PayoutState[] = ['ready', 'awaiting_approval', 'approved', 'rejected', 'paid_out', 'failed', 'unknown'];
 
 /** The newest approval request for one settlement, or null. */
 export function latestApproval(approvals: readonly Approval[], settlementId: string): Approval | null {
@@ -427,10 +427,16 @@ export function latestApproval(approvals: readonly Approval[], settlementId: str
  * A payout has no record of its own: it is the second half of a settlement. Its state is read from the settlement and
  * the newest approval request. A voided or expired request counts for nothing, so the payout is back to "ready".
  */
-export function payoutState(settlement: Pick<Settlement, 'status'>, approval: Pick<Approval, 'status'> | null): PayoutState {
+export function payoutState(
+  settlement: Pick<Settlement, 'status'>,
+  approval: Pick<Approval, 'status'> | null,
+  /** False when the approvals could not be read: a posted settlement is then "unknown", never "ready". */
+  approvalsKnown = true,
+): PayoutState {
   if (settlement.status === 'paid_out') return 'paid_out';
   if (settlement.status === 'failed') return 'failed';
   if (settlement.status === 'pending') return 'not_ready';
+  if (!approvalsKnown) return 'unknown';
   if (approval?.status === 'pending') return 'awaiting_approval';
   if (approval?.status === 'approved' || approval?.status === 'consumed') return 'approved';
   if (approval?.status === 'rejected') return 'rejected';
@@ -446,17 +452,18 @@ export type PayoutRow = {
   payoutMethod: string | null;
   payoutRef: string | null;
 };
-export function payoutRows(settlements: readonly Settlement[], approvals: readonly Approval[]): PayoutRow[] {
+/** `approvals` is null when they could not be read. */
+export function payoutRows(settlements: readonly Settlement[], approvals: readonly Approval[] | null): PayoutRow[] {
   return settlements
     .filter((s) => s.status !== 'pending')
     .map((s) => {
-      const approval = latestApproval(approvals, s.id);
+      const approval = approvals ? latestApproval(approvals, s.id) : null;
       return {
         settlementId: s.id,
         window: s.window,
         assetId: s.assetId,
         amount: s.net,
-        state: payoutState(s, approval),
+        state: payoutState(s, approval, approvals !== null),
         approval,
         payoutMethod: s.payoutMethod,
         payoutRef: s.payoutRef,
@@ -478,15 +485,18 @@ export function spanParts(ms: number): Span {
 export type RoleLike = MemberRole | null;
 /** Owner, admin and finance can decide payouts. Developers and viewers cannot. A role we could not read is left to the service. */
 export const roleMayDecide = (role: RoleLike) => role === null || role === 'owner' || role === 'admin' || role === 'finance';
-export type DecisionBlock = 'status' | 'expired' | 'own' | 'role' | null;
+export type DecisionBlock = 'status' | 'checked' | 'expired' | 'own' | 'role' | null;
+/** A teammate has already approved it and it waits for INTAFACED's sign-off: nothing is left for this person to decide. */
+export const isCheckedPending = (a: Pick<Approval, 'status' | 'checkerUserId'>) => a.status === 'pending' && a.checkerUserId !== null;
 /** Why this person cannot decide this request, or null when they can. The service enforces all of it again. */
 export function decisionBlock(
-  a: Pick<Approval, 'status' | 'makerUserId' | 'expiresAt'>,
+  a: Pick<Approval, 'status' | 'makerUserId' | 'checkerUserId' | 'expiresAt'>,
   me: string | null,
   role: RoleLike,
   now: number,
 ): DecisionBlock {
   if (a.status !== 'pending') return 'status';
+  if (isCheckedPending(a)) return 'checked';
   if (Date.parse(a.expiresAt) <= now) return 'expired';
   if (me !== null && a.makerUserId === me) return 'own';
   if (!roleMayDecide(role)) return 'role';
@@ -494,16 +504,27 @@ export function decisionBlock(
 }
 export function approvalSummary(rows: readonly Approval[], me: string | null, now: number) {
   const pending = rows.filter((a) => a.status === 'pending');
+  // A request a teammate already approved is waiting on INTAFACED, not on anyone in the team.
+  const open = pending.filter((a) => !isCheckedPending(a));
   const oldest = [...pending].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0] ?? null;
   const next =
     [...pending].filter((a) => Date.parse(a.expiresAt) > now).sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt))[0] ?? null;
   return {
     waiting: pending.length,
-    mine: pending.filter((a) => me !== null && a.makerUserId === me).length,
-    forOthers: pending.filter((a) => me === null || a.makerUserId !== me).length,
+    mine: open.filter((a) => me !== null && a.makerUserId === me).length,
+    forOthers: open.filter((a) => me === null || a.makerUserId !== me).length,
+    signoff: pending.length - open.length,
     oldest,
     next,
   };
+}
+/** Whether a decision the service answered actually took effect. A request that was voided or expired in the meantime did not. */
+export function decisionLanded(decision: 'approve' | 'reject', status: Approval['status']): boolean {
+  return decision === 'approve' ? status === 'approved' || status === 'pending' || status === 'consumed' : status === 'rejected';
+}
+/** A person's name where the portal has one (from the team list), otherwise a short id. */
+export function actorName(id: string, names: ReadonlyMap<string, string>): string {
+  return names.get(id) ?? shortId(id);
 }
 export const minReasonOk = (reason: string) => reason.trim().length >= 3 && reason.trim().length <= 500;
 

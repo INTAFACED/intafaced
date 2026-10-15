@@ -12,6 +12,8 @@ import type { ApiResult } from '../../../shared/api';
 import type { Resource } from '../../../shared/resource';
 import type { PortalApi } from './api';
 import { ApprovalsView } from './Approvals';
+import { OwnerOnly } from './MerchantPortal';
+import { portalCopy } from './copy';
 import { LimitsView } from './Limits';
 import { PaymentDetailView, PaymentsView } from './Payments';
 import { PayoutDetailView, PayoutsView } from './Payouts';
@@ -209,6 +211,15 @@ describe('payments list (P06)', () => {
     expect(refused).toContain('Your account does not have access to this.');
     expectPlain(refused);
     expect(view({ snapshot: soon })).toContain('Arrives soon');
+  });
+  it('says it could not check when the pause read fails, is refused, or is unavailable, and never reads that as "nothing paused"', () => {
+    for (const halts of [down, forbidden, soon, failed('pay.merchant_ops_unavailable', 503, 'unreachable')]) {
+      const out = view({ halts });
+      expect(out).toContain('We could not check whether new payments are paused.');
+      expectPlain(out);
+    }
+    expect(view({ halts: loading })).not.toContain('could not check');
+    expect(view()).not.toContain('could not check');
   });
   it('names a paused operation in a banner, and treats an unreadable pause store as paused', () => {
     const paused = view({
@@ -460,10 +471,18 @@ describe('payouts list (P28)', () => {
     expect(out).toContain('href="/pay/payouts/bb000001-0000-4000-8000-000000000001"');
     expectPlain(out);
   });
-  it('still lists payouts when approval states cannot be read, and says so', () => {
+  it('still lists payouts when approval states cannot be read, and shows them as unknown rather than ready', () => {
     const out = view({ approvals: down });
     expect(out).toContain('Approval states could not be read');
     expect(out).toContain('TEST-2026-W41');
+    expect(out).toContain('Approval unknown');
+    expect(out).not.toContain('Ready to pay out</span>');
+    // paid out does not depend on approvals
+    expect(out).toContain('TEST-tx-0xabc');
+  });
+  it('says a payout approved by a teammate is waiting for INTAFACED', () => {
+    const out = view({ approvals: ready([approval({ checkerUserId: 'TEST-checker' })]) });
+    expect(out).toContain('Approved by a teammate, waiting for INTAFACED’s sign-off');
   });
   it('explains empty, filtered-empty, loading, unreachable and refused', () => {
     expect(view({ settlements: ready<p.Settlement[]>([]) })).toContain('No payouts yet');
@@ -547,6 +566,17 @@ describe('payout detail (P30)', () => {
     expect(paid).toContain('TEST-tx-1');
     expect(paid).not.toContain('Approve payout');
     expect(view({ approvals: ready<p.Approval[]>([]) })).toContain('No approval has been requested for this payout.');
+  });
+  it('shows "Approval unknown" when approvals cannot be read, and no decision form', () => {
+    const out = view({ approvals: down });
+    expect(out).toContain('Approval unknown');
+    expect(out).not.toContain('Approve payout');
+    expect(out).not.toContain('Ready to pay out</span>');
+  });
+  it('shows a names where the portal has them in the trail and the timeline', () => {
+    const out = view({ names: new Map([['TEST-maker', 'Maya Finance']]) });
+    expect(out).toContain('Maya Finance');
+    expect(out).toContain('By Maya Finance');
   });
   it('shows "not configured" for a missing daily payout limit, never a number', () => {
     const out = view({ usage: ready(usage([])) });

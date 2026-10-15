@@ -5,7 +5,10 @@ import {
   approvalSummary,
   bpsPercent,
   closestToLimit,
+  actorName,
   decisionBlock,
+  decisionLanded,
+  isCheckedPending,
   filterPayments,
   freshnessAt,
   isCalcAmount,
@@ -214,6 +217,16 @@ describe('settlements and payouts', () => {
     expect(payoutState(stl(), apr({ status: 'voided' }))).toBe('ready');
     expect(payoutState(stl(), apr({ status: 'expired' }))).toBe('ready');
   });
+  it('never calls a payout "ready" when its approvals could not be read', () => {
+    expect(payoutState(stl(), null, false)).toBe('unknown');
+    expect(payoutState(stl(), apr(), false)).toBe('unknown');
+    // A settled or failed payout does not depend on approvals.
+    expect(payoutState(stl({ status: 'paid_out' }), null, false)).toBe('paid_out');
+    expect(payoutState(stl({ status: 'failed' }), null, false)).toBe('failed');
+    expect(payoutState(stl({ status: 'pending' }), null, false)).toBe('not_ready');
+    const rows = payoutRows([stl(), stl({ id: 's3', status: 'paid_out' })], null);
+    expect(rows.map((r) => r.state)).toEqual(['unknown', 'paid_out']);
+  });
   it('picks the newest approval for a settlement and ignores other settlements', () => {
     const list = [
       apr({ approvalId: 'old', createdAt: '2026-10-01T00:00:00.000Z', status: 'rejected' }),
@@ -243,6 +256,43 @@ describe('approvals', () => {
     expect(decisionBlock(apr({ status: 'approved' }), 'checker', 'finance', NOW)).toBe('status');
     // Not knowing the role or the user does not invent a block: the service decides.
     expect(decisionBlock(p, null, null, NOW)).toBeNull();
+  });
+  it('treats a request a teammate already approved as waiting on INTAFACED, not as undecided', () => {
+    const checked = apr({ checkerUserId: 'teammate' });
+    expect(isCheckedPending(checked)).toBe(true);
+    expect(isCheckedPending(apr())).toBe(false);
+    expect(isCheckedPending(apr({ status: 'approved', checkerUserId: 'teammate' }))).toBe(false);
+    expect(decisionBlock(checked, 'someone-else', 'finance', NOW)).toBe('checked');
+    // Even the person who approved it, or the one who asked, is told the same thing: nothing is left to decide.
+    expect(decisionBlock(checked, 'teammate', 'owner', NOW)).toBe('checked');
+    expect(decisionBlock(checked, 'maker', 'owner', NOW)).toBe('checked');
+  });
+  it('keeps requests that wait on INTAFACED out of "waiting for you" and "your requests"', () => {
+    const list = [
+      apr({ approvalId: 'a' }),
+      apr({ approvalId: 'b', checkerUserId: 'teammate' }),
+      apr({ approvalId: 'c', makerUserId: 'me', checkerUserId: 'teammate' }),
+      apr({ approvalId: 'd', makerUserId: 'me' }),
+    ];
+    const s = approvalSummary(list, 'me', NOW);
+    expect(s).toMatchObject({ waiting: 4, forOthers: 1, mine: 1, signoff: 2 });
+  });
+  it('says whether a decision the service answered actually took effect', () => {
+    expect(decisionLanded('approve', 'approved')).toBe(true);
+    expect(decisionLanded('approve', 'pending')).toBe(true); // waits for INTAFACED's sign-off
+    expect(decisionLanded('approve', 'consumed')).toBe(true);
+    expect(decisionLanded('approve', 'voided')).toBe(false);
+    expect(decisionLanded('approve', 'expired')).toBe(false);
+    expect(decisionLanded('approve', 'rejected')).toBe(false);
+    expect(decisionLanded('reject', 'rejected')).toBe(true);
+    expect(decisionLanded('reject', 'voided')).toBe(false);
+    expect(decisionLanded('reject', 'approved')).toBe(false);
+  });
+  it('shows a name where there is one and a short id otherwise', () => {
+    const names = new Map([['u-1', 'Accounts']]);
+    expect(actorName('u-1', names)).toBe('Accounts');
+    expect(actorName('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', names)).toBe('aaaaaaaa…');
+    expect(actorName('short', names)).toBe('short');
   });
   it('lets owner, admin and finance decide, and leaves an unknown role to the service', () => {
     expect([roleMayDecide('owner'), roleMayDecide('admin'), roleMayDecide('finance'), roleMayDecide(null)]).toEqual([

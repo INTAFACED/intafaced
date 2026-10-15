@@ -311,9 +311,11 @@ export function SettlementDetailPage({
   );
   const control = useResource((s) => portal.control(merchantId, s), `portal:control:${merchantId}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `portal:halts:${merchantId}`);
+  const readAt = useReadAt(settlement.resource.status === 'ready', settlement.resource);
   return (
     <SettlementDetailView
       settlement={settlement.resource}
+      readAt={readAt}
       control={control.resource}
       halts={halts.resource}
       retry={() => {
@@ -329,11 +331,14 @@ export function SettlementDetailView({
   settlement,
   control,
   halts,
+  readAt = null,
   retry,
 }: {
   settlement: Resource<Settlement>;
   control: Resource<ControlProfile>;
   halts: Resource<HaltStatus>;
+  /** When the statement was read: the "as of" of a downloaded copy. */
+  readAt?: string | null;
   retry: () => void;
 }) {
   const { t } = portalCopy.useCopy();
@@ -398,7 +403,7 @@ export function SettlementDetailView({
                         buildCsv(
                           ['settlement_id', 'window', 'asset', 'gross', 'fees', 'net', 'status', 'payout_method', 'payout_reference'],
                           [[s.id, s.window, s.assetId, s.gross, s.fees, s.net, s.status, s.payoutMethod ?? '', s.payoutRef ?? '']],
-                          { generatedAt: new Date().toISOString(), asOf: new Date().toISOString() },
+                          { generatedAt: new Date().toISOString(), asOf: readAt ?? '' },
                         ),
                       )
                     }

@@ -516,6 +516,11 @@ test('payout detail: the checker approves with a reason, the service gets the fi
   await expect(approve).toBeEnabled();
   await approve.click();
   const dialog = page.getByRole('dialog', { name: 'Review: Approve payout' });
+  // the page must not promise a destination it does not show
+  await expect(
+    dialog.getByText('The destination is not shown here yet. Confirm it with the person who asked before you approve.'),
+  ).toBeVisible();
+  await expect(dialog).not.toContainText(/this destination/i);
   await expect(dialog.getByText('Checked the destination')).toBeVisible();
   await dialog.getByRole('button', { name: /^Confirm/ }).click();
   await expect(page.getByText('Approved').first()).toBeVisible();
@@ -606,7 +611,7 @@ test('pricing: the fee table, the calculator uses the live engine, and an unconf
   await page.getByLabel('Asset').selectOption('USDT');
   await page.getByLabel('Payment amount *').fill('100');
   await page.getByRole('button', { name: 'Work out the fee' }).click();
-  await expect(page.getByRole('heading', { name: 'Result' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Result for 100 USDT' })).toBeVisible();
   // 1.20% of 100 plus a flat 0.25, in the band that starts at 10,000 (the mock's month so far is 12,500)
   await expect(page.getByText('1.45').first()).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantControl.pricing.preview').input).toEqual({
@@ -719,4 +724,153 @@ test('every W3b page says "arrives soon" when the control room is not switched o
     await expect(offline.getByText(/pay\.[a-z_]+/)).toHaveCount(0);
   }
   expect(seen.filter((u) => /founderAdmin/i.test(u))).toEqual([]);
+});
+
+// ---- W3b review fixes -----------------------------------------------------------------------------------------------------------
+
+const json = (route, data, status = 200) =>
+  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(status === 200 ? { result: { data } } : { error: data }) });
+
+test('approvals: names where the portal has them, short ids otherwise', async ({ page }) => {
+  await setup(page);
+  await signIn(page, '/pay/approvals');
+  const items = page.getByRole('list', { name: 'Payout requests' }).getByRole('listitem');
+  await expect(items.first()).toContainText('TEST Accounts');
+});
+
+test('approvals: a decision that was voided meanwhile is shown as refused, never as success', async ({ page }) => {
+  const { mock } = await setup(page);
+  await signIn(page, '/pay/approvals');
+  const items = page.getByRole('list', { name: 'Payout requests' }).getByRole('listitem');
+  await page.route('**/api/pay/trpc/merchantControl.approvals.decide', (route) =>
+    json(
+      route,
+      { ...mock.state.approvalsForTest?.[0] } && {
+        approvalId: 'cc000001-0000-4000-8000-000000000001',
+        merchantId: '11111111-1111-4111-8111-111111111111',
+        settlementId: 'bb000003-0000-4000-8000-000000000003',
+        amount: '965.55',
+        assetCode: 'USDT',
+        payloadHash: `sha256:${'a'.repeat(64)}`,
+        status: 'voided',
+        makerUserId: 'TEST-user-finance',
+        checkerUserId: null,
+        createdAt: new Date().toISOString(),
+        decidedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      },
+    ),
+  );
+  await items.first().getByLabel('Your reason *').fill('Looks right');
+  await items.first().getByRole('button', { name: 'Approve payout' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Review: Approve payout' });
+  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await expect(dialog.getByText('The request was voided because the payout changed, so your decision did not count.')).toBeVisible();
+  await expect(page.getByText('The service confirmed the action')).toHaveCount(0);
+  await snap(page, '46-approvals-voided-result');
+});
+
+test('approvals: a request a teammate already approved waits on INTAFACED, and cannot be decided again', async ({ page }) => {
+  await setup(page);
+  const row = {
+    approvalId: 'cc000009-0000-4000-8000-000000000009',
+    merchantId: '11111111-1111-4111-8111-111111111111',
+    settlementId: 'bb000003-0000-4000-8000-000000000003',
+    amount: '965.55',
+    assetCode: 'USDT',
+    payloadHash: `sha256:${'a'.repeat(64)}`,
+    status: 'pending',
+    makerUserId: 'TEST-user-dev',
+    checkerUserId: 'TEST-user-finance',
+    createdAt: new Date(Date.now() - 3 * 3600_000).toISOString(),
+    decidedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
+    expiresAt: new Date(Date.now() + 40 * 3600_000).toISOString(),
+  };
+  await page.route('**/api/pay/trpc/merchantControl.approvals.list*', (route) => json(route, [row]));
+  await signIn(page, '/pay/approvals');
+  await expect(page.getByText('Approved by TEST Accounts, waiting for INTAFACED’s sign-off.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve payout' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Reject payout' })).toBeDisabled();
+  await expect(page.getByText('A teammate has already approved this.')).toBeVisible();
+  await snap(page, '47-approvals-waiting-on-intafaced');
+});
+
+test('approvals: the clock ticks, so a request that expires while the page is open stops being decidable', async ({ page }) => {
+  // the fake clock must be in place before the page starts its own timer
+  await page.clock.install({ time: Date.now() });
+  await setup(page);
+  await signIn(page, '/pay/approvals');
+  const first = page.getByRole('list', { name: 'Payout requests' }).getByRole('listitem').first();
+  await expect(first).toContainText('Expires in');
+  await page.getByRole('list', { name: 'Payout requests' }).getByRole('listitem').first().getByLabel('Your reason *').fill('Looks right');
+  await expect(first.getByRole('button', { name: 'Approve payout' })).toBeEnabled();
+  await page.clock.fastForward('50:00:00');
+  await expect(first).toContainText('Past its expiry');
+  await expect(first.getByRole('button', { name: 'Approve payout' })).toBeDisabled();
+  await expect(first.getByText('This request has expired. Ask for the payout again.')).toBeVisible();
+});
+
+test('a failed or refused pause read says it could not check, not "nothing is paused"', async ({ page }) => {
+  await setup(page);
+  await page.route('**/api/pay/trpc/payHalts.status*', (route) =>
+    json(route, { message: 'pay.merchant_forbidden', data: { cause: { code: 'pay.merchant_forbidden' } } }, 403),
+  );
+  await signIn(page, '/pay/payouts');
+  await expect(page.getByText('We could not check whether payouts are paused.')).toBeVisible();
+  await go(page, '/pay/payments');
+  await expect(page.getByText('We could not check whether new payments are paused.')).toBeVisible();
+  await snap(page, '48-pause-check-failed');
+});
+
+test('payouts: when approvals cannot be read, a payout shows "Approval unknown", not "ready"', async ({ page }) => {
+  await setup(page);
+  await page.route('**/api/pay/trpc/merchantControl.approvals.list*', (route) => json(route, { message: 'x' }, 503));
+  await signIn(page, '/pay/payouts');
+  await expect(page.getByText('Approval states could not be read')).toBeVisible();
+  await expect(page.locator('.pp-chip', { hasText: 'Approval unknown' }).first()).toBeVisible();
+  await expect(page.locator('.pp-chip', { hasText: 'Ready to pay out' })).toHaveCount(0);
+  await snap(page, '49-payouts-approval-unknown');
+  await go(page, `/pay/payouts/${STL_WAITING}`);
+  await expect(page.locator('.pp-chip', { hasText: 'Approval unknown' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve payout' })).toHaveCount(0);
+});
+
+test('team members who are not the owner are told payments and statements are owner-only, and get no payout links', async ({ page }) => {
+  await setup(page);
+  await page.route('**/api/pay/trpc/merchant.me*', (route) => json(route, null));
+  await page.route('**/api/pay/trpc/merchantOps.team.me*', (route) =>
+    json(route, { merchantId: '11111111-1111-4111-8111-111111111111', userId: '22222222-2222-4222-8222-222222222222', role: 'finance' }),
+  );
+  await signIn(page, '/pay/payments');
+  await expect(page.getByText('Only the account owner can open payments and statements for now.')).toBeVisible();
+  await snap(page, '50-payments-owner-only');
+  for (const path of [
+    '/pay/settlements',
+    '/pay/payouts',
+    `/pay/payments/${PAY_SETTLED}`,
+    `/pay/settlements/${STL_PAID}`,
+    `/pay/payouts/${STL_PAID}`,
+  ]) {
+    await go(page, path);
+    await expect(page.getByText('Only the account owner can open payments and statements for now.')).toBeVisible();
+  }
+  await go(page, '/pay/approvals');
+  await expect(page.getByRole('list', { name: 'Payout requests' })).toBeVisible();
+  await expect(page.locator('a[href^="/pay/payouts/"]')).toHaveCount(0);
+});
+
+test('settlement statement CSV carries the time the data was read, not the time of the download', async ({ page }) => {
+  await setup(page);
+  await signIn(page, `/pay/settlements/${STL_PAID}`);
+  await expect(page.getByText('Checked: gross minus fees equals net')).toBeVisible();
+  await page.waitForTimeout(1500);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download statement (CSV)' }).click();
+  const { readFile } = await import('node:fs/promises');
+  const csv = await readFile(await (await download).path(), 'utf8');
+  const [, row] = csv.trim().split('\r\n');
+  const cells = row.split('","').map((c) => c.replaceAll('"', ''));
+  const [generatedAt, asOf] = cells.slice(-2);
+  expect(Date.parse(asOf)).toBeGreaterThan(0);
+  expect(Date.parse(generatedAt) - Date.parse(asOf)).toBeGreaterThanOrEqual(1000);
 });

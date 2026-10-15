@@ -4,11 +4,24 @@ import { Button, EmptyState, Field } from '../../../shared/ui';
 import { PayTime, PaySection, ReviewedAction } from '../components';
 import { Chip, Facts, HaltBanner, Kpi, KpiGrid, Money, PortalFailure, PortalLoading, ReadAt, SelectField, SpanText } from './components';
 import { portalCopy } from './copy';
-import { useReadAt, useUrlParam } from './hooks';
-import { approvalSummary, decisionBlock, matchesSearch, minReasonOk, roleMayDecide, shortId, type RoleLike } from './model';
+import { useMemberNames, useNow, useReadAt, useUrlParam } from './hooks';
+import {
+  actorName,
+  approvalSummary,
+  decisionBlock,
+  decisionLanded,
+  isCheckedPending,
+  matchesSearch,
+  minReasonOk,
+  roleMayDecide,
+  shortId,
+  type RoleLike,
+} from './model';
+import { portalRefusal } from './refusal';
 import type { PortalApi } from './api';
 import { approvalStatuses, type Approval, type HaltStatus } from './schemas';
 
+const noNames: ReadonlyMap<string, string> = new Map();
 export const payoutHref = (settlementId: string) => `/pay/payouts/${encodeURIComponent(settlementId)}`;
 
 /**
@@ -17,6 +30,8 @@ export const payoutHref = (settlementId: string) => `/pay/payouts/${encodeURICom
  * and that the request still matches what was reviewed.
  */
 export function Approvals({ portal, merchantId, role }: { portal: PortalApi; merchantId: string; role: RoleLike }) {
+  const now = useNow();
+  const names = useMemberNames(portal);
   const [status, setStatus] = useUrlParam('status', 'pending');
   const [q, setQ] = useUrlParam('q', '');
   const list = useResource((s) => portal.approvals(merchantId, '', s), `portal:approvals:${merchantId}`);
@@ -28,7 +43,9 @@ export function Approvals({ portal, merchantId, role }: { portal: PortalApi; mer
       list={list.resource}
       halts={halts.resource}
       loadedAt={loadedAt}
-      now={loadedAt ? Date.parse(loadedAt) : Date.now()}
+      now={now}
+      names={names}
+      canOpenPayout={role === null || role === 'owner'}
       me={portal.userId}
       role={role}
       status={status}
@@ -49,6 +66,8 @@ export function ApprovalsView({
   halts,
   loadedAt,
   now,
+  names = noNames,
+  canOpenPayout = true,
   me,
   role,
   status,
@@ -62,6 +81,10 @@ export function ApprovalsView({
   halts: Resource<HaltStatus>;
   loadedAt: string | null;
   now: number;
+  /** Names of team members where the portal can read them; ids are shown short otherwise. */
+  names?: ReadonlyMap<string, string>;
+  /** Payout pages read settlements, which only the account owner may open for now. */
+  canOpenPayout?: boolean;
   me: string | null;
   role: RoleLike;
   status: string;
@@ -109,6 +132,7 @@ export function ApprovalsView({
                 value={roleMayDecide(role) ? sum.forOthers : '—'}
                 note={roleMayDecide(role) ? t('kpiForYouNote') : t('kpiForYouRole')}
               />
+              <Kpi label={t('kpiSignoff')} value={sum.signoff} note={t('kpiSignoffNote')} />
               <Kpi label={t('kpiYourRequests')} value={sum.mine} note={t('kpiYourRequestsNote')} />
               <Kpi
                 label={t('kpiOldest')}
@@ -182,7 +206,17 @@ export function ApprovalsView({
           ) : (
             <ul className="pp-approvals" aria-label={t('approvalsTitle')}>
               {shown.map((a) => (
-                <ApprovalCard key={a.approvalId} portal={portal} approval={a} me={me} role={role} now={now} onDone={reload} />
+                <ApprovalCard
+                  key={a.approvalId}
+                  portal={portal}
+                  approval={a}
+                  me={me}
+                  role={role}
+                  now={now}
+                  names={names}
+                  canOpenPayout={canOpenPayout}
+                  onDone={reload}
+                />
               ))}
             </ul>
           ))}
@@ -203,6 +237,8 @@ export function ApprovalCard({
   me,
   role,
   now,
+  names = noNames,
+  canOpenPayout = true,
   onDone,
 }: {
   portal: PortalApi;
@@ -210,9 +246,12 @@ export function ApprovalCard({
   me: string | null;
   role: RoleLike;
   now: number;
+  names?: ReadonlyMap<string, string>;
+  canOpenPayout?: boolean;
   onDone: () => void;
 }) {
   const { t } = portalCopy.useCopy();
+  const who = (id: string) => (id === me ? t('you') : actorName(id, names));
   const age = now - Date.parse(a.createdAt);
   const left = Date.parse(a.expiresAt) - now;
   return (
@@ -243,15 +282,19 @@ export function ApprovalCard({
         items={[
           [
             t('colPayout'),
-            <a className="text-link pp-mono" href={payoutHref(a.settlementId)}>
-              {shortId(a.settlementId)}
-            </a>,
+            canOpenPayout ? (
+              <a className="text-link pp-mono" href={payoutHref(a.settlementId)}>
+                {shortId(a.settlementId)}
+              </a>
+            ) : (
+              <span className="pp-mono">{shortId(a.settlementId)}</span>
+            ),
           ],
-          [t('requestedBy'), a.makerUserId === me ? t('you') : <span className="pp-mono">{a.makerUserId}</span>],
+          [t('requestedBy'), who(a.makerUserId)],
           [t('colRequested'), <PayTime value={a.createdAt} />],
           ...(a.decidedAt && a.checkerUserId
             ? ([
-                [t('decidedBy'), `${a.checkerUserId === me ? t('you') : a.checkerUserId}`],
+                [t('decidedBy'), who(a.checkerUserId)],
                 [t('colDecided'), <PayTime value={a.decidedAt} />],
               ] as const)
             : []),
@@ -263,7 +306,14 @@ export function ApprovalCard({
           ],
         ]}
       />
-      {a.status === 'pending' && <ApprovalDecision portal={portal} approval={a} me={me} role={role} now={now} onDone={onDone} />}
+      {isCheckedPending(a) && (
+        <p className="pp-callout" role="note">
+          {t('checkedBanner', { who: who(a.checkerUserId!) })}
+        </p>
+      )}
+      {a.status === 'pending' && (
+        <ApprovalDecision portal={portal} approval={a} me={me} role={role} now={now} names={names} onDone={onDone} />
+      )}
     </li>
   );
 }
@@ -275,6 +325,7 @@ export function ApprovalDecision({
   me,
   role,
   now,
+  names = noNames,
   onDone,
 }: {
   portal: PortalApi;
@@ -282,25 +333,43 @@ export function ApprovalDecision({
   me: string | null;
   role: RoleLike;
   now: number;
+  names?: ReadonlyMap<string, string>;
   onDone: () => void;
 }) {
   const { t } = portalCopy.useCopy();
+  const who = (id: string) => (id === me ? t('you') : actorName(id, names));
   const [reason, setReason] = useState('');
   const block = decisionBlock(approval, me, role, now);
   const reasonOk = minReasonOk(reason);
   const why = block ? t(`block_${block}` as 'block_own') : reasonOk ? null : t('reasonNeeded');
   const disabled = block !== null || !reasonOk;
+  // A decision the service answered but that did not take effect (the request was voided or ended meanwhile) is shown as a refusal, not as success.
+  const decide = (decision: 'approve' | 'reject') => async () => {
+    const result = await portal.decideApproval({
+      approvalId: approval.approvalId,
+      decision,
+      expectedPayloadHash: approval.payloadHash,
+      reason: reason.trim(),
+    });
+    if (!result.ok || decisionLanded(decision, result.data.status)) return result;
+    return portalRefusal(result.data.status === 'voided' ? 'rApprovalVoidedResult' : 'rApprovalNotLanded', 'error');
+  };
   const review = (verb: string) => (
-    <Facts
-      items={[
-        [t('decisionVerb'), verb],
-        [t('colAmount'), <Money value={approval.amount} asset={approval.assetCode} />],
-        [t('colPayout'), <span className="pp-mono">{approval.settlementId}</span>],
-        [t('requestedBy'), approval.makerUserId === me ? t('you') : <span className="pp-mono">{approval.makerUserId}</span>],
-        [t('fingerprint'), <span className="pp-mono">{approval.payloadHash}</span>],
-        [t('decisionReason'), reason.trim()],
-      ]}
-    />
+    <>
+      <Facts
+        items={[
+          [t('decisionVerb'), verb],
+          [t('colAmount'), <Money value={approval.amount} asset={approval.assetCode} />],
+          [t('colPayout'), <span className="pp-mono">{approval.settlementId}</span>],
+          [t('requestedBy'), who(approval.makerUserId)],
+          [t('fingerprint'), <span className="pp-mono">{approval.payloadHash}</span>],
+          [t('decisionReason'), reason.trim()],
+        ]}
+      />
+      <p className="pp-callout" role="note">
+        {t('decisionDestinationNote')}
+      </p>
+    </>
   );
   return (
     <div className="form-stack pp-form pp-decision">
@@ -315,14 +384,7 @@ export function ApprovalDecision({
           variant="primary"
           description={t('approveBody')}
           review={review(t('approve'))}
-          perform={() =>
-            portal.decideApproval({
-              approvalId: approval.approvalId,
-              decision: 'approve',
-              expectedPayloadHash: approval.payloadHash,
-              reason: reason.trim(),
-            })
-          }
+          perform={decide('approve')}
           onConfirmed={onDone}
           disabled={disabled}
         />
@@ -331,14 +393,7 @@ export function ApprovalDecision({
           variant="danger"
           description={t('rejectBody')}
           review={review(t('reject'))}
-          perform={() =>
-            portal.decideApproval({
-              approvalId: approval.approvalId,
-              decision: 'reject',
-              expectedPayloadHash: approval.payloadHash,
-              reason: reason.trim(),
-            })
-          }
+          perform={decide('reject')}
           onConfirmed={onDone}
           disabled={disabled}
         />

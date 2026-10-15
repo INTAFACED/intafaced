@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
+import { displayAmount } from '../../../shared/money';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Button, DataTable, Field } from '../../../shared/ui';
 import { PayTime, PaySection } from '../components';
@@ -169,7 +170,7 @@ export function FeeCalculator({ portal, merchantId, assets }: { portal: PortalAp
   const [volume, setVolume] = useState('');
   const [conversion, setConversion] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<{ asset: string; result: ApiResult<Quote> } | null>(null);
+  const [outcome, setOutcome] = useState<{ asset: string; amount: string; result: ApiResult<Quote> } | null>(null);
   const chosen = assets.includes(asset) ? asset : (assets[0] ?? '');
   const amountOk = isCalcAmount(amount);
   const volumeOk = volume.trim() === '' || /^\d+(\.\d{1,18})?$/.test(volume.trim());
@@ -186,7 +187,7 @@ export function FeeCalculator({ portal, merchantId, assets }: { portal: PortalAp
         ...(volume.trim() ? { monthlyVolume: volume.trim() } : {}),
         ...(conversion ? { conversion: true } : {}),
       });
-      setOutcome({ asset: chosen, result });
+      setOutcome({ asset: chosen, amount: amount.trim(), result });
     } finally {
       setBusy(false);
     }
@@ -245,7 +246,7 @@ export function FeeCalculator({ portal, merchantId, assets }: { portal: PortalAp
       {outcome &&
         (outcome.result.ok ? (
           <div aria-live="polite">
-            <h3 className="pp-sub">{t('calcResult')}</h3>
+            <h3 className="pp-sub">{t('calcResultFor', { amount: displayAmount(outcome.amount), asset: outcome.asset })}</h3>
             <Facts
               items={[
                 [t('calcFee'), <Money value={outcome.result.data.fee} asset={outcome.asset} />],

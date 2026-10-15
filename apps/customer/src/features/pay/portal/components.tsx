@@ -262,6 +262,7 @@ const chips = {
   },
   payout: {
     not_ready: ['chipPayout_not_ready', 'tipPayout_not_ready', 'neutral'],
+    unknown: ['chipPayout_unknown', 'tipPayout_unknown', 'attention'],
     ready: ['chipPayout_ready', 'tipPayout_ready', 'attention'],
     awaiting_approval: ['chipPayout_awaiting_approval', 'tipPayout_awaiting_approval', 'attention'],
     approved: ['chipPayout_approved', 'tipPayout_approved', 'good'],
@@ -436,7 +437,14 @@ export function HaltBanner({
   scopes: readonly HaltScope[];
 }) {
   const { t } = portalCopy.useCopy();
-  if (resource.status !== 'ready') return null;
+  if (resource.status === 'loading') return null;
+  // A refused or failed read (a team member's read is refused too) is not "nothing is paused": say we could not check.
+  if (resource.status === 'failed')
+    return (
+      <p className="pp-callout pp-callout--warn" role="alert">
+        {t('haltCheckFailed', { ops: scopes.map((s) => t(`haltOpName_${s}` as 'haltOpName_intake')).join(t('haltOr')) })}
+      </p>
+    );
   const { unreadable, halts } = activeHalts(resource.data, scopes);
   if (unreadable)
     return (

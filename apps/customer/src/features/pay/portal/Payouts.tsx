@@ -26,9 +26,11 @@ import { ApprovalDecision, CancelRequest, payoutHref } from './Approvals';
 import { settlementHref } from './Settlements';
 import { portalCopy } from './copy';
 import { buildCsv, downloadText } from './csv';
-import { useReadAt, useUrlParam } from './hooks';
+import { useMemberNames, useNow, useReadAt, useUrlParam } from './hooks';
 import {
+  actorName,
   assetsIn,
+  isCheckedPending,
   freshnessAt,
   isUuid,
   latestApproval,
@@ -102,8 +104,8 @@ export function PayoutsView({
 }) {
   const { t } = portalCopy.useCopy();
   // A payout's approval state comes from a second read. If that read fails the payouts still show, with a note, rather than being hidden.
-  const approvalList = approvals.status === 'ready' ? approvals.data : [];
-  const all: PayoutRow[] = settlements.status === 'ready' ? payoutRows(settlements.data, approvalList) : [];
+  const all: PayoutRow[] =
+    settlements.status === 'ready' ? payoutRows(settlements.data, approvals.status === 'ready' ? approvals.data : null) : [];
   const rows = all.filter(
     (r) =>
       (!state || r.state === state) &&
@@ -239,7 +241,11 @@ export function PayoutsView({
                     </td>
                     <td>
                       <Chip kind="payout" value={r.state} />
-                      {r.state === 'awaiting_approval' && <small className="pay-cell-note">{t('waitingFromRoles')}</small>}
+                      {r.state === 'awaiting_approval' && (
+                        <small className="pay-cell-note">
+                          {r.approval && isCheckedPending(r.approval) ? t('waitingFromIntafaced') : t('waitingFromRoles')}
+                        </small>
+                      )}
                       {r.state === 'failed' && <small className="pay-cell-note">{t('failedNextStep')}</small>}
                     </td>
                     <td className="pp-mono">{r.payoutRef ?? <span className="muted">{t('notPaidYet')}</span>}</td>
@@ -295,7 +301,8 @@ export function PayoutDetailPage({
   const approvals = useResource((s) => portal.approvals(merchantId, '', s), `portal:payout-approvals:${merchantId}`);
   const usage = useResource((s) => portal.usage(merchantId, s), `portal:usage:${merchantId}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `portal:halts:${merchantId}`);
-  const loadedAt = useReadAt(approvals.resource.status === 'ready', approvals.resource);
+  const now = useNow();
+  const names = useMemberNames(portal);
   return (
     <PayoutDetailView
       portal={portal}
@@ -305,7 +312,8 @@ export function PayoutDetailPage({
       halts={halts.resource}
       me={portal.userId}
       role={role}
-      now={loadedAt ? Date.parse(loadedAt) : Date.now()}
+      now={now}
+      names={names}
       testValues={merchant === null || merchant.kybStatus !== 'approved'}
       reload={() => {
         settlement.reload();
@@ -326,6 +334,7 @@ export function PayoutDetailView({
   me,
   role,
   now,
+  names = new Map(),
   testValues,
   reload,
 }: {
@@ -337,6 +346,7 @@ export function PayoutDetailView({
   me: string | null;
   role: RoleLike;
   now: number;
+  names?: ReadonlyMap<string, string>;
   testValues: boolean;
   reload: () => void;
 }) {
@@ -351,8 +361,8 @@ export function PayoutDetailView({
             .filter((a) => a.settlementId === s.id)
             .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
           const latest = approvals.status === 'ready' ? latestApproval(approvals.data, s.id) : null;
-          const state = payoutState(s, latest);
-          const events = trail.flatMap((a) => approvalEvents(a, t));
+          const state = payoutState(s, latest, approvals.status === 'ready');
+          const events = trail.flatMap((a) => approvalEvents(a, t, names));
           return (
             <>
               {latest?.status === 'voided' && (
@@ -426,8 +436,10 @@ export function PayoutDetailView({
                         <th scope="row">
                           <Chip kind="approval" value={a.status} />
                         </th>
-                        <td className="pp-mono">{a.makerUserId === me ? t('you') : a.makerUserId}</td>
-                        <td className="pp-mono">{a.checkerUserId ? (a.checkerUserId === me ? t('you') : a.checkerUserId) : '—'}</td>
+                        <td className="pp-mono">{a.makerUserId === me ? t('you') : actorName(a.makerUserId, names)}</td>
+                        <td className="pp-mono">
+                          {a.checkerUserId ? (a.checkerUserId === me ? t('you') : actorName(a.checkerUserId, names)) : '—'}
+                        </td>
                         <td>
                           <PayTime value={a.createdAt} />
                         </td>
@@ -447,7 +459,7 @@ export function PayoutDetailView({
                 {latest?.status === 'pending' && (
                   <>
                     <h3 className="pp-sub">{t('decideTitle')}</h3>
-                    <ApprovalDecision portal={portal} approval={latest} me={me} role={role} now={now} onDone={reload} />
+                    <ApprovalDecision portal={portal} approval={latest} me={me} role={role} now={now} names={names} onDone={reload} />
                     <h3 className="pp-sub">{t('cancelTitle')}</h3>
                     <CancelRequest portal={portal} approval={latest} me={me} onDone={reload} />
                   </>
@@ -468,21 +480,27 @@ export function PayoutDetailView({
 }
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
-function approvalEvents(a: Approval, t: T) {
+function approvalEvents(a: Approval, t: T, names: ReadonlyMap<string, string>) {
   const out: Array<{ at: string; title: string; detail?: string }> = [
-    { at: a.createdAt, title: t('evRequested'), detail: t('byActor', { actor: a.makerUserId }) },
+    { at: a.createdAt, title: t('evRequested'), detail: t('byActor', { actor: actorName(a.makerUserId, names) }) },
   ];
   if (a.status === 'approved' || a.status === 'consumed')
     out.push({
       at: a.decidedAt ?? a.createdAt,
       title: t('evApproved'),
-      ...(a.checkerUserId ? { detail: t('byActor', { actor: a.checkerUserId }) } : {}),
+      ...(a.checkerUserId ? { detail: t('byActor', { actor: actorName(a.checkerUserId, names) }) } : {}),
+    });
+  if (a.status === 'pending' && a.checkerUserId)
+    out.push({
+      at: a.decidedAt ?? a.createdAt,
+      title: t('evCheckedWaiting'),
+      detail: t('byActor', { actor: actorName(a.checkerUserId, names) }),
     });
   if (a.status === 'rejected')
     out.push({
       at: a.decidedAt ?? a.createdAt,
       title: t('evRejected'),
-      ...(a.checkerUserId ? { detail: t('byActor', { actor: a.checkerUserId }) } : {}),
+      ...(a.checkerUserId ? { detail: t('byActor', { actor: actorName(a.checkerUserId, names) }) } : {}),
     });
   if (a.status === 'voided') out.push({ at: a.decidedAt ?? a.expiresAt, title: t('evVoided') });
   if (a.status === 'expired') out.push({ at: a.expiresAt, title: t('evExpired') });
