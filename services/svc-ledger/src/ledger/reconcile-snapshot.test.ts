@@ -315,6 +315,32 @@ describe('reconciliation snapshot runner — real book', () => {
     await expect(svc.post(deposit())).resolves.toMatchObject({ module: 'ledger' });
   });
 
+  it('a real snapshot foreign-key statement timeout is incomplete, leaves no anchors or freeze, and retries successfully', async () => {
+    const svc = service(connect());
+    await svc.post(deposit());
+    const blocker = await d().sql.reserve();
+    let result: Awaited<ReturnType<typeof runScheduledReconciliation>>;
+    try {
+      await blocker.unsafe('BEGIN');
+      // Snapshot reads remain possible, but the later anchor INSERT must wait
+      // for the account FK's KEY SHARE lock: the historical failure phase.
+      await blocker.unsafe('SELECT id FROM accounts FOR UPDATE');
+      result = await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 });
+    } finally {
+      await blocker.unsafe('ROLLBACK');
+      blocker.release();
+    }
+    expect(result).toMatchObject({ outcome: 'incomplete', run: { phase: 'snapshot', errorCode: '57014' } });
+    await expect(svc.status()).resolves.toMatchObject({ postingEnabled: true });
+    expect(await d().sql`SELECT 1 FROM balance_snapshots`).toHaveLength(0);
+    expect(await d().sql`SELECT 1 FROM ledger_freeze_outbox`).toHaveLength(0);
+    expect((await d().sql`SELECT outcome, error_code FROM reconcile_runs`).map((row) => [row.outcome, row.error_code])).toEqual([
+      ['incomplete', '57014'],
+    ]);
+    expect((await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 })).outcome).toBe('ok');
+    await expect(svc.post(deposit())).resolves.toMatchObject({ module: 'ledger' });
+  });
+
   it('MISMATCH: service.reconcile freezes as before, records the run, writes no snapshot, returns the report', async () => {
     const svc = service(connect());
     await svc.post(deposit());
