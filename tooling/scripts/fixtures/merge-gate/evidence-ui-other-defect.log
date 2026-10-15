@@ -1,0 +1,12 @@
+##[group]@intafaced/ui:test
+ FAIL src/card.test.ts > Card > renders label
+TypeError: Cannot read properties of null (reading 'textContent')
+ ❯ src/card.test.ts:41:17
+     39| resetCard()
+     40| renderCard()
+     41| const label = screen.getByRole('button')
+⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+Test Files  1 failed (1)
+Tests  1 failed (1)
+##[endgroup]
+Failed:    @intafaced/ui#test

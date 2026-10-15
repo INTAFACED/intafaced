@@ -1,0 +1,9 @@
+##[group]@intafaced/ledger-client:test
+ FAIL src/transfer.test.ts > transfer > conserves funds
+AssertionError: expected debit to equal credit
+ ❯ src/transfer.test.ts:88:3
+⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+Test Files  1 failed (1)
+Tests  1 failed (1)
+##[endgroup]
+Failed:    @intafaced/ledger-client#test

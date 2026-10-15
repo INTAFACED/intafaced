@@ -15,6 +15,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 export const SHARDS = {
   protocol: ['services/svc-protocol/', 'services/svc-dex/', 'services/svc-indexer/', 'services/svc-chain/', 'services/svc-bridge/'],
@@ -272,21 +273,23 @@ function runSeal() {
   console.log('✓ CI merge seal: required jobs succeeded');
 }
 
-const args = process.argv.slice(2);
-if (args.includes('--self-test')) {
-  selfTest();
-  process.exit(0);
-}
-if (args.includes('--seal')) {
-  runSeal();
-  process.exit(0);
-}
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  const args = process.argv.slice(2);
+  if (args.includes('--self-test')) {
+    selfTest();
+    process.exit(0);
+  }
+  if (args.includes('--seal')) {
+    runSeal();
+    process.exit(0);
+  }
 
-const filesIdx = args.indexOf('--files');
-let files;
-let forceFull = process.env.GITHUB_REF === 'refs/heads/main' && process.env.GITHUB_EVENT_NAME === 'push';
-if (filesIdx >= 0) files = args.slice(filesIdx + 1);
-else files = gitChangedFiles();
-const flags = classify(files, { forceFull });
-if (args.includes('--github-output')) githubOutput(flags);
-else console.log(JSON.stringify({ files, flags }, null, 2));
+  const filesIdx = args.indexOf('--files');
+  let files;
+  let forceFull = process.env.GITHUB_REF === 'refs/heads/main' && process.env.GITHUB_EVENT_NAME === 'push';
+  if (filesIdx >= 0) files = args.slice(filesIdx + 1);
+  else files = gitChangedFiles();
+  const flags = classify(files, { forceFull });
+  if (args.includes('--github-output')) githubOutput(flags);
+  else console.log(JSON.stringify({ files, flags }, null, 2));
+}
