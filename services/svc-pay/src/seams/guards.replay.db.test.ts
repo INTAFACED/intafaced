@@ -138,7 +138,12 @@ describe('guard seams: lock order, replay flag, refund and user-money withdrawal
     }
   };
 
-  async function cryptoPayment(pay: PayService, merchantId: string, amount = '10', upTo: 'created' | 'authorized' | 'captured' = 'captured') {
+  async function cryptoPayment(
+    pay: PayService,
+    merchantId: string,
+    amount = '10',
+    upTo: 'created' | 'authorized' | 'captured' = 'captured',
+  ) {
     const created = await pay.createPayment({
       requestId: randomUUID(),
       merchantId,
@@ -224,7 +229,8 @@ describe('guard seams: lock order, replay flag, refund and user-money withdrawal
       await pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' });
       expect(seen[0]).toBe('payment.create|fresh');
       expect(seen.filter((s) => s === 'payment.create|fresh')).toHaveLength(1);
-      for (const s of seen.filter((x) => x.startsWith('payment.create') && x !== seen[0])) expect(s).toBe('payment.create|replay:payment_exists');
+      for (const s of seen.filter((x) => x.startsWith('payment.create') && x !== seen[0]))
+        expect(s).toBe('payment.create|replay:payment_exists');
       expect(seen.filter((s) => s === 'payment.authorize|fresh')).toHaveLength(1);
     });
 
@@ -336,7 +342,14 @@ describe('guard seams: lock order, replay flag, refund and user-money withdrawal
 
   describe('beforeRefund', () => {
     it('runs before any ledger write or event; a completed refund id repeats as a replay', async () => {
-      const seen: Array<{ replay: string; journal: number; events: number; refundId: string | undefined; merchantId: string; amount: bigint }> = [];
+      const seen: Array<{
+        replay: string;
+        journal: number;
+        events: number;
+        refundId: string | undefined;
+        merchantId: string;
+        amount: bigint;
+      }> = [];
       const pay = service({
         beforeRefund: async (ctx) => {
           seen.push({

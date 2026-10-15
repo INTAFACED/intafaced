@@ -12,7 +12,15 @@ describe('guard seams: defaults', () => {
     await expect(NOOP_GUARDS.beforePaymentAdmit(payment)).resolves.toBeUndefined();
     await expect(NOOP_GUARDS.beforeSettlementRun({ sql, phase: 'prepare', replay: FRESH })).resolves.toBeUndefined();
     await expect(
-      NOOP_GUARDS.beforeConversion({ sql, merchantId: 'm', settlementId: 's', fromAsset: 'USD', toAsset: 'USDT', fromAmount: 1n, replay: FRESH }),
+      NOOP_GUARDS.beforeConversion({
+        sql,
+        merchantId: 'm',
+        settlementId: 's',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: 1n,
+        replay: FRESH,
+      }),
     ).resolves.toBeUndefined();
   });
 
