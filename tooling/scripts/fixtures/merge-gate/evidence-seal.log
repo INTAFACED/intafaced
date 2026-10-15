@@ -1,0 +1,8 @@
+CI merge seal	Require needed jobs	2026-10-15T00:00:00.000Z ##[group]Run node tooling/ci/ci-affected.mjs --seal
+CI merge seal	Require needed jobs	2026-10-15T00:00:00.001Z node tooling/ci/ci-affected.mjs --seal
+CI merge seal	Require needed jobs	2026-10-15T00:00:00.002Z shell: /usr/bin/bash -e {0}
+CI merge seal	Require needed jobs	2026-10-15T00:00:00.003Z ##[endgroup]
+CI merge seal	Require needed jobs	2026-10-15T00:00:00.004Z ✖ CI merge seal failed:
+CI merge seal	Require needed jobs	2026-10-15T00:00:00.005Z   - tests-full was failure (full run required)
+CI merge seal	Require needed jobs	2026-10-15T00:00:00.006Z ::error title=CI merge seal::tests-full was failure (full run required)
+CI merge seal	Require needed jobs	2026-10-15T00:00:00.007Z ##[error]Process completed with exit code 1.

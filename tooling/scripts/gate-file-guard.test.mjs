@@ -6,7 +6,15 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { GitHubRefusalError, makeGh } from './gate-gh.mjs';
-import { MARKER, evaluateGateFileRule, gateFilesTouched, renderComment, titleStatesGateChange, upsertComment } from './gate-file-guard.mjs';
+import {
+  MARKER,
+  evaluateGateFileRule,
+  gateFilesTouched,
+  renderComment,
+  listPrFiles,
+  titleStatesGateChange,
+  upsertComment,
+} from './gate-file-guard.mjs';
 
 test('title declarations: accepted forms', () => {
   for (const t of [
@@ -54,6 +62,8 @@ test('gate files: the four things the brief names, plus the tools themselves', (
   assert.ok(touched('.github/workflows/new-one.yaml'));
   assert.ok(touched('.gitleaks.toml'));
   assert.ok(touched('tooling/scripts/merge-gate.mjs'));
+  for (const file of ['merge-evidence.mjs', 'merge-evidence.test.mjs', 'merge-review.mjs', 'merge-review.test.mjs'])
+    assert.ok(touched(`tooling/scripts/${file}`));
   assert.ok(touched('tooling/scripts/main-auto-revert.mjs'));
   assert.ok(touched('tooling/scripts/gate-file-guard.mjs'));
 });
@@ -195,4 +205,20 @@ test('gate-gh: the GraphQL "API rate limit already exceeded" message is a refusa
   assert.throws(() => makeGh({ spawn })(['pr', 'view', '1']), GitHubRefusalError);
   const secondary = () => ({ status: 1, stderr: 'You have exceeded a secondary rate limit.', stdout: '' });
   assert.throws(() => makeGh({ spawn: secondary })(['pr', 'view', '1']), GitHubRefusalError);
+});
+
+test('listPrFiles includes previous paths of renames', () => {
+  let call;
+  assert.deepEqual(
+    listPrFiles(
+      (args) => {
+        call = args;
+        return { stdout: 'docs/moved.md\nservices/svc-pay/old.ts\n' };
+      },
+      'o/r',
+      7,
+    ),
+    ['docs/moved.md', 'services/svc-pay/old.ts'],
+  );
+  assert.match(call.at(-1), /previous_filename/);
 });

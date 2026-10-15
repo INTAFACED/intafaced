@@ -66,6 +66,10 @@ export const GATE_PATHS = [
   ['package.json', 'the root scripts CI and verify run'],
   ['tooling/scripts/merge-gate.mjs', 'the merge gate'],
   ['tooling/scripts/merge-gate.test.mjs', 'the merge gate tests'],
+  ['tooling/scripts/merge-evidence.mjs', 'exact base/head evidence collection'],
+  ['tooling/scripts/merge-evidence.test.mjs', 'exact base/head evidence tests'],
+  ['tooling/scripts/merge-review.mjs', 'protected review and PASS receipts'],
+  ['tooling/scripts/merge-review.test.mjs', 'protected review and receipt tests'],
   ['tooling/scripts/fixtures/merge-gate/**', 'the merge gate test fixtures'],
   ['tooling/scripts/main-auto-revert.mjs', 'the auto-revert of a red main'],
   ['tooling/scripts/main-auto-revert.test.mjs', 'the auto-revert tests'],
@@ -145,7 +149,7 @@ export function upsertComment(gh, repo, pr, body, { onlyIfExisting = false } = {
 }
 
 export function listPrFiles(gh, repo, pr) {
-  const out = gh(['api', '--paginate', `repos/${repo}/pulls/${pr}/files`, '--jq', '.[].filename']).stdout;
+  const out = gh(['api', '--paginate', `repos/${repo}/pulls/${pr}/files`, '--jq', '.[] | .filename, (.previous_filename // empty)']).stdout;
   return out.split('\n').filter(Boolean);
 }
 
