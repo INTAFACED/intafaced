@@ -11,7 +11,7 @@ import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import { ChangeService } from '../../src/control/changes.js';
 import { ControlService } from '../../src/control/service.js';
-import { ownerAccessPorts } from '../../src/control/access.js';
+import { teamAccessPorts } from '../../src/control/access.js';
 import { MerchantPayoutDestinationStore } from '../../src/merchant-payout-destination.js';
 import { applyChange, FOUNDER_1, TEST_GLOBAL_RULE, TEST_TIER } from '../../src/control/control.testkit.js';
 
@@ -53,7 +53,7 @@ export async function seedControl(
   destination: { railId: string; kind: string; ref: string },
 ): Promise<ControlSeed> {
   const changes = new ChangeService(sql);
-  const control = new ControlService(sql, ownerAccessPorts(sql));
+  const control = new ControlService(sql, teamAccessPorts(sql));
   const destinations = new MerchantPayoutDestinationStore(sql);
 
   await applyChange(changes, sql, { scope: 'tier', change: { kind: 'upsert_tier', tier: ISOLATION_TIER } });

@@ -1,4 +1,4 @@
-export { ownerAccessPorts, type ControlAccessPorts } from './access.js';
+export { ownerAccessPorts, teamAccessPorts, type ControlAccessPorts } from './access.js';
 export { ApprovalService, type ApprovalDetail } from './approvals.js';
 export { payoutPayloadHash, type PayoutPayload } from './approval-gate.js';
 export { ChangeService, type ChangeOutcome, type ChangeTarget } from './changes.js';

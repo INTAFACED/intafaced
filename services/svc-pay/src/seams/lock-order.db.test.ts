@@ -21,6 +21,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
   let sql!: TestDatabase['sql'];
   let changes!: ChangeService;
   let merchantId = '';
+  let ownerUserId = '';
   const saved: Record<string, string | undefined> = {};
   const ENV = ['PAY_MERCHANT_CONTROLS', 'PAY_TREASURY_LIMITS', 'PAY_TREASURY_EXPOSURE_LIMITS'] as const;
 
@@ -39,7 +40,8 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     process.env.PAY_TREASURY_EXPOSURE_LIMITS = '{"USDT":"1000"}';
     await resetControl(sql);
     const pay = new PayService(sql, new MemoryLedger(), new RailRegistry([]), {});
-    merchantId = (await pay.createMerchant({ userId: randomUUID(), pricing: { feeBps: 0 } })).id;
+    ownerUserId = randomUUID();
+    merchantId = (await pay.createMerchant({ userId: ownerUserId, pricing: { feeBps: 0 } })).id;
     await applyChange(changes, sql, { scope: 'tier', change: { kind: 'upsert_tier', tier: TEST_TIER } });
     await applyChange(changes, sql, {
       scope: 'pricing',
@@ -150,5 +152,79 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     const results = await Promise.allSettled(jobs);
     expect(results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason)).toEqual([]);
     expect(Number(await used())).toBe(50);
+  });
+  /** One user-money withdrawal admission by the merchant's owner, every statement recorded in order. */
+  async function withdraw(amount: string, seen: string[] = []): Promise<string[]> {
+    const guards = buildPayGuards({ sql });
+    await sql.begin(async (tx) => {
+      const spy = new Proxy(tx, {
+        apply: (target, thisArg, args: unknown[]) => {
+          if (Array.isArray(args[0])) seen.push((args[0] as string[]).join('?').replace(/\s+/g, ' ').trim());
+          return Reflect.apply(target as unknown as (...a: unknown[]) => unknown, thisArg, args);
+        },
+        get: (target, prop, receiver) => {
+          const value = Reflect.get(target, prop, receiver) as unknown;
+          return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+      await guards.beforeUserMoneyWithdrawal({
+        tx: spy as never,
+        userId: ownerUserId,
+        assetId: 'USDT',
+        amount: amt(amount),
+        rail: 'card-sandbox',
+        destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+        clientRef: randomUUID(),
+        replay: FRESH,
+      });
+    });
+    return seen;
+  }
+
+  it('an owner withdrawal takes the treasury advisory lock before any W1 counter, exactly one treasury lock, and counts against the merchant', async () => {
+    const statements = await withdraw('10');
+    const treasury = statements.findIndex((s) => s.includes('pg_advisory_xact_lock'));
+    const firstCounter = statements.findIndex((s) => s.includes('pay.control_cap_usage'));
+    expect(treasury, `no treasury lock in: ${JSON.stringify(statements)}`).toBeGreaterThanOrEqual(0);
+    expect(firstCounter, `W1 took no counter in: ${JSON.stringify(statements)}`).toBeGreaterThanOrEqual(0);
+    expect(treasury).toBeLessThan(firstCounter);
+    // Every treasury lock (the guard takes the same per-asset key twice on a withdrawal) comes before the first W1 counter,
+    // and W1 takes no advisory lock of its own that could invert the order.
+    const advisory = statements.map((s, i) => (s.includes('pg_advisory_xact_lock') ? i : -1)).filter((i) => i >= 0);
+    expect(advisory.every((i) => i < firstCounter)).toBe(true);
+    // Within the merchant: the daily payout counter before the beneficiary counter, as in a payout admission.
+    const kinds = statements.filter((s) => s.includes('INSERT INTO pay.control_cap_usage')).length;
+    expect(kinds).toBe(2);
+    expect(Number(await used())).toBe(10);
+  });
+
+  it('a withdrawal the treasury refuses never reaches the W1 counters', async () => {
+    process.env.PAY_TREASURY_EXPOSURE_LIMITS = '{"USDT":"5"}';
+    const seen: string[] = [];
+    await expect(withdraw('10', seen)).rejects.toMatchObject({ code: 'pay.guard_treasury_exposure_exceeded' });
+    expect(seen.some((s) => s.includes('pay.control_cap_usage'))).toBe(false);
+    expect(await used()).toBeUndefined();
+  });
+
+  it('payout admissions and owner withdrawals racing on one merchant all finish and add up: no deadlock', async () => {
+    const guards = buildPayGuards({ sql });
+    const payout = (i: number) =>
+      sql.begin((tx) =>
+        guards.beforePayoutAdmit({
+          tx: tx as never,
+          settlementId: randomUUID(),
+          merchantId,
+          assetId: 'USDT',
+          amount: amt('10'),
+          railId: 'crypto-native',
+          destination: { kind: 'crypto', ref: `0x00000000000000000000000000000000000000${i % 2 === 0 ? '0a' : '0b'}` },
+          attempt: 0,
+          replay: FRESH,
+        }),
+      );
+    const jobs = Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? payout(i) : withdraw('10').then(() => undefined)));
+    const results = await Promise.allSettled(jobs);
+    expect(results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason)).toEqual([]);
+    expect(Number(await used())).toBe(100);
   });
 });

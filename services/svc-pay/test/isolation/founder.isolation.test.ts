@@ -399,7 +399,7 @@ describe('G: founder-only procedures', () => {
         'payHalts: { store: new PayHaltStore(sql,',
         'merchants: pay',
         'treasury: { sql,',
-        'control: new ControlService(sql, ownerAccessPorts(sql))',
+        'control: new ControlService(sql, teamAccessPorts(sql))',
       ]) {
         expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
       }

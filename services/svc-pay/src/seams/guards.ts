@@ -73,8 +73,12 @@ import type { Amount } from '@intafaced/ledger-client';
  *     the ledger, by business key). Where state cannot prove value moved it is
  *     `fresh`: a rail capture whose ledger post rolled back leaves no trace, and
  *     neither does a refund whose ledger post committed but whose reply was lost.
- *     So keep caps on create/authorize and on payouts, and treat the capture and
- *     refund guards as halts only.
+ *     INTAKE CAPS COUNT CAPTURED VOLUME, at `payment.capture`, never at create:
+ *     public checkout lets anyone create a payment, so a created payment is not
+ *     volume and counting it would let a stranger fill a merchant's caps. The
+ *     count is keyed by payment id, so a capture whose rows rolled back and is
+ *     recovered is counted exactly once (a recovery is counted, never refused).
+ *     The refund guard stays halts only.
  *   - `replay` is read BEFORE the payment row is locked, so two concurrent first
  *     calls for one payment (two authorizes racing) can BOTH see `fresh`; the
  *     loser then finds the work done and commits without moving value. A cap
@@ -98,12 +102,34 @@ import type { Amount } from '@intafaced/ledger-client';
  *   - `unavailable` the guard could not decide or a scope is halted: SERVICE_UNAVAILABLE.
  */
 export class PayGuardRefusal extends Error {
+  /**
+   * Best-effort follow-up a guard wants run AFTER the refusal, once the caller's
+   * transaction has rolled back and every lock it held is released (for example
+   * voiding a stale approval, which needs a second pool connection). A guard
+   * must not open that connection itself while it still holds the caller's
+   * locks. The caller that owns the transaction runs it with
+   * `settleGuardRefusal`, outside the transaction; a caller that does not simply
+   * never runs it, and the refusal is unchanged either way.
+   */
+  afterRollback?: () => Promise<void>;
   constructor(
     readonly code: `pay.guard_${string}`,
     readonly kind: 'refused' | 'unavailable',
   ) {
     super(code);
     this.name = 'PayGuardRefusal';
+  }
+}
+
+/** Run a refusal's `afterRollback` follow-up, if any. Never throws: a failed follow-up must not change the refusal. */
+export async function settleGuardRefusal(error: unknown): Promise<void> {
+  if (!(error instanceof PayGuardRefusal) || !error.afterRollback) return;
+  const followUp = error.afterRollback;
+  error.afterRollback = undefined;
+  try {
+    await followUp();
+  } catch {
+    // Best effort by contract.
   }
 }
 

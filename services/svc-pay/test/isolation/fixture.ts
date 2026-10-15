@@ -36,7 +36,7 @@ import { createMetricsRuntime, type MetricsRuntime } from '../../src/metrics/ind
 import { loadHaltAutoTripConfig } from '../../src/halts/config.js';
 import { PayHaltStore } from '../../src/halts/store.js';
 import { ControlService } from '../../src/control/service.js';
-import { ownerAccessPorts } from '../../src/control/access.js';
+import { teamAccessPorts } from '../../src/control/access.js';
 import { createPayNamespaces } from '../../src/namespaces/index.js';
 import { PayService } from '../../src/payment-service.js';
 import { PspModeService } from '../../src/psp-mode.js';
@@ -242,8 +242,8 @@ function composeRouter(parts: {
       // EMPTY environment, as in an unconfigured deployment (no defaults); the conversion reader is the unwired one.
       payHalts: { store: new PayHaltStore(parts.sql, loadHaltAutoTripConfig({})), merchants: parts.pay },
       treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: UNWIRED_CONVERSION_INVENTORY },
-      // W1: as src/index.ts, the owner is the approver until W15 swaps in the finance role.
-      control: new ControlService(parts.sql, ownerAccessPorts(parts.sql)),
+      // W1: as src/index.ts, the approver is whoever holds payout.approve on the merchant team (W15 roles).
+      control: new ControlService(parts.sql, teamAccessPorts(parts.sql)),
     }),
   );
 }
