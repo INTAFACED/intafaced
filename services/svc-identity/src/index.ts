@@ -212,6 +212,9 @@ installApiKeyAttribution(auth);
 
 const actionApprovals = new ActionApprovalService(new SqlActionApprovalStore(sql), {
   ttlSeconds: env.IDENTITY_ACTION_APPROVAL_TTL_SECONDS,
+  // Founder-only action types (pay, matching, ledger, bank, token, ...) re-check both parties against the live founder
+  // entitlement at approve and again at consume. Unconfigured founder controls answer false, so those types refuse closed.
+  founders: { isFounder: (userId) => founderControls.isLiveFounder(userId) },
 });
 installPrivilegedDualControl(auth, actionApprovals);
 installFreezeDualControl(freeze, actionApprovals);

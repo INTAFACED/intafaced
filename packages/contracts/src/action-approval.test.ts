@@ -5,6 +5,7 @@ import {
   isSamePersonActionType,
   actionApprovalApproveInputSchema,
   actionApprovalConsumeInputSchema,
+  actionApprovalIdInputSchema,
   actionApprovalProposeInputSchema,
   actionApprovalSchema,
   approvalCannotExecute,
@@ -78,9 +79,20 @@ describe('action-bound approval contract', () => {
     expect(parsed).not.toHaveProperty('confirmOperatorId');
   });
 
-  it('approve input is the approval id only — identity of approver comes from the session', () => {
-    expect(actionApprovalApproveInputSchema.parse({ approvalId: 'appr-1' })).toEqual({ approvalId: 'appr-1' });
-    expect(() => actionApprovalApproveInputSchema.parse({ approvalId: 'appr-1', confirmOperatorId: 'someone' })).toThrow();
+  it('approve input names the approval and the payload hash the approver reviewed — identity of approver comes from the session', () => {
+    const input = { approvalId: 'appr-1', expectedPayloadHash: 'sha256:abc' };
+    expect(actionApprovalApproveInputSchema.parse(input)).toEqual(input);
+    expect(() => actionApprovalApproveInputSchema.parse({ ...input, confirmOperatorId: 'someone' })).toThrow();
+  });
+
+  it('approve input refuses an id with no payload hash (an id alone never approves)', () => {
+    expect(() => actionApprovalApproveInputSchema.parse({ approvalId: 'appr-1' })).toThrow();
+    expect(() => actionApprovalApproveInputSchema.parse({ approvalId: 'appr-1', expectedPayloadHash: '' })).toThrow();
+  });
+
+  it('reject and revoke input is the approval id only', () => {
+    expect(actionApprovalIdInputSchema.parse({ approvalId: 'appr-1' })).toEqual({ approvalId: 'appr-1' });
+    expect(() => actionApprovalIdInputSchema.parse({ approvalId: 'appr-1', expectedPayloadHash: 'sha256:abc' })).toThrow();
   });
 
   it('consume requires the same payload hash the approver saw', () => {

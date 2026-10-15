@@ -165,6 +165,9 @@ describe('plain-English refusals', () => {
       'action_approval.same_person',
       'action_approval.payload_mismatch',
       'action_approval.expired',
+      'action_approval.founder_only',
+      'action_approval.not_founders',
+      'action_approval.founders_unavailable',
       'missing_operator',
       'operator.denied',
     ];
@@ -181,6 +184,7 @@ describe('plain-English refusals', () => {
     expect(explainRefusal(null, 'registries.version_conflict: the entry changed', 409).title).toMatch(/changed while you were editing/);
     expect(explainRefusal(null, 'action_approval.same_person', 412).title).toMatch(/cannot approve your own/);
     expect(explainRefusal(null, '', 503).title).toMatch(/could not answer/);
+    expect(explainRefusal(null, 'x [action_approval.founders_unavailable]', 503).title).toMatch(/founder list could not be checked/);
     expect(explainRefusal('something.new', 'weird', 400).title).toMatch(/did not accept these values/);
   });
 });

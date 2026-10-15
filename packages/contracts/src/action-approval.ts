@@ -68,6 +68,14 @@ export const actionApprovalSchema = z.object({
   operationId: z.string().min(1).max(128),
   /** Absent means `four_eyes`. Present only for `same_person` rows, so four-eyes output is unchanged. */
   kind: actionApprovalKindSchema.optional(),
+  /**
+   * Founder-only action types, consume result only. Identity re-checks, at the moment of consume and against the
+   * live founder entitlement, that the approver and the proposer are both current founders. A target service that
+   * demands a founder pair (svc-pay) reads these and refuses when they are absent or false, so an older identity
+   * that does not send them fails closed. Absent on every other row.
+   */
+  approverIsFounder: z.boolean().optional(),
+  requesterIsFounder: z.boolean().optional(),
 });
 export type ActionApproval = z.infer<typeof actionApprovalSchema>;
 
@@ -82,9 +90,23 @@ export const actionApprovalProposeInputSchema = z.object({
 });
 export type ActionApprovalProposeInput = z.infer<typeof actionApprovalProposeInputSchema>;
 
+/** Reject and revoke name the approval only. Approve is a different shape: it also binds the payload (below). */
+export const actionApprovalIdInputSchema = z
+  .object({
+    approvalId: z.string().min(1).max(128),
+  })
+  .strict();
+export type ActionApprovalIdInput = z.infer<typeof actionApprovalIdInputSchema>;
+
+/**
+ * Approve binds the approver to the exact payload they reviewed. `expectedPayloadHash` is the hash the approver
+ * computed or was shown for the change under review; identity refuses (`action_approval.payload_mismatch`) unless it
+ * equals the stored request's hash. An id alone is never enough to approve.
+ */
 export const actionApprovalApproveInputSchema = z
   .object({
     approvalId: z.string().min(1).max(128),
+    expectedPayloadHash: z.string().min(1).max(128),
   })
   .strict();
 export type ActionApprovalApproveInput = z.infer<typeof actionApprovalApproveInputSchema>;

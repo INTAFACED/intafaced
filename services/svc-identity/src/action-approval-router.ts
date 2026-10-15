@@ -7,6 +7,7 @@ import {
   SAME_PERSON_ACTION_TYPES,
   actionApprovalApproveInputSchema,
   actionApprovalConsumeInputSchema,
+  actionApprovalIdInputSchema,
   actionApprovalProposeInputSchema,
   actionApprovalSchema,
   protectedProcedure,
@@ -17,7 +18,12 @@ import {
 } from '@intafaced/contracts';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { ActionApprovalError, type ActionApprovalService } from './auth/action-approval-service.js';
-import { audienceOf, isOperatorPrincipal } from './auth/action-approval-audience.js';
+import {
+  audienceOfApproval,
+  isInteractiveFounderPrincipal,
+  isOperatorPrincipal,
+  type ApprovalSubject,
+} from './auth/action-approval-audience.js';
 import { AuthError, type AuthService } from './auth/auth-service.js';
 import { userCopy } from './user-copy.js';
 
@@ -100,11 +106,14 @@ function toTrpc(err: unknown): never {
         ? 'NOT_FOUND'
         : err.code === 'action_approval.not_requester' ||
             err.code === 'action_approval.service_mismatch' ||
-            err.code === 'action_approval.operator_only'
+            err.code === 'action_approval.operator_only' ||
+            err.code === 'action_approval.founder_only'
           ? 'FORBIDDEN'
-          : err.code === 'action_approval.type_not_same_person' || err.code === 'action_approval.type_not_four_eyes'
-            ? 'BAD_REQUEST'
-            : 'PRECONDITION_FAILED';
+          : err.code === 'action_approval.founders_unavailable'
+            ? 'SERVICE_UNAVAILABLE'
+            : err.code === 'action_approval.type_not_same_person' || err.code === 'action_approval.type_not_four_eyes'
+              ? 'BAD_REQUEST'
+              : 'PRECONDITION_FAILED';
     throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
   }
   if (err instanceof AuthError) throw factorToTrpc(err);
@@ -117,10 +126,23 @@ export function createActionApprovalRouter(
 ) {
   const privilegedUserIds = deps.privilegedUserIds ?? [];
 
-  /** Operator action types need an operator principal to propose, approve or reject. Self types never reach here. */
-  function assertOperatorFor(principal: Parameters<typeof isOperatorPrincipal>[0], actionType: string | null): void {
+  /**
+   * Who may propose, approve or reject. `founder` types need a live founder: an interactive MFA principal (no API key,
+   * no sub-account) that identity's founder directory still lists; an `admin:*` scope does not count. `operator` types
+   * need an operator principal. `self` is only a stored same-person row (its own door). Decided from the whole request (type, target service and
+   * target id), not the type string alone.
+   */
+  async function assertAudienceFor(principal: Parameters<typeof isOperatorPrincipal>[0], subject: ApprovalSubject | null): Promise<void> {
     // An unknown approval id falls through to the service's own `not_found`; nothing is disclosed here.
-    if (actionType === null || audienceOf(actionType) === 'self') return;
+    if (subject === null) return;
+    const audience = audienceOfApproval(subject);
+    if (audience === 'self') return;
+    if (audience === 'founder') {
+      if (!isInteractiveFounderPrincipal(principal) || !(await svc.isFounder(principal.userId))) {
+        throw new ActionApprovalError('this action type is a founder-only action', 'action_approval.founder_only');
+      }
+      return;
+    }
     if (!isOperatorPrincipal(principal, privilegedUserIds)) {
       throw new ActionApprovalError('this action type is an operator action', 'action_approval.operator_only');
     }
@@ -172,7 +194,7 @@ export function createActionApprovalRouter(
         .output(actionApprovalSchema)
         .mutation(async ({ ctx, input }) => {
           try {
-            assertOperatorFor(ctx.principal, input.actionType);
+            await assertAudienceFor(ctx.principal, input);
             return await svc.propose(ctx.principal.userId, input);
           } catch (err) {
             toTrpc(err);
@@ -185,20 +207,20 @@ export function createActionApprovalRouter(
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            assertOperatorFor(ctx.principal, await svc.actionTypeOf(input.approvalId));
-            return await svc.approve(ctx.principal.userId, input.approvalId);
+            await assertAudienceFor(ctx.principal, await svc.subjectOf(input.approvalId));
+            return await svc.approve(ctx.principal.userId, input.approvalId, input.expectedPayloadHash);
           } catch (err) {
             toTrpc(err);
           }
         }),
 
       reject: protectedProcedure
-        .input(actionApprovalApproveInputSchema)
+        .input(actionApprovalIdInputSchema)
         .output(actionApprovalSchema)
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            assertOperatorFor(ctx.principal, await svc.actionTypeOf(input.approvalId));
+            await assertAudienceFor(ctx.principal, await svc.subjectOf(input.approvalId));
             return await svc.reject(ctx.principal.userId, input.approvalId);
           } catch (err) {
             toTrpc(err);
@@ -206,7 +228,7 @@ export function createActionApprovalRouter(
         }),
 
       revoke: protectedProcedure
-        .input(actionApprovalApproveInputSchema)
+        .input(actionApprovalIdInputSchema)
         .output(actionApprovalSchema)
         .mutation(async ({ ctx, input }) => {
           try {
