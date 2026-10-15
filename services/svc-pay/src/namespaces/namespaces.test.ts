@@ -115,7 +115,9 @@ describe('W0 namespaces are mounted', () => {
 
   it('is merged into the live appRouter in index.ts together with the guard registry', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    expect(src).toMatch(/createPayNamespaces\(\{\s*founderAuthority,\s*metrics,\s*registries: \{ sql, approvals: actionApprovals \},\s*sql,/);
+    expect(src).toMatch(
+      /createPayNamespaces\(\{\s*founderAuthority,\s*metrics,\s*registries: \{ sql, approvals: actionApprovals \},\s*sql,/,
+    );
     expect(src).toContain('startMetricsRefresher(metrics.projector');
     expect(src).toContain('payHalts: { store: new PayHaltStore(sql,');
     expect(src).toContain('const payGuards = buildPayGuards({ sql });');
