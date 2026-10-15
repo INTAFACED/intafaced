@@ -7,3 +7,4 @@ import './gate-file-guard.test.mjs';
 import './merge-gate.test.mjs';
 import './merge-evidence.test.mjs';
 import './merge-review.test.mjs';
+import './ci-evidence-workflow.test.mjs';

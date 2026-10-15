@@ -1,0 +1,9 @@
+{
+  "repository": "Phantom-X-007/intafaced",
+  "workflowRun": 38717941162,
+  "job": 116366040562,
+  "head": "12e72326ba0a6543e3b13455703abdfb33d34eb2",
+  "source": "GitHub Actions job logs API; retrieved by codex-gate 2026-10-15",
+  "trim": "Retained real identity task header, one complete failure and its original file/test totals, and the original global failed-task line. Other failed task bodies are omitted deliberately; readability must remain false.",
+  "presentation": "Prefixed original timestamped lines with gh log job/step columns; converted ESC to its literal ^[ display form. Error text, source locations, counts and failed-task list are unchanged. Removed trailing whitespace from otherwise empty timestamped lines."
+}

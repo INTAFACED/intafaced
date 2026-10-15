@@ -6,61 +6,80 @@ Run the gate from a clean, current `origin/main` worktree:
 node tooling/scripts/merge-gate.mjs <pr-number> --head <full-head-sha>
 ```
 
-The gate never merges. A changed head requires a new review and a new gate run. Gitleaks and Dependency audit must pass, all checks must finish, and code changes must have the applicable CI test coverage. Docs-only changes get an explicit report and still require the mandatory checks.
+The gate reports evidence and a merge command; it never merges. Gitleaks and Dependency audit must pass, all checks must finish, and code changes need applicable CI coverage. A changed head requires a fresh review and gate run. Changes to the target, declarations or checks during collection also invalidate the run. Docs-only changes get an explicit report, claim no test coverage, and still require mandatory checks and any applicable protected-path review.
 
-## Failure evidence
+## Protected scope and declarations
 
-The comparison base is the PR's merge base with its target, not a recent convenient main run. A target change during the check invalidates the decision. There is no five-run history exemption and no permanent PR-only failure exemption.
+Paths are protected by default. The only ordinary exceptions are `packages/ui`, `packages/i18n`, and the exact root files `README.md`, `LICENSE`, and `NOTICE`. Money/security-sensitive names within those exceptions remain protected. Every `GATE_PATHS` entry is protected, including gate scripts, test selection and workflows. Both sides of a rename count. `tooling/scripts/merge-review.mjs` is the scope policy.
 
-Each failing check receives one of four classifications:
+Declarations are accepted only from the PR body and comments with GitHub `author_association` equal to `OWNER`, `MEMBER` or `COLLABORATOR`. Other commenters cannot supply or revoke declarations. Trusted comments are fingerprinted and re-read so edits or deletions require a new run. Put declarations on plain lines outside fences and blockquotes.
 
-| Classification | Meaning                                                                                             | Merge effect                        |
-| -------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| Introduced     | Exact-base evidence differs from the head failure, or the corresponding base job passed             | Blocks                              |
-| Inherited      | Exact head and base prove the same complete failure signatures, with an explicit owner and evidence | May pass for non-protected failures |
-| Environmental  | Evidence identifies infrastructure failure, without proving the application passed                  | Blocks until a valid rerun          |
-| Unknown        | Missing, ambiguous, unsupported, or mismatched evidence                                             | Blocks this PR invocation           |
+## Failure and execution evidence
 
-An inherited exception requires a declaration in the PR body or comments:
+The comparison base is the PR's exact merge base with its target. A nearby main run, a recent-run window and GitHub's run `headSha` alone are insufficient. Checkout logs must prove the actual full head and base commits; synthetic merge checkouts do not qualify. This proof is required even for green CI test jobs.
+
+Coverage requires the expected completed test command, attributable workspace execution summaries with positive executed-test totals, and a successful `Every infrastructure-backed suite actually ran` step with its completion report at both commits. Green status cannot override failed totals. Missing summaries, zero execution, unknown execution, or skipped/pending protected tests block. The full-suite denominator comes from main’s workspace manifests with test scripts, never only the tasks appearing in a log. A new or untested workspace absent from that trusted inventory is unknown and blocks; existing task output cannot stand in for it. Separate shards may jointly cover changed workspaces; the combined head and base evidence must each cover every required workspace. Supported policies cover the full suite and protocol, money, trade and pay-bank shards; unsupported reporters or commands fail closed.
+
+| Classification | Meaning                                                                                           | Merge effect                                             |
+| -------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Introduced     | Exact-base evidence differs, or covered base tests passed                                         | Blocks                                                   |
+| Inherited      | Exact commits prove matching complete failure signatures and an owner/evidence declaration exists | Only eligible non-protected full-suite failures may pass |
+| Environmental  | Runner/infrastructure failure does not prove application execution                                | Blocks pending valid evidence                            |
+| Unknown        | Missing, incomplete, ambiguous or unsupported evidence                                            | Blocks                                                   |
+
+An inherited exception needs one unambiguous declaration per check:
 
 ```text
 Inherited-Failure: CI/Tests (full) | owner=<responsible-owner> | evidence=<https-evidence-url>
 ```
 
-A declaration alone is not proof. The gate verifies the exact runs, jobs, checkout commits, failure steps and failure signatures. Two assertions with the same test name but different errors or source locations do not match. Money and security failures remain blocking even when identical on the base. Unattributed failures cannot establish a safe exception.
+The declaration supplies accountability, not proof. Readable Vitest logs must reconcile all failing tasks, files, tests and occurrence counts. Error bodies, assertion differences and source locations form the signatures. Two defects sharing a test name do not match. Real escape bytes and literal `^[[..m` colour codes are stripped. Unhandled or unattributed errors and incomplete logs block.
 
-The supported inherited case is a full CI test run with readable, attributed Vitest failure evidence. Its dependent CI merge seal may be accepted only when the seal proves that this same allowed test failure is its sole cause; extra seal failures block. Narrow shards, unsupported reporters and incomplete logs fail closed. This intentionally does not promise an exception for every existing red check.
+Matching protected failures remain blocking. A non-protected exception requires equivalent full-suite jobs whose only failed step is the supported test command, with successful infrastructure execution backstops. Other failed checks must satisfy their own evidence requirements.
 
-For inherited exceptions, GitHub's `headSha` metadata alone is insufficient: a pull-request workflow can check out a synthetic merge commit. The inherited comparison requires the job's actual checkout commit to equal the requested commit. If the repository has no suitable run at either commit, the gate reports unknown. Arrange an exact-commit CI run; do not substitute a nearby main run or invent a local pass. This change does not install a rerun workflow or start infrastructure locally. When all checks pass, the gate preserves the existing head-bound GitHub check behavior: those checks may test the synthetic merge. It does not claim an isolated head/base rerun for that green path.
+A green shard may use proven full-suite base coverage when no corresponding base shard ran. A failing shard needs its matching base job; if main does not run that job, it blocks. Matching shard failures still do not receive the full-suite exception. Fix the failing test. This change adds no new base-run producer, permanent exemption or local infrastructure launch. Missing exact-commit runs remain unknown.
 
 ## Independent Opus review
 
-Money/security PRs declare the author session and the independent reviewer session in their body or comments:
+Protected PRs declare their author session and reviewer identity:
 
 ```text
-Author-Session: <author-session-id>
-Opus-Review: <full-head-sha> <reviewer-Claude-session-UUID> PASS
+Author-Session: <author-session-UUID>
+Opus-Review: <full-head-sha> <reviewer-session-UUID-or-agent-ID> PASS
 ```
 
-The reviewer must place the same exact-head review declaration in their own assistant response after reviewing. The gate reads `~/.claude/projects/*/<reviewer-session-id>.jsonl`. The transcript must identify that session and contain the review in a Claude Opus assistant message. User prompts, tool output, another model, another head, and the author reviewing their own change do not qualify.
+The reviewer emits their own exact-head verdict in an assistant response after reviewing. Any non-PASS exact-head declaration blocks, even if a PASS also exists. A non-PASS exact-head verdict in a candidate reviewer transcript also blocks.
 
-Money roots reuse `tooling/ci/money-skip-inventory.mjs`. Additional security and shared execution roots live in `tooling/scripts/merge-review.mjs`, the single gate policy for protected scope. Rename source paths also count.
+The gate accepts these local Claude transcript locations:
 
-This is a local pilot assurance check, not cryptographic identity or GitHub branch protection. Someone who can alter local transcripts or author declarations can falsify those inputs. Review quality still requires judgment. The gate checks provenance and version binding; it does not establish that the reviewer found every defect.
+- Root reviewer: `~/.claude/projects/<project>/<reviewer-session-UUID>.jsonl`.
+- Reviewer sub-agent: `~/.claude/projects/<project>/<parent-session-UUID>/subagents/agent-<agent-ID>.jsonl`. Declare the agent ID; entries must identify that agent, its parent session and sidechain status.
+
+The root session or sub-agent's parent must differ from the declared author session. Only Claude Opus assistant text supplies approval. Before its verdict, the transcript must show a successful Bash tool call reading the exact-head patch and a successful tool result containing diff output. Supported reads include `git show <full-head-sha>`, `git diff <base>..<full-head-sha>`, or `git diff <base> <full-head-sha>`. A supported GitHub read asserts the head immediately before reading the diff in the same invocation:
+
+```sh
+test "$(gh pr view <pr-number> --json headRefOid --jq .headRefOid)" = <full-head-sha> && gh pr diff <pr-number>
+```
+
+A filename/stat-only read does not qualify. The reviewer transcript must never execute `git commit` or `git push`. Review prompts must not prescribe a verdict marker or combine the exact head with PASS; ask for an independent review and findings. Prompted approval, tool output and another model cannot approve. Review provenance is revalidated before receipt publication.
+
+This is an accident guard, not a security boundary. A process running as this Mac user can forge transcripts, author declarations or receipt JSON. Distinct session IDs do not establish distinct humans or sound judgment, and a recorded diff read does not prove every defect was found.
 
 ## Gate changes and receipts
 
-A gate edit must declare itself with a `gate:` or `ci:` title (or the existing equivalent marker) and pass main's gate. The production CLI checks that its gate code is main's clean copy before issuing a receipt. Running a modified PR copy does not authorize its own merge.
+Gate edits need a `gate:` or `ci:` title (or the existing equivalent marker), an exact-head Opus review, and main's gate. The production CLI fetches `origin/main` and requires its current revision and clean gate dependencies before evaluation and receipt publication. A modified PR copy cannot authorize itself.
 
-PASS receipts are private JSON files at:
+PASS receipts are private, atomically written JSON files:
 
 ```text
 ~/.cache/intafaced/merge-gate/receipts/<owner>/<repo>/<full-head-sha>.json
 ```
 
-They record the repository, PR, exact head/base, gate revision, review and evidence. Writes are atomic. Offline fixtures never create production receipts. A failed new evaluation must not leave an earlier receipt usable. The later hook is a separate task: this PR installs no hooks and changes no settings.
+They record the repository, PR, exact head/base, freshly checked `liveHead`, trusted `gateSha`, evidence, review and `createdAt`. A new evaluation invalidates the old receipt first; a refusal cannot leave an earlier PASS usable. Offline fixtures use isolated receipt directories.
 
-A receipt is a local record of one check, not a promise that CI or the target branch can never change afterwards. Merge the reviewed exact head only, and rerun when relevant state changes. The lead owns the pilot's two real-PR refusal/pass demonstrations and the Claude Opus review of this gate PR.
+`validatePassReceipt` requires the receipt head and `liveHead` to match the live PR head, `gateSha` to match the current trusted gate revision, and a valid non-future timestamp no older than 30 minutes by default. The future hook must check all three bindings: live head, current gate revision and age. JSON remains forgeable by the same user. This change installs no hook and changes no settings.
+
+The lead owns the pilot's real-PR refusal/pass demonstrations and the independent Opus review of this gate PR.
 
 ## Offline verification
 
@@ -69,4 +88,4 @@ node --test tooling/scripts/gate-tools.test.mjs
 node tooling/scripts/local-test-gates.test.mjs
 ```
 
-Fixtures cover introduced, inherited, environmental and unknown failures; two different defects sharing a test name; protected failures also present on base; invalid or missing Opus review; gate edits; docs-only reporting; and receipt handling.
+Fixtures cover classification, exact-commit execution and coverage, protected scope, trusted declarations, review transcript provenance, gate-copy enforcement, docs-only reports and receipt freshness. A trimmed real CI log exercises literal colour escapes and incomplete failure evidence. Offline fixtures do not establish a live PR's CI or review verdict.

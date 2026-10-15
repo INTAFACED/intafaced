@@ -9,6 +9,7 @@
  */
 import { ghJson } from './gate-gh.mjs';
 import { isProtectedPath } from './merge-review.mjs';
+import { FULL_TRIGGERS, SHARDS } from '../ci/ci-affected.mjs';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -55,7 +56,8 @@ function linesOf(log) {
       const text = (parts.length >= 3 ? parts.slice(2).join('\t') : raw)
         .replace(/^\uFEFF/, '')
         .replace(/^\d{4}-\d\d-\d\dT\S+Z\s?/, '')
-        .replace(/\u001b\[[0-9;]*m/g, '');
+        .replace(/\u001b\[[0-9;]*m/g, '')
+        .replace(/\^\[\[[0-9;]*m/g, '');
       return { step, text };
     });
 }
@@ -85,6 +87,96 @@ const ERROR = /\b(?:AssertionError|(?:[A-Za-z]+)?Error):/;
 const LOCATION = /(?:^|\s|\()(?:\/?(?:[\w@.-]+\/)*[\w.-]+\.[cm]?[jt]sx?):\d+(?::\d+)?(?:\)|\s|$)/;
 const BOUNDARY = /^\s*(?:⎯|Test Files\s|Tests\s+\d|Errors\s+\d|Start at\s|Duration\s|Failed:\s|##\[endgroup\])/;
 
+// Totals are part of the proof: a visible failure block alone cannot establish
+// that another failing test/file was not omitted from a downloaded log.
+function failureSummary(text) {
+  const match = /^\s*(Test Files|Tests)\s+(.*?)\s*$/.exec(text);
+  if (!match) return undefined;
+  if (match[1] === 'Tests' && match[2] === 'no tests') return { type: match[1], failed: 0, passed: 0, skipped: 0, todo: 0, total: 0 };
+  const total = /^(.*?)\s+\((\d+)\)$/.exec(match[2]);
+  if (!total) return { type: match[1], invalid: true };
+  const counts = new Map();
+  for (const part of total[1].split(/\s*\|\s*/)) {
+    const count = /^(\d+) (failed|passed|skipped|todo)$/.exec(part.trim());
+    if (!count || counts.has(count[2]) || !Number.isSafeInteger(Number(count[1]))) return { type: match[1], invalid: true };
+    counts.set(count[2], Number(count[1]));
+  }
+  const sum = [...counts.values()].reduce((a, b) => a + b, 0);
+  if (!Number.isSafeInteger(sum) || sum !== Number(total[2])) return { type: match[1], invalid: true };
+  return {
+    type: match[1],
+    failed: counts.get('failed') ?? 0,
+    passed: counts.get('passed') ?? 0,
+    skipped: counts.get('skipped') ?? 0,
+    todo: counts.get('todo') ?? 0,
+    total: sum,
+  };
+}
+
+/** Per-workspace execution is independent of a runner's exit status. */
+export function parseTestExecution(log) {
+  const tasks = new Map(),
+    issues = [];
+  let task;
+  const record = (name) => {
+    if (!tasks.has(name)) tasks.set(name, { summaries: new Map(), tap: new Map(), issues: [] });
+    return tasks.get(name);
+  };
+  for (const { text: raw } of linesOf(log)) {
+    const prefix = PREFIX.exec(raw),
+      text = prefix ? prefix[2] : raw;
+    const header = HEADER.exec(raw);
+    if (header) {
+      task = `${header[1]}#test`;
+      record(task);
+      continue;
+    }
+    const own = prefix ? `${prefix[1]}#test` : task;
+    const summary = failureSummary(text);
+    const tap = /^\s*(?:#|ℹ) (tests|pass|fail|cancelled|skipped|todo) (\d+)\s*$/.exec(text);
+    if (summary || tap) {
+      if (!own) {
+        issues.push('test execution summary has no attributable workspace');
+        continue;
+      }
+      const value = record(own);
+      if (summary) {
+        if (value.summaries.has(summary.type)) value.issues.push(`duplicate ${summary.type} execution summary`);
+        if (summary.invalid) value.issues.push(`invalid ${summary.type} execution summary`);
+        value.summaries.set(summary.type, summary);
+      } else {
+        if (value.tap.has(tap[1])) value.issues.push(`duplicate Node ${tap[1]} summary`);
+        if (!Number.isSafeInteger(Number(tap[2]))) value.issues.push('invalid Node execution count');
+        value.tap.set(tap[1], Number(tap[2]));
+      }
+    }
+    if (raw.trim() === '##[endgroup]') task = undefined;
+  }
+  for (const [name, value] of tasks) {
+    if (value.summaries.size && value.tap.size) value.issues.push('ambiguous mixed test reporters');
+    if (value.summaries.size) {
+      value.files = value.summaries.get('Test Files');
+      value.tests = value.summaries.get('Tests');
+      if (!value.files || !value.tests || value.files.invalid || value.tests.invalid)
+        value.issues.push('missing complete file/test execution summaries');
+      else if (value.files.passed + value.files.failed < 1 || value.tests.passed + value.tests.failed < 1)
+        value.issues.push('no tests actually executed');
+    } else if (['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo'].every((key) => value.tap.has(key))) {
+      const get = (key) => value.tap.get(key);
+      if (
+        get('pass') + get('fail') + get('cancelled') + get('skipped') + get('todo') !== get('tests') ||
+        get('pass') + get('fail') < 1 ||
+        get('cancelled')
+      )
+        value.issues.push('incomplete Node test execution totals');
+      value.tests = { passed: get('pass'), failed: get('fail'), skipped: get('skipped'), todo: get('todo'), total: get('tests') };
+    } else value.issues.push('missing attributable test execution summaries');
+    value.valid = value.issues.length === 0;
+    value.task = name;
+  }
+  return { tasks, issues };
+}
+
 /**
  * Strict vitest summary parser. Signatures include every line of the error block,
  * including assertion diff and source locations. No number/path/random-ID scrubbing.
@@ -99,6 +191,7 @@ export function parseFailureSignatures(log) {
   }
   const failures = [];
   const issues = [];
+  const summaries = new Map();
   let task = null;
   let pending = null;
   const finish = () => {
@@ -111,7 +204,8 @@ export function parseFailureSignatures(log) {
       task: pending.task,
       file: pending.file,
       name: pending.name,
-      signature: JSON.stringify([pending.task, pending.name, body]),
+      kind: pending.kind,
+      signature: JSON.stringify([pending.task, pending.kind, pending.name, body]),
     });
     pending = null;
   };
@@ -128,7 +222,28 @@ export function parseFailureSignatures(log) {
     const m = FAIL.exec(text);
     if (m) {
       finish();
-      pending = { task: ownTask, file: m[1], name: `${m[1]} ${m[2] ?? ''}`.trim(), body: [] };
+      if (summaries.has(ownTask)) issues.push(`failure follows its task summary: ${ownTask}`);
+      pending = {
+        task: ownTask,
+        file: m[1],
+        name: `${m[1]} ${m[2] ?? ''}`.trim(),
+        kind: m[2]?.startsWith('>') ? 'test' : 'suite',
+        body: [],
+      };
+      continue;
+    }
+    const summary = failureSummary(text);
+    if (summary) {
+      finish();
+      if (!ownTask || !tasks.has(ownTask)) {
+        if (summary.failed || summary.invalid) issues.push('failed summary has no failing task');
+      } else {
+        if (!summaries.has(ownTask)) summaries.set(ownTask, new Map());
+        const counts = summaries.get(ownTask);
+        if (counts.has(summary.type)) issues.push(`duplicate ${summary.type} summary: ${ownTask}`);
+        if (summary.invalid) issues.push(`invalid ${summary.type} summary: ${ownTask}`);
+        counts.set(summary.type, summary);
+      }
       continue;
     }
     if (/^\s*FAIL(?:\s|$)/.test(text)) issues.push(`unparsed FAIL line: ${text.trim()}`);
@@ -143,15 +258,29 @@ export function parseFailureSignatures(log) {
     if (text.trim() === '##[endgroup]') task = null;
   }
   finish();
-  for (const t of tasks) if (!failures.some((f) => f.task === t)) issues.push(`task has no complete failure: ${t}`);
+  for (const t of tasks) {
+    const parsed = failures.filter((f) => f.task === t);
+    if (!parsed.length) issues.push(`task has no complete failure: ${t}`);
+    const summary = summaries.get(t);
+    if (!summary?.has('Test Files') || !summary?.has('Tests')) issues.push(`task has no complete failed file/test summaries: ${t}`);
+    const files = new Set(parsed.map((f) => f.file));
+    if (summary?.get('Test Files')?.failed !== files.size) issues.push(`failed file count does not match parsed failures: ${t}`);
+    if (summary?.get('Tests')?.failed !== parsed.filter((f) => f.kind === 'test').length)
+      issues.push(`failed test count does not match parsed failures: ${t}`);
+    const suites = parsed.filter((f) => f.kind === 'suite').map((f) => f.file);
+    if (new Set(suites).size !== suites.length || suites.some((file) => parsed.some((f) => f.file === file && f.kind === 'test')))
+      issues.push(`inconsistent suite/test failures: ${t}`);
+  }
   if (!tasks.size || !failures.length) issues.push('no attributable failures found');
   return { failures, issues, readable: issues.length === 0 };
 }
 
 let workspacePaths;
+let testWorkspacePaths;
 function knownWorkspaces() {
   if (workspacePaths) return workspacePaths;
   workspacePaths = new Map();
+  testWorkspacePaths = new Map();
   for (const root of ['apps', 'services', 'packages']) {
     const url = new URL(`../../${root}/`, import.meta.url);
     let entries;
@@ -166,6 +295,8 @@ function knownWorkspaces() {
         const manifest = JSON.parse(readFileSync(new URL(`${entry.name}/package.json`, url), 'utf8'));
         if (typeof manifest.name !== 'string') continue;
         workspacePaths.set(manifest.name, workspacePaths.has(manifest.name) ? null : `${root}/${entry.name}`);
+        if (typeof manifest.scripts?.test === 'string' && manifest.scripts.test.trim())
+          testWorkspacePaths.set(manifest.name, testWorkspacePaths.has(manifest.name) ? null : `${root}/${entry.name}`);
       } catch {
         /* Unknown/missing manifest cannot establish provenance. */
       }
@@ -192,11 +323,125 @@ function protectedCheck(check, failures, workspaceRoots) {
   );
 }
 
-/** Pure classification; every outcome explicitly says whether it may be excused. */
+export const TEST_JOB_POLICY = {
+  'Tests (full)': { step: 'Run pnpm test --continue', command: 'pnpm test --continue' },
+  'Tests (protocol)': {
+    step: 'Protocol package tests',
+    command: 'pnpm --no-bail --filter @intafaced/svc-protocol... --filter @intafaced/svc-dex... --filter @intafaced/svc-indexer... test',
+    pnpm: true,
+  },
+  'Tests (money)': {
+    step: 'Money package tests',
+    command:
+      'pnpm --no-bail --filter @intafaced/ledger-client --filter @intafaced/svc-ledger --filter @intafaced/svc-identity --filter @intafaced/svc-token --filter @intafaced/config test',
+    pnpm: true,
+  },
+  'Tests (trade)': {
+    step: 'Trade package tests',
+    command:
+      'pnpm --no-bail --filter @intafaced/svc-trade --filter @intafaced/svc-matching --filter @intafaced/svc-execution --filter @intafaced/venue-adapter --filter @intafaced/svc-ws test',
+    pnpm: true,
+  },
+  'Tests (pay-bank)': {
+    step: 'Pay/bank package tests',
+    command: 'pnpm turbo run test --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-p2p --continue',
+  },
+};
+
+/** pnpm's workspace stream is attributed using main's manifests, never guessed from a test name. */
+export function normalizeTestLog(log, jobName, workspaceRoots) {
+  if (!TEST_JOB_POLICY[jobName]?.pnpm) return log;
+  const names = new Map();
+  for (const [name, path] of workspaceRoots ?? knownWorkspaces()) if (path) names.set(path, names.has(path) ? null : name);
+  const failed = new Set();
+  const normalized = linesOf(log).map(({ text, step }) => {
+    const match = /^(\S+) test(?::|\$)\s?(.*)$/.exec(text);
+    if (!match) return step ? `job\t${step}\t${text}` : text;
+    const name = names.get(match[1]);
+    if (!name) return `UNATTRIBUTED WORKSPACE ${text}`;
+    if (/^\s*FAIL\b|Unhandled (?:Error|Rejection)/.test(match[2]) || (failureSummary(match[2])?.failed ?? 0) > 0)
+      failed.add(`${name}#test`);
+    return `${name}:test: ${match[2]}`;
+  });
+  if (failed.size) normalized.push(`Failed: ${[...failed].join(', ')}`);
+  return normalized.join('\n');
+}
+
+const inRoot = (file, root) => file === root.replace(/\/$/, '') || file.startsWith(root.endsWith('/') ? root : `${root}/`);
+function requiredCoverage(files, roots) {
+  const affected = [...roots].filter(([, root]) => root && files.some((file) => inRoot(file, root)));
+  const broad = !affected.length || files.some((file) => FULL_TRIGGERS.some((root) => inRoot(file, root)));
+  return { broad, tasks: (broad ? [...roots] : affected).map(([name]) => `${name}#test`) };
+}
+function selectedByJob(name, root, jobName) {
+  if (jobName === 'Tests (full)') return true;
+  const scope = { 'Tests (protocol)': 'protocol', 'Tests (money)': 'money', 'Tests (trade)': 'trade', 'Tests (pay-bank)': 'paybank' }[
+    jobName
+  ];
+  return (
+    (SHARDS[scope] ?? []).some((prefix) => inRoot(root, prefix)) ||
+    TEST_JOB_POLICY[jobName]?.command.split(/\s+/).some((word) => word === name || word === `--filter=${name}`)
+  );
+}
+
+/** Commands, test totals and the actual infrastructure report must all support coverage. */
+function testExecutionProof(job, log, files, workspaceRoots) {
+  const fail = (problem) => ({ problem });
+  const policy = TEST_JOB_POLICY[job?.name];
+  if (!policy) return fail('test job has no trusted changed-path coverage policy');
+  const step = (job.steps ?? []).filter((s) => s.name === policy.step);
+  if (step.length !== 1 || step[0].status !== 'completed' || !['success', 'failure'].includes(step[0].conclusion))
+    return fail('the expected test command did not finish');
+  const commands = linesOf(log).filter((l) => l.step === policy.step && l.text.startsWith('##[group]Run '));
+  if (commands.length !== 1 || commands[0].text !== `##[group]Run ${policy.command}`)
+    return fail('job log does not prove the trusted test command');
+  const backstops = (job.steps ?? []).filter((s) => s.name === 'Every infrastructure-backed suite actually ran');
+  if (backstops.length !== 1 || backstops[0].status !== 'completed' || backstops[0].conclusion !== 'success')
+    return fail('no successful infrastructure execution backstop at the exact commit');
+  const report = linesOf(log)
+    .filter((l) => l.step === 'Every infrastructure-backed suite actually ran')
+    .map((l) => l.text)
+    .join('\n');
+  if (
+    !/✓ (?:COMPLETE — every infrastructure-backed suite executed\.|every suite that reports in, ran — and every one of them passed its probe\.)/.test(
+      report,
+    )
+  )
+    return fail('infrastructure backstop output is absent or reports unknown execution');
+  const execution = parseTestExecution(log),
+    roots = workspaceRoots ?? knownWorkspaces();
+  if (execution.issues.length) return fail(execution.issues.join('; '));
+  // The denominator comes from main's manifests, never from whichever tasks
+  // happened to emit output. Fixture maps explicitly supply that same inventory.
+  const testRoots = workspaceRoots ?? (knownWorkspaces(), testWorkspacePaths);
+  const required = requiredCoverage(files, testRoots);
+  if (required.broad && job.name !== 'Tests (full)') return fail('broad changes require full-suite coverage');
+  const needed = required.tasks.filter((task) =>
+    selectedByJob(task.replace(/#test$/, ''), roots.get(task.replace(/#test$/, '')) ?? '', job.name),
+  );
+  if (!needed.length) return fail('no attributable test execution output at the exact commit');
+  const evidence = [];
+  for (const name of needed) {
+    const observed = execution.tasks.get(name),
+      root = roots.get(name.replace(/#test$/, ''));
+    if (!observed?.valid || !root) return fail(`${name}: missing or incomplete workspace execution summary`);
+    if (job.conclusion === 'success' && ((observed.tests?.failed ?? 0) || (observed.files?.failed ?? 0)))
+      return fail(`${name}: green status conflicts with failed test execution totals`);
+    if (
+      isProtectedPath(root) &&
+      (observed.tests?.skipped ?? 0) + (observed.tests?.todo ?? 0) + (observed.files?.skipped ?? 0) + (observed.files?.todo ?? 0)
+    )
+      return fail(`${name}: protected tests were skipped or pending`);
+    if (isProtectedPath(root) && report.split('\n').some((line) => line.trim().startsWith('· ') && line.includes(`${root}/`)))
+      return fail(`${name}: an affected protected suite cannot report whether it executed`);
+    evidence.push({ task: name, tests: observed.tests, files: observed.files ?? null });
+  }
+  return { tasks: evidence };
+}
+
+/** Classification describes evidence; allowance separately enforces the invariant policy. */
 export function classifyFailure({ check, headJob, baseJob, headLog, baseLog, declaration, coverageProblem, workspaceRoots }) {
   const result = (classification, allowed, reason, extra = {}) => ({ check: keyOf(check), classification, allowed, reason, ...extra });
-  if (/doctrine|security|gitleaks|secret|dependency audit|money|pay.bank|protocol|trade/i.test(keyOf(check)))
-    return result('unknown', false, 'money/security/doctrine failures can never be excused, even when identical at base');
   if (!headJob || !completed(headJob) || !isFailed(headJob))
     return result('unknown', false, 'no finished failing job bound to the head check');
   if (headJob.conclusion === 'startup_failure' && !(headJob.steps ?? []).some((s) => s.status === 'completed'))
@@ -205,21 +450,45 @@ export function classifyFailure({ check, headJob, baseJob, headLog, baseLog, dec
     return result('unknown', false, 'no finished comparable job at the exact base');
   if (coverageProblem) return result('unknown', false, coverageProblem);
   if (baseJob.conclusion === 'success')
-    return result('introduced', false, 'the same covered job passed at the exact base and fails at the exact head');
-  const head = parseFailureSignatures(headLog);
-  const base = parseFailureSignatures(baseLog);
+    return result('introduced', false, 'covered tests passed at the exact base and fail at the exact head');
+  const head = parseFailureSignatures(headLog),
+    base = parseFailureSignatures(baseLog);
   if (!head.readable || !base.readable)
     return result('unknown', false, `incomplete failure signatures: ${[...head.issues, ...base.issues].join('; ')}`);
+  const before = new Map();
+  for (const failure of base.failures) before.set(failure.signature, (before.get(failure.signature) ?? 0) + 1);
+  const added = head.failures.filter((failure) => {
+    const count = before.get(failure.signature) ?? 0;
+    if (!count) return true;
+    before.set(failure.signature, count - 1);
+    return false;
+  });
+  if (added.length)
+    return result('introduced', false, 'failure error/assertion/location or occurrence count differs from the exact base', {
+      failures: added,
+    });
+  if (!declaration) return result('unknown', false, 'identical exact-base failure lacks a unique owner/evidence declaration');
+  const inherited = { failures: head.failures, owner: declaration.owner, evidence: declaration.evidence };
   if (protectedCheck(check, head.failures, workspaceRoots))
-    return result('unknown', false, 'protected or unknown failure provenance cannot be excused', { failures: head.failures });
-  const before = new Set(base.failures.map((f) => f.signature));
-  const added = head.failures.filter((f) => !before.has(f.signature));
-  if (added.length) return result('introduced', false, 'failure error/assertion/location differs from the exact base', { failures: added });
-  const headSteps = (headJob.steps ?? []).filter((s) => ['failure', 'timed_out'].includes(s.conclusion)).map((s) => s.name);
-  const baseSteps = new Set((baseJob.steps ?? []).filter((s) => ['failure', 'timed_out'].includes(s.conclusion)).map((s) => s.name));
-  if (!headSteps.length || headSteps.some((s) => !baseSteps.has(s)))
-    return result('unknown', false, 'failing steps are absent or differ from the exact base');
-  if (headSteps.some((s) => s !== 'Run pnpm test --continue'))
+    return result(
+      'inherited',
+      false,
+      `identical exact-base protected invariant; owner ${declaration.owner}; evidence ${declaration.evidence}; money/security failures are never excused`,
+      inherited,
+    );
+  // Full coverage can diagnose a shard, but differing harnesses never authorize a failure exception.
+  if (headJob.name !== baseJob.name || check.name !== 'Tests (full)')
+    return result(
+      'inherited',
+      false,
+      'identical exact-base failure; only equivalent full-suite jobs may receive a non-protected exception',
+      inherited,
+    );
+  const headSteps = (headJob.steps ?? []).filter((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion)).map((s) => s.name);
+  const baseSteps = new Set(
+    (baseJob.steps ?? []).filter((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion)).map((s) => s.name),
+  );
+  if (!headSteps.length || headSteps.some((name) => name !== TEST_JOB_POLICY['Tests (full)'].step || !baseSteps.has(name)))
     return result('unknown', false, 'a non-test step or infrastructure invariant failed; test signatures cannot excuse it');
   for (const job of [headJob, baseJob]) {
     if (
@@ -229,12 +498,7 @@ export function classifyFailure({ check, headJob, baseJob, headLog, baseLog, dec
     )
       return result('unknown', false, 'no successful infrastructure execution backstop at both exact commits');
   }
-  if (!declaration) return result('inherited', false, 'identical exact-base failure lacks a unique owner/evidence declaration');
-  return result('inherited', true, `identical exact-base failure; owner ${declaration.owner}; evidence ${declaration.evidence}`, {
-    failures: head.failures,
-    owner: declaration.owner,
-    evidence: declaration.evidence,
-  });
+  return result('inherited', true, `identical exact-base failure; owner ${declaration.owner}; evidence ${declaration.evidence}`, inherited);
 }
 
 function checkLink(check, repo) {
@@ -253,7 +517,8 @@ function checkLink(check, repo) {
  * changed-path coverage. Changes to CI/test selection invalidate this proof.
  */
 function coverageProblem(check, files) {
-  if (keyOf(check) !== 'CI/Tests (full)') return 'changed-path coverage is unknown for this job; no inherited exception';
+  if (check.workflow !== 'CI' || !TEST_JOB_POLICY[check.name])
+    return 'changed-path coverage is unknown for this job; no inherited exception';
   if (
     files.some((f) =>
       /^(?:\.github\/|tooling\/ci\/)|(?:^|\/)(?:package\.json|vitest[^/]*|vite\.config\.[^/]+|turbo\.json|pnpm-workspace\.yaml|pnpm-lock\.yaml)$/.test(
@@ -265,82 +530,14 @@ function coverageProblem(check, files) {
   return null;
 }
 
-/**
- * CI's seal reports upstream results rather than testing product behavior. Its
- * sole permitted derived failure is the already-proven inherited full test job.
- * The exact upstream owner/evidence is retained; this is not a new exception.
- */
-export function classifyDerivedSeal({ check, headJob, headLog, headRun, head, classifications }) {
-  const unknown = (reason) => ({ check: keyOf(check), classification: 'unknown', allowed: false, reason });
-  const upstream = classifications.find((c) => c.check === 'CI/Tests (full)');
-  if (
-    classifications.length !== 1 ||
-    !upstream?.allowed ||
-    upstream.classification !== 'inherited' ||
-    upstream.headRunId !== String(headRun.databaseId)
-  )
-    return unknown('seal has no sole allowed inherited full-test result from this same head run');
-  if (!completed(headJob) || headJob.conclusion !== 'failure') return unknown('seal is not a finished failing job');
-  const failedSteps = (headJob.steps ?? []).filter((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion));
-  if (failedSteps.length !== 1 || failedSteps[0].name !== 'Require needed jobs' || failedSteps[0].conclusion !== 'failure')
-    return unknown('seal failed outside its sole upstream-result step');
-  if (actualCheckoutSha(headLog) !== head) return unknown('seal checkout does not prove the actual exact head');
-  const jobs = headRun.jobs ?? [];
-  for (const name of ['Affected shards', 'Doctrine gates', 'Format', 'Typecheck & build']) {
-    const matches = jobs.filter((j) => j.name === name);
-    if (matches.length !== 1 || matches[0].conclusion !== 'success') return unknown(`seal upstream ${name} is not uniquely successful`);
-  }
-  const full = jobs.filter((j) => j.name === 'Tests (full)');
-  if (full.length !== 1 || full[0].conclusion !== 'failure') return unknown('seal full-test upstream is missing or ambiguous');
-  if (jobs.some((j) => isFailed(j) && j.name !== 'Tests (full)' && String(j.databaseId) !== String(headJob.databaseId)))
-    return unknown('seal has another failed upstream job');
-  const stepLines = linesOf(headLog)
-    .filter((l) => l.step === 'Require needed jobs')
-    .map((l) => l.text);
-  const expected = 'tests-full was failure (full run required)';
-  const reasons = stepLines.flatMap((l) => /^\s*- (.+)$/.exec(l)?.slice(1) ?? []);
-  const isExpectedAnnotation = (line) => line === `::error title=CI merge seal::${expected}` || line === `##[error]${expected}`;
-  const exitAnnotation = '##[error]Process completed with exit code 1.';
-  const annotations = stepLines.filter((l) => /^::error|^##\[error\]/.test(l) && l !== exitAnnotation);
-  const headers = stepLines.filter((l) => l === '✖ CI merge seal failed:');
-  if (
-    reasons.length !== 1 ||
-    reasons[0] !== expected ||
-    annotations.length !== 1 ||
-    !isExpectedAnnotation(annotations[0]) ||
-    headers.length !== 1
-  )
-    return unknown('seal log does not contain exactly the sole full-test failure reason');
-  if (!stepLines.some((l) => /^(?:##\[group\]Run )?node tooling\/ci\/ci-affected\.mjs --seal$/.test(l)))
-    return unknown('seal log does not prove the expected result-checking command');
-  if (
-    stepLines.some(
-      (l) => /\b(?:AssertionError|[A-Za-z]*Error):/.test(l) || (/^##\[error\]/.test(l) && l !== exitAnnotation && !isExpectedAnnotation(l)),
-    )
-  )
-    return unknown('seal log has an additional error');
-  return {
-    check: keyOf(check),
-    classification: 'inherited',
-    allowed: true,
-    derived: true,
-    derivedFrom: upstream.check,
-    owner: upstream.owner,
-    evidence: upstream.evidence,
-    baseRunId: upstream.baseRunId,
-    reason: `derived solely from the allowed inherited full-test failure; owner ${upstream.owner}; evidence ${upstream.evidence}`,
-  };
-}
-
 // workspaceRoots injects manifest fixtures for tooling-only offline test copies.
 // Production callers omit it and use manifests from the trusted gate checkout.
 export async function collectEvidence({ gh, repo, head, base, checks, files = [], declarations = '', workspaceRoots }) {
-  // Evaluate the seal after its dependency regardless of GitHub's check order.
-  const failed = checks
-    .filter((c) => isFailed(c) && !REQUIRED.has(keyOf(c)))
-    .sort((a, b) => Number(keyOf(a) === 'CI/CI merge seal') - Number(keyOf(b) === 'CI/CI merge seal'));
-  if (!failed.length) return { pass: true, reasons: [], classifications: [], summary: [] };
+  const failed = checks.filter(
+    (c) => (isFailed(c) && !REQUIRED.has(keyOf(c))) || (c.workflow === 'CI' && TEST_JOB_POLICY[c.name] && c.bucket === 'pass'),
+  );
   const classifications = [];
+  const coverage = [];
   const owners = parseInheritedDeclarations(declarations);
   const runCache = new Map();
   const logCache = new Map();
@@ -356,7 +553,7 @@ export async function collectEvidence({ gh, repo, head, base, checks, files = []
           '-R',
           repo,
           '--json',
-          'databaseId,headSha,workflowName,workflowDatabaseId,status,conclusion,jobs,url',
+          'databaseId,headSha,headBranch,event,workflowName,workflowDatabaseId,status,conclusion,jobs,url',
         ]),
       );
     return runCache.get(String(id));
@@ -405,13 +602,6 @@ export async function collectEvidence({ gh, repo, head, base, checks, files = []
       const matches = headRun.jobs.filter((j) => j.name === check.name && String(j.databaseId) === link.jobId);
       if (matches.length !== 1) throw new Error('head check job identity is ambiguous or absent');
       const headJob = matches[0];
-      if (keyOf(check) === 'CI/CI merge seal') {
-        classifications.push({
-          ...classifyDerivedSeal({ check, headJob, headLog: getLog(headJob.databaseId), headRun, head, classifications }),
-          headRunId,
-        });
-        continue;
-      }
       if (headJob.conclusion === 'startup_failure') {
         classifications.push({ ...classifyFailure({ check, headJob }), headRunId });
         continue;
@@ -437,13 +627,43 @@ export async function collectEvidence({ gh, repo, head, base, checks, files = []
         !(baseRun.jobs ?? []).every(completed)
       )
         throw new Error('base run SHA/workflow/finished jobs do not match');
-      const baseMatches = baseRun.jobs.filter((j) => j.name === check.name);
-      if (baseMatches.length !== 1) throw new Error('same workflow/job missing or ambiguous at exact base');
+      let baseMatches = baseRun.jobs.filter((j) => j.name === check.name && ['success', 'failure'].includes(j.conclusion));
+      if (!baseMatches.length && check.bucket === 'pass' && check.workflow === 'CI' && TEST_JOB_POLICY[check.name])
+        baseMatches = baseRun.jobs.filter((j) => j.name === 'Tests (full)' && ['success', 'failure'].includes(j.conclusion));
+      if (baseMatches.length !== 1)
+        throw new Error('comparable covered job missing or ambiguous at exact base; failed jobs main does not run block');
       const baseJob = baseMatches[0];
-      const headLog = getLog(headJob.databaseId);
-      const baseLog = getLog(baseJob.databaseId);
+      const headLog = normalizeTestLog(getLog(headJob.databaseId), headJob.name, workspaceRoots);
+      const baseLog = normalizeTestLog(getLog(baseJob.databaseId), baseJob.name, workspaceRoots);
       if (actualCheckoutSha(headLog) !== head || actualCheckoutSha(baseLog) !== base)
         throw new Error('checkout logs do not prove execution at the actual exact head and base (merge refs do not qualify)');
+      if (TEST_JOB_POLICY[check.name]) {
+        const headProof = testExecutionProof(headJob, headLog, files, workspaceRoots),
+          baseProof = testExecutionProof(baseJob, baseLog, files, workspaceRoots);
+        if (headProof.problem || baseProof.problem) throw new Error(headProof.problem || baseProof.problem);
+        if (check.bucket === 'pass' && headJob.conclusion !== 'success')
+          throw new Error('green check does not match its actual job conclusion');
+        coverage.push({
+          check: keyOf(check),
+          head: {
+            sha: head,
+            runId: headRunId,
+            jobId: headJob.databaseId,
+            job: headJob.name,
+            conclusion: headJob.conclusion,
+            tasks: headProof.tasks,
+          },
+          base: {
+            sha: base,
+            runId: baseRunId,
+            jobId: baseJob.databaseId,
+            job: baseJob.name,
+            conclusion: baseJob.conclusion,
+            tasks: baseProof.tasks,
+          },
+        });
+        if (check.bucket === 'pass') continue;
+      }
       classifications.push({
         ...classifyFailure({
           check,
@@ -464,12 +684,27 @@ export async function collectEvidence({ gh, repo, head, base, checks, files = []
     }
   }
   const reasons = classifications.filter((c) => !c.allowed).map((c) => `${c.check}: ${c.classification} — ${c.reason}`);
+  if (!coverage.length) reasons.push('No finished changed-path test coverage proved at both exact commits.');
+  const expectedRoots = workspaceRoots ?? (knownWorkspaces(), testWorkspacePaths);
+  const required = requiredCoverage(files, expectedRoots).tasks;
+  const changedRoots = new Set(files.map((file) => /^(?:apps|services|packages)\/[^/]+/.exec(file)?.[0]).filter(Boolean));
+  const trustedTestRoots = new Set([...expectedRoots.values()].filter(Boolean));
+  for (const root of changedRoots)
+    if (!trustedTestRoots.has(root)) reasons.push(`${root}: unknown workspace test coverage in trusted main manifests`);
+  for (const side of ['head', 'base']) {
+    const proven = new Set(coverage.flatMap((entry) => entry[side].tasks.map((task) => task.task)));
+    for (const task of required) if (!proven.has(task)) reasons.push(`${task}: missing ${side} changed-path coverage across finished jobs`);
+  }
   return {
     pass: reasons.length === 0,
     reasons,
     classifications,
-    summary: classifications.map(
-      (c) => `${c.check}: ${c.classification}${c.allowed ? ' (owner/evidence recorded)' : ' (blocks)'}; ${c.reason}`,
-    ),
+    coverage,
+    summary: [
+      ...coverage.map((c) => `${c.check}: exact head ${c.head.sha} and base ${c.base.sha} executed (${c.head.job} / ${c.base.job})`),
+      ...classifications.map(
+        (c) => `${c.check}: ${c.classification}${c.allowed ? ' (owner/evidence recorded)' : ' (blocks)'}; ${c.reason}`,
+      ),
+    ],
   };
 }

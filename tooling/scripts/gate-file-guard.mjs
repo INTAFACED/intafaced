@@ -67,6 +67,7 @@ export const GATE_PATHS = [
   ['tooling/scripts/merge-gate.mjs', 'the merge gate'],
   ['tooling/scripts/merge-gate.test.mjs', 'the merge gate tests'],
   ['tooling/scripts/merge-evidence.mjs', 'exact base/head evidence collection'],
+  ['tooling/scripts/ci-evidence-workflow.test.mjs', 'the exact-commit CI producer tests'],
   ['tooling/scripts/merge-evidence.test.mjs', 'exact base/head evidence tests'],
   ['tooling/scripts/merge-review.mjs', 'protected review and PASS receipts'],
   ['tooling/scripts/merge-review.test.mjs', 'protected review and receipt tests'],

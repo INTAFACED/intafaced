@@ -60,12 +60,13 @@ function world(extra = {}) {
     observed = [];
   const w = {
     pr: pr(),
-    files: [{ filename: 'apps/web/src/a.ts' }],
+    files: [{ filename: 'packages/ui/src/a.ts' }],
     checks: [...REQ, ...CI],
     runs: [{ workflowName: 'CI', status: 'completed' }],
     comments: [],
     ...extra,
   };
+  w.comments = w.comments.map((c) => ({ author_association: 'OWNER', ...c }));
   const gh = (args, options = {}) => {
     const key = args.join(' ');
     calls.push({ args, input: options.input });
@@ -178,12 +179,12 @@ test('required checks must be green and cannot be substituted by same-named work
   }
 });
 test('docs-only emits report and checks every reported red job', async () => {
-  const w = world({ files: [{ filename: 'docs/a.md' }], checks: REQ, runs: [] });
+  const w = world({ files: [{ filename: 'README.md' }], checks: REQ, runs: [] });
   const r = await w.run();
   assert.equal(r.code, 0);
   assert.equal(w.observed.length, 0);
   assert.match(r.comment, /Docs-only report/);
-  const bad = await world({ files: [{ filename: 'docs/a.md' }], checks: [...REQ, chk('Prettier', 'fail', 'Docs format')], runs: [] }).run();
+  const bad = await world({ files: [{ filename: 'README.md' }], checks: [...REQ, chk('Prettier', 'fail', 'Docs format')], runs: [] }).run();
   assert.equal(bad.code, 1);
   assert.match(bad.comment, /docs-only reported check failed/);
 });
@@ -253,15 +254,40 @@ test('protected paths accept only review validator PASS for that head', async ()
   assert.equal(r.code, 0);
   assert.match(r.comment, /session reviewer/);
 });
-test('undeclared gate edits fail while declared ones retain main-copy requirement', async () => {
+test('gate edits need a declared title and independent review even when checks pass', async () => {
   const files = [{ filename: 'tooling/scripts/merge-evidence.mjs' }];
   const r = await world({ files }).run();
   assert.equal(r.code, 1);
   assert.match(r.comment, /without a ci: or gate:/);
-  const good = await world({ files, pr: pr({ title: 'gate: evidence' }) }).run();
-  assert.equal(good.code, 0);
-  assert.match(good.comment, /origin\/main's copy/);
+  const declared = await world({ files, pr: pr({ title: 'gate: evidence' }) }).run();
+  assert.equal(declared.code, 1);
+  assert.match(declared.comment, /Author-Session/);
+  const reviewed = await world({ files, pr: pr({ title: 'gate: evidence' }) }).run(
+    {},
+    {
+      reviewValidator: () => ({ pass: true, reasons: [], review: { reviewerSession: 'reviewer' } }),
+    },
+  );
+  assert.equal(reviewed.code, 0);
 });
+test('a reviewed gate edit cannot authorize itself from the PR copy or leave a receipt', async () =>
+  withReceipts(async (receiptRoot) => {
+    const old = seedReceipt(receiptRoot);
+    const w = world({ files: [{ filename: '.github/workflows/ci.yml' }], pr: pr({ title: 'gate: evidence' }) });
+    await assert.rejects(
+      runVerifiedGate(opts(), {
+        git: fakeGit({ 'rev-parse HEAD': { status: 0, stdout: BASE } }).git,
+        gh: w.gh,
+        receiptRoot,
+        reviewValidator: () => ({ pass: true, reasons: [], review: { reviewerSession: 'reviewer' } }),
+        runGateFn: (o) => w.run(o, { reviewValidator: () => ({ pass: true, reasons: [], review: { reviewerSession: 'reviewer' } }) }),
+        writeReceipt: () => assert.fail('PR gate copy must never authorize a receipt'),
+      }),
+      /branch HEAD differs/,
+    );
+    assert.equal(existsSync(old.path), false);
+    assert.equal(w.calls.length, 0);
+  }));
 test('head, target base, title, open state and draft are rechecked after evidence', async () => {
   for (const [extra, pattern] of [
     [{ headRefOid: BASE }, /head moved/],
@@ -380,6 +406,7 @@ const seedReceipt = (receiptRoot) =>
     head: HEAD,
     base: BASE,
     gateSha: HEAD,
+    liveHead: HEAD,
     evidence: { pass: true, reasons: [], classifications: [], summary: [] },
     receiptRoot,
   });
@@ -573,11 +600,69 @@ test('an added marker-free comment cannot change declaration Markdown context', 
       {},
       {
         evidenceCollector: async () => {
-          w.w.comments.unshift({ id: 1, body: '```' });
+          w.w.comments.unshift({ id: 1, author_association: 'OWNER', body: '```' });
           return { pass: true, reasons: [], classifications: [], summary: [] };
         },
       },
     ),
     /declarations changed in comments/,
   );
+});
+
+test('receipt publication revalidates the current transcript and blocks a withdrawn approval', async () =>
+  withReceipts(async (receiptRoot) => {
+    const review = {
+      head: HEAD,
+      authorSession: '11111111-1111-1111-1111-111111111111',
+      reviewerSession: '22222222-2222-2222-2222-222222222222',
+    };
+    const w = world({ files: [{ filename: 'services/svc-bank/src/a.ts' }] });
+    await assert.rejects(
+      runVerifiedGate(opts(), {
+        git: fakeGit().git,
+        gh: w.gh,
+        receiptRoot,
+        runGateFn: (o) => w.run(o, { reviewValidator: () => ({ pass: true, reasons: [], review }) }),
+        reviewValidator: () => ({ pass: false, reasons: ['Latest exact-head verdict is FAIL'] }),
+        writeReceipt: () => assert.fail('withdrawn approval must never write a receipt'),
+      }),
+      /Opus review changed or was withdrawn/,
+    );
+    assert.equal(
+      w.calls.some((c) => c.args[1] === 'comment'),
+      false,
+    );
+  }));
+
+test('outsider declarations and outsider comment drift cannot alter the gate input', async () => {
+  const w = world({ comments: [{ id: 1, author_association: 'NONE', body: 'Author-Session: attacker' }] });
+  await w.run(
+    {},
+    {
+      evidenceCollector: async (input) => {
+        assert.doesNotMatch(input.declarations, /attacker/);
+        w.w.comments.push({
+          id: 2,
+          author_association: 'NONE',
+          body: 'Inherited-Failure: attacker | owner=outsider | evidence=https://example.com',
+        });
+        return { pass: true, reasons: [], classifications: [], summary: [] };
+      },
+    },
+  );
+});
+test('only trusted comment associations contribute declarations', async () => {
+  const w = world({
+    comments: ['OWNER', 'MEMBER', 'COLLABORATOR', 'CONTRIBUTOR', 'FIRST_TIMER', 'NONE'].map((association, id) => ({
+      id,
+      author_association: association,
+      body: `trusted-association=${association}`,
+    })),
+  });
+  await w.run();
+  const declarations = w.observed[0].declarations;
+  for (const association of ['OWNER', 'MEMBER', 'COLLABORATOR'])
+    assert.match(declarations, new RegExp(`trusted-association=${association}`));
+  for (const association of ['CONTRIBUTOR', 'FIRST_TIMER', 'NONE'])
+    assert.doesNotMatch(declarations, new RegExp(`trusted-association=${association}`));
 });
