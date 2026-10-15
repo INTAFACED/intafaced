@@ -12,28 +12,58 @@ import {
   founderApprovalQueueInputSchema,
   founderApprovalQueueSchema,
   founderTreasuryExposureSchema,
+  merchantMetricsInputSchema,
+  merchantMetricsSnapshotSchema,
+  merchantMetricsSeriesInputSchema,
+  merchantMetricsSeriesSchema,
 } from '@intafaced/contracts';
 import { z } from 'zod';
 import type { FounderAuthority } from '../founder-authority.js';
+import { metricsToTrpcError, type MetricsRuntime } from '../metrics/index.js';
+import { createFounderOpsRouter, type FounderOpsRouter } from '../merchant-ops/router.js';
 import { notBuilt } from './errors.js';
 import { founderProcedure } from './founder-procedure.js';
+import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
 
 /**
- * `founderAdmin.*` — the global founder panel (W2/W4 replace these stubs).
+ * `founderAdmin.*` — the global founder panel (W2 fills `merchants.list` and `metrics.*`; W4 the rest).
  *
  * EVERY procedure here MUST be built from `founderProcedure`. Do not use
  * `scopedProcedure('admin:read')`: that scope can sit on a long-lived API key.
  * The static inventory test (G7) fails the build if one is not.
  */
-export function createFounderAdminRouter(founderAuthority: FounderAuthority) {
+/** Optional mounts for `founderAdmin`. Each workstream adds its own key here. */
+export interface FounderAdminMounts {
+  /** W2: metrics reader. Without it the metrics and merchant-list procedures refuse with `pay.not_built`. */
+  metrics?: MetricsRuntime;
+  /** W16: editable venue, network and wallet-route registries. Mounted only when supplied. */
+  registries?: RegistriesMountDeps;
+  /** W15: operator notes (`founderAdmin.ops.*`). Always mounted; without a supplied router it runs with no database and refuses with `pay.not_built`. */
+  ops?: FounderOpsRouter;
+}
+
+export function createFounderAdminRouter(founderAuthority: FounderAuthority, mounts: FounderAdminMounts = {}) {
+  const { metrics, registries } = mounts;
+  const ops = mounts.ops ?? createFounderOpsRouter({ founderAuthority });
   const founder = founderProcedure(founderAuthority);
+  const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err) {
+      throw metricsToTrpcError(err);
+    }
+  };
   return router({
     founderAdmin: router({
+      // W16: editable venue, network and wallet-route registries (src/registries). Mounted only when its deps are supplied.
+      ...(registries ? { registries: createRegistriesRouter({ founderAuthority, ...registries }) } : {}),
+      // W15 operator notes. A router cannot be merged beside this one (tRPC rejects a second `founderAdmin`), so it is mounted here.
+      ops,
       merchants: router({
         list: founder
           .input(founderMerchantListInputSchema)
           .output(founderMerchantListSchema)
-          .query(() => notBuilt('founderAdmin.merchants.list')),
+          .query(({ input }) => (metrics ? wrap(() => metrics.reader.merchantList(input)) : notBuilt('founderAdmin.merchants.list'))),
         drilldown: founder
           .input(founderMerchantDrilldownInputSchema)
           .output(founderMerchantDrilldownSchema)
@@ -43,7 +73,24 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority) {
         global: founder
           .input(founderGlobalMetricsInputSchema)
           .output(founderGlobalMetricsSchema)
-          .query(() => notBuilt('founderAdmin.metrics.global')),
+          .query(({ input }) =>
+            metrics ? wrap(() => metrics.reader.globalMetrics(input.window)) : notBuilt('founderAdmin.metrics.global'),
+          ),
+        /** Any merchant's snapshot (the same figures the merchant sees). Founder authority replaces ownership. */
+        merchant: founder
+          .input(merchantMetricsInputSchema)
+          .output(merchantMetricsSnapshotSchema)
+          .query(({ input }) =>
+            metrics
+              ? wrap(() => metrics.reader.merchantSnapshot(input.merchantId, input.window))
+              : notBuilt('founderAdmin.metrics.merchant'),
+          ),
+        merchantSeries: founder
+          .input(merchantMetricsSeriesInputSchema)
+          .output(merchantMetricsSeriesSchema)
+          .query(({ input }) =>
+            metrics ? wrap(() => metrics.reader.merchantSeries(input)) : notBuilt('founderAdmin.metrics.merchantSeries'),
+          ),
       }),
       changes: router({
         submit: founder

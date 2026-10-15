@@ -4,6 +4,7 @@ import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
 import { createPayfacAuthorityGuard, drainPayfacPermissionIntents } from './payfac-authority.js';
 import { createFounderAuthority } from './founder-authority.js';
 import { createPayNamespaces } from './namespaces/index.js';
+import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
 import { buildPayGuards } from './seams/registry.js';
 import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
@@ -355,6 +356,9 @@ const founderAuthority = createFounderAuthority({
   principalSecret: env.EDGE_PRINCIPAL_SECRET,
 });
 
+/** W2 metrics read model: reads, authority, and the projection refresher (started below, once `app` exists). */
+const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
+
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals),
@@ -374,7 +378,9 @@ export const appRouter = mergeRouters(
   createSubscriptionRouter(subscriptions, pay, subMerchants),
   // W0 stubs: merchantControl, merchantMetrics, founderAdmin, conversion, payHalts.
   // Every procedure refuses `pay.not_built` until its workstream fills it in.
-  createPayNamespaces({ founderAuthority }),
+  // W16 registries (founderAdmin.registries.*) are mounted inside founderAdmin through `registries`.
+  // W15 (merchantOps.*, founderAdmin.ops.*) needs the database handle.
+  createPayNamespaces({ founderAuthority, metrics, registries: { sql, approvals: actionApprovals }, sql }),
 );
 export type { PayRouter } from './router.js';
 export type { MerchantStateRouter } from './merchant-state-router.js';
@@ -506,6 +512,12 @@ const webhookDrain = setInterval(() => {
   });
 }, 15_000);
 webhookDrain.unref?.();
+
+/** Keep the metrics projection within seconds of source; lag is reported on every metrics response. */
+const metricsRefresher = startMetricsRefresher(metrics.projector, {
+  onError: (err) => app.log.warn({ err }, 'metrics refresh failed'),
+  onFailedKeys: (failed) => app.log.warn({ failed }, 'metrics refresh left merchant-days marked'),
+});
 
 /**
  * THE WEBHOOK ENDPOINT.
@@ -651,6 +663,8 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       watcher?.stop();
+      // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
+      metricsRefresher.stop();
       // Draining, not dropping: an in-flight capture finishes before the
       // process exits, because the alternative is a payment captured at a rail
       // that this service never got to book.
