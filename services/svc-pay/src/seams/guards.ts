@@ -67,6 +67,12 @@ import type { Amount } from '@intafaced/ledger-client';
  *     neither does a refund whose ledger post committed but whose reply was lost.
  *     So keep caps on create/authorize and on payouts, and treat the capture and
  *     refund guards as halts only.
+ *   - `replay` is read BEFORE the payment row is locked, so two concurrent first
+ *     calls for one payment (two authorizes racing) can BOTH see `fresh`; the
+ *     loser then finds the work done and commits without moving value. A cap
+ *     that adds to a counter must therefore count idempotently by business key
+ *     (kind + paymentId, settlementId + attempt), never by call, or it
+ *     over-counts and refuses later legitimate work.
  *
  * The defaults below are no-ops that preserve behaviour from before the seams.
  *
