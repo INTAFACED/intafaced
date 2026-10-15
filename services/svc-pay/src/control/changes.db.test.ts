@@ -1,0 +1,201 @@
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { MemoryLedger } from '@intafaced/ledger-client';
+import { PayService } from '../payment-service.js';
+import { RailRegistry } from '../rails/registry.js';
+import { ChangeService } from './changes.js';
+import { ControlService } from './service.js';
+import { ownerAccessPorts } from './access.js';
+import {
+  applyChange,
+  FOUNDER_1,
+  FOUNDER_2,
+  migrations,
+  openAdmin,
+  OWNER_A,
+  resetControl,
+  TEST_GLOBAL_RULE,
+  TEST_TIER,
+} from './control.testkit.js';
+
+/** Dual-control configuration changes. TEST VALUES throughout. */
+describe('dual-control configuration changes', () => {
+  let adminStop: () => Promise<void> = async () => undefined;
+  let db!: TestDatabase;
+  let sql!: TestDatabase['sql'];
+  let changes!: ChangeService;
+  let merchantId = '';
+
+  beforeAll(async () => {
+    const admin = await openAdmin();
+    adminStop = admin.stop;
+    db = await createTestDatabase({ service: 'pay', url: admin.url, migrations });
+    sql = db.sql;
+    changes = new ChangeService(sql);
+  }, 120_000);
+
+  beforeEach(async () => {
+    await resetControl(sql);
+    const pay = new PayService(sql, new MemoryLedger(), new RailRegistry([]), {});
+    merchantId = (await pay.createMerchant({ userId: OWNER_A, pricing: { feeBps: 0 } })).id;
+  }, 30_000);
+
+  afterAll(async () => {
+    await db?.drop();
+    await adminStop();
+  }, 30_000);
+
+  const audit = (scopeId: string) =>
+    sql<Array<{ kind: string; outcome: string; actor_id: string; second_actor_id: string | null }>>`
+      SELECT kind, outcome, actor_id, second_actor_id FROM pay.control_audit WHERE scope_id = ${scopeId} ORDER BY seq`;
+  const tierTarget = { scope: 'tier', change: { kind: 'upsert_tier', tier: TEST_TIER } } as const;
+
+  it('nothing takes effect until a DIFFERENT founder confirms; both founders are on the audit row', async () => {
+    const requestId = randomUUID();
+    const submitted = await changes.submit(FOUNDER_1, {
+      requestId,
+      target: tierTarget,
+      reason: 'create the test tier',
+      expectedVersion: '0',
+    });
+    expect(submitted.outcome).toBe('pending_second_approval');
+    expect((await sql`SELECT 1 FROM pay.control_tiers`).length).toBe(0);
+
+    await expect(changes.confirm(FOUNDER_1, { requestId, decision: 'confirm', reason: 'self confirm' })).rejects.toMatchObject({
+      code: 'pay.dual_control_required',
+    });
+    expect((await sql`SELECT 1 FROM pay.control_tiers`).length).toBe(0);
+
+    const done = await changes.confirm(FOUNDER_2, { requestId, decision: 'confirm', reason: 'looks right' });
+    expect(done.outcome).toBe('changed');
+    expect((await sql`SELECT version FROM pay.control_tiers WHERE id = ${TEST_TIER.id}`)[0]!.version).toBe('1');
+    expect(await audit(TEST_TIER.id)).toEqual([
+      { kind: 'control.change_submitted', outcome: 'pending_second_approval', actor_id: FOUNDER_1, second_actor_id: null },
+      { kind: 'control.change_decided', outcome: 'changed', actor_id: FOUNDER_1, second_actor_id: FOUNDER_2 },
+    ]);
+    // A second confirm of a decided request is not applied twice.
+    await expect(changes.confirm(FOUNDER_1, { requestId, decision: 'confirm', reason: 'again' })).rejects.toMatchObject({
+      code: 'pay.change_not_pending',
+    });
+  });
+
+  it('a rejected change never applies; reusing a request id for something else is refused', async () => {
+    const requestId = randomUUID();
+    await changes.submit(FOUNDER_1, { requestId, target: tierTarget, reason: 'try', expectedVersion: '0' });
+    expect((await changes.confirm(FOUNDER_2, { requestId, decision: 'reject', reason: 'not agreed' })).outcome).toBe('refused');
+    expect((await sql`SELECT 1 FROM pay.control_tiers`).length).toBe(0);
+    const other = { ...tierTarget, change: { kind: 'upsert_tier', tier: { ...TEST_TIER, name: 'other' } } } as const;
+    await expect(changes.submit(FOUNDER_1, { requestId, target: other, reason: 'sneaky', expectedVersion: '0' })).rejects.toMatchObject({
+      code: 'pay.request_id_reused',
+    });
+  });
+
+  it('a stale version is a conflict at submit and at confirm, and is audited', async () => {
+    await applyChange(changes, sql, tierTarget);
+    const stale = await changes.submit(FOUNDER_1, {
+      requestId: randomUUID(),
+      target: { ...tierTarget, change: { kind: 'upsert_tier', tier: { ...TEST_TIER, name: 'v2' } } },
+      reason: 'rename',
+      expectedVersion: '0',
+    });
+    expect(stale.outcome).toBe('conflict');
+
+    const a = randomUUID();
+    const b = randomUUID();
+    const rename = (name: string) => ({ ...tierTarget, change: { kind: 'upsert_tier', tier: { ...TEST_TIER, name } } }) as const;
+    await changes.submit(FOUNDER_1, { requestId: a, target: rename('first'), reason: 'a', expectedVersion: '1' });
+    await changes.submit(FOUNDER_1, { requestId: b, target: rename('second'), reason: 'b', expectedVersion: '1' });
+    expect((await changes.confirm(FOUNDER_2, { requestId: a, decision: 'confirm', reason: 'ok' })).outcome).toBe('changed');
+    expect((await changes.confirm(FOUNDER_2, { requestId: b, decision: 'confirm', reason: 'ok' })).outcome).toBe('conflict');
+    expect((await sql`SELECT name FROM pay.control_tiers`)[0]!.name).toBe('first');
+    expect((await audit(TEST_TIER.id)).map((r) => r.outcome)).toContain('conflict');
+  });
+
+  it('invalid and no-op changes are audited and never claim a change', async () => {
+    const bad = await changes.submit(FOUNDER_1, {
+      requestId: randomUUID(),
+      target: {
+        scope: 'pricing',
+        change: {
+          kind: 'set_pricing_layer',
+          layer: 'global',
+          scopeId: null,
+          rules: [{ ...TEST_GLOBAL_RULE, bands: [{ fromAmount: '5', feeBps: 1, flatFee: null }] }],
+        },
+      },
+      reason: 'first band does not start at zero',
+      expectedVersion: '0',
+    });
+    expect(bad.outcome).toBe('refused');
+    const lowFounder = await changes.submit(FOUNDER_1, {
+      requestId: randomUUID(),
+      target: {
+        scope: 'tier',
+        change: { kind: 'upsert_tier', tier: { ...TEST_TIER, founderThresholds: [{ assetCode: 'USDT', amount: '10' }] } },
+      },
+      reason: 'founder threshold below approval threshold',
+      expectedVersion: '0',
+    });
+    expect(lowFounder.outcome).toBe('refused');
+    const unknownTier = await changes.submit(FOUNDER_1, {
+      requestId: randomUUID(),
+      target: { scope: 'merchant', merchantId, change: { kind: 'set_tier', tierId: 'nope', archetypeId: null } },
+      reason: 'no such tier',
+      expectedVersion: '0',
+    });
+    expect(unknownTier.outcome).toBe('refused');
+    await applyChange(changes, sql, tierTarget);
+    expect(
+      (await changes.submit(FOUNDER_1, { requestId: randomUUID(), target: tierTarget, reason: 'same again', expectedVersion: '1' }))
+        .outcome,
+    ).toBe('noop');
+    expect((await sql`SELECT 1 FROM pay.control_changes WHERE status = 'pending'`).length).toBe(0);
+    const outcomes = (await audit(merchantId)).map((r) => r.outcome);
+    expect(outcomes).toEqual(['refused']);
+  });
+
+  it('a merchant profile reflects tier, caps override, reserve override and pricing; versions move once per change; unconfigured sections are null', async () => {
+    const control = new ControlService(sql, ownerAccessPorts(sql));
+    const empty = await control.profile(merchantId);
+    expect(empty).toMatchObject({ tierId: null, caps: null, pricing: null, reserve: null, version: '0' });
+
+    await applyChange(changes, sql, tierTarget);
+    await applyChange(changes, sql, {
+      scope: 'pricing',
+      change: { kind: 'set_pricing_layer', layer: 'global', scopeId: null, rules: [TEST_GLOBAL_RULE] },
+    });
+    await applyChange(changes, sql, {
+      scope: 'merchant',
+      merchantId,
+      change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: 'broker' },
+    });
+    await applyChange(changes, sql, {
+      scope: 'merchant',
+      merchantId,
+      change: { kind: 'set_reserve', reserve: { rollingReserveBps: null, holdDays: null } },
+    });
+    await applyChange(changes, sql, {
+      scope: 'merchant',
+      merchantId,
+      change: { kind: 'set_caps', caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '7' }] },
+    });
+    const p = await control.profile(merchantId);
+    expect(p.tierId).toBe(TEST_TIER.id);
+    expect(p.archetypeId).toBe('broker');
+    expect(p.version).toBe('3');
+    // Explicit "no reserve" on the merchant beats the tier's reserve.
+    expect(p.reserve).toEqual({ rollingReserveBps: null, holdDays: null });
+    expect(p.caps).toContainEqual({ kind: 'per_payment', assetCode: 'USDT', limit: '7' });
+    expect(p.caps).toContainEqual({ kind: 'daily_intake', assetCode: 'USDT', limit: '300' });
+    expect(p.pricing).toHaveLength(1);
+    expect(p.pricing![0]!.layer).toBe('global');
+
+    // Same engine as the live path: 100 USDT with a conversion = 2.5 + 0.3 fee, 0.4 spread, net 96.8 (hand-computed).
+    const quote = await control.previewPricing({ merchantId, assetCode: 'USDT', amount: '100', conversion: true });
+    expect(quote).toMatchObject({ fee: '2.8', spread: '0.4', net: '96.8', roundingMode: 'ceil', appliedLayer: 'global' });
+    await expect(control.previewPricing({ merchantId, assetCode: 'USD', amount: '1' })).rejects.toMatchObject({
+      code: 'pay.pricing_unconfigured',
+    });
+  });
+});

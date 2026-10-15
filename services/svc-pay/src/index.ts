@@ -3,6 +3,7 @@ import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
 import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
 import { createPayfacAuthorityGuard, drainPayfacPermissionIntents } from './payfac-authority.js';
 import { createFounderAuthority } from './founder-authority.js';
+import { ControlService, ownerAccessPorts } from './control/index.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
 import { loadHaltAutoTripConfig } from './halts/config.js';
@@ -393,6 +394,8 @@ export const appRouter = mergeRouters(
     sql,
     payHalts: { store: new PayHaltStore(sql, loadHaltAutoTripConfig(process.env)), merchants: pay },
     treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: UNWIRED_CONVERSION_INVENTORY },
+    // `canApprovePayout` defaults to the merchant owner; W15 (team roles) swaps in the finance-role check here.
+    control: new ControlService(sql, ownerAccessPorts(sql)),
   }),
 );
 export type { PayRouter } from './router.js';

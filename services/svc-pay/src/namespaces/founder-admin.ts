@@ -25,6 +25,8 @@ import { createFounderOpsRouter, type FounderOpsRouter } from '../merchant-ops/r
 import { notBuilt } from './errors.js';
 import { treasuryExposureView, type ConversionInventorySource } from '../treasury/exposure.js';
 import type { TreasuryLimits } from '../treasury/config.js';
+import type { ControlService } from '../control/service.js';
+import { createFounderControlRouter, founderApprovalProcedures, founderChangeProcedures } from './founder-control.js';
 import { founderProcedure } from './founder-procedure.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
 
@@ -52,10 +54,12 @@ export interface FounderAdminMounts {
   ops?: FounderOpsRouter;
   /** W5: treasury exposure read (`founderAdmin.treasury.exposure`). Without it the procedure refuses with `pay.not_built`. */
   treasury?: FounderTreasuryDeps;
+  /** W1: merchant control room (`founderAdmin.control.*`, founder changes and payout approvals). Without it those procedures refuse with `pay.not_built`. */
+  control?: ControlService;
 }
 
 export function createFounderAdminRouter(founderAuthority: FounderAuthority, mounts: FounderAdminMounts = {}) {
-  const { metrics, registries, treasury } = mounts;
+  const { metrics, registries, treasury, control } = mounts;
   const ops = mounts.ops ?? createFounderOpsRouter({ founderAuthority });
   const founder = founderProcedure(founderAuthority);
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -104,22 +108,32 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
             metrics ? wrap(() => metrics.reader.merchantSeries(input)) : notBuilt('founderAdmin.metrics.merchantSeries'),
           ),
       }),
-      changes: router({
-        submit: founder
-          .input(founderChangeSubmitInputSchema)
-          .output(founderChangeSubmitResultSchema)
-          .mutation(() => notBuilt('founderAdmin.changes.submit')),
-        confirm: founder
-          .input(founderChangeConfirmInputSchema)
-          .output(founderChangeSubmitResultSchema)
-          .mutation(() => notBuilt('founderAdmin.changes.confirm')),
-      }),
-      approvals: router({
-        list: founder
-          .input(founderApprovalQueueInputSchema)
-          .output(founderApprovalQueueSchema)
-          .query(() => notBuilt('founderAdmin.approvals.list')),
-      }),
+      changes: router(
+        control
+          ? founderChangeProcedures(founder, control)
+          : {
+              submit: founder
+                .input(founderChangeSubmitInputSchema)
+                .output(founderChangeSubmitResultSchema)
+                .mutation(() => notBuilt('founderAdmin.changes.submit')),
+              confirm: founder
+                .input(founderChangeConfirmInputSchema)
+                .output(founderChangeSubmitResultSchema)
+                .mutation(() => notBuilt('founderAdmin.changes.confirm')),
+            },
+      ),
+      approvals: router(
+        control
+          ? founderApprovalProcedures(founder, control)
+          : {
+              list: founder
+                .input(founderApprovalQueueInputSchema)
+                .output(founderApprovalQueueSchema)
+                .query(() => notBuilt('founderAdmin.approvals.list')),
+            },
+      ),
+      // W1 control room (tier definitions, pricing layers, usage, founder payout approvals). Mounted only with a ControlService.
+      ...(control ? { control: createFounderControlRouter(founder, control) } : {}),
       treasury: router({
         exposure: founder
           .input(z.object({}).strict())
