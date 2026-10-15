@@ -2,12 +2,14 @@
  * Unit card — four-eyes over operator action types needs an operator (issue #4724, identity half)
  *
  * 1. Promise: only an operator (founder, or an `admin:*` / `market:ops` / `support:ops` scope, never an
- *    API key) can propose, approve or reject an operator action type such as `matching.open`.
+ *    API key) can propose, approve or reject an operator action type such as `edge.kill`; money, venue and
+ *    treasury types (`matching.open`, ...) are founder-only (see action-approval-founder.test.ts).
  * 2. Break: the router had no role check, so any two self-registered users with a TOTP could propose and
  *    approve `matching.open` between themselves.
  * 3. Done bar: two ordinary MFA users are refused on propose and on approve (matching.open and one other
- *    type, including an unknown type); two operators still complete four-eyes; self types are unaffected;
- *    the registry classifies same-person types as `self` and everything else as `operator`.
+ *    type, including an unknown type); two operators still complete four-eyes on an operator type; self types
+ *    are unaffected; the registry classifies same-person types as `self`, money/venue/treasury types as
+ *    `founder` and everything else as `operator`.
  * 4. Class M
  * 5. Paths: services/svc-identity/src/action-approval-router.ts, auth/action-approval-audience.ts
  * 6. RED before: ordinary users approved each other
@@ -18,7 +20,7 @@ import { SAME_PERSON_ACTION_TYPES, type Context } from '@intafaced/contracts';
 import { createActionApprovalRouter } from './action-approval-router.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
 import { MemoryActionApprovalStore } from './auth/action-approval-store.js';
-import { audienceOf, isOperatorPrincipal } from './auth/action-approval-audience.js';
+import { audienceOf, isOperatorPrincipal, staticFounderDirectory } from './auth/action-approval-audience.js';
 
 const authConfig = {
   secret: 'an-identity-operator-gate-test-secret-long-enough-x',
@@ -46,7 +48,10 @@ const ordinary = (id: string) => ctxFor(id, ['identity:write', 'bank:write']);
 const operator = (id: string) => ctxFor(id, ['identity:write', 'admin:write']);
 
 function build(privilegedUserIds: string[] = []) {
-  const service = new ActionApprovalService(new MemoryActionApprovalStore(), { ttlSeconds: 60 });
+  const service = new ActionApprovalService(new MemoryActionApprovalStore(), {
+    ttlSeconds: 60,
+    founders: staticFounderDirectory(privilegedUserIds),
+  });
   return { r: createActionApprovalRouter(service, { privilegedUserIds }), service };
 }
 
@@ -74,12 +79,13 @@ describe('operator action types need an operator principal', () => {
     const { r } = build();
     const o1 = r.createCaller(await operator(O1));
     const u2 = r.createCaller(await ordinary(U2));
-    const pending = await o1.actionApproval.propose(matchingOpen);
-    await expect(u2.actionApproval.approve({ approvalId: pending.approvalId })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const pending = await o1.actionApproval.propose(edgeKill);
+    const bound = { approvalId: pending.approvalId, expectedPayloadHash: pending.payloadHash };
+    await expect(u2.actionApproval.approve(bound)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(u2.actionApproval.reject({ approvalId: pending.approvalId })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     // still pending, then a real second operator completes four-eyes
     const o2 = r.createCaller(await operator(O2));
-    await expect(o2.actionApproval.approve({ approvalId: pending.approvalId })).resolves.toMatchObject({
+    await expect(o2.actionApproval.approve(bound)).resolves.toMatchObject({
       status: 'APPROVED',
       approverId: O2,
     });
@@ -90,8 +96,9 @@ describe('operator action types need an operator principal', () => {
     const o1 = r.createCaller(await operator(O1));
     const o2 = r.createCaller(await operator(O2));
     const pending = await o1.actionApproval.propose(edgeKill);
-    await expect(o1.actionApproval.approve({ approvalId: pending.approvalId })).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
-    await expect(o2.actionApproval.approve({ approvalId: pending.approvalId })).resolves.toMatchObject({ status: 'APPROVED' });
+    const bound = { approvalId: pending.approvalId, expectedPayloadHash: pending.payloadHash };
+    await expect(o1.actionApproval.approve(bound)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    await expect(o2.actionApproval.approve(bound)).resolves.toMatchObject({ status: 'APPROVED' });
   });
 
   it('a founder (privileged user id) and the module operator scopes count as operators', async () => {
@@ -99,7 +106,14 @@ describe('operator action types need an operator principal', () => {
     const founder = r.createCaller(await ordinary(U1));
     await expect(founder.actionApproval.propose(matchingOpen)).resolves.toMatchObject({ status: 'PENDING' });
     const vendorOps = r.createCaller(await ctxFor(U2, ['identity:write', 'market:ops']));
-    await expect(vendorOps.actionApproval.propose({ ...matchingOpen, actionType: 'market.vendor.vet' })).resolves.toMatchObject({
+    await expect(
+      vendorOps.actionApproval.propose({
+        ...matchingOpen,
+        actionType: 'market.vendor.vet',
+        targetService: 'svc-market',
+        targetId: 'market.vendor.vet',
+      }),
+    ).resolves.toMatchObject({
       status: 'PENDING',
     });
   });
@@ -126,25 +140,19 @@ describe('operator action types need an operator principal', () => {
   it('an approve for an unknown approval id is not_found, not a role disclosure', async () => {
     const { r } = build();
     const u1 = r.createCaller(await ordinary(U1));
-    await expect(u1.actionApproval.approve({ approvalId: 'nope' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(u1.actionApproval.approve({ approvalId: 'nope', expectedPayloadHash: 'sha256:abc' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
   });
 });
 
 describe('action type audience registry', () => {
-  it('lists exactly the same-person types as self; every other type, known or not, is operator', () => {
+  it('lists the same-person types as self, money/venue/treasury types as founder; every other type, known or not, is operator', () => {
     for (const t of SAME_PERSON_ACTION_TYPES) expect(audienceOf(t)).toBe('self');
-    for (const t of [
-      'matching.open',
-      'edge.kill',
-      'ledger.freeze',
-      'bank.fund_pool',
-      'token.revenue.distribute',
-      'market.vendor.vet',
-      'academy.ambassador.appoint',
-      'halt:BTC-USDT',
-      'other',
-      '',
-    ]) {
+    for (const t of ['matching.open', 'ledger.freeze', 'bank.fund_pool', 'token.revenue.distribute']) {
+      expect(audienceOf(t)).toBe('founder');
+    }
+    for (const t of ['edge.kill', 'market.vendor.vet', 'academy.ambassador.appoint', 'halt:BTC-USDT', 'other', '']) {
       expect(audienceOf(t)).toBe('operator');
     }
   });
