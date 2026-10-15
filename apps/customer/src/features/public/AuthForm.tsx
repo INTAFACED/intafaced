@@ -154,7 +154,15 @@ export function AuthForm({ register }: { register: boolean }) {
   }, []);
   async function run(kind: 'register' | 'password' | 'options') {
     if (!sameRender() || (running.current && same(running.current)) || pending) return;
-    if (!identifier.trim() || (kind !== 'options' && !password)) return;
+    if (!identifier.trim()) {
+      if (kind === 'options') {
+        setResult(authoredRefusal('error', { key: 'passkeyIdentifier' }));
+        const input = form.current?.elements.namedItem('identifier');
+        if (input instanceof HTMLInputElement) input.focus();
+      }
+      return;
+    }
+    if (kind !== 'options' && !password) return;
     const original: Original = {
       api,
       owner: userId,
