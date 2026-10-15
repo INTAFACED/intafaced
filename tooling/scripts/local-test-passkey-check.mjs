@@ -174,7 +174,7 @@ try {
   check('replayed assertion rejected', { status: replay.status, rejected: replay.status === 401 });
   if (replay.status !== 401) throw Error('replay not rejected');
   await page.screenshot({ path: dir + '/signin-trade-after-passkey.png', fullPage: false, mask: [page.locator('input,textarea')] });
-  receipt.customerResult = 'PASS: real browser WebAuthn with virtual authenticator against existing running services; no API mocks';
+  receipt.authenticationResult = 'PASS: real browser WebAuthn with virtual authenticator against existing running services; no API mocks';
 } catch (e) {
   receipt.failure = e.message;
   console.log('FAILURE', e.message);
@@ -212,7 +212,10 @@ try {
   }
 
   if (browser) await browser.close();
-  if (process.exitCode) receipt.customerResult = 'FAIL: diagnostic did not complete cleanly; see failure and cleanup';
+  receipt.authenticationResult ??= 'NOT VERIFIED: authentication checks did not complete';
+  receipt.overallResult = process.exitCode
+    ? 'FAIL: diagnostic did not complete cleanly; see failure and cleanup'
+    : 'PASS: authentication and cleanup completed';
   receipt.founderResult =
     'NOT VERIFIED: existing local stack marker provides customer only; no admin/founder app endpoint configured or started. No founder account impersonated.';
   receipt.realDevice = 'NOT VERIFIED: virtual authenticator is not Touch ID proof.';
