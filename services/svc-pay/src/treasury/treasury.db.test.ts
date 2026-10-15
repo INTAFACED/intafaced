@@ -16,12 +16,13 @@ import { BankPayoutAbsentAdapter } from '../rails/bank-payout.js';
 import { MemoryChain } from '../rails/chain-port.js';
 import { FRESH, composeGuards } from '../seams/guards.js';
 import { createW5HaltsGuards } from '../seams/slots/w5-halts.js';
-import { loadTreasuryLimits } from './config.js';
+import { loadTreasuryLimits, loadTreasuryMode } from './config.js';
 import { treasuryExposureView, type ConversionInventorySource } from './exposure.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const migrations = [
   '0000_pay_init.sql',
+  '0001_pay_user_money.sql',
   '0002_pay_payment_links.sql',
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',
@@ -90,7 +91,10 @@ describe('W5 treasury exposure (real Postgres)', () => {
     await adminStop();
   }, 30_000);
 
-  const limitsEnv = (limits: Record<string, string>) => ({ PAY_TREASURY_EXPOSURE_LIMITS: JSON.stringify(limits) });
+  const limitsEnv = (limits: Record<string, string>) => ({
+    PAY_TREASURY_LIMITS: 'required',
+    PAY_TREASURY_EXPOSURE_LIMITS: JSON.stringify(limits),
+  });
   const service = (env: Record<string, string>, conversionInventory?: ConversionInventorySource) =>
     new PayService(sql, ledger, rails, {
       payoutDestinations: memoryPayoutDestinations(),
@@ -124,10 +128,11 @@ describe('W5 treasury exposure (real Postgres)', () => {
   it('limits unset (no env, blank, malformed, non-positive) refuse a payout with a typed error and admit nothing', async () => {
     const m = await open().createMerchant({ userId: USER, pricing: { feeBps: 0 } });
     const settlement = await settledWindow(m.id, '10', 'w-unset');
+    const required = { PAY_TREASURY_LIMITS: 'required' };
     for (const env of [
-      {},
-      { PAY_TREASURY_EXPOSURE_LIMITS: '' },
-      { PAY_TREASURY_EXPOSURE_LIMITS: 'not json' },
+      required,
+      { ...required, PAY_TREASURY_EXPOSURE_LIMITS: '' },
+      { ...required, PAY_TREASURY_EXPOSURE_LIMITS: 'not json' },
       limitsEnv({ USDT: '0' }),
       limitsEnv({ USDT: '-5' }),
       limitsEnv({ BTC: '100' }),
@@ -234,7 +239,79 @@ describe('W5 treasury exposure (real Postgres)', () => {
     // A replay or recovery is not new exposure.
     await expect(wired.beforeConversion(ctx(amt('99'), { kind: 'recovery', reason: 'ledger_already_booked' }))).resolves.toBeUndefined();
 
-    const noLimit = composeGuards(createW5HaltsGuards({ sql, env: {}, conversionInventory: inventory }));
+    const noLimit = composeGuards(createW5HaltsGuards({ sql, env: { PAY_TREASURY_LIMITS: 'required' }, conversionInventory: inventory }));
     await expect(noLimit.beforeConversion(ctx(1n))).rejects.toMatchObject({ code: 'pay.guard_treasury_limit_unset' });
+  });
+
+  describe('PAY_TREASURY_LIMITS flag', () => {
+    it('defaults to off, accepts only off or required, and any other value fails boot', () => {
+      expect(loadTreasuryMode({})).toBe('off');
+      expect(loadTreasuryMode({ PAY_TREASURY_LIMITS: 'off' })).toBe('off');
+      expect(loadTreasuryMode({ PAY_TREASURY_LIMITS: 'required' })).toBe('required');
+      for (const bad of ['', 'on', 'true', 'Required', 'OFF', ' required']) {
+        expect(() => loadTreasuryMode({ PAY_TREASURY_LIMITS: bad })).toThrow(/off.*required/);
+        expect(() => createW5HaltsGuards({ sql, env: { PAY_TREASURY_LIMITS: bad } })).toThrow();
+      }
+    });
+
+    it('off: payouts and conversions are not limit-checked (no limits, or limits that would be exceeded), halts still apply, exposure is still readable', async () => {
+      const m = await open().createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      const settlement = await settledWindow(m.id, '10', 'w-off');
+      // Limit of 1 would refuse a 10 payout under `required`.
+      const env = { PAY_TREASURY_EXPOSURE_LIMITS: JSON.stringify({ USDT: '1' }) };
+      crashOnPayout = true;
+      await expect(
+        service(env).payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST }),
+      ).rejects.toThrow('process died');
+      const view = await treasuryExposureView(sql, loadTreasuryLimits(env), { wired: false, openInventory: async () => 0n });
+      expect(view).toEqual([{ assetCode: 'USDT', openConversionInventory: '0', pendingPayouts: '10', limit: '1' }]);
+      const paid = await service({}).payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST });
+      expect(paid.status).toBe('paid_out');
+
+      const conv = composeGuards(createW5HaltsGuards({ sql, env: {} }));
+      await expect(
+        conv.beforeConversion({
+          sql: sql as never,
+          merchantId: randomUUID(),
+          settlementId: randomUUID(),
+          fromAsset: 'USD',
+          toAsset: 'USDT',
+          fromAmount: amt('999999'),
+          replay: FRESH,
+        }),
+      ).resolves.toBeUndefined();
+
+      // Halts are always on, whatever the flag says.
+      await sql`INSERT INTO pay.halts (scope, target, halted, reason, source, actor_user_id, version) VALUES ('conversion', 'global', true, 'drill', 'operator', ${USER}, 1)`;
+      await expect(
+        conv.beforeConversion({
+          sql: sql as never,
+          merchantId: randomUUID(),
+          settlementId: randomUUID(),
+          fromAsset: 'USD',
+          toAsset: 'USDT',
+          fromAmount: 1n,
+          replay: FRESH,
+        }),
+      ).rejects.toMatchObject({ code: 'pay.guard_halted' });
+    });
+
+    it('required: unset limits refuse (covered above) and a user withdrawal in flight counts toward exposure', async () => {
+      await sql`INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, rail_ref) VALUES
+        ('u1', 'USDT', 4, 'crypto-native', '{}'::jsonb, 'c1', 'held', NULL),
+        ('u2', 'USDT', 3, 'crypto-native', '{}'::jsonb, 'c2', 'pending', NULL),
+        ('u3', 'USDT', 100, 'crypto-native', '{}'::jsonb, 'c3', 'sent', 'ref-3'),
+        ('u4', 'USDT', 100, 'crypto-native', '{}'::jsonb, 'c4', 'failed', NULL)`;
+      const view = await treasuryExposureView(sql, loadTreasuryLimits(limitsEnv({ USDT: '10' })), {
+        wired: false,
+        openInventory: async () => 0n,
+      });
+      expect(view).toEqual([{ assetCode: 'USDT', openConversionInventory: '0', pendingPayouts: '7', limit: '10' }]);
+      const m = await open().createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      const settlement = await settledWindow(m.id, `3.${'0'.repeat(17)}1`, 'w-wd');
+      await expect(
+        service(limitsEnv({ USDT: '10' })).payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST }),
+      ).rejects.toMatchObject({ code: 'pay.guard_treasury_exposure_exceeded' });
+    });
   });
 });

@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { compare, type Amount } from '@intafaced/ledger-client';
 import { PayGuardRefusal, type PartialPayGuards } from '../seams/guards.js';
-import type { TreasuryLimits } from './config.js';
+import type { TreasuryLimits, TreasuryMode } from './config.js';
 import { assetExposure, type ConversionInventorySource } from './exposure.js';
 
 /**
@@ -29,7 +29,12 @@ export const GUARD_TREASURY_LIMIT_UNSET = 'pay.guard_treasury_limit_unset' as co
 export const GUARD_TREASURY_EXCEEDED = 'pay.guard_treasury_exposure_exceeded' as const;
 export const GUARD_TREASURY_INVENTORY_UNWIRED = 'pay.guard_treasury_inventory_unwired' as const;
 
-export function createTreasuryGuards(deps: { limits: TreasuryLimits; inventory: ConversionInventorySource }): PartialPayGuards {
+export function createTreasuryGuards(deps: {
+  /** `off` (the default): no limit enforcement at all. `required`: limits as described above. */
+  mode: TreasuryMode;
+  limits: TreasuryLimits;
+  inventory: ConversionInventorySource;
+}): PartialPayGuards {
   async function admit(conn: Sql, assetId: string, candidate: Amount): Promise<void> {
     const limit = deps.limits.byAsset.get(assetId);
     if (limit === undefined) throw new PayGuardRefusal(GUARD_TREASURY_LIMIT_UNSET, 'refused');
@@ -38,6 +43,9 @@ export function createTreasuryGuards(deps: { limits: TreasuryLimits; inventory: 
     const total = current.openConversionInventory + current.pendingPayouts + candidate;
     if (compare(total, limit) > 0) throw new PayGuardRefusal(GUARD_TREASURY_EXCEEDED, 'refused');
   }
+
+  // Enforcement off: exposure stays readable, nothing here ever refuses.
+  if (deps.mode === 'off') return {};
 
   return {
     beforePayoutAdmit: async (ctx) => {

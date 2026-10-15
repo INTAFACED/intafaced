@@ -5,7 +5,7 @@ import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
 import { createFounderOpsRouter, createMerchantOpsRouter } from '../merchant-ops/index.js';
 import { createConversionRouter } from './conversion.js';
-import { createFounderAdminRouter } from './founder-admin.js';
+import { createFounderAdminRouter, type FounderTreasuryDeps } from './founder-admin.js';
 import { createMerchantControlRouter } from './merchant-control.js';
 import { createMerchantMetricsRouter } from './merchant-metrics.js';
 import { createPayHaltsRouter, type PayHaltsDeps } from './pay-halts.js';
@@ -27,6 +27,7 @@ export function createPayNamespaces(deps: {
   registries?: RegistriesMountDeps;
   sql?: Sql;
   payHalts?: PayHaltsDeps;
+  treasury?: FounderTreasuryDeps;
 }) {
   const opsDeps = { founderAuthority: deps.founderAuthority, sql: deps.sql };
   return mergeRouters(
@@ -36,6 +37,7 @@ export function createPayNamespaces(deps: {
       metrics: deps.metrics,
       registries: deps.registries,
       ops: createFounderOpsRouter(opsDeps),
+      treasury: deps.treasury,
     }),
     createConversionRouter(),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),

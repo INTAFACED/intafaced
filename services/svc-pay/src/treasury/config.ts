@@ -13,6 +13,26 @@ import { parseAmount, type Amount } from '@intafaced/ledger-client';
  */
 export const PAY_TREASURY_LIMITS_ENV = 'PAY_TREASURY_EXPOSURE_LIMITS';
 
+/**
+ * ENFORCEMENT SWITCH. `PAY_TREASURY_LIMITS=off|required`, default `off`.
+ *   off       payouts and conversions are NOT limit-checked; exposure is still
+ *             computed and readable (`founderAdmin.treasury.exposure`).
+ *   required  an asset with no valid limit refuses (`pay.guard_treasury_limit_unset`)
+ *             and a limit that would be exceeded by even one minor unit refuses.
+ * Any other value, including a blank one, FAILS BOOT (this function throws when
+ * the guards are built): a typo must never silently turn enforcement off.
+ * Halts are separate and always on.
+ */
+export const PAY_TREASURY_MODE_ENV = 'PAY_TREASURY_LIMITS';
+export type TreasuryMode = 'off' | 'required';
+
+export function loadTreasuryMode(env: Record<string, string | undefined>): TreasuryMode {
+  const raw = env[PAY_TREASURY_MODE_ENV];
+  if (raw === undefined) return 'off';
+  if (raw === 'off' || raw === 'required') return raw;
+  throw new Error(`${PAY_TREASURY_MODE_ENV} must be "off" or "required" (got ${JSON.stringify(raw)}); refusing to boot`);
+}
+
 export interface TreasuryLimits {
   /** Asset id -> limit in scaled bigint. Missing asset = no limit set. */
   readonly byAsset: ReadonlyMap<string, Amount>;

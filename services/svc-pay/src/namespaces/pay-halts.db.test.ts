@@ -16,10 +16,13 @@ import { RailRegistry } from '../rails/registry.js';
 import { loadHaltAutoTripConfig } from '../halts/config.js';
 import { PayHaltStore } from '../halts/store.js';
 import { createPayNamespaces } from './index.js';
+import { loadTreasuryLimits } from '../treasury/config.js';
+import { UNWIRED_CONVERSION_INVENTORY } from '../treasury/exposure.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const migrations = [
   '0000_pay_init.sql',
+  '0001_pay_user_money.sql',
   '0002_pay_payment_links.sql',
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',
@@ -253,6 +256,29 @@ describe('payHalts.* with a real halt store', () => {
       } finally {
         await sql`ALTER TABLE pay.halts_offline RENAME TO halts`;
       }
+    });
+  });
+
+  describe('founderAdmin.treasury.exposure', () => {
+    it('is founder-only and reads exposure per asset, with a missing limit shown as null', async () => {
+      await sql`INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status) VALUES ('u1', 'USDT', 4, 'crypto-native', '{}'::jsonb, 'c1', 'held')`;
+      const fetcher = fetcherFor([founderA]);
+      const r = createPayNamespaces({
+        founderAuthority: createFounderAuthority({ ...identity, fetcher }),
+        treasury: {
+          sql,
+          limits: loadTreasuryLimits({ PAY_TREASURY_EXPOSURE_LIMITS: JSON.stringify({ EUR: '50' }) }),
+          inventory: UNWIRED_CONVERSION_INVENTORY,
+        },
+      });
+      const result = await r.createCaller(ctxOf(principalFor(founderA))).founderAdmin.treasury.exposure({});
+      expect(result.perAsset).toEqual([
+        { assetCode: 'EUR', openConversionInventory: '0', pendingPayouts: '0', limit: '50' },
+        { assetCode: 'USDT', openConversionInventory: '0', pendingPayouts: '4', limit: null },
+      ]);
+      await expect(r.createCaller(ctxOf(principalFor(id()))).founderAdmin.treasury.exposure({})).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
     });
   });
 });

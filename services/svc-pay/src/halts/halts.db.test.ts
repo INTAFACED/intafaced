@@ -29,6 +29,7 @@ import { PayHaltStore } from './store.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const migrations = [
   '0000_pay_init.sql',
+  '0001_pay_user_money.sql',
   '0002_pay_payment_links.sql',
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',

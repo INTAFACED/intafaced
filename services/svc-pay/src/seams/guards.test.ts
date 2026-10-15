@@ -26,7 +26,7 @@ describe('guard seams: defaults', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('the registry (W5 halts) lets intake through when nothing is halted and refuses a payout while no exposure limit is set', async () => {
+  it('the registry (W5 halts) lets intake through when nothing is halted and, with treasury enforcement at its default (off), does not limit-check a payout', async () => {
     const guards = buildPayGuards({ sql: readableSql });
     for (const name of PAY_GUARD_NAMES) expect(typeof guards[name]).toBe('function');
     await expect(guards.beforePaymentAdmit({ ...payment, tx: readableSql })).resolves.toBeUndefined();
@@ -42,7 +42,7 @@ describe('guard seams: defaults', () => {
         attempt: 0,
         replay: FRESH,
       }),
-    ).rejects.toMatchObject({ code: 'pay.guard_treasury_limit_unset' });
+    ).resolves.toBeUndefined();
   });
 });
 

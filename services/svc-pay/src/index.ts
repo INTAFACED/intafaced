@@ -7,6 +7,8 @@ import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
 import { loadHaltAutoTripConfig } from './halts/config.js';
 import { PayHaltStore } from './halts/store.js';
+import { loadTreasuryLimits } from './treasury/config.js';
+import { UNWIRED_CONVERSION_INVENTORY } from './treasury/exposure.js';
 import { buildPayGuards } from './seams/registry.js';
 import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
@@ -390,6 +392,7 @@ export const appRouter = mergeRouters(
     registries: { sql, approvals: actionApprovals },
     sql,
     payHalts: { store: new PayHaltStore(sql, loadHaltAutoTripConfig(process.env)), merchants: pay },
+    treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: UNWIRED_CONVERSION_INVENTORY },
   }),
 );
 export type { PayRouter } from './router.js';
