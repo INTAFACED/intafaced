@@ -100,6 +100,17 @@ export const GATES = [
       'this entry is the only thing holding it.',
   },
   {
+    id: 'worktree-remove-tests',
+    script: 'tooling/scripts/worktree-remove.test.mjs',
+    doctrine: 'multi-dev law, CONTRIBUTING.md §2',
+    why:
+      '`pnpm wt:rm` is the only sanctioned way to close out a worktree, and its promises (refuse uncommitted edits, ' +
+      'never delete the local branch, never `--force`) were pinned by a test that nothing ran: CONTRIBUTING.md and ' +
+      'AGENTS.md could keep saying one thing while a revert of worktree.mjs did another and CI stayed green. ' +
+      'node:test file, local git only, no network. Lives in tooling/scripts/, so the manifest check below does not ' +
+      'cover it: this entry is the only thing running it, and deleting it has to be a visible act.',
+  },
+  {
     id: 'path-collide-selftest',
     script: 'tooling/scripts/path-collide.mjs',
     args: ['--self-test'],

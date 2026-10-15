@@ -77,7 +77,7 @@ This is the single highest-leverage rule in this file. With multiple people and 
 ```bash
 pnpm wt feat/svc-identity-rank-events   # create worktree + install deps
 pnpm wt:list                            # what exists
-git worktree remove --force <worktree-path>  # from home, after preserving the work
+pnpm wt:rm <branch>                     # from home; refuses uncommitted edits, keeps the branch
 ```
 
 Worktrees live in `../intafaced-worktrees/<branch>` — a sibling of the main checkout, never inside it.
@@ -129,7 +129,7 @@ Approving something you have not read (when you _are_ the technical reviewer) is
 
 **Merge:** squash. One commit per PR on `main`, so history reads as a list of changes rather than a list of keystrokes.
 
-After merging, preserve any remaining local work, then remove the worktree from home with `git worktree remove --force <worktree-path>`. Keep the local branch. Never use `pnpm wt:rm`, `orca worktree rm`, or `git branch -D` for agent close-out.
+After merging, preserve any remaining local work, then remove the worktree from home with `pnpm wt:rm <branch>` (never `--force`). Keep the local branch. Never use `orca worktree rm` or `git branch -D` for agent close-out.
 
 ---
 
