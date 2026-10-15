@@ -30,6 +30,9 @@ import type { Amount } from '@intafaced/ledger-client';
  *     3. >>> beforePaymentAdmit <<<     (the guard's own row locks come here)
  *     4. payment row       (INSERT for payment.create, FOR UPDATE for authorize/capture)
  *     5. rail and ledger calls
+ *     6. >>> afterPaymentCaptureBooked <<<   (capture only: the guard's counter row
+ *        locks are taken here, LAST, so they are held for a few statements and
+ *        never across a rail or ledger call; see the hook's context below)
  *
  * Concretely: `beforePaymentAdmit` always runs inside the transaction that
  * performs the effect, AFTER the merchant lock is held and BEFORE the payment row
@@ -53,11 +56,15 @@ import type { Amount } from '@intafaced/ledger-client';
  *                                    flight (a booked hold, a frozen window, a
  *                                    held withdrawal) after a crash or a retry.
  * RULE FOR EVERY GUARD:
- *   - CAPS, LIMITS AND TIERS never refuse and never count a replay or a recovery.
- *     The rail already moved that money (or the first call already counted it);
- *     refusing it strands funds between the rail and the book. Count once, in
- *     the admit hook (`beforePaymentAdmit`, `beforePayoutAdmit`), not in the
- *     execute hook that resumes it.
+ *   - CAPS, LIMITS AND TIERS never refuse a replay or a recovery, and never count a
+ *     replay. The rail already moved that money (or the first call already counted
+ *     it); refusing it strands funds between the rail and the book. Count once, in
+ *     the admit hook (`beforePayoutAdmit`), not in the execute hook that resumes
+ *     it. The one exception is a payment CAPTURE: intake is counted in
+ *     `afterPaymentCaptureBooked`, after the ledger post, and a capture is NEVER
+ *     refused by a cap, fresh or not (its money has moved or is about to; see the
+ *     capture note below). A recovered capture whose count rolled back with the
+ *     transaction is counted there, once.
  *   - HALTS and screening MAY refuse `fresh` work (and a replay, which does
  *     nothing). A `recovery` that is BOOKKEEPING ONLY (a settlement post, a
  *     payment capture) MUST finish: refusing it leaves a frozen window or a
@@ -73,8 +80,18 @@ import type { Amount } from '@intafaced/ledger-client';
  *     the ledger, by business key). Where state cannot prove value moved it is
  *     `fresh`: a rail capture whose ledger post rolled back leaves no trace, and
  *     neither does a refund whose ledger post committed but whose reply was lost.
- *     So keep caps on create/authorize and on payouts, and treat the capture and
- *     refund guards as halts only.
+ * *     INTAKE CAPS COUNT CAPTURED VOLUME, never created payments: public checkout
+ *     lets anyone create a payment, so counting at create would let a stranger fill a
+ *     merchant's caps. Create only refuses read-only when the headroom is already
+ *     gone. The count itself happens in `afterPaymentCaptureBooked`. A capture is
+ *     classified `fresh` even when the payer's money has already moved (a rail
+ *     capture whose ledger post rolled back, a `captured` webhook or chain-watcher
+ *     event), so a cap refusal at capture would strand those funds in `authorized`.
+ *     A capture past a cap is therefore counted and FLAGGED for ops, not refused,
+ *     and the create-time headroom check is the only enforcement point (a cap can
+ *     be overshot by payments created before it filled). The count is keyed by
+ *     payment id, so it is exact once however often the capture runs.
+ *     The refund guard stays halts only.
  *   - `replay` is read BEFORE the payment row is locked, so two concurrent first
  *     calls for one payment (two authorizes racing) can BOTH see `fresh`; the
  *     loser then finds the work done and commits without moving value. A cap
@@ -98,12 +115,34 @@ import type { Amount } from '@intafaced/ledger-client';
  *   - `unavailable` the guard could not decide or a scope is halted: SERVICE_UNAVAILABLE.
  */
 export class PayGuardRefusal extends Error {
+  /**
+   * Best-effort follow-up a guard wants run AFTER the refusal, once the caller's
+   * transaction has rolled back and every lock it held is released (for example
+   * voiding a stale approval, which needs a second pool connection). A guard
+   * must not open that connection itself while it still holds the caller's
+   * locks. The caller that owns the transaction runs it with
+   * `settleGuardRefusal`, outside the transaction; a caller that does not simply
+   * never runs it, and the refusal is unchanged either way.
+   */
+  afterRollback?: () => Promise<void>;
   constructor(
     readonly code: `pay.guard_${string}`,
     readonly kind: 'refused' | 'unavailable',
   ) {
     super(code);
     this.name = 'PayGuardRefusal';
+  }
+}
+
+/** Run a refusal's `afterRollback` follow-up, if any. Never throws: a failed follow-up must not change the refusal. */
+export async function settleGuardRefusal(error: unknown): Promise<void> {
+  if (!(error instanceof PayGuardRefusal) || !error.afterRollback) return;
+  const followUp = error.afterRollback;
+  error.afterRollback = undefined;
+  try {
+    await followUp();
+  } catch {
+    // Best effort by contract.
   }
 }
 
@@ -148,6 +187,22 @@ export interface PaymentAdmitContext {
   /** The canonical admitted payload (amounts are decimal strings). */
   readonly payload: Readonly<Record<string, unknown>>;
   readonly replay: GuardReplay;
+}
+
+/**
+ * Context for `afterPaymentCaptureBooked`. Runs inside the capture transaction AFTER the
+ * ledger post and just before the payment row is marked `captured`, so a row lock taken
+ * here is held for a few statements, never across the rail or ledger call. The money has
+ * moved: a guard here must not refuse for a cap or a limit (only an infrastructure
+ * failure may throw, which rolls the transaction back and lets the capture be retried as
+ * a recovery). Counting must be idempotent by `paymentId`.
+ */
+export interface PaymentCaptureBookedContext {
+  readonly tx: Sql;
+  readonly paymentId: string;
+  readonly merchantId: string;
+  readonly assetId: string;
+  readonly amount: Amount;
 }
 
 /** Context for `beforePayoutAdmit`; runs inside the transaction that records a NEW payout admission. */
@@ -240,6 +295,7 @@ export interface UserMoneyWithdrawalContext {
 
 export interface PayGuards {
   beforePaymentAdmit(ctx: PaymentAdmitContext): Promise<void>;
+  afterPaymentCaptureBooked(ctx: PaymentCaptureBookedContext): Promise<void>;
   beforePayoutAdmit(ctx: PayoutAdmitContext): Promise<void>;
   beforePayoutExecute(ctx: PayoutExecuteContext): Promise<void>;
   beforeSettlementRun(ctx: SettlementRunContext): Promise<void>;
@@ -251,6 +307,7 @@ export interface PayGuards {
 export type PayGuardName = keyof PayGuards;
 export const PAY_GUARD_NAMES = [
   'beforePaymentAdmit',
+  'afterPaymentCaptureBooked',
   'beforePayoutAdmit',
   'beforePayoutExecute',
   'beforeSettlementRun',
@@ -267,6 +324,7 @@ const noop = async (): Promise<void> => undefined;
 /** Today's behaviour exactly: every hook proceeds. */
 export const NOOP_GUARDS: PayGuards = Object.freeze({
   beforePaymentAdmit: noop,
+  afterPaymentCaptureBooked: noop,
   beforePayoutAdmit: noop,
   beforePayoutExecute: noop,
   beforeSettlementRun: noop,
@@ -297,6 +355,7 @@ export function composeGuards(...parts: readonly PartialPayGuards[]): PayGuards 
   };
   return {
     beforePaymentAdmit: run<PaymentAdmitContext>('beforePaymentAdmit'),
+    afterPaymentCaptureBooked: run<PaymentCaptureBookedContext>('afterPaymentCaptureBooked'),
     beforePayoutAdmit: run<PayoutAdmitContext>('beforePayoutAdmit'),
     beforePayoutExecute: run<PayoutExecuteContext>('beforePayoutExecute'),
     beforeSettlementRun: run<SettlementRunContext>('beforeSettlementRun'),

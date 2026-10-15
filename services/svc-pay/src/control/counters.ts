@@ -53,12 +53,26 @@ export interface ConsumeResult {
 /** Add `amount` to a money counter if it stays at or under `limit`; refuse otherwise. */
 export async function consumeMoney(
   tx: Sql,
-  input: { merchantId: string; kind: MoneyCapKind; assetCode: string; periodKey: string; eventKey: string; amount: Amount; limit: Amount },
+  input: {
+    merchantId: string;
+    kind: MoneyCapKind;
+    assetCode: string;
+    periodKey: string;
+    eventKey: string;
+    amount: Amount;
+    limit: Amount;
+    /**
+     * False = add to the counter WITHOUT checking the limit. Only for finishing work
+     * whose value has already moved (a recovered capture): it must be counted so the
+     * book and the counter agree, and it must never be refused (seams/guards.ts).
+     */
+    enforce?: boolean;
+  },
 ): Promise<ConsumeResult> {
   const used = await lockCounter(tx, input.merchantId, input.kind, input.assetCode, input.periodKey);
   const seen = await tx`SELECT 1 FROM pay.control_cap_events WHERE event_key = ${input.eventKey} AND cap_kind = ${input.kind}`;
   if (seen.length > 0) return { counted: false, usedBefore: used };
-  if (used + input.amount > input.limit) throw new ControlRefusal(EXCEEDED[input.kind]);
+  if (input.enforce !== false && used + input.amount > input.limit) throw new ControlRefusal(EXCEEDED[input.kind]);
   await tx`
     INSERT INTO pay.control_cap_events (event_key, cap_kind, merchant_id, asset_code, period_key, amount)
     VALUES (${input.eventKey}, ${input.kind}, ${input.merchantId}, ${input.assetCode}, ${input.periodKey}, ${formatAmount(input.amount)}::numeric)
@@ -105,6 +119,18 @@ export async function readUsage(q: Sql, merchantId: string, kind: string, assetC
      WHERE merchant_id = ${merchantId} AND cap_kind = ${kind} AND asset_code = ${assetCode} AND period_key = ${periodKey}
   `;
   return rows[0] ? parseAmount(rows[0].used) : 0n;
+}
+
+/** Record that a business key was admitted, without adding to any counter (amount 0). Idempotent. */
+export async function markCounted(
+  tx: Sql,
+  input: { eventKey: string; kind: string; merchantId: string; assetCode: string; periodKey: string },
+): Promise<void> {
+  await tx`
+    INSERT INTO pay.control_cap_events (event_key, cap_kind, merchant_id, asset_code, period_key, amount)
+    VALUES (${input.eventKey}, ${input.kind}, ${input.merchantId}, ${input.assetCode}, ${input.periodKey}, 0)
+    ON CONFLICT DO NOTHING
+  `;
 }
 
 /** Has this business key already been counted for this cap? Read inside the admission transaction. */

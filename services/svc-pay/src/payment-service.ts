@@ -1,7 +1,7 @@
 import { postPayLedger } from './ledger-receipt.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { withPaymentAdmission, preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
-import { FRESH, NOOP_GUARDS, type GuardReplay, type PayGuards } from './seams/guards.js';
+import { FRESH, NOOP_GUARDS, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -2233,6 +2233,16 @@ export class PayService {
             }),
           );
 
+          // Seam: the money has moved. Intake is counted here, after the ledger post and with the
+          // counter locks held only from this point to the commit (seams/guards.ts). Never refuses a cap.
+          await this.guards.afterPaymentCaptureBooked({
+            tx,
+            paymentId: row.id,
+            merchantId: row.merchant_id,
+            assetId: row.currency,
+            amount: result.amount,
+          });
+
           await appendEvent(tx, row.id, 'captured', {
             amount: formatAmount(result.amount),
             railRef: result.railRef,
@@ -3538,7 +3548,9 @@ export class PayService {
           return { ...settlement, status: 'paid_out' as const, payoutMethod: admission.rail_id, payoutRef: accepted.railRef };
         });
       },
-    ).catch((error) => {
+    ).catch(async (error) => {
+      // The payout lock, its reserved connection and the admission transaction are all gone here.
+      await settleGuardRefusal(error);
       if (error instanceof PayoutAdmissionError) throw new PayError(error.message, error.code);
       throw error;
     });

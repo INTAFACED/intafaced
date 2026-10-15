@@ -11,8 +11,9 @@ import { CryptoNativeAdapter } from '../rails/crypto-native.js';
 import { BankPayoutAbsentAdapter } from '../rails/bank-payout.js';
 import { MemoryChain } from '../rails/chain-port.js';
 import { REFERENCE_RAIL_ROUTING_PROFILES } from '../routing/decide.js';
-import { composeGuards } from '../seams/guards.js';
-import type { ControlAccessPorts } from './access.js';
+import postgres from 'postgres';
+import { composeGuards, FRESH, settleGuardRefusal } from '../seams/guards.js';
+import { teamAccessPorts, type ControlAccessPorts } from './access.js';
 import { ApprovalService } from './approvals.js';
 import { ChangeService } from './changes.js';
 import { createControlGuards } from './guards.js';
@@ -339,6 +340,143 @@ describe('payout maker-checker', () => {
     });
     await expect(approvals.request(maker(), { merchantId, settlementId: randomUUID(), railId: 'crypto-native' })).rejects.toMatchObject({
       code: 'pay.settlement_not_payable',
+    });
+  });
+  describe('the finance role approves (W15 payout.approve), through the real team table', () => {
+    const ADMIN = '55555555-5555-4555-8555-555555555555';
+    const DEV = '66666666-6666-4666-8666-666666666666';
+    const team2 = () => new ApprovalService(sql, { access: teamAccessPorts(sql), now: () => clock });
+    const join = (mid: string, userId: string, role: string, status = 'active') =>
+      sql`INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+          VALUES (${mid}, ${userId}, ${role}, ${status}, ${OWNER_A}, ${status === 'active' ? new Date() : null})`;
+
+    it('an owner who asks cannot also approve, so a finance team member is the one who can; an owner-only wiring could never approve', async () => {
+      const s = await settled(merchantId, ['60'], 'w-team');
+      const svc = team2();
+      const req = await svc.request(principal(OWNER_A), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+      await expect(svc.decide(principal(OWNER_A), decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_self_approval' });
+      // Before the finance member joins nobody else can approve.
+      await expect(svc.decide(principal(FINANCE), decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_not_found' });
+      await join(merchantId, FINANCE, 'finance');
+      const done = await svc.decide(principal(FINANCE), decideInput(req));
+      expect(done.status).toBe('approved');
+      expect(done.checkerUserId).toBe(FINANCE);
+      expect((await payout(s.id)).status).toBe('paid_out');
+    });
+
+    it("admin may approve; developer, viewer, an invited or removed finance member, and another merchant's finance member may not", async () => {
+      const s = await settled(merchantId, ['60'], 'w-roles');
+      const svc = team2();
+      const req = await svc.request(principal(OWNER_A), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+      await join(merchantId, DEV, 'developer');
+      await join(merchantId, MAKER, 'viewer');
+      await join(merchantId, ADMIN, 'admin');
+      // Cannot even see the merchant's control room: same answer as an id that does not exist.
+      await expect(svc.decide(principal(DEV), decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_not_found' });
+      await expect(svc.decide(principal(MAKER), decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_not_found' });
+      await expect(svc.list(principal(DEV), { merchantId, limit: 5 })).rejects.toMatchObject({ code: 'pay.merchant_not_found' });
+      // A finance member of ANOTHER merchant.
+      await join(otherMerchantId, FINANCE, 'finance');
+      await expect(svc.decide(principal(FINANCE), decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_not_found' });
+      // Removed or only invited finance members hold nothing.
+      await sql`UPDATE pay.merchant_team_members SET status = 'removed', removed_at = now() WHERE user_id = ${FINANCE}`;
+      await expect(svc.decide(principal(FINANCE), decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_not_found' });
+      const INVITED = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+      await join(merchantId, INVITED, 'finance', 'invited');
+      await expect(svc.decide(principal(INVITED), decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_not_found' });
+      expect((await svc.decide(principal(ADMIN), decideInput(req))).status).toBe('approved');
+    });
+
+    it('a finance member may ask too (payout.request), so the maker and checker can both be team members', async () => {
+      const s = await settled(merchantId, ['60'], 'w-finreq');
+      const svc = team2();
+      await join(merchantId, FINANCE, 'finance');
+      await join(merchantId, ADMIN, 'admin');
+      const req = await svc.request(principal(FINANCE), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+      await expect(svc.decide(principal(FINANCE), decideInput(req))).rejects.toMatchObject({ code: 'pay.approval_self_approval' });
+      expect((await svc.decide(principal(ADMIN), decideInput(req))).status).toBe('approved');
+    });
+  });
+
+  describe('a payout retry needs its own approval, and the stale-approval void runs after the transaction', () => {
+    const guards = () => composeGuards(createControlGuards({ sql, mode: 'required' }));
+    const admitCtx = (tx: unknown, settlementId: string, attempt: number, destination = DEST_A) => ({
+      tx: tx as never,
+      settlementId,
+      merchantId,
+      assetId: 'USDT',
+      amount: amt('60'),
+      railId: 'crypto-native',
+      destination,
+      attempt,
+      replay: FRESH,
+    });
+    const usedPayout = async () =>
+      (
+        await sql<
+          Array<{ used: string }>
+        >`SELECT used FROM pay.control_cap_usage WHERE merchant_id = ${merchantId} AND cap_kind = 'daily_payout'`
+      )[0]?.used;
+
+    it('attempt 0 consumes the approval and counts 60 once; attempt 1 is refused until a new approval exists, and still counts nothing more', async () => {
+      const s = await settled(merchantId, ['60'], 'w-retry');
+      const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+      await approvals.decide(finance(), decideInput(req));
+      const g = guards();
+      await sql.begin((tx) => g.beforePayoutAdmit(admitCtx(tx, s.id, 0)));
+      expect(Number(await usedPayout())).toBe(60);
+      await expect(sql.begin((tx) => g.beforePayoutAdmit(admitCtx(tx, s.id, 1)))).rejects.toMatchObject({ code: 'pay.approval_required' });
+      expect(Number(await usedPayout())).toBe(60);
+      const again = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+      await approvals.decide(finance(), decideInput(again));
+      await sql.begin((tx) => g.beforePayoutAdmit(admitCtx(tx, s.id, 1)));
+      expect(Number(await usedPayout())).toBe(60);
+    });
+
+    it('the void is a follow-up of the refusal: it does not run inside the transaction, and runs on a pool of ONE connection once the transaction is over', async () => {
+      const s = await settled(merchantId, ['60'], 'w-void-late');
+      const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+      await approvals.decide(finance(), decideInput(req));
+      // A pool with a single connection. The admission transaction holds it, so any code that asked the pool for
+      // another connection while the transaction was open would wait forever (this test would hit its timeout).
+      const single = postgres(db.url, { max: 1, onnotice: () => undefined });
+      try {
+        const g = composeGuards(createControlGuards({ sql: single, mode: 'required' }));
+        const refusal = await single
+          .begin((tx) => g.beforePayoutAdmit(admitCtx(tx, s.id, 0, DEST_B)))
+          .then(
+            () => null,
+            (e: unknown) => e,
+          );
+        expect(refusal).toMatchObject({ code: 'pay.approval_required' });
+        // Nothing was voided inside the transaction, and nothing waited on a connection.
+        expect((await sql`SELECT status FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`)[0]!.status).toBe('approved');
+        // Transaction over, locks released: the caller runs the follow-up and the stale approval is voided.
+        await settleGuardRefusal(refusal);
+        expect((await sql`SELECT status FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`)[0]!.status).toBe('voided');
+        expect(await auditKinds(req.approvalId)).toContain('payout.approval_voided');
+        // Running it again changes nothing and never throws.
+        await settleGuardRefusal(refusal);
+      } finally {
+        await single.end({ timeout: 5 });
+      }
+    }, 20_000);
+
+    it('a follow-up that fails changes nothing about the refusal', async () => {
+      const dead = postgres(db.url, { max: 1, onnotice: () => undefined });
+      const s = await settled(merchantId, ['60'], 'w-void-dead');
+      const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
+      await approvals.decide(finance(), decideInput(req));
+      const g = composeGuards(createControlGuards({ sql: dead, mode: 'required' }));
+      const refusal = await sql
+        .begin((tx) => g.beforePayoutAdmit(admitCtx(tx, s.id, 0, DEST_B)))
+        .then(
+          () => null,
+          (e: unknown) => e,
+        );
+      await dead.end({ timeout: 5 });
+      expect(refusal).toMatchObject({ code: 'pay.approval_required' });
+      await expect(settleGuardRefusal(refusal)).resolves.toBeUndefined();
     });
   });
 });
