@@ -136,6 +136,8 @@ export interface World {
   readonly operatorNoteId: string;
   /** W1: one-shot targets for the founder positive controls (see control-seed.ts). */
   readonly control: ControlSeed;
+  /** An ACTIVE `finance` team member of merchant B (a real row in pay.merchant_team_members): the cross-merchant probe for teamAccessPorts. */
+  readonly bFinanceUserId: string;
   /** Every id of a merchant row seeded by `tag` (merchant, payments, settlement, link, endpoint, W15 rows). */
   idsOf(tag: Tag): string[];
   stop(): Promise<void>;
@@ -403,6 +405,12 @@ export async function createWorld(): Promise<World> {
   });
   for (const x of all) (entities[x.tag] as { approvalId: string }).approvalId = control.approvalIds[x.tag]!;
 
+  // A real finance member of merchant B: holds payout.approve on B and nothing on anyone else.
+  const bFinanceUserId = randomUUID();
+  await sql`
+    INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+    VALUES (${entities.B.merchantId}, ${bFinanceUserId}, 'finance', 'active', ${entities.B.userId}, now())`;
+
   await sql`
     INSERT INTO pay.network_registry (network_id, display_name, asset_codes, updated_by)
     VALUES (${REGISTRY_NETWORK_ID}, 'Isolation network', '["USDT"]'::jsonb, 'fixture')`;
@@ -429,6 +437,7 @@ export async function createWorld(): Promise<World> {
     outbound,
     e: entities,
     founderUserId,
+    bFinanceUserId,
     operatorNoteId: operatorNote[0]!.id,
     control,
     idsOf(tag) {
