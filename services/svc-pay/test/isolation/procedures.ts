@@ -43,7 +43,7 @@ export const FOUNDER_EXTRA = [
 ] as const;
 
 /** Prefixes whose procedures must be founder-guarded (mirror of FOUNDER_ONLY_PREFIXES, restated so a change there is noticed). */
-export const FOUNDER_PREFIXES = ['founderAdmin.', 'payHalts.set', 'payHalts.history'] as const;
+export const FOUNDER_PREFIXES = ['founderAdmin.', 'payHalts.set', 'payHalts.history', 'payHalts.operatorStatus'] as const;
 
 /** A merchant id nobody owns: the control-write targets it, so even a broken guard mutates nothing real. */
 const NOBODY = ghost();
@@ -88,15 +88,19 @@ const networkChange = () => ({
 });
 
 export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
+  // A real halt write, but on the one scope nothing in this world runs (conversion), and the fixture wires no
+  // guards. Repeats answer `conflict` (version moved), which is still a founder PASS.
   'payHalts.set': () => ({
     requestId: randomUUID(),
-    scope: 'intake',
+    scope: 'conversion',
     target: { level: 'global' },
     halted: true,
-    reason: 'drill',
+    reason: 'isolation drill',
     expectedVersion: '0',
   }),
   'payHalts.history': () => ({ limit: 10 }),
+  // Takes no input (`{}` is what the sweep sends by default); listed so the entry is explicit.
+  'payHalts.operatorStatus': () => undefined,
   'founderAdmin.merchants.list': () => ({ limit: 10 }),
   'founderAdmin.merchants.drilldown': () => ({ merchantId: NOBODY, window }),
   'founderAdmin.metrics.global': () => ({ window }),
@@ -242,6 +246,8 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, linkId: i.linkId }),
   },
   { path: 'merchant.balances', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, assetId: 'USDT' }) },
+  // W5: the merchant-readable halt status for a named merchant (merchant-safe shape; an unnamed read is the global switch only).
+  { path: 'payHalts.status', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   // payment.*
   { path: 'payment.create', scope: 'pay:write', own: 'service', input: (i) => paymentBody(i) },
   { path: 'payment.authorize', scope: 'pay:write', own: 'service', input: (i) => ({ paymentId: i.paymentId }) },

@@ -9,7 +9,7 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0043-0049 | unassigned                                            | free; ask W0 before using                       |
 | 0050-0054 | W1 merchant control room                              | reserved                                        |
 | 0055-0057 | W2 metrics read model                                 | reserved                                        |
-| 0058-0059 | W5 halts and treasury exposure                        | reserved                                        |
+| 0058-0059 | W5 halts and treasury exposure                        | used                                            |
 | 0060-0061 | W6 conversion                                         | reserved                                        |
 | 0062      | W9 screening                                          | reserved                                        |
 | 0063      | W10 B2B ramp (switched off)                           | reserved                                        |

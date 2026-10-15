@@ -33,6 +33,8 @@ import { createMerchantStateRouter } from '../../src/merchant-state-router.js';
 import { MerchantPayoutDestinationStore } from '../../src/merchant-payout-destination.js';
 import { MerchantWebhookService, PostgresMerchantWebhookStore } from '../../src/merchant-webhooks.js';
 import { createMetricsRuntime, type MetricsRuntime } from '../../src/metrics/index.js';
+import { loadHaltAutoTripConfig } from '../../src/halts/config.js';
+import { PayHaltStore } from '../../src/halts/store.js';
 import { createPayNamespaces } from '../../src/namespaces/index.js';
 import { PayService } from '../../src/payment-service.js';
 import { PspModeService } from '../../src/psp-mode.js';
@@ -44,6 +46,8 @@ import { createPayRouter } from '../../src/router.js';
 import { createSubMerchantRouter } from '../../src/submerchant-router.js';
 import { SubMerchantService } from '../../src/submerchants.js';
 import { unwiredApprovalConsumer } from '../../src/action-approval-consume.js';
+import { loadTreasuryLimits } from '../../src/treasury/config.js';
+import { UNWIRED_CONVERSION_INVENTORY } from '../../src/treasury/exposure.js';
 import { UserMoneyService } from '../../src/user-money-service.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -227,6 +231,10 @@ function composeRouter(parts: {
       metrics: parts.metrics,
       registries: { sql: parts.sql, approvals: actionApprovals },
       sql: parts.sql, // W15: merchantOps.* and founderAdmin.ops.*
+      // W5: the same Postgres halt store the guards read, and the treasury exposure read. Limits come from an
+      // EMPTY environment, as in an unconfigured deployment (no defaults); the conversion reader is the unwired one.
+      payHalts: { store: new PayHaltStore(parts.sql, loadHaltAutoTripConfig({})), merchants: parts.pay },
+      treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: UNWIRED_CONVERSION_INVENTORY },
     }),
   );
 }

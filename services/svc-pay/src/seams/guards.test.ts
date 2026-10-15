@@ -4,6 +4,8 @@ import { composeGuards, FRESH, NOOP_GUARDS, PAY_GUARD_NAMES, PayGuardRefusal, ty
 import { buildPayGuards } from './registry.js';
 
 const sql = {} as Sql;
+/** A readable halt store with nothing halted: every query answers no rows. */
+const readableSql = (async () => []) as unknown as Sql;
 const payment = { tx: sql, kind: 'payment.create' as const, paymentId: 'p', merchantId: 'm', payload: {}, replay: FRESH };
 
 describe('guard seams: defaults', () => {
@@ -24,13 +26,13 @@ describe('guard seams: defaults', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('the registry with no stream implementations behaves as no-ops (nothing refuses today)', async () => {
-    const guards = buildPayGuards({ sql });
+  it('the registry (W5 halts) lets intake through when nothing is halted and, with treasury enforcement at its default (off), does not limit-check a payout', async () => {
+    const guards = buildPayGuards({ sql: readableSql });
     for (const name of PAY_GUARD_NAMES) expect(typeof guards[name]).toBe('function');
-    await expect(guards.beforePaymentAdmit(payment)).resolves.toBeUndefined();
+    await expect(guards.beforePaymentAdmit({ ...payment, tx: readableSql })).resolves.toBeUndefined();
     await expect(
       guards.beforePayoutAdmit({
-        tx: sql,
+        tx: readableSql,
         settlementId: 's',
         merchantId: 'm',
         assetId: 'USDT',
@@ -60,9 +62,9 @@ describe('refund and user-money withdrawal seams', () => {
   it('default to no-ops, also through the registry', async () => {
     await expect(NOOP_GUARDS.beforeRefund(refund)).resolves.toBeUndefined();
     await expect(NOOP_GUARDS.beforeUserMoneyWithdrawal(withdrawal)).resolves.toBeUndefined();
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql: readableSql });
     await expect(guards.beforeRefund(refund)).resolves.toBeUndefined();
-    await expect(guards.beforeUserMoneyWithdrawal(withdrawal)).resolves.toBeUndefined();
+    await expect(guards.beforeUserMoneyWithdrawal({ ...withdrawal, tx: readableSql })).resolves.toBeUndefined();
   });
 
   it('refuse closed with the same error mapping as every other hook', async () => {

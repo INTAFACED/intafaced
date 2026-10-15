@@ -446,6 +446,7 @@ describe('merchant drill-down', () => {
         },
         halts: {
           readable: true,
+          autoTrip: { enabled: false, consecutiveFailures: null },
           states: [
             {
               scope: 'payout',
@@ -581,7 +582,10 @@ describe('treasury and halts', () => {
     services({
       'founderAdmin.treasury.exposure': {
         freshness: fresh,
-        perAsset: [{ assetCode: 'USDT', openConversionInventory: '1000', pendingPayouts: '50.5', limit: null }],
+        perAsset: [
+          { assetCode: 'USDT', openConversionInventory: '1000', pendingPayouts: '50.5', limit: null },
+          { assetCode: 'EUR', openConversionInventory: null, pendingPayouts: '2', limit: '10' },
+        ],
       },
       'payHalts.history': [
         {
@@ -591,13 +595,28 @@ describe('treasury and halts', () => {
           reason: 'Venue failing',
           source: 'auto_trip',
           actorUserId: null,
+          confirmedByUserId: null,
           version: '4',
           changedAt: '2026-10-15T09:00:00.000Z',
+        },
+        {
+          scope: 'payout',
+          target: { level: 'global' },
+          halted: false,
+          reason: 'Rail repaired',
+          source: 'operator',
+          actorUserId: '11111111-1111-4111-8111-111111111111',
+          confirmedByUserId: '22222222-2222-4222-8222-222222222222',
+          version: '5',
+          changedAt: '2026-10-15T10:00:00.000Z',
         },
       ],
     });
     const out = html(await Treasury());
     expect(out).toContain('1,000.00');
+    expect(out).toContain('Not measured yet');
+    expect(out).toContain('confirmed by a second founder');
+    expect(out).toContain('Rail repaired');
     expect(out).toContain('Not set: conversions refuse');
     expect(out).toContain('Automatic trip');
     expect(out).toContain('Venue failing');

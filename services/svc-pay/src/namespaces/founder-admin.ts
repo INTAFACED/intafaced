@@ -19,9 +19,12 @@ import {
 } from '@intafaced/contracts';
 import { z } from 'zod';
 import type { FounderAuthority } from '../founder-authority.js';
+import type { Sql } from 'postgres';
 import { metricsToTrpcError, type MetricsRuntime } from '../metrics/index.js';
 import { createFounderOpsRouter, type FounderOpsRouter } from '../merchant-ops/router.js';
 import { notBuilt } from './errors.js';
+import { treasuryExposureView, type ConversionInventorySource } from '../treasury/exposure.js';
+import type { TreasuryLimits } from '../treasury/config.js';
 import { founderProcedure } from './founder-procedure.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
 
@@ -32,6 +35,13 @@ import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/
  * `scopedProcedure('admin:read')`: that scope can sit on a long-lived API key.
  * The static inventory test (G7) fails the build if one is not.
  */
+/** W5: what `founderAdmin.treasury.exposure` reads. Absent = still a `pay.not_built` stub. */
+export interface FounderTreasuryDeps {
+  readonly sql: Sql;
+  readonly limits: TreasuryLimits;
+  readonly inventory: ConversionInventorySource;
+}
+
 /** Optional mounts for `founderAdmin`. Each workstream adds its own key here. */
 export interface FounderAdminMounts {
   /** W2: metrics reader. Without it the metrics and merchant-list procedures refuse with `pay.not_built`. */
@@ -40,10 +50,12 @@ export interface FounderAdminMounts {
   registries?: RegistriesMountDeps;
   /** W15: operator notes (`founderAdmin.ops.*`). Always mounted; without a supplied router it runs with no database and refuses with `pay.not_built`. */
   ops?: FounderOpsRouter;
+  /** W5: treasury exposure read (`founderAdmin.treasury.exposure`). Without it the procedure refuses with `pay.not_built`. */
+  treasury?: FounderTreasuryDeps;
 }
 
 export function createFounderAdminRouter(founderAuthority: FounderAuthority, mounts: FounderAdminMounts = {}) {
-  const { metrics, registries } = mounts;
+  const { metrics, registries, treasury } = mounts;
   const ops = mounts.ops ?? createFounderOpsRouter({ founderAuthority });
   const founder = founderProcedure(founderAuthority);
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -112,7 +124,12 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
         exposure: founder
           .input(z.object({}).strict())
           .output(founderTreasuryExposureSchema)
-          .query(() => notBuilt('founderAdmin.treasury.exposure')),
+          .query(async () => {
+            if (!treasury) return notBuilt('founderAdmin.treasury.exposure');
+            // Computed live from the payout book, withdrawals and the conversion reader: "as of" is now.
+            const perAsset = await treasuryExposureView(treasury.sql, treasury.limits, treasury.inventory);
+            return { freshness: { asOf: new Date().toISOString(), lagSeconds: 0 }, perAsset };
+          }),
       }),
     }),
   });

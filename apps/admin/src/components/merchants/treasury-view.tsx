@@ -49,7 +49,13 @@ export function TreasuryView({ data }: { data: TreasuryData }) {
                   {data.exposure.data.perAsset.map((a) => (
                     <tr key={a.assetCode}>
                       <th scope="row">{a.assetCode}</th>
-                      <td className="mp-right mp-num">{formatAmount(a.openConversionInventory)}</td>
+                      <td className="mp-right mp-num">
+                        {a.openConversionInventory === null ? (
+                          <span className="mp-muted">Not measured yet</span>
+                        ) : (
+                          formatAmount(a.openConversionInventory)
+                        )}
+                      </td>
                       <td className="mp-right mp-num">{formatAmount(a.pendingPayouts)}</td>
                       <td className="mp-right mp-num">
                         {a.limit === null ? <span className="mp-warn">Not set: conversions refuse</span> : formatAmount(a.limit)}
@@ -105,7 +111,11 @@ export function TreasuryView({ data }: { data: TreasuryData }) {
                       {h.source === 'auto_trip' ? (
                         'Automatic trip'
                       ) : h.source === 'operator' ? (
-                        'A founder'
+                        h.confirmedByUserId ? (
+                          'A founder, confirmed by a second founder'
+                        ) : (
+                          'A founder'
+                        )
                       ) : (
                         <span className="mp-muted">Unknown</span>
                       )}

@@ -114,7 +114,8 @@ export const founderTreasuryExposureSchema = z
       z
         .object({
           assetCode: payAssetCodeSchema,
-          openConversionInventory: payAmountStringSchema,
+          /** Null while the conversion path has no inventory reader: "not measured", never zero. */
+          openConversionInventory: payAmountStringSchema.nullable(),
           pendingPayouts: payAmountStringSchema,
           /** Null until an owner sets a limit; a missing limit refuses, it is not "unlimited". */
           limit: payAmountStringSchema.nullable(),

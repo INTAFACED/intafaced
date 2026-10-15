@@ -5,6 +5,10 @@ import { createPayfacAuthorityGuard, drainPayfacPermissionIntents } from './payf
 import { createFounderAuthority } from './founder-authority.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
+import { loadHaltAutoTripConfig } from './halts/config.js';
+import { PayHaltStore } from './halts/store.js';
+import { loadTreasuryLimits } from './treasury/config.js';
+import { UNWIRED_CONVERSION_INVENTORY } from './treasury/exposure.js';
 import { buildPayGuards } from './seams/registry.js';
 import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
@@ -377,11 +381,19 @@ export const appRouter = mergeRouters(
   // other and the subtree fence would be measuring the wrong actor.
   createSubMerchantRouter(subMerchants, pay),
   createSubscriptionRouter(subscriptions, pay, subMerchants),
-  // W0 stubs: merchantControl, merchantMetrics, founderAdmin, conversion, payHalts.
+  // W0 stubs: merchantControl, merchantMetrics, founderAdmin, conversion.
   // Every procedure refuses `pay.not_built` until its workstream fills it in.
   // W16 registries (founderAdmin.registries.*) are mounted inside founderAdmin through `registries`.
   // W15 (merchantOps.*, founderAdmin.ops.*) needs the database handle.
-  createPayNamespaces({ founderAuthority, metrics, registries: { sql, approvals: actionApprovals }, sql }),
+  // payHalts is built (W5): the same Postgres halt store the guards read.
+  createPayNamespaces({
+    founderAuthority,
+    metrics,
+    registries: { sql, approvals: actionApprovals },
+    sql,
+    payHalts: { store: new PayHaltStore(sql, loadHaltAutoTripConfig(process.env)), merchants: pay },
+    treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: UNWIRED_CONVERSION_INVENTORY },
+  }),
 );
 export type { PayRouter } from './router.js';
 export type { MerchantStateRouter } from './merchant-state-router.js';

@@ -54,8 +54,17 @@ export const payHaltStatusSchema = z
   .strict();
 export type PayHaltStatus = z.infer<typeof payHaltStatusSchema>;
 
-/** The same status with operator fields, for `founderAdmin.*` only. */
-export const payHaltOperatorStatusSchema = z.object({ readable: z.boolean(), states: z.array(payHaltStateSchema) }).strict();
+/**
+ * Auto-trip posture. `enabled: false` means no failure count is configured, so NOTHING trips by itself;
+ * there is no default count. Operator-only.
+ */
+export const payHaltAutoTripSchema = z.object({ enabled: z.boolean(), consecutiveFailures: z.number().int().min(1).nullable() }).strict();
+export type PayHaltAutoTrip = z.infer<typeof payHaltAutoTripSchema>;
+
+/** The same status with operator fields, for `founderAdmin.*` and `payHalts.operatorStatus` only. */
+export const payHaltOperatorStatusSchema = z
+  .object({ readable: z.boolean(), autoTrip: payHaltAutoTripSchema, states: z.array(payHaltStateSchema) })
+  .strict();
 export type PayHaltOperatorStatus = z.infer<typeof payHaltOperatorStatusSchema>;
 
 /** The actor comes from founder authentication, never this body. */
@@ -74,10 +83,18 @@ export type PayHaltSetInput = z.infer<typeof payHaltSetInputSchema>;
 export const payHaltSetResultSchema = z
   .object({
     requestId: payRequestIdSchema,
-    outcome: z.enum(['changed', 'noop', 'conflict']),
+    /**
+     * `pending_confirmation`: a CLEAR needs a second, distinct founder. The first call records the
+     * proposal; the second founder repeats the same call (same `requestId`) to apply it.
+     */
+    outcome: z.enum(['changed', 'noop', 'conflict', 'pending_confirmation']),
     state: payHaltStateSchema,
   })
   .strict();
+
+/** One audited change. `confirmedByUserId` is the second founder on a dual-controlled clear. */
+export const payHaltEventSchema = payHaltStateSchema.extend({ confirmedByUserId: z.string().uuid().nullable() }).strict();
+export type PayHaltEvent = z.infer<typeof payHaltEventSchema>;
 
 export const payHaltHistoryInputSchema = z
   .object({ scope: payHaltScopeSchema.optional(), target: payHaltTargetSchema.optional(), limit: z.number().int().min(1).max(200) })
