@@ -165,6 +165,8 @@ describe('plain-English refusals', () => {
       'action_approval.same_person',
       'action_approval.payload_mismatch',
       'action_approval.expired',
+      'action_approval.founder_only',
+      'action_approval.not_founders',
       'missing_operator',
       'operator.denied',
     ];

@@ -172,7 +172,15 @@ export async function POST(request: Request) {
       }
       const approvalId = typeof body.approvalId === 'string' ? body.approvalId.trim() : '';
       if (approvalId === '' || approvalId.length > 128) throw new AdminSessionError('admin.merchants_input', 400);
-      const approved = await payCall(ctx, 'actionApproval.approve', 'POST', { approvalId }, parseWith(actionApprovalSchema), 'identity');
+      // Bind the approval to the change this founder just reviewed: identity refuses unless its stored hash equals this one.
+      const approved = await payCall(
+        ctx,
+        'actionApproval.approve',
+        'POST',
+        { approvalId, expectedPayloadHash: hash.payloadHash },
+        parseWith(actionApprovalSchema),
+        'identity',
+      );
       if (approved.kind !== 'ok') return fromFailure(approved);
       const a = approved.data;
       return json({

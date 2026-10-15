@@ -622,8 +622,18 @@ const COPY: Record<string, PlainRefusal> = {
   },
   'action_approval.payload_mismatch': {
     title: 'The approval is for a different change',
-    body: 'You changed something after the second founder approved. An approval only covers the exact change it was given for.',
-    next: 'Review the change again and ask for a fresh approval.',
+    body: 'The request on file is not the same change as the one you are looking at. An approval only covers the exact change it was given for.',
+    next: 'Review the change again and ask for a fresh request.',
+  },
+  'action_approval.founder_only': {
+    title: 'Only the two founders can do this',
+    body: 'This kind of change needs two different founders, and one of them is not an enabled founder right now.',
+    next: 'Ask the other founder, or have a founder check the access list.',
+  },
+  'action_approval.not_founders': {
+    title: 'Only the two founders can approve this',
+    body: 'The approval was not made by two different, enabled founders.',
+    next: 'Start a new request and have the other founder approve it.',
   },
   'action_approval.target_mismatch': {
     title: 'The approval is for something else',

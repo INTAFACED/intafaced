@@ -250,6 +250,41 @@ describe('POST as a signed-in founder', () => {
     expect(calls.some((c) => c.url.includes('actionApproval'))).toBe(false);
   });
 
+  it('approve sends the reviewed payload hash with the approval id, so identity can bind the approval to it', async () => {
+    configure();
+    const calls = upstream({
+      'founderAdmin.registries.preview': () => ok(preview),
+      'actionApproval.approve': () => ok(approvalRow({ status: 'APPROVED' })),
+    });
+    const res = await POST(post({ action: 'approve', registry: 'venue', change: venueChange, approvalId: 'ap-1' }, authed()));
+    expect((await res.json()).matchesReviewedChange).toBe(true);
+    const approveCall = calls.find((c) => c.url.includes('actionApproval.approve'));
+    expect(JSON.parse(String(approveCall?.init.body))).toEqual({ approvalId: 'ap-1', expectedPayloadHash: 'sha256:abc' });
+  });
+
+  it('approve shows a plain-English refusal when identity says the approval is for a different change', async () => {
+    configure();
+    upstream({
+      'founderAdmin.registries.preview': () => ok(preview),
+      'actionApproval.approve': () =>
+        Response.json(
+          {
+            error: {
+              message: 'different payload [action_approval.payload_mismatch]',
+              code: -32603,
+              data: { code: 'PRECONDITION_FAILED', httpStatus: 412, cause: { code: 'action_approval.payload_mismatch' } },
+            },
+          },
+          { status: 412 },
+        ),
+    });
+    const res = await POST(post({ action: 'approve', registry: 'venue', change: venueChange, approvalId: 'ap-1' }, authed()));
+    expect(res.status).toBe(412);
+    const body = await res.json();
+    expect(body.refusal.title).toBe('The approval is for a different change');
+    expect(JSON.stringify([body.refusal.title, body.refusal.body, body.refusal.next])).not.toMatch(/action_approval|412/);
+  });
+
   it('approve flags an approval that covers a different change', async () => {
     configure();
     upstream({
