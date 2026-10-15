@@ -53,7 +53,7 @@ const receipt = {
   blockedExternal: [],
   realDevice: 'NOT VERIFIED: Chromium virtual authenticator is not Touch ID proof',
 };
-let account, token, passwordSession, authSession, browser, page, context, cdp, credentialId, lockHeld;
+let account, token, passwordSession, authSession, browser, page, context, cdp, credentialId, lockHeld, expect;
 function privateWrite(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
   fs.chmodSync(file, 0o600);
@@ -142,7 +142,9 @@ function parseRendered(v, asset = '') {
 
 async function signIn(register) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-  const { chromium } = createRequire(path.join(root, 'package.json'))('@playwright/test');
+  const playwright = createRequire(path.join(root, 'package.json'))('@playwright/test');
+  const { chromium } = playwright;
+  expect = playwright.expect;
   browser = await chromium.launch({
     headless: true,
     executablePath: process.env.S3_BROWSER || '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
@@ -282,13 +284,25 @@ async function trade() {
   const markets = await read('/markets?limit=500');
   const market = markets.find((m) => m.symbol === 'BTC/USDT');
   check('Real BTC market is orderable', Boolean(market?.orderable));
-  const book = await read('/orderbook/BTC%2FUSDT?limit=200');
+  let book;
+  await expect
+    .poll(
+      async () => {
+        book = await read('/orderbook/BTC%2FUSDT?limit=200');
+        return typeof book.asks?.[0]?.[0] === 'string' && /^\d+(\.\d+)?$/.test(book.asks[0][0]);
+      },
+      { timeout: 20000, message: 'Real order book must have a best ask before review' },
+    )
+    .toBe(true);
   const ask = units(book.asks?.[0]?.[0]);
+  receipt.marketSnapshot = { bestAsk: book.asks[0][0], asks: book.asks.length, bids: book.bids.length, timestamp: book.timestamp };
   const lastPrice = page.getByLabel('Last price', { exact: true });
   await lastPrice.waitFor({ state: 'visible' });
+  await expect(lastPrice).toHaveText(/^[\d,]+(?:\.\d+)?$/, { timeout: 20000 });
   const shownPrice = (await lastPrice.innerText()).replace(/[$,\s]/g, '');
   const shownAsk = page.locator('.dk-bk-row[data-side="ask"] .dk-bk-price').first();
   await shownAsk.waitFor({ state: 'visible' });
+  await expect(shownAsk).toHaveText(/^[\d,]+(?:\.\d+)?$/, { timeout: 20000 });
   check(
     'LOCAL TEST Trade renders positive ticker and book prices',
     units(shownPrice) > 0n && parseRendered(await shownAsk.innerText()) > 0n,
