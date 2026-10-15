@@ -3,6 +3,8 @@ import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
 import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
 import { createPayfacAuthorityGuard, drainPayfacPermissionIntents } from './payfac-authority.js';
 import { createFounderAuthority } from './founder-authority.js';
+import { createPayNamespaces } from './namespaces/index.js';
+import { buildPayGuards } from './seams/registry.js';
 import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
 import postgres from 'postgres';
@@ -184,7 +186,9 @@ const identityAdmission = createIdentityOperationDecisionClient({
   secret: env.IDENTITY_ADMISSION_SECRET,
 });
 const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPermissionIntents(tx, current, identityAdmission));
+const payGuards = buildPayGuards({ sql });
 const pay = new PayService(sql, ledger, rails, {
+  guards: payGuards,
   identityOperationAdmission: identityAdmission,
   identityAuthorityGuard: createPayfacAuthorityGuard(subMerchants),
   payoutDestinations,
@@ -293,6 +297,7 @@ for (const railId of env.PAY_OPERATOR_CREDIT_RAILS) {
 }
 
 const userMoney = new UserMoneyService(sql, ledger, rails, {
+  guards: payGuards,
   operatorCreditRails,
   valueMovement: railPosture.policy,
 });
@@ -343,23 +348,22 @@ const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
 
+/** One live founder authority, shared by the founder console writer and every founder-only namespace. */
+const founderAuthority = createFounderAuthority({
+  identityUrl: env.IDENTITY_URL,
+  serviceSecret: env.INTERNAL_SERVICE_SECRET,
+  principalSecret: env.EDGE_PRINCIPAL_SECRET,
+});
+
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals),
   createMerchantStateRouter(
     merchantState,
-    new MerchantAccountControls(
-      sql,
-      createFounderAuthority({
-        identityUrl: env.IDENTITY_URL,
-        serviceSecret: env.INTERNAL_SERVICE_SECRET,
-        principalSecret: env.EDGE_PRINCIPAL_SECRET,
-      }),
-      async (tx, merchantId) => {
-        await drainPendingPayoutIdentityIntents(tx, merchantId, identityAdmission);
-        await drainPendingPaymentIdentityIntents(tx, merchantId, identityAdmission);
-      },
-    ),
+    new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {
+      await drainPendingPayoutIdentityIntents(tx, merchantId, identityAdmission);
+      await drainPendingPaymentIdentityIntents(tx, merchantId, identityAdmission);
+    }),
   ),
   createKybPspRouter(kyb, pspMode, actionApprovals, pay),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
@@ -368,12 +372,16 @@ export const appRouter = mergeRouters(
   // other and the subtree fence would be measuring the wrong actor.
   createSubMerchantRouter(subMerchants, pay),
   createSubscriptionRouter(subscriptions, pay, subMerchants),
+  // W0 stubs: merchantControl, merchantMetrics, founderAdmin, conversion, payHalts.
+  // Every procedure refuses `pay.not_built` until its workstream fills it in.
+  createPayNamespaces({ founderAuthority }),
 );
 export type { PayRouter } from './router.js';
 export type { MerchantStateRouter } from './merchant-state-router.js';
 export type { KybPspRouter } from './kyb-router.js';
 export type { SubMerchantRouter } from './submerchant-router.js';
 export type { SubscriptionRouter } from './subscription-router.js';
+export type { PayNamespacesRouter } from './namespaces/index.js';
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 

@@ -221,6 +221,9 @@ function toTrpcError(err: unknown): TRPCError {
       // input is malformed, and the same request may succeed later.
       case 'bank.loan_not_settled':
       case 'bank.loan_not_drawable':
+      // The last attempt on a pending loan is inside the in-flight bound: wait.
+      case 'bank.loan_attempt_too_recent':
+      case 'bank.loan_collateral_rejected':
       case 'bank.loan_liquidating':
       case 'bank.margin_call_required':
       case 'bank.loan_closed':
@@ -2124,12 +2127,27 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     /** Give up on a pending loan and give the borrower their collateral back. */
     abandonPendingLoan: scopedProcedure('admin:treasury')
       .input(z.object({ loanId: z.string().uuid(), ...actionApprovalFields }))
-      .output(z.object({ released: amountString, ledgerTxId: z.string().nullable(), confirmOperatorId: z.string() }))
+      .output(
+        z.object({
+          released: amountString,
+          ledgerTxId: z.string().nullable(),
+          /** True when the draw had in fact booked: the loan was completed to active and no collateral moved. */
+          adopted: z.boolean(),
+          drawLedgerTxId: z.string().nullable(),
+          confirmOperatorId: z.string(),
+        }),
+      )
       .mutation(async ({ input }) =>
         guard(async () => {
           const confirmOperatorId = await consumeOpsApproval(input, 'bank.abandon_pending_loan', { loanId: input.loanId });
           const result = await bank.loans.abandonPending(input.loanId);
-          return { released: formatAmount(result.released), ledgerTxId: result.ledgerTxId, confirmOperatorId };
+          return {
+            released: formatAmount(result.released),
+            ledgerTxId: result.ledgerTxId,
+            adopted: result.adopted,
+            drawLedgerTxId: result.drawLedgerTxId,
+            confirmOperatorId,
+          };
         }),
       ),
 

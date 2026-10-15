@@ -1,6 +1,7 @@
 import { postPayLedger } from './ledger-receipt.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { withPaymentAdmission, preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
+import { FRESH, NOOP_GUARDS, type GuardReplay, type PayGuards } from './seams/guards.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -650,6 +651,12 @@ export interface WebhookOutcome {
 
 export interface PayServiceOptions {
   /**
+   * Guard hooks called on payment admission, payout, settlement and conversion
+   * paths (seams/guards.ts). Omitted = no-ops, i.e. behaviour before the seams.
+   */
+  readonly guards?: PayGuards;
+
+  /**
    * Fee rate used when a merchant's pricing does not state one.
    *
    * There is no silent default of zero: a merchant settled at 0 bps by accident
@@ -940,6 +947,7 @@ export class PayService {
   private readonly identityOperationAdmission: IdentityPayoutAdmissionPort | undefined;
   private readonly identityAuthorityGuard: OwnerIdentityAuthorityPort | undefined;
   private readonly afterPayoutAdmission: (() => void | Promise<void>) | undefined;
+  private readonly guards: PayGuards;
 
   constructor(
     private readonly sql: Sql,
@@ -967,6 +975,7 @@ export class PayService {
     this.identityOperationAdmission = options.identityOperationAdmission;
     this.identityAuthorityGuard = options.identityAuthorityGuard;
     this.afterPayoutAdmission = options.afterPayoutAdmission;
+    this.guards = options.guards ?? NOOP_GUARDS;
   }
 
   /**
@@ -1622,6 +1631,20 @@ export class PayService {
           railAdapter: adapter.id,
           metadata: { source: 'checkout', linkId: link.id },
         };
+        // Seam: public checkout is intake too. Same hook and same lock order as
+        // createPayment (seams/guards.ts): link row, merchant row (locked above),
+        // THIS GUARD, then the payment insert. Before the admission record is
+        // written so a refusal leaves nothing behind. The payment id is fresh, so
+        // this is always a fresh admission; when identity admission is on, the
+        // createPayment call below finds the row and is classified a replay.
+        await this.guards.beforePaymentAdmit({
+          tx,
+          kind: 'payment.create',
+          paymentId,
+          merchantId: link.merchantId,
+          payload: paymentCreationPayload(creationInput, paymentId),
+          replay: FRESH,
+        });
         if (this.identityOperationAdmission)
           await preparePaymentAdmission(
             tx,
@@ -1826,7 +1849,7 @@ export class PayService {
         payload: paymentCreationPayload(input, paymentId),
       },
       async (tx, admitted) => {
-        if (!admitted) this.assertMerchantActive(await this.lockMerchantEligibility(tx, input.merchantId));
+        // Merchant lock and the guard already ran in admitPaymentOperation.
         const existing = await this.existingPaymentCreation(tx, input, paymentId);
         if (existing) return existing;
         const row = await insertPayment(tx, { ...input, id: paymentId });
@@ -1842,7 +1865,23 @@ export class PayService {
         this.identityOperationAdmission,
         input,
         async (tx) => this.assertMerchantActive(await this.lockMerchantEligibility(tx, input.merchantId)),
-        effect,
+        // Seam: runs inside the effect transaction on both the identity and the
+        // no-identity path, so no admission skips it, and at ONE point in the lock
+        // order on both (seams/guards.ts): merchant row, guard, payment row. With
+        // identity on, the wrapper has already taken the merchant lock; without
+        // it, take the same lock here, before the guard.
+        async (tx, admitted) => {
+          if (!admitted) this.assertMerchantActive(await this.lockMerchantEligibility(tx, input.merchantId));
+          await this.guards.beforePaymentAdmit({
+            tx,
+            kind: input.kind,
+            paymentId: input.paymentId,
+            merchantId: input.merchantId,
+            payload: input.payload,
+            replay: await this.classifyPaymentAdmission(tx, input),
+          });
+          return effect(tx, admitted);
+        },
         this.identityAuthorityGuard,
       );
     } catch (error) {
@@ -1850,6 +1889,31 @@ export class PayService {
       throw error;
     }
   }
+  /**
+   * Fresh, replay or recovery for a payment admission, from durable state, read
+   * without locking the payment row (the guard runs before it is locked).
+   *   create     the payment row exists: an idempotent repeat.
+   *   authorize  already authorized or beyond: an idempotent repeat.
+   *   capture    already captured or beyond: an idempotent repeat; still
+   *              `authorized` but the ledger already holds the capture key: a
+   *              recovery (the post landed, the projection did not).
+   * A rail capture whose ledger post rolled back leaves no trace and is `fresh`.
+   */
+  private async classifyPaymentAdmission(tx: Sql, input: PreparedPaymentOperation): Promise<GuardReplay> {
+    const rows = await tx<Array<{ status: PaymentStatus }>>`SELECT status FROM pay.payments WHERE id=${input.paymentId}`;
+    const status = rows[0]?.status;
+    if (!status) return FRESH;
+    if (input.kind === 'payment.create') return { kind: 'replay', reason: 'payment_exists' };
+    const beyondCapture = status === 'captured' || status === 'settled' || status === 'refunded';
+    if (input.kind === 'payment.authorize') {
+      return beyondCapture || status === 'authorized' ? { kind: 'replay', reason: 'already_authorized' } : FRESH;
+    }
+    if (beyondCapture) return { kind: 'replay', reason: 'already_captured' };
+    if (status === 'authorized' && (await this.ledger.getTxByKey(`payment.capture:${input.paymentId.toLowerCase()}`)))
+      return { kind: 'recovery', reason: 'ledger_already_booked' };
+    return FRESH;
+  }
+
   private async existingPaymentCreation(
     tx: Sql,
     input: Parameters<PayService['createPayment']>[0],
@@ -1933,10 +1997,10 @@ export class PayService {
             return { declined: false as const, view: await this.view(tx, observed) };
           }
 
-          // Global money lock order: merchant eligibility, then payment. Settlement
+          // Global money lock order: merchant eligibility (taken in
+          // admitPaymentOperation, before the guard), then payment. Settlement
           // freezes use the same order. Re-check the payment after both locks: it
           // may have completed while this operation waited on a cutoff/settlement.
-          if (!admitted) this.assertMerchantActive(await this.lockMerchantEligibility(tx, observed.merchant_id));
           const row = await lockPayment(tx, paymentId);
           if (row.status === 'authorized' || row.status === 'captured' || row.status === 'settled') {
             return { declined: false as const, view: await this.view(tx, row) };
@@ -2071,10 +2135,10 @@ export class PayService {
           if (observed.status === 'captured' || observed.status === 'settled') return this.view(tx, observed);
 
           // Merchant → payment is the single svc-pay money lock order. The shared
-          // merchant lock intentionally spans the rail + ledger calls below: if
-          // released earlier, a cutoff could commit after this check but before
-          // the irreversible capture, recreating the stale-eligibility race.
-          if (!admitted) this.assertMerchantActive(await this.lockMerchantEligibility(tx, observed.merchant_id));
+          // merchant lock (taken in admitPaymentOperation, before the guard)
+          // intentionally spans the rail + ledger calls below: if released
+          // earlier, a cutoff could commit after this check but before the
+          // irreversible capture, recreating the stale-eligibility race.
           const row = await lockPayment(tx, paymentId);
           if (row.status === 'captured' || row.status === 'settled') return this.view(tx, row);
           assertTransition(row, 'captured');
@@ -2217,6 +2281,29 @@ export class PayService {
     const prepared = await transaction(
       this.sql,
       async (tx) => {
+        // Seam: first thing in the transaction, before the payment row lock (a
+        // guard's own locks must rank before it; seams/guards.ts) and before any
+        // write, so a refusal rolls back to nothing. Reads the payment unlocked
+        // for its merchant, asset and whether this refund id already completed.
+        const peek = await readPayment(tx, paymentId);
+        const completed =
+          options.refundId !== undefined &&
+          (
+            await tx`
+              SELECT 1 FROM pay.payment_events
+               WHERE payment_id = ${peek.id} AND event = 'refunded' AND payload->>'refundId' = ${options.refundId}
+               LIMIT 1
+            `
+          ).length > 0;
+        await this.guards.beforeRefund({
+          tx,
+          paymentId: peek.id,
+          merchantId: peek.merchant_id,
+          assetId: peek.currency,
+          amount,
+          refundId: options.refundId,
+          replay: completed ? { kind: 'replay', reason: 'refund_already_completed' } : FRESH,
+        });
         const row = await lockPayment(tx, paymentId);
 
         if (row.status !== 'captured' && row.status !== 'settled') {
@@ -2820,9 +2907,29 @@ export class PayService {
       'pay.settleWindow',
       { operation: 'settlement', merchantId: input.merchantId, window: input.window, assetId: input.assetId },
       async (span) => {
+        // A window that already exists is a re-run: still `pending` means frozen
+        // and not yet posted (a ledger post may have landed), anything else is a
+        // pure repeat. A window that does not exist yet is fresh work.
+        const [prior] = await this.sql<Array<{ status: SettlementStatus }>>`
+          SELECT status FROM pay.settlements
+           WHERE merchant_id = ${input.merchantId} AND "window" = ${input.window} AND asset_id = ${input.assetId}
+        `;
+        const rerun: GuardReplay = !prior
+          ? FRESH
+          : prior.status === 'pending'
+            ? { kind: 'recovery', reason: 'window_frozen_not_posted' }
+            : { kind: 'replay', reason: 'window_already_frozen' };
+        await this.guards.beforeSettlementRun({
+          sql: this.sql,
+          phase: 'prepare',
+          merchantId: input.merchantId,
+          assetId: input.assetId,
+          window: input.window,
+          replay: rerun,
+        });
         const prepared = await this.prepareSettlement(input);
         if (prepared.status !== 'pending') return prepared;
-        return this.postPendingSettlement(prepared.id, span);
+        return this.postPendingSettlement(prepared.id, prior ? rerun : FRESH, span);
       },
     );
   }
@@ -2834,6 +2941,7 @@ export class PayService {
    */
   private async postPendingSettlement(
     settlementId: string,
+    replay: GuardReplay,
     span?: { setAttribute: (k: string, v: string | number) => void },
   ): Promise<SettlementRecord> {
     const head = await this.sql<SettlementRow[]>`
@@ -2843,6 +2951,15 @@ export class PayService {
     const current = head[0];
     if (!current) throw new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found');
     if (current.status !== 'pending') return toSettlement(current);
+    await this.guards.beforeSettlementRun({
+      sql: this.sql,
+      phase: 'post',
+      merchantId: current.merchant_id,
+      assetId: current.asset_id,
+      window: current.window,
+      settlementId: current.id,
+      replay,
+    });
 
     // The unlocked merchant read is not the credit gate. Eligibility is locked
     // below, on this transaction, before the ledger post.
@@ -3171,7 +3288,7 @@ export class PayService {
     // settlement:<merchant>:<window>:<asset>; projection catches up. Only
     // desync falls through to release.
     try {
-      const healed = await this.postPendingSettlement(current.id);
+      const healed = await this.postPendingSettlement(current.id, { kind: 'recovery', reason: 'window_frozen_not_posted' });
       if (healed.status !== 'pending') return healed;
     } catch (err) {
       if (!(err instanceof PayError) || err.code !== 'pay.settlement_desynced') {
@@ -3262,6 +3379,9 @@ export class PayService {
               throw new PayError('Recovery parameters differ from the admitted payout', 'pay.payout_recovery_conflict');
             }
           }
+          // An admission that already existed when this call began is a resumed
+          // payout; one this call creates cannot have a hold on the ledger yet.
+          const resumedAdmission = admission !== null;
           if (settlement.status === 'paid_out') return settlement;
           if (settlement.status !== 'posted' && settlement.status !== 'failed')
             throw new PayError('Settlement is not payable', 'pay.invalid_transition');
@@ -3304,6 +3424,17 @@ export class PayService {
                 if (adapter.id === 'crypto-native' && input.destination) {
                   await this.payoutDestinations.persist({ merchantId: merchant.id, railId: adapter.id, ...destination, connection: tx });
                 }
+                await this.guards.beforePayoutAdmit({
+                  tx,
+                  settlementId: settlement.id,
+                  merchantId: merchant.id,
+                  assetId: settlement.assetId,
+                  amount: settlement.net,
+                  railId: adapter.id,
+                  destination: { kind: destination.kind, ref: destination.ref },
+                  attempt: settlement.payoutAttempts,
+                  replay: FRESH,
+                });
               },
               this.identityOperationAdmission,
               input.identityAuthority,
@@ -3337,6 +3468,22 @@ export class PayService {
           let refused = outcomes.find((outcome) => outcome.kind === 'rail_refused')?.payload as
             { failureReason: string; failureCode: string } | undefined;
           if (!refused && !accepted) {
+            // Seam: before any hold is posted or rail asked, including crash
+            // recovery. Recovery means the hold is already on the ledger (value in
+            // flight); an admitted payout that has moved nothing yet is `fresh`,
+            // so a halt still stops it.
+            const holdBooked = resumedAdmission && (await this.ledger.getTxByKey(plan.hold.idempotencyKey)) !== null;
+            await this.guards.beforePayoutExecute({
+              sql: connection,
+              settlementId: admission.settlement_id,
+              merchantId: admission.merchant_id,
+              assetId: admission.asset_id,
+              amount: parseAmount(admission.net),
+              railId: admission.rail_id,
+              destination: { kind: admission.destination_kind, ref: admission.destination_ref },
+              attempt: admission.attempt,
+              replay: holdBooked ? { kind: 'recovery', reason: 'payout_hold_booked' } : FRESH,
+            });
             await postPayLedger(this.ledger, plan.hold);
             const result = await withRailSpan(adapter.id, 'payout', () =>
               adapter.payout({
