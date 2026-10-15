@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { localStackState } from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -52,7 +53,7 @@ const LABEL = 'LOCAL TEST MARKET — TEST PRICES, not a market feed, not real mo
 export class GuardError extends Error {}
 
 export function stackPaths(home = os.homedir()) {
-  const stateDir = path.join(home, '.intafaced', 'local-test-stack');
+  const stateDir = localStackState(home);
   return {
     stateDir,
     marker: path.join(stateDir, 'LOCAL-TEST-STACK.json'),
@@ -677,7 +678,7 @@ async function startBackground(p, args, { wait }) {
       cwd: REPO,
       detached: true,
       stdio: ['ignore', fd, fd],
-      env: { PATH: process.env.PATH, HOME: os.homedir() },
+      env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: p.stateDir },
     });
     child.unref();
     fs.closeSync(fd);

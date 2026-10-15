@@ -314,7 +314,11 @@ export function AuthForm({ register }: { register: boolean }) {
         {journal.records.length > 0 && (
           <div className="public-auth-history">
             <p>
-              <Copy k="historyWindow" params={{ total: journal.records.length }} />
+              {journal.records.length === 1 ? (
+                <Copy k="historySingle" />
+              ) : (
+                <Copy k="historyWindow" params={{ total: journal.records.length }} />
+              )}
             </p>
             <label>
               <Copy k="historySelect" />
@@ -342,7 +346,9 @@ export function AuthForm({ register }: { register: boolean }) {
             className="public-auth-unknown"
             aria-label={t(
               pending && activeRecord === record.localRef
-                ? 'pending'
+                ? record.kind === 'register'
+                  ? 'registerPending'
+                  : 'pending'
                 : record.kind === 'register'
                   ? 'registerUnknown'
                   : record.kind === 'options'
@@ -354,7 +360,9 @@ export function AuthForm({ register }: { register: boolean }) {
               <Copy
                 k={
                   pending && activeRecord === record.localRef
-                    ? 'pending'
+                    ? record.kind === 'register'
+                      ? 'registerPending'
+                      : 'pending'
                     : record.kind === 'register'
                       ? 'registerUnknown'
                       : record.kind === 'options'

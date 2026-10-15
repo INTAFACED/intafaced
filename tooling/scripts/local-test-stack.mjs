@@ -40,12 +40,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
+import { localStackState } from './local-test-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
-const STATE = path.join(os.homedir(), '.intafaced', 'local-test-stack');
+const STATE = localStackState();
 const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
   secrets: path.join(STATE, 'secrets.json'),
@@ -113,7 +114,7 @@ const SCHEMAS = [
   'blueprint',
 ];
 const STREAM_PREFIX = 'LOCAL_TEST';
-const BANNER_TEXT = 'LOCAL TEST STACK — balances are test funds, not real money';
+const BANNER_TEXT = 'LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money';
 const FUND_RAIL = 'local-test';
 const MIN_FREE_GB = 14; // 10 GB machine floor + build margin
 
@@ -147,7 +148,7 @@ const sha256File = (file) => crypto.createHash('sha256').update(fs.readFileSync(
 
 function baseEnv() {
   // A clean environment: nothing from the caller's shell leaks into services.
-  return { PATH: PNPM_PATH, HOME: os.homedir(), LANG: 'en_US.UTF-8', TMPDIR: path.join(STATE, 'tmp') };
+  return { PATH: PNPM_PATH, HOME: os.homedir(), LANG: 'en_US.UTF-8', TMPDIR: path.join(STATE, 'tmp'), LOCAL_STACK_STATE: STATE };
 }
 
 function freeGb() {
@@ -1179,7 +1180,7 @@ async function cmdStart(flags) {
  */
 function ensureMarket() {
   const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-market.mjs'), 'ensure'], {
-    env: { PATH: process.env.PATH, HOME: os.homedir() },
+    env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: STATE },
     encoding: 'utf8',
   });
   const text = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').filter(Boolean).join(' | ');
@@ -1239,7 +1240,13 @@ function cmdPlan(flags) {
   const bp = buildPlan(flags.includes('--rebuild'), act);
   const customer = { source: act.source, dir: act.dir ?? null, error: act.error ?? null, wouldBuild: bp.customer };
   if (flags.includes('--json'))
-    return say(JSON.stringify({ host: HOST, services, edgeUpstreams, backendPackages: BACKEND_PKGS, schemas: SCHEMAS, customer }, null, 2));
+    return say(
+      JSON.stringify(
+        { host: HOST, stateDir: STATE, services, edgeUpstreams, backendPackages: BACKEND_PKGS, schemas: SCHEMAS, customer },
+        null,
+        2,
+      ),
+    );
   say('INTAFACED local test stack, plan (nothing is started or changed)');
   for (const sv of services)
     say(

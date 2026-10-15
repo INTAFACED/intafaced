@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { localStackState } from './local-test-state.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
@@ -59,7 +60,7 @@ const LABEL = 'LOCAL TEST WORLD — test funds and a test counterparty, not real
 export class GuardError extends Error {}
 
 export function stackPaths(home = os.homedir()) {
-  const stateDir = path.join(home, '.intafaced', 'local-test-stack');
+  const stateDir = localStackState(home);
   return {
     stateDir,
     marker: path.join(stateDir, 'LOCAL-TEST-STACK.json'),
