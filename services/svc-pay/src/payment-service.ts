@@ -1,7 +1,8 @@
 import { postPayLedger } from './ledger-receipt.js';
+import { PayScreeningService } from './screening/service.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { withPaymentAdmission, preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
-import { FRESH, NOOP_GUARDS, type GuardReplay, type PayGuards } from './seams/guards.js';
+import { FRESH, NOOP_GUARDS, PayGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -782,6 +783,7 @@ export interface PayServiceOptions {
    * stored EVM dest before withdrawHold. Default refuses closed (no invented ref).
    */
   readonly payoutDestinations?: MerchantPayoutDestinations;
+  readonly screening?: PayScreeningService;
   /** Production always installs this owner-bound port; omission is an isolated test fixture. */
   readonly identityOperationAdmission?: IdentityPayoutAdmissionPort;
   readonly identityAuthorityGuard?: OwnerIdentityAuthorityPort;
@@ -948,6 +950,7 @@ export class PayService {
   private readonly identityAuthorityGuard: OwnerIdentityAuthorityPort | undefined;
   private readonly afterPayoutAdmission: (() => void | Promise<void>) | undefined;
   private readonly guards: PayGuards;
+  private readonly screening: PayScreeningService;
 
   constructor(
     private readonly sql: Sql,
@@ -976,6 +979,7 @@ export class PayService {
     this.identityAuthorityGuard = options.identityAuthorityGuard;
     this.afterPayoutAdmission = options.afterPayoutAdmission;
     this.guards = options.guards ?? NOOP_GUARDS;
+    this.screening = options.screening ?? new PayScreeningService({ sql });
   }
 
   /**
@@ -1122,6 +1126,7 @@ export class PayService {
         kybStatus: merchant.kybStatus,
       });
     }
+    await this.screening.beforeKybSubmit(input);
     await this.sql`
       UPDATE pay.merchants
          SET kyb_status = 'pending', kyb_ref = ${ref}, updated_at = now()
@@ -3439,7 +3444,17 @@ export class PayService {
               this.identityOperationAdmission,
               input.identityAuthority,
               this.identityAuthorityGuard,
-            );
+            ).catch(async (error: unknown) => {
+              // Destination screening may refuse inside admission. Enqueue only
+              // after rollback releases its merchant/settlement locks.
+              if (error instanceof PayGuardRefusal && error.code === 'pay.guard_screening_review') {
+                await this.screening.recordPayoutReview(
+                  { settlementId: settlement.id, attempt: settlement.payoutAttempts, merchantId: merchant.id },
+                  connection,
+                );
+              }
+              throw error;
+            });
             await this.afterPayoutAdmission?.();
           }
           try {

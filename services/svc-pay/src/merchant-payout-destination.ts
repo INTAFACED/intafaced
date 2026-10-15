@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { PayScreeningService } from './screening/service.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
 
 /**
@@ -72,10 +73,14 @@ export function memoryPayoutDestinations(): MerchantPayoutDestinations {
 }
 
 export class MerchantPayoutDestinationStore implements MerchantPayoutDestinations {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    private readonly screening = new PayScreeningService({ sql }),
+  ) {}
 
   async persist(input: { merchantId: string; railId: string; kind: string; ref: string; connection?: Sql }): Promise<PayoutDestination> {
     const dest = assertPersistableDestination(input.railId, input);
+    await this.screening.beforeDestinationPersist({ ...input, ...dest }, input.connection ?? this.sql);
     await (input.connection ?? this.sql)`
       INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref)
       VALUES (${input.merchantId}, ${input.railId}, ${dest.kind}, ${dest.ref})

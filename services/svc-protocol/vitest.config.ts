@@ -14,6 +14,7 @@ export default defineConfig({
     // Business fixtures isolate the blank screening socket. Mounted-request tests
     // explicitly arm strict policy; production defaults remain unchanged.
     env: {
+      APP_ENV: 'test',
       INTAFACED_SCREENING_FAIL_CLOSED: 'off',
     },
   },

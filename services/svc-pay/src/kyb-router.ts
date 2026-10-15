@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PayGuardRefusal } from './seams/guards.js';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { DualControlError } from './dual-control.js';
@@ -60,6 +61,9 @@ const pricingEventView = z.object({
 
 function toTrpcError(err: unknown): unknown {
   if (err instanceof TRPCError) return err;
+  if (err instanceof PayGuardRefusal) {
+    return new TRPCError({ code: err.kind === 'unavailable' ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN', message: err.code, cause: err });
+  }
   if (err instanceof AuthError) {
     return new TRPCError({
       code: err.code === 'mfa.required' ? 'UNAUTHORIZED' : 'FORBIDDEN',

@@ -11,6 +11,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     env: {
+      APP_ENV: 'test',
       INTAFACED_SCREENING_FAIL_CLOSED: 'off',
       DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://svc_trade@127.0.0.1:5432/intafaced_trade_test',
       DATABASE_POOL_MAX: process.env.DATABASE_POOL_MAX ?? '2',

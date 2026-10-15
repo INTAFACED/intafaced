@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import type { PayScreeningService } from '../screening/service.js';
 import { composeGuards, type PayGuards } from './guards.js';
 import { createW1ControlGuards } from './slots/w1-control.js';
 import { createW5HaltsGuards } from './slots/w5-halts.js';
@@ -16,7 +17,7 @@ import { createW10B2bRampGuards } from './slots/w10-b2b-ramp.js';
  * them for the shortest time), then the conversion and B2B-ramp slots, which
  * only matter on their own paths.
  */
-export function buildPayGuards(deps: { sql: Sql }): PayGuards {
+export function buildPayGuards(deps: { sql: Sql; screening?: PayScreeningService }): PayGuards {
   return composeGuards(
     createW5HaltsGuards(deps),
     createW9ScreeningGuards(deps),

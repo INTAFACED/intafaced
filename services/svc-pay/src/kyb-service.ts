@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import { PayScreeningService } from './screening/service.js';
 
 /**
  * DIGITAL KYB — THE LIVE OPERATOR PATH (`pay.psp`).
@@ -122,7 +123,10 @@ function requireReason(reason: string, code: string): string {
 }
 
 export class KybService {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    private readonly screening = new PayScreeningService({ sql }),
+  ) {}
 
   /**
    * Merchant submits a dossier reference. Moves `none|rejected → pending`.
@@ -141,6 +145,7 @@ export class KybService {
       throw new KybError('kybRef must be 1–128 characters', 'pay.kyb_invalid');
     }
     const reason = requireReason(input.reason ?? 'merchant submitted KYB dossier', 'pay.kyb_reason_required');
+    await this.screening.beforeKybSubmit(input);
 
     return transaction(
       this.sql,

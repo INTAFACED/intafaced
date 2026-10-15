@@ -6,6 +6,8 @@ import { createFounderAuthority } from './founder-authority.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
 import { buildPayGuards } from './seams/registry.js';
+import { PayScreeningService } from './screening/service.js';
+import { createScreeningRouter } from './screening/router.js';
 import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
 import postgres from 'postgres';
@@ -180,16 +182,18 @@ const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookS
   allowLocalHttp: isExplicitDevOrTestEnv(process.env),
 });
 
-const payoutDestinations = new MerchantPayoutDestinationStore(sql);
+const screening = new PayScreeningService({ sql });
+const payoutDestinations = new MerchantPayoutDestinationStore(sql, screening);
 const identityAdmission = createIdentityOperationDecisionClient({
   owner: 'svc-pay',
   identityUrl: env.IDENTITY_URL,
   secret: env.IDENTITY_ADMISSION_SECRET,
 });
 const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPermissionIntents(tx, current, identityAdmission));
-const payGuards = buildPayGuards({ sql });
+const payGuards = buildPayGuards({ sql, screening });
 const pay = new PayService(sql, ledger, rails, {
   guards: payGuards,
+  screening,
   identityOperationAdmission: identityAdmission,
   identityAuthorityGuard: createPayfacAuthorityGuard(subMerchants),
   payoutDestinations,
@@ -318,7 +322,7 @@ const merchantState = new MerchantStateService(sql);
  * Digital KYB (live operator decide + history) and PSP custom-pricing durability.
  * Path-disjoint from settlement / fraud. See `kyb-service.ts` / `psp-mode.ts`.
  */
-const kyb = new KybService(sql);
+const kyb = new KybService(sql, screening);
 const pspMode = new PspModeService(sql);
 
 /**
@@ -360,6 +364,7 @@ const founderAuthority = createFounderAuthority({
 const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 
 export const appRouter = mergeRouters(
+  createScreeningRouter(screening),
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals),
   createMerchantStateRouter(

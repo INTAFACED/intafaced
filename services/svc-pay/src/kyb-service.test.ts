@@ -6,6 +6,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { beforeEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { KybError, KybService } from './kyb-service.js';
+import { syntheticKybScreening } from './screening/test-support.js';
 
 function at<T>(rows: readonly T[], index: number, what: string): T {
   const row = rows[index];
@@ -102,7 +103,7 @@ describe('svc-pay digital KYB PG-hard', () => {
       'pay',
       `TRUNCATE pay.merchant_kyb_events, pay.merchant_pricing_events, pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE`,
     );
-    kyb = new KybService(sql);
+    kyb = new KybService(sql, syntheticKybScreening(sql));
   });
 
   afterAll(async () => {

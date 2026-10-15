@@ -1,4 +1,5 @@
 import { truncatePayForTest } from './payment-events-test-reset.js';
+import { syntheticKybScreening } from './screening/test-support.js';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -167,6 +168,7 @@ describe('svc-pay money PG-hard', () => {
     rails = new RailRegistry([card, crypto, new BankPayoutAbsentAdapter()]);
     dests = memoryPayoutDestinations();
     pay = new PayService(sql, ledger, rails, {
+      screening: syntheticKybScreening(sql),
       checkoutRiskBand: 'low',
       payoutDestinations: dests,
       routingProfiles: TEST_CHECKOUT_PROFILES,
@@ -2406,7 +2408,8 @@ describe('svc-pay money PG-hard', () => {
         payment = await cryptoPayment(m.id, '7');
       await pay.capture(payment.id);
       const settlement = await settle(m.id, 'payout-cutoff-race');
-      const destinations = new MerchantPayoutDestinationStore(sql);
+      await sql`UPDATE pay.merchants SET kyb_ref='TEST-DOSSIER' WHERE id=${m.id}`;
+      const destinations = new MerchantPayoutDestinationStore(sql, syntheticKybScreening(sql));
       const originalDestination = { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f02' };
       await destinations.persist({ merchantId: m.id, railId: 'crypto-native', ...originalDestination });
       const guardedPay = new PayService(sql, ledger, rails, { payoutDestinations: destinations });
@@ -3687,7 +3690,7 @@ describe('svc-pay money PG-hard', () => {
     });
 
     it('refuses decideKybStub under live-only (no invented operator KYB)', async () => {
-      const livePay = new PayService(sql, ledger, rails, { valueMovement: 'live-only' });
+      const livePay = new PayService(sql, ledger, rails, { valueMovement: 'live-only', screening: syntheticKybScreening(sql) });
       const m = await livePay.createMerchant({ userId: OTHER_USER, pricing: { feeBps: 100 } });
       await livePay.submitKyb({ merchantId: m.id, kybRef: 'case-live' });
       await expect(livePay.decideKybStub({ merchantId: m.id, decision: 'approved' })).rejects.toMatchObject({
@@ -3698,6 +3701,7 @@ describe('svc-pay money PG-hard', () => {
     it('live-only money doors: none/pending/rejected refuse; operator decideKyb approved passes KYB gate', async () => {
       const livePay = new PayService(sql, ledger, rails, {
         valueMovement: 'live-only',
+        screening: syntheticKybScreening(sql),
         // Isolate Layer B KYB from public-rail posture (crypto MemoryChain is not a live rail).
         publicCheckoutMovement: 'allow-sandbox',
         checkoutRails: [{ railId: 'crypto-native', method: 'crypto' }],
@@ -3760,7 +3764,7 @@ describe('svc-pay money PG-hard', () => {
     });
 
     it('live-only money door refuses without approved KYB (D26-P1-P10 Layer B)', async () => {
-      const livePay = new PayService(sql, ledger, rails, { valueMovement: 'live-only' });
+      const livePay = new PayService(sql, ledger, rails, { valueMovement: 'live-only', screening: syntheticKybScreening(sql) });
       const m = await livePay.createMerchant({ userId: OTHER_USER, pricing: { feeBps: 100 } });
       await expect(
         livePay.createPayment({

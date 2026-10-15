@@ -476,17 +476,13 @@ export function screeningFailClosedIsExplicitlyOff(env: Record<string, string | 
  * Read the screening-list fail-closed switch from an env map.
  * Explicit `AccessQuery.screeningFailClosed` always wins over this.
  *
- * An explicit off is a LOCAL-TEST stand-in. It is honoured only when `APP_ENV`
- * is unset/empty (bare unit-test runs; `assertNoLocalTestFixtures` refuses that
- * combination at service boot) or exactly `dev`/`test`. When `APP_ENV` names any
- * other environment (staging, prod, a typo), `off` is ignored and screening stays
- * fail-closed.
+ * An explicit off is a LOCAL-TEST stand-in. It is honoured only when raw
+ * `APP_ENV` is exactly `dev` or `test`. Missing, blank and unknown names are
+ * production-like: `off` is ignored and screening stays fail-closed.
  */
 export function screeningFailClosedFromEnv(env: Record<string, string | undefined> = process.env): boolean {
   if (!screeningFailClosedIsExplicitlyOff(env)) return true;
-  const appEnv = env.APP_ENV;
-  const appEnvNamed = appEnv !== undefined && appEnv.trim() !== '';
-  return appEnvNamed && !isExplicitDevOrTest(appEnv);
+  return !isExplicitDevOrTest(env.APP_ENV);
 }
 
 export interface AccessQuery {
@@ -1002,13 +998,15 @@ export class UnscreenedJurisdictionError extends Error {
 }
 
 /**
- * APP_ENVs where an unconfigured blocklist is a boot failure.
+ * Named production environments where an unconfigured blocklist is a boot failure.
  *
  * `staging` is included on purpose: it is a production-like posture that can be
  * reachable by real users, and an environment that lets the empty state through
  * is where the empty state gets normalised before it reaches prod. `dev` and
  * `test` stay frictionless — nobody should need a sanctions list to run a unit
- * test or open the app locally.
+ * test or open the app locally. This list is descriptive, not exhaustive:
+ * every raw APP_ENV other than exactly `dev` or `test` is enforced, including
+ * absent, blank and unknown names.
  */
 export const SCREENING_ENFORCED_ENVS = ['staging', 'prod'] as const;
 
@@ -1054,12 +1052,15 @@ export function assertScreeningConfigured(
 ): ScreeningStatus {
   const list = activeScreeningList(env);
   const status = screeningStatus(list, business);
-  const appEnv = env.APP_ENV ?? 'dev';
-  const enforced = (SCREENING_ENFORCED_ENVS as readonly string[]).includes(appEnv);
+  const appEnv = env.APP_ENV ?? 'unset';
+  const enforced = !isExplicitDevOrTest(env.APP_ENV);
   if (enforced && list.declaration === 'unset') {
     throw new UnscreenedJurisdictionError(appEnv, status.businessBlockedRegions);
   }
-  const posture = evaluateScreeningMoneyPosture(list, appEnv);
+  // The money-posture evaluator names prod/staging. Every non-local raw
+  // environment must use that strict posture; preserve its original name in
+  // the error below so an unset or misspelled APP_ENV remains visible.
+  const posture = evaluateScreeningMoneyPosture(list, enforced ? 'prod' : appEnv);
   if (!posture.allowed) {
     throw new ScreeningMoneyPostureError(appEnv, posture.code, posture.grade);
   }

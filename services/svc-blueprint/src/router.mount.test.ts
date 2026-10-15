@@ -30,6 +30,7 @@ const VICTIM = '99999999-9999-4999-8999-999999999999';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-blueprint' });
 
 beforeEach(() => {
+  vi.stubEnv('APP_ENV', 'test');
   // Exercise signature, ownership and scope with the explicit legacy test posture.
   // Production keeps its strict blank-list refusal; the control below verifies it.
   vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'off');

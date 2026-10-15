@@ -144,11 +144,11 @@ describe('screeningFailClosedFromEnv runtime backstop', () => {
       expect(screeningFailClosedFromEnv({ APP_ENV: appEnv, [SCREENING_FAIL_CLOSED_ENV]: 'off' })).toBe(true);
     }
   });
-  it('still honours off for dev/test and for bare unit-test runs (boot guard owns unset APP_ENV)', () => {
+  it('honours off only for explicit dev/test environments', () => {
     expect(screeningFailClosedFromEnv({ APP_ENV: 'dev', [SCREENING_FAIL_CLOSED_ENV]: 'off' })).toBe(false);
     expect(screeningFailClosedFromEnv({ APP_ENV: 'test', [SCREENING_FAIL_CLOSED_ENV]: '0' })).toBe(false);
-    expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'off' })).toBe(false);
-    expect(screeningFailClosedFromEnv({ APP_ENV: '', [SCREENING_FAIL_CLOSED_ENV]: 'off' })).toBe(false);
+    expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'off' })).toBe(true);
+    expect(screeningFailClosedFromEnv({ APP_ENV: '', [SCREENING_FAIL_CLOSED_ENV]: 'off' })).toBe(true);
   });
   it('unset or unrecognised stays fail-closed everywhere', () => {
     expect(screeningFailClosedFromEnv({ APP_ENV: 'prod' })).toBe(true);

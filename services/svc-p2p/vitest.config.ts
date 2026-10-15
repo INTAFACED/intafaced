@@ -43,6 +43,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    env: { APP_ENV: 'test' },
     include: ['src/**/*.test.ts'],
     environment: 'node',
     fileParallelism: false,

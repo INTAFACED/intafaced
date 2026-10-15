@@ -645,6 +645,18 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.12)(yaml@2.9.1)
 
+  packages/screening:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.12)(yaml@2.9.1)
+
   packages/telemetry:
     dependencies:
       '@opentelemetry/api':
@@ -1770,6 +1782,9 @@ importers:
       '@intafaced/ledger-client':
         specifier: workspace:*
         version: link:../../packages/ledger-client
+      '@intafaced/screening':
+        specifier: workspace:*
+        version: link:../../packages/screening
       '@intafaced/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
