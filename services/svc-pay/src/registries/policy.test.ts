@@ -134,6 +134,9 @@ describe('which changes need a second founder', () => {
     expect(walletRouteDualReasons(route({ merchantAllow: [MERCHANT] }), route({ merchantAllow: [MERCHANT, OTHER] }))).toEqual([
       'allow_list_widened',
     ]);
+    // Clearing the allow list opens the route to every merchant: that is widening, not tightening.
+    expect(walletRouteDualReasons(route({ merchantAllow: [MERCHANT] }), route({ merchantAllow: [] }))).toEqual(['allow_list_widened']);
+    expect(walletRouteDualReasons(route({ merchantAllow: [MERCHANT, OTHER] }), route({ merchantAllow: [MERCHANT] }))).toEqual([]);
     expect(walletRouteDualReasons(route({ merchantDeny: [MERCHANT] }), route({ merchantDeny: [] }))).toEqual(['deny_list_shortened']);
     expect(walletRouteDualReasons(route(), route({ merchantDeny: [MERCHANT] }))).toEqual([]);
   });

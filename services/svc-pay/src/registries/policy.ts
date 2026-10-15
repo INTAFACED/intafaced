@@ -151,7 +151,9 @@ export function walletRouteDualReasons(before: WalletRouteState | null, after: W
   if (before.payoutAllowed !== after.payoutAllowed) out.push(after.payoutAllowed ? 'payout_allowed' : 'payout_disallowed');
   if (before.payoutAllowed && after.payoutAllowed) {
     if (capLoosened(before.maxSinglePayout, after.maxSinglePayout)) out.push('max_single_payout_loosened');
-    if (added(before.merchantAllow, after.merchantAllow)) out.push('allow_list_widened');
+    // An EMPTY allow list means "every merchant", so clearing a non-empty one widens it to everyone.
+    const allowCleared = before.merchantAllow.length > 0 && after.merchantAllow.length === 0;
+    if (allowCleared || added(before.merchantAllow, after.merchantAllow)) out.push('allow_list_widened');
     if (before.merchantDeny.some((m) => !after.merchantDeny.includes(m))) out.push('deny_list_shortened');
   }
   return out;
