@@ -32,6 +32,7 @@ import {
 } from './routing/decide.js';
 import { RoutingInputError } from './routing-inputs.js';
 import { merchantKybMoneyGateRefusal } from './merchant-kyb-money-gate.js';
+import { cleanMerchantName, MERCHANT_NAME_MAX, resolveMerchantNames } from './merchant-names.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
@@ -121,6 +122,8 @@ export type PayErrorCode =
   | 'pay.submerchant_permission_denied'
   | 'pay.merchant_inactive'
   | 'pay.merchant_pricing_invalid'
+  /** A merchant name that is blank, over 120 characters or holds a control character. */
+  | 'pay.merchant_name_invalid'
   /** Owner `PAY_DEFAULT_FEE_BPS` unpublished. Blank env is not 0. */
   | 'pay.fee_bps_unset'
   /** KYB transition refused (wrong status, or stub decide blocked under live-only). */
@@ -1052,18 +1055,32 @@ export class PayService {
     /** A rate is required at onboarding. There is no implicit free processing. */
     pricing: { feeBps: number };
     settlementPrefs?: Record<string, unknown>;
+    /** Optional trading name and registered name (0071). Stored on first creation only. */
+    displayName?: string | null;
+    legalName?: string | null;
   }): Promise<MerchantRecord> {
     assertFeeBps(input.pricing.feeBps);
+    // The router already refuses a bad explicit name; this guards every other caller of the service.
+    for (const [field, value] of [
+      ['displayName', input.displayName],
+      ['legalName', input.legalName],
+    ] as const) {
+      if (value != null && cleanMerchantName(value) === null) {
+        throw new PayError(`${field} must be 1–${MERCHANT_NAME_MAX} characters with no control characters`, 'pay.merchant_name_invalid');
+      }
+    }
+    const names = resolveMerchantNames(input);
 
     // Keyed on the user: onboarding is retried more than almost anything else
     // in a payments product, and a second merchant row for one account makes
     // "settle this account's takings" ambiguous forever after.
     await this.sql`
-      INSERT INTO pay.merchants (user_id, mode, tier, kyb_status, status, pricing, settlement_prefs)
+      INSERT INTO pay.merchants (user_id, mode, tier, kyb_status, status, pricing, settlement_prefs, display_name, legal_name)
       VALUES (
         ${input.userId}, ${input.mode ?? 'gateway'}, ${input.tier ?? 0}, ${input.kybStatus ?? 'none'},
         ${input.status ?? 'active'}, ${this.sql.json(input.pricing as never)},
-        ${this.sql.json((input.settlementPrefs ?? {}) as never)}
+        ${this.sql.json((input.settlementPrefs ?? {}) as never)},
+        ${names.displayName}, ${names.legalName}
       )
       ON CONFLICT (user_id) DO NOTHING
     `;

@@ -70,9 +70,14 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS = ['0000_pay_init.sql', '0002_pay_payment_links.sql', '0003_pay_checkout_sessions.sql', '0005_pay_merchant_kyb.sql'].map(
-  (f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'),
-);
+const MIGRATIONS = [
+  '0000_pay_init.sql',
+  '0002_pay_payment_links.sql',
+  '0003_pay_checkout_sessions.sql',
+  '0005_pay_merchant_kyb.sql',
+  // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
+  '0071_pay_merchant_names.sql',
+].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const EDGE_SECRET = 'a-pay-public-rest-money-edge-secret-long-enough';
 const RAIL_SECRET = 'svc-pay-money-rest-test-secret-32-characters-x';

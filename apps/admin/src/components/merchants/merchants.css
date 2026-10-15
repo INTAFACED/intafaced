@@ -501,6 +501,21 @@
 .mp-id:hover {
   text-decoration-color: var(--if-accent);
 }
+.mp-merchant {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 28ch;
+}
+.mp-merchant__name,
+.mp-merchant > .mp-id {
+  overflow-wrap: anywhere;
+}
+.mp-merchant__id {
+  background: none;
+  padding: 0;
+}
 .mp-sub {
   display: block;
   font-size: 12px;

@@ -35,8 +35,13 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
     series: (merchantId: string, from: string, to: string, signal?: AbortSignal) =>
       query('merchantMetrics.series', { merchantId, from, to, bucket: 'day' }, p.seriesSchema, signal),
 
-    createMerchant: (feeBps: number, businessDetails: Record<string, string>) =>
-      mutate('merchant.create', { mode: 'gateway', pricing: { feeBps }, settlementPrefs: { businessDetails } }, p.merchantCreatedSchema),
+    /** The names are the merchant's own, stored on the account the service derives from the session (never from this call). */
+    createMerchant: (feeBps: number, businessDetails: Record<string, string>, names: { legalName: string; displayName?: string }) =>
+      mutate(
+        'merchant.create',
+        { mode: 'gateway', pricing: { feeBps }, settlementPrefs: { businessDetails }, ...names },
+        p.merchantCreatedSchema,
+      ),
     submitKyb: (merchantId: string, kybRef: string) => mutate('merchant.submitKyb', { merchantId, kybRef }, p.kybSubmitSchema),
     setPayoutDestination: (merchantId: string, railId: string, kind: string, ref: string) =>
       mutate('merchant.setPayoutDestination', { merchantId, railId, kind, ref }, p.destinationSchema),

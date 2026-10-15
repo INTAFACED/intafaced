@@ -4,10 +4,10 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { kybStatusChip, merchantStatusChip } from '@/lib/merchants/chips';
 import { assetsIn, filterRows, rowsToCsv, sortRows, type MerchantRow, type SortDir, type SortKey } from '@/lib/merchants/table-model';
-import { Amounts, shortId, StateBlock, StatusChip } from './ui';
+import { Amounts, MerchantLabel, StateBlock, StatusChip } from './ui';
 
 const COLUMNS: readonly { key: SortKey; label: string; right?: boolean }[] = [
-  { key: 'merchantId', label: 'Merchant' },
+  { key: 'displayName', label: 'Merchant' },
   { key: 'status', label: 'Status' },
   { key: 'kybStatus', label: 'KYB' },
   { key: 'volume', label: 'Lifetime volume', right: true },
@@ -33,7 +33,7 @@ export function MerchantTable({
 }) {
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'merchantId', dir: 'asc' });
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'displayName', dir: 'asc' });
   const assets = useMemo(() => assetsIn(rows), [rows]);
   const [asset, setAsset] = useState<string | null>(null);
   const sortAsset = asset ?? assets[0] ?? null;
@@ -64,7 +64,7 @@ export function MerchantTable({
             className="mp-input"
             type="search"
             value={query}
-            placeholder="Merchant id, status or KYB"
+            placeholder="Merchant name, id, status or KYB"
             onChange={(e) => setQuery(e.target.value)}
             autoComplete="off"
           />
@@ -132,9 +132,7 @@ export function MerchantTable({
                   }}
                 >
                   <th scope="row">
-                    <a className="mp-id" href={`/merchants/${row.merchantId}`} title={row.merchantId}>
-                      {shortId(row.merchantId)}
-                    </a>
+                    <MerchantLabel merchantId={row.merchantId} displayName={row.displayName} href={`/merchants/${row.merchantId}`} />
                   </th>
                   <td>
                     <StatusChip spec={merchantStatusChip(row.status)} />

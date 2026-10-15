@@ -327,6 +327,7 @@ describe('all merchants', () => {
   beforeEach(signIn);
   const row = {
     merchantId: MID,
+    displayName: 'Acme Shop',
     status: 'active',
     tierId: null,
     kybStatus: 'approved',
@@ -352,6 +353,50 @@ describe('all merchants', () => {
     expect(out).toContain('The tier filter arrives with the control room');
     expect(decodeURIComponent(seen.find((u) => u.includes('merchants.list'))!)).toContain('"filter":{"status":"active"}');
     expect(decodeURIComponent(seen.find((u) => u.includes('merchants.list'))!)).toContain('"limit":50');
+  });
+
+  it('shows the merchant name first and the id second, and says "Unnamed merchant" in a muted style when there is no name', async () => {
+    const other = '33333333-3333-4333-8333-333333333333';
+    services({
+      'founderAdmin.merchants.list': {
+        freshness: fresh,
+        rows: [row, { ...row, merchantId: other, displayName: null }],
+        nextCursor: null,
+      },
+      'founderAdmin.metrics.global': globalMetrics,
+    });
+    const out = html(await AllMerchants({ searchParams: sp() }));
+    expect(out).toMatch(
+      new RegExp(`<a class="mp-id" href="/merchants/${MID}" title="${MID}">Acme Shop</a><code[^>]*title="${MID}"[^>]*>${MID.slice(0, 8)}`),
+    );
+    expect(out).toContain(`<span class="mp-muted">Unnamed merchant</span>`);
+    expect(out).toContain(`href="/merchants/${other}"`);
+    expect(out).toContain(other.slice(0, 8));
+  });
+
+  it('renders a name that looks like markup as text, never as markup', async () => {
+    services({
+      'founderAdmin.merchants.list': {
+        freshness: fresh,
+        rows: [{ ...row, displayName: '<img src=x onerror=alert(1)> & Co' }],
+        nextCursor: null,
+      },
+      'founderAdmin.metrics.global': globalMetrics,
+    });
+    const out = html(await AllMerchants({ searchParams: sp() }));
+    expect(out).not.toContain('<img');
+    expect(out).toContain('&lt;img src=x onerror=alert(1)&gt; &amp; Co');
+  });
+
+  it('refuses a list row from the service that has no displayName field (strict contract)', async () => {
+    const { displayName: _omitted, ...legacy } = row;
+    services({
+      'founderAdmin.merchants.list': { freshness: fresh, rows: [legacy], nextCursor: null },
+      'founderAdmin.metrics.global': globalMetrics,
+    });
+    const out = html(await AllMerchants({ searchParams: sp() }));
+    expect(out).not.toContain('Acme Shop');
+    expect(out).toContain('role="alert"');
   });
 
   it('explains an empty list, differently with and without filters', async () => {
@@ -408,6 +453,68 @@ describe('merchant drill-down', () => {
     expect(out).toContain('aria-current="page"');
   });
 
+  const listRow = (displayName: string | null) => ({
+    freshness: fresh,
+    rows: [{ merchantId: MID, displayName, status: 'active', tierId: null, kybStatus: 'approved', volume: [], revenue: [], openFlags: 0 }],
+    nextCursor: null,
+  });
+
+  it('puts the merchant name in the heading with the id as secondary text, and asks the service for exactly this merchant', async () => {
+    const seen = services({ ...base, 'founderAdmin.merchants.list': listRow('Acme Shop') });
+    const out = html(await page());
+    expect(out).toMatch(/<h1>Acme Shop <code[^>]*title="22222222-2222-4222-8222-222222222222"[^>]*>22222222…2222<\/code><\/h1>/);
+    expect(out).toContain(MID); // the full id stays in the identity facts, copyable
+    expect(out).toContain('Copy id');
+    const call = decodeURIComponent(seen.find((u) => u.includes('merchants.list'))!);
+    expect(call).toContain(`"filter":{"merchantId":"${MID}"}`);
+    expect(call).toContain('"limit":1');
+  });
+
+  it('says "Unnamed merchant" in a muted style when the merchant has no name', async () => {
+    services({ ...base, 'founderAdmin.merchants.list': listRow(null) });
+    const out = html(await page());
+    expect(out).toContain('<h1><span class="mp-muted">Unnamed merchant</span>');
+    expect(out).toContain('22222222…2222');
+  });
+
+  it('falls back to the id alone, without claiming "unnamed", when the name could not be read', async () => {
+    services(base);
+    const out = html(await page());
+    expect(out).toContain('<h1>Merchant 22222222…2222');
+    expect(out).not.toContain('Unnamed merchant');
+  });
+
+  it('shows the legal name from the drill-down once that procedure answers', async () => {
+    services({
+      ...base,
+      'founderAdmin.merchants.list': listRow('Stale Name'),
+      'founderAdmin.merchants.drilldown': {
+        merchantId: MID,
+        displayName: 'Acme Shop',
+        legalName: 'Acme Trading Ltd',
+        metrics: snapshot,
+        control: {
+          merchantId: MID,
+          tierId: null,
+          archetypeId: null,
+          caps: null,
+          pricing: null,
+          reserve: null,
+          version: '1',
+          updatedAt: null,
+        },
+        halts: { readable: true, states: [] },
+        pendingApprovals: [],
+        operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
+      },
+    });
+    const out = html(await page());
+    expect(out).toContain('Acme Shop');
+    expect(out).not.toContain('Stale Name');
+    expect(out).toContain('Legal name');
+    expect(out).toContain('Acme Trading Ltd');
+  });
+
   it('payments and settlements tabs summarise from the same snapshot', async () => {
     services(base);
     const payments = html(await page({ tab: 'payments' }));
@@ -433,6 +540,8 @@ describe('merchant drill-down', () => {
       ...base,
       'founderAdmin.merchants.drilldown': {
         merchantId: MID,
+        displayName: null,
+        legalName: null,
         metrics: snapshot,
         control: {
           merchantId: MID,

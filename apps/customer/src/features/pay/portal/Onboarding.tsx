@@ -7,6 +7,7 @@ import { portalCopy } from './copy';
 import { useCursorList, type ListState } from './hooks';
 import {
   businessDetails,
+  merchantNames,
   destinationShapeOk,
   emptyBusiness,
   onboardingSteps,
@@ -176,6 +177,14 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated }: Parameters
             hint={t('hLegalName')}
             required
           />
+          <Field
+            label={t('fDisplayName')}
+            value={form.displayName}
+            onChange={set('displayName')}
+            maxLength={120}
+            error={errorText('displayName')}
+            hint={t('hDisplayName')}
+          />
           <div className="form-row">
             <Field
               label={`${t('fCountry')} *`}
@@ -240,6 +249,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated }: Parameters
             <PayDetails
               values={[
                 [t('fLegalName'), form.legalName],
+                [t('fDisplayName'), form.displayName.trim() || t('notGiven')],
                 [t('fCountry'), form.country.toUpperCase()],
                 [t('fBusinessType'), form.businessType],
                 [t('fContactEmail'), form.contactEmail],
@@ -252,7 +262,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated }: Parameters
             setTried(true);
             return starterFeeBps === null
               ? { ok: false as const, reason: 'forbidden' as const, message: t('noStarterPricingTitle'), code: 'portal.local' }
-              : portal.createMerchant(starterFeeBps, businessDetails(form));
+              : portal.createMerchant(starterFeeBps, businessDetails(form), merchantNames(form));
           }}
           onConfirmed={onCreated}
           disabled={invalid || starterFeeBps === null}

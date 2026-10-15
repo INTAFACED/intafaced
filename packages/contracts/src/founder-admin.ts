@@ -35,15 +35,26 @@ export const founderMerchantListInputSchema = z
         status: z.string().max(32).optional(),
         tierId: payRiskTierIdSchema.optional(),
         kybStatus: z.string().max(32).optional(),
+        /** Exactly one merchant (the detail page reads its own name this way). */
+        merchantId: payMerchantIdSchema.optional(),
       })
       .strict()
       .optional(),
   })
   .strict();
 
+/**
+ * Merchant names (W4b). Both come from the merchant's own onboarding and are null
+ * for a merchant that never gave one; a client shows the id instead and must not
+ * invent a name. Trimmed, 1..120 characters, no control characters (enforced in
+ * the database).
+ */
+const founderMerchantNameSchema = z.string().nullable();
+
 export const founderMerchantRowSchema = z
   .object({
     merchantId: payMerchantIdSchema,
+    displayName: founderMerchantNameSchema,
     status: z.string(),
     tierId: payRiskTierIdSchema.nullable(),
     kybStatus: z.string(),
@@ -62,6 +73,8 @@ export const founderMerchantDrilldownInputSchema = z.object({ merchantId: payMer
 export const founderMerchantDrilldownSchema = z
   .object({
     merchantId: payMerchantIdSchema,
+    displayName: founderMerchantNameSchema,
+    legalName: founderMerchantNameSchema,
     metrics: merchantMetricsSnapshotSchema,
     control: merchantControlProfileSchema,
     halts: payHaltOperatorStatusSchema,

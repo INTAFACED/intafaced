@@ -3,6 +3,7 @@ import { assetsIn, filterRows, sortRows, type MerchantRow } from './table-model'
 
 const row = (id: string, status: string, volume: string | null, extra: Partial<MerchantRow> = {}): MerchantRow => ({
   merchantId: id,
+  displayName: null,
   status,
   tierId: null,
   kybStatus: 'approved',
@@ -29,6 +30,29 @@ describe('merchant table model', () => {
   it('sorts text columns with the id as a stable tiebreak', () => {
     expect(sortRows(rows, 'status', 'asc', null).map((r) => r.merchantId)).toEqual(['b', 'c', 'd', 'a']);
     expect(sortRows(rows, 'merchantId', 'desc', null).map((r) => r.merchantId)).toEqual(['d', 'c', 'b', 'a']);
+  });
+
+  it('finds a merchant by name, ignoring case, as well as by id', () => {
+    const named = [
+      row('a', 'active', '1', { displayName: 'Acme Shop' }),
+      row('b', 'active', '1', { displayName: 'Zed Ltd' }),
+      row('c', 'active', '1'),
+    ];
+    expect(filterRows(named, 'acme').map((r) => r.merchantId)).toEqual(['a']);
+    expect(filterRows(named, 'ZED').map((r) => r.merchantId)).toEqual(['b']);
+    expect(filterRows(named, 'b').map((r) => r.merchantId)).toEqual(['b']);
+  });
+
+  it('sorts by name with unnamed merchants last in both directions and the id as the tiebreak', () => {
+    const named = [
+      row('d', 'active', '1'),
+      row('b', 'active', '1', { displayName: 'beta' }),
+      row('c', 'active', '1', { displayName: 'Alpha' }),
+      row('a', 'active', '1', { displayName: 'alpha' }),
+      row('e', 'active', '1'),
+    ];
+    expect(sortRows(named, 'displayName', 'asc', null).map((r) => r.merchantId)).toEqual(['a', 'c', 'b', 'd', 'e']);
+    expect(sortRows(named, 'displayName', 'desc', null).map((r) => r.merchantId)).toEqual(['b', 'a', 'c', 'd', 'e']);
   });
 
   it('lists the assets on the page', () => {

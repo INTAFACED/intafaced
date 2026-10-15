@@ -6,7 +6,7 @@ import { haltChip } from '@/lib/merchants/chips';
 import { amountFor, compareDecimal, formatAmount, sumByAsset } from '@/lib/merchants/money';
 import { BarChart, type BarPoint } from './bar-chart';
 import { CopyButton } from './copy-button';
-import { AsOf, Amounts, Card, FailureState, KpiTile, PageHead, shortId, StateBlock, StatusChip } from './ui';
+import { AsOf, Amounts, Card, FailureState, KpiTile, PageHead, shortId, StateBlock, StatusChip, UNNAMED_MERCHANT } from './ui';
 
 export const DETAIL_TABS = [
   { id: 'overview', label: 'Overview' },
@@ -59,6 +59,23 @@ export function seriesAssets(series: MerchantMetricsSeries): string[] {
   return totals.sort((a, b) => compareDecimal(b.amount, a.amount)).map((t) => t.assetCode);
 }
 
+/**
+ * What the page knows about the merchant's name. `known` is false when neither the
+ * drill-down nor the list lookup answered: the page then falls back to the id alone
+ * rather than claiming the merchant is unnamed.
+ */
+export function merchantNames(data: Pick<MerchantDetailData, 'drilldown' | 'identity'>): {
+  known: boolean;
+  displayName: string | null;
+  legalName: string | null;
+} {
+  if (data.drilldown.kind === 'ok') {
+    return { known: true, displayName: data.drilldown.data.displayName, legalName: data.drilldown.data.legalName };
+  }
+  const row = data.identity.kind === 'ok' ? data.identity.data.rows[0] : undefined;
+  return row ? { known: true, displayName: row.displayName, legalName: null } : { known: false, displayName: null, legalName: null };
+}
+
 export function MerchantDetailView({
   merchantId,
   data,
@@ -84,15 +101,37 @@ export function MerchantDetailView({
     return `/merchants/${merchantId}?${q.toString()}`;
   };
   const here = href({});
+  const names = merchantNames(data);
 
   return (
     <div className="mp-page">
       <PageHead
-        title={`Merchant ${shortId(merchantId)}`}
+        title={
+          !names.known ? (
+            `Merchant ${shortId(merchantId)}`
+          ) : names.displayName === null ? (
+            <span className="mp-muted">{UNNAMED_MERCHANT}</span>
+          ) : (
+            names.displayName
+          )
+        }
+        badge={
+          names.known ? (
+            <code className="mp-sub mp-merchant__id" title={merchantId}>
+              {shortId(merchantId)}
+            </code>
+          ) : undefined
+        }
         purpose="One merchant's money, settlements and operator controls. Figures are the same ones the merchant sees."
         back={{ href: '/merchants/all', label: 'All merchants' }}
       />
       <div className="mp-facts" aria-label="Merchant identity">
+        {names.legalName !== null ? (
+          <div>
+            <span className="mp-facts__k">Legal name</span>
+            <span className="mp-facts__v">{names.legalName}</span>
+          </div>
+        ) : null}
         <div>
           <span className="mp-facts__k">Merchant id</span>
           <span className="mp-facts__v">

@@ -891,6 +891,32 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     expect((call!.args[0] as { userId: string }).userId).toBe(USER);
   });
 
+  it('forwards trimmed merchant names to the service and never lets a body choose the owner', async () => {
+    const api = await caller(['pay:write']);
+    await api.merchant.create({
+      mode: 'gateway',
+      pricing: { feeBps: 250 },
+      displayName: '  Acme Shop  ',
+      legalName: 'Acme Trading Ltd',
+      // A forged owner in the body is not part of the input contract and is dropped, not honoured.
+      ...({ userId: ANOTHER_USER } as object),
+    });
+    const call = stub.calls.filter((c) => c.method === 'createMerchant').at(-1)!;
+    expect(call.args[0]).toMatchObject({ userId: USER, displayName: 'Acme Shop', legalName: 'Acme Trading Ltd' });
+  });
+
+  it('refuses a blank, over-long or control-character merchant name before the service runs', async () => {
+    const api = await caller(['pay:write']);
+    const before = stub.calls.filter((c) => c.method === 'createMerchant').length;
+    for (const bad of ['', '   ', 'x'.repeat(121), 'two\nlines', 'tab\there', 'esc\u001b[31m', 'del\u007f', 'c1\u0085']) {
+      const err = await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 }, displayName: bad }).catch((e: unknown) => e);
+      expect(codeOf(err), JSON.stringify(bad)).toBe('BAD_REQUEST');
+      const legal = await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 }, legalName: bad }).catch((e: unknown) => e);
+      expect(codeOf(legal), JSON.stringify(bad)).toBe('BAD_REQUEST');
+    }
+    expect(stub.calls.filter((c) => c.method === 'createMerchant')).toHaveLength(before);
+  });
+
   it('reports an unset merchant fee as null and keeps an explicit zero', async () => {
     const me = async (feeBps: number | undefined) => {
       const pay = {

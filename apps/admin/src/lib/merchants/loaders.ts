@@ -79,6 +79,12 @@ export interface MerchantDetailData {
   readonly metrics: PayCallResult<MerchantMetricsSnapshot>;
   readonly series: PayCallResult<MerchantMetricsSeries>;
   readonly drilldown: PayCallResult<FounderMerchantDrilldown>;
+  /**
+   * The merchant's own list row, read for its name. The drill-down is the intended
+   * source and is not built on the service yet; this keeps the page title honest
+   * in the meantime. A failed read means "name unknown", never "no name".
+   */
+  readonly identity: PayCallResult<FounderMerchantList>;
 }
 
 export async function loadMerchantDetail(
@@ -88,7 +94,7 @@ export async function loadMerchantDetail(
   now: Date = new Date(),
 ): Promise<MerchantDetailData> {
   const today = dayOf(now);
-  const [metrics, series, drilldown] = await Promise.all([
+  const [metrics, series, drilldown, identity] = await Promise.all([
     payCall(
       ctx,
       'founderAdmin.metrics.merchant',
@@ -110,8 +116,9 @@ export async function loadMerchantDetail(
       { merchantId, window: presetWindow(preset) },
       parseWith(founderMerchantDrilldownSchema),
     ),
+    payCall(ctx, 'founderAdmin.merchants.list', 'GET', { limit: 1, filter: { merchantId } }, parseWith(founderMerchantListSchema)),
   ]);
-  return { metrics, series, drilldown };
+  return { metrics, series, drilldown, identity };
 }
 
 export type RegistryRows = VenueView[] | NetworkView[] | WalletRouteView[];

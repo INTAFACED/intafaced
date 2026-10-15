@@ -3,6 +3,7 @@ import {
   STALE_AFTER_SECONDS,
   bars,
   businessDetails,
+  merchantNames,
   destinationShapeOk,
   emptyBusiness,
   grantableRoles,
@@ -140,6 +141,20 @@ describe('business details', () => {
     expect(validateBusiness({ ...good, website: 'ftp://x' }).website).toBe('website');
     expect(validateBusiness({ ...good, website: 'not a url' }).website).toBe('website');
     expect(validateBusiness({ ...good, country: 'GBR' }).country).toBe('country');
+  });
+  it('sends the legal name always and the trading name only when one was typed, both trimmed', () => {
+    expect(merchantNames(good)).toEqual({ legalName: 'Acme Ltd' });
+    expect(merchantNames({ ...good, legalName: '  Acme Ltd ', displayName: '   ' })).toEqual({ legalName: 'Acme Ltd' });
+    expect(merchantNames({ ...good, displayName: '  Acme Shop ' })).toEqual({ legalName: 'Acme Ltd', displayName: 'Acme Shop' });
+  });
+  it('treats the trading name as optional but refuses one the service would refuse', () => {
+    expect(validateBusiness({ ...good, displayName: '' })).toEqual({});
+    expect(validateBusiness({ ...good, displayName: 'Acme Shop' })).toEqual({});
+    expect(validateBusiness({ ...good, displayName: 'x'.repeat(121) }).displayName).toBe('name');
+    expect(validateBusiness({ ...good, displayName: 'two\nlines' }).displayName).toBe('name');
+    expect(validateBusiness({ ...good, legalName: 'x'.repeat(121) }).legalName).toBe('name');
+    expect(validateBusiness({ ...good, legalName: 'bell\u0007' }).legalName).toBe('name');
+    expect(validateBusiness({ ...good, displayName: 'x'.repeat(120) })).toEqual({});
   });
   it('labels declared volume as given text and never reads it as a number', () => {
     expect(businessDetails({ ...good, expectedVolume: 'about 40 payments a month' }).declaredExpectedVolume).toBe(

@@ -16,7 +16,7 @@ export function PageHead({
   actions,
   badge,
 }: {
-  title: string;
+  title: ReactNode;
   purpose: string;
   back?: { href: string; label: string };
   actions?: ReactNode;
@@ -234,4 +234,30 @@ export function Skeleton({ rows = 3, label = 'Loading' }: { rows?: number; label
 
 export function shortId(id: string): string {
   return id.length > 13 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
+}
+
+/** The words used where a merchant has no stored name. Never replaced by a guess. */
+export const UNNAMED_MERCHANT = 'Unnamed merchant';
+
+/**
+ * A merchant's identity in a list or heading: the name first, the id second.
+ * The name is merchant-supplied text and is rendered as text only. With no name
+ * the label says so in a muted style and the id still identifies the row.
+ */
+export function MerchantLabel({ merchantId, displayName, href }: { merchantId: string; displayName: string | null; href?: string }) {
+  const primary = displayName === null ? <span className="mp-muted">{UNNAMED_MERCHANT}</span> : displayName;
+  return (
+    <span className="mp-merchant" data-named={displayName === null ? 'false' : 'true'}>
+      {href ? (
+        <a className="mp-id" href={href} title={merchantId}>
+          {primary}
+        </a>
+      ) : (
+        <span className="mp-merchant__name">{primary}</span>
+      )}
+      <code className="mp-sub mp-merchant__id" title={merchantId}>
+        {shortId(merchantId)}
+      </code>
+    </span>
+  );
 }

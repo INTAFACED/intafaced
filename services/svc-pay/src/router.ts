@@ -23,6 +23,7 @@ import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { PayGuardRefusal } from './seams/guards.js';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
+import { merchantNameInputSchema } from './merchant-names.js';
 import { areaForSurface, type PayfacSurface } from './payfac-permissions.js';
 import { assertRoutingInputsPresent, RoutingInputError } from './routing-inputs.js';
 import {
@@ -338,6 +339,9 @@ export function createPayRouter(
             mode: z.enum(['gateway', 'psp', 'payfac']).default('gateway'),
             pricing: z.object({ feeBps: z.number().int().min(0).max(10_000) }),
             settlementPrefs: z.record(z.unknown()).optional(),
+            /** Optional names (0071). Stored once, for the signed-in principal's own merchant only. */
+            displayName: merchantNameInputSchema.optional(),
+            legalName: merchantNameInputSchema.optional(),
           }),
         )
         .output(z.object({ id: z.string().uuid(), userId: z.string().uuid(), mode: z.string(), feeBps: z.number().nullable() }))
