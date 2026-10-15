@@ -1,19 +1,19 @@
 import { actionApprovalSchema } from '@intafaced/contracts';
 import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
-import { parseWith, payCall, type PayCallContext, type PayCallResult } from '@/lib/merchants/pay-call';
+import { parseWith, payCall, type PayCallContext } from '@/lib/merchants/pay-call';
 import {
   acceptChange,
   asNetwork,
   asPreview,
   asVenue,
   asWalletRoute,
-  explainRefusal,
   REGISTRY_INFO,
   REGISTRY_KINDS,
   type RegistryKind,
   type RegistryPreview,
 } from '@/lib/merchants/registry-model';
+import { fromFailure, json } from '@/lib/merchants/bff';
 import { moduleDisabledResponse } from '@/lib/modules';
 
 /**
@@ -32,46 +32,6 @@ import { moduleDisabledResponse } from '@/lib/modules';
  */
 
 export const dynamic = 'force-dynamic';
-const NO_STORE = { 'cache-control': 'no-store' } as const;
-
-function json(body: unknown, status = 200): Response {
-  return Response.json(body, { status, headers: NO_STORE });
-}
-
-function refusal(code: string | null, message: string, status: number, requestId: string | null): Response {
-  const plain = explainRefusal(code, message, status);
-  return json({ ok: false, refusal: { ...plain, code, requestId } }, status >= 400 && status < 600 ? status : 502);
-}
-
-function fromFailure<T>(result: Exclude<PayCallResult<T>, { kind: 'ok' }>): Response {
-  switch (result.kind) {
-    case 'refused':
-      return refusal(result.refusal.code, result.refusal.message, result.refusal.status, result.requestId);
-    case 'forbidden':
-      return refusal('operator.denied', '', 403, result.requestId);
-    case 'not_built':
-      return json(
-        {
-          ok: false,
-          refusal: {
-            title: 'This is not built yet',
-            body: 'The service behind this action has not been switched on for this deployment.',
-            next: 'Nothing was changed. Ask engineering when it arrives.',
-            code: 'pay.not_built',
-            requestId: result.requestId,
-          },
-        },
-        501,
-      );
-    case 'not_found':
-      return refusal('registries.not_found', '', 404, result.requestId);
-    case 'unavailable':
-      return refusal(null, '', 503, result.requestId);
-    default:
-      return refusal(null, '', 502, result.requestId);
-  }
-}
-
 const withoutApproval = (change: Record<string, unknown>): Record<string, unknown> => {
   const { approvalId: _a, operationId: _o, ...rest } = change;
   return rest;

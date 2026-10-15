@@ -36,6 +36,21 @@ const VENUE_MODE: Record<string, ChipSpec> = {
   live: { label: 'live (blocked)', tone: 'danger', hint: 'Live trading is refused until Nitro and Phantom switch it on.' },
 };
 
+const PAYOUT_APPROVAL: Record<string, ChipSpec> = {
+  pending: {
+    label: 'waiting for founders',
+    tone: 'warn',
+    hint: 'The merchant’s team has approved. Two founders must now sign before the payout can go.',
+  },
+  approved: { label: 'approved', tone: 'live', hint: 'Both founders signed. The payout can go ahead.' },
+  rejected: { label: 'rejected', tone: 'danger', hint: 'Declined. The payout will not go.' },
+  voided: { label: 'voided', tone: 'dark', hint: 'The payout changed after it was requested, so the approval no longer covers it.' },
+  expired: { label: 'expired', tone: 'dark', hint: 'It ran out of time before it was fully approved.' },
+  consumed: { label: 'used', tone: 'dark', hint: 'The approval was already used by a payout.' },
+};
+
+export const payoutApprovalChip = (value: string): ChipSpec => PAYOUT_APPROVAL[value] ?? UNKNOWN(value);
+
 export const merchantStatusChip = (value: string): ChipSpec => MERCHANT_STATUS[value] ?? UNKNOWN(value);
 export const kybStatusChip = (value: string): ChipSpec => KYB_STATUS[value] ?? UNKNOWN(value);
 export const venueModeChip = (value: string): ChipSpec => VENUE_MODE[value] ?? UNKNOWN(value);

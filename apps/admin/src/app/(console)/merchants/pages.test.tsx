@@ -36,6 +36,7 @@ import RegistryList from './registries/[kind]/page';
 import RegistryNew from './registries/[kind]/new/page';
 import RegistryEntry from './registries/[kind]/[key]/page';
 import Treasury from './treasury/page';
+import Approvals from './approvals/page';
 import MerchantsLayout from './layout';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -86,7 +87,7 @@ const notBuilt = (proc: string) =>
   );
 
 /** Route a service call by the procedure name in its URL. `null` handler means "not built". */
-function services(map: Record<string, unknown | (() => Response)>) {
+function services(map: Record<string, unknown | ((url: string) => Response)>) {
   const seen: string[] = [];
   vi.stubGlobal(
     'fetch',
@@ -96,7 +97,7 @@ function services(map: Record<string, unknown | (() => Response)>) {
       const proc = decodeURIComponent(url.split('/trpc/')[1] ?? '').split('?')[0]!;
       const handler = Object.entries(map).find(([k]) => proc === k)?.[1];
       if (handler === undefined) return notBuilt(proc);
-      return typeof handler === 'function' ? (handler as () => Response)() : ok(handler);
+      return typeof handler === 'function' ? (handler as (u: string) => Response)(url) : ok(handler);
     }),
   );
   return seen;
@@ -199,6 +200,7 @@ const PAGES: [string, () => Promise<unknown>][] = [
   ['/merchants/registries/[kind]/new', () => RegistryNew({ params: Promise.resolve({ kind: 'venues' }) })],
   ['/merchants/registries/[kind]/[key]', () => RegistryEntry({ params: Promise.resolve({ kind: 'venues', key: 'binance-testnet' }) })],
   ['/merchants/treasury', () => Treasury()],
+  ['/merchants/approvals', () => Approvals({ searchParams: sp() })],
   ['layout', () => MerchantsLayout({ children: null })],
 ];
 
@@ -543,55 +545,11 @@ describe('merchant drill-down', () => {
   it('notes, controls, approvals and halts show an honest not-built state until the procedures exist', async () => {
     services(base);
     expect(html(await page({ tab: 'notes' }))).toContain('Notes are not built yet');
-    for (const tab of ['controls', 'approvals', 'halts']) {
-      const out = html(await page({ tab }));
-      expect(out).toContain('arrives with W1 and W5');
-    }
-  });
-
-  it('controls, approvals and halts render real data once the drilldown procedure answers', async () => {
-    services({
-      ...base,
-      'founderAdmin.merchants.drilldown': {
-        merchantId: MID,
-        displayName: null,
-        legalName: null,
-        metrics: snapshot,
-        control: {
-          merchantId: MID,
-          tierId: 'standard',
-          archetypeId: null,
-          caps: null,
-          pricing: null,
-          reserve: null,
-          version: '3',
-          updatedAt: null,
-        },
-        halts: {
-          readable: true,
-          autoTrip: { enabled: false, consecutiveFailures: null },
-          states: [
-            {
-              scope: 'payout',
-              target: { level: 'merchant', merchantId: MID },
-              halted: true,
-              reason: 'Review',
-              source: 'operator',
-              actorUserId: USER,
-              version: '1',
-              changedAt: null,
-            },
-          ],
-        },
-        pendingApprovals: [],
-        operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
-      },
-    });
-    expect(html(await page({ tab: 'controls' }))).toContain('Not configured (payments refuse)');
-    expect(html(await page({ tab: 'approvals' }))).toContain('No payout for this merchant is waiting for approval');
-    const halts = html(await page({ tab: 'halts' }));
-    expect(halts).toContain('halted');
-    expect(halts).toContain('This merchant');
+    const controls = html(await page({ tab: 'controls' }));
+    expect(controls).toContain('founderAdmin.control.merchant.get');
+    expect(controls).toContain('Not built yet');
+    expect(html(await page({ tab: 'approvals' }))).toContain('founderAdmin.approvals.list');
+    expect(html(await page({ tab: 'halts' }))).toContain('payHalts.operatorStatus');
   });
 
   it('an unknown merchant and a malformed id are the same not-found (no existence leak)', async () => {
@@ -614,6 +572,558 @@ describe('merchant drill-down', () => {
     services({ 'founderAdmin.metrics.merchantSeries': series });
     const out = html(await page({ tab: 'payments' }));
     expect(out).toContain('Not built yet');
+  });
+});
+
+// ── W4b: controls, approvals and halts ─────────────────────────────────────
+
+const OTHER = '99999999-9999-4999-8999-999999999999';
+const HASH = `sha256:${'d'.repeat(64)}`;
+const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+const ahead = (ms: number) => new Date(Date.now() + ms).toISOString();
+const HOUR = 3_600_000;
+
+const tierRow = {
+  id: 'standard',
+  name: 'Standard',
+  archetype: 'standard',
+  caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '1000' }],
+  reserve: null,
+  approvalThresholds: [{ assetCode: 'USDT', amount: '100' }],
+  founderThresholds: [{ assetCode: 'USDT', amount: '1000' }],
+  approvalTtlSeconds: 86_400,
+  version: '2',
+  merchants: 3,
+};
+const merchantRule = {
+  layer: 'merchant',
+  scopeId: MID,
+  assetCode: 'USDT',
+  bands: [{ fromAmount: '0', feeBps: 150, flatFee: '0.3' }],
+  spreadBps: null,
+  roundingBeneficiary: 'platform',
+};
+const profile = {
+  merchantId: MID,
+  tierId: 'standard',
+  archetypeId: 'standard',
+  caps: [
+    { kind: 'daily_intake', assetCode: 'USDT', limit: '1000' },
+    { kind: 'per_payment', assetCode: 'USDT', limit: '50' },
+    { kind: 'beneficiaries_per_day', limit: 3 },
+  ],
+  pricing: [merchantRule],
+  reserve: { rollingReserveBps: 500, holdDays: 7 },
+  version: '4',
+  updatedAt: '2026-10-14T10:00:00.000Z',
+};
+const unconfiguredProfile = {
+  merchantId: MID,
+  tierId: null,
+  archetypeId: null,
+  caps: null,
+  pricing: null,
+  reserve: null,
+  version: '0',
+  updatedAt: null,
+};
+const usageView = {
+  merchantId: MID,
+  tierId: 'standard',
+  asOf: '2026-10-15T10:00:00.000Z',
+  rows: [
+    { kind: 'daily_intake', assetCode: 'USDT', limit: '1000', used: '850', remaining: '150', resetsAt: '2026-10-16T00:00:00.000Z' },
+    { kind: 'per_payment', assetCode: 'USDT', limit: '50', used: null, remaining: null, resetsAt: null },
+    { kind: 'beneficiaries_per_day', assetCode: null, limit: '3', used: '1', remaining: '2', resetsAt: '2026-10-16T00:00:00.000Z' },
+  ],
+};
+const ruleView = (layer: string, scopeId: string | null, bps: number) => ({
+  ruleId: '77777777-7777-4777-8777-777777777777',
+  layer,
+  scopeId,
+  assetCode: 'USDT',
+  bands: [{ fromAmount: '0', feeBps: bps, flatFee: null }],
+  spreadBps: null,
+  roundingBeneficiary: layer === 'global' ? 'merchant' : 'platform',
+  minFee: null,
+  maxFee: null,
+  version: '1',
+  createdAt: '2026-10-13T10:00:00.000Z',
+});
+const rulesByLayer = (url: string) => {
+  const input = JSON.parse(decodeURIComponent(new URL(url).searchParams.get('input') ?? '{}')) as { layer?: string };
+  const rows =
+    input.layer === 'global'
+      ? [ruleView('global', null, 200)]
+      : input.layer === 'tier'
+        ? [ruleView('tier', 'standard', 175)]
+        : [ruleView('merchant', MID, 150)];
+  return ok(rows);
+};
+const controlsBase = {
+  'founderAdmin.metrics.merchant': snapshot,
+  'founderAdmin.metrics.merchantSeries': series,
+  'founderAdmin.control.merchant.get': profile,
+  'founderAdmin.control.merchant.usage': usageView,
+  'founderAdmin.control.tiers.list': [tierRow],
+  'founderAdmin.control.pricing.rules': rulesByLayer,
+};
+
+const approvalRow = (n: number, over: Record<string, unknown> = {}) => ({
+  approvalId: `0000000${n}-0000-4000-8000-000000000000`,
+  merchantId: n === 2 ? 'a0000002-0000-4000-8000-000000000002' : MID,
+  settlementId: `5000000${n}-0000-4000-8000-000000000000`,
+  amount: '1200.5',
+  assetCode: 'USDT',
+  payloadHash: HASH,
+  status: 'pending',
+  makerUserId: OTHER,
+  checkerUserId: OTHER,
+  createdAt: ago(3 * HOUR),
+  decidedAt: null,
+  expiresAt: ahead(9 * HOUR + 30 * 60_000),
+  ...over,
+});
+const queue = (approvals: unknown[], nextCursor: string | null = null) => ({ approvals, nextCursor });
+const namesFor = (url: string) => {
+  const input = JSON.parse(decodeURIComponent(new URL(url).searchParams.get('input') ?? '{}')) as { filter?: { merchantId?: string } };
+  const id = input.filter?.merchantId ?? '';
+  const named: Record<string, string | null> = { [MID]: 'Acme Shop', 'a0000002-0000-4000-8000-000000000002': null };
+  return ok({
+    freshness: fresh,
+    rows:
+      id in named
+        ? [
+            {
+              merchantId: id,
+              displayName: named[id],
+              status: 'active',
+              tierId: null,
+              kybStatus: 'approved',
+              volume: [],
+              revenue: [],
+              openFlags: 0,
+            },
+          ]
+        : [],
+    nextCursor: null,
+  });
+};
+
+const haltState = (over: Record<string, unknown> = {}) => ({
+  scope: 'payout',
+  target: { level: 'global' },
+  halted: false,
+  reason: null,
+  source: null,
+  actorUserId: null,
+  version: '0',
+  changedAt: null,
+  ...over,
+});
+const haltEvent = (over: Record<string, unknown> = {}) => ({ ...haltState(), confirmedByUserId: null, ...over });
+const operatorStatus = (over: Record<string, unknown> = {}) => ({
+  readable: true,
+  autoTrip: { enabled: false, consecutiveFailures: null },
+  states: [
+    haltState({ scope: 'intake' }),
+    haltState({ scope: 'conversion' }),
+    haltState({ scope: 'payout' }),
+    haltState({ scope: 'settlement' }),
+  ],
+  ...over,
+});
+
+describe('merchant drill-down: Controls tab', () => {
+  beforeEach(signIn);
+  const page = (q: Record<string, string> = {}) =>
+    MerchantDetail({ params: Promise.resolve({ id: MID }), searchParams: sp({ tab: 'controls', ...q }) });
+
+  it('shows tier, caps with usage, layered pricing, reserve and the approval rules, each with an as-of time', async () => {
+    services(controlsBase);
+    const out = html(await page());
+    expect(out).toContain('Standard');
+    expect(out).toContain('Controls as of');
+    expect(out).toContain('Usage as of 2026-10-15 10:00:00 UTC');
+    // caps with usage
+    expect(out).toContain('Money in per day');
+    expect(out).toContain('850.00');
+    expect(out).toContain('near the cap');
+    expect(out).toContain('checked per payment');
+    expect(out).toContain('New payout destinations per day');
+    expect(out).toContain('2026-10-16 00:00:00 UTC');
+    // layered pricing: merchant wins, tier and global are shown as overridden
+    expect(out).toContain('1.50% (150 bps)');
+    expect(out).toContain('1.75% (175 bps)');
+    expect(out).toContain('2.00% (200 bps)');
+    expect(out).toContain('in force');
+    expect(out).toContain('overridden');
+    expect(out).toContain('The most specific layer wins');
+    // reserve and approval rules
+    expect(out).toContain('5.00% (500 bps) held for 7 days');
+    expect(out).toContain('Also needs two founders from');
+    expect(out).toContain('1,000.00 USDT');
+    expect(out).toContain('1 day');
+    expect(out).not.toMatch(/NaN|undefined|\[object/);
+  });
+
+  it('asks for exactly this merchant, reads the tier layer only because a tier exists, and only reads', async () => {
+    const seen = services(controlsBase);
+    await page();
+    const control = seen.filter((u) => u.includes('founderAdmin.control.'));
+    expect(control.some((u) => u.includes('merchant.get') && u.includes(MID))).toBe(true);
+    expect(control.some((u) => u.includes('merchant.usage') && u.includes(MID))).toBe(true);
+    const layers = control
+      .filter((u) => u.includes('pricing.rules'))
+      .map((u) => JSON.parse(decodeURIComponent(new URL(u).searchParams.get('input')!)));
+    expect(layers).toEqual(
+      expect.arrayContaining([{ layer: 'global' }, { layer: 'merchant', scopeId: MID }, { layer: 'tier', scopeId: 'standard' }]),
+    );
+    expect(seen.every((u) => !u.includes('changes.submit') && !u.includes('changes.confirm') && !u.includes('approvals.decide'))).toBe(
+      true,
+    );
+    services({ ...controlsBase, 'founderAdmin.control.merchant.get': unconfiguredProfile });
+    const none = services({ ...controlsBase, 'founderAdmin.control.merchant.get': unconfiguredProfile });
+    await page();
+    expect(none.some((u) => u.includes('pricing.rules') && u.includes('tier'))).toBe(false);
+  });
+
+  it('a merchant nobody configured says "not configured: payments refuse" everywhere and shows no number', async () => {
+    services({
+      ...controlsBase,
+      'founderAdmin.control.merchant.get': unconfiguredProfile,
+      'founderAdmin.control.merchant.usage': { ...usageView, tierId: null, rows: [] },
+      'founderAdmin.control.tiers.list': [],
+      'founderAdmin.control.pricing.rules': [],
+    });
+    const out = html(await page());
+    expect(out).toContain('Not set: payments refuse');
+    expect(out).toContain('Not configured: payments refuse');
+    expect(out).toContain('Caps are not configured: payments refuse');
+    expect(out).toContain('Pricing is not configured: payments refuse');
+    expect(out).toContain('No tier, so no approval rules: payouts refuse');
+    expect(out).toContain('not fully configured');
+    expect(out).not.toMatch(/\d+\.\d\d (USDT|USD)/);
+  });
+
+  it('says what is not available yet instead of inventing it: history, pending changes and over-cap captures', async () => {
+    services(controlsBase);
+    const out = html(await page());
+    expect(out).toContain('Who changed what is not available yet');
+    expect(out).toContain('The list of pending changes is not available yet');
+    expect(out).toContain('Captures over a cap');
+    expect(out).toContain('no founder-readable procedure exposes those rows');
+    expect(out).toContain('Version of this merchant’s controls');
+  });
+
+  it('puts the two-founder change form and the second-founder confirm panel on the page', async () => {
+    services(controlsBase);
+    const out = html(await page());
+    expect(out).toContain('Every change needs two different founders');
+    expect(out).toContain('Review change');
+    expect(out).toContain('Confirm a change from another founder');
+    expect(out).toContain('Version 4 of this merchant');
+  });
+
+  it('turns the change form off, with a reason, when the controls cannot be read', async () => {
+    services({ ...controlsBase, 'founderAdmin.control.merchant.get': 'nonsense' });
+    const out = html(await page());
+    expect(out).toContain('could not be read');
+    expect(out).toContain('Changes are off while the controls cannot be read');
+    expect(out).not.toContain('Review change');
+  });
+
+  it('a service that does not answer is an error with a retry, not an empty tab', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('operatorStatus')) return enabled();
+        if (url.includes('founderAdmin.metrics')) return ok(url.includes('merchantSeries') ? series : snapshot);
+        throw new Error('ECONNREFUSED');
+      }),
+    );
+    const out = html(await page());
+    expect(out).toContain('role="alert"');
+    expect(out).toContain('could not be loaded');
+    expect(out).toContain('Try again');
+  });
+
+  it('a procedure that is not switched on is "not built yet" with its name, and the rest of the tab still renders', async () => {
+    services({ ...controlsBase, 'founderAdmin.control.merchant.usage': () => notBuilt('founderAdmin.control.merchant.usage') });
+    const out = html(await page());
+    expect(out).toContain('founderAdmin.control.merchant.usage');
+    expect(out).toContain('Standard');
+  });
+
+  it('keeps the Test data badge and the merchant name in the page', async () => {
+    services({
+      ...controlsBase,
+      'founderAdmin.merchants.list': {
+        freshness: fresh,
+        rows: [
+          {
+            merchantId: MID,
+            displayName: 'Acme Shop',
+            status: 'active',
+            tierId: null,
+            kybStatus: 'approved',
+            volume: [],
+            revenue: [],
+            openFlags: 0,
+          },
+        ],
+        nextCursor: null,
+      },
+    });
+    const out = html(await page());
+    expect(out).toContain('Acme Shop');
+    const layout = html(await MerchantsLayout({ children: null }));
+    expect(layout).toContain('Test data');
+  });
+});
+
+describe('merchant drill-down: Approvals tab', () => {
+  beforeEach(signIn);
+  const base = { 'founderAdmin.metrics.merchant': snapshot, 'founderAdmin.metrics.merchantSeries': series };
+  const page = () => MerchantDetail({ params: Promise.resolve({ id: MID }), searchParams: sp({ tab: 'approvals' }) });
+
+  it('lists only this merchant’s payouts that wait for two founders, with age, time left and the decision button', async () => {
+    services({ ...base, 'founderAdmin.approvals.list': queue([approvalRow(1), approvalRow(2)]) });
+    const out = html(await page());
+    expect(out).toContain('1,200.50 USDT');
+    expect(out).toContain('waiting 3 h');
+    expect(out).toContain('expires in 9 h');
+    expect(out).toContain('Review and decide');
+    expect(out.match(/Review and decide/g)).toHaveLength(1);
+    expect(out).toContain('Approvals as of');
+    expect(out).toContain('Open the full queue');
+  });
+
+  it('says nothing is waiting, and what is not listed, when the queue has nothing for this merchant', async () => {
+    services({ ...base, 'founderAdmin.approvals.list': queue([approvalRow(2)]) });
+    const out = html(await page());
+    expect(out).toContain('Nothing waiting for founders');
+    expect(out).toContain('no founder-readable list for that earlier step yet');
+  });
+
+  it('follows the queue’s pages but stops, and says so, when it is longer than one read covers', async () => {
+    const seen = services({ ...base, 'founderAdmin.approvals.list': () => ok(queue([approvalRow(2)], '99')) });
+    const out = html(await page());
+    expect(seen.filter((u) => u.includes('approvals.list'))).toHaveLength(5);
+    expect(out).toContain('may have more waiting');
+  });
+
+  it('an error is an error, a stub is "not built yet", a refusal is plain English', async () => {
+    services(base);
+    expect(html(await page())).toContain('founderAdmin.approvals.list');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.includes('operatorStatus')
+          ? enabled()
+          : url.includes('founderAdmin.metrics')
+            ? ok(url.includes('merchantSeries') ? series : snapshot)
+            : Response.json(
+                { error: { message: 'x', data: { code: 'FORBIDDEN', httpStatus: 403, cause: { code: 'pay.approval_forbidden' } } } },
+                { status: 403 },
+              ),
+      ),
+    );
+    const out = html(await page());
+    expect(out).toContain('You cannot decide this approval');
+    expect(out).not.toContain('pay.approval_forbidden');
+  });
+});
+
+describe('merchant drill-down: Halts tab', () => {
+  beforeEach(signIn);
+  const base = { 'founderAdmin.metrics.merchant': snapshot, 'founderAdmin.metrics.merchantSeries': series };
+  const page = () => MerchantDetail({ params: Promise.resolve({ id: MID }), searchParams: sp({ tab: 'halts' }) });
+  const other = 'a0000002-0000-4000-8000-000000000002';
+
+  it('shows the switches that apply to this merchant (global and its own, not another merchant’s), the auto-trip setting and the history', async () => {
+    const seen = services({
+      ...base,
+      'payHalts.operatorStatus': operatorStatus({
+        states: [
+          haltState({
+            scope: 'payout',
+            halted: true,
+            reason: 'Venue failing',
+            source: 'operator',
+            actorUserId: USER,
+            version: '2',
+            changedAt: '2026-10-15T09:00:00.000Z',
+          }),
+          haltState({
+            scope: 'intake',
+            target: { level: 'merchant', merchantId: MID },
+            halted: true,
+            reason: 'Review',
+            source: 'operator',
+            actorUserId: USER,
+            version: '1',
+            changedAt: '2026-10-15T08:00:00.000Z',
+          }),
+          haltState({
+            scope: 'settlement',
+            target: { level: 'merchant', merchantId: other },
+            halted: true,
+            reason: 'Someone else',
+            source: 'operator',
+            actorUserId: USER,
+            version: '1',
+          }),
+        ],
+      }),
+      'payHalts.history': [
+        haltEvent({
+          scope: 'intake',
+          target: { level: 'merchant', merchantId: MID },
+          halted: true,
+          reason: 'Review',
+          source: 'operator',
+          actorUserId: USER,
+          version: '1',
+          changedAt: '2026-10-15T08:00:00.000Z',
+        }),
+      ],
+    });
+    const out = html(await page());
+    expect(out).toContain('Venue failing');
+    expect(out).toContain('Review');
+    expect(out).not.toContain('Someone else');
+    expect(out).toContain('Automatic trip is off');
+    expect(out).toContain('Clears waiting for a second founder');
+    expect(out).toContain('Switches as of');
+    const history = seen.find((u) => u.includes('payHalts.history'))!;
+    expect(JSON.parse(decodeURIComponent(new URL(history).searchParams.get('input')!))).toEqual({
+      target: { level: 'merchant', merchantId: MID },
+      limit: 50,
+    });
+  });
+
+  it('an unreadable halt store counts as halted, and no history is an empty state that says how it fills', async () => {
+    services({ ...base, 'payHalts.operatorStatus': operatorStatus({ readable: false, states: [] }), 'payHalts.history': [] });
+    const out = html(await page());
+    expect(out).toContain('The halt store could not be read');
+    expect(out).toContain('counts as halted');
+    expect(out).toContain('No halts recorded for this merchant');
+  });
+
+  it('a stub is "not built yet" for both reads', async () => {
+    services(base);
+    const out = html(await page());
+    expect(out).toContain('payHalts.operatorStatus');
+    expect(out).toContain('payHalts.history');
+  });
+});
+
+describe('founder approvals queue', () => {
+  beforeEach(signIn);
+  const listed = (approvals: unknown[]) => ({ 'founderAdmin.approvals.list': queue(approvals), 'founderAdmin.merchants.list': namesFor });
+  const page = (q: Record<string, string> = {}) => Approvals({ searchParams: sp(q) });
+
+  it('shows the KPI strip, merchant names, age and time-left chips, and one decision button per row', async () => {
+    services(listed([approvalRow(1), approvalRow(2, { createdAt: ago(8 * HOUR), expiresAt: ahead(1 * HOUR) })]));
+    const out = html(await page());
+    expect(out).toContain('Founder approvals');
+    expect(out).toContain('Waiting for founders');
+    expect(out).toContain('Oldest request');
+    expect(out).toContain('Running out of time');
+    expect(out).toContain('You took part in');
+    expect(out).toContain('Acme Shop');
+    expect(out).toContain('Unnamed merchant');
+    expect(out).toMatch(/waiting 3 h \d+ min/);
+    expect(out).toMatch(/expires in 9 h \d+ min/);
+    expect(out).toMatch(/expires in (0 h )?\d+ min|expires in 1 h/);
+    expect(out).toContain('Queue as of');
+    expect(out).toContain('Showing 2 of 2 waiting');
+    expect(out.match(/Review and decide/g)).toHaveLength(2);
+    expect(out).toContain('Export CSV (2)');
+    expect(out).toContain('href="/merchants/22222222-2222-4222-8222-222222222222?tab=approvals"');
+  });
+
+  it('works out “running out of time” from each request’s own window, so the second row is flagged and the first is not', async () => {
+    services(listed([approvalRow(1), approvalRow(2, { createdAt: ago(8 * HOUR), expiresAt: ahead(1 * HOUR) })]));
+    const out = html(await page({ urgent: '1' }));
+    expect(out).toContain('Showing 1 of 2 waiting');
+    expect(out).not.toContain('Acme Shop');
+  });
+
+  it('filters by name, by asset, and says when nothing matches with a way back', async () => {
+    services(listed([approvalRow(1), approvalRow(2, { assetCode: 'EUR' })]));
+    expect(html(await page({ q: 'acme' }))).toContain('Showing 1 of 2 waiting');
+    expect(html(await page({ asset: 'EUR' }))).toContain('Showing 1 of 2 waiting');
+    const none = html(await page({ q: 'zzz-nobody' }));
+    expect(none).toContain('Nothing matches these filters');
+    expect(none).toContain('Clear filters');
+    expect(none).toContain('href="/merchants/approvals"');
+  });
+
+  it('a payout you asked for or approved cannot be signed by you, and the row says why', async () => {
+    services(listed([approvalRow(1, { makerUserId: USER })]));
+    const out = html(await page());
+    expect(out).toContain('A different founder must sign it');
+    expect(out).toMatch(/<button[^>]*disabled[^>]*>Review and decide/);
+  });
+
+  it('an empty queue explains how it fills', async () => {
+    services(listed([]));
+    const out = html(await page());
+    expect(out).toContain('No payouts are waiting for founders');
+    expect(out).toContain('Showing 0 of 0 waiting');
+    expect(out).toContain('None waiting');
+  });
+
+  it('an expired request cannot be decided', async () => {
+    services(listed([approvalRow(1, { createdAt: ago(5 * HOUR), expiresAt: ago(1 * HOUR) })]));
+    const out = html(await page());
+    expect(out).toContain('>expired<');
+    expect(out).toContain('ran out of time');
+  });
+
+  it('keeps working without names: the id identifies the row', async () => {
+    services({ 'founderAdmin.approvals.list': queue([approvalRow(1)]) });
+    const out = html(await page());
+    expect(out).toContain('Unnamed merchant');
+    expect(out).toContain('22222222…2222');
+  });
+
+  it('a stub is "not built yet", a dead service is an error with a retry, an unknown shape is "could not be read"', async () => {
+    services({});
+    const stub = html(await page());
+    expect(stub).toContain('Not built yet');
+    expect(stub).toContain('founderAdmin.approvals.list');
+    expect(stub).not.toContain('Waiting for founders');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('operatorStatus')) return enabled();
+        throw new Error('ECONNREFUSED');
+      }),
+    );
+    const down = html(await page());
+    expect(down).toContain('role="alert"');
+    expect(down).toContain('href="/merchants/approvals"');
+    services({ 'founderAdmin.approvals.list': { approvals: 'many' } });
+    expect(html(await page())).toContain('could not be read');
+  });
+
+  it('reads whole pages of the queue and says so when it is longer than it reads', async () => {
+    const seen = services({
+      'founderAdmin.approvals.list': () => ok(queue([approvalRow(1)], '7')),
+      'founderAdmin.merchants.list': namesFor,
+    });
+    const out = html(await page());
+    expect(seen.filter((u) => u.includes('approvals.list'))).toHaveLength(5);
+    expect(out).toContain('Showing the oldest part of a longer queue');
+  });
+
+  it('is in the Merchants section navigation', async () => {
+    services({});
+    const layout = html(await MerchantsLayout({ children: null }));
+    expect(layout).toContain('href="/merchants/approvals"');
   });
 });
 
@@ -696,9 +1206,12 @@ describe('treasury and halts', () => {
   it('shows the not-built state for both reads while the procedures are stubs', async () => {
     services({});
     const out = html(await Treasury());
-    expect(out.match(/Not built yet/g)?.length).toBe(2);
+    expect(out.match(/Not built yet/g)?.length).toBe(4);
     expect(out).toContain('founderAdmin.treasury.exposure');
     expect(out).toContain('payHalts.history');
+    expect(out).toContain('payHalts.operatorStatus');
+    // The honest gap stays visible even when every read is a stub.
+    expect(out).toContain('Pending halt clears are not available yet');
   });
 
   it('renders exposure and halts when the procedures answer, never reading a missing limit as unlimited', async () => {
@@ -743,6 +1256,147 @@ describe('treasury and halts', () => {
     expect(out).toContain('Not set: conversions refuse');
     expect(out).toContain('Automatic trip');
     expect(out).toContain('Venue failing');
+  });
+
+  const exposure = {
+    freshness: fresh,
+    perAsset: [
+      { assetCode: 'USDT', openConversionInventory: '1000', pendingPayouts: '50.5', limit: null },
+      { assetCode: 'EUR', openConversionInventory: null, pendingPayouts: '2', limit: '10' },
+    ],
+  };
+
+  it('summarises limits and halts in a KPI strip, each with an as-of time', async () => {
+    services({
+      'founderAdmin.treasury.exposure': exposure,
+      'payHalts.history': [],
+      'payHalts.operatorStatus': operatorStatus({
+        states: [
+          haltState({
+            scope: 'payout',
+            halted: true,
+            reason: 'x',
+            source: 'operator',
+            actorUserId: USER,
+            version: '1',
+            changedAt: '2026-10-15T09:00:00.000Z',
+          }),
+          haltState({ scope: 'intake' }),
+        ],
+      }),
+    });
+    const out = html(await Treasury());
+    expect(out).toContain('Assets with an exposure limit');
+    expect(out).toContain('1 of 2');
+    expect(out).toContain('Assets with no limit');
+    expect(out).toContain('Operations halted');
+    expect(out).toMatch(/As of 2026-10-15 10:00:00 UTC/);
+    expect(out).toContain('Conversions refuse for these');
+  });
+
+  it('shows the auto-trip posture: off means nothing pauses by itself, on states the count of failures', async () => {
+    services({ 'founderAdmin.treasury.exposure': exposure, 'payHalts.history': [], 'payHalts.operatorStatus': operatorStatus() });
+    const off = html(await Treasury());
+    expect(off).toContain('Automatic trip is off');
+    expect(off).toContain('no default one');
+    services({
+      'founderAdmin.treasury.exposure': exposure,
+      'payHalts.history': [],
+      'payHalts.operatorStatus': operatorStatus({ autoTrip: { enabled: true, consecutiveFailures: 4 } }),
+    });
+    const on = html(await Treasury());
+    expect(on).toContain('4 failures in a row');
+    expect(on).toContain('After 4 failures');
+  });
+
+  it('lists the halt switches now, and reads an unreadable store as halted', async () => {
+    services({ 'founderAdmin.treasury.exposure': exposure, 'payHalts.history': [], 'payHalts.operatorStatus': operatorStatus() });
+    const out = html(await Treasury());
+    expect(out).toContain('Halt switches now');
+    for (const label of ['Taking payments', 'Converting currency', 'Paying out', 'Settling to merchants']) expect(out).toContain(label);
+    services({
+      'founderAdmin.treasury.exposure': exposure,
+      'payHalts.history': [],
+      'payHalts.operatorStatus': operatorStatus({ readable: false, states: [] }),
+    });
+    const bad = html(await Treasury());
+    expect(bad).toContain('The halt store could not be read');
+    expect(bad).toContain('counts as halted');
+  });
+
+  it('says pending dual-founder clears are not available yet, because the contract has no read for them', async () => {
+    services({ 'founderAdmin.treasury.exposure': exposure, 'payHalts.history': [], 'payHalts.operatorStatus': operatorStatus() });
+    const out = html(await Treasury());
+    expect(out).toContain('Halt clears waiting for a second founder');
+    expect(out).toContain('Pending halt clears are not available yet');
+    expect(out).toContain('no read for it');
+  });
+
+  it('history names the second founder on a clear, says "(you)" for the signed-in founder and flags a clear with no second founder', async () => {
+    services({
+      'founderAdmin.treasury.exposure': exposure,
+      'payHalts.operatorStatus': operatorStatus(),
+      'payHalts.history': [
+        haltEvent({
+          scope: 'payout',
+          halted: false,
+          reason: 'Rail repaired',
+          source: 'operator',
+          actorUserId: USER,
+          confirmedByUserId: OTHER,
+          version: '5',
+          changedAt: '2026-10-15T10:00:00.000Z',
+        }),
+        haltEvent({
+          scope: 'intake',
+          halted: false,
+          reason: 'Odd clear',
+          source: 'operator',
+          actorUserId: OTHER,
+          confirmedByUserId: null,
+          version: '4',
+          changedAt: '2026-10-15T09:00:00.000Z',
+        }),
+        haltEvent({
+          scope: 'conversion',
+          halted: true,
+          reason: 'Venue failing',
+          source: 'auto_trip',
+          version: '3',
+          changedAt: '2026-10-15T08:00:00.000Z',
+        }),
+      ],
+    });
+    const out = html(await Treasury());
+    expect(out).toContain('confirmed by a second founder');
+    expect(out).toContain('(you)');
+    expect(out).toContain('no second founder recorded');
+    expect(out).toContain('Automatic trip');
+    expect(out).toContain('History as of');
+  });
+
+  it('a dead service shows errors with retries, never an empty page', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('operatorStatus')) return enabled();
+        throw new Error('ECONNREFUSED');
+      }),
+    );
+    const out = html(await Treasury());
+    expect(out).toContain('role="alert"');
+    expect(out.match(/Try again/g)!.length).toBeGreaterThanOrEqual(4);
+    expect(out).not.toContain('0.00');
+  });
+
+  it('is read only: the page does not call any write procedure', async () => {
+    const seen = services({
+      'founderAdmin.treasury.exposure': exposure,
+      'payHalts.history': [],
+      'payHalts.operatorStatus': operatorStatus(),
+    });
+    await Treasury();
+    expect(seen.every((u) => /treasury\.exposure|payHalts\.(history|operatorStatus)/.test(u))).toBe(true);
   });
 });
 

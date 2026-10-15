@@ -8,5 +8,5 @@ export const dynamic = 'force-dynamic';
 export default async function TreasuryPage() {
   requireModulePage('merchants');
   const ctx = await requireMerchantsFounder();
-  return <TreasuryView data={await loadTreasury(ctx)} />;
+  return <TreasuryView data={await loadTreasury(ctx)} currentUserId={ctx.session.userId} />;
 }

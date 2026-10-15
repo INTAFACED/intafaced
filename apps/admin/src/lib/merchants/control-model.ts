@@ -1,0 +1,709 @@
+import type { MerchantControlProfile, PayCap, PayPricingRule } from '@intafaced/contracts';
+import { compareDecimal, formatAmount, isDecimalString, permille } from './money';
+
+/**
+ * Merchant control room (svc-pay `founderAdmin.control.*`, `founderAdmin.changes.*`).
+ *
+ * The profile, approval and halt shapes come from `@intafaced/contracts`. The tier, pricing-rule and usage
+ * views live in svc-pay (`control/schemas.ts`) and are not published yet, so their shapes are mirrored here
+ * by hand and parsed strictly: anything that is not exactly that shape reads as "invalid" and the page says
+ * so, never a half-filled table. The service validates every change again; the rules below only give the
+ * founder an answer before the round trip, in plain English.
+ *
+ * Nothing in this file carries a commercial number. Forms start empty; an unset section is "not configured:
+ * payments refuse", never a placeholder.
+ */
+
+// ── views the service returns that the contract package does not publish ────
+
+export interface Threshold {
+  readonly assetCode: string;
+  readonly amount: string;
+}
+
+export interface TierView {
+  readonly id: string;
+  readonly name: string;
+  readonly archetype: string;
+  readonly caps: PayCap[];
+  readonly reserve: { rollingReserveBps: number | null; holdDays: number | null } | null;
+  readonly approvalThresholds: Threshold[];
+  readonly founderThresholds: Threshold[];
+  readonly approvalTtlSeconds: number;
+  readonly version: string;
+  readonly merchants: number;
+}
+
+export interface PricingRuleView {
+  readonly ruleId: string;
+  readonly layer: 'global' | 'tier' | 'merchant';
+  readonly scopeId: string | null;
+  readonly assetCode: string;
+  readonly bands: { fromAmount: string; feeBps: number; flatFee: string | null }[];
+  readonly spreadBps: number | null;
+  readonly roundingBeneficiary: 'platform' | 'merchant';
+  readonly minFee: string | null;
+  readonly maxFee: string | null;
+  readonly version: string;
+  readonly createdAt: string;
+}
+
+export interface UsageRow {
+  readonly kind: CapKind;
+  readonly assetCode: string | null;
+  readonly limit: string;
+  readonly used: string | null;
+  readonly remaining: string | null;
+  readonly resetsAt: string | null;
+}
+export interface UsageView {
+  readonly merchantId: string;
+  readonly tierId: string | null;
+  readonly asOf: string;
+  readonly rows: UsageRow[];
+}
+
+export const CAP_KINDS = ['per_payment', 'daily_intake', 'monthly_intake', 'daily_payout', 'beneficiaries_per_day'] as const;
+export type CapKind = (typeof CAP_KINDS)[number];
+const MONEY_CAP_KINDS = ['per_payment', 'daily_intake', 'monthly_intake', 'daily_payout'] as const;
+
+export const CAP_LABEL: Record<CapKind, string> = {
+  per_payment: 'Largest single payment',
+  daily_intake: 'Money in per day',
+  monthly_intake: 'Money in per month',
+  daily_payout: 'Payouts per day',
+  beneficiaries_per_day: 'New payout destinations per day',
+};
+export const CAP_HINT: Record<CapKind, string> = {
+  per_payment: 'A payment above this is refused at checkout.',
+  daily_intake: 'Captured payments in one UTC day. When it is used up, new payments are refused until midnight UTC.',
+  monthly_intake: 'Captured payments in one UTC month. When it is used up, new payments are refused until the 1st.',
+  daily_payout: 'Money paid out in one UTC day.',
+  beneficiaries_per_day: 'How many different payout destinations can receive money in one UTC day.',
+};
+
+// ── strict readers ──────────────────────────────────────────────────────────
+
+type Rec = Record<string, unknown>;
+const isRec = (v: unknown): v is Rec => v !== null && typeof v === 'object' && !Array.isArray(v);
+const isStr = (v: unknown): v is string => typeof v === 'string';
+const isNullableStr = (v: unknown): v is string | null => v === null || typeof v === 'string';
+const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+const isBps = (v: unknown): v is number => isInt(v) && v >= 0 && v <= 10_000;
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+const isIso = (v: unknown): v is string => isStr(v) && ISO.test(v) && Number.isFinite(Date.parse(v));
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const SLUG = /^[a-z][a-z0-9_-]{1,31}$/;
+const isDec = (v: unknown): v is string => isDecimalString(v);
+
+function listOf<T>(raw: unknown, each: (x: unknown) => T | null): T[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: T[] = [];
+  for (const item of raw) {
+    const parsed = each(item);
+    if (parsed === null) return null;
+    out.push(parsed);
+  }
+  return out;
+}
+
+export function asCap(raw: unknown): PayCap | null {
+  if (!isRec(raw)) return null;
+  if (raw.kind === 'beneficiaries_per_day') {
+    const keys = Object.keys(raw).sort().join(',');
+    return keys === 'kind,limit' && isInt(raw.limit) && raw.limit >= 0 && raw.limit <= 1_000_000
+      ? { kind: 'beneficiaries_per_day', limit: raw.limit }
+      : null;
+  }
+  const kind = MONEY_CAP_KINDS.find((k) => k === raw.kind);
+  if (!kind || Object.keys(raw).sort().join(',') !== 'assetCode,kind,limit') return null;
+  return isStr(raw.assetCode) && raw.assetCode.length >= 1 && raw.assetCode.length <= 16 && isDec(raw.limit)
+    ? { kind, assetCode: raw.assetCode, limit: raw.limit }
+    : null;
+}
+
+function asThreshold(raw: unknown): Threshold | null {
+  return isRec(raw) && isStr(raw.assetCode) && isDec(raw.amount) ? { assetCode: raw.assetCode, amount: raw.amount } : null;
+}
+
+function asReserve(raw: unknown): TierView['reserve'] | undefined {
+  if (raw === null) return null;
+  if (!isRec(raw)) return undefined;
+  const bps = raw.rollingReserveBps;
+  const days = raw.holdDays;
+  if (!(bps === null || isBps(bps)) || !(days === null || (isInt(days) && days >= 0 && days <= 365))) return undefined;
+  return { rollingReserveBps: bps, holdDays: days };
+}
+
+export function asTier(raw: unknown): TierView | null {
+  if (!isRec(raw)) return null;
+  const caps = listOf(raw.caps, asCap);
+  const approvalThresholds = listOf(raw.approvalThresholds, asThreshold);
+  const founderThresholds = listOf(raw.founderThresholds, asThreshold);
+  const reserve = asReserve(raw.reserve);
+  if (
+    !isStr(raw.id) ||
+    !isStr(raw.name) ||
+    !isStr(raw.archetype) ||
+    !caps ||
+    !approvalThresholds ||
+    !founderThresholds ||
+    reserve === undefined ||
+    !isInt(raw.approvalTtlSeconds) ||
+    !isStr(raw.version) ||
+    !isInt(raw.merchants)
+  )
+    return null;
+  return {
+    id: raw.id,
+    name: raw.name,
+    archetype: raw.archetype,
+    caps,
+    reserve,
+    approvalThresholds,
+    founderThresholds,
+    approvalTtlSeconds: raw.approvalTtlSeconds,
+    version: raw.version,
+    merchants: raw.merchants,
+  };
+}
+
+function asBand(raw: unknown): PricingRuleView['bands'][number] | null {
+  return isRec(raw) && isDec(raw.fromAmount) && isBps(raw.feeBps) && (raw.flatFee === null || isDec(raw.flatFee))
+    ? { fromAmount: raw.fromAmount, feeBps: raw.feeBps, flatFee: raw.flatFee as string | null }
+    : null;
+}
+
+export function asPricingRule(raw: unknown): PricingRuleView | null {
+  if (!isRec(raw)) return null;
+  const bands = listOf(raw.bands, asBand);
+  const layer = raw.layer === 'global' || raw.layer === 'tier' || raw.layer === 'merchant' ? raw.layer : null;
+  const minFee = raw.minFee === undefined ? null : raw.minFee;
+  const maxFee = raw.maxFee === undefined ? null : raw.maxFee;
+  if (
+    !bands ||
+    bands.length === 0 ||
+    !layer ||
+    !isStr(raw.ruleId) ||
+    !isNullableStr(raw.scopeId) ||
+    !isStr(raw.assetCode) ||
+    !(raw.spreadBps === null || isBps(raw.spreadBps)) ||
+    !(raw.roundingBeneficiary === 'platform' || raw.roundingBeneficiary === 'merchant') ||
+    !(minFee === null || isDec(minFee)) ||
+    !(maxFee === null || isDec(maxFee)) ||
+    !isStr(raw.version) ||
+    !isIso(raw.createdAt)
+  )
+    return null;
+  return {
+    ruleId: raw.ruleId,
+    layer,
+    scopeId: raw.scopeId,
+    assetCode: raw.assetCode,
+    bands,
+    spreadBps: raw.spreadBps,
+    roundingBeneficiary: raw.roundingBeneficiary,
+    minFee,
+    maxFee,
+    version: raw.version,
+    createdAt: raw.createdAt,
+  };
+}
+
+function asUsageRow(raw: unknown): UsageRow | null {
+  const kind = isRec(raw) ? CAP_KINDS.find((k) => k === raw.kind) : undefined;
+  if (!isRec(raw) || !kind) return null;
+  if (!(raw.assetCode === null || isStr(raw.assetCode)) || !isStr(raw.limit) || !isNullableStr(raw.used) || !isNullableStr(raw.remaining))
+    return null;
+  if (!(raw.resetsAt === null || isIso(raw.resetsAt))) return null;
+  return { kind, assetCode: raw.assetCode, limit: raw.limit, used: raw.used, remaining: raw.remaining, resetsAt: raw.resetsAt };
+}
+
+export function asUsage(raw: unknown): UsageView | null {
+  if (!isRec(raw)) return null;
+  const rows = listOf(raw.rows, asUsageRow);
+  if (!rows || !isStr(raw.merchantId) || !UUID.test(raw.merchantId) || !isNullableStr(raw.tierId) || !isIso(raw.asOf)) return null;
+  return { merchantId: raw.merchantId, tierId: raw.tierId, asOf: raw.asOf, rows };
+}
+
+// ── describing values in words ──────────────────────────────────────────────
+
+/** 150 -> "1.50% (150 bps)". Integer arithmetic only. */
+export function bpsText(bps: number): string {
+  return `${Math.floor(bps / 100)}.${String(bps % 100).padStart(2, '0')}% (${bps} bps)`;
+}
+
+export function ttlText(seconds: number): string {
+  if (seconds % 86_400 === 0) return `${seconds / 86_400} day${seconds === 86_400 ? '' : 's'}`;
+  if (seconds % 3600 === 0) return `${seconds / 3600} hour${seconds === 3600 ? '' : 's'}`;
+  if (seconds % 60 === 0) return `${seconds / 60} minutes`;
+  return `${seconds} seconds`;
+}
+
+export function capLimitText(cap: PayCap): string {
+  return cap.kind === 'beneficiaries_per_day' ? String(cap.limit) : `${formatAmount(cap.limit)} ${cap.assetCode}`;
+}
+
+export const LAYER_LABEL: Record<PricingRuleView['layer'], string> = { global: 'Global', tier: 'Tier', merchant: 'This merchant' };
+export const LAYER_RANK: Record<PricingRuleView['layer'], number> = { merchant: 3, tier: 2, global: 1 };
+
+export interface UsageMeter {
+  /** 0 to 1000, for the bar width only. Null when usage is not measured (a per-payment cap has no counter). */
+  readonly permille: number | null;
+  readonly state: 'unmeasured' | 'ok' | 'near' | 'full';
+}
+
+/** "Near" is a display label at 80% used; it gates nothing. */
+export function usageMeter(row: Pick<UsageRow, 'limit' | 'used'>): UsageMeter {
+  if (row.used === null || !isDec(row.used) || !isDec(row.limit)) return { permille: null, state: 'unmeasured' };
+  if (compareDecimal(row.limit, '0') === 0) return { permille: 1000, state: 'full' };
+  const p = permille(row.used, row.limit);
+  return { permille: p, state: p >= 1000 ? 'full' : p >= 800 ? 'near' : 'ok' };
+}
+
+export interface PricingChainRow {
+  readonly assetCode: string;
+  /** Every layer that has a rule for this asset, most specific first. The first one is the one in force. */
+  readonly layers: { rule: PricingRuleView; inForce: boolean }[];
+}
+
+/** Group the three layers' rules by asset. The most specific layer with a rule for an asset wins (merchant, then tier, then global). */
+export function pricingChain(rules: readonly PricingRuleView[]): PricingChainRow[] {
+  const assets = [...new Set(rules.map((r) => r.assetCode))].sort();
+  return assets.map((assetCode) => {
+    const layers = rules
+      .filter((r) => r.assetCode === assetCode)
+      .sort((a, b) => LAYER_RANK[b.layer] - LAYER_RANK[a.layer])
+      .map((rule, i) => ({ rule, inForce: i === 0 }));
+    return { assetCode, layers };
+  });
+}
+
+// ── the change form ─────────────────────────────────────────────────────────
+
+export const CHANGE_KINDS = [
+  {
+    id: 'set_tier',
+    label: 'Tier',
+    hint: 'Which tier this merchant is on. The tier brings its caps, thresholds and reserve unless overridden.',
+  },
+  { id: 'set_caps', label: 'Caps', hint: 'This merchant’s own caps. They replace the tier’s caps completely.' },
+  {
+    id: 'set_pricing',
+    label: 'Pricing',
+    hint: 'This merchant’s own fee rule per asset. It is the most specific layer and wins over tier and global.',
+  },
+  { id: 'set_reserve', label: 'Reserve', hint: 'Money withheld from settlement for a number of days.' },
+] as const;
+export type ChangeKindId = (typeof CHANGE_KINDS)[number]['id'];
+
+export interface CapRow {
+  kind: CapKind | '';
+  assetCode: string;
+  limit: string;
+}
+export interface BandRow {
+  fromAmount: string;
+  feeBps: string;
+  flatFee: string;
+}
+export interface ChangeFormValues {
+  kind: ChangeKindId;
+  tierId: string;
+  archetypeId: string;
+  caps: CapRow[];
+  reserveBps: string;
+  holdDays: string;
+  pricingAsset: string;
+  pricingSpread: string;
+  pricingRounding: '' | 'platform' | 'merchant';
+  bands: BandRow[];
+  reason: string;
+}
+
+export const EMPTY_CAP: CapRow = { kind: '', assetCode: '', limit: '' };
+export const EMPTY_BAND: BandRow = { fromAmount: '', feeBps: '', flatFee: '' };
+
+export const EMPTY_CHANGE_FORM: ChangeFormValues = {
+  kind: 'set_tier',
+  tierId: '',
+  archetypeId: '',
+  caps: [{ ...EMPTY_CAP }],
+  reserveBps: '',
+  holdDays: '',
+  pricingAsset: '',
+  pricingSpread: '',
+  pricingRounding: '',
+  bands: [{ ...EMPTY_BAND }],
+  reason: '',
+};
+
+/** The change as the service takes it. */
+export type ControlChange =
+  | { kind: 'set_tier'; tierId: string; archetypeId: string | null }
+  | { kind: 'set_caps'; caps: PayCap[] }
+  | { kind: 'set_pricing'; pricing: PayPricingRule[] }
+  | { kind: 'set_reserve'; reserve: { rollingReserveBps: number | null; holdDays: number | null } };
+
+export type ChangeErrors = Record<string, string>;
+export type BuildChangeResult = { ok: true; change: ControlChange; reason: string } | { ok: false; errors: ChangeErrors };
+
+const INT = /^\d+$/;
+const REASON_MIN = 3;
+const REASON_MAX = 500;
+
+export function validateReason(reason: string): string | null {
+  const t = reason.trim();
+  if (t.length < REASON_MIN) return `Write at least ${REASON_MIN} characters: why is this change being made?`;
+  if (t.length > REASON_MAX) return `Keep the reason under ${REASON_MAX} characters.`;
+  return null;
+}
+
+export function buildControlChange(v: ChangeFormValues, merchantId: string): BuildChangeResult {
+  const errors: ChangeErrors = {};
+  let change: ControlChange | null = null;
+  const reasonError = validateReason(v.reason);
+  if (reasonError) errors.reason = reasonError;
+
+  if (v.kind === 'set_tier') {
+    if (!SLUG.test(v.tierId)) errors.tierId = 'Pick a tier from the list.';
+    const archetype = v.archetypeId.trim();
+    if (archetype !== '' && !SLUG.test(archetype))
+      errors.archetypeId = 'Use lowercase letters, digits, dashes or underscores, 2 to 32 characters. Or leave it empty.';
+    if (!errors.tierId && !errors.archetypeId)
+      change = { kind: 'set_tier', tierId: v.tierId, archetypeId: archetype === '' ? null : archetype };
+  } else if (v.kind === 'set_caps') {
+    const caps: PayCap[] = [];
+    const seen = new Set<string>();
+    if (v.caps.length === 0) errors.caps = 'Add at least one cap.';
+    v.caps.forEach((row, i) => {
+      if (row.kind === '') {
+        errors[`caps.${i}.kind`] = 'Choose what this cap limits.';
+        return;
+      }
+      if (row.kind === 'beneficiaries_per_day') {
+        if (!INT.test(row.limit.trim()) || Number(row.limit) > 1_000_000) {
+          errors[`caps.${i}.limit`] = 'Enter a whole number from 0 to 1,000,000.';
+          return;
+        }
+        if (seen.has(row.kind)) errors[`caps.${i}.kind`] = 'This cap is listed twice.';
+        seen.add(row.kind);
+        caps.push({ kind: 'beneficiaries_per_day', limit: Number(row.limit) });
+        return;
+      }
+      const asset = row.assetCode.trim().toUpperCase();
+      if (asset.length < 1 || asset.length > 16)
+        errors[`caps.${i}.assetCode`] = 'Enter the asset code, for example the asset the cap is counted in.';
+      if (!isDec(row.limit.trim()))
+        errors[`caps.${i}.limit`] = 'Enter an amount like 1000 or 1000.50 (digits and one dot, up to 18 places).';
+      const key = `${row.kind}:${asset}`;
+      if (seen.has(key)) errors[`caps.${i}.kind`] = 'This cap is listed twice for the same asset.';
+      seen.add(key);
+      if (!errors[`caps.${i}.assetCode`] && !errors[`caps.${i}.limit`])
+        caps.push({ kind: row.kind, assetCode: asset, limit: row.limit.trim() });
+    });
+    if (v.caps.length > 32) errors.caps = 'At most 32 caps.';
+    if (Object.keys(errors).filter((k) => k.startsWith('caps')).length === 0) change = { kind: 'set_caps', caps };
+  } else if (v.kind === 'set_reserve') {
+    const bps = v.reserveBps.trim();
+    const days = v.holdDays.trim();
+    if (bps !== '' && (!INT.test(bps) || Number(bps) > 10_000))
+      errors.reserveBps = 'Enter whole basis points from 0 to 10,000 (100 bps is 1%).';
+    if (days !== '' && (!INT.test(days) || Number(days) > 365)) errors.holdDays = 'Enter whole days from 0 to 365.';
+    if ((bps === '') !== (days === '') && !errors.reserveBps && !errors.holdDays) {
+      errors[bps === '' ? 'reserveBps' : 'holdDays'] = 'A reserve needs both a percentage and a hold period, or neither.';
+    }
+    if (!errors.reserveBps && !errors.holdDays) {
+      change = {
+        kind: 'set_reserve',
+        reserve: bps === '' ? { rollingReserveBps: null, holdDays: null } : { rollingReserveBps: Number(bps), holdDays: Number(days) },
+      };
+    }
+  } else {
+    const asset = v.pricingAsset.trim().toUpperCase();
+    if (asset.length < 1 || asset.length > 16) errors.pricingAsset = 'Enter the asset code this rule prices.';
+    const spread = v.pricingSpread.trim();
+    if (spread !== '' && (!INT.test(spread) || Number(spread) > 10_000))
+      errors.pricingSpread = 'Enter whole basis points from 0 to 10,000, or leave empty for no spread.';
+    if (v.pricingRounding === '') errors.pricingRounding = 'Choose who keeps the fraction when a fee does not divide evenly.';
+    const bands: PayPricingRule['bands'] = [];
+    if (v.bands.length === 0 || v.bands.length > 64) errors.bands = 'A rule needs between 1 and 64 bands.';
+    v.bands.forEach((b, i) => {
+      if (!isDec(b.fromAmount.trim())) errors[`bands.${i}.fromAmount`] = 'Enter the amount this band starts at, like 0 or 1000.';
+      if (!INT.test(b.feeBps.trim()) || Number(b.feeBps) > 10_000)
+        errors[`bands.${i}.feeBps`] = 'Enter whole basis points from 0 to 10,000.';
+      if (b.flatFee.trim() !== '' && !isDec(b.flatFee.trim()))
+        errors[`bands.${i}.flatFee`] = 'Enter an amount like 0.30, or leave empty for no flat fee.';
+      if (!errors[`bands.${i}.fromAmount`] && !errors[`bands.${i}.feeBps`] && !errors[`bands.${i}.flatFee`]) {
+        const prev = bands[i - 1];
+        if (prev && compareDecimal(prev.fromAmount, b.fromAmount.trim()) >= 0)
+          errors[`bands.${i}.fromAmount`] = 'Each band must start higher than the one before.';
+        bands.push({
+          fromAmount: b.fromAmount.trim(),
+          feeBps: Number(b.feeBps),
+          flatFee: b.flatFee.trim() === '' ? null : b.flatFee.trim(),
+        });
+      }
+    });
+    if (Object.keys(errors).filter((k) => k.startsWith('pricing') || k.startsWith('bands')).length === 0 && v.pricingRounding !== '') {
+      change = {
+        kind: 'set_pricing',
+        pricing: [
+          {
+            layer: 'merchant',
+            scopeId: merchantId,
+            assetCode: asset,
+            bands,
+            spreadBps: spread === '' ? null : Number(spread),
+            roundingBeneficiary: v.pricingRounding,
+          },
+        ],
+      };
+    }
+  }
+  return change && Object.keys(errors).length === 0 ? { ok: true, change, reason: v.reason.trim() } : { ok: false, errors };
+}
+
+// ── strict reader for a change that travels as text (the second founder's paste) ──
+
+export function acceptControlChange(raw: unknown, merchantId: string): ControlChange | null {
+  if (!isRec(raw)) return null;
+  if (raw.kind === 'set_tier') {
+    return Object.keys(raw).sort().join(',') === 'archetypeId,kind,tierId' &&
+      isStr(raw.tierId) &&
+      SLUG.test(raw.tierId) &&
+      (raw.archetypeId === null || (isStr(raw.archetypeId) && SLUG.test(raw.archetypeId)))
+      ? { kind: 'set_tier', tierId: raw.tierId, archetypeId: raw.archetypeId }
+      : null;
+  }
+  if (raw.kind === 'set_caps') {
+    const caps = Object.keys(raw).sort().join(',') === 'caps,kind' ? listOf(raw.caps, asCap) : null;
+    return caps && caps.length >= 1 && caps.length <= 32 ? { kind: 'set_caps', caps } : null;
+  }
+  if (raw.kind === 'set_reserve') {
+    const reserve = Object.keys(raw).sort().join(',') === 'kind,reserve' ? asReserve(raw.reserve) : undefined;
+    return reserve ? { kind: 'set_reserve', reserve } : null;
+  }
+  if (raw.kind === 'set_pricing' && Object.keys(raw).sort().join(',') === 'kind,pricing') {
+    const rules = listOf(raw.pricing, (r): PayPricingRule | null => {
+      if (!isRec(r) || Object.keys(r).sort().join(',') !== 'assetCode,bands,layer,roundingBeneficiary,scopeId,spreadBps') return null;
+      const bands = listOf(r.bands, asBand);
+      if (
+        !bands ||
+        bands.length === 0 ||
+        r.layer !== 'merchant' ||
+        r.scopeId !== merchantId ||
+        !isStr(r.assetCode) ||
+        !(r.spreadBps === null || isBps(r.spreadBps)) ||
+        !(r.roundingBeneficiary === 'platform' || r.roundingBeneficiary === 'merchant')
+      )
+        return null;
+      return {
+        layer: 'merchant',
+        scopeId: merchantId,
+        assetCode: r.assetCode,
+        bands,
+        spreadBps: r.spreadBps,
+        roundingBeneficiary: r.roundingBeneficiary,
+      };
+    });
+    return rules && rules.length >= 1 && rules.length <= 32 ? { kind: 'set_pricing', pricing: rules } : null;
+  }
+  return null;
+}
+
+// ── the change in words ─────────────────────────────────────────────────────
+
+export interface SummaryLine {
+  readonly key: string;
+  readonly label: string;
+  readonly value: string;
+}
+
+export function summariseControlChange(change: ControlChange, tiers: readonly TierView[] = []): SummaryLine[] {
+  if (change.kind === 'set_tier') {
+    const tier = tiers.find((t) => t.id === change.tierId);
+    return [
+      { key: 'tier', label: 'Tier', value: tier ? `${tier.name} (${tier.id})` : change.tierId },
+      { key: 'archetype', label: 'Archetype', value: change.archetypeId ?? 'The tier’s own' },
+    ];
+  }
+  if (change.kind === 'set_caps') {
+    return [
+      { key: 'replaces', label: 'Effect', value: 'Replaces every cap this merchant has, including the tier’s caps.' },
+      ...change.caps.map((cap, i) => ({
+        key: `cap${i}`,
+        label: CAP_LABEL[cap.kind] + (cap.kind === 'beneficiaries_per_day' ? '' : ` (${cap.assetCode})`),
+        value: capLimitText(cap),
+      })),
+    ];
+  }
+  if (change.kind === 'set_reserve') {
+    const { rollingReserveBps: bps, holdDays: days } = change.reserve;
+    return bps === null || days === null
+      ? [{ key: 'reserve', label: 'Reserve', value: 'None. No money is withheld from settlement.' }]
+      : [
+          { key: 'bps', label: 'Withheld', value: bpsText(bps) },
+          { key: 'days', label: 'Held for', value: `${days} day${days === 1 ? '' : 's'}` },
+        ];
+  }
+  return change.pricing.flatMap((rule, i): SummaryLine[] => [
+    { key: `asset${i}`, label: 'Asset', value: `${rule.assetCode}, this merchant’s own rule` },
+    ...rule.bands.map((b, j) => ({
+      key: `band${i}.${j}`,
+      label: `From ${formatAmount(b.fromAmount)}`,
+      value: `${bpsText(b.feeBps)}${b.flatFee === null ? '' : ` + ${formatAmount(b.flatFee)} flat`}`,
+    })),
+    { key: `spread${i}`, label: 'Conversion spread', value: rule.spreadBps === null ? 'None' : bpsText(rule.spreadBps) },
+    { key: `round${i}`, label: 'Fraction kept by', value: rule.roundingBeneficiary === 'platform' ? 'The platform' : 'The merchant' },
+  ]);
+}
+
+/** Starting values for the form: the merchant's own current numbers where there are any, never an invented default. */
+export function formFromProfile(profile: MerchantControlProfile | null, merchantRules: readonly PricingRuleView[]): ChangeFormValues {
+  const base: ChangeFormValues = { ...EMPTY_CHANGE_FORM, caps: [{ ...EMPTY_CAP }], bands: [{ ...EMPTY_BAND }] };
+  if (!profile) return base;
+  const rule = merchantRules[0];
+  return {
+    ...base,
+    tierId: profile.tierId ?? '',
+    archetypeId: profile.archetypeId ?? '',
+    caps: profile.caps && profile.caps.length > 0 ? profile.caps.map(capToRow) : base.caps,
+    reserveBps:
+      profile.reserve?.rollingReserveBps === null || profile.reserve?.rollingReserveBps === undefined
+        ? ''
+        : String(profile.reserve.rollingReserveBps),
+    holdDays: profile.reserve?.holdDays === null || profile.reserve?.holdDays === undefined ? '' : String(profile.reserve.holdDays),
+    ...(rule
+      ? {
+          pricingAsset: rule.assetCode,
+          pricingSpread: rule.spreadBps === null ? '' : String(rule.spreadBps),
+          pricingRounding: rule.roundingBeneficiary,
+          bands: rule.bands.map((b) => ({ fromAmount: b.fromAmount, feeBps: String(b.feeBps), flatFee: b.flatFee ?? '' })),
+        }
+      : {}),
+  };
+}
+
+function capToRow(cap: PayCap): CapRow {
+  return cap.kind === 'beneficiaries_per_day'
+    ? { kind: cap.kind, assetCode: '', limit: String(cap.limit) }
+    : { kind: cap.kind, assetCode: cap.assetCode, limit: cap.limit };
+}
+
+// ── hand-off between the two founders ───────────────────────────────────────
+
+export interface Handoff {
+  readonly requestId: string;
+  readonly merchantId: string;
+  readonly expectedVersion: string;
+  readonly change: ControlChange;
+  readonly reason: string;
+}
+
+export function makeHandoff(h: Handoff): string {
+  return JSON.stringify({ v: 1, ...h });
+}
+
+export function parseHandoff(text: string): Handoff | null {
+  try {
+    const raw = JSON.parse(text) as unknown;
+    if (!isRec(raw) || raw.v !== 1) return null;
+    if (!isStr(raw.requestId) || !UUID.test(raw.requestId) || !isStr(raw.merchantId) || !UUID.test(raw.merchantId)) return null;
+    if (!isStr(raw.expectedVersion) || !/^(?:0|[1-9]\d*)$/.test(raw.expectedVersion) || !isStr(raw.reason)) return null;
+    const change = acceptControlChange(raw.change, raw.merchantId.toLowerCase());
+    return change
+      ? {
+          requestId: raw.requestId.toLowerCase(),
+          merchantId: raw.merchantId.toLowerCase(),
+          expectedVersion: raw.expectedVersion,
+          change,
+          reason: raw.reason,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const stable = (v: unknown): string =>
+  JSON.stringify(v, (_k, x: unknown) =>
+    isRec(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x,
+  );
+
+/**
+ * After a confirm, does the profile the service now reports hold exactly what the confirming founder was
+ * shown? The second founder reads the change from a pasted request, not from the service (there is no read
+ * of a pending change yet), so this is the check that catches a request that was altered on the way.
+ */
+export function appliedMatches(change: ControlChange, profile: MerchantControlProfile | null): boolean {
+  if (!profile) return false;
+  if (change.kind === 'set_tier')
+    return profile.tierId === change.tierId && (change.archetypeId === null || profile.archetypeId === change.archetypeId);
+  if (change.kind === 'set_caps') {
+    const key = (c: PayCap) => (c.kind === 'beneficiaries_per_day' ? c.kind : `${c.kind}:${c.assetCode}`);
+    const sorted = (list: readonly PayCap[]) => [...list].sort((a, b) => (key(a) < key(b) ? -1 : 1));
+    return profile.caps !== null && stable(sorted(profile.caps)) === stable(sorted(change.caps));
+  }
+  if (change.kind === 'set_reserve') return profile.reserve !== null && stable(profile.reserve) === stable(change.reserve);
+  return change.pricing.every((rule) => {
+    const live = profile.pricing?.find((p) => p.assetCode === rule.assetCode);
+    return !!live && live.layer === 'merchant' && stable({ ...live, scopeId: null }) === stable({ ...rule, scopeId: null });
+  });
+}
+
+// ── approvals: age and expiry in words ──────────────────────────────────────
+
+export interface AgeView {
+  readonly age: string;
+  readonly expiry: { label: string; tone: 'live' | 'warn' | 'danger'; hint: string };
+}
+
+function span(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return 'under a minute';
+  if (s < 3600) return `${Math.floor(s / 60)} min`;
+  if (s < 86_400) return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
+  return `${Math.floor(s / 86_400)} d ${Math.floor((s % 86_400) / 3600)} h`;
+}
+
+/** "3 h 5 min" since an ISO time, or null when the time cannot be read. */
+export function waitedText(since: string, now: Date): string | null {
+  const t = Date.parse(since);
+  return Number.isFinite(t) ? span(now.getTime() - t) : null;
+}
+
+/**
+ * How long a request has waited, and how much of its own validity window is left.
+ * No SLA number has been agreed, so "soon" is relative to each request's own window: the last quarter of the
+ * time between being asked and expiring. This is a display label; the service alone decides expiry.
+ */
+export function ageView(createdAt: string, expiresAt: string, now: Date): AgeView {
+  const created = Date.parse(createdAt);
+  const expires = Date.parse(expiresAt);
+  const t = now.getTime();
+  const age = `waiting ${span(t - created)}`;
+  if (!Number.isFinite(created) || !Number.isFinite(expires)) {
+    return {
+      age: 'age unknown',
+      expiry: { label: 'expiry unknown', tone: 'warn', hint: 'The request has no readable time, so it is not shown as safe.' },
+    };
+  }
+  if (expires <= t)
+    return {
+      age,
+      expiry: {
+        label: 'expired',
+        tone: 'danger',
+        hint: 'This request ran out of time. It cannot be approved; the merchant has to ask again.',
+      },
+    };
+  const left = expires - t;
+  const window = Math.max(1, expires - created);
+  return left * 4 <= window
+    ? {
+        age,
+        expiry: { label: `expires in ${span(left)}`, tone: 'warn', hint: 'Less than a quarter of this request’s validity window is left.' },
+      }
+    : { age, expiry: { label: `expires in ${span(left)}`, tone: 'live', hint: 'Plenty of this request’s validity window is left.' } };
+}

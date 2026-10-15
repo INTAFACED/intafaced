@@ -586,7 +586,7 @@ function changeFromValues(kind: RegistryKind, values: RegistryFormValues, expect
   return built.ok ? built.change : null;
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <fieldset className="mp-section">
       <legend>{title}</legend>
@@ -595,7 +595,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Field({
+export function Field({
   label,
   required,
   error,
