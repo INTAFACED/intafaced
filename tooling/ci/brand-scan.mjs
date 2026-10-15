@@ -97,7 +97,7 @@ const FORBIDDEN = [
   // lookahead — `(?!CLAUDE\b)…/i` looks correct and is not: under `i` the
   // lookahead matches every casing too, so it excludes everything and the rule
   // silently stops firing. That version was written, tested, and caught here.
-  { pattern: /\b(?:Claude|claude)\b/, reason: 'model provider' },
+  { pattern: /\b(?:Claude|claude)\b/, reason: 'model provider', internalReviewProvenance: true },
   { pattern: /\bOpenAI\b/i, reason: 'model provider' },
   { pattern: /\bGPT-\d/i, reason: 'model provider' },
 
@@ -116,6 +116,23 @@ const FORBIDDEN = [
     reason: 'upstream author contact address — never ours to publish or point users at',
   },
 ];
+
+/**
+ * The merge gate must match the reviewer's real model identifier and local
+ * transcript path; paraphrasing those identifiers would break independent
+ * review verification. These exact internal files may name that reviewer.
+ * Other forbidden brands, sibling tooling/docs and all product copy stay scanned.
+ */
+const REVIEW_PROVENANCE_FILES = new Set([
+  'tooling/scripts/merge-review.mjs',
+  'tooling/scripts/merge-review.test.mjs',
+  'docs/tooling/evidence-merge-check.md',
+]);
+
+function forbiddenRulesForPath(relPath) {
+  const reviewProvenance = REVIEW_PROVENANCE_FILES.has(relPath.replace(/\\/g, '/'));
+  return FORBIDDEN.filter((rule) => !(reviewProvenance && rule.internalReviewProvenance));
+}
 
 /**
  * The legacy Vue customer site (retired 2026-10-13, see its RETIRED.md) is NOT
@@ -451,6 +468,35 @@ function selfTest() {
   assert(isInternalPastePath('docs/START-HERE.md') === false, 'ordinary docs not paste');
   assert(isInternalPastePath('docs/paste-extra/nope.md') === false, 'paste-extra is not paste-wN');
 
+  // Review provenance is an exact-file, single-provider exception, never a product exemption.
+  for (const file of REVIEW_PROVENANCE_FILES) {
+    assert(!isAllowlisted(file), `${file} must remain scanned for other forbidden brands`);
+    const rules = forbiddenRulesForPath(file);
+    assert(!rules.some(({ pattern }) => pattern.test('claude-opus-4-6')), `${file} may name the exact reviewer model`);
+    assert(!rules.some(({ pattern }) => pattern.test('~/.claude/projects')), `${file} may name the transcript path`);
+    for (const name of ['GMaster', 'SettleTX', 'Anthropic', 'OpenAI', 'GPT-6']) {
+      assert(
+        rules.some(({ pattern }) => pattern.test(name)),
+        `${file} must still flag ${name}`,
+      );
+    }
+  }
+  for (const file of [
+    'apps/web/src/merge-review.mjs',
+    'services/svc-pay/src/merge-review.mjs',
+    'packages/ui/src/merge-review.mjs',
+    'tooling/scripts/merge-review-other.mjs',
+    'tooling/scripts/merge-review.mjs/child.ts',
+    'docs/tooling/other.md',
+    'docs/tooling/evidence-merge-check.md/child.md',
+  ]) {
+    assert(!isAllowlisted(file), `${file} must not become allowlisted`);
+    assert(
+      forbiddenRulesForPath(file).some(({ pattern }) => pattern.test('Claude')),
+      `${file} must still flag the reviewer brand`,
+    );
+  }
+
   // D26-P2-14: vendor product surfaces must be discoverable when the tree exists.
   // The retired Vue customer site is walked only for the six files apps/invitation bundles.
   const vendorRoot = join(ROOT, 'vendor');
@@ -479,6 +525,7 @@ function selfTest() {
   }
   console.log('brand-scan --self-test OK');
   console.log('  fixture paste-wN / PASTE-BUILD-WAVE-N / docs/paste/** allowed; product surfaces not');
+  console.log('  exact internal review-provenance files may name their reviewer; other brands and product files remain scanned');
   console.log('  vendor staff console + Java resources discoverable; retired Vue site walked only for its invitation-imported files');
   process.exit(0);
 }
@@ -666,7 +713,7 @@ function scanFile(file) {
   const content = readFileSync(abs, 'utf8');
   const lines = content.split('\n');
 
-  for (const { pattern, reason } of FORBIDDEN) {
+  for (const { pattern, reason } of forbiddenRulesForPath(rel)) {
     if (!pattern.test(content)) continue;
     lines.forEach((line, i) => {
       // Fresh regex per line: the shared one may carry lastIndex state.
