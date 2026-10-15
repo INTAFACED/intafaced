@@ -245,7 +245,8 @@ export const UNNAMED_MERCHANT = 'Unnamed merchant';
  * the label says so in a muted style and the id still identifies the row.
  */
 export function MerchantLabel({ merchantId, displayName, href }: { merchantId: string; displayName: string | null; href?: string }) {
-  const primary = displayName === null ? <span className="mp-muted">{UNNAMED_MERCHANT}</span> : displayName;
+  // <bdi> isolates the merchant-supplied text so a right-to-left name cannot reorder the id or the text around it.
+  const primary = displayName === null ? <span className="mp-muted">{UNNAMED_MERCHANT}</span> : <bdi>{displayName}</bdi>;
   return (
     <span className="mp-merchant" data-named={displayName === null ? 'false' : 'true'}>
       {href ? (

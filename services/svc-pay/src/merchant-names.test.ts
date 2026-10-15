@@ -1,6 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { cleanMerchantName, MERCHANT_NAME_MAX, merchantNameInputSchema, resolveMerchantNames } from './merchant-names.js';
 
+/** Invisible formatting characters a name may not hold. U+200D (zero-width joiner) is deliberately absent. */
+const INVISIBLE = [
+  '\u061c',
+  '\u200e',
+  '\u200f',
+  '\u202a',
+  '\u202b',
+  '\u202c',
+  '\u202d',
+  '\u202e',
+  '\u2066',
+  '\u2067',
+  '\u2068',
+  '\u2069',
+  '\u2028',
+  '\u2029',
+  '\u200b',
+  '\u2060',
+  '\ufeff',
+];
+
 describe('cleanMerchantName', () => {
   it('trims and keeps a normal name, including accents and symbols', () => {
     expect(cleanMerchantName('  Acme Shop  ')).toBe('Acme Shop');
@@ -24,6 +45,10 @@ describe('cleanMerchantName', () => {
       expect(cleanMerchantName(bad), JSON.stringify(bad)).toBeNull();
     }
     expect(cleanMerchantName('x'.repeat(MERCHANT_NAME_MAX))).toBe('x'.repeat(MERCHANT_NAME_MAX));
+  });
+  it('keeps a zero-width joiner, so emoji sequences are accepted', () => {
+    expect(cleanMerchantName('👨\u200d👩\u200d👧 Family Shop')).toBe('👨\u200d👩\u200d👧 Family Shop');
+    expect(cleanMerchantName('a\u200db')).toBe('a\u200db');
   });
   it('counts characters, not UTF-16 units, so an emoji is one', () => {
     expect(cleanMerchantName('🍕'.repeat(MERCHANT_NAME_MAX))).not.toBeNull();

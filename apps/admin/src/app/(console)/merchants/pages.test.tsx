@@ -367,7 +367,9 @@ describe('all merchants', () => {
     });
     const out = html(await AllMerchants({ searchParams: sp() }));
     expect(out).toMatch(
-      new RegExp(`<a class="mp-id" href="/merchants/${MID}" title="${MID}">Acme Shop</a><code[^>]*title="${MID}"[^>]*>${MID.slice(0, 8)}`),
+      new RegExp(
+        `<a class="mp-id" href="/merchants/${MID}" title="${MID}"><bdi>Acme Shop</bdi></a><code[^>]*title="${MID}"[^>]*>${MID.slice(0, 8)}`,
+      ),
     );
     expect(out).toContain(`<span class="mp-muted">Unnamed merchant</span>`);
     expect(out).toContain(`href="/merchants/${other}"`);
@@ -385,7 +387,17 @@ describe('all merchants', () => {
     });
     const out = html(await AllMerchants({ searchParams: sp() }));
     expect(out).not.toContain('<img');
-    expect(out).toContain('&lt;img src=x onerror=alert(1)&gt; &amp; Co');
+    expect(out).toContain('<bdi>&lt;img src=x onerror=alert(1)&gt; &amp; Co</bdi>');
+  });
+
+  it('isolates a right-to-left or override name inside <bdi>, so it cannot reorder the id beside it', async () => {
+    const rtl = '\u202Edcba \u05D0\u05D1\u05D2';
+    services({
+      'founderAdmin.merchants.list': { freshness: fresh, rows: [{ ...row, displayName: rtl }], nextCursor: null },
+      'founderAdmin.metrics.global': globalMetrics,
+    });
+    const out = html(await AllMerchants({ searchParams: sp() }));
+    expect(out).toContain(`<bdi>${rtl}</bdi>`);
   });
 
   it('refuses a list row from the service that has no displayName field (strict contract)', async () => {
@@ -462,7 +474,9 @@ describe('merchant drill-down', () => {
   it('puts the merchant name in the heading with the id as secondary text, and asks the service for exactly this merchant', async () => {
     const seen = services({ ...base, 'founderAdmin.merchants.list': listRow('Acme Shop') });
     const out = html(await page());
-    expect(out).toMatch(/<h1>Acme Shop <code[^>]*title="22222222-2222-4222-8222-222222222222"[^>]*>22222222…2222<\/code><\/h1>/);
+    expect(out).toMatch(
+      /<h1><bdi>Acme Shop<\/bdi> <code[^>]*title="22222222-2222-4222-8222-222222222222"[^>]*>22222222…2222<\/code><\/h1>/,
+    );
     expect(out).toContain(MID); // the full id stays in the identity facts, copyable
     expect(out).toContain('Copy id');
     const call = decodeURIComponent(seen.find((u) => u.includes('merchants.list'))!);

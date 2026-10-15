@@ -905,10 +905,48 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     expect(call.args[0]).toMatchObject({ userId: USER, displayName: 'Acme Shop', legalName: 'Acme Trading Ltd' });
   });
 
+  // Bidi marks and overrides, line and paragraph separators, zero-width space, word joiner and BOM. U+200D (ZWJ) is allowed.
+  const INVISIBLE_NAME_CHARS = [
+    '\u061c',
+    '\u200e',
+    '\u200f',
+    '\u202a',
+    '\u202b',
+    '\u202c',
+    '\u202d',
+    '\u202e',
+    '\u2066',
+    '\u2067',
+    '\u2068',
+    '\u2069',
+    '\u2028',
+    '\u2029',
+    '\u200b',
+    '\u2060',
+    '\ufeff',
+  ];
+
+  it('accepts an emoji name that uses a zero-width joiner', async () => {
+    const api = await caller(['pay:write']);
+    const family = '\u{1F468}\u200d\u{1F469}\u200d\u{1F467} Family Shop';
+    await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 }, displayName: family });
+    expect(stub.calls.filter((c) => c.method === 'createMerchant').at(-1)!.args[0]).toMatchObject({ displayName: family });
+  });
+
   it('refuses a blank, over-long or control-character merchant name before the service runs', async () => {
     const api = await caller(['pay:write']);
     const before = stub.calls.filter((c) => c.method === 'createMerchant').length;
-    for (const bad of ['', '   ', 'x'.repeat(121), 'two\nlines', 'tab\there', 'esc\u001b[31m', 'del\u007f', 'c1\u0085']) {
+    for (const bad of [
+      '',
+      '   ',
+      'x'.repeat(121),
+      'two\nlines',
+      'tab\there',
+      'esc\u001b[31m',
+      'del\u007f',
+      'c1\u0085',
+      ...INVISIBLE_NAME_CHARS.map((c) => `a${c}b`),
+    ]) {
       const err = await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 }, displayName: bad }).catch((e: unknown) => e);
       expect(codeOf(err), JSON.stringify(bad)).toBe('BAD_REQUEST');
       const legal = await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 }, legalName: bad }).catch((e: unknown) => e);

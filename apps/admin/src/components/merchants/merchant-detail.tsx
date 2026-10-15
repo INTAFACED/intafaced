@@ -112,7 +112,7 @@ export function MerchantDetailView({
           ) : names.displayName === null ? (
             <span className="mp-muted">{UNNAMED_MERCHANT}</span>
           ) : (
-            names.displayName
+            <bdi>{names.displayName}</bdi>
           )
         }
         badge={
@@ -129,7 +129,9 @@ export function MerchantDetailView({
         {names.legalName !== null ? (
           <div>
             <span className="mp-facts__k">Legal name</span>
-            <span className="mp-facts__v">{names.legalName}</span>
+            <span className="mp-facts__v">
+              <bdi>{names.legalName}</bdi>
+            </span>
           </div>
         ) : null}
         <div>

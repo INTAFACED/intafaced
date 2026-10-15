@@ -30,6 +30,27 @@ function rewrite(sql: string, schema: string): string {
   return sql.replaceAll('"pay"', `"${schema}"`).replace(/\bpay\./g, `${schema}.`);
 }
 
+/** Invisible formatting characters the CHECKs refuse. U+200D (zero-width joiner) is deliberately absent. */
+const INVISIBLE = [
+  '\u061c',
+  '\u200e',
+  '\u200f',
+  '\u202a',
+  '\u202b',
+  '\u202c',
+  '\u202d',
+  '\u202e',
+  '\u2066',
+  '\u2067',
+  '\u2068',
+  '\u2069',
+  '\u2028',
+  '\u2029',
+  '\u200b',
+  '\u2060',
+  '\ufeff',
+];
+
 const NAME_CHECKS = ['merchants_display_name_ck', 'merchants_legal_name_ck'];
 
 describe('merchant names (0071)', () => {
@@ -110,6 +131,9 @@ describe('merchant names (0071)', () => {
     ['escape', 'a\u001b[31mb'],
     ['DEL', 'a\u007fb'],
     ['C1 control', 'a\u0085b'],
+    ['trailing spaces', 'Acme  '],
+    ['leading space', ' Acme'],
+    ...INVISIBLE.map((c): [string, string] => [`invisible U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`, `a${c}b`]),
   ])('the database itself refuses %s in either name', async (_label, value) => {
     for (const column of ['display_name', 'legal_name']) {
       const err = await refused(
@@ -118,6 +142,25 @@ describe('merchant names (0071)', () => {
       expect(err.code, column).toBe('23514');
       expect(err.constraint_name, column).toBe(column === 'display_name' ? 'merchants_display_name_ck' : 'merchants_legal_name_ck');
     }
+  });
+
+  it('a name with trailing spaces is refused by a direct INSERT, so the 120 bound is on the real stored length', async () => {
+    for (const column of ['display_name', 'legal_name']) {
+      const err = await refused(
+        sql.unsafe(`INSERT INTO "${schema}".merchants (user_id, ${column}) VALUES ($1, $2)`, [randomUUID(), `${'x'.repeat(120)} `]),
+      );
+      expect(err.code, column).toBe('23514');
+    }
+  });
+
+  it('the database accepts a zero-width joiner, so emoji sequences are stored', async () => {
+    const id = randomUUID();
+    const family = '\u{1F468}\u200d\u{1F469}\u200d\u{1F467} Family Shop';
+    await sql.unsafe(`INSERT INTO "${schema}".merchants (user_id, display_name, legal_name) VALUES ($1, $2, $3)`, [id, family, family]);
+    const [row] = await sql.unsafe<Array<{ display_name: string }>>(`SELECT display_name FROM "${schema}".merchants WHERE user_id = $1`, [
+      id,
+    ]);
+    expect(row?.display_name).toBe(family);
   });
 
   it('the database accepts exactly 120 characters and unicode', async () => {

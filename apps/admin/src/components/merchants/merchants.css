@@ -512,6 +512,12 @@
 .mp-merchant > .mp-id {
   overflow-wrap: anywhere;
 }
+/* Merchant-supplied text is bidi-isolated (with <bdi> in the markup too), so a right-to-left name cannot reorder the id beside it. */
+.mp-merchant bdi,
+.mp-merchant__id,
+.mp-head h1 bdi {
+  unicode-bidi: isolate;
+}
 .mp-merchant__id {
   background: none;
   padding: 0;

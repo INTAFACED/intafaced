@@ -140,9 +140,9 @@ export const emptyBusiness: BusinessForm = {
   expectedVolume: '',
 };
 export type BusinessErrors = Partial<Record<keyof BusinessForm, 'required' | 'country' | 'website' | 'email' | 'volume' | 'name'>>;
-/** The service refuses a name over 120 characters or holding a control character; say so before sending. */
+/** The service refuses a name over 120 characters or holding a control or invisible formatting character (not U+200D); say so before sending. Same class as the service and database. */
 // eslint-disable-next-line no-control-regex -- the point of this pattern is to match control characters
-const BAD_NAME = /[\u0000-\u001f\u007f-\u009f]/;
+const BAD_NAME = /[\u0000-\u001f\u007f-\u009f\u061c\u200b\u200e\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
 const nameProblem = (value: string) => [...value.trim()].length > 120 || BAD_NAME.test(value.trim());
 export function validateBusiness(form: BusinessForm): BusinessErrors {
   const errors: BusinessErrors = {};

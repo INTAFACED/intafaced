@@ -895,6 +895,14 @@ describe('svc-pay metrics read model PG-hard', () => {
       await expect(router.createCaller(ctxOf(principal(ua))).founderAdmin.merchants.list({ limit: 5 })).rejects.toMatchObject({
         code: 'FORBIDDEN',
       });
+      // An API key (kid plus admin:read) is refused even for a founder's own user id and a live entitlement.
+      const calls = entitled('enabled');
+      const keyCaller = mount(calls).createCaller(ctxOf(principal(founderUser, { kid: randomUUID(), scopes: ['admin:read'] })));
+      await expect(keyCaller.founderAdmin.merchants.list({ limit: 5 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(keyCaller.founderAdmin.merchants.list({ limit: 1, filter: { merchantId: randomUUID() } })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(calls).not.toHaveBeenCalled();
     });
 
     it('M3: a PayFac parent reads sub-merchants only within granted areas; nobody else in or out of the tree can', async () => {
