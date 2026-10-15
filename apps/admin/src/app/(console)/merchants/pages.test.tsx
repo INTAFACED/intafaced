@@ -8,6 +8,20 @@ import { founderCookie, sealFounderSession, type FounderSession } from '@/lib/fo
  */
 let incoming = new Headers();
 vi.mock('next/headers', () => ({ headers: async () => incoming }));
+// The real reader runs the production-posture guard, which refuses on CI's dev material when APP_ENV=prod.
+// The badge's own rule is what these tests pin, so they can force the reader's answer.
+const operatorEnvOverride = vi.hoisted(() => ({ mode: 'real' as 'real' | 'prod' | 'throws' }));
+vi.mock('@/lib/operator-env', async (original) => {
+  const actual = await original<typeof import('@/lib/operator-env')>();
+  return {
+    ...actual,
+    readOperatorEnv: () => {
+      if (operatorEnvOverride.mode === 'throws') throw new Error('environment refused');
+      if (operatorEnvOverride.mode === 'prod') return { ...actual.readOperatorEnv(), appEnv: 'prod' };
+      return actual.readOperatorEnv();
+    },
+  };
+});
 // The merchant table is a client component; a static render has no mounted app router.
 vi.mock('next/navigation', async (original) => ({
   ...(await original<typeof import('next/navigation')>()),
@@ -602,12 +616,25 @@ describe('test-data label', () => {
     expect(out).toContain('Not real money');
   });
 
+  afterEach(() => {
+    operatorEnvOverride.mode = 'real';
+  });
+
   it('is absent in production', async () => {
     services({});
-    configure({ APP_ENV: 'prod' });
+    configure();
+    operatorEnvOverride.mode = 'prod';
     const out = html(await MerchantsLayout({ children: null }));
     expect(out).not.toContain('Test data');
     expect(out).not.toContain('test-data-badge');
     expect(out).toContain('Merchants sections');
+  });
+
+  it('shows the label when the environment cannot be read (the safe answer to "is this real?" is no)', async () => {
+    services({});
+    configure();
+    operatorEnvOverride.mode = 'throws';
+    const out = html(await MerchantsLayout({ children: null }));
+    expect(out).toContain('data-testid="test-data-badge"');
   });
 });
