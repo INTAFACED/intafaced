@@ -111,7 +111,7 @@ describe('W0 namespaces are mounted', () => {
 
   it('is merged into the live appRouter in index.ts together with the guard registry', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    expect(src).toContain('createPayNamespaces({ founderAuthority, metrics })');
+    expect(src).toContain('createPayNamespaces({ founderAuthority, metrics, registries: { sql, approvals: actionApprovals } })');
     expect(src).toContain('startMetricsRefresher(metrics.projector');
     expect(src).toContain('const payGuards = buildPayGuards({ sql });');
     // One registry instance serves both the payment service and the user-money service.

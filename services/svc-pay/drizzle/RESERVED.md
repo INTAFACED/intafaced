@@ -13,7 +13,9 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0060-0061 | W6 conversion                                         | reserved                                        |
 | 0062      | W9 screening                                          | reserved                                        |
 | 0063      | W10 B2B ramp (switched off)                           | reserved                                        |
-| 0064+     | unassigned                                            | free; ask W0 before using                       |
+| 0064-0068 | unassigned                                            | free; ask W0 before using                       |
+| 0069-0070 | W16 venue, network and wallet-route registries        | reserved (0069 tables, 0070 audit events)       |
+| 0071+     | unassigned                                            | free; ask W0 before using                       |
 
 ## Why gaps are safe
 
