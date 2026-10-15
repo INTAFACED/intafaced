@@ -6,14 +6,14 @@ import {
   founderTreasuryExposureSchema,
   merchantMetricsSeriesSchema,
   merchantMetricsSnapshotSchema,
-  payHaltStateSchema,
+  payHaltEventSchema,
   type FounderGlobalMetrics,
   type FounderMerchantDrilldown,
   type FounderMerchantList,
   type FounderTreasuryExposure,
   type MerchantMetricsSeries,
   type MerchantMetricsSnapshot,
-  type PayHaltState,
+  type PayHaltEvent,
 } from '@intafaced/contracts';
 import { addDays, dayOf, midnight } from './dates';
 import { listInputFor, type MerchantListQuery } from './list-params';
@@ -142,7 +142,7 @@ export function loadRegistryHistory(
 
 export interface TreasuryData {
   readonly exposure: PayCallResult<FounderTreasuryExposure>;
-  readonly halts: PayCallResult<PayHaltState[]>;
+  readonly halts: PayCallResult<PayHaltEvent[]>;
 }
 
 export async function loadTreasury(ctx: PayCallContext): Promise<TreasuryData> {
@@ -150,7 +150,7 @@ export async function loadTreasury(ctx: PayCallContext): Promise<TreasuryData> {
     payCall(ctx, 'founderAdmin.treasury.exposure', 'GET', {}, parseWith(founderTreasuryExposureSchema)),
     payCall(ctx, 'payHalts.history', 'GET', { limit: 50 }, (raw) =>
       asList(raw, (item) => {
-        const parsed = payHaltStateSchema.safeParse(item);
+        const parsed = payHaltEventSchema.safeParse(item);
         return parsed.success ? parsed.data : null;
       }),
     ),
