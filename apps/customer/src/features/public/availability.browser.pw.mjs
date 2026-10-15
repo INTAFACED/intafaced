@@ -95,3 +95,23 @@ test('security explicitly leaves authenticator status unknown before setup', asy
   await expect(page.getByRole('button', { name: 'Start authenticator setup', exact: true })).toBeVisible();
   expect(writes).toEqual([]);
 });
+
+test('signed-in missing, invalid and valid invitations never offer hidden account tools', async ({ page }) => {
+  const writes = await localFixture(page, 'en');
+  await page.goto('/login?redirect=%2Finvite');
+  await page.getByLabel('Email or handle', { exact: true }).fill('TEST-account@example.invalid');
+  await page.getByLabel('Password', { exact: true }).fill('TEST-password-not-a-credential');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL(/\/invite$/);
+  for (const route of ['/invite', '/invite?token=not-a-valid-token', `/invite?token=${token}`]) {
+    await page.evaluate((route) => {
+      history.pushState(null, '', route);
+      dispatchEvent(new PopStateEvent('popstate'));
+    }, route);
+    await expect(page.getByRole('heading', { name: 'Current relationship', exact: true })).toBeVisible();
+    await expect(page.locator('a[href="/uc/promotion"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Read current status', exact: true })).toBeVisible();
+  }
+  await expect(page.getByRole('button', { name: 'Review invitation', exact: true })).toBeVisible();
+  expect(writes).toEqual([]);
+});
