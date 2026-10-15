@@ -27,6 +27,20 @@ import { DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS, validReconcileStatementTimeoutM
  *     Catches value being created or destroyed by any means at all.
  */
 
+/** Known non-finite values actually read from persisted PostgreSQL numeric columns. */
+class CorruptReconcileAmountError extends LedgerError {
+  constructor(readonly field: string) {
+    super(`non-finite stored numeric in ${field}`, 'ledger.persisted_amount_corrupt');
+  }
+}
+
+function parseReconcileAmount(value: unknown, field: string): ReturnType<typeof parseStoredAmount> {
+  if (typeof value === 'string' && ['NaN', 'Infinity', '-Infinity'].includes(value)) {
+    throw new CorruptReconcileAmountError(field);
+  }
+  return parseStoredAmount(value, field);
+}
+
 export interface Drift {
   readonly accountId: string;
   readonly assetId: string;
@@ -54,8 +68,8 @@ export async function reconcileBalances(sql: ReconciliationDb): Promise<Reconcil
 
   const drift: Drift[] = [];
   for (const row of rows) {
-    const cached = parseStoredAmount(row.cached, 'accounts.balance');
-    const replayed = parseStoredAmount(row.replayed, 'ledger_entries.amount');
+    const cached = parseReconcileAmount(row.cached, 'accounts.balance');
+    const replayed = parseReconcileAmount(row.replayed, 'ledger_entries.amount');
     if (cached !== replayed) {
       drift.push({
         accountId: row.account_id,
@@ -144,8 +158,8 @@ export async function verifyChain(sql: ReconciliationDb, batchSize = 1000): Prom
           accountId: e.account_id,
           assetId: e.asset_id,
           direction: e.direction,
-          amount: parseStoredAmount(e.amount, 'ledger_entries.amount'),
-          balanceAfter: parseStoredAmount(e.balance_after, 'ledger_entries.balance_after'),
+          amount: parseReconcileAmount(e.amount, 'ledger_entries.amount'),
+          balanceAfter: parseReconcileAmount(e.balance_after, 'ledger_entries.balance_after'),
         })),
       };
       // Claims copy the actual key, hash, and metadata at insert or upgrade.
@@ -185,7 +199,7 @@ export async function totalsByAsset(sql: ReconciliationDb): Promise<Record<strin
   const rows = await sql<Array<{ asset_id: string; total: string }>>`
     SELECT asset_id, COALESCE(SUM(balance), 0) AS total FROM accounts GROUP BY asset_id
   `;
-  return Object.fromEntries(rows.map((r) => [r.asset_id, formatAmount(parseStoredAmount(r.total, 'accounts.balance'))]));
+  return Object.fromEntries(rows.map((r) => [r.asset_id, formatAmount(parseReconcileAmount(r.total, 'accounts.balance'))]));
 }
 
 export interface ReconciliationReport {
@@ -196,6 +210,10 @@ export interface ReconciliationReport {
   readonly totals: Record<string, string>;
   /** Assets that do not net to zero — the most serious failure possible. */
   readonly unbalancedAssets: string[];
+  /** Unavailable checks in a mismatch report; false/empty fields do not claim those checks finished. */
+  readonly incompleteChecks?: readonly { check: 'balances' | 'chain' | 'totals'; errorCode: string }[];
+  /** Definitively invalid numeric values read from the book, without inventing a numeric drift. */
+  readonly corruptAmountFields?: readonly string[];
 }
 
 /**
@@ -203,18 +221,42 @@ export interface ReconciliationReport {
  * an operator wants to prove the book is intact before, say, a treasury move.
  */
 export async function runReconciliation(sql: ReconciliationDb): Promise<ReconciliationReport> {
-  const [balances, chain, totals] = await Promise.all([reconcileBalances(sql), verifyChain(sql), totalsByAsset(sql)]);
+  const checks = await Promise.allSettled([reconcileBalances(sql), verifyChain(sql), totalsByAsset(sql)]);
+  const [balanceCheck, chainCheck, totalCheck] = checks;
+  const balances: ReconcileResult = balanceCheck.status === 'fulfilled' ? balanceCheck.value : { ok: false, drift: [], accountsChecked: 0 };
+  const chain: ChainResult = chainCheck.status === 'fulfilled' ? chainCheck.value : { ok: false, brokenAt: 'incomplete', length: 0 };
+  const totals = totalCheck.status === 'fulfilled' ? totalCheck.value : {};
   const unbalancedAssets = Object.entries(totals)
     .filter(([, total]) => total !== '0')
     .map(([asset]) => asset);
-
+  const names = ['balances', 'chain', 'totals'] as const;
+  const incompleteChecks: Array<{ check: (typeof names)[number]; errorCode: string }> = [];
+  const corruptAmountFields: string[] = [];
+  for (const [index, check] of checks.entries()) {
+    if (check.status !== 'rejected') continue;
+    if (check.reason instanceof CorruptReconcileAmountError) corruptAmountFields.push(check.reason.field);
+    else incompleteChecks.push({ check: names[index]!, errorCode: reconcileErrorCode(check.reason) });
+  }
+  const mismatch =
+    (balanceCheck.status === 'fulfilled' && !balanceCheck.value.ok) ||
+    (chainCheck.status === 'fulfilled' && !chainCheck.value.ok) ||
+    unbalancedAssets.length > 0 ||
+    corruptAmountFields.length > 0;
+  // A failed sibling cannot erase an established mismatch. Conversely, clean
+  // partial checks never turn a timeout into a mismatch.
+  if (!mismatch) {
+    const failed = checks.find((check) => check.status === 'rejected');
+    if (failed?.status === 'rejected') throw failed.reason;
+  }
   return {
-    ok: balances.ok && chain.ok && unbalancedAssets.length === 0,
+    ok: !mismatch,
     ranAt: new Date(),
     balances,
     chain,
     totals,
     unbalancedAssets,
+    ...(incompleteChecks.length ? { incompleteChecks } : {}),
+    ...(corruptAmountFields.length ? { corruptAmountFields } : {}),
   };
 }
 
@@ -313,6 +355,8 @@ function reportDetail(report: ReconciliationReport): Record<string, unknown> {
     chainLength: report.chain.length,
     chainBrokenAt: report.chain.ok ? null : report.chain.brokenAt,
     unbalancedAssets: report.unbalancedAssets,
+    incompleteChecks: report.incompleteChecks ?? [],
+    corruptAmountFields: report.corruptAmountFields ?? [],
   };
 }
 
@@ -418,6 +462,9 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
     // incorrectly narrow that runtime string/function to null.
     password: (source as unknown as { pass: postgres.Options<{}>['password'] }).pass,
     ssl: source.ssl,
+    target_session_attrs: source.target_session_attrs,
+    // Supported by postgres.js at runtime, absent from its current declarations.
+    ...('sslnegotiation' in source ? { sslnegotiation: source.sslnegotiation } : {}),
     path: source.path,
     connection: source.connection,
     types: source.types,

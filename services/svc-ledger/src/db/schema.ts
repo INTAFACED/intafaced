@@ -511,11 +511,10 @@ export const ledgerFreezeOutbox = ledger.table(
 /**
  * One row per reconciliation attempt that reached an outcome (0022).
  *
- * `ok` and `mismatch` are written in the proof's own REPEATABLE READ snapshot,
- * so `through_seq` / `through_entry_id` / `tip_hash` name exactly the committed
- * prefix of the book the verdict covers. `incomplete` means no verdict was
- * reached (timeout, lost connection, bug): it freezes nothing, and the
- * staleness backstop measures from the last `ok` row.
+ * The covered tip is read in the proof's REPEATABLE READ snapshot. A short
+ * READ COMMITTED transaction then commits either staged anchors + ok, or a
+ * mismatch + durable freeze + outbox. Incomplete attempts freeze nothing;
+ * staleness reporting measures from the last proved prefix.
  */
 export const reconcileRuns = ledger.table(
   'reconcile_runs',

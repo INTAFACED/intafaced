@@ -17,7 +17,7 @@ import {
   runScheduledReconciliation,
   runSnapshotReconciliation,
 } from './reconcile.js';
-import { truncateBook } from '../db/journal-guards.testkit.js';
+import { truncateBook, withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 import type { ReconciliationReport } from './reconcile.js';
 
 /**
@@ -253,6 +253,69 @@ describe('reconciliation snapshot runner — real book', () => {
     } finally {
       await d().sql`INSERT INTO chain_tip (id, hash, seq) VALUES (true, NULL, 0)`;
     }
+  });
+
+  it.each(['accounts.balance', 'ledger_entries.amount', 'ledger_entries.balance_after'] as const)(
+    'a non-finite persisted %s is corruption and freezes, rather than retrying forever as incomplete',
+    async (field) => {
+      const svc = service(connect());
+      await svc.post(deposit());
+      if (field === 'accounts.balance') {
+        await d().sql`UPDATE accounts SET balance = 'NaN'::numeric WHERE owner_type = 'user'`;
+      } else {
+        await withJournalGuardsOff(d().sql, ['update', 'balance'], () =>
+          d().sql.unsafe(
+            `UPDATE ledger_entries SET ${field.endsWith('.amount') ? 'amount' : 'balance_after'} = 'NaN'::numeric WHERE id = (SELECT min(id) FROM ledger_entries)`,
+          ),
+        );
+      }
+      const result = await runScheduledReconciliation(connect(), svc);
+      expect(result.outcome).toBe('mismatch');
+      if (result.outcome !== 'mismatch') throw new Error('expected persisted corruption mismatch');
+      expect(result.report.corruptAmountFields).toContain(field);
+      expect((await d().sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual(['mismatch']);
+      await expect(svc.status()).resolves.toMatchObject({ postingEnabled: false, frozenReason: 'reconciliation mismatch' });
+      await expect(svc.post(deposit())).rejects.toMatchObject({ code: 'ledger.frozen' });
+    },
+  );
+
+  it('a completed balance mismatch survives a sibling chain-query timeout and still freezes', async () => {
+    const svc = service(connect());
+    await svc.post(deposit());
+    await d().sql`UPDATE accounts SET balance = balance + 1 WHERE owner_type = 'user'`;
+    const blocker = await d().sql.reserve();
+    let result: Awaited<ReturnType<typeof runScheduledReconciliation>>;
+    try {
+      await blocker.unsafe('BEGIN');
+      await blocker.unsafe('LOCK TABLE ledger_tx IN ACCESS EXCLUSIVE MODE');
+      result = await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 });
+    } finally {
+      await blocker.unsafe('ROLLBACK');
+      blocker.release();
+    }
+    expect(result.outcome).toBe('mismatch');
+    if (result.outcome !== 'mismatch') throw new Error('completed drift was lost to sibling timeout');
+    expect(result.report.balances).toMatchObject({ ok: false, drift: [expect.objectContaining({ difference: '1' })] });
+    expect(result.report.incompleteChecks).toContainEqual({ check: 'chain', errorCode: '57014' });
+    await expect(svc.status()).resolves.toMatchObject({ postingEnabled: false, frozenReason: 'reconciliation mismatch' });
+    expect((await d().sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual(['mismatch']);
+  });
+
+  it('clean partial checks followed by a chain-query timeout remain incomplete and never freeze', async () => {
+    const svc = service(connect());
+    await svc.post(deposit());
+    const blocker = await d().sql.reserve();
+    let result: Awaited<ReturnType<typeof runScheduledReconciliation>>;
+    try {
+      await blocker.unsafe('BEGIN');
+      await blocker.unsafe('LOCK TABLE ledger_tx IN ACCESS EXCLUSIVE MODE');
+      result = await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 });
+    } finally {
+      await blocker.unsafe('ROLLBACK');
+      blocker.release();
+    }
+    expect(result).toMatchObject({ outcome: 'incomplete', run: { phase: 'proof', errorCode: '57014' } });
+    await expect(svc.status()).resolves.toMatchObject({ postingEnabled: true });
   });
 
   it('last verified never moves back to an older prefix if older evidence is recorded later', async () => {
