@@ -12,6 +12,7 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { PayError, assertWithdrawalListLimit } from './payment-service.js';
+import { FRESH, NOOP_GUARDS, type GuardReplay, type PayGuards } from './seams/guards.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
 import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, type ValueMovementPolicy } from './rails/posture.js';
@@ -135,11 +136,18 @@ export interface UserMoneyOptions {
    * are handed the policy explicitly by `index.ts`.
    */
   readonly valueMovement?: ValueMovementPolicy;
+
+  /**
+   * Guard seams (seams/guards.ts); only `beforeUserMoneyWithdrawal` is called
+   * here. Omitted = no-ops, i.e. behaviour before the seams.
+   */
+  readonly guards?: PayGuards;
 }
 
 export class UserMoneyService {
   private readonly creditableRails: ReadonlySet<string>;
   private readonly valueMovement: ValueMovementPolicy;
+  private readonly guards: PayGuards;
 
   constructor(
     private readonly sql: Sql,
@@ -149,6 +157,7 @@ export class UserMoneyService {
   ) {
     this.creditableRails = new Set(options.operatorCreditRails);
     this.valueMovement = options.valueMovement ?? 'allow-sandbox';
+    this.guards = options.guards ?? NOOP_GUARDS;
   }
 
   // ── Deposit ────────────────────────────────────────────────────────────────
@@ -545,6 +554,11 @@ export class UserMoneyService {
     connection: Sql,
   ): Promise<WithdrawalRecord> {
     return payoutTransaction(connection, async (tx) => {
+      // Seam: before the claim row is written, in the claim's own transaction, so
+      // a refusal leaves no claim, hold or ledger entry. The advisory lock held by
+      // `withdraw` serialises one (userId, clientRef), so this read cannot race.
+      await this.guards.beforeUserMoneyWithdrawal({ tx, ...input, replay: await this.classifyWithdrawal(tx, input) });
+
       const inserted = await tx<WithdrawalRow[]>`
           INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
           VALUES (
@@ -579,6 +593,27 @@ export class UserMoneyService {
 
       return existing;
     });
+  }
+
+  /**
+   * Fresh, replay or recovery for a withdrawal claim, from the stored row.
+   *   none or `failed`  fresh (a failed row opens a NEW attempt with a new hold).
+   *   `sent`            replay: the money is gone, the call returns the record.
+   *   `held`            recovery: the hold is acknowledged.
+   *   `pending`         recovery only if the hold is already on the ledger (a ledger
+   *                     throw can follow a remote commit); else fresh, nothing moved.
+   */
+  private async classifyWithdrawal(tx: Sql, input: { userId: string; clientRef: string }): Promise<GuardReplay> {
+    const rows = await tx<Array<{ id: string; status: WithdrawalRecord['status']; attempts: number }>>`
+      SELECT id, status, attempts FROM pay.withdrawals WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
+    `;
+    const row = rows[0];
+    if (!row || row.status === 'failed') return FRESH;
+    if (row.status === 'sent') return { kind: 'replay', reason: 'withdrawal_already_sent' };
+    if (row.status === 'held') return { kind: 'recovery', reason: 'withdrawal_hold_booked' };
+    return (await this.ledger.getTxByKey(`withdraw.hold:${row.id}:${row.attempts}`))
+      ? { kind: 'recovery', reason: 'withdrawal_hold_booked' }
+      : FRESH;
   }
 
   /**
