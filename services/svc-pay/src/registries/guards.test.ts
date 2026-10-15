@@ -118,7 +118,7 @@ describe('registries procedure inventory', () => {
 
   it('is mounted in index.ts, beside the W0 founderAdmin procedures, and absent when no deps are supplied', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    expect(src).toContain('createPayNamespaces({ founderAuthority, metrics, registries: { sql, approvals: actionApprovals } })');
+    expect(src).toContain('createPayNamespaces({ founderAuthority, metrics, registries: { sql, approvals: actionApprovals }, sql })');
     const authority = createFounderAuthority({ ...identity, fetcher: vi.fn() });
     const all = (r: unknown) => Object.keys((r as { _def: { procedures: Record<string, unknown> } })._def.procedures);
     expect(all(build(vi.fn()))).toContain('founderAdmin.merchants.list');

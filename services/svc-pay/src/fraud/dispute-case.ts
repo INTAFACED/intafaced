@@ -79,6 +79,8 @@ export interface DisputeCaseStore {
   open(input: OpenDisputeCaseInput): DisputeCase;
   get(disputeId: string): DisputeCase | null;
   listForPayment(paymentId: string): readonly DisputeCase[];
+  /** Every case owned by one merchant, oldest first. Merchant-scoped reads (W15) start here, never from `get`. */
+  listForMerchant(merchantId: string): readonly DisputeCase[];
   contest(disputeId: string, now?: Date): DisputeCase;
   accept(disputeId: string, now?: Date): DisputeCase;
   markWon(disputeId: string, now?: Date): DisputeCase;
@@ -133,6 +135,12 @@ export class MemoryDisputeCaseStore implements DisputeCaseStore {
 
   listForPayment(paymentId: string): readonly DisputeCase[] {
     return [...this.cases.values()].filter((c) => c.paymentId === paymentId).sort((a, b) => a.openedAt.localeCompare(b.openedAt));
+  }
+
+  listForMerchant(merchantId: string): readonly DisputeCase[] {
+    return [...this.cases.values()]
+      .filter((c) => c.merchantId === merchantId)
+      .sort((a, b) => a.openedAt.localeCompare(b.openedAt) || a.disputeId.localeCompare(b.disputeId));
   }
 
   contest(disputeId: string, now?: Date): DisputeCase {
