@@ -1,5 +1,6 @@
-import type { MerchantControlProfile } from '@intafaced/contracts';
+import type { MerchantControlProfile, PayCap } from '@intafaced/contracts';
 import { describe, expect, it } from 'vitest';
+import liveFixtures from './control-live-fixtures.json';
 import {
   acceptControlChange,
   ageView,
@@ -14,6 +15,7 @@ import {
   formFromProfile,
   makeHandoff,
   parseHandoff,
+  relevantTiersChanged,
   pricingChain,
   summariseControlChange,
   ttlText,
@@ -358,12 +360,13 @@ describe('the request that travels between the two founders', () => {
 
   describe('after a confirm, the service’s answer is checked strictly against what the second founder was shown', () => {
     const OTHER = '55555555-5555-4555-8555-555555555555';
+    const cap = (kind: 'per_payment' | 'daily_intake', limit: string): PayCap => ({ kind, assetCode: 'USD', limit });
     const tiers: TierView[] = [
       {
         id: 'standard',
         name: 'Standard',
         archetype: 'standard',
-        caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '1000' }],
+        caps: [cap('daily_intake', '1000')],
         reserve: null,
         approvalThresholds: [],
         founderThresholds: [],
@@ -375,30 +378,31 @@ describe('the request that travels between the two founders', () => {
         id: 'gold',
         name: 'Gold',
         archetype: 'psp',
-        caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '9000' }],
+        caps: [cap('per_payment', '100'), cap('daily_intake', '9000')],
         reserve: { rollingReserveBps: 100, holdDays: 3 },
         approvalThresholds: [],
         founderThresholds: [],
         approvalTtlSeconds: 60,
-        version: '1',
+        version: '2',
         merchants: 1,
       },
     ];
-    const rule = (assetCode: string, feeBps: number, layer: 'merchant' | 'global' = 'merchant') => ({
+    const rule = (assetCode: string, feeBps: number, layer: 'merchant' | 'global' = 'merchant', flatFee: string | null = null) => ({
       layer,
       scopeId: layer === 'merchant' ? MID : null,
       assetCode,
-      bands: [{ fromAmount: '0', feeBps, flatFee: null }],
+      bands: [{ fromAmount: '0', feeBps, flatFee }],
       spreadBps: null,
       roundingBeneficiary: 'platform' as const,
     });
+    // A merchant on tier gold with no overrides of its own: the profile shows the tier's caps and reserve.
     const before: MerchantControlProfile = {
       merchantId: MID,
       tierId: 'gold',
       archetypeId: 'psp',
-      caps: [{ kind: 'per_payment', assetCode: 'USD', limit: '100' }],
+      caps: [cap('per_payment', '100'), cap('daily_intake', '9000')],
       pricing: [rule('USD', 100), rule('USDT', 50, 'global')],
-      reserve: { rollingReserveBps: 500, holdDays: 7 },
+      reserve: { rollingReserveBps: 100, holdDays: 3 },
       version: '4',
       updatedAt: null,
     };
@@ -413,40 +417,90 @@ describe('the request that travels between the two founders', () => {
     const verify = (
       change: ControlChange,
       after: MerchantControlProfile | null,
-      over: { merchantId?: string; requestId?: string; handoff?: ReturnType<typeof handoffOf> } = {},
+      over: {
+        merchantId?: string;
+        requestId?: string;
+        handoff?: ReturnType<typeof handoffOf>;
+        before?: MerchantControlProfile;
+        tiers?: TierView[];
+      } = {},
     ) =>
       verifyConfirmResult({
         handoff: over.handoff ?? handoffOf(change),
         pageMerchantId: MID,
-        before,
-        tiers,
+        before: over.before ?? before,
+        tiers: over.tiers ?? tiers,
         result: { requestId: over.requestId ?? REQ, merchantId: over.merchantId ?? MID, profile: after },
       });
     const next = (over: Partial<MerchantControlProfile>): MerchantControlProfile => ({ ...before, version: '5', ...over });
 
     it('accepts exactly the shown change for each kind', () => {
-      const caps: ControlChange = { kind: 'set_caps', caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '10' }] };
-      expect(verify(caps, next({ caps: caps.caps }))).toBe(true);
+      // caps: a partial override keeps the tier's other kinds (the per-kind merge)
+      const caps: ControlChange = { kind: 'set_caps', caps: [cap('per_payment', '7')] };
+      expect(verify(caps, next({ caps: [cap('per_payment', '7'), cap('daily_intake', '9000')] }))).toBe(true);
+      expect(verify(caps, next({ caps: [cap('per_payment', '7')] }))).toBe(false);
       const reserve: ControlChange = { kind: 'set_reserve', reserve: { rollingReserveBps: 5, holdDays: 1 } };
       expect(verify(reserve, next({ reserve: reserve.reserve }))).toBe(true);
       const pricing: ControlChange = { kind: 'set_pricing', pricing: [rule('USDT', 80)] };
       expect(verify(pricing, next({ pricing: [rule('USD', 100), rule('USDT', 80)] }))).toBe(true);
       const tier: ControlChange = { kind: 'set_tier', tierId: 'standard', archetypeId: null };
-      expect(verify(tier, next({ tierId: 'standard', archetypeId: 'standard', caps: tiers[0]!.caps }))).toBe(true);
+      expect(
+        verify(
+          tier,
+          next({ tierId: 'standard', archetypeId: 'standard', caps: tiers[0]!.caps, reserve: { rollingReserveBps: null, holdDays: null } }),
+        ),
+      ).toBe(true);
+    });
+
+    it('compares amounts by value: the service re-formats "0.30" as "0.3" and "100.0" as "100"', () => {
+      const pricing: ControlChange = { kind: 'set_pricing', pricing: [rule('USD', 100, 'merchant', '0.30')] };
+      expect(verify(pricing, next({ pricing: [rule('USD', 100, 'merchant', '0.3'), rule('USDT', 50, 'global')] }))).toBe(true);
+      expect(verify(pricing, next({ pricing: [rule('USD', 100, 'merchant', '0.31'), rule('USDT', 50, 'global')] }))).toBe(false);
+      const caps: ControlChange = { kind: 'set_caps', caps: [cap('per_payment', '100.0')] };
+      expect(verify(caps, next({ caps: [cap('per_payment', '100'), cap('daily_intake', '9000')] }))).toBe(true);
+      expect(verify(caps, next({ caps: [cap('per_payment', '100.1'), cap('daily_intake', '9000')] }))).toBe(false);
+    });
+
+    it('caps for a merchant with no tier cannot have been confirmed (the service refuses them), so it is never "Confirmed"', () => {
+      const none: MerchantControlProfile = { ...before, tierId: null, archetypeId: null, caps: null, reserve: null };
+      const caps: ControlChange = { kind: 'set_caps', caps: [cap('per_payment', '7')] };
+      expect(verify(caps, { ...none, version: '5', caps: [cap('per_payment', '7')] }, { before: none })).toBe(false);
+    });
+
+    it('a tier change keeps this merchant’s own caps and reserve, and takes the new tier’s for everything else', () => {
+      // before: on gold with an own per_payment cap of 7 (visible: it differs from gold's 100) and an own reserve
+      const own: MerchantControlProfile = {
+        ...before,
+        caps: [cap('per_payment', '7'), cap('daily_intake', '9000')],
+        reserve: { rollingReserveBps: 250, holdDays: 3 },
+      };
+      const tier: ControlChange = { kind: 'set_tier', tierId: 'standard', archetypeId: 'broker' };
+      const good = {
+        ...own,
+        version: '5',
+        tierId: 'standard',
+        archetypeId: 'broker',
+        caps: [cap('per_payment', '7'), cap('daily_intake', '1000')],
+        reserve: own.reserve,
+      };
+      expect(verify(tier, good, { before: own })).toBe(true);
+      expect(verify(tier, { ...good, caps: [cap('per_payment', '8'), cap('daily_intake', '1000')] }, { before: own })).toBe(false);
+      expect(verify(tier, { ...good, caps: [cap('per_payment', '7'), cap('daily_intake', '1001')] }, { before: own })).toBe(false);
+      expect(verify(tier, { ...good, reserve: { rollingReserveBps: 1, holdDays: 1 } }, { before: own })).toBe(false);
+      expect(verify(tier, { ...good, pricing: [rule('USD', 100), rule('EUR', 1)] }, { before: own })).toBe(false);
     });
 
     it('(a) refuses a result for another merchant, even when the pasted change looks the same', () => {
-      const caps: ControlChange = { kind: 'set_caps', caps: before.caps! };
+      const caps: ControlChange = { kind: 'set_caps', caps: [cap('per_payment', '100')] };
       expect(verify(caps, next({ merchantId: OTHER }), { merchantId: OTHER })).toBe(false);
       expect(verify(caps, next({}), { merchantId: OTHER })).toBe(false);
-      // a pasted request that names another merchant than the page
       expect(verify(caps, next({}), { handoff: handoffOf(caps, { merchantId: OTHER }) })).toBe(false);
-      // a result for another request
       expect(verify(caps, next({}), { requestId: '66666666-6666-4666-8666-666666666666' })).toBe(false);
     });
 
     it('(b) refuses a different kind of change: shown set_caps equal to the current caps, but the reserve moved', () => {
-      const caps: ControlChange = { kind: 'set_caps', caps: before.caps! };
+      const caps: ControlChange = { kind: 'set_caps', caps: [cap('per_payment', '100')] };
+      expect(verify(caps, next({}))).toBe(true);
       expect(verify(caps, next({ reserve: { rollingReserveBps: 0, holdDays: 0 } }))).toBe(false);
       expect(verify(caps, next({ pricing: [rule('USD', 1)] }))).toBe(false);
       expect(verify(caps, next({ tierId: 'standard' }))).toBe(false);
@@ -462,7 +516,6 @@ describe('the request that travels between the two founders', () => {
       const tier: ControlChange = { kind: 'set_tier', tierId: 'gold', archetypeId: null };
       expect(verify(tier, next({ archetypeId: 'broker' }))).toBe(false);
       expect(verify(tier, next({ archetypeId: 'psp' }))).toBe(true);
-      // an unknown tier cannot be checked, so it is not accepted
       expect(verify({ kind: 'set_tier', tierId: 'ghost', archetypeId: null }, next({ tierId: 'ghost' }))).toBe(false);
     });
 
@@ -474,21 +527,108 @@ describe('the request that travels between the two founders', () => {
       expect(verify(reserve, null)).toBe(false);
     });
 
-    it('a tier change may bring the new tier’s caps and reserve, but not anything else', () => {
-      const tier: ControlChange = { kind: 'set_tier', tierId: 'standard', archetypeId: null };
+    it('knows when a tier this check depends on was edited since the page loaded it, so a failure is "reload", not an incident', () => {
+      const handoff = handoffOf({ kind: 'set_tier', tierId: 'standard', archetypeId: null });
+      const edited = tiers.map((t) => (t.id === 'standard' ? { ...t, version: '9', caps: [cap('daily_intake', '1')] } : t));
+      expect(relevantTiersChanged(handoff, before, tiers, tiers)).toBe(false);
+      expect(relevantTiersChanged(handoff, before, tiers, edited)).toBe(true);
+      // gold is this merchant's current tier, so it counts too; an unrelated tier does not
       expect(
-        verify(
-          tier,
-          next({ tierId: 'standard', archetypeId: 'standard', caps: tiers[0]!.caps, reserve: { rollingReserveBps: null, holdDays: null } }),
-        ),
-      ).toBe(true);
-      expect(
-        verify(
-          tier,
-          next({ tierId: 'standard', archetypeId: 'standard', caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '1' }] }),
+        relevantTiersChanged(
+          handoffOf({ kind: 'set_reserve', reserve: { rollingReserveBps: null, holdDays: null } }),
+          before,
+          tiers,
+          edited,
         ),
       ).toBe(false);
-      expect(verify(tier, next({ tierId: 'standard', archetypeId: 'standard', pricing: [rule('USD', 100), rule('EUR', 1)] }))).toBe(false);
+      expect(
+        relevantTiersChanged(
+          handoff,
+          before,
+          tiers,
+          tiers.filter((t) => t.id !== 'gold'),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('real profiles captured from svc-pay on PostgreSQL 16 (control-live-fixtures.json)', () => {
+    interface Fixture {
+      label: string;
+      outcome: string;
+      handoff: { requestId: string; merchantId: string; expectedVersion: string; change: ControlChange; reason: string };
+      before: MerchantControlProfile;
+      after: MerchantControlProfile;
+      tiers: TierView[];
+    }
+    const fixtures = liveFixtures as unknown as Fixture[];
+    const check = (f: Fixture, over: Partial<{ after: MerchantControlProfile; merchantId: string; tiers: TierView[] }> = {}) =>
+      verifyConfirmResult({
+        handoff: f.handoff,
+        pageMerchantId: f.handoff.merchantId,
+        before: f.before,
+        tiers: over.tiers ?? f.tiers,
+        result: { requestId: f.handoff.requestId, merchantId: over.merchantId ?? f.handoff.merchantId, profile: over.after ?? f.after },
+      });
+
+    it('has a fixture for every kind of change and the awkward shapes', () => {
+      const kinds = new Set(fixtures.map((f) => f.handoff.change.kind));
+      expect([...kinds].sort()).toEqual(['set_caps', 'set_pricing', 'set_reserve', 'set_tier']);
+      expect(fixtures.length).toBeGreaterThanOrEqual(15);
+      expect(fixtures.every((f) => f.outcome === 'changed')).toBe(true);
+    });
+
+    it.each(fixtures.map((f) => [f.label, f] as const))('an honest confirm is "Confirmed": %s', (_label, f) => {
+      expect(check(f)).toBe(true);
+    });
+
+    it.each(fixtures.map((f) => [f.label, f] as const))(
+      'and the same answer for another merchant, or with the version moved twice, is not: %s',
+      (_label, f) => {
+        expect(check(f, { merchantId: '99999999-9999-4999-8999-999999999999' })).toBe(false);
+        expect(check(f, { after: { ...f.after, version: String(BigInt(f.after.version) + 1n) } })).toBe(false);
+      },
+    );
+
+    it('a service that also changed something the change did not name is caught, on every fixture', () => {
+      for (const f of fixtures) {
+        const kind = f.handoff.change.kind;
+        if (kind !== 'set_reserve') {
+          expect(check(f, { after: { ...f.after, reserve: { rollingReserveBps: 1, holdDays: 1 } } }), `${f.label}: reserve`).toBe(false);
+        } else {
+          expect(check(f, { after: { ...f.after, tierId: 'sneaky' } }), `${f.label}: tier`).toBe(false);
+        }
+        expect(
+          check(f, {
+            after: {
+              ...f.after,
+              pricing: [
+                ...(f.after.pricing ?? []),
+                {
+                  layer: 'merchant',
+                  scopeId: f.after.merchantId,
+                  assetCode: 'XYZ',
+                  bands: [{ fromAmount: '0', feeBps: 0, flatFee: null }],
+                  spreadBps: null,
+                  roundingBeneficiary: 'merchant',
+                },
+              ],
+            },
+          }),
+          `${f.label}: extra rule`,
+        ).toBe(false);
+      }
+    });
+
+    it('the awkward cases really are in the capture: a re-formatted amount, a partial override and an override carried to a new tier', () => {
+      const pricing = fixtures.find((f) => f.label === 'set_pricing flatFee 0.30')!;
+      const sent = pricing.handoff.change.kind === 'set_pricing' ? pricing.handoff.change.pricing[0]!.bands[0]!.flatFee : null;
+      expect(sent).toBe('0.30');
+      expect(pricing.after.pricing?.[0]?.bands[0]?.flatFee).toBe('0.3');
+      const partial = fixtures.find((f) => f.label === 'set_caps one kind on a tiered merchant')!;
+      expect(partial.after.caps!.length).toBeGreaterThan(1);
+      const carried = fixtures.find((f) => f.label === 'set_tier B with existing caps+reserve override')!;
+      expect(carried.after.reserve).toEqual({ rollingReserveBps: 250, holdDays: 3 });
     });
   });
 
@@ -539,7 +679,7 @@ describe('the request that travels between the two founders', () => {
     expect(summariseControlChange({ kind: 'set_reserve', reserve: { rollingReserveBps: null, holdDays: null } })[0]?.value).toMatch(
       /No money is withheld/,
     );
-    expect(summariseControlChange(change)[0]?.value).toMatch(/Replaces every cap/);
+    expect(summariseControlChange(change)[0]?.value).toMatch(/keep the tier’s[\s\S]*no effect until the merchant has a tier/);
     const lines = summariseControlChange({ kind: 'set_tier', tierId: 'standard', archetypeId: null }, [
       {
         id: 'standard',

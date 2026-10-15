@@ -258,6 +258,39 @@ describe('POST as a signed-in founder', () => {
     expect(((await gone.json()) as { refusal: { title: string } }).refusal.title).toBe('No pending change with that reference');
   });
 
+  it('tiers is a read of the tier definitions, returns them parsed, and writes nothing', async () => {
+    configure();
+    const tier = {
+      id: 'standard',
+      name: 'Standard',
+      archetype: 'standard',
+      caps: [{ kind: 'beneficiaries_per_day', limit: 3 }],
+      reserve: null,
+      approvalThresholds: [{ assetCode: 'USDT', amount: '100' }],
+      founderThresholds: [{ assetCode: 'USDT', amount: '1000' }],
+      approvalTtlSeconds: 3600,
+      version: '2',
+      merchants: 1,
+    };
+    const calls = upstream({ 'founderAdmin.control.tiers.list': () => ok([tier]) });
+    const res = await POST(post({ action: 'tiers' }, authed()));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { tiers: Array<{ id: string }> }).tiers[0]?.id).toBe('standard');
+    expect(serviceCalls(calls).map((c) => c.url)).toEqual([`${EDGE}/api/pay/trpc/founderAdmin.control.tiers.list?input=%7B%7D`]);
+    upstream({ 'founderAdmin.control.tiers.list': () => ok([{ nonsense: true }]) });
+    expect((await POST(post({ action: 'tiers' }, authed()))).status).toBe(502);
+  });
+
+  it('a set_caps for a merchant with no tier is refused by the service with a plain "assign a tier first"', async () => {
+    configure();
+    upstream({ 'founderAdmin.changes.submit': () => refusedWith(412, 'pay.tier_unassigned') });
+    const res = await POST(post(submitBody, authed()));
+    expect(res.status).toBe(412);
+    const body = (await res.json()) as { refusal: { title: string; next: string } };
+    expect(body.refusal.title).toBe('This merchant has no tier yet');
+    expect(body.refusal.next).toContain('Assign a tier first');
+  });
+
   it('decide signs the exact payload hash it was given', async () => {
     configure();
     const calls = upstream({ 'founderAdmin.control.approvals.decide': () => ok(approval('pending')) });

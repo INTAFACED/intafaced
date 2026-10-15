@@ -1,12 +1,17 @@
 import type { MerchantControlChangeResult, PayoutApproval } from '@intafaced/contracts';
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from './registry-client';
-import type { ControlChange } from './control-model';
+import type { ControlChange, TierView } from './control-model';
 
 /** Browser hop to `/api/merchants/controls`. The CSRF nonce is fetched per call; no token is ever stored. */
 
 export type ControlReply =
-  | { readonly ok: true; readonly result?: MerchantControlChangeResult; readonly approval?: PayoutApproval }
+  | {
+      readonly ok: true;
+      readonly result?: MerchantControlChangeResult;
+      readonly approval?: PayoutApproval;
+      readonly tiers?: TierView[];
+    }
   | { readonly ok: false; readonly refusal: RefusalView };
 
 const UNREACHABLE: RefusalView = {
@@ -18,6 +23,7 @@ const UNREACHABLE: RefusalView = {
 };
 
 export type ControlRequest =
+  | { action: 'tiers' }
   | { action: 'submit'; requestId: string; merchantId: string; change: ControlChange; reason: string; expectedVersion: string }
   | {
       action: 'confirm' | 'decline';

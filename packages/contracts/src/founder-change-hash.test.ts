@@ -16,6 +16,27 @@ describe('founderChangeHash', () => {
     expect(founderChangeHash(target, '3')).toBe('sha256:7a68f46d61eaf5cde3ca7830e9e6de917f9c5abd6f43306df4dcff582933760e');
   });
 
+  it('a pricing change with every key kind has a fixed hash too (the collation is pinned to en)', () => {
+    const pricing = {
+      scope: 'merchant',
+      merchantId: MID,
+      change: {
+        kind: 'set_pricing',
+        pricing: [
+          {
+            layer: 'merchant',
+            scopeId: 'x',
+            assetCode: 'USD',
+            bands: [{ fromAmount: '0', feeBps: 100, flatFee: '0.30' }],
+            spreadBps: null,
+            roundingBeneficiary: 'platform',
+          },
+        ],
+      },
+    };
+    expect(founderChangeHash(pricing, '4')).toBe('sha256:4a899fabe4548789f0a79976dfd3bd6bcb208c624dd91bf58b2e35713aac82eb');
+  });
+
   it('changes with the merchant, the kind, the archetype, any array element and the version', () => {
     const base = founderChangeHash(target, '3');
     const variants = [

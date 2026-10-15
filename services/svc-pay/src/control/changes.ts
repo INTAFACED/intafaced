@@ -206,6 +206,9 @@ export class ChangeService {
       };
     }
     if (change.kind === 'set_caps') {
+      // A merchant's caps sit on top of its tier's caps. With no tier nothing would take effect (and payments refuse), so a change that
+      // "succeeds" would be a lie: say so instead, at submit and again at confirm.
+      if (!cur?.tier_id) throw new ControlError('pay.tier_unassigned', 'assign a tier first: caps override a tier’s caps');
       const caps = assertCaps(change.caps);
       const before = cur?.caps_override ?? null;
       return {

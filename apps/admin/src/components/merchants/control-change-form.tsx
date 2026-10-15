@@ -75,6 +75,10 @@ export function ControlChangeForm({ merchantId, profile, tiers, tiersReadable, m
   function review(e: React.FormEvent) {
     e.preventDefault();
     const attempt = buildControlChange(values, merchantId);
+    if (attempt.ok && attempt.change.kind === 'set_caps' && profile.tierId === null) {
+      setErrors({ caps: 'Assign a tier first: caps override a tier’s caps, so they do nothing for a merchant with no tier.' });
+      return;
+    }
     if (!attempt.ok) {
       setErrors(attempt.errors);
       requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
@@ -225,7 +229,8 @@ export function ControlChangeForm({ merchantId, profile, tiers, tiersReadable, m
         <Section title="Caps">
           <div className="mp-field" data-wide="true">
             <p className="mp-hint">
-              These caps replace every cap this merchant has now, including the ones it gets from its tier. List every cap you want.
+              Each kind you list replaces the tier’s cap of that kind for this merchant. Kinds you leave out keep the tier’s. Caps only take
+              effect on top of a tier.
             </p>
             {errors.caps ? (
               <span className="mp-error" role="alert">

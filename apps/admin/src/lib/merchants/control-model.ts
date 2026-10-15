@@ -287,7 +287,11 @@ export const CHANGE_KINDS = [
     label: 'Tier',
     hint: 'Which tier this merchant is on. The tier brings its caps, thresholds and reserve unless overridden.',
   },
-  { id: 'set_caps', label: 'Caps', hint: 'This merchant’s own caps. They replace the tier’s caps completely.' },
+  {
+    id: 'set_caps',
+    label: 'Caps',
+    hint: 'This merchant’s own caps. Each kind you list replaces the tier’s cap of that kind; kinds you leave out keep the tier’s. A merchant needs a tier first.',
+  },
   {
     id: 'set_pricing',
     label: 'Pricing',
@@ -533,7 +537,12 @@ export function summariseControlChange(change: ControlChange, tiers: readonly Ti
   }
   if (change.kind === 'set_caps') {
     return [
-      { key: 'replaces', label: 'Effect', value: 'Replaces every cap this merchant has, including the tier’s caps.' },
+      {
+        key: 'replaces',
+        label: 'Effect',
+        value:
+          'Each kind listed replaces the tier’s cap of that kind for this merchant; kinds not listed keep the tier’s. Has no effect until the merchant has a tier.',
+      },
       ...change.caps.map((cap, i) => ({
         key: `cap${i}`,
         label: CAP_LABEL[cap.kind] + (cap.kind === 'beneficiaries_per_day' ? '' : ` (${cap.assetCode})`),
@@ -641,51 +650,67 @@ export function isSameChange(a: { change: ControlChange; reason: string } | null
   return a !== null && a.reason === b.reason && stable(a.change) === stable(b.change);
 }
 
-const sortCaps = (list: readonly PayCap[]) => {
-  const key = (c: PayCap) => (c.kind === 'beneficiaries_per_day' ? c.kind : `${c.kind}:${c.assetCode}`);
-  return [...list].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
-};
 const sortRules = <T extends { assetCode: string }>(list: readonly T[]) =>
   [...list].sort((a, b) => (a.assetCode < b.assetCode ? -1 : a.assetCode > b.assetCode ? 1 : 0));
-const sameJson = (a: unknown, b: unknown) => stable(a) === stable(b);
 
-const contractRule = (r: PayPricingRule): PayPricingRule => ({
-  layer: r.layer,
-  scopeId: r.scopeId,
-  assetCode: r.assetCode,
-  bands: r.bands,
-  spreadBps: r.spreadBps,
-  roundingBeneficiary: r.roundingBeneficiary,
-});
+// ── comparing what the service reports with what a change should produce ────
+// Amounts are compared by VALUE (the service re-formats them: "0.30" comes back as "0.3"), never as strings.
 
-/** The profile that should hold after `change` is applied to `before`, or null when it cannot be worked out (never guessed). */
-export function expectedProfileAfter(
-  change: ControlChange,
-  before: MerchantControlProfile,
-  tiers: readonly TierView[],
-): MerchantControlProfile | null {
-  const version = String(BigInt(before.version) + 1n);
-  const next: MerchantControlProfile = { ...before, version };
-  if (change.kind === 'set_caps') return { ...next, caps: sortCaps(change.caps) };
-  if (change.kind === 'set_reserve') return { ...next, reserve: { ...change.reserve } };
-  if (change.kind === 'set_pricing') {
-    const assets = new Set(change.pricing.map((r) => r.assetCode));
-    const kept = (before.pricing ?? []).filter((r) => !assets.has(r.assetCode));
-    return { ...next, pricing: sortRules([...kept, ...change.pricing].map(contractRule)) };
-  }
-  // set_tier: the archetype is the one asked for or, when none was, the new tier's own. Without the tier definition it cannot be known.
-  const tier = tiers.find((t) => t.id === change.tierId);
-  if (!tier) return null;
-  return { ...next, tierId: change.tierId, archetypeId: change.archetypeId ?? tier.archetype };
-}
+const amountEq = (a: string, b: string): boolean => (isDec(a) && isDec(b) ? compareDecimal(a, b) === 0 : a === b);
+const capKey = (c: PayCap): string => (c.kind === 'beneficiaries_per_day' ? c.kind : `${c.kind}:${c.assetCode}`);
+const capEq = (a: PayCap, b: PayCap): boolean =>
+  a.kind === 'beneficiaries_per_day'
+    ? b.kind === 'beneficiaries_per_day' && a.limit === b.limit
+    : b.kind !== 'beneficiaries_per_day' && a.kind === b.kind && a.assetCode === b.assetCode && amountEq(a.limit, b.limit);
+
+type CapMap = Map<string, PayCap>;
+const capMap = (list: readonly PayCap[]): CapMap => new Map(list.map((c) => [capKey(c), c]));
+/** svc-pay `effectiveCaps`: the tier's caps, each replaced by the merchant's own entry of the same kind and asset. */
+const mergeCaps = (tierCaps: readonly PayCap[], override: readonly PayCap[]): CapMap => {
+  const merged = capMap(tierCaps);
+  for (const c of override) merged.set(capKey(c), c);
+  return merged;
+};
+const capMapEq = (a: CapMap | null, b: CapMap | null): boolean =>
+  a === null || b === null ? a === b : a.size === b.size && [...a].every(([k, c]) => b.has(k) && capEq(c, b.get(k)!));
+
+const reserveEq = (
+  a: { rollingReserveBps: number | null; holdDays: number | null } | null,
+  b: { rollingReserveBps: number | null; holdDays: number | null } | null,
+): boolean => (a === null || b === null ? a === b : a.rollingReserveBps === b.rollingReserveBps && a.holdDays === b.holdDays);
+const NO_RESERVE = { rollingReserveBps: null, holdDays: null };
+
+const ruleEq = (a: PayPricingRule, b: PayPricingRule): boolean =>
+  a.layer === b.layer &&
+  a.scopeId === b.scopeId &&
+  a.assetCode === b.assetCode &&
+  a.spreadBps === b.spreadBps &&
+  a.roundingBeneficiary === b.roundingBeneficiary &&
+  a.bands.length === b.bands.length &&
+  a.bands.every(
+    (x, i) =>
+      amountEq(x.fromAmount, b.bands[i]!.fromAmount) &&
+      x.feeBps === b.bands[i]!.feeBps &&
+      (x.flatFee === null || b.bands[i]!.flatFee === null ? x.flatFee === b.bands[i]!.flatFee : amountEq(x.flatFee, b.bands[i]!.flatFee!)),
+  );
+const rulesEq = (a: readonly PayPricingRule[] | null, b: readonly PayPricingRule[] | null): boolean => {
+  if (a === null || b === null) return a === b;
+  const x = sortRules(a);
+  const y = sortRules(b);
+  return x.length === y.length && x.every((r, i) => ruleEq(r, y[i]!));
+};
+const merchantLayer = (p: MerchantControlProfile): PayPricingRule[] => (p.pricing ?? []).filter((r) => r.layer === 'merchant');
 
 /**
  * After a confirm, does what the service reports hold exactly the change the second founder was shown, and nothing else?
  *
  * The second founder reads the change from a pasted request, so this is a check on the service's answer, on top of the
- * service refusing a confirm whose hash differs. It compares the WHOLE profile against the pre-confirm profile plus the
- * pasted change: same merchant, same request, version advanced once, and every section either equal to what it was or
- * equal to what the change sets. A confirm that also touched another section, another merchant or another asset fails.
+ * service refusing a confirm whose hash differs. It models the service exactly: same merchant and request, the version
+ * advanced once, and every section equal to what it was or to what the change sets. Caps are the tier's caps merged per
+ * kind with the merchant's own (svc-pay `effectiveCaps`), so a partial override keeps the tier's other kinds. Amounts compare by value.
+ *
+ * `tiers` are the tier definitions this page was loaded with. If a tier was edited since, the expectation is off: the
+ * caller asks `relevantTiersChanged` before calling a failure an incident.
  */
 export function verifyConfirmResult(input: {
   handoff: Handoff;
@@ -702,29 +727,88 @@ export function verifyConfirmResult(input: {
   if (result.merchantId.toLowerCase() !== page || handoff.merchantId !== page) return false;
   if (before.merchantId.toLowerCase() !== page || after.merchantId.toLowerCase() !== page) return false;
   if (handoff.expectedVersion !== before.version) return false;
-  const want = expectedProfileAfter(handoff.change, before, tiers);
-  if (!want || after.version !== want.version) return false;
+  if (after.version !== String(BigInt(before.version) + 1n)) return false;
   const { change } = handoff;
-  if (change.kind === 'set_tier') {
-    // A new tier brings its own caps and reserve unless this merchant has its own: equal to before, or to the new tier's.
-    const tier = tiers.find((t) => t.id === change.tierId)!;
-    const capsOk =
-      sameJson(after.caps && sortCaps(after.caps), before.caps && sortCaps(before.caps)) ||
-      sameJson(after.caps && sortCaps(after.caps), sortCaps(tier.caps));
-    const tierReserve = tier.reserve ?? { rollingReserveBps: null, holdDays: null };
-    const reserveOk = sameJson(after.reserve, before.reserve) || sameJson(after.reserve, tierReserve);
-    const own = (p: MerchantControlProfile) => sortRules((p.pricing ?? []).filter((r) => r.layer === 'merchant').map(contractRule));
+  const beforeCaps = before.caps && capMap(before.caps);
+  const afterCaps = after.caps && capMap(after.caps);
+  const unchanged = {
+    tier: after.tierId === before.tierId,
+    archetype: after.archetypeId === before.archetypeId,
+    caps: capMapEq(afterCaps, beforeCaps),
+    reserve: reserveEq(after.reserve, before.reserve),
+    pricing: rulesEq(after.pricing, before.pricing),
+  };
+
+  if (change.kind === 'set_caps') {
+    // The service refuses caps for a merchant with no tier, so a confirm for one cannot have happened.
+    const tier = tiers.find((t) => t.id === before.tierId);
+    if (!tier) return false;
     return (
-      after.tierId === want.tierId && after.archetypeId === want.archetypeId && capsOk && reserveOk && sameJson(own(after), own(before))
+      unchanged.tier &&
+      unchanged.archetype &&
+      unchanged.reserve &&
+      unchanged.pricing &&
+      capMapEq(afterCaps, mergeCaps(tier.caps, change.caps))
     );
   }
-  return (
-    after.tierId === want.tierId &&
-    after.archetypeId === want.archetypeId &&
-    sameJson(after.caps && sortCaps(after.caps), want.caps && sortCaps(want.caps)) &&
-    sameJson(after.reserve, want.reserve) &&
-    sameJson(after.pricing && sortRules(after.pricing.map(contractRule)), want.pricing && sortRules(want.pricing.map(contractRule)))
+  if (change.kind === 'set_reserve') {
+    return unchanged.tier && unchanged.archetype && unchanged.caps && unchanged.pricing && reserveEq(after.reserve, change.reserve);
+  }
+  if (change.kind === 'set_pricing') {
+    const assets = new Set(change.pricing.map((r) => r.assetCode));
+    const wantPricing = [...(before.pricing ?? []).filter((r) => !assets.has(r.assetCode)), ...change.pricing];
+    return unchanged.tier && unchanged.archetype && unchanged.caps && unchanged.reserve && rulesEq(after.pricing, wantPricing);
+  }
+
+  // set_tier: the archetype is the one asked for or, when none was, the new tier's own.
+  const next = tiers.find((t) => t.id === change.tierId);
+  if (!next) return false;
+  if (after.tierId !== change.tierId || after.archetypeId !== (change.archetypeId ?? next.archetype)) return false;
+  // This merchant's own entries (not visible as such in the profile) carry over to the new tier.
+  const old = before.tierId === null ? null : (tiers.find((t) => t.id === before.tierId) ?? null);
+  if (before.tierId !== null && !old) return false;
+  let capsOk: boolean;
+  if (!old) {
+    // No tier before: the merchant's own caps (if any) were hidden, so only the new tier's keys can be required.
+    capsOk = afterCaps !== null && next.caps.every((c) => afterCaps.has(capKey(c)));
+  } else {
+    const oldMap = capMap(old.caps);
+    const nextMap = capMap(next.caps);
+    const keys = new Set([...nextMap.keys(), ...(beforeCaps?.keys() ?? []), ...(afterCaps?.keys() ?? [])]);
+    capsOk = [...keys].every((k) => {
+      const was = beforeCaps?.get(k);
+      const now = afterCaps?.get(k);
+      const tierWas = oldMap.get(k);
+      const tierNext = nextMap.get(k);
+      const forcedOwn = was !== undefined && (tierWas === undefined || !capEq(was, tierWas));
+      if (forcedOwn) return now !== undefined && capEq(now, was);
+      // Not visibly the merchant's own: it may still be an override that equals the old tier's value.
+      const keepsOld = was === undefined ? now === undefined : now !== undefined && capEq(now, was);
+      if (was === undefined) return tierNext ? now !== undefined && capEq(now, tierNext) : now === undefined;
+      return keepsOld || (tierNext ? now !== undefined && capEq(now, tierNext) : now === undefined);
+    });
+  }
+  const oldDerived = old ? (old.reserve ?? NO_RESERVE) : null;
+  const noOverrideSeen = old ? reserveEq(before.reserve, oldDerived) : before.reserve === null;
+  const reserveOk = reserveEq(after.reserve, before.reserve) || (noOverrideSeen && reserveEq(after.reserve, next.reserve ?? NO_RESERVE));
+  return capsOk && reserveOk && rulesEq(merchantLayer(after), merchantLayer(before));
+}
+
+/** Did a tier this check depends on change after the page loaded it? Then a failed check cannot be called an incident: reload. */
+export function relevantTiersChanged(
+  handoff: Handoff,
+  before: MerchantControlProfile,
+  pageTiers: readonly TierView[],
+  freshTiers: readonly TierView[],
+): boolean {
+  const ids = new Set(
+    [before.tierId, handoff.change.kind === 'set_tier' ? handoff.change.tierId : null].filter((x): x is string => x !== null),
   );
+  return [...ids].some((id) => {
+    const a = pageTiers.find((t) => t.id === id);
+    const b = freshTiers.find((t) => t.id === id);
+    return stable(a ?? null) !== stable(b ?? null);
+  });
 }
 
 // ── approvals: age and expiry in words ──────────────────────────────────────

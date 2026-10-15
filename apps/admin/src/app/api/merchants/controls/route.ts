@@ -9,6 +9,8 @@ import {
 import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
 import { fromFailure, json } from '@/lib/merchants/bff';
+import { asList } from '@/lib/merchants/registry-model';
+import { asTier } from '@/lib/merchants/control-model';
 import { parseWith, payCall, type PayCallContext } from '@/lib/merchants/pay-call';
 import { moduleDisabledResponse } from '@/lib/modules';
 
@@ -23,6 +25,7 @@ import { moduleDisabledResponse } from '@/lib/modules';
  *   POST { action: 'submit',  requestId, merchantId, change, reason, expectedVersion }   founder 1 records the change as pending
  *   POST { action: 'confirm', requestId, merchantId, expectedVersion, change, reason }     founder 2 applies it
  *   POST { action: 'decline', requestId, merchantId, expectedVersion, change, reason }     founder 2 refuses it
+ *   POST { action: 'tiers' }                                                                  a read of the tier definitions (no change)
  *   POST { action: 'decide',  approvalId, decision, expectedPayloadHash, reason }          a founder signs a payout approval
  *
  * Every input is checked against the contract schema before anything is forwarded, so a malformed body is a
@@ -98,6 +101,13 @@ export async function POST(request: Request) {
       const result = await payCall(ctx, 'founderAdmin.changes.confirm', 'POST', input.data, parseWith(founderChangeSubmitResultSchema));
       if (result.kind !== 'ok') return fromFailure(result, { notBuilt: RESERVE_NOT_BUILT, notFoundCode: 'pay.change_not_found' });
       return json({ ok: true, result: result.data });
+    }
+
+    if (action === 'tiers') {
+      // A read, here so the confirm panel can ask "did a tier change since this page loaded?" before it calls a mismatch an incident.
+      const tiers = await payCall(ctx, 'founderAdmin.control.tiers.list', 'GET', {}, (raw) => asList(raw, asTier));
+      if (tiers.kind !== 'ok') return fromFailure(tiers);
+      return json({ ok: true, tiers: tiers.data });
     }
 
     if (action === 'decide') {

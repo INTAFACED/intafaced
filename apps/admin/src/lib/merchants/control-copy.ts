@@ -92,9 +92,9 @@ export const CONTROL_COPY: Record<string, PlainRefusal> = {
     next: 'Reload the approvals queue.',
   },
   'pay.tier_unassigned': {
-    title: 'This merchant has no tier, so payments refuse',
-    body: 'Until a tier is set, the merchant cannot take payments or pay out.',
-    next: 'Set a tier from the Controls tab.',
+    title: 'This merchant has no tier yet',
+    body: 'Caps sit on top of a tier’s caps, so they cannot be set first, and until a merchant has a tier its payments refuse.',
+    next: 'Assign a tier first (the Tier change), then set caps.',
   },
   'pay.pricing_unconfigured': {
     title: 'No pricing is configured, so payments refuse',

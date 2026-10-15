@@ -247,6 +247,24 @@ describe('confirm panel, safety rails', () => {
     ).toContain('You already signed this one first');
   });
 
+  it('a tier edited since the page loaded is "cannot verify, reload", never a security incident', () => {
+    const result = {
+      requestId: REQ,
+      merchantId: MID,
+      outcome: 'changed',
+      actorUserId: ME,
+      profile: null,
+      occurredAt: '2026-10-15T10:00:00.000Z',
+    } as const;
+    const out = html(
+      <ConfirmChangeView merchantId={MID} tiers={[]} text="{}" parsed={p} reason="" done={{ kind: 'unverifiable', result }} />,
+    );
+    expect(out).toContain('cannot verify it');
+    expect(out).toContain('Reload the page');
+    expect(out).not.toContain('security incident');
+    expect(out).not.toContain('role="alert"');
+  });
+
   it('success says the result matches what you were shown', () => {
     const result = {
       requestId: REQ,

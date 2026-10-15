@@ -6,13 +6,14 @@ import { createHash, timingSafeEqual } from 'node:crypto';
  *
  * svc-pay stores this hash when the first founder submits, and the second founder's confirm must carry the
  * same hash, so a confirm only ever applies the exact change its confirmer was shown. Both sides call THIS
- * function: the canonical form (object keys sorted, arrays kept in order) lives in one place.
+ * function: the canonical form (object keys sorted with a FIXED 'en' collation so the machine's locale can never change a
+ * hash, arrays kept in order) lives in one place.
  */
 
 const stable = (value: unknown): string =>
   JSON.stringify(value, (_k, v: unknown) =>
     v && typeof v === 'object' && !Array.isArray(v)
-      ? Object.fromEntries(Object.entries(v as object).sort(([a], [b]) => a.localeCompare(b)))
+      ? Object.fromEntries(Object.entries(v as object).sort(([a], [b]) => a.localeCompare(b, 'en')))
       : v,
   );
 

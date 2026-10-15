@@ -5,6 +5,7 @@ import type { MerchantControlChangeResult, MerchantControlProfile } from '@intaf
 import { postControl } from '@/lib/merchants/control-client';
 import {
   parseHandoff,
+  relevantTiersChanged,
   summariseControlChange,
   validateReason,
   verifyConfirmResult,
@@ -15,7 +16,7 @@ import type { RefusalView } from '@/lib/merchants/registry-client';
 import { RefusalBlock } from './registry-form';
 import { StateBlock } from './ui';
 
-type Done = { kind: 'confirmed' | 'declined' | 'mismatch' | 'conflict' | 'other'; result: MerchantControlChangeResult };
+type Done = { kind: 'confirmed' | 'declined' | 'mismatch' | 'unverifiable' | 'conflict' | 'other'; result: MerchantControlChangeResult };
 
 /**
  * Step 2 of two founders, on the SECOND founder's screen. They paste the request the first founder copied and
@@ -64,8 +65,13 @@ export function ConfirmChangePanel({
     const { result } = reply;
     if (action === 'decline') return setDone({ kind: result.outcome === 'refused' ? 'declined' : 'other', result });
     if (result.outcome === 'changed') {
-      const matches = verifyConfirmResult({ handoff: parsed, pageMerchantId: merchantId, before, tiers, result });
-      return setDone({ kind: matches ? 'confirmed' : 'mismatch', result });
+      if (verifyConfirmResult({ handoff: parsed, pageMerchantId: merchantId, before, tiers, result })) {
+        return setDone({ kind: 'confirmed', result });
+      }
+      // Before calling this an incident: if a tier this check relies on was edited since the page loaded it, the expectation is stale.
+      const fresh = await postControl({ action: 'tiers' });
+      const stale = fresh.ok && fresh.tiers ? relevantTiersChanged(parsed, before, tiers, fresh.tiers) : false;
+      return setDone({ kind: stale ? 'unverifiable' : 'mismatch', result });
     }
     setDone({ kind: result.outcome === 'conflict' ? 'conflict' : 'other', result });
   }
@@ -237,6 +243,12 @@ export function ConfirmChangeView({
         <StateBlock kind="error" title="Applied, but not what you were shown">
           What the service now holds is not what the text you pasted would produce, and it has been applied. Treat this as a security
           incident: stop, tell engineering and the other founder now, and do not confirm anything else from this request.
+        </StateBlock>
+      ) : null}
+      {done?.kind === 'unverifiable' ? (
+        <StateBlock kind="info" title="Applied, but this page cannot verify it">
+          A tier this check depends on was edited after you opened this page, so what the service now holds cannot be compared with what you
+          were shown. Reload the page and look at this merchant’s controls before relying on the change.
         </StateBlock>
       ) : null}
       {done?.kind === 'declined' ? (

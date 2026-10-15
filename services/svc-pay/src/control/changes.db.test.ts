@@ -238,6 +238,32 @@ describe('dual-control configuration changes', () => {
     });
   });
 
+  it('set_caps with no tier is refused with pay.tier_unassigned: it would change nothing, so it never records "changed"', async () => {
+    const caps = { kind: 'set_caps' as const, caps: [{ kind: 'per_payment' as const, assetCode: 'USDT', limit: '7' }] };
+    const requestId = randomUUID();
+    await expect(
+      changes.submit(FOUNDER_1, {
+        requestId,
+        target: { scope: 'merchant', merchantId, change: caps },
+        reason: 'caps first',
+        expectedVersion: '0',
+      }),
+    ).rejects.toMatchObject({ code: 'pay.tier_unassigned' });
+    expect((await sql`SELECT 1 FROM pay.control_changes WHERE request_id = ${requestId}`).length).toBe(0);
+    expect((await sql`SELECT 1 FROM pay.control_merchant_profiles WHERE merchant_id = ${merchantId}`).length).toBe(0);
+    // Once the merchant has a tier the same change goes through, and the override merges per kind over the tier's caps.
+    await applyChange(changes, sql, tierTarget);
+    await applyChange(changes, sql, {
+      scope: 'merchant',
+      merchantId,
+      change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null },
+    });
+    await applyChange(changes, sql, { scope: 'merchant', merchantId, change: caps });
+    const profile = await new ControlService(sql, ownerAccessPorts(sql)).profile(merchantId);
+    expect(profile.caps).toContainEqual({ kind: 'per_payment', assetCode: 'USDT', limit: '7' });
+    expect(profile.caps).toContainEqual({ kind: 'daily_intake', assetCode: 'USDT', limit: '300' });
+  });
+
   describe('a confirm only applies the change its confirmer was shown (expectedChangeHash)', () => {
     let otherMerchantId = '';
     const rule = (assetCode: string, feeBps: number) => ({
