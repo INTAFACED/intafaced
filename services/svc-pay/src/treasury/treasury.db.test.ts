@@ -34,6 +34,7 @@ const migrations = [
   '0037_pay_withdrawal_rail_attempts.sql',
   '0058_pay_halts.sql',
   '0059_pay_treasury_exposure_indexes.sql',
+  '0071_pay_merchant_names.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-treasury-test-secret-at-least-32-characters';
