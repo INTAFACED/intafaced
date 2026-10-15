@@ -735,6 +735,27 @@ describe('svc-pay metrics read model PG-hard', { timeout: 30_000 }, () => {
     });
   });
 
+  describe('merchant names (W4b)', () => {
+    it('reads a merchant name into the founder list, null where none was given, and can look up exactly one merchant', async () => {
+      const named = await pay.createMerchant({
+        userId: userOf(),
+        pricing: { feeBps: 250 },
+        status: 'active',
+        displayName: 'Acme Shop',
+        legalName: 'Acme Trading Ltd',
+      });
+      const unnamed = await merchant();
+      const all = (await metrics.reader.merchantList({ limit: 10 })).rows;
+      expect(all.find((r) => r.merchantId === named.id)?.displayName).toBe('Acme Shop');
+      expect(all.find((r) => r.merchantId === unnamed.id)?.displayName).toBeNull();
+
+      const one = await metrics.reader.merchantList({ limit: 1, filter: { merchantId: named.id } });
+      expect(one.rows.map((r) => [r.merchantId, r.displayName])).toEqual([[named.id, 'Acme Shop']]);
+      expect(one.nextCursor).toBeNull();
+      expect((await metrics.reader.merchantList({ limit: 1, filter: { merchantId: randomUUID() } })).rows).toEqual([]);
+    });
+  });
+
   // ── isolation: M1, M2, M3, M5 through the real router ───────────────────────
 
   describe('isolation through the router', () => {
@@ -865,6 +886,38 @@ describe('svc-pay metrics read model PG-hard', { timeout: 30_000 }, () => {
       await expect(caller.founderAdmin.metrics.merchant({ merchantId: randomUUID(), window: today })).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
+    });
+
+    it('serves the name through the strict founder contract and keeps the legal name off the list', async () => {
+      const named = await pay.createMerchant({
+        userId: userOf(),
+        pricing: { feeBps: 250 },
+        status: 'active',
+        displayName: 'Acme Shop',
+        legalName: 'Acme Trading Ltd',
+      });
+      const caller = mount().createCaller(ctxOf(principal(founderUser)));
+      const list = await caller.founderAdmin.merchants.list({ limit: 5, filter: { merchantId: named.id } });
+      expect(list.rows).toHaveLength(1);
+      expect(list.rows[0]).toMatchObject({ merchantId: named.id, displayName: 'Acme Shop' });
+      expect(JSON.stringify(list)).not.toContain('Acme Trading Ltd');
+    });
+
+    it('does not show merchant names to a merchant session or an API key', async () => {
+      const ua = userOf();
+      await pay.createMerchant({ userId: ua, pricing: { feeBps: 250 }, status: 'active', displayName: 'Acme Shop' });
+      const router = mount(entitled('revoked'));
+      await expect(router.createCaller(ctxOf(principal(ua))).founderAdmin.merchants.list({ limit: 5 })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      // An API key (kid plus admin:read) is refused even for a founder's own user id and a live entitlement.
+      const calls = entitled('enabled');
+      const keyCaller = mount(calls).createCaller(ctxOf(principal(founderUser, { kid: randomUUID(), scopes: ['admin:read'] })));
+      await expect(keyCaller.founderAdmin.merchants.list({ limit: 5 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(keyCaller.founderAdmin.merchants.list({ limit: 1, filter: { merchantId: randomUUID() } })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(calls).not.toHaveBeenCalled();
     });
 
     it('M3: a PayFac parent reads sub-merchants only within granted areas; nobody else in or out of the tree can', async () => {

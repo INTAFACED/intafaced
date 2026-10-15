@@ -122,6 +122,8 @@ export function onboardingSteps(merchant: MerchantRecord | null, kybStatus: stri
 
 export type BusinessForm = {
   legalName: string;
+  /** Optional trading name. Left blank, the service shows the legal name. */
+  displayName: string;
   country: string;
   businessType: string;
   website: string;
@@ -130,16 +132,23 @@ export type BusinessForm = {
 };
 export const emptyBusiness: BusinessForm = {
   legalName: '',
+  displayName: '',
   country: '',
   businessType: '',
   website: '',
   contactEmail: '',
   expectedVolume: '',
 };
-export type BusinessErrors = Partial<Record<keyof BusinessForm, 'required' | 'country' | 'website' | 'email' | 'volume'>>;
+export type BusinessErrors = Partial<Record<keyof BusinessForm, 'required' | 'country' | 'website' | 'email' | 'volume' | 'name'>>;
+/** The service refuses a name over 120 characters or holding a control or invisible formatting character (not U+200D); say so before sending. Same class as the service and database. */
+// eslint-disable-next-line no-control-regex -- the point of this pattern is to match control characters
+const BAD_NAME = /[\u0000-\u001f\u007f-\u009f\u061c\u200b\u200e\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
+const nameProblem = (value: string) => [...value.trim()].length > 120 || BAD_NAME.test(value.trim());
 export function validateBusiness(form: BusinessForm): BusinessErrors {
   const errors: BusinessErrors = {};
   if (form.legalName.trim().length < 2) errors.legalName = 'required';
+  else if (nameProblem(form.legalName)) errors.legalName = 'name';
+  if (nameProblem(form.displayName)) errors.displayName = 'name';
   if (!/^[A-Za-z]{2}$/.test(form.country.trim())) errors.country = 'country';
   if (form.businessType.trim().length < 2) errors.businessType = 'required';
   if (form.website.trim()) {
@@ -163,6 +172,14 @@ export function businessDetails(form: BusinessForm): Record<string, string> {
     ...(form.website.trim() ? { website: form.website.trim() } : {}),
     contactEmail: form.contactEmail.trim(),
     ...(form.expectedVolume.trim() ? { declaredExpectedVolume: form.expectedVolume.trim() } : {}),
+  };
+}
+
+/** The two names the service stores on the merchant. The display name is sent only when the person typed one. */
+export function merchantNames(form: BusinessForm): { legalName: string; displayName?: string } {
+  return {
+    legalName: form.legalName.trim(),
+    ...(form.displayName.trim() ? { displayName: form.displayName.trim() } : {}),
   };
 }
 

@@ -175,4 +175,22 @@ describe('plain-English refusals', () => {
       expect(text, code).not.toMatch(/pay\./);
     }
   });
+
+  it('creates the account with the merchant names beside the pricing, and never sends an owner', async () => {
+    const { calls, portal } = harness(() =>
+      ok({ id: '22222222-2222-4222-8222-222222222222', userId: '33333333-3333-4333-8333-333333333333', mode: 'gateway', feeBps: 150 }),
+    );
+    await portal.createMerchant(150, { legalName: 'Acme Ltd', country: 'GB' }, { legalName: 'Acme Ltd', displayName: 'Acme Shop' });
+    await portal.createMerchant(150, { legalName: 'Acme Ltd' }, { legalName: 'Acme Ltd' });
+    expect(calls.map((c) => procedure(c.url))).toEqual(['merchant.create', 'merchant.create']);
+    expect(calls[0]!.body).toEqual({
+      mode: 'gateway',
+      pricing: { feeBps: 150 },
+      settlementPrefs: { businessDetails: { legalName: 'Acme Ltd', country: 'GB' } },
+      legalName: 'Acme Ltd',
+      displayName: 'Acme Shop',
+    });
+    expect(calls[1]!.body).not.toHaveProperty('displayName');
+    for (const call of calls) expect(JSON.stringify(call.body)).not.toMatch(/userId|merchantId/);
+  });
 });

@@ -184,6 +184,9 @@ describe('onboarding', () => {
     const out = html(<OnboardingView {...base} merchant={null} starterFeeBps={150} />);
     expect(out).toContain('Step 1 of 3');
     expect(out).toContain('Legal business name *');
+    expect(out).toContain('Trading name');
+    expect(out).not.toContain('Trading name *'); // optional
+    expect(out).toContain('Leave it blank to use your legal name.');
     expect(out).toContain('Declared by you, not verified');
     expect(out).toContain('<legend>Your business</legend>');
     expect(out).toContain('Create my account');

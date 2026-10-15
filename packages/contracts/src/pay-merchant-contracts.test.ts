@@ -4,7 +4,10 @@ import {
   PAY_CAP_KINDS,
   PAY_HALT_SCOPES,
   conversionQuoteInputSchema,
+  founderMerchantDrilldownSchema,
   founderMerchantListInputSchema,
+  founderMerchantListSchema,
+  founderMerchantRowSchema,
   merchantControlChangeInputSchema,
   merchantMetricsInputSchema,
   payAmountStringSchema,
@@ -104,5 +107,79 @@ describe('pay contracts: operator and founder shapes', () => {
     expect(founderMerchantListInputSchema.safeParse({ limit: 50 }).success).toBe(true);
     expect(merchantMetricsInputSchema.safeParse({ merchantId, window: { kind: 'preset', preset: 'rolling_7d' } }).success).toBe(true);
     expect(merchantMetricsInputSchema.safeParse({ merchantId, window: { kind: 'preset', preset: 'forever' } }).success).toBe(false);
+  });
+
+  it('the founder list can look up exactly one merchant by id, and refuses anything else in the filter', () => {
+    expect(founderMerchantListInputSchema.safeParse({ limit: 1, filter: { merchantId } }).success).toBe(true);
+    expect(founderMerchantListInputSchema.safeParse({ limit: 1, filter: { merchantId: 'not-a-uuid' } }).success).toBe(false);
+    expect(founderMerchantListInputSchema.safeParse({ limit: 1, filter: { merchantId, name: 'x' } }).success).toBe(false);
+  });
+});
+
+describe('founder merchant names', () => {
+  const fresh = { asOf: '2026-10-15T10:00:00.000Z', lagSeconds: 0 };
+  const row = {
+    merchantId,
+    displayName: 'Acme Shop',
+    status: 'active',
+    tierId: null,
+    kybStatus: 'approved',
+    volume: [],
+    revenue: [],
+    openFlags: 0,
+  };
+
+  it('a list row carries displayName as a string or null, and nothing else about the name', () => {
+    expect(founderMerchantRowSchema.parse(row).displayName).toBe('Acme Shop');
+    expect(founderMerchantRowSchema.parse({ ...row, displayName: null }).displayName).toBeNull();
+    // Required, not optional: a service that forgets the field is a contract error, not an unnamed merchant.
+    const { displayName: _dropped, ...without } = row;
+    expect(founderMerchantRowSchema.safeParse(without).success).toBe(false);
+    expect(founderMerchantRowSchema.safeParse({ ...row, displayName: 7 }).success).toBe(false);
+    // The legal name belongs to the drill-down only; the strict list row refuses it.
+    expect(founderMerchantRowSchema.safeParse({ ...row, legalName: 'Acme Trading Ltd' }).success).toBe(false);
+    expect(founderMerchantListSchema.safeParse({ freshness: fresh, rows: [row], nextCursor: null }).success).toBe(true);
+    expect(founderMerchantListSchema.safeParse({ freshness: fresh, rows: [{ ...row, extra: 1 }], nextCursor: null }).success).toBe(false);
+  });
+
+  it('the drill-down carries displayName and legalName, both nullable and both required', () => {
+    const snapshot = {
+      merchantId,
+      window: { kind: 'preset', preset: 'rolling_30d' },
+      freshness: fresh,
+      balances: [],
+      paymentCount: 0,
+      statusMix: [],
+      captured: [],
+      refunded: [],
+      net: [],
+      settlements: [],
+      averagePayment: [],
+      largestPayment: [],
+      linkUsage: { linksUsed: 0, paymentsViaLinks: 0 },
+      feeRevenue: [],
+      conversionVolume: null,
+    };
+    const drilldown = {
+      merchantId,
+      displayName: 'Acme Shop',
+      legalName: 'Acme Trading Ltd',
+      metrics: snapshot,
+      control: { merchantId, tierId: null, archetypeId: null, caps: null, pricing: null, reserve: null, version: '1', updatedAt: null },
+      halts: { readable: true, autoTrip: { enabled: false, consecutiveFailures: null }, states: [] },
+      pendingApprovals: [],
+      operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
+    };
+    const parsed = founderMerchantDrilldownSchema.parse(drilldown);
+    expect(parsed).toMatchObject({ displayName: 'Acme Shop', legalName: 'Acme Trading Ltd' });
+    expect(founderMerchantDrilldownSchema.parse({ ...drilldown, displayName: null, legalName: null })).toMatchObject({
+      displayName: null,
+      legalName: null,
+    });
+    const { legalName: _l, ...noLegal } = drilldown;
+    const { displayName: _d, ...noDisplay } = drilldown;
+    expect(founderMerchantDrilldownSchema.safeParse(noLegal).success).toBe(false);
+    expect(founderMerchantDrilldownSchema.safeParse(noDisplay).success).toBe(false);
+    expect(founderMerchantDrilldownSchema.safeParse({ ...drilldown, tradingName: 'x' }).success).toBe(false);
   });
 });

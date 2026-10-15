@@ -501,6 +501,27 @@
 .mp-id:hover {
   text-decoration-color: var(--if-accent);
 }
+.mp-merchant {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 28ch;
+}
+.mp-merchant__name,
+.mp-merchant > .mp-id {
+  overflow-wrap: anywhere;
+}
+/* Merchant-supplied text is bidi-isolated (with <bdi> in the markup too), so a right-to-left name cannot reorder the id beside it. */
+.mp-merchant bdi,
+.mp-merchant__id,
+.mp-head h1 bdi {
+  unicode-bidi: isolate;
+}
+.mp-merchant__id {
+  background: none;
+  padding: 0;
+}
 .mp-sub {
   display: block;
   font-size: 12px;

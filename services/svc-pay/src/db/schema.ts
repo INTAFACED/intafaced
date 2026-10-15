@@ -108,6 +108,13 @@ export const merchants = pay.table(
      * a sub-merchant out of our own account is acquiring and needs a sponsor.
      */
     settlingParty: text('settling_party').notNull().default('self'),
+    /**
+     * Names a human can read (0071). Both are nullable and written only by the
+     * merchant's own onboarding call; existing rows stay NULL (no backfill). The
+     * database CHECKs trimmed length 1..120 and no control characters.
+     */
+    displayName: text('display_name'),
+    legalName: text('legal_name'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

@@ -3,6 +3,7 @@ import {
   STALE_AFTER_SECONDS,
   bars,
   businessDetails,
+  merchantNames,
   destinationShapeOk,
   emptyBusiness,
   grantableRoles,
@@ -140,6 +141,39 @@ describe('business details', () => {
     expect(validateBusiness({ ...good, website: 'ftp://x' }).website).toBe('website');
     expect(validateBusiness({ ...good, website: 'not a url' }).website).toBe('website');
     expect(validateBusiness({ ...good, country: 'GBR' }).country).toBe('country');
+  });
+  it('sends the legal name always and the trading name only when one was typed, both trimmed', () => {
+    expect(merchantNames(good)).toEqual({ legalName: 'Acme Ltd' });
+    expect(merchantNames({ ...good, legalName: '  Acme Ltd ', displayName: '   ' })).toEqual({ legalName: 'Acme Ltd' });
+    expect(merchantNames({ ...good, displayName: '  Acme Shop ' })).toEqual({ legalName: 'Acme Ltd', displayName: 'Acme Shop' });
+  });
+  it('treats the trading name as optional but refuses one the service would refuse', () => {
+    expect(validateBusiness({ ...good, displayName: '' })).toEqual({});
+    expect(validateBusiness({ ...good, displayName: 'Acme Shop' })).toEqual({});
+    expect(validateBusiness({ ...good, displayName: 'x'.repeat(121) }).displayName).toBe('name');
+    expect(validateBusiness({ ...good, displayName: 'two\nlines' }).displayName).toBe('name');
+    expect(validateBusiness({ ...good, legalName: 'x'.repeat(121) }).legalName).toBe('name');
+    expect(validateBusiness({ ...good, legalName: 'bell\u0007' }).legalName).toBe('name');
+    expect(validateBusiness({ ...good, displayName: 'x'.repeat(120) })).toEqual({});
+    for (const c of [
+      '\u061c',
+      '\u200e',
+      '\u200f',
+      '\u202a',
+      '\u202e',
+      '\u2066',
+      '\u2069',
+      '\u2028',
+      '\u2029',
+      '\u200b',
+      '\u2060',
+      '\ufeff',
+    ]) {
+      expect(validateBusiness({ ...good, displayName: `a${c}b` }).displayName, c).toBe('name');
+      expect(validateBusiness({ ...good, legalName: `a${c}b` }).legalName, c).toBe('name');
+    }
+    // A zero-width joiner is how emoji sequences are written, so it stays allowed.
+    expect(validateBusiness({ ...good, displayName: '\u{1F468}\u200d\u{1F469} Shop' })).toEqual({});
   });
   it('labels declared volume as given text and never reads it as a number', () => {
     expect(businessDetails({ ...good, expectedVolume: 'about 40 payments a month' }).declaredExpectedVolume).toBe(

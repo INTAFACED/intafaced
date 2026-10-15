@@ -31,6 +31,7 @@ const migrations = [
   '0018_pay_founder_controls_admission.sql',
   '0058_pay_halts.sql',
   '0059_pay_treasury_exposure_indexes.sql',
+  '0071_pay_merchant_names.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {

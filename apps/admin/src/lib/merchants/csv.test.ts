@@ -23,6 +23,7 @@ describe('csv', () => {
     const rows: MerchantRow[] = [
       {
         merchantId: '11111111-1111-4111-8111-111111111111',
+        displayName: 'Acme Shop',
         status: 'active',
         tierId: null,
         kybStatus: 'approved',
@@ -34,7 +35,27 @@ describe('csv', () => {
     const csv = rowsToCsv(rows, '2026-10-15T00:00:00.000Z', '2026-10-15T00:00:00Z', 'No filters.');
     expect(csv).toContain('1234.500000000000000001 USDT');
     expect(csv).toContain('# Data as of 2026-10-15T00:00:00Z');
-    expect(csv).toContain('merchant_id,status,kyb_status,tier,lifetime_volume,lifetime_revenue,open_flags');
-    expect(csv.trim().split('\r\n').at(-1)).toBe('11111111-1111-4111-8111-111111111111,active,approved,,1234.500000000000000001 USDT,,2');
+    expect(csv).toContain('merchant_id,merchant_name,status,kyb_status,tier,lifetime_volume,lifetime_revenue,open_flags');
+    expect(csv.trim().split('\r\n').at(-1)).toBe(
+      '11111111-1111-4111-8111-111111111111,Acme Shop,active,approved,,1234.500000000000000001 USDT,,2',
+    );
+  });
+
+  it('neutralises a merchant-supplied name that would run as a spreadsheet formula, and leaves an unnamed merchant blank', () => {
+    const base = { status: 'active', tierId: null, kybStatus: 'approved', volume: [], revenue: [], openFlags: 0 } as const;
+    const csv = rowsToCsv(
+      [
+        { ...base, merchantId: 'a', displayName: '=HYPERLINK("http://evil.example","x")' },
+        { ...base, merchantId: 'b', displayName: null },
+        { ...base, merchantId: 'c', displayName: 'Smith, Jones & Co' },
+      ],
+      '2026-10-15T00:00:00.000Z',
+      null,
+      'No filters.',
+    );
+    const lines = csv.trim().split('\r\n');
+    expect(lines.at(-3)).toBe('a,"\'=HYPERLINK(""http://evil.example"",""x"")",active,approved,,,,0');
+    expect(lines.at(-2)).toBe('b,,active,approved,,,,0');
+    expect(lines.at(-1)).toBe('c,"Smith, Jones & Co",active,approved,,,,0');
   });
 });
