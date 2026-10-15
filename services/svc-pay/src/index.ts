@@ -378,7 +378,8 @@ export const appRouter = mergeRouters(
   createSubscriptionRouter(subscriptions, pay, subMerchants),
   // W0 stubs: merchantControl, merchantMetrics, founderAdmin, conversion, payHalts.
   // Every procedure refuses `pay.not_built` until its workstream fills it in.
-  createPayNamespaces({ founderAuthority, metrics }),
+  // W16 registries (founderAdmin.registries.*) are mounted inside founderAdmin through `registries`.
+  createPayNamespaces({ founderAuthority, metrics, registries: { sql, approvals: actionApprovals } }),
 );
 export type { PayRouter } from './router.js';
 export type { MerchantStateRouter } from './merchant-state-router.js';

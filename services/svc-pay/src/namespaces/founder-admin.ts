@@ -22,6 +22,7 @@ import type { FounderAuthority } from '../founder-authority.js';
 import { metricsToTrpcError, type MetricsRuntime } from '../metrics/index.js';
 import { notBuilt } from './errors.js';
 import { founderProcedure } from './founder-procedure.js';
+import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
 
 /**
  * `founderAdmin.*` — the global founder panel (W2 fills `merchants.list` and `metrics.*`; W4 the rest).
@@ -30,7 +31,16 @@ import { founderProcedure } from './founder-procedure.js';
  * `scopedProcedure('admin:read')`: that scope can sit on a long-lived API key.
  * The static inventory test (G7) fails the build if one is not.
  */
-export function createFounderAdminRouter(founderAuthority: FounderAuthority, metrics?: MetricsRuntime) {
+/** Optional mounts for `founderAdmin`. Each workstream adds its own key here (W15 will add `ops`). */
+export interface FounderAdminMounts {
+  /** W2: metrics reader. Without it the metrics and merchant-list procedures refuse with `pay.not_built`. */
+  metrics?: MetricsRuntime;
+  /** W16: editable venue, network and wallet-route registries. Mounted only when supplied. */
+  registries?: RegistriesMountDeps;
+}
+
+export function createFounderAdminRouter(founderAuthority: FounderAuthority, mounts: FounderAdminMounts = {}) {
+  const { metrics, registries } = mounts;
   const founder = founderProcedure(founderAuthority);
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -41,6 +51,8 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, met
   };
   return router({
     founderAdmin: router({
+      // W16: editable venue, network and wallet-route registries (src/registries). Mounted only when its deps are supplied.
+      ...(registries ? { registries: createRegistriesRouter({ founderAuthority, ...registries }) } : {}),
       merchants: router({
         list: founder
           .input(founderMerchantListInputSchema)
