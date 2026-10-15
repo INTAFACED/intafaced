@@ -1,7 +1,9 @@
 # ADR: Reconciliation proves a snapshot; an unfinished proof never freezes posting
 
-**Status:** Accepted, phase 1. **Date:** 2026-10-14; revised 2026-10-15.  
-**Area:** svc-ledger. **Issue:** #4755. **Policy:** `LEDGER-RECONCILE-NO-FREEZE-ON-INCOMPLETE`.  
+**Status:** Accepted, phase 1. **Date:** 2026-10-14; revised 2026-10-15.
+
+**Area:** svc-ledger. **Issue:** #4755. **Policy:** `LEDGER-RECONCILE-NO-FREEZE-ON-INCOMPLETE`.
+
 **Decision authority:** agents, under Nitro's money-safety delegation and explicit requirement that incomplete reconciliation never freezes posting.
 
 ## Problem
