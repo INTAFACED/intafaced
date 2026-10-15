@@ -12,7 +12,11 @@ import type { PayHaltScope } from './types.js';
  *   beforePayoutExecute        payout       (+ auto-trip from the payout book)
  *   beforeSettlementRun        settlement   (prepare and post)
  *   beforeConversion           conversion
- *   beforeUserMoneyWithdrawal  payout       (global switch; a user has no merchant)
+ *   beforeUserMoneyWithdrawal  payout       (global switch AND the switch of every merchant the
+ *                              user owns: settlement posts a merchant's net into the
+ *                              owner's user-money account, and `withdrawal.create`
+ *                              debits that same account, so a merchant payout halt
+ *                              must stop that exit too)
  *   beforeRefund               NONE, by decision: a refund returns a payer's own
  *                              money. A halt that traps funds is not a safety
  *                              control (the edge switch lets `cancel` through for
@@ -20,9 +24,16 @@ import type { PayHaltScope } from './types.js';
  *                              the merchant's balance and the ledger.
  *
  * RULES (seams/guards.ts)
- *   - Only FRESH work is refused. A `replay` does nothing new and a `recovery`
- *     finishes value already in flight (a booked hold, a frozen window); neither
- *     is stopped, and a recovery does not even read the store.
+ *   - A `replay` does nothing new and is never stopped. Beyond that the rule
+ *     depends on whether the work SENDS money to a rail:
+ *       bookkeeping (payment admit, settlement run, conversion): only FRESH work
+ *       is refused. A `recovery` finishes value already in flight (a frozen window,
+ *       a captured payment) and does not even read the store.
+ *       rail sends (`beforePayoutExecute`, `beforeUserMoneyWithdrawal`): a payout
+ *       halt also refuses a `recovery`, because finishing it calls the rail and
+ *       money would leave. The booked hold is left exactly as it is, so the
+ *       operation is PAUSED, not stranded: nothing is released or marked failed,
+ *       and the same call completes once the halt clears.
  *   - Unreadable store = refused with `pay.guard_halt_store_unavailable`
  *     (SERVICE_UNAVAILABLE). Never "not halted".
  *   - A halted scope = `pay.guard_halted` (SERVICE_UNAVAILABLE). The code does not
@@ -39,11 +50,23 @@ export const GUARD_HALT_STORE_UNAVAILABLE = 'pay.guard_halt_store_unavailable' a
 /** How long a refused payout waits for its auto-trip write before refusing anyway. */
 const TRIP_WAIT_MS = 2_000;
 
+/** Bookkeeping work: only fresh work is stopped. */
 const passes = (replay: GuardReplay): boolean => replay.kind !== 'fresh';
+/** Work that calls a rail: only a replay (which does nothing) is let through a halt. */
+const passesRailSend = (replay: GuardReplay): boolean => replay.kind === 'replay';
 
-/** Throw unless `scope` is running for this merchant. Reads through `conn`. */
-export async function assertNotHalted(conn: Sql, scope: PayHaltScope, merchantId: string | undefined, replay: GuardReplay): Promise<void> {
-  if (passes(replay)) return;
+/**
+ * Throw unless `scope` is running for this merchant. Reads through `conn`.
+ * `railSend` marks work that would call a rail: a recovery is then refused too.
+ */
+export async function assertNotHalted(
+  conn: Sql,
+  scope: PayHaltScope,
+  merchantId: string | undefined,
+  replay: GuardReplay,
+  opts: { railSend?: boolean } = {},
+): Promise<void> {
+  if (opts.railSend ? passesRailSend(replay) : passes(replay)) return;
   let blocking;
   try {
     blocking = await findBlockingHalt(conn, scope, merchantId);
@@ -58,6 +81,28 @@ export async function assertNotHalted(conn: Sql, scope: PayHaltScope, merchantId
  * Latest `failures` terminal rail results for `railId` since the payout switch last changed:
  * all refusals means the rail has failed that many times in a row.
  */
+/**
+ * A user's money can leave through a payout switch set for any merchant they own
+ * (settlement credits `userAvailable(merchant.userId)`). Refuse when the payout
+ * scope is halted globally or for one of those merchants. Fails closed.
+ */
+async function assertUserMoneyNotHalted(conn: Sql, userId: string, replay: GuardReplay): Promise<void> {
+  if (passesRailSend(replay)) return;
+  let blocking: unknown;
+  try {
+    const owned = await conn<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE user_id = ${userId}`;
+    const targets = ['global', ...owned.map((m) => m.id.toLowerCase())];
+    const rows = await conn<Array<{ target: string }>>`
+      SELECT target FROM pay.halts WHERE scope = 'payout' AND halted AND target IN ${conn(targets)} LIMIT 1
+    `;
+    blocking = rows[0];
+  } catch (error) {
+    if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
+    throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
+  }
+  if (blocking) throw new PayGuardRefusal(GUARD_HALTED, 'unavailable');
+}
+
 async function railFailureStreakReached(conn: Sql, store: PayHaltStore, railId: string, failures: number): Promise<boolean> {
   const since = await store.lastChangeAt(conn, 'payout', { level: 'global' });
   const rows = await conn<Array<{ kind: string }>>`
@@ -78,7 +123,7 @@ export function createHaltGuards(deps: { sql: Sql; store: PayHaltStore }): Parti
 
   /** Auto-trip from the payout book. The halt is written on the POOL, so it outlives the caller's rolled-back transaction. */
   async function payoutRailGuard(conn: Sql, merchantId: string, railId: string, replay: GuardReplay): Promise<void> {
-    await assertNotHalted(conn, 'payout', merchantId, replay);
+    await assertNotHalted(conn, 'payout', merchantId, replay, { railSend: true });
     if (passes(replay) || failures === null) return;
     let reached: boolean;
     try {
@@ -108,7 +153,7 @@ export function createHaltGuards(deps: { sql: Sql; store: PayHaltStore }): Parti
     beforePayoutExecute: (ctx) => payoutRailGuard(ctx.sql, ctx.merchantId, ctx.railId, ctx.replay),
     beforeSettlementRun: (ctx) => assertNotHalted(ctx.sql, 'settlement', ctx.merchantId, ctx.replay),
     beforeConversion: (ctx) => assertNotHalted(ctx.sql, 'conversion', ctx.merchantId, ctx.replay),
-    beforeUserMoneyWithdrawal: (ctx) => assertNotHalted(ctx.tx, 'payout', undefined, ctx.replay),
+    beforeUserMoneyWithdrawal: (ctx) => assertUserMoneyNotHalted(ctx.tx, ctx.userId, ctx.replay),
     // beforeRefund: deliberately absent. See the table above.
   };
 }

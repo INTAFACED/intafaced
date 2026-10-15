@@ -59,8 +59,16 @@ import type { Amount } from '@intafaced/ledger-client';
  *     the admit hook (`beforePaymentAdmit`, `beforePayoutAdmit`), not in the
  *     execute hook that resumes it.
  *   - HALTS and screening MAY refuse `fresh` work (and a replay, which does
- *     nothing), and MUST let a `recovery` finish. A halt that blocks recovery
- *     leaves value in a hold the operator then has to unwind by hand.
+ *     nothing). A `recovery` that is BOOKKEEPING ONLY (a settlement post, a
+ *     payment capture) MUST finish: refusing it leaves a frozen window or a
+ *     captured payment half recorded. A `recovery` that would SEND to a rail
+ *     (`beforePayoutExecute`, `beforeUserMoneyWithdrawal`) is refused by a PAYOUT
+ *     halt, because a halt that lets money leave is not a halt. The booked hold is
+ *     untouched, so that operation is paused, not stranded: nothing is released
+ *     or marked failed, and the same call completes once the halt clears. A guard
+ *     that refuses a rail-send recovery must therefore refuse BEFORE the hold is
+ *     posted or the rail is asked, and the caller must treat that refusal as
+ *     retry-later, never as a terminal failure.
  *   - `replay` is classified from durable state read in the same transaction (or
  *     the ledger, by business key). Where state cannot prove value moved it is
  *     `fresh`: a rail capture whose ledger post rolled back leaves no trace, and

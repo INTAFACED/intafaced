@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PayService } from '../payment-service.js';
+import { UserMoneyService } from '../user-money-service.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { memoryPayoutDestinations } from '../merchant-payout-destination.js';
 import { RailRegistry } from '../rails/registry.js';
@@ -36,6 +37,7 @@ const migrations = [
   '0006_pay_merchant_status_history.sql',
   '0014_pay_merchant_payout_destinations.sql',
   '0018_pay_founder_controls_admission.sql',
+  '0037_pay_withdrawal_rail_attempts.sql',
   '0058_pay_halts.sql',
   '0059_pay_treasury_exposure_indexes.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
@@ -45,6 +47,7 @@ const USER = '11111111-1111-4111-8111-111111111111';
 const FOUNDER_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const FOUNDER_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const DEST = { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' };
+const BANK = { kind: 'bank', ref: 'DE89370400440532013000' };
 const GLOBAL = { level: 'global' } as const;
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
@@ -283,8 +286,8 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
     });
   });
 
-  describe('replay and recovery pass through a halt; fresh work does not', () => {
-    it('every scope halted: fresh refused, replay and recovery pass, refund is never halted', async () => {
+  describe('a halt stops fresh work and rail sends; bookkeeping recoveries and replays finish', () => {
+    it('every scope halted: fresh refused, replay passes, bookkeeping recovery passes, a payout recovery (rail send) waits, refund is never halted', async () => {
       const g = replica(poolA);
       for (const scope of ['intake', 'conversion', 'payout', 'settlement'] as const) await g.store.set(FOUNDER_A, setInput({ scope }));
       const merchant = randomUUID();
@@ -302,7 +305,9 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
         replay: r,
       });
       await expect(g.guards.beforePayoutExecute(exec(FRESH))).rejects.toMatchObject({ code: 'pay.guard_halted' });
-      await expect(g.guards.beforePayoutExecute(exec(recovery))).resolves.toBeUndefined();
+      // A recovery that would call the rail is paused by a payout halt (its hold stays booked).
+      await expect(g.guards.beforePayoutExecute(exec(recovery))).rejects.toMatchObject({ code: 'pay.guard_halted', kind: 'unavailable' });
+      await expect(g.guards.beforePayoutExecute(exec(replay))).resolves.toBeUndefined();
       await expect(g.guards.beforePaymentAdmit(paymentCtx(poolA, merchant, replay))).resolves.toBeUndefined();
       await expect(
         g.guards.beforeSettlementRun({
@@ -320,10 +325,18 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       ).resolves.toBeUndefined();
     });
 
-    it('a recovery does not even read the store, so an unreadable store cannot strand a booked hold', async () => {
+    it('a bookkeeping recovery does not even read the store; a rail-send recovery needs a readable store', async () => {
       const dead = postgres(db.url, { max: 1, onnotice: () => undefined });
       await dead.end();
       const g = replica(dead);
+      await expect(
+        g.guards.beforeSettlementRun({
+          sql: dead as never,
+          phase: 'post',
+          merchantId: randomUUID(),
+          replay: { kind: 'recovery', reason: 'window_frozen_not_posted' },
+        }),
+      ).resolves.toBeUndefined();
       await expect(
         g.guards.beforePayoutExecute({
           sql: dead as never,
@@ -336,10 +349,10 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
           attempt: 0,
           replay: { kind: 'recovery', reason: 'payout_hold_booked' },
         }),
-      ).resolves.toBeUndefined();
+      ).rejects.toMatchObject({ code: 'pay.guard_halt_store_unavailable' });
     });
 
-    it('end to end: a payout that crashed after its hold finishes under a payout halt; a fresh payout is stopped', async () => {
+    it('end to end: a payout that crashed after its hold is PAUSED by a payout halt (no rail call, still retryable) and finishes once the halt clears', async () => {
       const g = replica(poolA);
       const pay = payService(g.guards);
       const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
@@ -350,20 +363,139 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
         'process died',
       );
       expect(chain.outboundTransfers()).toHaveLength(0);
+      const statusBefore = (await poolA`SELECT status, payout_attempts FROM pay.settlements WHERE id = ${first.id}`)[0]!;
 
       await capturedCryptoPayment(pay, m.id, '7');
       const second = await settle(pay, m.id, 'w-second');
       await g.store.set(FOUNDER_A, setInput({ scope: 'payout' }));
+      const journalBefore = ledger.journal().length;
 
-      // New work is stopped...
+      // New work is stopped, and so is the resumed payout: both would call the rail.
       await expect(pay.payoutSettlement({ settlementId: second.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject({
         code: 'pay.guard_halted',
       });
-      // ...but the payout whose hold is already booked is allowed to finish.
+      let railCalls = 0;
+      const realPayout = crypto.payout.bind(crypto);
+      crypto.payout = async (request) => {
+        railCalls += 1;
+        return realPayout(request);
+      };
+      await expect(pay.payoutSettlement({ settlementId: first.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject({
+        code: 'pay.guard_halted',
+      });
+      expect(railCalls).toBe(0);
+      expect(chain.outboundTransfers()).toHaveLength(0);
+      // Paused, not failed: same status and attempt, no release or reverse, no outcome row.
+      expect((await poolA`SELECT status, payout_attempts FROM pay.settlements WHERE id = ${first.id}`)[0]).toEqual(statusBefore);
+      expect(ledger.journal().length).toBe(journalBefore);
+      expect(
+        await poolA`SELECT 1 FROM pay.payout_outcomes o JOIN pay.payout_admissions a ON a.id = o.admission_id WHERE a.settlement_id = ${first.id}`,
+      ).toHaveLength(0);
+
+      // The halt clears (two founders): the very same call completes.
+      const clear = setInput({ scope: 'payout', halted: false, expectedVersion: '1', reason: 'rail repaired' });
+      await g.store.set(FOUNDER_A, clear);
+      expect((await g.store.set(FOUNDER_B, clear)).outcome).toBe('changed');
       const done = await pay.payoutSettlement({ settlementId: first.id, railId: 'crypto-native', destination: DEST });
       expect(done.status).toBe('paid_out');
+      expect(railCalls).toBe(1);
       expect(chain.outboundTransfers()).toHaveLength(1);
       expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+  });
+
+  describe('user-money withdrawal and the payout halt', () => {
+    const OTHER = '22222222-2222-4222-8222-222222222222';
+    const withdrawalCtx = (userId: string, replay: GuardReplay = FRESH, tx: postgres.Sql = poolA) => ({
+      tx: tx as never,
+      userId,
+      assetId: 'USDT',
+      amount: 1n,
+      rail: 'crypto-native',
+      destination: DEST,
+      clientRef: randomUUID(),
+      replay,
+    });
+
+    it('a merchant-level payout halt refuses its owner, not another user; the global switch refuses everyone', async () => {
+      const g = replica(poolA);
+      const pay = payService(composeGuards());
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({
+        code: 'pay.guard_halted',
+        kind: 'unavailable',
+      });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).resolves.toBeUndefined();
+      // An intake halt on that merchant is not a payout halt.
+      await poolA`TRUNCATE pay.halts, pay.halt_events RESTART IDENTITY CASCADE`;
+      await g.store.set(FOUNDER_A, setInput({ scope: 'intake', target: { level: 'merchant', merchantId: m.id } }));
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).resolves.toBeUndefined();
+      await g.store.set(FOUNDER_A, setInput({ scope: 'payout' }));
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).rejects.toMatchObject({ code: 'pay.guard_halted' });
+    });
+
+    it('a read error refuses with the store-unavailable code', async () => {
+      const dead = postgres(db.url, { max: 1, onnotice: () => undefined });
+      await dead.end();
+      await expect(replica(dead).guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER, FRESH, dead))).rejects.toMatchObject({
+        code: 'pay.guard_halt_store_unavailable',
+        kind: 'unavailable',
+      });
+      // The merchants read failing (not the halts table) refuses too.
+      await poolA`ALTER TABLE pay.merchants RENAME TO merchants_offline`;
+      try {
+        await expect(replica(poolA).guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({
+          code: 'pay.guard_halt_store_unavailable',
+        });
+      } finally {
+        await poolA`ALTER TABLE pay.merchants_offline RENAME TO merchants`;
+      }
+    });
+
+    it('a recovery withdrawal waits for the clear; a replay (already sent) still returns', async () => {
+      const g = replica(poolA);
+      await g.store.set(FOUNDER_A, setInput({ scope: 'payout' }));
+      await expect(
+        g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER, { kind: 'recovery', reason: 'withdrawal_hold_booked' })),
+      ).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(
+        g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER, { kind: 'replay', reason: 'withdrawal_already_sent' })),
+      ).resolves.toBeUndefined();
+    });
+
+    it('end to end: a merchant owner cannot withdraw settled money while their merchant is payout-halted, and can after the clear', async () => {
+      const g = replica(poolA);
+      const pay = payService(composeGuards());
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      const money = new UserMoneyService(poolA, ledger, rails, { operatorCreditRails: ['card-sandbox'], guards: g.guards });
+      await money.credit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('50'),
+        rail: 'card-sandbox',
+        railRef: 'seed_1',
+        creditedBy: FOUNDER_A,
+      });
+      await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
+      const request = { userId: USER, assetId: 'USDT', amount: amt('20'), rail: 'card-sandbox', destination: BANK, clientRef: 'w-halted' };
+      await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      expect(await poolA`SELECT 1 FROM pay.withdrawals`).toHaveLength(0);
+      expect(chain.outboundTransfers()).toHaveLength(0);
+      expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(amt('50'));
+
+      const clear = setInput({
+        scope: 'payout',
+        target: { level: 'merchant', merchantId: m.id },
+        halted: false,
+        expectedVersion: '1',
+        reason: 'all clear',
+      });
+      await g.store.set(FOUNDER_A, clear);
+      await g.store.set(FOUNDER_B, clear);
+      const sent = await money.withdraw(request);
+      expect(sent.status).toBe('sent');
+      expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(amt('30'));
     });
   });
 
