@@ -6,6 +6,7 @@ describe('the merchants module entry', () => {
     for (const path of [
       '/merchants',
       '/merchants/all',
+      '/merchants/approvals',
       '/merchants/registries/venues/new',
       '/merchants/22222222-2222-4222-8222-222222222222',
       '/%6Derchants/all',
@@ -13,7 +14,7 @@ describe('the merchants module entry', () => {
     ]) {
       expect(moduleForPage(path), path).toBe('merchants');
     }
-    for (const path of ['/api/merchants', '/api/merchants/registries', '/api/%6Derchants/registries']) {
+    for (const path of ['/api/merchants', '/api/merchants/registries', '/api/merchants/controls', '/api/%6Derchants/registries']) {
       expect(moduleForApi(path), path).toBe('merchants');
     }
     expect(moduleForPage('/merchantsfoo')).toBeNull();

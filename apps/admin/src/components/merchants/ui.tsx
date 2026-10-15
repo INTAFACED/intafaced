@@ -144,7 +144,7 @@ export function AsOf({ freshness, label = 'Data' }: { freshness: Freshness; labe
   );
 }
 
-export type StateKind = 'empty' | 'error' | 'not_built' | 'forbidden' | 'info';
+export type StateKind = 'empty' | 'error' | 'not_built' | 'forbidden' | 'info' | 'success';
 
 export function StateBlock({
   kind,

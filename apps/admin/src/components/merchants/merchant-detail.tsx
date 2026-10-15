@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react';
-import type { FounderMerchantDrilldown, MerchantMetricsSeries, MerchantMetricsSnapshot } from '@intafaced/contracts';
+import type { MerchantMetricsSeries, MerchantMetricsSnapshot } from '@intafaced/contracts';
 import { daysEndingAt } from '@/lib/merchants/dates';
-import type { MerchantDetailData, MetricPreset } from '@/lib/merchants/loaders';
-import { haltChip } from '@/lib/merchants/chips';
+import type { ControlsData, MerchantApprovalsData, MerchantDetailData, MerchantHaltsData, MetricPreset } from '@/lib/merchants/loaders';
 import { amountFor, compareDecimal, formatAmount, sumByAsset } from '@/lib/merchants/money';
 import { BarChart, type BarPoint } from './bar-chart';
+import { ApprovalsTable } from './approvals-queue';
+import { ControlsTab } from './controls-tab';
 import { CopyButton } from './copy-button';
-import { AsOf, Amounts, Card, FailureState, KpiTile, PageHead, shortId, StateBlock, StatusChip, UNNAMED_MERCHANT } from './ui';
+import { AutoTripCard, HaltHistoryTable, HaltStatesTable, PendingClearsGap } from './halts-panels';
+import { AsOf, Amounts, Card, FailureState, KpiTile, PageHead, shortId, StateBlock, UNNAMED_MERCHANT } from './ui';
 
 export const DETAIL_TABS = [
   { id: 'overview', label: 'Overview' },
@@ -83,6 +85,9 @@ export function MerchantDetailView({
   preset,
   asset,
   today,
+  tabData = {},
+  currentUserId,
+  now = new Date(),
 }: {
   merchantId: string;
   data: MerchantDetailData;
@@ -91,6 +96,10 @@ export function MerchantDetailView({
   asset?: string | undefined;
   /** `YYYY-MM-DD`, the last day of the series range. */
   today: string;
+  tabData?: DetailTabData;
+  /** The signed-in founder, so rows they took part in say they cannot sign them. */
+  currentUserId?: string | undefined;
+  now?: Date;
 }) {
   const href = (next: Partial<{ tab: DetailTab; window: MetricPreset; asset: string }>) => {
     const q = new URLSearchParams();
@@ -161,9 +170,18 @@ export function MerchantDetailView({
       {tab === 'payments' ? <Payments metrics={data.metrics} here={here} /> : null}
       {tab === 'settlements' ? <Settlements metrics={data.metrics} here={here} /> : null}
       {tab === 'notes' ? <Notes /> : null}
-      {tab === 'controls' ? <ControlsTab drilldown={data.drilldown} here={here} /> : null}
-      {tab === 'approvals' ? <ApprovalsTab drilldown={data.drilldown} here={here} /> : null}
-      {tab === 'halts' ? <HaltsTab drilldown={data.drilldown} here={here} /> : null}
+      {tab === 'controls' ? tabData.controls ? <ControlsTab data={tabData.controls} merchantId={merchantId} here={here} /> : null : null}
+      {tab === 'approvals' ? (
+        <ApprovalsTab
+          data={tabData.approvals}
+          merchantId={merchantId}
+          merchantName={names.displayName}
+          currentUserId={currentUserId}
+          now={now}
+          here={here}
+        />
+      ) : null}
+      {tab === 'halts' ? <HaltsTab data={tabData.halts} merchantId={merchantId} currentUserId={currentUserId} here={here} /> : null}
     </div>
   );
 }
@@ -483,161 +501,152 @@ function Notes() {
   );
 }
 
-function pending(title: string, what: string) {
+/** What a tab needs beyond the metrics: loaded by the page only for the tab that is open. */
+export interface DetailTabData {
+  readonly controls?: ControlsData;
+  readonly approvals?: MerchantApprovalsData;
+  readonly halts?: MerchantHaltsData;
+}
+
+function ApprovalsTab({
+  data,
+  merchantId,
+  merchantName,
+  currentUserId,
+  now,
+  here,
+}: {
+  data: MerchantApprovalsData | undefined;
+  merchantId: string;
+  merchantName: string | null;
+  currentUserId: string | undefined;
+  now: Date;
+  here: string;
+}) {
+  if (!data)
+    return (
+      <Card id="approvals" title="Approvals">
+        {null}
+      </Card>
+    );
+  const rows = data.queue.kind === 'ok' ? data.queue.data.approvals.filter((a) => a.merchantId === merchantId) : [];
   return (
-    <Card id={title.toLowerCase()} title={title} sub={what}>
-      <StateBlock kind="not_built" title={`${title} arrives with W1 and W5`}>
-        This tab shows {what.toLowerCase()} once the control-room and halts procedures are on this deployment. It is empty by design until
-        then, not because there is nothing to show.
-      </StateBlock>
+    <Card
+      id="approvals"
+      title="Payout approvals"
+      sub="Payouts for this merchant that its own team approved and that now wait for two different founders."
+      actions={
+        <a className="mp-btn" href="/merchants/approvals">
+          Open the full queue
+        </a>
+      }
+    >
+      {data.queue.kind !== 'ok' ? (
+        <FailureState failure={data.queue} what="This merchant's approvals" retryHref={here} />
+      ) : (
+        <>
+          <AsOf freshness={{ asOf: data.readAt, lagSeconds: 0 }} label="Approvals" />
+          {data.queue.data.truncated ? (
+            <StateBlock kind="info" title="This merchant may have more waiting">
+              The queue is longer than one read covers. Open the full queue to see everything.
+            </StateBlock>
+          ) : null}
+          {rows.length === 0 ? (
+            <StateBlock kind="empty" title="Nothing waiting for founders">
+              No payout for this merchant is waiting at the founder step. Payouts still waiting for the merchant’s own team are not listed
+              here: the service has no founder-readable list for that earlier step yet.
+            </StateBlock>
+          ) : (
+            <ApprovalsTable
+              rows={rows}
+              names={new Map([[merchantId, merchantName]])}
+              now={now}
+              currentUserId={currentUserId}
+              showMerchant={false}
+            />
+          )}
+        </>
+      )}
     </Card>
   );
 }
 
-function DrilldownGate({
-  drilldown,
+function HaltsTab({
+  data,
+  merchantId,
+  currentUserId,
   here,
-  title,
-  what,
-  children,
 }: {
-  drilldown: MerchantDetailData['drilldown'];
+  data: MerchantHaltsData | undefined;
+  merchantId: string;
+  currentUserId: string | undefined;
   here: string;
-  title: string;
-  what: string;
-  children: (d: FounderMerchantDrilldown) => ReactNode;
 }) {
-  if (drilldown.kind === 'not_built') return pending(title, what);
-  if (drilldown.kind !== 'ok') return <FailureState failure={drilldown} what={`${title} for this merchant`} retryHref={here} />;
-  return <>{children(drilldown.data)}</>;
-}
-
-function ControlsTab({ drilldown, here }: { drilldown: MerchantDetailData['drilldown']; here: string }) {
+  if (!data)
+    return (
+      <Card id="halts" title="Halts">
+        {null}
+      </Card>
+    );
+  const fresh = { asOf: data.readAt, lagSeconds: 0 };
   return (
-    <DrilldownGate drilldown={drilldown} here={here} title="Controls" what="Tier, caps and pricing for this merchant">
-      {(d) => (
-        <Card id="controls" title="Controls" sub="Read only. Changing a limit, price or tier needs a second founder and arrives with W1.">
-          <dl className="mp-kv">
-            <div>
-              <dt>Tier</dt>
-              <dd>{d.control.tierId ?? <span className="mp-muted">Not set</span>}</dd>
-            </div>
-            <div>
-              <dt>Archetype</dt>
-              <dd>{d.control.archetypeId ?? <span className="mp-muted">Not set</span>}</dd>
-            </div>
-            <div>
-              <dt>Caps</dt>
-              <dd>
-                {d.control.caps === null ? (
-                  <span className="mp-muted">Not configured (payments refuse)</span>
-                ) : (
-                  `${d.control.caps.length} set`
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt>Pricing rules</dt>
-              <dd>{d.control.pricing === null ? <span className="mp-muted">Not configured</span> : `${d.control.pricing.length} set`}</dd>
-            </div>
-            <div>
-              <dt>Reserve</dt>
-              <dd>{d.control.reserve === null ? <span className="mp-muted">Not configured</span> : 'Set'}</dd>
-            </div>
-            <div>
-              <dt>Version</dt>
-              <dd className="mp-num">{d.control.version}</dd>
-            </div>
-          </dl>
-          <p className="mp-muted mp-mt">
-            KYB: {d.operator.kybStatus}. Open fraud reviews: {d.operator.openFraudReviews}.
-          </p>
-        </Card>
-      )}
-    </DrilldownGate>
-  );
-}
-
-function ApprovalsTab({ drilldown, here }: { drilldown: MerchantDetailData['drilldown']; here: string }) {
-  return (
-    <DrilldownGate drilldown={drilldown} here={here} title="Approvals" what="Payout approvals waiting for a decision">
-      {(d) => (
-        <Card id="approvals" title="Approvals" sub="Payouts waiting for a second founder.">
-          {d.pendingApprovals.length === 0 ? (
-            <StateBlock kind="empty" title="Nothing waiting">
-              No payout for this merchant is waiting for approval.
-            </StateBlock>
-          ) : (
-            <table className="mp-table">
-              <caption className="mp-visually-hidden">Pending payout approvals</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Amount</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Requested</th>
-                  <th scope="col">Expires</th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.pendingApprovals.map((a) => (
-                  <tr key={a.approvalId}>
-                    <td className="mp-num">
-                      {formatAmount(a.amount)} {a.assetCode}
-                    </td>
-                    <td>{a.status}</td>
-                    <td className="mp-num">{a.createdAt}</td>
-                    <td className="mp-num">{a.expiresAt}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </Card>
-      )}
-    </DrilldownGate>
-  );
-}
-
-function HaltsTab({ drilldown, here }: { drilldown: MerchantDetailData['drilldown']; here: string }) {
-  return (
-    <DrilldownGate drilldown={drilldown} here={here} title="Halts" what="Paused operations for this merchant">
-      {(d) => (
-        <Card id="halts" title="Halts" sub="Which operations are paused for this merchant, globally or for it alone.">
-          {!d.halts.readable ? (
-            <StateBlock kind="error" title="The halt store could not be read">
-              An unreadable store counts as halted. Treat every operation as paused until it can be read.
-            </StateBlock>
-          ) : d.halts.states.length === 0 ? (
-            <StateBlock kind="empty" title="No halts recorded">
-              Nothing has ever been paused for this merchant.
-            </StateBlock>
-          ) : (
-            <table className="mp-table">
-              <caption className="mp-visually-hidden">Halt states</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Operation</th>
-                  <th scope="col">Covers</th>
-                  <th scope="col">State</th>
-                  <th scope="col">Why</th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.halts.states.map((s) => (
-                  <tr key={`${s.scope}-${s.target.level}`}>
-                    <th scope="row">{s.scope}</th>
-                    <td>{s.target.level === 'global' ? 'Everyone' : 'This merchant'}</td>
-                    <td>
-                      <StatusChip spec={haltChip(s.halted)} />
-                    </td>
-                    <td className="mp-muted">{s.reason ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </Card>
-      )}
-    </DrilldownGate>
+    <>
+      <Card
+        id="halts"
+        title="Halts that apply to this merchant"
+        sub="Which operations are paused, for everyone or for this merchant alone. Either one stops the operation here."
+      >
+        {data.status.kind !== 'ok' ? (
+          <FailureState failure={data.status} what="The halt switches" retryHref={here} />
+        ) : !data.status.data.readable ? (
+          <StateBlock kind="error" title="The halt store could not be read">
+            An unreadable store counts as halted. Treat every operation as paused until it can be read.
+          </StateBlock>
+        ) : (
+          <>
+            <AsOf freshness={fresh} label="Switches" />
+            <HaltStatesTable
+              states={data.status.data.states.filter((s) => s.target.level === 'global' || s.target.merchantId === merchantId)}
+              caption="Halt switches that apply to this merchant"
+            />
+            <p className="mp-footnote mp-mt">
+              A merchant-specific halt that was never set does not appear: only switches that exist are listed, plus the global switch of
+              each operation.
+            </p>
+          </>
+        )}
+      </Card>
+      <Card id="auto-trip" title="Automatic trip" sub="Platform-wide setting.">
+        {data.status.kind !== 'ok' ? (
+          <FailureState failure={data.status} what="The automatic trip setting" retryHref={here} />
+        ) : (
+          <AutoTripCard autoTrip={data.status.data.autoTrip} />
+        )}
+      </Card>
+      <Card id="pending-clears" title="Clears waiting for a second founder" sub="A halt only comes off when two different founders agree.">
+        <PendingClearsGap />
+      </Card>
+      <Card
+        id="halt-history"
+        title="Halt history for this merchant"
+        sub="Halts set on this merchant alone, newest first. Platform-wide halts are on the Treasury and halts page."
+      >
+        {data.history.kind !== 'ok' ? (
+          <FailureState failure={data.history} what="This merchant's halt history" retryHref={here} />
+        ) : data.history.data.length === 0 ? (
+          <StateBlock kind="empty" title="No halts recorded for this merchant">
+            Nothing has ever been paused for this merchant alone.
+          </StateBlock>
+        ) : (
+          <>
+            <AsOf freshness={fresh} label="History" />
+            <HaltHistoryTable events={data.history.data} currentUserId={currentUserId} showTarget={false} />
+          </>
+        )}
+        <p className="mp-footnote mp-mt">
+          <a href="/merchants/treasury#halts">Platform-wide halt history</a>
+        </p>
+      </Card>
+    </>
   );
 }

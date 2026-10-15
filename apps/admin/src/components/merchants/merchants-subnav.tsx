@@ -10,6 +10,7 @@ export const MERCHANT_SECTIONS = [
     label: 'All merchants',
     match: (p: string) => p === '/merchants/all' || /^\/merchants\/[0-9a-f-]{36}/i.test(p),
   },
+  { href: '/merchants/approvals', label: 'Approvals', match: (p: string) => p.startsWith('/merchants/approvals') },
   { href: '/merchants/registries/venues', label: 'Venues', match: (p: string) => p.startsWith('/merchants/registries/venues') },
   { href: '/merchants/registries/networks', label: 'Networks', match: (p: string) => p.startsWith('/merchants/registries/networks') },
   {

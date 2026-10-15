@@ -1,3 +1,4 @@
+import { CONTROL_COPY } from './control-copy';
 import { compareDecimal, isDecimalString } from './money';
 
 /**
@@ -701,6 +702,7 @@ const BY_STATUS: Record<number, PlainRefusal> = {
 
 export function explainRefusal(code: string | null, message: string, status: number): PlainRefusal {
   if (code !== null && COPY[code]) return COPY[code]!;
+  if (code !== null && CONTROL_COPY[code]) return CONTROL_COPY[code]!;
   const embedded = /\b(registries\.[a-z_]+|action_approval\.[a-z_]+)\b/.exec(message)?.[1];
   if (embedded && COPY[embedded]) return COPY[embedded]!;
   if (/secret_like_value/.test(message)) return COPY['registries.secret_like_value']!;

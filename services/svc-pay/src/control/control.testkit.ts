@@ -1,3 +1,4 @@
+import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -101,7 +102,12 @@ export async function applyChange(changes: ChangeService, sql: postgres.Sql, tar
   const submitted = await changes.submit(FOUNDER_1, { requestId, target, reason: 'test setup', expectedVersion });
   if (submitted.outcome === 'noop') return submitted;
   if (submitted.outcome !== 'pending_second_approval') throw new Error(`setup change ${submitted.outcome}`);
-  const done = await changes.confirm(FOUNDER_2, { requestId, decision: 'confirm', reason: 'test setup confirmed' });
+  const done = await changes.confirm(FOUNDER_2, {
+    requestId,
+    decision: 'confirm',
+    reason: 'test setup confirmed',
+    expectedChangeHash: founderChangeHash(target, expectedVersion),
+  });
   if (done.outcome !== 'changed') throw new Error(`setup confirm ${done.outcome}`);
   return done;
 }

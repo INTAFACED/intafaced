@@ -139,6 +139,7 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     requestId: w.control.pendingMerchantChangeId,
     decision: 'confirm',
     reason: 'second founder agrees',
+    expectedChangeHash: w.control.pendingMerchantChangeHash,
   }),
   'founderAdmin.approvals.list': () => ({ limit: 10 }),
   'founderAdmin.control.tiers.list': () => ({}),
@@ -155,6 +156,7 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     requestId: w.control.pendingConfigureId,
     decision: 'confirm',
     reason: 'second founder agrees',
+    expectedChangeHash: w.control.pendingConfigureHash,
   }),
   'founderAdmin.control.approvals.decide': (w) => ({
     approvalId: w.control.founderApprovalId,
