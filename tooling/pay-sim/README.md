@@ -46,7 +46,7 @@ startup or cleanup unexpectedly hangs; forced termination is an error and never
 a successful run.
 
 The capability manifest is pinned to main
-`34e6db4554ba6eece0f236f63fc5eff7a5b324ef`. At that base the W1 caps/approval
+`b8b8cbb220dda79f71401dadb8825ded2de91992`. At that base the W1 caps/approval
 controls, W5 halts/exposure/automatic storm trip, W6 conversions/venue orders and
 W9 screening provider are not built. Their assertions are explicitly reported as
 **not built at pinned base**, never as passing. The payout DB fault exercises an

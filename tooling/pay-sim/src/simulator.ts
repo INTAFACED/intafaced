@@ -13,7 +13,7 @@ import { Deadline, parseOptions, assertLedgerBalanced, assertOutbound, type Opti
 import { assertProjection, recompute, type Sources } from './oracle.js';
 import { SimulationDatabase } from './database.js';
 
-export const BASE = '34e6db4554ba6eece0f236f63fc5eff7a5b324ef';
+export const BASE = 'b8b8cbb220dda79f71401dadb8825ded2de91992';
 export const NOT_BUILT = [
   { id: 'W1', status: 'not-built-at-base', checks: 'Merchant caps/pricing controls/approval thresholds: no-op slot; not asserted.' },
   { id: 'W5', status: 'not-built-at-base', checks: 'Granular halts/exposure/automatic storm trip: no-op slot; not asserted.' },
