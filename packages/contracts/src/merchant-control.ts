@@ -380,14 +380,24 @@ export const merchantLimitWithdrawInputSchema = z
 export const merchantLimitWithdrawResultSchema = merchantLimitTerminalSchema.extend({ status: z.literal('withdrawn') }).strict();
 export type MerchantLimitWithdrawResult = z.infer<typeof merchantLimitWithdrawResultSchema>;
 
-/** Founder closes one ask. The actor is the session, never this body. */
+/**
+ * Founder closes one ask. The actor is the session, never this body.
+ * Caps are returned as stored. JSON that no longer matches a cap is still a
+ * successful close: refusing here would leave the ask open.
+ */
 export const founderLimitRequestCloseInputSchema = z
   .object({
     requestId: payRequestIdSchema,
     reason: payReasonSchema,
   })
   .strict();
-export const founderLimitRequestCloseResultSchema = merchantLimitTerminalSchema.extend({ status: z.literal('closed') }).strict();
+export const founderLimitRequestCloseResultSchema = merchantLimitTerminalSchema
+  .omit({ caps: true })
+  .extend({
+    status: z.literal('closed'),
+    caps: z.union([z.array(payCapSchema).min(1).max(32), z.unknown()]),
+  })
+  .strict();
 export type FounderLimitRequestCloseResult = z.infer<typeof founderLimitRequestCloseResultSchema>;
 
 /** The caller's open request, or `none` when they have not asked. `none` is not a cap. */

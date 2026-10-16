@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { payCapSchema } from '@intafaced/contracts';
 import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Context } from '@intafaced/contracts';
@@ -648,7 +649,7 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
     expect(bad?.code).toBe('BAD_REQUEST');
   });
 
-  it('confirming a cap change closes the pending ask in that transaction; a rejected or non-cap change does not', async () => {
+  it('confirming a cap change closes the pending ask in that transaction; a rejected cap change or a reserve change does not', async () => {
     await assignTier();
     const owner = mounted().createCaller(ctxOf(OWNER_A));
     const requestId = randomUUID();
@@ -664,7 +665,7 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
     await applyChange(changes, sql, {
       scope: 'merchant',
       merchantId: merchantA,
-      change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: 'standard' },
+      change: { kind: 'set_reserve', reserve: { rollingReserveBps: null, holdDays: null } },
     });
     expect(await sql`SELECT status FROM pay.control_limit_requests WHERE request_id = ${requestId}`).toEqual([{ status: 'pending' }]);
 
@@ -693,6 +694,120 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
     const after = (await at(owner, 'merchantControl.get')({ merchantId: merchantA })) as { caps: Array<{ limit?: string }> | null };
     expect(after.caps?.some((cap) => cap.limit === '4')).toBe(true);
     expect(after.caps?.some((cap) => cap.limit === '999')).toBe(false);
+  });
+
+  /**
+   * Money figures here are TEST VALUES. The stored ask uses a JSON number,
+   * which the cap schema refuses. That unreadability must not block a decrease
+   * or a founder close.
+   */
+  async function seedUnreadableAsk(merchantId: string): Promise<{ requestId: string; caps: unknown }> {
+    const requestId = randomUUID();
+    const caps = [{ kind: 'per_payment', assetCode: 'USDT', limit: 999 }];
+    expect(payCapSchema.array().safeParse(caps).success).toBe(false);
+    await sql`
+      INSERT INTO pay.control_limit_requests (request_id, merchant_id, caps, reason, status, requested_by)
+      VALUES (${requestId}, ${merchantId}, ${sql.json(caps)}, ${'unreadable stored ask'}, 'pending', ${OWNER_A})
+    `;
+    return { requestId, caps };
+  }
+
+  it('a cap decrease closes an ask whose stored caps do not parse, and a founder close of another such ask succeeds', async () => {
+    await assignTier();
+    const owner = mounted().createCaller(ctxOf(OWNER_A));
+    const founder = mounted().createCaller(ctxOf(FOUNDER_1));
+    await applyChange(changes, sql, {
+      scope: 'merchant',
+      merchantId: merchantA,
+      change: { kind: 'set_caps', caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '20' }] },
+    });
+    const { requestId, caps } = await seedUnreadableAsk(merchantA);
+    await applyChange(changes, sql, {
+      scope: 'merchant',
+      merchantId: merchantA,
+      change: { kind: 'set_caps', caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '4' }] },
+    });
+    const [override] = await sql<Array<{ caps_override: unknown }>>`
+      SELECT caps_override FROM pay.control_merchant_profiles WHERE merchant_id = ${merchantA}
+    `;
+    expect(override?.caps_override).toEqual([{ kind: 'per_payment', assetCode: 'USDT', limit: '4' }]);
+    const [closed] = await sql<Array<{ status: string; close_reason: string; closed_by: string }>>`
+      SELECT status, close_reason, closed_by FROM pay.control_limit_requests WHERE request_id = ${requestId}
+    `;
+    expect(closed).toEqual({ status: 'closed', close_reason: 'cap_change_confirmed', closed_by: FOUNDER_2 });
+    const [audit] = await sql<Array<{ after: unknown }>>`
+      SELECT after FROM pay.control_audit WHERE request_id = ${requestId} AND kind = 'limit.increase_closed'
+    `;
+    expect(audit?.after).toMatchObject({ closeReason: 'cap_change_confirmed', caps });
+    const again = await seedUnreadableAsk(merchantA);
+    const founderClosed = await at(
+      founder,
+      'founderAdmin.control.limitRequests.close',
+    )({
+      requestId: again.requestId,
+      reason: 'close the unreadable ask',
+    });
+    expect(founderClosed).toMatchObject({
+      status: 'closed',
+      requestId: again.requestId,
+      closeReason: 'close the unreadable ask',
+      closedBy: FOUNDER_1,
+      caps: again.caps,
+    });
+    const replay = await at(
+      founder,
+      'founderAdmin.control.limitRequests.close',
+    )({
+      requestId: again.requestId,
+      reason: 'a second reason',
+    });
+    expect(replay).toMatchObject({ closeReason: 'close the unreadable ask', caps: again.caps });
+    const founderAudits = await sql<Array<{ after: unknown }>>`
+      SELECT after FROM pay.control_audit WHERE request_id = ${again.requestId} AND kind = 'limit.increase_closed'
+    `;
+    expect(founderAudits).toHaveLength(1);
+    expect(founderAudits[0]?.after).toMatchObject({ closeReason: 'close the unreadable ask', caps: again.caps });
+    const profile = (await at(owner, 'merchantControl.get')({ merchantId: merchantA })) as { caps: Array<{ limit?: string }> | null };
+    expect(profile.caps?.some((cap) => cap.limit === '4')).toBe(true);
+    expect(profile.caps?.some((cap) => cap.limit === '20')).toBe(false);
+  });
+
+  it('confirming a tier change closes the pending ask in that transaction, including one whose caps do not parse', async () => {
+    await assignTier();
+    const owner = mounted().createCaller(ctxOf(OWNER_A));
+    const { requestId, caps } = await seedUnreadableAsk(merchantA);
+    const profile = (await at(owner, 'merchantControl.get')({ merchantId: merchantA })) as { version: string };
+    const tierChange = {
+      scope: 'merchant' as const,
+      merchantId: merchantA,
+      change: { kind: 'set_tier' as const, tierId: TEST_TIER.id, archetypeId: 'standard' as const },
+    };
+    const rejectId = randomUUID();
+    await changes.submit(FOUNDER_1, {
+      requestId: rejectId,
+      target: tierChange,
+      reason: 'try this archetype',
+      expectedVersion: profile.version,
+    });
+    await changes.confirm(FOUNDER_2, {
+      requestId: rejectId,
+      decision: 'reject',
+      reason: 'not this archetype',
+      expectedChangeHash: founderChangeHash(tierChange, profile.version),
+    });
+    expect(await sql`SELECT status FROM pay.control_limit_requests WHERE request_id = ${requestId}`).toEqual([{ status: 'pending' }]);
+
+    await applyChange(changes, sql, tierChange);
+    const [closed] = await sql<Array<{ status: string; close_reason: string; closed_by: string }>>`
+      SELECT status, close_reason, closed_by FROM pay.control_limit_requests WHERE request_id = ${requestId}
+    `;
+    expect(closed).toEqual({ status: 'closed', close_reason: 'tier_change_confirmed', closed_by: FOUNDER_2 });
+    const [audit] = await sql<Array<{ after: unknown }>>`
+      SELECT after FROM pay.control_audit WHERE request_id = ${requestId} AND kind = 'limit.increase_closed'
+    `;
+    expect(audit?.after).toMatchObject({ closeReason: 'tier_change_confirmed', caps });
+    const after = (await at(owner, 'merchantControl.get')({ merchantId: merchantA })) as { archetypeId: string | null };
+    expect(after.archetypeId).toBe('standard');
   });
 
   it('a cap confirm that cannot close the pending ask leaves the caps unchanged', async () => {
