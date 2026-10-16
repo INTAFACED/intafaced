@@ -10,6 +10,7 @@ import {
   assertMandateListLimit,
   assertSubscriptionListLimit,
 } from '../payment-service.js';
+import { encodeListCursor, ListQueryError, parseListFilters } from '../list-page.js';
 import { merchantKybMoneyGateRefusal, type MerchantKybStatus } from '../merchant-kyb-money-gate.js';
 import type { ValueMovementPolicy } from '../rails/posture.js';
 import { CADENCES, occurrenceStart, type Cadence } from './schedule.js';
@@ -575,59 +576,61 @@ export class SubscriptionService {
     return toSub(row);
   }
 
-  /** Merchant fleet list — mandates (ops truth). Read-only. */
-  async listMandates(merchantId: string, options: { status?: MandateStatus; limit?: number } = {}): Promise<MandateRecord[]> {
+  /** Merchant fleet list — mandates (ops truth). Read-only. Filters run in SQL before the page is cut. */
+  async listMandates(
+    merchantId: string,
+    options: { status?: MandateStatus; limit?: number; cursor?: string; search?: string; from?: string; to?: string } = {},
+  ): Promise<{ items: MandateRecord[]; nextCursor: string | null }> {
     await this.requireMerchant(merchantId);
     const limit = assertMandateListLimit(options.limit);
-    const rows = options.status
-      ? await this.sql<MandateRow[]>`
-          SELECT id, merchant_id, customer_id, asset_id, amount::text, ceiling::text,
-                 cadence, starts_at, ends_at, rail_adapter, rail_mandate_ref,
-                 status, cancelled_at, created_at
-            FROM pay.subscription_mandates
-           WHERE merchant_id = ${merchantId} AND status = ${options.status}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `
-      : await this.sql<MandateRow[]>`
-          SELECT id, merchant_id, customer_id, asset_id, amount::text, ceiling::text,
-                 cadence, starts_at, ends_at, rail_adapter, rail_mandate_ref,
-                 status, cancelled_at, created_at
-            FROM pay.subscription_mandates
-           WHERE merchant_id = ${merchantId}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `;
-    return rows.map(toMandate);
+    const filters = subscriptionListFilters(options);
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
+    const rows = await this.sql<Array<MandateRow & { created_at_cursor: string }>>`
+      SELECT id, merchant_id, customer_id, asset_id, amount::text, ceiling::text,
+             cadence, starts_at, ends_at, rail_adapter, rail_mandate_ref,
+             status, cancelled_at, created_at,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM pay.subscription_mandates
+       WHERE merchant_id = ${merchantId}
+         AND (${options.status ?? null}::text IS NULL OR status = ${options.status ?? null})
+         AND (${filters.assetId}::text IS NULL OR asset_id = ${filters.assetId})
+         AND (${filters.from}::timestamptz IS NULL OR created_at >= ${filters.from})
+         AND (${filters.to}::timestamptz IS NULL OR created_at < ${filters.to})
+         AND (${filters.search}::text IS NULL OR id::text = lower(${filters.search}) OR customer_id = ${filters.search})
+         AND (${cursorAt}::text IS NULL OR (created_at, id) < ((${cursorAt}::text)::timestamptz, ${cursorId}::uuid))
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${limit + 1}
+    `;
+    return subscriptionPage(rows, limit, toMandate);
   }
 
-  /** Merchant fleet list — subscriptions (ops truth). Read-only. */
+  /** Merchant fleet list — subscriptions (ops truth). Read-only. Filters run in SQL before the page is cut. */
   async listSubscriptions(
     merchantId: string,
-    options: { status?: SubscriptionStatus; limit?: number } = {},
-  ): Promise<SubscriptionRecord[]> {
+    options: { status?: SubscriptionStatus; limit?: number; cursor?: string; search?: string; from?: string; to?: string } = {},
+  ): Promise<{ items: SubscriptionRecord[]; nextCursor: string | null }> {
     await this.requireMerchant(merchantId);
     const limit = assertSubscriptionListLimit(options.limit);
-    const rows = options.status
-      ? await this.sql<SubRow[]>`
-          SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
-                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                 paused_at, resumed_at, stalled_at, stall_reason
-            FROM pay.subscriptions
-           WHERE merchant_id = ${merchantId} AND status = ${options.status}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `
-      : await this.sql<SubRow[]>`
-          SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
-                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                 paused_at, resumed_at, stalled_at, stall_reason
-            FROM pay.subscriptions
-           WHERE merchant_id = ${merchantId}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `;
-    return rows.map(toSub);
+    const filters = subscriptionListFilters(options);
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
+    const rows = await this.sql<Array<SubRow & { created_at_cursor: string }>>`
+      SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
+             cancelled_at, path, created_at, anchor_at, anchor_occurrence,
+             paused_at, resumed_at, stalled_at, stall_reason,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM pay.subscriptions
+       WHERE merchant_id = ${merchantId}
+         AND (${options.status ?? null}::text IS NULL OR status = ${options.status ?? null})
+         AND (${filters.from}::timestamptz IS NULL OR created_at >= ${filters.from})
+         AND (${filters.to}::timestamptz IS NULL OR created_at < ${filters.to})
+         AND (${filters.search}::text IS NULL OR id::text = lower(${filters.search}) OR customer_id = ${filters.search} OR mandate_id::text = lower(${filters.search}))
+         AND (${cursorAt}::text IS NULL OR (created_at, id) < ((${cursorAt}::text)::timestamptz, ${cursorId}::uuid))
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${limit + 1}
+    `;
+    return subscriptionPage(rows, limit, toSub);
   }
 
   /**
@@ -1727,4 +1730,26 @@ export class SubscriptionService {
       throw new PayError(kybRefuse.message, kybRefuse.code, kybRefuse.detail);
     }
   }
+}
+
+function subscriptionListFilters(input: { search?: string; from?: string; to?: string; cursor?: string; assetId?: string }) {
+  try {
+    return parseListFilters(input);
+  } catch (error) {
+    if (error instanceof ListQueryError) throw new PayError(error.message, error.code);
+    throw error;
+  }
+}
+
+function subscriptionPage<R extends { created_at_cursor: string; id: string }, T>(
+  rows: R[],
+  limit: number,
+  map: (row: R) => T,
+): { items: T[]; nextCursor: string | null } {
+  const kept = rows.slice(0, limit);
+  const last = kept[kept.length - 1];
+  return {
+    items: kept.map(map),
+    nextCursor: rows.length > limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
+  };
 }

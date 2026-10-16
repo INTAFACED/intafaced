@@ -1685,9 +1685,12 @@ export class PayService {
 
   async listPaymentLinks(
     merchantId: string,
-    limit?: number,
-  ): Promise<
-    Array<{
+    query:
+      | { limit?: number; cursor?: string; search?: string; assetId?: string; from?: string; to?: string; active?: boolean }
+      | number
+      | undefined,
+  ): Promise<{
+    items: Array<{
       id: string;
       prefix: string;
       label: string;
@@ -1698,10 +1701,15 @@ export class PayService {
       maxUses: number | null;
       uses: number;
       createdAt: string;
-    }>
-  > {
+    }>;
+    nextCursor: string | null;
+  }> {
     await this.getMerchant(merchantId);
-    const page = assertPaymentLinkListLimit(limit);
+    const input = typeof query === 'number' || query === undefined ? { limit: query } : query;
+    const page = assertPaymentLinkListLimit(input.limit);
+    const filters = listFilters(input);
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
     const rows = await this.sql<
       Array<{
         id: string;
@@ -1714,26 +1722,46 @@ export class PayService {
         max_uses: number | null;
         uses: number;
         created_at: Date;
+        created_at_cursor: string;
       }>
     >`
-      SELECT id, token_prefix, label, amount::text, currency, active, expires_at, max_uses, uses, created_at
+      SELECT id, token_prefix, label, amount::text, currency, active, expires_at, max_uses, uses, created_at,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
         FROM pay.payment_links
        WHERE merchant_id = ${merchantId}
-       ORDER BY created_at DESC
-       LIMIT ${page}
+         AND (${input.active ?? null}::boolean IS NULL OR active = ${input.active ?? null})
+         AND (${filters.assetId}::text IS NULL OR currency = ${filters.assetId})
+         AND (${filters.from}::timestamptz IS NULL OR created_at >= ${filters.from})
+         AND (${filters.to}::timestamptz IS NULL OR created_at < ${filters.to})
+         AND (
+           ${filters.search}::text IS NULL
+           OR id::text = lower(${filters.search})
+           OR starts_with(lower(label), lower(${filters.search}))
+         )
+         AND (
+           ${cursorAt}::text IS NULL
+           OR (created_at, id) < ((${cursorAt}::text)::timestamptz, ${cursorId}::uuid)
+         )
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${page + 1}
     `;
-    return rows.map((r) => ({
-      id: r.id,
-      prefix: r.token_prefix,
-      label: r.label,
-      amount: r.amount,
-      currency: r.currency,
-      active: r.active,
-      expiresAt: r.expires_at?.toISOString() ?? null,
-      maxUses: r.max_uses === null ? null : Number(r.max_uses),
-      uses: Number(r.uses),
-      createdAt: r.created_at.toISOString(),
-    }));
+    const kept = rows.slice(0, page);
+    const last = kept[kept.length - 1];
+    return {
+      items: kept.map((r) => ({
+        id: r.id,
+        prefix: r.token_prefix,
+        label: r.label,
+        amount: r.amount,
+        currency: r.currency,
+        active: r.active,
+        expiresAt: r.expires_at?.toISOString() ?? null,
+        maxUses: r.max_uses === null ? null : Number(r.max_uses),
+        uses: Number(r.uses),
+        createdAt: r.created_at.toISOString(),
+      })),
+      nextCursor: rows.length > page && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
+    };
   }
 
   /**

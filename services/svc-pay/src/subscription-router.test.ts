@@ -136,11 +136,11 @@ describe('subscription merchant surface', () => {
       },
       listMandates: async () => {
         calls.push('listMandates');
-        return [mandateRecord()];
+        return { items: [mandateRecord()], nextCursor: null };
       },
       listSubscriptions: async () => {
         calls.push('listSubscriptions');
-        return [subRecord()];
+        return { items: [subRecord()], nextCursor: null };
       },
     } as unknown as SubscriptionService;
 
@@ -215,9 +215,9 @@ describe('subscription merchant surface', () => {
   it('owner can list mandates for a merchant', async () => {
     const api = await caller(['pay:read']);
     const rows = await api.mandate.list({ merchantId: MERCHANT });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.id).toBe(MANDATE);
-    expect(rows[0]!.amount).toBe('10');
+    expect(rows.items).toHaveLength(1);
+    expect(rows.items[0]!.id).toBe(MANDATE);
+    expect(rows.items[0]!.amount).toBe('10');
     expect(calls).toContain('listMandates');
   });
 
@@ -231,9 +231,9 @@ describe('subscription merchant surface', () => {
   it('owner can list subscriptions for a merchant', async () => {
     const api = await caller(['pay:read']);
     const rows = await api.subscription.list({ merchantId: MERCHANT, status: 'active' });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.id).toBe(SUB);
-    expect(rows[0]!.path).toBe('crypto_invoice');
+    expect(rows.items).toHaveLength(1);
+    expect(rows.items[0]!.id).toBe(SUB);
+    expect(rows.items[0]!.path).toBe('crypto_invoice');
     expect(calls).toContain('listSubscriptions');
   });
 
