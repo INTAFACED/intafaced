@@ -33,7 +33,7 @@ import {
   successRate,
   usagePct,
 } from './model';
-import type { Approval, PaymentEvent, Payment, Settlement } from './schemas';
+import { paymentEventSchema, type Approval, type PaymentEvent, type Payment, type Settlement } from './schemas';
 
 // TEST DATA only.
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
@@ -173,6 +173,19 @@ describe('payment history', () => {
     ev('settled', { settlementId: 's1' }, '2026-10-14T05:00:00.000Z'),
     ev('disputed', { disputeId: 'd1' }, '2026-10-14T06:00:00.000Z'),
   ];
+  it('shows the amount on a team history event that has no payload', () => {
+    const team = paymentEventSchema.parse({
+      id: 'aa000001-0000-4000-8000-000000000099',
+      event: 'captured',
+      ts: '2026-10-14T00:01:00.000Z',
+      amount: '12',
+      assetId: 'USDT',
+      failure: { code: 'card.declined', message: 'The card was declined.' },
+    });
+    expect(paymentSteps([team])).toEqual([expect.objectContaining({ kind: 'captured', amount: '12', refundId: null, settlementId: null })]);
+    expect(JSON.stringify(paymentSteps([team]))).not.toContain('tok_secret');
+    expect(paymentLinks([team])).toEqual({ customerRef: null, ledgerTxId: null, settlementId: null, disputeId: null });
+  });
   it('shows only the events a merchant should read, in time order, with no rail internals', () => {
     const steps = paymentSteps([...events].reverse());
     expect(steps.map((s) => s.kind)).toEqual(['created', 'authorized', 'captured', 'refunded', 'refund_reversed', 'settled', 'disputed']);

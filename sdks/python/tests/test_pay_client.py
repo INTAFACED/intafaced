@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 import threading
 import unittest
@@ -306,6 +307,121 @@ class PayClientTest(unittest.TestCase):
             self.assertNotIn("operatorStatus", text)
             self.assertNotIn("/operator/", text)
             self.assertNotIn("/operator\"", text)
+
+
+MERCHANT = "22222222-2222-4222-8222-222222222222"
+
+
+def _payment(**overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "merchantId": MERCHANT,
+        "amount": "1.10",
+        "assetId": "USD",
+        "status": "captured",
+        "mode": "sandbox",
+        "capturedAmount": "1.1",
+        "refundedAmount": "0",
+        "createdAt": "2026-10-16T00:00:00.000Z",
+        "pricingSnapshot": {"fee": "0.05"},
+        "failure": None,
+    }
+    row.update(overrides)
+    return row
+
+
+class PaymentPageTest(unittest.TestCase):
+    def test_get_payments_returns_a_page_and_sends_filters(self) -> None:
+        seen: dict[str, str] = {}
+
+        def transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+            seen["url"] = url
+            snapshot = {"fee": "1.25", "feeBps": 250, "flatFee": None}
+            return 200, json.dumps({"items": [_payment(pricingSnapshot=snapshot)], "nextCursor": None})
+
+        _client, pay = create_pay_client(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=0,
+            transport=transport,
+        )
+        page = pay.get_payments(
+            query={
+                "merchantId": MERCHANT,
+                "limit": "50",
+                "cursor": "cursor-1",
+                "search": "acme",
+                "assetId": "USD",
+                "from": "2026-10-01T00:00:00.000Z",
+                "to": "2026-10-16T00:00:00.000Z",
+            }
+        )
+        self.assertIsNone(page["nextCursor"])
+        self.assertEqual(page["items"][0]["amount"], "1.10")
+        self.assertIsNone(page["items"][0]["failure"])
+        self.assertEqual(page["items"][0]["pricingSnapshot"], {"fee": "1.25", "feeBps": 250, "flatFee": None})
+        self.assertNotIsInstance(page, list)
+        self.assertIn("/payments?", seen["url"])
+        self.assertIn(f"merchantId={MERCHANT}", seen["url"])
+        self.assertIn("cursor=cursor-1", seen["url"])
+        self.assertIn("search=acme", seen["url"])
+        self.assertIn("assetId=USD", seen["url"])
+        self.assertIn("from=2026-10-01T00%3A00%3A00.000Z", seen["url"])
+        self.assertIn("limit=50", seen["url"])
+
+    def test_get_payments_refuses_a_bare_array_and_a_numeric_fee(self) -> None:
+        def array_transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+            return 200, json.dumps([_payment()])
+
+        _client, pay = create_pay_client(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=0,
+            transport=array_transport,
+        )
+        with self.assertRaises(ValueError) as raised:
+            pay.get_payments(query={"merchantId": MERCHANT})
+        self.assertIn("{ items, nextCursor }", str(raised.exception))
+
+        def fee_transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+            return 200, json.dumps({"items": [_payment(pricingSnapshot={"fee": 0.05})], "nextCursor": "cursor-1"})
+
+        _client, priced = create_pay_client(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=0,
+            transport=fee_transport,
+        )
+        with self.assertRaises(ValueError) as fee_raised:
+            priced.get_payments()
+        self.assertIn("decimal string", str(fee_raised.exception))
+
+        def flat_transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+            return 200, json.dumps({"items": [_payment(pricingSnapshot={"fee": "1.25", "flatFee": 1})], "nextCursor": None})
+
+        _client, flat = create_pay_client(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=0,
+            transport=flat_transport,
+        )
+        with self.assertRaises(ValueError) as flat_raised:
+            flat.get_payments()
+        self.assertIn("flatFee", str(flat_raised.exception))
+
+    def test_get_payments_refuses_an_error_envelope(self) -> None:
+        def transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+            return 403, json.dumps({"error": {"code": "pay.merchant_forbidden", "message": "no"}})
+
+        _client, pay = create_pay_client(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=0,
+            transport=transport,
+        )
+        with self.assertRaises(ValueError) as raised:
+            pay.get_payments()
+        self.assertIn("pay.merchant_forbidden", str(raised.exception))
 
 
 if __name__ == "__main__":

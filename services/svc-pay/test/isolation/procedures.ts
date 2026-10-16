@@ -530,18 +530,31 @@ export interface ListProc {
 }
 
 const arr = (v: unknown) => v as Array<Record<string, unknown>>;
+export function pageRows(v: unknown): Array<Record<string, unknown>> {
+  if (
+    v !== null &&
+    typeof v === 'object' &&
+    'items' in v &&
+    Array.isArray((v as { items: unknown }).items) &&
+    'nextCursor' in v &&
+    ((v as { nextCursor: unknown }).nextCursor === null || typeof (v as { nextCursor: unknown }).nextCursor === 'string')
+  ) {
+    return (v as { items: Array<Record<string, unknown>> }).items;
+  }
+  throw new Error('list page is not { items, nextCursor }');
+}
 
 export const LIST_PROCS: ListProc[] = [
   {
     name: 'trpc payment.list',
     call: { via: 'trpc', path: 'payment.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.paymentId, e.paymentId2],
   },
   {
     name: 'trpc settlement.list',
     call: { via: 'trpc', path: 'settlement.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.settlementId],
   },
   {
@@ -553,7 +566,7 @@ export const LIST_PROCS: ListProc[] = [
   {
     name: 'rest GET /v1/payments',
     call: { via: 'rest', req: (e) => ({ method: 'GET', url: `/v1/payments?merchantId=${e.merchantId}&limit=200` }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.paymentId, e.paymentId2],
   },
   {

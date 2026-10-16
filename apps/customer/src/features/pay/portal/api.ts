@@ -1,6 +1,8 @@
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 import * as p from './schemas';
+import { cycleSchema } from './billing-schemas';
+import { subscriptionSchema, mandateSchema, executionSchema, subscriptionPostureSchema } from '../schemas';
 import { linkSchema } from '../schemas';
 import { portalRefusal, refusalText } from './refusal';
 
@@ -29,6 +31,40 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
     query(procedure, { limit: PAGE_SIZE, ...input }, p.page(item), signal);
   return {
     userId,
+    subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
+      query('subscription.list', { merchantId, limit }, z.array(subscriptionSchema.refine((row) => row.merchantId === merchantId)), signal),
+    subscription: (merchantId: string, subscriptionId: string, signal?: AbortSignal) =>
+      query(
+        'subscription.get',
+        { subscriptionId },
+        subscriptionSchema.refine((row) => row.merchantId === merchantId && row.id === subscriptionId),
+        signal,
+      ),
+    mandates: (merchantId: string, signal?: AbortSignal) =>
+      query('mandate.list', { merchantId, limit: 200 }, z.array(mandateSchema.refine((row) => row.merchantId === merchantId)), signal),
+    mandate: (merchantId: string, mandateId: string, signal?: AbortSignal) =>
+      query(
+        'mandate.get',
+        { mandateId },
+        mandateSchema.refine((row) => row.merchantId === merchantId && row.id === mandateId),
+        signal,
+      ),
+    subscriptionPosture: (signal?: AbortSignal) => query('subscription.productReady', undefined, subscriptionPostureSchema, signal),
+    subscriptionExecutions: (subscriptionId: string, signal?: AbortSignal) =>
+      query(
+        'subscription.listExecutions',
+        { subscriptionId, limit: 200 },
+        z.array(executionSchema.refine((row) => row.subscriptionId === subscriptionId)),
+        signal,
+      ),
+    subscriptionCycles: (subscriptionId: string, signal?: AbortSignal) =>
+      query(
+        'subscription.cycles',
+        { subscriptionId, limit: 200 },
+        z.object({ subscriptionId: z.literal(subscriptionId), cycles: z.array(cycleSchema) }),
+        signal,
+      ),
+
     links: (merchantId: string, limit: number, signal?: AbortSignal) =>
       query('merchant.listLinks', { merchantId, limit }, z.array(linkSchema), signal),
     merchant: (signal?: AbortSignal) => query('merchant.me', undefined, p.merchantRecordSchema, signal),
@@ -103,13 +139,17 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
 
     // ---- payments, settlements, payouts (W3b). The list reads take a page size and a status, nothing more; the browser
     // narrows further (search, dates, asset) over what it has loaded and says so on the page.
-    payments: (merchantId: string, status: string, limit: number, signal?: AbortSignal) =>
-      query('payment.list', { merchantId, limit, ...(status ? { status } : {}) }, z.array(p.paymentSchema), signal),
+    payments: async (merchantId: string, status: string, limit: number, signal?: AbortSignal) => {
+      const page = await query('payment.list', { merchantId, limit, ...(status ? { status } : {}) }, p.page(p.paymentSchema), signal);
+      return page.ok ? { ok: true as const, data: page.data.items } : page;
+    },
     payment: (paymentId: string, signal?: AbortSignal) => query('payment.get', { paymentId }, p.paymentSchema, signal),
     paymentHistory: (paymentId: string, signal?: AbortSignal) =>
       query('payment.history', { paymentId, limit: 200 }, z.array(p.paymentEventSchema), signal),
-    settlements: (merchantId: string, status: string, limit: number, signal?: AbortSignal) =>
-      query('settlement.list', { merchantId, limit, ...(status ? { status } : {}) }, z.array(p.settlementSchema), signal),
+    settlements: async (merchantId: string, status: string, limit: number, signal?: AbortSignal) => {
+      const page = await query('settlement.list', { merchantId, limit, ...(status ? { status } : {}) }, p.page(p.settlementSchema), signal);
+      return page.ok ? { ok: true as const, data: page.data.items } : page;
+    },
     settlement: (settlementId: string, signal?: AbortSignal) => query('settlement.get', { settlementId }, p.settlementSchema, signal),
 
     control: (merchantId: string, signal?: AbortSignal) => query('merchantControl.get', { merchantId }, p.controlProfileSchema, signal),

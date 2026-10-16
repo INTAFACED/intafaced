@@ -33,6 +33,9 @@ export const MERCHANT_PERMISSIONS = [
   'exports.read',
   'notifications.read',
   'notifications.manage',
+  'payments.read',
+  'settlements.read',
+  'halts.read',
   'payout.request',
   'payout.approve',
 ] as const;
@@ -45,6 +48,9 @@ const READS: readonly MerchantPermission[] = [
   'kyb.read',
   'exports.read',
   'notifications.read',
+  'payments.read',
+  'settlements.read',
+  'halts.read',
 ];
 
 const ROLE_PERMISSIONS: Record<MerchantRole, ReadonlySet<MerchantPermission>> = {

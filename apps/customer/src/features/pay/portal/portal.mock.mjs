@@ -701,7 +701,7 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
     switch (procedure) {
       case 'payment.list': {
         const rows = payments.filter((p) => !input.status || p.status === input.status).slice(0, input.limit ?? 25);
-        return ok(route, rows);
+        return ok(route, { items: rows, nextCursor: null });
       }
       case 'payment.get': {
         const p = payments.find((x) => x.id === input.paymentId);
@@ -712,7 +712,10 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
         return p ? ok(route, historyOf(p)) : refuse(route, 404, 'pay.payment_not_found');
       }
       case 'settlement.list':
-        return ok(route, settlements.filter((x) => !input.status || x.status === input.status).slice(0, input.limit ?? 25));
+        return ok(route, {
+          items: settlements.filter((x) => !input.status || x.status === input.status).slice(0, input.limit ?? 25),
+          nextCursor: null,
+        });
       case 'settlement.get': {
         const x = settlements.find((y) => y.id === input.settlementId);
         return x ? ok(route, x) : refuse(route, 404, 'pay.settlement_not_found');

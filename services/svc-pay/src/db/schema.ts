@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { desc, sql } from 'drizzle-orm';
 import { bigint, bigserial, boolean, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
@@ -234,6 +234,7 @@ export const payments = pay.table(
     uniqueIndex('payments_rail_ref_idx').on(t.railAdapter, t.railRef),
     /** The settlement sweep scans a merchant's window in creation order. */
     index('payments_merchant_created_idx').on(t.merchantId, t.createdAt),
+    index('payments_merchant_list_idx').on(t.merchantId, desc(t.createdAt), desc(t.id)),
   ],
 );
 
@@ -278,6 +279,10 @@ export const paymentEvents = pay.table(
     uniqueIndex('payment_events_seq_idx').on(t.seq),
     index('payment_events_payment_idx').on(t.paymentId, t.seq),
     index('payment_events_kind_idx').on(t.paymentId, t.event),
+    /** Settlement line reads look up included events by the settlement id in the payload. */
+    index('payment_events_settlement_included_idx')
+      .on(sql`(payload->>'settlementId')`)
+      .where(sql`${t.event} = 'settlement.included'`),
   ],
 );
 
@@ -318,6 +323,14 @@ export const settlements = pay.table(
      */
     payoutAttempts: integer('payout_attempts').notNull().default(0),
     status: settlementStatusEnum('status').notNull().default('pending'),
+    /** When the payout rail accepted the send. Null until that happens, including rows from before the column existed. */
+    sentAt: tstz('sent_at'),
+    /** When the window was posted to the ledger. Null until then. */
+    settledAt: tstz('settled_at'),
+    /** When the settlement failed. Null until then. */
+    failedAt: tstz('failed_at'),
+    /** Catalog failure code written at the failure. Not a provider payload. */
+    failureCode: text('failure_code'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -325,6 +338,7 @@ export const settlements = pay.table(
     /** A window settles exactly once per asset. The anti-double-pay rule. */
     uniqueIndex('settlements_window_idx').on(t.merchantId, t.window, t.assetId),
     index('settlements_status_idx').on(t.status),
+    index('settlements_merchant_list_idx').on(t.merchantId, desc(t.createdAt), desc(t.id)),
   ],
 );
 

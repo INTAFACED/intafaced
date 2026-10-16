@@ -261,6 +261,37 @@ describe('Public checkout capability boundary', () => {
 });
 
 describe('Business Pay authority boundary', () => {
+  it('persists the original subscription outcome reference through the business mutation boundary', async () => {
+    const guard = createPayMutationGuard();
+    const api = createApiClient({
+      fetch: async (url) => {
+        if (String(url).includes('merchant.me'))
+          return response({
+            id: merchantId,
+            userId,
+            mode: 'gateway',
+            status: 'active',
+            kybStatus: 'approved',
+            kybRef: 'verified',
+            feeBps: null,
+          });
+        throw new TypeError('TEST disconnected');
+      },
+    });
+    const pay = createBusinessPayApi(
+      api,
+      userId,
+      { verified: true, companyId: 'TEST-company', companyName: 'TEST company', merchantId, userId, scopes: ['pay:read', 'pay:write'] },
+      guard,
+    );
+    const operation = `subscription:${transferId}`;
+    expect((await pay.mutate('subscription.pause', { subscriptionId: transferId }, z.unknown(), 'pay:write', operation, 'paused')).ok).toBe(
+      false,
+    );
+    expect(guard.status(`${userId}:${operation}`)).toBe('uncertain');
+    expect(guard.reference(`${userId}:${operation}`)).toBe('paused');
+  });
+
   it('keeps refund permission distinct from payment creation permission', async () => {
     const requests: string[] = [];
     const api = createApiClient({
