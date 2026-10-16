@@ -5,7 +5,14 @@ import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { parseAmount, type LedgerTx } from '@intafaced/ledger-client';
-import { matchBookedCapture, runCaptureReconcile, type AuthorizedPaymentRow, type CaptureAccountIds } from './capture-reconcile.js';
+import {
+  captureReconcileInputFromBody,
+  matchBookedCapture,
+  runCaptureReconcile,
+  type AuthorizedPaymentRow,
+  type CaptureAccountIds,
+  type CaptureReconcileCursor,
+} from './capture-reconcile.js';
 import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { createLedgerClient } from './ledger-client.js';
 import { PayError } from './payment-service.js';
@@ -69,33 +76,38 @@ function booked(over: Partial<LedgerTx> = {}, entryAmount = parseAmount('10')): 
 describe('matchBookedCapture', () => {
   const postedAt = new Date('2026-10-16T00:00:01.000Z');
 
-  it('accepts the capture key when amount, asset and rail reference agree', () => {
-    const match = matchBookedCapture(row(), booked(), UNVERIFIED);
+  it('accepts the capture when the accounts, amount, asset and payment rail reference agree', () => {
+    const match = matchBookedCapture(row(), booked(), VERIFIED);
     expect(match).toEqual({ ledgerTxId: 'tx-1', amount: parseAmount('10'), railRef: 'rail-1', postedAt });
   });
 
-  it('accepts the same capture when the accounts match, including a blank meta rail reference', () => {
+  it('accepts the same capture when meta has no rail reference, as long as the accounts and the payment rail reference match', () => {
     const match = matchBookedCapture(row(), booked({ meta: {} }), VERIFIED);
     expect(match).toEqual({ ledgerTxId: 'tx-1', amount: parseAmount('10'), railRef: 'rail-1', postedAt });
-    expect(matchBookedCapture(row({ rail_ref: null }), booked({ meta: {} }), VERIFIED)).toEqual({
-      ledgerTxId: 'tx-1',
-      amount: parseAmount('10'),
-      railRef: '',
-      postedAt,
-    });
+  });
+
+  it('refuses a payment with no rail reference, the same as a live capture', () => {
+    expect(matchBookedCapture(row({ rail_ref: null }), booked({ meta: {} }), VERIFIED)).toBeNull();
+    expect(matchBookedCapture(row({ rail_ref: null }), booked(), VERIFIED)).toBeNull();
+    expect(matchBookedCapture(row({ rail_ref: '' }), booked(), VERIFIED)).toBeNull();
+    expect(matchBookedCapture(row({ rail_ref: null }), booked({ meta: { railRef: 'rail-1' } }), VERIFIED)).toBeNull();
+  });
+
+  it('refuses the capture when account ids cannot be read, even if the rail references agree', () => {
+    expect(matchBookedCapture(row(), booked(), UNVERIFIED)).toBeNull();
+    expect(matchBookedCapture(row(), booked({ meta: {} }), UNVERIFIED)).toBeNull();
+    expect(matchBookedCapture(row(), booked(), { railBoundaryAccountId: '', merchantClearingAccountId: 'a2' })).toBeNull();
   });
 
   it('rejects a different amount, asset, key, reason, rail reference, or account direction', () => {
-    expect(matchBookedCapture(row(), booked({}, parseAmount('9')), UNVERIFIED)).toBeNull();
-    expect(matchBookedCapture(row({ currency: 'BTC' }), booked(), UNVERIFIED)).toBeNull();
-    expect(matchBookedCapture(row(), booked({ idempotencyKey: 'payment.capture:other' }), UNVERIFIED)).toBeNull();
-    expect(matchBookedCapture(row(), booked({ reason: 'payment.refunded' }), UNVERIFIED)).toBeNull();
-    expect(matchBookedCapture(row(), booked({ module: 'bank' }), UNVERIFIED)).toBeNull();
-    expect(matchBookedCapture(row(), booked({ entries: [] }), UNVERIFIED)).toBeNull();
-    expect(matchBookedCapture(row({ rail_ref: null }), booked(), UNVERIFIED)).toBeNull();
+    expect(matchBookedCapture(row(), booked({}, parseAmount('9')), VERIFIED)).toBeNull();
+    expect(matchBookedCapture(row({ currency: 'BTC' }), booked(), VERIFIED)).toBeNull();
+    expect(matchBookedCapture(row(), booked({ idempotencyKey: 'payment.capture:other' }), VERIFIED)).toBeNull();
+    expect(matchBookedCapture(row(), booked({ reason: 'payment.refunded' }), VERIFIED)).toBeNull();
+    expect(matchBookedCapture(row(), booked({ module: 'bank' }), VERIFIED)).toBeNull();
+    expect(matchBookedCapture(row(), booked({ entries: [] }), VERIFIED)).toBeNull();
     expect(matchBookedCapture(row(), booked({ meta: { paymentId: 'someone-else', railRef: 'rail-1' } }), VERIFIED)).toBeNull();
     expect(matchBookedCapture(row(), booked({ meta: { paymentId: row().id, railRef: 'other-rail' } }), VERIFIED)).toBeNull();
-    expect(matchBookedCapture(row(), booked({ meta: {} }), UNVERIFIED)).toBeNull();
     expect(matchBookedCapture(row(), booked({ meta: {} }), { railBoundaryAccountId: 'a2', merchantClearingAccountId: 'a1' })).toBeNull();
     const swapped = booked({ meta: {} });
     expect(
@@ -153,25 +165,43 @@ describe('matchBookedCapture', () => {
 });
 
 describe('cursor validation', () => {
+  const deps = {
+    sql: { reserve: () => Promise.reject(new Error('should not reserve')) } as never,
+    ledger: {
+      getTxByKey: async () => null,
+      balance: async () => {
+        throw new Error('should not read a balance');
+      },
+    },
+    lockMerchant: async () => undefined,
+    complete: async () => ({ status: 'captured' }),
+  };
+
   it('refuses a cursor that is not an instant before it reserves a connection', async () => {
-    const sql = { reserve: () => Promise.reject(new Error('should not reserve')) };
     await expect(
-      runCaptureReconcile(
-        {
-          sql: sql as never,
-          ledger: {
-            getTxByKey: async () => null,
-            balance: async () => {
-              throw new Error('should not read a balance');
-            },
-          },
-          lockMerchant: async () => undefined,
-          complete: async () => ({ status: 'captured' }),
-        },
-        { limit: 1, cursor: { createdAt: 'yesterday', id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' } },
-        'required',
-      ),
+      runCaptureReconcile(deps, { limit: 1, cursor: { createdAt: 'yesterday', id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' } }, 'required'),
     ).rejects.toMatchObject({ code: 'pay.validation_failed' });
+  });
+
+  it('refuses a null cursor and a numeric createdAt before it reserves a connection', async () => {
+    await expect(runCaptureReconcile(deps, { limit: 1, cursor: null }, 'required')).rejects.toMatchObject({
+      code: 'pay.validation_failed',
+    });
+    const numeric = { createdAt: 1_700_000_000_000, id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' } as unknown as CaptureReconcileCursor;
+    await expect(runCaptureReconcile(deps, { limit: 1, cursor: numeric }, 'required')).rejects.toMatchObject({
+      code: 'pay.validation_failed',
+    });
+  });
+
+  it('refuses a non-object body, a null cursor, and a numeric createdAt before the job runs', () => {
+    expect(() => captureReconcileInputFromBody(null)).toThrowError(expect.objectContaining({ code: 'pay.validation_failed' }));
+    expect(() => captureReconcileInputFromBody({ limit: 1, cursor: null })).toThrowError(
+      expect.objectContaining({ code: 'pay.validation_failed' }),
+    );
+    expect(() => captureReconcileInputFromBody({ limit: 1, cursor: { createdAt: 1_700_000_000_000, id: 'x' } })).toThrowError(
+      expect.objectContaining({ code: 'pay.validation_failed' }),
+    );
+    expect(captureReconcileInputFromBody({ limit: 2 })).toEqual({ limit: 2 });
   });
 });
 
@@ -255,6 +285,51 @@ describe('reconcile route', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual(report);
     expect(reconcileAuthorizedCaptures).toHaveBeenCalledWith({ limit: 10 }, 'required');
+    await app.close();
+  });
+
+  it('answers 400 for a null cursor or a numeric createdAt and does not run the job', async () => {
+    const reconcileAuthorizedCaptures = vi.fn();
+    const app = await mount({ reconcileAuthorizedCaptures });
+    const nullCursor = JSON.stringify({ limit: 10, cursor: null });
+    const nullRes = await app.inject({
+      method: 'POST',
+      url: '/internal/jobs/reconcile-authorized-captures',
+      headers: headers(nullCursor),
+      payload: nullCursor,
+    });
+    expect(nullRes.statusCode).toBe(400);
+    expect(nullRes.json().error).toBe('pay.validation_failed');
+
+    const numeric = JSON.stringify({
+      limit: 10,
+      cursor: { createdAt: 1700000000000, id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+    });
+    const numericRes = await app.inject({
+      method: 'POST',
+      url: '/internal/jobs/reconcile-authorized-captures',
+      headers: headers(numeric),
+      payload: numeric,
+    });
+    expect(numericRes.statusCode).toBe(400);
+    expect(numericRes.json().error).toBe('pay.validation_failed');
+    expect(reconcileAuthorizedCaptures).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('answers 400 when the body is not an object', async () => {
+    const reconcileAuthorizedCaptures = vi.fn();
+    const app = await mount({ reconcileAuthorizedCaptures });
+    const payload = 'null';
+    const res = await app.inject({
+      method: 'POST',
+      url: '/internal/jobs/reconcile-authorized-captures',
+      headers: headers(payload),
+      payload,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('pay.validation_failed');
+    expect(reconcileAuthorizedCaptures).not.toHaveBeenCalled();
     await app.close();
   });
 
