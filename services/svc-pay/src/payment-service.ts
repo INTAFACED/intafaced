@@ -352,7 +352,22 @@ export type PayErrorCode =
    * refuse and say by how much, so the merchant re-consents with a new mandate —
    * the same disposition that ADR gives a resume past 2× the original duration.
    */
-  | 'pay.subscription_resume_exceeds_mandate';
+  | 'pay.subscription_resume_exceeds_mandate'
+  /**
+   * Idempotency-Key was blank or longer than 255 characters — the same cap the
+   * public REST door already uses. Nothing was written.
+   */
+  | 'pay.idempotency_required'
+  /**
+   * This Idempotency-Key is already stored for a different subscription.create
+   * body. Replaying either result would be a guess.
+   */
+  | 'pay.idempotency_conflict'
+  /**
+   * The mandate already has a subscription that is not cancelled and not
+   * completed. Paused still counts: the schedule exists.
+   */
+  | 'pay.subscription_mandate_open';
 
 export class PayError extends Error {
   constructor(
