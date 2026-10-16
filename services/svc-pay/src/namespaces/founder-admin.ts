@@ -9,8 +9,12 @@ import {
   founderChangeSubmitInputSchema,
   founderChangeSubmitResultSchema,
   founderChangeConfirmInputSchema,
+  founderPendingChangeListInputSchema,
+  founderPendingChangeListSchema,
   founderApprovalQueueInputSchema,
   founderApprovalQueueSchema,
+  founderApprovalDestinationInputSchema,
+  founderApprovalDestinationSchema,
   founderTreasuryExposureSchema,
   merchantMetricsInputSchema,
   merchantMetricsSnapshotSchema,
@@ -120,6 +124,10 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
                 .input(founderChangeConfirmInputSchema)
                 .output(founderChangeSubmitResultSchema)
                 .mutation(() => notBuilt('founderAdmin.changes.confirm')),
+              pending: founder
+                .input(founderPendingChangeListInputSchema)
+                .output(founderPendingChangeListSchema)
+                .query(() => notBuilt('founderAdmin.changes.pending')),
             },
       ),
       approvals: router(
@@ -130,6 +138,10 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
                 .input(founderApprovalQueueInputSchema)
                 .output(founderApprovalQueueSchema)
                 .query(() => notBuilt('founderAdmin.approvals.list')),
+              destination: founder
+                .input(founderApprovalDestinationInputSchema)
+                .output(founderApprovalDestinationSchema)
+                .query(() => notBuilt('founderAdmin.approvals.destination')),
             },
       ),
       // W1 control room (tier definitions, pricing layers, usage, founder payout approvals). Mounted only with a ControlService.

@@ -44,6 +44,7 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
     input: { requestId: id(), scope: 'intake', target: { level: 'global' }, halted: true, reason: 'drill', expectedVersion: '0' },
   },
   'payHalts.history': { founder: true, input: { limit: 10 } },
+  'payHalts.pendingClears': { founder: true, input: { limit: 10 } },
   'payHalts.operatorStatus': { founder: true, input: {} },
   'founderAdmin.merchants.list': { founder: true, input: { limit: 10 } },
   'founderAdmin.merchants.drilldown': { founder: true, input: { merchantId, window } },
@@ -67,7 +68,9 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
     founder: true,
     input: { requestId: id(), decision: 'confirm', reason: 'second founder agrees', expectedChangeHash: `sha256:${'a'.repeat(64)}` },
   },
+  'founderAdmin.changes.pending': { founder: true, input: { limit: 10 } },
   'founderAdmin.approvals.list': { founder: true, input: { limit: 10 } },
+  'founderAdmin.approvals.destination': { founder: true, input: { approvalId: id() } },
   'founderAdmin.treasury.exposure': { founder: true, input: {} },
 };
 

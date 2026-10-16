@@ -127,8 +127,9 @@ describe('payHalts.* with a real halt store', () => {
     expectedVersion: '0',
     ...over,
   });
-  const founderOnly = ['payHalts.set', 'payHalts.history', 'payHalts.operatorStatus'] as const;
-  const inputFor = (path: string) => (path === 'payHalts.set' ? setBody() : path === 'payHalts.history' ? { limit: 10 } : undefined);
+  const founderOnly = ['payHalts.set', 'payHalts.history', 'payHalts.operatorStatus', 'payHalts.pendingClears'] as const;
+  const inputFor = (path: string) =>
+    path === 'payHalts.set' ? setBody() : path === 'payHalts.history' || path === 'payHalts.pendingClears' ? { limit: 10 } : undefined;
   const haltRows = async () => (await sql`SELECT scope FROM pay.halts`).length;
 
   describe('G1-G3: set, history and operatorStatus are founder-only', () => {
@@ -188,6 +189,71 @@ describe('payHalts.* with a real halt store', () => {
       const operator = await a.payHalts.operatorStatus();
       expect(operator.autoTrip).toEqual({ enabled: false, consecutiveFailures: null });
       expect(operator.states.find((s) => s.scope === 'payout')).toMatchObject({ halted: false, version: '2' });
+    });
+
+    it('pendingClears names the founder who proposed, pages by request id, and drops a clear once it is confirmed or expired', async () => {
+      const r = router(fetcherFor([founderA, founderB]));
+      const a = r.createCaller(ctxOf(principalFor(founderA)));
+      const b = r.createCaller(ctxOf(principalFor(founderB)));
+      const scopes = ['intake', 'payout', 'settlement'] as const;
+      const ids: string[] = [];
+      for (const scope of scopes) {
+        await a.payHalts.set(setBody({ scope, halted: true, expectedVersion: '0' }) as never);
+        const requestId = id();
+        ids.push(requestId);
+        expect(
+          (await a.payHalts.set(setBody({ scope, requestId, halted: false, expectedVersion: '1', reason: 'rail repaired' }) as never))
+            .outcome,
+        ).toBe('pending_confirmation');
+      }
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      for (let n = 0; n < 5; n += 1) {
+        const page = await a.payHalts.pendingClears({ limit: 1, ...(cursor ? { cursor } : {}) });
+        expect(page.proposals.length).toBeLessThanOrEqual(1);
+        if (page.proposals[0]) expect(page.proposals[0].requestedByUserId).toBe(founderA);
+        seen.push(...page.proposals.map((p) => p.requestId));
+        if (!page.nextCursor) break;
+        expect(page.nextCursor).not.toBe(cursor);
+        cursor = page.nextCursor;
+      }
+      expect(seen.sort()).toEqual([...ids].sort());
+
+      expect(
+        (
+          await b.payHalts.set(
+            setBody({ scope: 'intake', requestId: ids[0], halted: false, expectedVersion: '1', reason: 'rail repaired' }) as never,
+          )
+        ).outcome,
+      ).toBe('changed');
+      const expiredId = ids[1];
+      if (expiredId === undefined) throw new Error('expected a second clear proposal');
+      await sql`UPDATE pay.halt_clear_requests SET requested_at = now() - interval '2 hours' WHERE request_id = ${expiredId}`;
+      const live = await a.payHalts.pendingClears({ limit: 10 });
+      expect(live.proposals.map((p) => p.requestId)).toEqual([ids[2]]);
+      expect(live.nextCursor).toBeNull();
+    });
+
+    it('pendingClears omits a proposal whose expected version no longer matches the halt', async () => {
+      const r = router(fetcherFor([founderA, founderB]));
+      const a = r.createCaller(ctxOf(principalFor(founderA)));
+      const requestId = id();
+      await a.payHalts.set(setBody({ scope: 'intake', halted: true, expectedVersion: '0' }) as never);
+      expect(
+        (
+          await a.payHalts.set(
+            setBody({ scope: 'intake', requestId, halted: false, expectedVersion: '1', reason: 'rail repaired' }) as never,
+          )
+        ).outcome,
+      ).toBe('pending_confirmation');
+      expect((await a.payHalts.pendingClears({ limit: 10 })).proposals.map((p) => p.requestId)).toEqual([requestId]);
+      await sql`UPDATE pay.halts SET version = version + 1 WHERE scope = 'intake' AND target = 'global'`;
+      const [still] = await sql<Array<{ status: string; expected_version: string }>>`
+        SELECT status, expected_version FROM pay.halt_clear_requests WHERE request_id = ${requestId}
+      `;
+      expect(still).toMatchObject({ status: 'pending' });
+      expect((await a.payHalts.pendingClears({ limit: 10 })).proposals).toEqual([]);
     });
   });
 

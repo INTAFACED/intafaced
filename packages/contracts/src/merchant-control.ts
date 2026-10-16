@@ -165,6 +165,15 @@ export type MerchantControlChangeResult = z.infer<typeof merchantControlChangeRe
 export const PAY_PAYOUT_APPROVAL_STATUSES = ['pending', 'approved', 'rejected', 'voided', 'expired', 'consumed'] as const;
 export const payPayoutApprovalStatusSchema = z.enum(PAY_PAYOUT_APPROVAL_STATUSES);
 
+/**
+ * A payout destination safe to put on an approval list. The full account or address
+ * stays in the database; this is last-4 (`••••1234`) or first6…last4 (`0x1234…abcd`).
+ * Short enough that a full IBAN or chain address cannot pass this field.
+ */
+export const payMaskedDestinationSchema = z.string().min(1).max(16);
+export const payRailIdSchema = z.string().min(1).max(64);
+export const payDestinationKindSchema = z.string().min(1).max(32);
+
 export const payoutApprovalSchema = z
   .object({
     approvalId: z.string().uuid(),
@@ -180,6 +189,12 @@ export const payoutApprovalSchema = z
     createdAt: payTimestampSchema,
     decidedAt: payTimestampSchema.nullable(),
     expiresAt: payTimestampSchema,
+    /** Rail the payout would use, from the stored approval payload. */
+    railId: payRailIdSchema,
+    /** Destination kind label (`crypto`, `bank`). Not the account or address. */
+    destinationKind: payDestinationKindSchema,
+    /** Masked destination. Never the full account number or address. */
+    destinationMasked: payMaskedDestinationSchema,
   })
   .strict();
 export type PayoutApproval = z.infer<typeof payoutApprovalSchema>;

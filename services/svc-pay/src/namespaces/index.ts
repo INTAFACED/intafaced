@@ -15,7 +15,14 @@ export { findUnguardedFounderProcedures, founderProcedure, isFounderGuarded } fr
 export { notBuilt, PayNotBuiltError } from './errors.js';
 
 /** Path prefixes that must sit behind founder authority (checked by the static inventory test). */
-export const FOUNDER_ONLY_PREFIXES = ['founderAdmin.', 'payHalts.set', 'payHalts.history', 'payHalts.operatorStatus'] as const;
+export const FOUNDER_ONLY_PREFIXES = [
+  'founderAdmin.',
+  'founderAdmin.approvals.destination',
+  'payHalts.set',
+  'payHalts.history',
+  'payHalts.operatorStatus',
+  'payHalts.pendingClears',
+] as const;
 
 /**
  * W0 namespaces, mounted as stubs. Each file below is owned by one stream, which

@@ -99,3 +99,28 @@ export type PayHaltEvent = z.infer<typeof payHaltEventSchema>;
 export const payHaltHistoryInputSchema = z
   .object({ scope: payHaltScopeSchema.optional(), target: payHaltTargetSchema.optional(), limit: z.number().int().min(1).max(200) })
   .strict();
+
+/**
+ * A clear that one founder proposed and a different founder has not confirmed.
+ * `requestedByUserId` is that first founder. Ordered by request id; the cursor is the last id returned.
+ * Proposals older than the store's confirm window are omitted: they can no longer be confirmed.
+ */
+export const payHaltPendingClearSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    scope: payHaltScopeSchema,
+    target: payHaltTargetSchema,
+    expectedVersion: payVersionSchema,
+    reason: z.string().min(1).max(4000),
+    requestedByUserId: z.string().uuid(),
+    requestedAt: payTimestampSchema,
+  })
+  .strict();
+export type PayHaltPendingClear = z.infer<typeof payHaltPendingClearSchema>;
+export const payHaltPendingClearListInputSchema = z
+  .object({ limit: z.number().int().min(1).max(200), cursor: payRequestIdSchema.optional() })
+  .strict();
+export type PayHaltPendingClearListInput = z.infer<typeof payHaltPendingClearListInputSchema>;
+export const payHaltPendingClearListSchema = z
+  .object({ proposals: z.array(payHaltPendingClearSchema), nextCursor: z.string().nullable() })
+  .strict();

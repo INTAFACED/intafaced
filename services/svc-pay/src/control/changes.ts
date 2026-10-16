@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import type { MerchantControlChange, PayCap } from '@intafaced/contracts';
+import type { FounderPendingChange, FounderPendingChangeListInput, MerchantControlChange, PayCap } from '@intafaced/contracts';
 import { changeHashesEqual, founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
@@ -629,6 +629,57 @@ export class ChangeService {
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
+  }
+
+  /**
+   * Control changes still waiting for a second founder, oldest first.
+   * `changeHash` is what that founder sends as `expectedChangeHash`.
+   */
+  async listPending(input: FounderPendingChangeListInput): Promise<{ changes: FounderPendingChange[]; nextCursor: string | null }> {
+    const cursor = input.cursor ?? null;
+    const merchantId = input.merchantId ?? null;
+    const scope = input.scope ?? null;
+    const rows = await this.sql<
+      Array<{
+        request_id: string;
+        seq: string | number | bigint;
+        scope: FounderPendingChange['scope'];
+        scope_id: string;
+        merchant_id: string | null;
+        change_body: unknown;
+        change_hash: string;
+        reason: string;
+        expected_version: string | number | bigint;
+        maker_id: string;
+        created_at: Date | string;
+      }>
+    >`
+      SELECT request_id, seq, scope, scope_id, merchant_id, change AS change_body, change_hash, reason, expected_version, maker_id, created_at
+        FROM pay.control_changes
+       WHERE status = 'pending'
+         AND (${cursor}::bigint IS NULL OR seq > ${cursor}::bigint)
+         AND (${merchantId}::uuid IS NULL OR merchant_id = ${merchantId}::uuid)
+         AND (${scope}::text IS NULL OR scope = ${scope})
+       ORDER BY seq ASC
+       LIMIT ${input.limit + 1}
+    `;
+    const page = rows.slice(0, input.limit);
+    return {
+      changes: page.map((row) => ({
+        requestId: row.request_id,
+        seq: String(row.seq),
+        scope: row.scope,
+        scopeId: row.scope_id,
+        merchantId: row.merchant_id,
+        change: row.change_body,
+        changeHash: row.change_hash,
+        reason: row.reason,
+        expectedVersion: String(row.expected_version),
+        makerUserId: row.maker_id,
+        createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString(),
+      })),
+      nextCursor: rows.length > input.limit ? String(page[page.length - 1]!.seq) : null,
+    };
   }
 
   private lockKey(target: ChangeTarget): string {

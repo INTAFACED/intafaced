@@ -44,7 +44,14 @@ export const FOUNDER_EXTRA = [
 ] as const;
 
 /** Prefixes whose procedures must be founder-guarded (mirror of FOUNDER_ONLY_PREFIXES, restated so a change there is noticed). */
-export const FOUNDER_PREFIXES = ['founderAdmin.', 'payHalts.set', 'payHalts.history', 'payHalts.operatorStatus'] as const;
+export const FOUNDER_PREFIXES = [
+  'founderAdmin.',
+  'founderAdmin.approvals.destination',
+  'payHalts.set',
+  'payHalts.history',
+  'payHalts.operatorStatus',
+  'payHalts.pendingClears',
+] as const;
 
 /** A merchant id nobody owns: the control-write targets it, so even a broken guard mutates nothing real. */
 const NOBODY = ghost();
@@ -100,6 +107,7 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     expectedVersion: '0',
   }),
   'payHalts.history': () => ({ limit: 10 }),
+  'payHalts.pendingClears': () => ({ limit: 10 }),
   // Takes no input (`{}` is what the sweep sends by default); listed so the entry is explicit.
   'payHalts.operatorStatus': () => undefined,
   'founderAdmin.merchants.list': () => ({ limit: 10 }),
@@ -142,6 +150,9 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     expectedChangeHash: w.control.pendingMerchantChangeHash,
   }),
   'founderAdmin.approvals.list': () => ({ limit: 10 }),
+  'founderAdmin.approvals.destination': (w) => ({ approvalId: w.control.founderApprovalId }),
+  'founderAdmin.changes.pending': () => ({ limit: 10 }),
+  'founderAdmin.control.audit.list': () => ({ limit: 10 }),
   'founderAdmin.control.tiers.list': () => ({}),
   'founderAdmin.control.pricing.rules': () => ({ layer: 'global' }),
   'founderAdmin.control.merchant.get': (w) => ({ merchantId: w.e.A.merchantId }),

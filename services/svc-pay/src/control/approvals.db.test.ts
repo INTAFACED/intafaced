@@ -14,7 +14,8 @@ import { REFERENCE_RAIL_ROUTING_PROFILES } from '../routing/decide.js';
 import postgres from 'postgres';
 import { composeGuards, FRESH, settleGuardRefusal } from '../seams/guards.js';
 import { teamAccessPorts, type ControlAccessPorts } from './access.js';
-import { ApprovalService } from './approvals.js';
+import { ApprovalService, toContractApproval } from './approvals.js';
+import { maskDestination } from './mask-destination.js';
 import { ChangeService } from './changes.js';
 import { createControlGuards } from './guards.js';
 import {
@@ -318,6 +319,85 @@ describe('payout maker-checker', () => {
       'payout.founder_decided',
       'payout.approval_consumed',
     ]);
+  });
+
+  it('lists a masked destination and rail, never the full destination, and names the first founder only on the founder queue', async () => {
+    const iban = 'DE89370400440532013000';
+    await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref) VALUES (${merchantId}, 'card-sandbox', 'bank', ${iban})`;
+    const bankSettlement = await settled(merchantId, ['60'], 'w-mask-bank');
+    const bank = toContractApproval(
+      await approvals.request(maker(), { merchantId, settlementId: bankSettlement.id, railId: 'card-sandbox' }),
+    );
+    expect(bank).toMatchObject({ railId: 'card-sandbox', destinationKind: 'bank', destinationMasked: '••••3000' });
+    expect(JSON.stringify(bank)).not.toContain(iban);
+    expect(bank).not.toHaveProperty('founderFirstUserId');
+
+    const cryptoSettlement = await settled(merchantId, ['80', '80'], 'w-mask-founder');
+    const req = await approvals.request(maker(), { merchantId, settlementId: cryptoSettlement.id, railId: 'crypto-native' });
+    await approvals.decide(finance(), decideInput(req));
+    const queued = (await approvals.founderQueue({ limit: 50 })).approvals.find((a) => a.approvalId === req.approvalId);
+    expect(queued).toMatchObject({
+      railId: 'crypto-native',
+      destinationKind: 'crypto',
+      destinationMasked: maskDestination('crypto', DEST_A.ref),
+      founderFirstUserId: null,
+    });
+    expect(JSON.stringify(queued)).not.toContain(DEST_A.ref);
+
+    const first = toContractApproval(await approvals.founderDecide(FOUNDER_1, decideInput(req)));
+    expect(first).not.toHaveProperty('founderFirstUserId');
+    expect(JSON.stringify(first)).not.toContain(DEST_A.ref);
+    const after = (await approvals.founderQueue({ limit: 50 })).approvals.find((a) => a.approvalId === req.approvalId);
+    expect(after?.founderFirstUserId).toBe(FOUNDER_1);
+
+    const listed = (await approvals.list(maker(), { merchantId, limit: 50 })).find((a) => a.approvalId === req.approvalId)!;
+    const merchantWire = toContractApproval(listed);
+    expect(merchantWire).not.toHaveProperty('founderFirstUserId');
+    expect(JSON.stringify(merchantWire)).not.toContain(DEST_A.ref);
+    expect(merchantWire.destinationMasked).toBe(maskDestination('crypto', DEST_A.ref));
+    expect(merchantWire).not.toHaveProperty('destinationRef');
+  });
+
+  it('a founder can read the full destination of one queue approval, and each read is audited', async () => {
+    const cryptoSettlement = await settled(merchantId, ['80', '80'], 'w-reveal');
+    const req = await approvals.request(maker(), { merchantId, settlementId: cryptoSettlement.id, railId: 'crypto-native' });
+    await expect(approvals.founderDestination(FOUNDER_1, req.approvalId)).rejects.toMatchObject({ code: 'pay.approval_not_found' });
+    await approvals.decide(finance(), decideInput(req));
+
+    const revealed = await approvals.founderDestination(FOUNDER_1, req.approvalId);
+    expect(revealed).toEqual({
+      approvalId: req.approvalId,
+      railId: 'crypto-native',
+      destinationKind: 'crypto',
+      destinationRef: DEST_A.ref,
+    });
+    const again = await approvals.founderDestination(FOUNDER_2, req.approvalId);
+    expect(again.destinationRef).toBe(DEST_A.ref);
+    const reads = await sql<Array<{ actor_id: string; outcome: string; after: { payloadHash?: string } | null }>>`
+      SELECT actor_id, outcome, after FROM pay.control_audit
+       WHERE scope_id = ${req.approvalId} AND kind = 'payout.destination_read' ORDER BY seq
+    `;
+    expect(reads.map((row) => row.actor_id)).toEqual([FOUNDER_1, FOUNDER_2]);
+    expect(reads.every((row) => row.outcome === 'read' && row.after?.payloadHash === req.payloadHash)).toBe(true);
+    expect(JSON.stringify(reads)).not.toContain(DEST_A.ref);
+
+    const queued = (await approvals.founderQueue({ limit: 50 })).approvals.find((a) => a.approvalId === req.approvalId);
+    expect(JSON.stringify(queued)).not.toContain(DEST_A.ref);
+    expect(queued).not.toHaveProperty('destinationRef');
+
+    const below = await settled(merchantId, ['60'], 'w-reveal-below');
+    const merchantOnly = await approvals.request(maker(), { merchantId, settlementId: below.id, railId: 'crypto-native' });
+    await approvals.decide(finance(), decideInput(merchantOnly));
+    const missing = randomUUID();
+    const offQueue = await approvals.founderDestination(FOUNDER_1, merchantOnly.approvalId).catch((e: Error) => e);
+    const absent = await approvals.founderDestination(FOUNDER_1, missing).catch((e: Error) => e);
+    expect(offQueue).toMatchObject({ code: 'pay.approval_not_found' });
+    expect(absent).toMatchObject({ code: 'pay.approval_not_found', message: (offQueue as Error).message });
+    expect(
+      (
+        await sql`SELECT 1 FROM pay.control_audit WHERE kind = 'payout.destination_read' AND scope_id IN (${merchantOnly.approvalId}, ${missing})`
+      ).length,
+    ).toBe(0);
   });
 
   it('the database refuses an approved founder-required row without two founders', async () => {

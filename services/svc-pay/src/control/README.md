@@ -57,4 +57,8 @@ Until then the controls cap the one rail W1 can see; do not describe the control
 4. Withdrawals at or above the approval threshold are refused outright (no approval object exists for a withdrawal).
 5. Policy note: refunds do not reduce captured volume. A refunded payment still counts against the day and month
    caps and the pricing band. Decide whether that is intended before enabling.
-6. Ops: watch `pay.control_audit` for `payment.captured_over_cap`.
+6. Ops: watch `pay.control_audit` for `payment.captured_over_cap` (`founderAdmin.control.audit.list`).
+7. Approval lists return a masked destination and the rail, derived from the stored payout payload. They do not
+   return the full destination. `founderAdmin.approvals.destination` is the one founder-only read of the exact
+   address, and each read appends `payout.destination_read` on `pay.control_audit`. The founder queue also returns
+   `founderFirstUserId` once one founder has confirmed.

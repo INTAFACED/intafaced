@@ -1,9 +1,10 @@
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import type { MerchantControlProfile, PayCap } from '@intafaced/contracts';
+import type { FounderControlAuditListInput, MerchantControlProfile, PayCap } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { ControlAccessPorts } from './access.js';
 import { ApprovalService } from './approvals.js';
+import { listControlAudit } from './audit.js';
 import { ChangeService } from './changes.js';
 import { readUsage } from './counters.js';
 import { ControlError } from './errors.js';
@@ -67,6 +68,11 @@ export class ControlService {
 
   private now(): Date {
     return (this.options.now ?? (() => new Date()))();
+  }
+
+  /** Founder read of `pay.control_audit` (control changes and `payment.captured_over_cap`). */
+  listAudit(input: FounderControlAuditListInput) {
+    return listControlAudit(this.sql, input);
   }
 
   /** Merchant-facing access: another merchant's id and a missing id are the same answer. */
