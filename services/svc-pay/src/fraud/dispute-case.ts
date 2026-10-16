@@ -117,6 +117,19 @@ const RAIL_OUTCOME_STATUS: Record<RailResolutionOutcome, DisputeCaseStatus> = {
   closed: 'accepted',
 };
 
+/** Accepted, won, and lost do not move again. */
+export function isTerminalDisputeStatus(status: DisputeCaseStatus): boolean {
+  return TERMINAL.has(status);
+}
+
+/**
+ * A rail delivery names a different close than the one already stored.
+ * The same outcome (`closed` is `accepted`) is not a conflict.
+ */
+export function railOutcomeConflicts(status: DisputeCaseStatus, outcome: RailResolutionOutcome): boolean {
+  return TERMINAL.has(status) && status !== RAIL_OUTCOME_STATUS[outcome];
+}
+
 /** Validate an open and build the row. Does not read or write a store. */
 export function buildOpenDisputeCase(input: OpenDisputeCaseInput): DisputeCase {
   const disputeId = input.disputeId?.trim();

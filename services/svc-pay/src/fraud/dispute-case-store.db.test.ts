@@ -7,6 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
+import { listControlAudit } from '../control/audit.js';
 import { DisputeOpsService } from '../merchant-ops/disputes.js';
 import type { MerchantCaller } from '../merchant-ops/roles.js';
 import { PayService } from '../payment-service.js';
@@ -212,5 +213,62 @@ describe('Postgres dispute cases survive a new store', () => {
       SELECT response_due_at FROM pay.dispute_response_deadlines
        WHERE merchant_id = ${merchant} AND dispute_id = ${disputeId}`;
     expect(due[0]!.response_due_at).toBeNull();
+  });
+
+  it('acknowledges a different outcome on an already-closed dispute and shows it on the founder audit', async () => {
+    const adapter = rail();
+    const railRef = `ch_${nid()}`;
+    await captured(railRef);
+    const disputeId = `dp-conflict-${nid()}`;
+    const store = new PostgresDisputeCaseStore(sql);
+    const pay = payFor(store, adapter);
+    await pay.handleWebhook(
+      'card-sandbox',
+      adapter.signWebhook({
+        id: `evt-open-${nid()}`,
+        type: 'dispute.opened',
+        ref: railRef,
+        amount: '10',
+        assetId: 'USDT',
+        disputeId,
+      }),
+    );
+    const won = await pay.handleWebhook(
+      'card-sandbox',
+      adapter.signWebhook({ id: `evt-won-${nid()}`, type: 'dispute.won', ref: railRef, amount: '10', disputeId }),
+    );
+    expect(won.applied).toBe(true);
+    const sameOutcome = await pay.handleWebhook(
+      'card-sandbox',
+      adapter.signWebhook({ id: `evt-won-again-${nid()}`, type: 'dispute.won', ref: railRef, amount: '10', disputeId }),
+    );
+    expect(sameOutcome.applied).toBe(true);
+    expect(sameOutcome.duplicate).toBe(false);
+
+    const lostId = `evt-lost-${nid()}`;
+    const lostBody = adapter.signWebhook({ id: lostId, type: 'dispute.lost', ref: railRef, amount: '10', disputeId });
+    const conflict = await pay.handleWebhook('card-sandbox', lostBody);
+    expect(conflict.applied).toBe(true);
+    expect(conflict.duplicate).toBe(false);
+    expect((await new PostgresDisputeCaseStore(sql).get(disputeId))?.status).toBe('won');
+    const lostEvents = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.dispute_case_rail_events WHERE dispute_id = ${disputeId} AND outcome = 'lost'`;
+    expect(lostEvents[0]!.n).toBe(0);
+
+    const replay = await pay.handleWebhook('card-sandbox', lostBody);
+    expect(replay.duplicate).toBe(true);
+    expect(replay.applied).toBe(false);
+
+    const audit = await listControlAudit(sql, { limit: 10, merchantId: merchant, kind: 'pay.dispute_outcome_conflict' });
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0]).toMatchObject({
+      kind: 'pay.dispute_outcome_conflict',
+      outcome: 'conflict',
+      merchantId: merchant,
+      scope: 'merchant',
+      actorId: 'rail:card-sandbox',
+      before: { status: 'won' },
+      after: { disputeId, railEventId: `card-sandbox:${lostId}`, outcome: 'lost' },
+    });
   });
 });

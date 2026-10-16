@@ -73,12 +73,16 @@ import { recordRailDisputeDeadline } from './merchant-ops/dispute-deadlines.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
 import {
   defaultDisputeCaseStore,
+  DisputeCaseError,
+  isTerminalDisputeStatus,
+  railOutcomeConflicts,
   refuseChargebackPlanConflict,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
   type DisputeCaseStore,
   type RailResolutionOutcome,
 } from './fraud/dispute-case.js';
+import { recordDisputeOutcomeConflict } from './fraud/dispute-outcome-conflict.js';
 import { affiliateLegAfterPaySettlement, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 
@@ -3229,18 +3233,38 @@ export class PayService {
         const disputeId = event.disputeId?.trim();
         if (disputeId) {
           const outcome: RailResolutionOutcome = event.type === 'dispute.won' ? 'won' : event.type === 'dispute.lost' ? 'lost' : 'closed';
-          const resolved = await this.disputeCases.applyRailResolution({
-            disputeId,
-            railEventId: deliveryKey,
-            outcome,
-          });
-          if (resolved) {
-            await recordRailDisputeDeadline(this.sql, {
-              merchantId: payment.merchant_id,
+          try {
+            const resolved = await this.disputeCases.applyRailResolution({
               disputeId,
-              evidenceDueBy: event.evidenceDueBy ?? null,
               railEventId: deliveryKey,
+              outcome,
             });
+            if (resolved) {
+              await recordRailDisputeDeadline(this.sql, {
+                merchantId: payment.merchant_id,
+                disputeId,
+                evidenceDueBy: event.evidenceDueBy ?? null,
+                railEventId: deliveryKey,
+              });
+              applied = true;
+            }
+          } catch (err) {
+            // A closed case stays closed. A different later outcome is recorded
+            // for founders and this delivery still succeeds, so the rail does
+            // not retry a refusal it cannot repair.
+            if (!(err instanceof DisputeCaseError) || err.code !== 'pay.dispute_closed') throw err;
+            const current = await this.disputeCases.get(disputeId);
+            if (!current || !isTerminalDisputeStatus(current.status)) throw err;
+            if (railOutcomeConflicts(current.status, outcome)) {
+              await recordDisputeOutcomeConflict(this.sql, {
+                merchantId: payment.merchant_id,
+                disputeId,
+                railEventId: deliveryKey,
+                railId: adapter.id,
+                storedStatus: current.status,
+                outcome,
+              });
+            }
             applied = true;
           }
         }
