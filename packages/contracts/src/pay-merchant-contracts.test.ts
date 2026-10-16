@@ -4,6 +4,7 @@ import {
   PAY_CAP_KINDS,
   PAY_HALT_ERROR_CODES,
   PAY_HALT_SCOPES,
+  conversionLateFillBookProposeInputSchema,
   conversionLateFillProposeInputSchema,
   conversionQuoteInputSchema,
   conversionResolveConfirmInputSchema,
@@ -70,6 +71,10 @@ describe('pay contracts: money and ids', () => {
     expect(conversionLateFillProposeInputSchema.safeParse(lateFill).success).toBe(true);
     expect(conversionLateFillProposeInputSchema.safeParse({ ...lateFill, filled: '1' }).success).toBe(false);
     expect(conversionLateFillProposeInputSchema.safeParse({ ...lateFill, settlement: '   ' }).success).toBe(false);
+    const lateFillBook = { requestId: randomUUID(), auditId: randomUUID(), reason: 'book the venue fill' };
+    expect(conversionLateFillBookProposeInputSchema.safeParse(lateFillBook).success).toBe(true);
+    expect(conversionLateFillBookProposeInputSchema.safeParse({ ...lateFillBook, filled: '1' }).success).toBe(false);
+    expect(conversionLateFillBookProposeInputSchema.safeParse({ ...lateFillBook, fromAmount: '100' }).success).toBe(false);
     expect(payCapSchema.safeParse({ kind: 'daily_intake', assetCode: 'USD', limit: 1000 }).success).toBe(false);
     expect(payCapSchema.safeParse({ kind: 'beneficiaries_per_day', limit: 5 }).success).toBe(true);
   });

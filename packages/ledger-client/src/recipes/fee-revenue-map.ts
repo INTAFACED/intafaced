@@ -122,6 +122,12 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'pay',
     note: 'Reverses a below-minimum conversion fill onto house inventory. Venue-boundary legs stay on the original booking.',
   },
+  'pay.conversion_late_fill': {
+    kind: 'recipe',
+    recipe: 'fxConversionLateFill',
+    feeModule: 'pay',
+    note: 'Late-fill booking: the original order fee and spread, in the to-asset, → houseFees(pay). Zero omits the leg. USD comes from merchant clearing or treasury fx-inventory.',
+  },
   'token.fee_charge': {
     kind: 'recipe',
     recipe: 'feeCharge',
@@ -222,6 +228,7 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'escrowRelease',
   'merchantSettlement',
   'fxConversion',
+  'fxConversionLateFill',
   'fxConversionReverse',
   'feeCharge',
   'sweepFeesToRewards',

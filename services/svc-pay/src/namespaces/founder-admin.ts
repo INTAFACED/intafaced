@@ -23,6 +23,9 @@ import {
   conversionLateFillProposeInputSchema,
   conversionLateFillProposeResultSchema,
   conversionLateFillConfirmResultSchema,
+  conversionLateFillBookProposeInputSchema,
+  conversionLateFillBookProposeResultSchema,
+  conversionLateFillBookConfirmResultSchema,
   conversionLateFillSweepResultSchema,
   conversionHoldSweepResultSchema,
   merchantMetricsInputSchema,
@@ -249,6 +252,30 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
                 throw mapConversionError(error);
               }
             }),
+          book: router({
+            propose: founder
+              .input(conversionLateFillBookProposeInputSchema)
+              .output(conversionLateFillBookProposeResultSchema)
+              .mutation(async ({ ctx, input }) => {
+                if (!conversion) return notBuilt('founderAdmin.conversion.lateFill.book.propose');
+                try {
+                  return await conversion.proposeLateFillBook((ctx as FounderContext).founderUserId, input);
+                } catch (error) {
+                  throw mapConversionError(error);
+                }
+              }),
+            confirm: founder
+              .input(conversionResolveConfirmInputSchema)
+              .output(conversionLateFillBookConfirmResultSchema)
+              .mutation(async ({ ctx, input }) => {
+                if (!conversion) return notBuilt('founderAdmin.conversion.lateFill.book.confirm');
+                try {
+                  return await conversion.confirmLateFillBook((ctx as FounderContext).founderUserId, input);
+                } catch (error) {
+                  throw mapConversionError(error);
+                }
+              }),
+          }),
         }),
       }),
       treasury: router({

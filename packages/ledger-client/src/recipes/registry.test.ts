@@ -25,11 +25,12 @@ import { RECIPE_MATRIX } from './live-path-inventory.js';
  * merchant proceeds payout trio → 60.
  * fxConversion + fxConversionReverse (W6 sandbox USD→USDT) → 62.
  * fxConversionHold + fxConversionRelease (clearing reserved around the venue call) → 64.
+ * fxConversionLateFill (late fill from clearing or fx-inventory) → 65.
  */
 describe('recipes registry', () => {
   it('exports every named recipe and nothing unnamed', () => {
     const names = Object.keys(recipes) as RecipeName[];
-    expect(names.length).toBe(64);
+    expect(names.length).toBe(65);
     expect(names).toContain('marketPurchase');
     expect(names).toContain('businessApprovalHold');
     expect(names).toContain('businessPayroll');
@@ -46,7 +47,7 @@ describe('recipes registry', () => {
     const mdPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'RECIPES.md');
     const md = readFileSync(mdPath, 'utf8');
     const countMatch = md.match(/\*\*(\d+) pure recipes\.\*\*/);
-    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('64');
+    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('65');
 
     const rowNames = [...md.matchAll(/^\| `([a-zA-Z][a-zA-Z0-9]*)`\s*\|/gm)].map((m) => m[1]!);
     const registry = Object.keys(recipes).sort();
