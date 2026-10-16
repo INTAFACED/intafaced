@@ -137,7 +137,23 @@ describe('svc-pay money (source)', () => {
   });
 });
 
-describe('svc-pay money PG-hard', () => {
+/**
+ * 30 s per test, not vitest's 5 s default. Measured locally, idle Postgres,
+ * five runs of "keeps the books closed and reconciled after a long mixed run":
+ * the test body was 87 to 236 ms and the file was 1.6 to 2.7 s, and every run
+ * closed the book (asset net zero, replay agrees, chain intact). On CI the
+ * pay package runs about 145 files against one Postgres. The metrics suite
+ * on that runner took 45 to 106 s for a file that is 3 s on a laptop, and its
+ * seeded tests alone sat at 2.3 to 6.2 s, so a 5 s limit failed about one run
+ * in five on speed (PR 4786). Run 38834356222 reported this mixed run red
+ * on a frontend-only pull request.
+ *
+ * vitest does not cancel a test body that has timed out. The body keeps
+ * posting while the next test's beforeEach TRUNCATE takes ACCESS EXCLUSIVE
+ * on the pay tables, and the two deadlock. A timeout generous enough not to
+ * trip keeps that from starting.
+ */
+describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
   let sql!: TestDatabase['sql'];
