@@ -16,7 +16,7 @@ import type { PortalApi } from './api';
 import type { Cycle } from './billing-schemas';
 import type { PortalRoute } from './routes';
 import type { ApiResult } from '../../../shared/api';
-import { checkSubscriptionOriginal, checkSubscriptionCreateOriginal } from './subscription-recovery';
+import { checkSubscriptionOriginal, checkSubscriptionCreateOriginal, createSubscriptionWithRecovery } from './subscription-recovery';
 
 type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
@@ -693,14 +693,7 @@ export function CreateSubscriptionView({
                       disabled={!selected || !allowed || Boolean(pay.access('pay:write')) || locked}
                       perform={async () => {
                         try {
-                          return await pay.mutate(
-                            'subscription.create',
-                            { mandateId, path },
-                            subscriptionSchema,
-                            'pay:write',
-                            `subscription-create:${mandateId}`,
-                            JSON.stringify({ path, after: new Date().toISOString() }),
-                          );
+                          return await createSubscriptionWithRecovery(pay, mandateId, path);
                         } finally {
                           refreshLock((v) => v + 1);
                         }
