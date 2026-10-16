@@ -4076,7 +4076,18 @@ export class PayService {
     const existing = await readLivePlan(this.sql, paymentId, disputeId);
     if (existing) return decode(existing, true);
 
-    const split = await compute();
+    // Pot reads sit outside the lock. Another delivery can commit the plan and post before
+    // `compute` runs, so the pots this split would use are already empty. That is the booked
+    // opening, not a shortfall: replay the stored plan. A real shortfall has no plan to replay.
+    let split: { fromClearing: Amount; fromMerchantBalance: Amount };
+    try {
+      split = await compute();
+    } catch (e) {
+      if (!(e instanceof PayError) || e.code !== 'pay.invalid_amount') throw e;
+      const raced = await readLivePlan(this.sql, paymentId, disputeId);
+      if (raced) return decode(raced, true);
+      throw e;
+    }
     const { plan, created } = await transaction(this.sql, async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.plan:${disputeId}`}))`;
       const winner = await readLivePlan(tx, paymentId, disputeId);

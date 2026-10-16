@@ -1031,6 +1031,36 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(await clearingOf(m.id)).toBe('0');
     });
 
+    it('replays the booked opening when the other delivery has already posted before this one reads the pots', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      const args = { disputeId: 'dp-replay-posted', paymentId: payment.id, merchantId: m.id, amount: '100', assetId: 'USDT' };
+      const realBalance = ledger.balance.bind(ledger);
+      let nested = false;
+      let booked: { txId: string } | undefined;
+      // The first clearing read is the pot split, which happens after the unlocked plan read.
+      // Finish the other delivery there: it stores the plan and posts, so this read sees an empty clearing.
+      ledger.balance = async (ref) => {
+        if (!nested && ref.ownerType === 'module' && ref.ownerId.startsWith('pay:clearing:')) {
+          nested = true;
+          booked = await pay.openChargeback(args);
+        }
+        return realBalance(ref);
+      };
+      try {
+        const outer = await pay.openChargeback(args);
+        expect(booked?.txId).toBeTruthy();
+        expect(outer.txId).toBe(booked!.txId);
+      } finally {
+        ledger.balance = realBalance;
+      }
+      expect((await events(payment.id)).filter((e) => e === 'chargeback.opening_planned')).toHaveLength(1);
+      expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
+      expect(await clearingOf(m.id)).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
     it('still names an uncovered chargeback and plans nothing', async () => {
       const m = await merchant(0);
       const payment = await cardPayment(m.id, '100');
