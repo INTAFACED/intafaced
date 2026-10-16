@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
-import { actionApprovalSchema, SAME_PERSON_ACTION_TYPES, type Context } from '@intafaced/contracts';
+import { actionApprovalSchema, PROTECTIVE_OPERATOR_APPROVALS, SAME_PERSON_ACTION_TYPES, type Context } from '@intafaced/contracts';
 import { createActionApprovalRouter } from './action-approval-router.js';
 import { ActionApprovalError, ActionApprovalService, payloadHashesEqual } from './auth/action-approval-service.js';
 import { MemoryActionApprovalStore, newApprovalIds, type StoredApproval } from './auth/action-approval-store.js';
@@ -206,6 +206,15 @@ describe('protective verbs, unknown services and the self kind', () => {
     targetService,
     targetId,
     kind,
+  });
+
+  it('is operator for exactly the shared protective list, and founder for a verb that list does not name on the same services', () => {
+    for (const row of PROTECTIVE_OPERATOR_APPROVALS) {
+      const targetId = row.targetService === 'svc-ledger' || row.targetVerb === 'halt_all' ? row.targetVerb : `${row.targetVerb}:market-1`;
+      expect(audienceOfApproval(sub(row.actionType, row.targetService, targetId))).toBe('operator');
+    }
+    expect(audienceOfApproval(sub('matching.resume', 'svc-matching', 'resume:market-1'))).toBe('founder');
+    expect(audienceOfApproval(sub('ledger.unfreeze', 'svc-ledger', 'posting_unfreeze'))).toBe('founder');
   });
 
   it('a protective verb is operator only when type, service and target verb all agree', () => {
