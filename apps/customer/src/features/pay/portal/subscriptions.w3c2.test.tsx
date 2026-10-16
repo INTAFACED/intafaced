@@ -4,7 +4,7 @@ vi.mock('../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { CreateSubscriptionView, SubscriptionDetailView, SubscriptionsView } from './Subscriptions';
+import { CreateSubscriptionView, SubscriptionDetailView, SubscriptionsView, SubscriptionTerms } from './Subscriptions';
 import { createApiClient } from '../../../shared/api';
 import { createPortalApi } from './api';
 import { parsePortalRoute } from './routes';
@@ -161,4 +161,29 @@ it('uses only existing cycle and execution reads with explicit bounded limits', 
   expect((await portal.subscriptionExecutions(S)).ok).toBe(true);
   for (const url of calls)
     expect(JSON.parse(new URL(url, 'https://example.invalid').searchParams.get('input')!)).toEqual({ subscriptionId: S, limit: 200 });
+});
+
+it('uses the same complete mandate summary for selection and confirmation, including finite dates and ceiling', () => {
+  const endsAt = '2027-10-16T00:00:00Z';
+  const out = renderToString(
+    <SubscriptionTerms mandate={{ ...mandate, endsAt, ceiling: '10000000000000000.000000000000000001' }} path="crypto_invoice" />,
+  );
+  for (const value of [
+    mandate.customerId,
+    D,
+    'crypto_invoice',
+    'USDT',
+    'monthly',
+    'Billing cadence',
+    'Authorization starts',
+    'Authorization ends',
+    'Authorization ceiling',
+    '10,000,000,000,000,000.000000000000000001',
+  ])
+    expect(out).toContain(value);
+  expect(out).toContain(`dateTime="${at}"`);
+  expect(out).toContain(`dateTime="${endsAt}"`);
+  const open = renderToString(<SubscriptionTerms mandate={mandate} path="crypto_invoice" />);
+  expect(open).toContain('Open ended');
+  expect(open).toContain('No ceiling returned');
 });

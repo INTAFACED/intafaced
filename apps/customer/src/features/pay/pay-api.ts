@@ -707,6 +707,7 @@ export function createBusinessPayApi(
     schema: ZodType<T>,
     scope: 'pay:write' | 'pay:refund' | 'pay:payout',
     operation: string,
+    reference?: string,
   ): Promise<ApiResult<T>> {
     const denied = access(scope);
     if (denied) return denied;
@@ -717,7 +718,10 @@ export function createBusinessPayApi(
       (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
       'The mutation outcome belongs to another merchant.',
     );
-    if (procedure !== 'subscription.create') return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome));
+    // Pause, resume, and cancel store the expected status in the journal.
+    // subscription.create ignores that argument: its reference is the attempt id below.
+    if (procedure !== 'subscription.create')
+      return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
     const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
     const sendAttempt = (attemptId: string) =>
       api.mutate('pay', procedure, { ...fields, idempotencyKey: `${lockId}:${attemptId}` }, outcome);
