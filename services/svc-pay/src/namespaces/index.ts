@@ -1,5 +1,6 @@
 import { mergeRouters } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
+import type { ConversionService } from '../conversion/service.js';
 import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
@@ -43,6 +44,7 @@ export function createPayNamespaces(deps: {
   payHalts?: PayHaltsDeps;
   treasury?: FounderTreasuryDeps;
   control?: ControlService;
+  conversion?: ConversionService;
 }) {
   const opsDeps = { founderAuthority: deps.founderAuthority, sql: deps.sql };
   return mergeRouters(
@@ -55,8 +57,9 @@ export function createPayNamespaces(deps: {
       treasury: deps.treasury,
       control: deps.control,
       halts: deps.payHalts?.store,
+      conversion: deps.conversion,
     }),
-    createConversionRouter(),
+    createConversionRouter(deps.conversion),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),
     createMerchantOpsRouter(opsDeps), // W15: merchantOps.*  (founderAdmin.ops.* is mounted via createFounderAdminRouter above)
     // W10: b2bRamp.* refuses while pay.b2b_ramp is off, including a direct caller.

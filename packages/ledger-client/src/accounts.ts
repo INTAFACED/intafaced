@@ -256,6 +256,36 @@ export function merchantProceedsPayoutHold(merchantId: string, assetId: string, 
 }
 
 /**
+ * Clearing reserved for one conversion attempt.
+ *
+ * Same owner as `merchantClearing`, so the hold is funded by that merchant's
+ * own pot and no other conversion can spend it. Purpose is the conversion id.
+ */
+export function merchantClearingHold(merchantId: string, assetId: string, conversionId: string): AccountRef {
+  if (!conversionId?.trim()) throw new Error('merchantClearingHold requires a conversion id');
+  return {
+    ownerType: 'module',
+    ownerId: `pay:clearing:${merchantId}`,
+    assetId,
+    kind: 'hold',
+    purpose: `conversion:${conversionId.trim()}`,
+  };
+}
+
+/**
+ * House inventory for a conversion fill the merchant does not keep.
+ *
+ * Treasury, not a house available pot: a below-minimum fill leaves USD at the
+ * venue and restores the merchant from this account, so the USD side runs
+ * negative by exactly the uncovered short. A house pot would refuse that post
+ * and the only way to make the merchant whole would be to wipe the venue leg.
+ * A negative balance here is that short, visible next to the venue boundary.
+ */
+export function conversionInventory(assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: 'pay:fx-inventory', assetId, kind: 'available' };
+}
+
+/**
  * The yield reserve behind one svc-bank earn pool (§8.1).
  *
  * Interest is paid OUT of this account, which means a pool can only ever pay

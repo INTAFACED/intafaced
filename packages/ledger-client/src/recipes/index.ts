@@ -17,6 +17,7 @@ import { chargebackOpen, chargebackShortfall, chargebackWon, chargebackShortfall
 import { orderHoldAmend } from './order-hold-amend.js';
 import { subAccountTransfer } from './sub-accounts.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
+import { fxConversion, fxConversionHold, fxConversionRelease, fxConversionReverse } from './conversion.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -1170,6 +1171,14 @@ export {
   type MarketListingFeeInput,
   type MarketPremiumPlacementInput,
 } from './market.js';
+export {
+  fxConversion,
+  fxConversionHold,
+  fxConversionRelease,
+  fxConversionReverse,
+  type FxConversionHoldInput,
+  type FxConversionInput,
+} from './conversion.js';
 
 export const recipes = {
   deposit,
@@ -1244,6 +1253,12 @@ export const recipes = {
   marketPurchase,
   marketListingFee,
   marketPremiumPlacement,
+  // W6 sandbox conversion. USD and USDT on separate accounts; fee and spread to house revenue.
+  // Hold and release reserve clearing around the venue call. Reverse keeps the venue legs.
+  fxConversion,
+  fxConversionHold,
+  fxConversionRelease,
+  fxConversionReverse,
 } as const;
 
 export type RecipeName = keyof typeof recipes;
