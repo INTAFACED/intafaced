@@ -69,7 +69,9 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `subAccountTransfer`            | `identity` | `identity.sub_account.transfer`                                  |
 | `marketPurchase`                | `market`   | `market.purchase`                                                |
 | `marketListingFee`              | `market`   | `market.listing_fee`                                             |
-| `marketPremiumPlacement`        | `market`   | `market.premium_placement`                                       |## Source files
+| `marketPremiumPlacement`        | `market`   | `market.premium_placement`                                       |
+
+## Source files
 
 | File                              | Owns                                                                                                                          |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
