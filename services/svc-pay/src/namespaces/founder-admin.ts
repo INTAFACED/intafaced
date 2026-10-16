@@ -13,6 +13,8 @@ import {
   founderPendingChangeListSchema,
   founderApprovalQueueInputSchema,
   founderApprovalQueueSchema,
+  founderApprovalDestinationInputSchema,
+  founderApprovalDestinationSchema,
   founderTreasuryExposureSchema,
   merchantMetricsInputSchema,
   merchantMetricsSnapshotSchema,
@@ -136,6 +138,10 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
                 .input(founderApprovalQueueInputSchema)
                 .output(founderApprovalQueueSchema)
                 .query(() => notBuilt('founderAdmin.approvals.list')),
+              destination: founder
+                .input(founderApprovalDestinationInputSchema)
+                .output(founderApprovalDestinationSchema)
+                .query(() => notBuilt('founderAdmin.approvals.destination')),
             },
       ),
       // W1 control room (tier definitions, pricing layers, usage, founder payout approvals). Mounted only with a ControlService.

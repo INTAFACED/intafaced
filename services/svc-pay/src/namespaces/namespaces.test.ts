@@ -70,6 +70,7 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
   },
   'founderAdmin.changes.pending': { founder: true, input: { limit: 10 } },
   'founderAdmin.approvals.list': { founder: true, input: { limit: 10 } },
+  'founderAdmin.approvals.destination': { founder: true, input: { approvalId: id() } },
   'founderAdmin.treasury.exposure': { founder: true, input: {} },
 };
 

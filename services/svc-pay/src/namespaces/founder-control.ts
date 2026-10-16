@@ -8,6 +8,8 @@ import {
   founderChangeConfirmInputSchema,
   founderApprovalQueueInputSchema,
   founderApprovalQueueSchema,
+  founderApprovalDestinationInputSchema,
+  founderApprovalDestinationSchema,
   founderControlAuditListInputSchema,
   founderControlAuditListSchema,
   founderPendingChangeListInputSchema,
@@ -89,6 +91,11 @@ export function founderApprovalProcedures(founder: Founder, control: ControlServ
       .input(founderApprovalQueueInputSchema)
       .output(founderApprovalQueueSchema)
       .query(({ input }) => guarded(() => control.approvals.founderQueue(input))),
+    /** Full destination of one queue row. Not mounted on any merchant procedure. */
+    destination: founder
+      .input(founderApprovalDestinationInputSchema)
+      .output(founderApprovalDestinationSchema)
+      .query(({ ctx, input }) => guarded(() => control.approvals.founderDestination(founderIdOf(ctx), input.approvalId))),
   };
 }
 

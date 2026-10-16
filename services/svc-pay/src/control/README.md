@@ -59,4 +59,6 @@ Until then the controls cap the one rail W1 can see; do not describe the control
    caps and the pricing band. Decide whether that is intended before enabling.
 6. Ops: watch `pay.control_audit` for `payment.captured_over_cap` (`founderAdmin.control.audit.list`).
 7. Approval lists return a masked destination and the rail, derived from the stored payout payload. They do not
-   return the full destination. The founder queue also returns `founderFirstUserId` once one founder has confirmed.
+   return the full destination. `founderAdmin.approvals.destination` is the one founder-only read of the exact
+   address, and each read appends `payout.destination_read` on `pay.control_audit`. The founder queue also returns
+   `founderFirstUserId` once one founder has confirmed.

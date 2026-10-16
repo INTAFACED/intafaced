@@ -4,10 +4,14 @@ import {
   PAY_CAP_KINDS,
   PAY_HALT_SCOPES,
   conversionQuoteInputSchema,
+  founderApprovalDestinationSchema,
+  founderControlAuditListInputSchema,
   founderMerchantDrilldownSchema,
   founderMerchantListInputSchema,
   founderMerchantListSchema,
   founderMerchantRowSchema,
+  founderPendingChangeListInputSchema,
+  payoutApprovalSchema,
   merchantControlChangeInputSchema,
   merchantMetricsInputSchema,
   payAmountStringSchema,
@@ -181,5 +185,52 @@ describe('founder merchant names', () => {
     expect(founderMerchantDrilldownSchema.safeParse(noLegal).success).toBe(false);
     expect(founderMerchantDrilldownSchema.safeParse(noDisplay).success).toBe(false);
     expect(founderMerchantDrilldownSchema.safeParse({ ...drilldown, tradingName: 'x' }).success).toBe(false);
+  });
+});
+
+describe('pay contracts: founder cursors and destination reveal', () => {
+  const max = '9223372036854775807';
+  const over = '9223372036854775808';
+
+  it('an audit or pending-change cursor must be a bigint, including the 19-digit maximum', () => {
+    for (const schema of [founderControlAuditListInputSchema, founderPendingChangeListInputSchema]) {
+      expect(schema.safeParse({ limit: 1, cursor: '1' }).success).toBe(true);
+      expect(schema.safeParse({ limit: 1, cursor: max }).success).toBe(true);
+      expect(schema.safeParse({ limit: 1, cursor: over }).success).toBe(false);
+      expect(schema.safeParse({ limit: 1, cursor: '9999999999999999999' }).success).toBe(false);
+      expect(schema.safeParse({ limit: 1 }).success).toBe(true);
+    }
+  });
+
+  it('the full destination is a founder reveal shape, and the merchant approval shape refuses it', () => {
+    const approval = {
+      approvalId: merchantId,
+      merchantId,
+      settlementId: randomUUID(),
+      amount: '10',
+      assetCode: 'USDT',
+      payloadHash: `sha256:${'ab'.repeat(32)}`,
+      status: 'pending' as const,
+      makerUserId: randomUUID(),
+      checkerUserId: null,
+      createdAt: '2026-10-16T00:00:00.000Z',
+      decidedAt: null,
+      expiresAt: '2026-10-16T01:00:00.000Z',
+      railId: 'crypto-native',
+      destinationKind: 'crypto',
+      destinationMasked: '0x1111…3333',
+    };
+    const ref = `0x${'ab'.repeat(20)}`;
+    expect(payoutApprovalSchema.safeParse(approval).success).toBe(true);
+    expect(payoutApprovalSchema.safeParse({ ...approval, destinationRef: ref }).success).toBe(false);
+    expect(
+      founderApprovalDestinationSchema.safeParse({
+        approvalId: approval.approvalId,
+        railId: approval.railId,
+        destinationKind: approval.destinationKind,
+        destinationRef: ref,
+      }).success,
+    ).toBe(true);
+    expect(founderApprovalDestinationSchema.safeParse({ ...approval, destinationRef: ref }).success).toBe(false);
   });
 });

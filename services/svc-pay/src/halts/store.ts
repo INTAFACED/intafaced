@@ -180,8 +180,12 @@ export class PayHaltStore {
   }
 
   /**
-   * Clears a founder has proposed that a different founder has not confirmed, and that are still
-   * inside the confirm window. Ordered by request id so the cursor cannot skip or repeat a row.
+   * Clears a founder has proposed that a different founder has not confirmed, still inside the
+   * confirm window, and whose expected_version still equals the current halt version. A proposal
+   * left behind after the halt moved is omitted.
+   *
+   * Ordered by request id. That cursor can skip a row inserted behind it: request ids are random
+   * UUIDs, so a new id that sorts before the cursor never appears on a later page.
    */
   async pendingClears(input: PayHaltPendingClearListInput): Promise<{ proposals: PayHaltPendingClear[]; nextCursor: string | null }> {
     const cursor = input.cursor ?? null;
@@ -197,12 +201,14 @@ export class PayHaltStore {
         requested_at: Date | string;
       }>
     >`
-      SELECT request_id, scope, target, expected_version, reason, requested_by_user_id, requested_at
-        FROM pay.halt_clear_requests
-       WHERE status = 'pending'
-         AND requested_at >= ${oldest}
-         AND (${cursor}::uuid IS NULL OR request_id > ${cursor}::uuid)
-       ORDER BY request_id ASC
+      SELECT r.request_id, r.scope, r.target, r.expected_version, r.reason, r.requested_by_user_id, r.requested_at
+        FROM pay.halt_clear_requests r
+        JOIN pay.halts h
+          ON h.scope = r.scope AND h.target = r.target AND h.halted AND h.version = r.expected_version
+       WHERE r.status = 'pending'
+         AND r.requested_at >= ${oldest}
+         AND (${cursor}::uuid IS NULL OR r.request_id > ${cursor}::uuid)
+       ORDER BY r.request_id ASC
        LIMIT ${input.limit + 1}
     `;
     const page = rows.slice(0, input.limit);

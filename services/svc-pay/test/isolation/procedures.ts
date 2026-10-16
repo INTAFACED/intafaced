@@ -46,6 +46,7 @@ export const FOUNDER_EXTRA = [
 /** Prefixes whose procedures must be founder-guarded (mirror of FOUNDER_ONLY_PREFIXES, restated so a change there is noticed). */
 export const FOUNDER_PREFIXES = [
   'founderAdmin.',
+  'founderAdmin.approvals.destination',
   'payHalts.set',
   'payHalts.history',
   'payHalts.operatorStatus',
@@ -149,6 +150,7 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     expectedChangeHash: w.control.pendingMerchantChangeHash,
   }),
   'founderAdmin.approvals.list': () => ({ limit: 10 }),
+  'founderAdmin.approvals.destination': (w) => ({ approvalId: w.control.founderApprovalId }),
   'founderAdmin.changes.pending': () => ({ limit: 10 }),
   'founderAdmin.control.audit.list': () => ({ limit: 10 }),
   'founderAdmin.control.tiers.list': () => ({}),

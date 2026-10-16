@@ -227,10 +227,33 @@ describe('payHalts.* with a real halt store', () => {
           )
         ).outcome,
       ).toBe('changed');
-      await sql`UPDATE pay.halt_clear_requests SET requested_at = now() - interval '2 hours' WHERE request_id = ${ids[1]}`;
+      const expiredId = ids[1];
+      if (expiredId === undefined) throw new Error('expected a second clear proposal');
+      await sql`UPDATE pay.halt_clear_requests SET requested_at = now() - interval '2 hours' WHERE request_id = ${expiredId}`;
       const live = await a.payHalts.pendingClears({ limit: 10 });
       expect(live.proposals.map((p) => p.requestId)).toEqual([ids[2]]);
       expect(live.nextCursor).toBeNull();
+    });
+
+    it('pendingClears omits a proposal whose expected version no longer matches the halt', async () => {
+      const r = router(fetcherFor([founderA, founderB]));
+      const a = r.createCaller(ctxOf(principalFor(founderA)));
+      const requestId = id();
+      await a.payHalts.set(setBody({ scope: 'intake', halted: true, expectedVersion: '0' }) as never);
+      expect(
+        (
+          await a.payHalts.set(
+            setBody({ scope: 'intake', requestId, halted: false, expectedVersion: '1', reason: 'rail repaired' }) as never,
+          )
+        ).outcome,
+      ).toBe('pending_confirmation');
+      expect((await a.payHalts.pendingClears({ limit: 10 })).proposals.map((p) => p.requestId)).toEqual([requestId]);
+      await sql`UPDATE pay.halts SET version = version + 1 WHERE scope = 'intake' AND target = 'global'`;
+      const [still] = await sql<Array<{ status: string; expected_version: string }>>`
+        SELECT status, expected_version FROM pay.halt_clear_requests WHERE request_id = ${requestId}
+      `;
+      expect(still).toMatchObject({ status: 'pending' });
+      expect((await a.payHalts.pendingClears({ limit: 10 })).proposals).toEqual([]);
     });
   });
 

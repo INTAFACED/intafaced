@@ -30,8 +30,28 @@ describe('maskDestination', () => {
     }
     expect(maskDestination('crypto', '0xabc')).toBe('••••');
     expect(maskDestination('bank', '1234')).toBe('••••');
-    expect(maskDestination('bank', '12345')).toBe('••••2345');
+    expect(maskDestination('bank', '12345')).toBe('••••');
     expect(maskDestination('crypto', ADDRESS)).not.toContain('222222');
+  });
+
+  it('hides a crypto ref shorter than 20 characters, and shows first 6 and last 4 from 20', () => {
+    for (const ref of ['0123456789', '0123456789a', '0123456789ab', '0123456789abc', '1234567890123456789']) {
+      expect(ref.length).toBeLessThan(20);
+      expect(maskDestination('crypto', ref)).toBe('••••');
+      expect(maskDestination('crypto', ref)).not.toContain(ref.slice(0, 4));
+    }
+    const twenty = 'abcdefghij0123456789';
+    expect(twenty).toHaveLength(20);
+    expect(maskDestination('crypto', twenty)).toBe('abcdef…6789');
+    expect(maskDestination('crypto', twenty)).not.toContain(twenty);
+    expect(maskDestination('crypto', `  ${twenty}  `)).toBe('abcdef…6789');
+  });
+
+  it('shows the last 4 of an account only when it has at least 9 characters', () => {
+    expect(maskDestination('bank', '12345678')).toBe('••••');
+    expect(maskDestination('bank', '123456789')).toBe('••••6789');
+    expect(maskDestination('bank', '1234 5678')).toBe('••••');
+    expect(maskDestination('bank', '1234 56789')).toBe('••••6789');
   });
 });
 

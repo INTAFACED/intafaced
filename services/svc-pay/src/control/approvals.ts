@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import type { FounderApprovalQueueItem, PayoutApproval } from '@intafaced/contracts';
+import type { FounderApprovalDestination, FounderApprovalQueueItem, PayoutApproval } from '@intafaced/contracts';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { requireDualControl, DualControlError } from '../dual-control.js';
@@ -378,6 +378,46 @@ export class ApprovalService {
       approvals: page.map((r) => toFounderQueueItem(toApprovalView(r, at))),
       nextCursor: rows.length > input.limit ? page[page.length - 1]!.seq : null,
     };
+  }
+
+  /**
+   * The stored destination of one founder-queue approval. Merchant lists stay masked.
+   * Every successful read appends `payout.destination_read` on `pay.control_audit`.
+   * An id that is missing or not on the queue is the same not-found, and writes nothing.
+   */
+  async founderDestination(founderUserId: string, approvalId: string): Promise<FounderApprovalDestination> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const rows = await tx<ApprovalRow[]>`
+          SELECT * FROM pay.control_payout_approvals
+           WHERE id = ${approvalId}
+             AND founder_required
+             AND status = 'pending'
+             AND checker_user_id IS NOT NULL
+           FOR UPDATE
+        `;
+        const row = rows[0];
+        if (!row) throw notFound();
+        await writeAudit(tx, {
+          scope: 'approval',
+          scopeId: row.id,
+          merchantId: row.merchant_id,
+          kind: 'payout.destination_read',
+          outcome: 'read',
+          actorId: founderUserId,
+          reason: 'founder read the full payout destination',
+          after: { payloadHash: row.payload_hash },
+        });
+        return {
+          approvalId: row.id,
+          railId: row.rail_id,
+          destinationKind: row.destination_kind,
+          destinationRef: row.destination_ref,
+        };
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   /** A founder signs (first call) or countersigns (second call, a different founder). */

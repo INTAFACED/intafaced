@@ -5,7 +5,9 @@ import {
   merchantControlProfileSchema,
   payAmountStringSchema,
   payAssetCodeSchema,
+  payDestinationKindSchema,
   payMerchantIdSchema,
+  payRailIdSchema,
   payReasonSchema,
   payRequestIdSchema,
   payRiskTierIdSchema,
@@ -127,6 +129,19 @@ export const founderChangeConfirmInputSchema = z
 export const founderApprovalQueueInputSchema = z
   .object({ limit: z.number().int().min(1).max(200), cursor: z.string().max(256).optional() })
   .strict();
+
+/** One approval on the founder queue. The answer is the stored destination, not the masked list form. */
+export const founderApprovalDestinationInputSchema = z.object({ approvalId: z.string().uuid() }).strict();
+export const founderApprovalDestinationSchema = z
+  .object({
+    approvalId: z.string().uuid(),
+    railId: payRailIdSchema,
+    destinationKind: payDestinationKindSchema,
+    /** Exact account or address stored on the approval. Never a merchant-list field. */
+    destinationRef: z.string().min(1).max(4000),
+  })
+  .strict();
+export type FounderApprovalDestination = z.infer<typeof founderApprovalDestinationSchema>;
 /**
  * Founder queue row. `founderFirstUserId` is the founder who already confirmed, when one has.
  * The same founder must not confirm again; the service also refuses that call.
@@ -138,7 +153,12 @@ export const founderApprovalQueueSchema = z
   .object({ approvals: z.array(founderApprovalQueueItemSchema), nextCursor: z.string().nullable() })
   .strict();
 
-const payAuditCursorSchema = z.string().regex(/^\d{1,19}$/);
+/** Postgres `bigint` max (2^63−1). A 19-digit string can still be larger; the cast would throw. */
+const PG_BIGINT_MAX = 9223372036854775807n;
+const payAuditCursorSchema = z
+  .string()
+  .regex(/^\d{1,19}$/)
+  .refine((value) => BigInt(value) <= PG_BIGINT_MAX, 'cursor exceeds bigint max');
 export const FOUNDER_CONTROL_AUDIT_SCOPES = ['merchant', 'tier', 'pricing', 'approval'] as const;
 
 /** One append-only `pay.control_audit` row. `before` / `after` are the stored JSON, including `captured_over_cap`. */

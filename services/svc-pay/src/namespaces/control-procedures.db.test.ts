@@ -192,6 +192,7 @@ describe('control-room procedures', () => {
         expectedChangeHash: `sha256:${'a'.repeat(64)}`,
       },
       'founderAdmin.approvals.list': { limit: 10 },
+      'founderAdmin.approvals.destination': { approvalId: randomUUID() },
       'founderAdmin.changes.pending': { limit: 10 },
       'founderAdmin.control.audit.list': { limit: 10 },
     };
