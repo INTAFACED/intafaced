@@ -82,6 +82,8 @@ The ledger `balance` call is service-to-service. The procedure that returns this
 
 `beforeUserMoneyWithdrawal` exists because a pre-cutover settlement landed on `userAvailable(merchant.userId)`, so a payout halt or cap has to watch the owner's personal withdrawal while that net is still there. The hook stays for every merchant whose own settlement post still debits `userAvailable`. A merchant whose posted windows all debit proceeds skips it, so the owner's deposits are not capped for a balance the payout no longer draws. A global payout halt still refuses every personal withdrawal, including a recovery that would call the rail.
 
+A merchant with any legacy settlement, including one that has already been paid out, keeps those payout caps and halts on the owner's personal withdrawals until a reviewed two-founder reclass moves that history. Classifying each withdrawal reads the ledger once per settlement. Follow-up: persist that classification on `pay.settlements`.
+
 ## Migration
 
 No ledger enum migration. The first `merchantSettlement` after the recipe change upserts the proceeds row. Do not `UPDATE` balances.

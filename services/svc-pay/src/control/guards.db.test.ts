@@ -836,6 +836,51 @@ describe('W1 control guards', () => {
       expect(await usage(m.id, 'daily_payout')).toBe('20');
     });
 
+    it('required: a pending row with a pre-cutover post puts the owner under the payout cap', async () => {
+      const m = await merchant(OWNER);
+      await configure(m.id, { tier: wdTier('30') });
+      const off = service(composeGuards({}));
+      const created = await pay(off, m.id, '10');
+      await fund(off, created.id, '10');
+      await off.capture(created.id);
+      windowSeq += 1;
+      const window = `wd-pending-legacy-${windowSeq}`;
+      await ledger.post({
+        idempotencyKey: `settlement:${m.id}:${window}:USDT`,
+        module: 'pay',
+        reason: 'pay.settled',
+        meta: { merchantId: m.id, window, assetId: 'USDT' },
+        entries: [
+          { account: merchantClearing(m.id, 'USDT'), direction: 'credit', amount: amt('10') },
+          { account: userAvailable(OWNER, 'USDT'), direction: 'debit', amount: amt('10') },
+        ],
+      });
+      await sql`
+        INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status)
+        VALUES (${m.id}, ${window}, 'USDT', 10, 0, 10, 'pending')
+      `;
+      const svc = await funded(required());
+      expect((await svc.withdraw(request('pending-legacy-w1', '20'))).status).toBe('sent');
+      expect(await usage(m.id, 'daily_payout')).toBe('20');
+      await expect(svc.withdraw(request('pending-legacy-w2', '10.000000000000000001'))).rejects.toMatchObject({
+        code: 'pay.cap_daily_payout_exceeded',
+      });
+      expect(await usage(m.id, 'daily_payout')).toBe('20');
+    });
+
+    it('required: a pending settlement with no ledger post does not cap the owner', async () => {
+      const m = await merchant(OWNER);
+      await configure(m.id, { tier: wdTier('30') });
+      windowSeq += 1;
+      await sql`
+        INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status)
+        VALUES (${m.id}, ${`wd-pending-empty-${windowSeq}`}, 'USDT', 10, 0, 10, 'pending')
+      `;
+      const svc = await funded(required());
+      expect((await svc.withdraw(request('pending-empty', '40'))).status).toBe('sent');
+      expect(await usage(m.id, 'daily_payout')).toBe('0');
+    });
+
     it('required: beforePayoutAdmit still enforces the daily payout cap on the proceeds payout', async () => {
       const m = await merchant(OWNER);
       await configure(m.id, { tier: wdTier('30') });

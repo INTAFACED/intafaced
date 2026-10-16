@@ -510,6 +510,31 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({ code: 'pay.guard_halted' });
       await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).resolves.toBeUndefined();
     });
+
+    it('a merchant payout halt refuses the owner while a pending row still has a pre-cutover post', async () => {
+      const g = replica(poolA);
+      const pay = payService(composeGuards());
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const window = 'legacy-pending-halt';
+      await ledger.post({
+        idempotencyKey: `settlement:${m.id}:${window}:USDT`,
+        module: 'pay',
+        reason: 'pay.settled',
+        meta: { merchantId: m.id, window, assetId: 'USDT' },
+        entries: [
+          { account: merchantClearing(m.id, 'USDT'), direction: 'credit', amount: amt('10') },
+          { account: userAvailable(USER, 'USDT'), direction: 'debit', amount: amt('10') },
+        ],
+      });
+      await poolA`
+        INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status)
+        VALUES (${m.id}, ${window}, 'USDT', 10, 0, 10, 'pending')
+      `;
+      await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).resolves.toBeUndefined();
+    });
   });
 
   describe('a payout halt pauses rail sends, never withdrawal bookkeeping', () => {

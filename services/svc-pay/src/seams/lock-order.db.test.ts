@@ -22,6 +22,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
   let changes!: ChangeService;
   let merchantId = '';
   let ownerUserId = '';
+  let ledger!: MemoryLedger;
   const saved: Record<string, string | undefined> = {};
   const ENV = ['PAY_MERCHANT_CONTROLS', 'PAY_TREASURY_LIMITS', 'PAY_TREASURY_EXPOSURE_LIMITS'] as const;
 
@@ -39,10 +40,12 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     process.env.PAY_TREASURY_LIMITS = 'required';
     process.env.PAY_TREASURY_EXPOSURE_LIMITS = '{"USDT":"1000"}';
     await resetControl(sql);
-    const pay = new PayService(sql, new MemoryLedger(), new RailRegistry([]), {});
+    ledger = new MemoryLedger();
+    const pay = new PayService(sql, ledger, new RailRegistry([]), {});
     ownerUserId = randomUUID();
     merchantId = (await pay.createMerchant({ userId: ownerUserId, pricing: { feeBps: 0 } })).id;
-    // The owner has settled USDT, so the withdrawal hook holds the owner's USDT withdrawals to this merchant's caps.
+    // A pending row with no settlement post. A reader reports it absent, so it
+    // does not put the owner's personal withdrawal under the payout cap.
     await sql`INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net) VALUES (${merchantId}, 'lock-order', 'USDT', 10, 0, 10)`;
     await applyChange(changes, sql, { scope: 'tier', change: { kind: 'upsert_tier', tier: TEST_TIER } });
     await applyChange(changes, sql, {
@@ -70,7 +73,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
 
   /** Run one payout admission in a transaction whose every statement is recorded in order. */
   async function admit(amount: string, seen: string[] = []): Promise<string[]> {
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     await sql.begin(async (tx) => {
       const spy = new Proxy(tx, {
         apply: (target, thisArg, args: unknown[]) => {
@@ -133,7 +136,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
       merchantId: other,
       change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null },
     });
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     const run = (m: string, ref: string) =>
       sql.begin((tx) =>
         guards.beforePayoutAdmit({
@@ -157,7 +160,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
   });
   /** One user-money withdrawal admission by the merchant's owner, every statement recorded in order. */
   async function withdraw(amount: string, seen: string[] = []): Promise<string[]> {
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     await sql.begin(async (tx) => {
       const spy = new Proxy(tx, {
         apply: (target, thisArg, args: unknown[]) => {
@@ -199,7 +202,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
   });
 
   it('payout admissions and owner withdrawals racing on one merchant all finish and add up: no deadlock', async () => {
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     const payout = (i: number) =>
       sql.begin((tx) =>
         guards.beforePayoutAdmit({
@@ -221,7 +224,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     expect(Number(await used())).toBe(50);
   });
   it('a capture takes its counters last, after a bounded lock timeout is set, and no advisory lock; daily intake before monthly', async () => {
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     const seen: string[] = [];
     const paymentId = randomUUID();
     await sql.begin(async (tx) => {

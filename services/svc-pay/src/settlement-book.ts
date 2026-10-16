@@ -87,11 +87,16 @@ export async function legacyPostMatchesFrozen(
 }
 
 /**
- * Merchants whose posted windows still have legacy settled net.
+ * Merchants whose windows still have legacy settled net.
  *
- * No ledger reader means a posted, paid-out, or failed window cannot be proved
- * clear of `userAvailable`, so it counts (fail closed). An unrecognised post
- * counts for the same reason. A missing key does not: nothing was credited.
+ * `pending` is included. A freeze can sit in SQL while the ledger key was
+ * already posted; `readSettlementBook` returns `absent` when that key was
+ * never posted, so a bare pending row is not a false positive.
+ *
+ * No ledger reader means a pending, posted, paid-out, or failed window cannot
+ * be proved clear of `userAvailable`, so it counts (fail closed). An
+ * unrecognised post counts for the same reason. A missing key does not:
+ * nothing was credited.
  */
 export async function merchantIdsWithLegacySettlement(
   conn: Sql,
@@ -106,7 +111,7 @@ export async function merchantIdsWithLegacySettlement(
           JOIN pay.merchants m ON m.id = s.merchant_id
          WHERE m.user_id = ${userId}
            AND s.asset_id = ${assetId}
-           AND s.status IN ('posted', 'paid_out', 'failed')
+           AND s.status IN ('pending', 'posted', 'paid_out', 'failed')
          ORDER BY s.merchant_id, s."window", s.asset_id
       `
     : await conn<Array<{ merchant_id: string; window: string; asset_id: string; user_id: string }>>`
@@ -114,7 +119,7 @@ export async function merchantIdsWithLegacySettlement(
           FROM pay.settlements s
           JOIN pay.merchants m ON m.id = s.merchant_id
          WHERE m.user_id = ${userId}
-           AND s.status IN ('posted', 'paid_out', 'failed')
+           AND s.status IN ('pending', 'posted', 'paid_out', 'failed')
          ORDER BY s.merchant_id, s."window", s.asset_id
       `;
   if (!ledger) return [...new Set(rows.map((row) => row.merchant_id.toLowerCase()))].sort();
