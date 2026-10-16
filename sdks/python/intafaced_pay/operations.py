@@ -6,6 +6,8 @@ Regenerate: pnpm exec tsx tooling/scripts/sdk-from-openapi.ts
 from __future__ import annotations
 
 from intafaced_pay.client import PayClient
+from intafaced_pay.payments_page import PayPaymentPage, payment_page_from_response
+
 
 
 class PayOperations:
@@ -104,9 +106,9 @@ class PayOperations:
         params=None,
         idempotency_key=None,
         max_retries=None,
-    ):
+    ) -> PayPaymentPage:
         """GET /payments — List a merchant’s payments, newest first"""
-        return self._client.call(
+        response = self._client.call(
             "GET",
             "/payments",
             body=body,
@@ -116,6 +118,7 @@ class PayOperations:
             idempotency_key=idempotency_key,
             max_retries=max_retries,
         )
+        return payment_page_from_response(response)
 
     def post_payments(
         self,

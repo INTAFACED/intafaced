@@ -137,23 +137,36 @@ function tsInput(op: SdkOperation): string {
   return `PayCallInput & { readonly params: { ${fields} } }`;
 }
 
+/** GET /payments is a page. A bare array was the pre-launch shape and is refused. */
+function isPaymentPage(op: SdkOperation): boolean {
+  return op.method === 'GET' && op.path === '/payments';
+}
+
+function tsReturn(op: SdkOperation): string {
+  return isPaymentPage(op) ? 'Promise<PayPaymentPage>' : 'Promise<PayResponse>';
+}
+
 function comment(summary: string): string {
   const clean = summary.replace(/\*\//g, '* /');
   return clean ? `  /** ${clean} */\n` : '';
 }
 
+function tsCall(op: SdkOperation): string {
+  const call = `client.call({ ...input, method: '${op.method}', path: '${op.path}', idempotency: ${op.idempotency} })`;
+  if (!isPaymentPage(op)) {
+    return `    ${op.name}(input) {\n      return ${call};\n    },`;
+  }
+  return `    async ${op.name}(input) {\n      const response = await ${call};\n      return paymentPageFromResponse(response);\n    },`;
+}
+
 export function renderTypeScript(ops: readonly SdkOperation[]): string {
-  const iface = ops.map((op) => `${comment(op.summary)}  ${op.name}(input: ${tsInput(op)}): Promise<PayResponse>;`).join('\n');
-  const body = ops
-    .map(
-      (op) =>
-        `    ${op.name}(input) {\n      return client.call({ ...input, method: '${op.method}', path: '${op.path}', idempotency: ${op.idempotency} });\n    },`,
-    )
-    .join('\n');
+  const iface = ops.map((op) => `${comment(op.summary)}  ${op.name}(input: ${tsInput(op)}): ${tsReturn(op)};`).join('\n');
+  const body = ops.map((op) => tsCall(op)).join('\n');
+  const pageImport = ops.some(isPaymentPage) ? "import { paymentPageFromResponse, type PayPaymentPage } from './payments-page.js';\n" : '';
   return `// Generated from the Payments OpenAPI document. Do not edit.
 // Regenerate: pnpm exec tsx tooling/scripts/sdk-from-openapi.ts
 import type { PayCallInput, PayClient, PayResponse } from './client.js';
-
+${pageImport}
 export interface PayOperations {
 ${iface}
 }
@@ -172,6 +185,22 @@ function pyDoc(op: SdkOperation): string {
   return `        """${line}"""`;
 }
 
+function pyCall(op: SdkOperation): string {
+  const call = `self._client.call(
+            "${op.method}",
+            "${op.path}",
+            body=body,
+            query=query,
+            params=params,
+            idempotency=${op.idempotency ? 'True' : 'False'},
+            idempotency_key=idempotency_key,
+            max_retries=max_retries,
+        )`;
+  if (!isPaymentPage(op)) return `        return ${call}`;
+  return `        response = ${call}
+        return payment_page_from_response(response)`;
+}
+
 export function renderPython(ops: readonly SdkOperation[]): string {
   const methods = ops
     .map(
@@ -183,21 +212,13 @@ export function renderPython(ops: readonly SdkOperation[]): string {
         params=None,
         idempotency_key=None,
         max_retries=None,
-    ):
+    )${isPaymentPage(op) ? ' -> PayPaymentPage' : ''}:
 ${pyDoc(op)}
-        return self._client.call(
-            "${op.method}",
-            "${op.path}",
-            body=body,
-            query=query,
-            params=params,
-            idempotency=${op.idempotency ? 'True' : 'False'},
-            idempotency_key=idempotency_key,
-            max_retries=max_retries,
-        )
+${pyCall(op)}
 `,
     )
     .join('\n');
+  const pageImport = ops.some(isPaymentPage) ? 'from intafaced_pay.payments_page import PayPaymentPage, payment_page_from_response\n' : '';
   return `"""Generated from the Payments OpenAPI document. Do not edit.
 
 Regenerate: pnpm exec tsx tooling/scripts/sdk-from-openapi.ts
@@ -206,6 +227,7 @@ Regenerate: pnpm exec tsx tooling/scripts/sdk-from-openapi.ts
 from __future__ import annotations
 
 from intafaced_pay.client import PayClient
+${pageImport}
 
 
 class PayOperations:
