@@ -3,7 +3,7 @@ import { createApiClient } from '../../shared/api';
 import type { JournalStorage, JournalLocks } from '../../shared/minimal-original-journal';
 import { createPersonalPayApi, createBusinessPayApi, createPayMutationGuard, createCheckoutApi } from './pay-api';
 import { z } from 'zod';
-import { paymentSchema } from './schemas';
+import { paymentSchema, subscriptionSchema } from './schemas';
 
 const userId = '11111111-1111-4111-8111-111111111111';
 const spaceId = '22222222-2222-4222-8222-222222222222';
@@ -335,6 +335,89 @@ describe('Business Pay authority boundary', () => {
       reason: 'invalid_response',
       code: 'pay.merchant_projection_mismatch',
     });
+  });
+});
+
+describe('subscription.create sends the lock id and replays after a lost response', () => {
+  const mandateId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const operation = `subscription-create:${mandateId}`;
+  const lockId = `${userId}:${operation}`;
+  const subscription = {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    mandateId,
+    merchantId,
+    customerId: 'cust-replay',
+    nextRunAt: '2026-01-15T00:00:00.000Z',
+    status: 'active' as const,
+    cancelledAt: null,
+    path: 'crypto_invoice',
+    createdAt: '2026-01-15T00:00:00.000Z',
+    anchorAt: null,
+    anchorOccurrence: 0,
+    pausedAt: null,
+    resumedAt: null,
+    stalledAt: null,
+    stallReason: null,
+  };
+
+  it('retries the same idempotencyKey after the response is lost and returns the original subscription', async () => {
+    const creates: Array<{ idempotencyKey?: string; mandateId?: string; path?: string }> = [];
+    const stored = new Map<string, typeof subscription>();
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        const href = String(url);
+        if (href.includes('merchant.me')) {
+          return response({
+            id: merchantId,
+            userId,
+            mode: 'gateway',
+            status: 'active',
+            kybStatus: 'approved',
+            kybRef: 'verified',
+            feeBps: null,
+          });
+        }
+        if (!href.includes('subscription.create')) throw new Error(href);
+        const body = JSON.parse(String(options?.body)) as { idempotencyKey?: string; mandateId?: string; path?: string };
+        creates.push(body);
+        const key = body.idempotencyKey ?? '';
+        const prior = stored.get(key);
+        if (!prior) {
+          stored.set(key, subscription);
+          throw new Error('socket hang up');
+        }
+        return response(prior);
+      },
+    });
+    const pay = createBusinessPayApi(
+      api,
+      userId,
+      {
+        verified: true,
+        companyId: 'verified-company',
+        companyName: 'Company fixture',
+        merchantId,
+        userId,
+        scopes: ['pay:read', 'pay:write'],
+      },
+      createPayMutationGuard(),
+    );
+    const lost = await pay.mutate('subscription.create', { mandateId, path: 'crypto_invoice' }, subscriptionSchema, 'pay:write', operation);
+    expect(lost).toMatchObject({ ok: false, reason: 'uncertain' });
+    expect(creates[0]).toMatchObject({ mandateId, path: 'crypto_invoice', idempotencyKey: lockId });
+    expect(pay.guard.status(lockId)).toBe('uncertain');
+
+    const replayed = await pay.mutate(
+      'subscription.create',
+      { mandateId, path: 'crypto_invoice' },
+      subscriptionSchema,
+      'pay:write',
+      operation,
+    );
+    expect(replayed).toEqual({ ok: true, data: subscription });
+    expect(creates[1]?.idempotencyKey).toBe(lockId);
+    expect(stored.size).toBe(1);
+    expect(pay.guard.status(lockId)).toBeNull();
   });
 });
 

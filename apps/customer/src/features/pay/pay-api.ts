@@ -692,12 +692,11 @@ export function createBusinessPayApi(
     return result;
   }
   /**
-   * Does not forward an Idempotency-Key. `api.mutate` options are `{ signal }`
-   * only, and this method does not take a header. `subscription.create` on
-   * the server accepts `idempotencyKey` in the procedure input; this client
-   * cannot put that key on the request. A second open subscription is refused
-   * by the server. The `operation` string below is still one browser's
-   * localStorage guard.
+   * `subscription.create` takes `idempotencyKey` on the procedure input.
+   * `api.mutate` has no header slot, so this is not an Idempotency-Key header.
+   * The key is this call's lock id. A retry after a lost response sends that
+   * same key and the server replays the subscription. Callers, including
+   * merchant billing and the portal subscriptions page, pass the same lock id.
    */
   async function mutate<T>(
     procedure: string,
@@ -710,17 +709,36 @@ export function createBusinessPayApi(
     if (denied) return denied;
     const checked = await merchant();
     if (!checked.ok) return checked;
-    return guard.run(`${userId}:${operation}`, () =>
+    const lockId = `${userId}:${operation}`;
+    const requestInput =
+      procedure === 'subscription.create'
+        ? {
+            ...(input && typeof input === 'object' && !Array.isArray(input) ? input : {}),
+            idempotencyKey: lockId,
+          }
+        : input;
+    const send = () =>
       api.mutate(
         'pay',
         procedure,
-        input,
+        requestInput,
         schema.refine(
           (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
           'The mutation outcome belongs to another merchant.',
         ),
-      ),
-    );
+      );
+    // The journal stays after a lost response and would otherwise refuse a
+    // second post. subscription.create is safe to send again: the lock id is
+    // the key, so a committed create comes back as the same subscription.
+    if (procedure === 'subscription.create' && guard.status(lockId) === 'uncertain') {
+      const held = guard.original(lockId);
+      if (held?.status === 'present') {
+        const replayed = await send();
+        if (replayed.ok) await guard.resolve(lockId, held.raw);
+        return replayed;
+      }
+    }
+    return guard.run(lockId, send);
   }
   return {
     merchant,

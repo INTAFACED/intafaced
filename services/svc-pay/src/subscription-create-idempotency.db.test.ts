@@ -20,10 +20,12 @@ import { truncatePayForTest } from './payment-events-test-reset.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', 'drizzle');
-const migrations = readdirSync(drizzle)
+const migrationFiles = readdirSync(drizzle)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
-  .sort()
-  .map((f) => readFileSync(join(drizzle, f), 'utf8'));
+  .sort();
+const migrations = migrationFiles.map((f) => readFileSync(join(drizzle, f), 'utf8'));
+const migrationsBeforeOpenIndex = migrationFiles.filter((f) => !f.startsWith('0081_')).map((f) => readFileSync(join(drizzle, f), 'utf8'));
+const openIndexMigration = readFileSync(join(drizzle, '0081_pay_subscription_create_idempotency.sql'), 'utf8');
 
 const H8A_IMAGE = 'postgres:16-alpine';
 const MERCHANT_USER = '11111111-1111-4111-8111-111111111111';
@@ -139,6 +141,18 @@ describe('subscription.create duplicate protection', () => {
     expect(keys[0]!.n).toBe(1);
   });
 
+  it('replays when the key is repeated with no path and then the default path', async () => {
+    const first = await subs.createSubscription({ mandateId, idempotencyKey: 'default-path' });
+    const retry = await subs.createSubscription({
+      mandateId,
+      path: 'crypto_invoice',
+      idempotencyKey: 'default-path',
+    });
+    expect(retry.id).toBe(first.id);
+    expect(retry.path).toBe('crypto_invoice');
+    expect(await allCount()).toBe(1);
+  });
+
   it('replays the same key and the same body as the original subscription', async () => {
     const first = await subs.createSubscription({ mandateId, path: 'crypto_invoice', idempotencyKey: 'again' });
     const second = await subs.createSubscription({ mandateId, path: 'crypto_invoice', idempotencyKey: 'again' });
@@ -240,5 +254,101 @@ describe('subscription.create duplicate protection', () => {
     });
     expect(b.id).not.toBe(a.id);
     expect(await allCount()).toBe(2);
+  });
+});
+
+describe('0081 preflight refuses a mandate that already has two open subscriptions', () => {
+  let adminStop: () => Promise<void> = async () => undefined;
+  let db: TestDatabase | undefined;
+  let sql!: TestDatabase['sql'];
+  let subs: SubscriptionService;
+  let merchantId: string;
+
+  beforeAll(async () => {
+    const admin = await openAdmin();
+    adminStop = admin.stop;
+    db = await createTestDatabase({ service: 'pay', url: admin.url, migrations: migrationsBeforeOpenIndex });
+    sql = db.sql;
+  }, 120_000);
+
+  beforeEach(async () => {
+    if (!db || !sql) throw new Error('0081 preflight PG was not opened');
+    await truncatePayForTest(sql, 'pay', `TRUNCATE pay.subscriptions, pay.subscription_mandates, pay.merchants RESTART IDENTITY CASCADE`);
+    subs = new SubscriptionService(sql, () => new Date('2026-01-15T00:00:00.000Z'));
+    const merchant = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchants (user_id, mode, tier, kyb_status, status, pricing, settlement_prefs)
+      VALUES (${MERCHANT_USER}, 'gateway', 0, 'none', 'active', '{}'::jsonb, '{}'::jsonb)
+      RETURNING id
+    `;
+    merchantId = merchant[0]!.id;
+  });
+
+  afterAll(async () => {
+    await db?.drop();
+    await adminStop();
+  }, 30_000);
+
+  async function mandateFor(customerId: string): Promise<string> {
+    const mandate = await subs.createMandate({
+      merchantId,
+      customerId,
+      assetId: 'USDT',
+      amount: amt('10'),
+      cadence: 'monthly',
+      startsAt: STARTS,
+    });
+    return mandate.id;
+  }
+
+  it('names those mandates, leaves both open rows, and applies only after the merchant cancels one', async () => {
+    const firstMandate = await mandateFor('cust-open-a');
+    const secondMandate = await mandateFor('cust-open-b');
+    await subs.createSubscription({ mandateId: firstMandate });
+    await subs.createSubscription({ mandateId: secondMandate });
+    await sql`
+      INSERT INTO pay.subscriptions (mandate_id, merchant_id, customer_id, next_run_at, status, path)
+      VALUES
+        (${firstMandate}, ${merchantId}, 'cust-open-a', ${STARTS}, 'paused', 'card'),
+        (${secondMandate}, ${merchantId}, 'cust-open-b', ${STARTS}, 'active', 'card')
+    `;
+
+    await expect(sql.unsafe(openIndexMigration)).rejects.toThrow(/must cancel one open subscription/);
+    let message = '';
+    try {
+      await sql.unsafe(openIndexMigration);
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toContain(firstMandate);
+    expect(message).toContain(secondMandate);
+    expect(message).toMatch(/does not cancel or rewrite/);
+
+    const open = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.subscriptions WHERE status IN ('active', 'paused')
+    `;
+    expect(open[0]!.n).toBe(4);
+    const index = await sql<Array<{ indexname: string }>>`
+      SELECT indexname FROM pg_indexes WHERE indexname = 'subscriptions_one_open_per_mandate_uq'
+    `;
+    expect(index).toHaveLength(0);
+    const journal = await sql<Array<{ name: string | null }>>`
+      SELECT to_regclass('pay.subscription_create_idempotency')::text AS name
+    `;
+    expect(journal[0]!.name).toBeNull();
+
+    await sql`
+      UPDATE pay.subscriptions
+         SET status = 'cancelled'
+       WHERE path = 'card'
+    `;
+    await sql.unsafe(openIndexMigration);
+    const after = await sql<Array<{ indexname: string }>>`
+      SELECT indexname FROM pg_indexes WHERE indexname = 'subscriptions_one_open_per_mandate_uq'
+    `;
+    expect(after).toHaveLength(1);
+    const stillOpen = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.subscriptions WHERE status IN ('active', 'paused')
+    `;
+    expect(stillOpen[0]!.n).toBe(2);
   });
 });

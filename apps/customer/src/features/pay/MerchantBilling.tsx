@@ -97,20 +97,24 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                     ]}
                   />
                 }
-                perform={() =>
-                  // pay.mutate does not forward an Idempotency-Key header.
-                  // See createBusinessPayApi. The server refuses a second open
-                  // subscription for this mandate.
-                  validatedMutation(
+                perform={() => {
+                  // Lock id for this mandate. It is the procedure's idempotencyKey,
+                  // not an Idempotency-Key header. A lost response retries this same id.
+                  const operation = `subscription-create:${mandateId}`;
+                  return validatedMutation(
                     pay,
                     'subscription.create',
-                    { mandateId, path },
-                    z.object({ mandateId: s.id, path: z.enum(['crypto_invoice', 'card', 'card_mandate']) }),
+                    { mandateId, path, idempotencyKey: `${pay.authority!.userId}:${operation}` },
+                    z.object({
+                      mandateId: s.id,
+                      path: z.enum(['crypto_invoice', 'card', 'card_mandate']),
+                      idempotencyKey: z.string().trim().min(1).max(255),
+                    }),
                     s.subscriptionSchema,
                     'pay:write',
-                    'subscription-create',
-                  )
-                }
+                    operation,
+                  );
+                }}
                 disabled={!mandateId || !path || Boolean(pay.access('pay:write'))}
                 onConfirmed={(data) => {
                   setSelected(data.id);

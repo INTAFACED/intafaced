@@ -61,7 +61,7 @@ function subscriptionCreateKey(raw: string | undefined): string | undefined {
 function subscriptionCreateFingerprint(mandateId: string, path: string | undefined): string {
   return fingerprintRequest('POST', 'subscription.create', {
     mandateId: mandateId.toLowerCase(),
-    path: path ?? null,
+    path: normaliseSubscriptionPath(path),
   });
 }
 

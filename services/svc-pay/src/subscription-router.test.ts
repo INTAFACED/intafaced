@@ -279,7 +279,10 @@ describe('subscription merchant surface', () => {
 
   it('refuses a blank Idempotency-Key before creating', async () => {
     const api = await caller(['pay:write']);
-    await expect(api.subscription.create({ mandateId: MANDATE, idempotencyKey: '   ' })).rejects.toThrow();
+    await expect(api.subscription.create({ mandateId: MANDATE, idempotencyKey: '   ' })).rejects.toMatchObject({
+      message: expect.stringContaining('pay.idempotency_required'),
+      cause: expect.objectContaining({ code: 'pay.idempotency_required' }),
+    });
     expect(calls).not.toContain('createSubscription');
   });
 

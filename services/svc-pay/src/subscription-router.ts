@@ -455,8 +455,10 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * Same key and same body returns the original subscription. Same key and
        * a different body refuses `pay.idempotency_conflict`. A second open
        * subscription on the mandate refuses `pay.subscription_mandate_open`
-       * even with a new key. The customer `pay.mutate` path does not forward
-       * an HTTP header — see `createBusinessPayApi`.
+       * even with a new key. A blank or oversized key is
+       * `pay.idempotency_required` before a subscription is created. The
+       * customer mutate puts the lock id on this field. It is not an HTTP
+       * header — see `createBusinessPayApi`.
        */
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
@@ -466,15 +468,23 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
             path: z.enum(['crypto_invoice', 'card', 'card_mandate']).optional(),
             /**
              * Caller's Idempotency-Key. Omit it and the mandate unique index is
-             * still enforced. Blank or over 255 characters is refused. 255 is
-             * the existing public REST cap, not a new product limit.
+             * still enforced. Blank or over 255 characters is
+             * `pay.idempotency_required`. 255 is the existing public REST cap,
+             * not a new product limit. The check lives in the handler so the
+             * refusal is that pay code, not a generic parser error.
              */
-            idempotencyKey: z.string().trim().min(1).max(255).optional(),
+            idempotencyKey: z.string().optional(),
           }),
         )
         .output(subscriptionView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
+            if (input.idempotencyKey !== undefined) {
+              const key = input.idempotencyKey.trim();
+              if (!key || key.length > 255) {
+                throw new PayError('Idempotency-Key must be 1 to 255 characters. Nothing was written.', 'pay.idempotency_required');
+              }
+            }
             const mandate = await subscriptions.getMandate(input.mandateId);
             await assertMandateArea(ctx.principal?.userId, input.mandateId, mandate.merchantId);
             const sub = await subscriptions.createSubscription({
