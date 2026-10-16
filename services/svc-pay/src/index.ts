@@ -57,6 +57,8 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { createEdgeContext, mergeRouters, retainRawBody, createIdentityOperationDecisionClient } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { setIsolationDenialSink } from './isolation-log.js';
+import { onCapturedOverCap } from './control/over-cap-signal.js';
+import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -408,6 +410,9 @@ export type { PayNamespacesRouter } from './namespaces/index.js';
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 // Callers get a uniform not-found; operators get the real reason (log only).
 setIsolationDenialSink((denial) => app.log.warn({ isolation: denial }, 'pay.isolation_denied'));
+onCapturedOverCap((signal) => {
+  app.log.warn({ event: 'payment.captured_over_cap', ...signal }, 'payment.captured_over_cap');
+});
 
 // Keep the exact request bytes so S2S verifiers can check the signed digest
 // (L2-6). Installed once here; internal registers pass `installRawBody: false`
@@ -489,6 +494,13 @@ registerSubscriptionCycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   subscriptions,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  installRawBody: false,
+});
+
+registerCaptureReconcileRoutes(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  pay,
+  mode: env.PAY_CAPTURE_RECONCILE,
   installRawBody: false,
 });
 

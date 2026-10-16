@@ -1,7 +1,9 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { PartialPayGuards, PaymentAdmitContext, PaymentCaptureBookedContext } from '../seams/guards.js';
+import { recordMerchantNotification } from '../merchant-ops/notifications.js';
 import { writeAudit } from './audit.js';
+import { emitCapturedOverCap, type CapturedOverCapSignal } from './over-cap-signal.js';
 import { requirePayoutApproval } from './approval-gate.js';
 import { alreadyCounted, consumeBeneficiary, consumeMoney, markCounted, readUsage } from './counters.js';
 import { ControlRefusal } from './errors.js';
@@ -204,7 +206,9 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
       if (dailyResult.usedBefore + amount > limits.daily) over.push('daily_intake');
       if (monthlyResult.usedBefore + amount > limits.monthly) over.push('monthly_intake');
     }
+    let overCap: CapturedOverCapSignal | null = null;
     if (over.length > 0) {
+      const amountText = formatAmount(amount);
       await writeAudit(tx, {
         scope: 'merchant',
         scopeId: ctx.merchantId,
@@ -213,18 +217,43 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
         outcome: 'flagged',
         actorId: 'system:capture_guard',
         reason: `captured payment exceeded: ${over.join(', ')}`,
-        after: { paymentId: ctx.paymentId, assetCode, amount: formatAmount(amount), exceeded: over },
+        after: { paymentId: ctx.paymentId, assetCode, amount: amountText, exceeded: over },
       });
+      // Same transaction as the audit row. A muted `limit_threshold` preference
+      // records nothing and does not stop the metric or the span event.
+      await recordMerchantNotification(tx, {
+        merchantId: ctx.merchantId,
+        kind: 'limit_threshold',
+        title: 'Capture exceeded a cap',
+        body: `${amountText} ${assetCode} exceeded ${over.join(', ')}`,
+        subjectType: 'payment',
+        subjectId: ctx.paymentId,
+        dedupeKey: `captured_over_cap:${ctx.paymentId.toLowerCase()}`,
+      });
+      overCap = { paymentId: ctx.paymentId, merchantId: ctx.merchantId, assetCode, amount: amountText, exceeded: over };
     }
 
+    const signalOverCap = () => {
+      if (overCap) emitCapturedOverCap(overCap);
+    };
+
     // The pricing snapshot is bookkeeping: a rule that is gone or cannot be computed skips it, never the capture.
-    if (!resolved) return;
+    // The counter is emitted on the way out of this function, after the audit insert. A throw from the
+    // snapshot skips it. A throw in the caller after this returns can still lead the process counter;
+    // the audit row is what committed.
+    if (!resolved) {
+      signalOverCap();
+      return;
+    }
     const rule = resolved;
     let quote;
     try {
       quote = computePricing(rule.rule, { amount, monthlyVolumeBefore: monthlyResult.usedBefore });
     } catch (error) {
-      if (error instanceof PricingConfigError) return;
+      if (error instanceof PricingConfigError) {
+        signalOverCap();
+        return;
+      }
       throw error;
     }
     await writePricingSnapshot(tx, {
@@ -237,6 +266,7 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
       baseAmount: amount,
       monthlyVolumeBefore: monthlyResult.usedBefore,
     });
+    signalOverCap();
   }
 
   return {

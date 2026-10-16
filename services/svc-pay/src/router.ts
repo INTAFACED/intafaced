@@ -1818,6 +1818,8 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.subscription_cycle_list_limit_unset':
       case 'pay.due_subscriptions_batch_limit_unset':
       case 'pay.due_webhook_deliveries_batch_limit_unset':
+      case 'pay.capture_reconcile_disabled':
+      case 'pay.capture_reconcile_batch_limit_unset':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':
