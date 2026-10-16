@@ -127,6 +127,8 @@ describe('W0 namespaces are mounted', () => {
     );
     expect(src).toContain('startMetricsRefresher(metrics.projector');
     expect(src).toContain('const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env));');
+    expect(src).toContain('haltStore.adoptConfig()');
+    expect(src).toContain('setAutoTripAccountErrorSink');
     expect(src).toContain('payHalts: { store: haltStore, merchants: pay }');
     expect(src).toContain('control: new ControlService(sql, teamAccessPorts(sql))');
     expect(src).toContain('const payGuards = buildPayGuards({ sql, ledger });');

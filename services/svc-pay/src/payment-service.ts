@@ -10,7 +10,10 @@ import {
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { withPaymentAdmission, preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
 import { FRESH, NOOP_GUARDS, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
-import { payoutRailSourceKey, type PayHaltStore } from './halts/store.js';
+import { noteAutoTripAccountError } from './halts/autotrip-log.js';
+import { isRailHealthFailureCode } from './halts/rail-health.js';
+import { payoutRailSourceKey, targetKey, type PayHaltStore } from './halts/store.js';
+import type { PayHaltTarget } from './halts/types.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -702,9 +705,9 @@ export interface PayServiceOptions {
   readonly guards?: PayGuards;
 
   /**
-   * Auto-trip streak writer. A confirmed payout rail acceptance or refusal is
-   * reported here, for this merchant and this rail. Omitted, or constructed
-   * with no failure count, records nothing: auto-trip stays off.
+   * Auto-trip streak writer. A rail-health payout or refund outcome is reported
+   * here. Omitted, or constructed with no failure count, records nothing:
+   * auto-trip stays off. A throw from the writer does not change the money result.
    */
   readonly haltStore?: PayHaltStore;
 
@@ -2676,7 +2679,19 @@ export class PayService {
     // ── Phase 2: send it. The book already says this money is on its way out.
     const adapter = this.rails.require(prepared.row.rail_adapter, 'refund');
     const railRef = prepared.row.rail_ref!;
-    const result = await withRailSpan(adapter.id, 'refund', async () => adapter.refund(railRef, amount, { refundId: prepared.refundId }));
+    let result: RailResult;
+    try {
+      result = await withRailSpan(adapter.id, 'refund', async () => adapter.refund(railRef, amount, { refundId: prepared.refundId }));
+    } catch (error) {
+      // The book already says the refund is on its way out. Counting may halt
+      // later payouts. It does not reverse, replay, or replace this throw.
+      await this.accountRailOutcome({
+        kind: 'throw',
+        target: { level: 'merchant', merchantId: prepared.row.merchant_id },
+        railId: prepared.row.rail_adapter,
+      });
+      throw error;
+    }
 
     // ── Phase 3: record what the rail did, and reverse the ledger if it refused.
     const settled = await transaction(
@@ -2732,12 +2747,24 @@ export class PayService {
     );
 
     if (!settled.ok) {
+      await this.accountRailOutcome({
+        kind: 'failure',
+        target: { level: 'merchant', merchantId: prepared.row.merchant_id },
+        railId: prepared.row.rail_adapter,
+        failureCode: result.failureCode,
+        eventKey: `refund:${prepared.row.id}:${prepared.refundId}`,
+      });
       throw new PayError(result.failureReason ?? 'Rail refused the refund', 'pay.rail_failed', {
         failureCode: result.failureCode,
         refundId: prepared.refundId,
       });
     }
 
+    await this.accountRailOutcome({
+      kind: 'success',
+      target: { level: 'merchant', merchantId: prepared.row.merchant_id },
+      railId: prepared.row.rail_adapter,
+    });
     this.notifyPaymentEvent('payment.refunded', settled.view);
     return settled.view;
   }
@@ -3623,6 +3650,40 @@ export class PayService {
   }
 
   /**
+   * Record a rail-health outcome after the money result is durable. A throw here
+   * is logged and counted. It does not change a paid_out result or a refusal.
+   * Adapter throws count. Destination and customer refusals do not.
+   */
+  private async accountRailOutcome(input: {
+    kind: 'failure' | 'success' | 'throw';
+    target: PayHaltTarget;
+    railId: string;
+    failureCode?: string | null;
+    eventKey?: string;
+    connection?: Sql;
+  }): Promise<void> {
+    if (!this.haltStore) return;
+    if (input.target.level !== 'merchant' && input.target.level !== 'user') return;
+    const sourceKey = payoutRailSourceKey(input.railId);
+    try {
+      if (input.kind === 'success') {
+        await this.haltStore.recordSuccess('payout', input.target, sourceKey, input.connection);
+        return;
+      }
+      if (input.kind === 'failure' && !isRailHealthFailureCode(input.failureCode)) return;
+      await this.haltStore.recordFailure('payout', input.target, sourceKey, input.connection, input.eventKey);
+    } catch (error) {
+      noteAutoTripAccountError({
+        op: input.kind === 'success' ? 'recordSuccess' : 'recordFailure',
+        scope: 'payout',
+        target: targetKey(input.target),
+        sourceKey,
+        name: error instanceof Error ? error.name : 'unknown',
+      });
+    }
+  }
+
+  /**
    * Pay a settled window out of the book, to a bank or a chain (§6.1 "payout to
    * bank/crypto via adapter `payout`").
    *
@@ -3811,16 +3872,29 @@ export class PayService {
               replay: holdBooked ? { kind: 'recovery', reason: 'payout_hold_booked' } : FRESH,
             });
             await postPayLedger(this.ledger, plan.hold);
-            const result = await withRailSpan(adapter.id, 'payout', () =>
-              adapter.payout({
-                settlementId: admission!.business_id,
-                merchantId: admission!.merchant_id,
-                amount: parseAmount(admission!.net),
-                assetId: admission!.asset_id,
-                window: admission!.window,
-                destination: { kind: admission!.destination_kind, ref: admission!.destination_ref },
-              }),
-            );
+            let result: Awaited<ReturnType<typeof adapter.payout>>;
+            try {
+              result = await withRailSpan(adapter.id, 'payout', () =>
+                adapter.payout({
+                  settlementId: admission!.business_id,
+                  merchantId: admission!.merchant_id,
+                  amount: parseAmount(admission!.net),
+                  assetId: admission!.asset_id,
+                  window: admission!.window,
+                  destination: { kind: admission!.destination_kind, ref: admission!.destination_ref },
+                }),
+              );
+            } catch (error) {
+              // The hold is already on the ledger. Counting may halt the next
+              // payout. It does not reverse this one or replace the throw.
+              await this.accountRailOutcome({
+                kind: 'throw',
+                target: { level: 'merchant', merchantId: admission.merchant_id },
+                railId: admission.rail_id,
+                connection,
+              });
+              throw error;
+            }
             if (!result.ok) {
               freshRail = 'refused';
               refused = { failureReason: result.failureReason ?? 'Rail refused', failureCode: result.failureCode ?? 'rail.failed' };
@@ -3839,15 +3913,17 @@ export class PayService {
               await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'reversed','{}') ON CONFLICT DO NOTHING`;
               await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission!.attempt + 1},updated_at=now() WHERE id=${settlement.id}`;
             });
-            // After the refusal is durable. A throw here does not unwind the
-            // reverse: the book already shows the payout failed.
+            // After the refusal is durable. Accounting must not unwind the
+            // reverse or replace pay.rail_failed: the book already shows the payout failed.
             if (freshRail === 'refused') {
-              await this.haltStore?.recordFailure(
-                'payout',
-                { level: 'merchant', merchantId: admission.merchant_id },
-                payoutRailSourceKey(admission.rail_id),
+              await this.accountRailOutcome({
+                kind: 'failure',
+                target: { level: 'merchant', merchantId: admission.merchant_id },
+                railId: admission.rail_id,
+                failureCode: refused?.failureCode,
+                eventKey: `payout:${admission.settlement_id}:${admission.attempt}`,
                 connection,
-              );
+              });
             }
             throw new PayError(refused?.failureReason ?? 'Rail refused payout', 'pay.rail_failed', { failureCode: refused?.failureCode });
           }
@@ -3857,12 +3933,12 @@ export class PayService {
             await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission!.rail_id},payout_ref=${accepted!.railRef},updated_at=now() WHERE id=${settlement.id}`;
           });
           if (freshRail === 'accepted') {
-            await this.haltStore?.recordSuccess(
-              'payout',
-              { level: 'merchant', merchantId: admission.merchant_id },
-              payoutRailSourceKey(admission.rail_id),
+            await this.accountRailOutcome({
+              kind: 'success',
+              target: { level: 'merchant', merchantId: admission.merchant_id },
+              railId: admission.rail_id,
               connection,
-            );
+            });
           }
           return { ...settlement, status: 'paid_out' as const, payoutMethod: admission.rail_id, payoutRef: accepted.railRef };
         });

@@ -18,7 +18,9 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0071      | W4b merchant names                                    | used                                            |
 | 0072-0073 | unassigned                                            | free; ask W0 before using                       |
 | 0074      | W2c limit-increase requests                           | used                                            |
-| 0075-0080 | unassigned                                            | free; ask W0 before using                       |
+| 0075-0078 | unassigned                                            | free; ask W0 before using                       |
+| 0079      | W5 auto-trip window                                   | used                                            |
+| 0080      | unassigned                                            | free; ask W0 before using                       |
 | 0081      | subscription.create idempotency, one open subscription per mandate | used                               |
 | 0082+     | unassigned                                            | free; ask W0 before using                       |
 

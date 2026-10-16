@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { PayGuardRefusal, type GuardReplay, type PartialPayGuards } from '../seams/guards.js';
 import { merchantIdsWithLegacySettlement, type SettlementBookReader } from '../settlement-book.js';
-import { findBlockingHalt, findBlockingHaltForTargets } from './store.js';
+import { findBlockingHalt, findBlockingHaltForTargets, railHaltKey, userHaltKey } from './store.js';
 import type { PayHaltScope } from './types.js';
 
 /**
@@ -13,11 +13,12 @@ import type { PayHaltScope } from './types.js';
  *   beforePayoutExecute        payout
  *   beforeSettlementRun        settlement   (prepare and post)
  *   beforeConversion           conversion
- *   beforeUserMoneyWithdrawal  payout       (the global switch, always, and the switch of
+ *   beforeUserMoneyWithdrawal  payout       (the global switch, always; the switch of
  *                              every merchant the user owns that still has a legacy
- *                              settlement: that window's ledger post debited
- *                              userAvailable, and withdrawal.create debits the same
- *                              account. A merchant whose settled net is only on
+ *                              settlement; that user's own withdrawal switch; and the
+ *                              switch of the rail being asked. A legacy window's post
+ *                              debited userAvailable, and withdrawal.create debits the
+ *                              same account. A merchant whose settled net is only on
  *                              proceeds is not this exit.)
  *   beforeRefund               NONE, by decision: a refund returns a payer's own
  *                              money. A halt that traps funds is not a safety
@@ -68,12 +69,12 @@ export async function assertNotHalted(
   scope: PayHaltScope,
   merchantId: string | undefined,
   replay: GuardReplay,
-  opts: { railSend?: boolean } = {},
+  opts: { railSend?: boolean; railId?: string } = {},
 ): Promise<void> {
   if (opts.railSend ? passesRailSend(replay) : passes(replay)) return;
   let blocking;
   try {
-    blocking = await findBlockingHalt(conn, scope, merchantId);
+    blocking = await findBlockingHalt(conn, scope, merchantId, opts.railId);
   } catch (error) {
     if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
     throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
@@ -84,20 +85,23 @@ export async function assertNotHalted(
 /**
  * Personal withdrawals. The global payout switch always counts. A merchant
  * switch counts only while that merchant still has legacy settled net on
- * `userAvailable`. Replay settles or reverses a receipt already on file and
- * sends nothing. A fresh withdrawal and a recovery both call the rail, so a
+ * `userAvailable`. The user's own switch and the rail being asked always
+ * count. Replay settles or reverses a receipt already on file and sends
+ * nothing. A fresh withdrawal and a recovery both call the rail, so a
  * matching halt pauses them. Fails closed.
  */
 async function assertUserMoneyNotHalted(
   conn: Sql,
   userId: string,
+  railId: string,
   replay: GuardReplay,
   ledger: SettlementBookReader | undefined,
 ): Promise<void> {
   if (passesRailSend(replay)) return;
   let targets: string[];
   try {
-    targets = await merchantIdsWithLegacySettlement(conn, ledger, userId);
+    const legacy = await merchantIdsWithLegacySettlement(conn, ledger, userId);
+    targets = [...legacy, userHaltKey(userId), railHaltKey(railId)];
   } catch (error) {
     if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
     throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
@@ -119,15 +123,15 @@ export function createHaltGuards(deps: {
   ledger?: SettlementBookReader;
 }): PartialPayGuards {
   // The connection arrives on each call. Auto-trip counts are not computed here:
-  // a confirmed rail refusal records itself (per merchant, per rail) and, at the
-  // configured count, writes the halt these guards then enforce.
+  // a rail-health refusal records itself and, at the configured count, writes
+  // the halt these guards then enforce.
   return {
     beforePaymentAdmit: (ctx) => assertNotHalted(ctx.tx, 'intake', ctx.merchantId, ctx.replay),
-    beforePayoutAdmit: (ctx) => assertNotHalted(ctx.tx, 'payout', ctx.merchantId, ctx.replay, { railSend: true }),
-    beforePayoutExecute: (ctx) => assertNotHalted(ctx.sql, 'payout', ctx.merchantId, ctx.replay, { railSend: true }),
+    beforePayoutAdmit: (ctx) => assertNotHalted(ctx.tx, 'payout', ctx.merchantId, ctx.replay, { railSend: true, railId: ctx.railId }),
+    beforePayoutExecute: (ctx) => assertNotHalted(ctx.sql, 'payout', ctx.merchantId, ctx.replay, { railSend: true, railId: ctx.railId }),
     beforeSettlementRun: (ctx) => assertNotHalted(ctx.sql, 'settlement', ctx.merchantId, ctx.replay),
     beforeConversion: (ctx) => assertNotHalted(ctx.sql, 'conversion', ctx.merchantId, ctx.replay),
-    beforeUserMoneyWithdrawal: (ctx) => assertUserMoneyNotHalted(ctx.tx, ctx.userId, ctx.replay, deps.ledger),
+    beforeUserMoneyWithdrawal: (ctx) => assertUserMoneyNotHalted(ctx.tx, ctx.userId, ctx.rail, ctx.replay, deps.ledger),
     // beforeRefund: deliberately absent. See the table above.
   };
 }

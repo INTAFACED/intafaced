@@ -11,10 +11,11 @@ import { composeGuards, type PartialPayGuards } from '../guards.js';
  *
  * Halts run first (cheapest refusal), then exposure limits. Both are built from
  * code under `services/svc-pay/src/halts/**` and `src/treasury/**`. Halts are
- * always on (no halt set = pass). Auto-trip is not counted here. A confirmed
- * rail refusal records itself on `PayHaltStore`, per merchant and per rail, and
- * that store refuses to arm when `PAY_HALT_AUTOTRIP_FAILURES` is unset. These
- * guards only enforce the halt written when that count is reached. Exposure limits come from
+ * always on (no halt set = pass). Auto-trip is not counted here. A rail-health
+ * refusal records itself on `PayHaltStore` (one merchant and rail, or one user,
+ * plus the rail across merchants when that count is set). The store does not
+ * arm a count that is unset. These guards only enforce the halt written when
+ * a count is reached. Exposure limits come from
  * the environment with NO defaults. Enforcement is behind
  * `PAY_TREASURY_LIMITS=off|required` (default off; any other value throws here,
  * which fails boot).

@@ -6,6 +6,7 @@ import { createFounderAuthority } from './founder-authority.js';
 import { ControlService, teamAccessPorts } from './control/index.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
+import { setAutoTripAccountErrorSink } from './halts/autotrip-log.js';
 import { loadHaltAutoTripConfig } from './halts/config.js';
 import { PayHaltStore } from './halts/store.js';
 import { loadTreasuryLimits } from './treasury/config.js';
@@ -426,6 +427,10 @@ setCaptureReconcileLogger({
   warn: (fields, message) => {
     app.log.warn(fields, message);
   },
+});
+setAutoTripAccountErrorSink((event) => app.log.warn({ autotrip: event }, 'pay.halt_autotrip_account_failed'));
+void haltStore.adoptConfig().catch((err) => {
+  app.log.warn({ err }, 'pay.halt_autotrip_adopt_failed');
 });
 
 // Keep the exact request bytes so S2S verifiers can check the signed digest

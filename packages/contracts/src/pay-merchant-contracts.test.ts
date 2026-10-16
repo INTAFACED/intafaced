@@ -83,6 +83,10 @@ describe('pay contracts: halts', () => {
     expect(payHaltTargetSchema.safeParse({ level: 'global' }).success).toBe(true);
     expect(payHaltTargetSchema.safeParse({ level: 'merchant', merchantId }).success).toBe(true);
     expect(payHaltTargetSchema.safeParse({ level: 'merchant' }).success).toBe(false);
+    expect(payHaltTargetSchema.safeParse({ level: 'user', userId: merchantId }).success).toBe(true);
+    expect(payHaltTargetSchema.safeParse({ level: 'user' }).success).toBe(false);
+    expect(payHaltTargetSchema.safeParse({ level: 'rail', railId: 'crypto-native' }).success).toBe(true);
+    expect(payHaltTargetSchema.safeParse({ level: 'rail', railId: 'Bad Rail' }).success).toBe(false);
   });
 
   it('a halt command takes no actor from the body', () => {

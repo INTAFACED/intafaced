@@ -606,7 +606,7 @@ export function pricingAssets(rules: readonly PricingRule[] | null): string[] {
 
 // ---- operation pauses (B11) ----------------------------------------------------------------------------
 
-export type ActiveHalt = { scope: HaltScope; level: 'global' | 'merchant'; changedAt: string | null };
+export type ActiveHalt = { scope: HaltScope; level: 'global' | 'merchant' | 'rail'; railId?: string; changedAt: string | null };
 /** Pauses that apply to the given operations. A store that could not be read counts as paused for all of them. */
 export function activeHalts(status: HaltStatus, scopes: readonly HaltScope[]): { unreadable: boolean; halts: ActiveHalt[] } {
   if (!status.readable) return { unreadable: true, halts: [] };
@@ -614,6 +614,10 @@ export function activeHalts(status: HaltStatus, scopes: readonly HaltScope[]): {
     unreadable: false,
     halts: status.states
       .filter((s) => s.halted && scopes.includes(s.scope))
-      .map((s) => ({ scope: s.scope, level: s.target.level, changedAt: s.changedAt })),
+      .map((s) => {
+        if (s.target.level === 'rail') return { scope: s.scope, level: 'rail' as const, railId: s.target.railId, changedAt: s.changedAt };
+        if (s.target.level === 'merchant') return { scope: s.scope, level: 'merchant' as const, changedAt: s.changedAt };
+        return { scope: s.scope, level: 'global' as const, changedAt: s.changedAt };
+      }),
   };
 }

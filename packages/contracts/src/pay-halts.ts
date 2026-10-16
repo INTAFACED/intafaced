@@ -5,19 +5,23 @@ import { payMerchantIdSchema, payReasonSchema, payRequestIdSchema, payTimestampS
  * GRANULAR PAY HALTS — wire contract (workstream W0, built by W5).
  *
  * A halt is one switch with two coordinates: WHAT it stops (intake, conversion,
- * payout, settlement) and WHO it covers (everyone, or one merchant). Halting one
- * scope leaves the others running. The store is shared by every replica and an
- * unreadable store means HALTED, so `readable: false` is a refusal, never "not
- * halted".
+ * payout, settlement) and WHO it covers (everyone, one merchant, one user's
+ * withdrawal exit, or one rail for every merchant). Halting one scope leaves
+ * the others running. The store is shared by every replica and an unreadable
+ * store means HALTED, so `readable: false` is a refusal, never "not halted".
  */
 
 export const PAY_HALT_SCOPES = ['intake', 'conversion', 'payout', 'settlement'] as const;
 export type PayHaltScope = (typeof PAY_HALT_SCOPES)[number];
 export const payHaltScopeSchema = z.enum(PAY_HALT_SCOPES);
 
+export const payHaltRailIdSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+
 export const payHaltTargetSchema = z.discriminatedUnion('level', [
   z.object({ level: z.literal('global') }).strict(),
   z.object({ level: z.literal('merchant'), merchantId: payMerchantIdSchema }).strict(),
+  z.object({ level: z.literal('user'), userId: payMerchantIdSchema }).strict(),
+  z.object({ level: z.literal('rail'), railId: payHaltRailIdSchema }).strict(),
 ]);
 export type PayHaltTarget = z.infer<typeof payHaltTargetSchema>;
 
