@@ -625,6 +625,19 @@ describe('M: merchant isolation', () => {
       expect(memberships[0]?.role).toBe('owner');
     });
 
+    it('a merchant session cannot decide a sensitive identity change', async () => {
+      const o = await callTrpc(w, ctxFor('session', 'A'), 'merchant.businessProfile.review', {
+        merchantId: w.e.A.merchantId,
+        requestId: randomUUID(),
+        decision: 'approved',
+        reason: 'isolation drill',
+        expectedChangeHash: `sha256:${'a'.repeat(64)}`,
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+      });
+      expect(o).toMatchObject({ kind: 'error', code: 'FORBIDDEN' });
+    });
+
     it('B’s finance member sees only B, as finance', async () => {
       const o = await callTrpc(w, ctxOf(sessionOf(w.bFinanceUserId)), 'merchant.myAccess', {});
       expect(o.kind).toBe('ok');

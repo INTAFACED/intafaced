@@ -3,6 +3,7 @@ import { merchantCapabilityFlagsSchema } from '@intafaced/contracts';
 import {
   MERCHANT_PERMISSIONS,
   capabilityFlags,
+  capabilityFlagsForSession,
   pricingVisibilityFor,
   roleHasPermission,
   rolesWithPermission,
@@ -28,6 +29,23 @@ describe('merchant portal capability flags', () => {
     expect(pricingVisibilityFor('viewer')).toBe('fee_only');
     expect(pricingVisibilityFor('developer')).toBe('fee_only');
     expect(pricingVisibilityFor('owner')).toBe('full');
+  });
+
+  it('clears write flags when the session is not interactive and leaves reads', () => {
+    const live = capabilityFlagsForSession('owner', true);
+    const quiet = capabilityFlagsForSession('owner', false);
+    expect(live['profile.manage']).toBe(true);
+    expect(live['payout.approve']).toBe(true);
+    expect(quiet['profile.read']).toBe(true);
+    expect(quiet['payments.read']).toBe(true);
+    expect(quiet['profile.manage']).toBe(false);
+    expect(quiet['team.manage']).toBe(false);
+    expect(quiet['payout.request']).toBe(false);
+    expect(quiet['payout.approve']).toBe(false);
+    expect(quiet['exports.create']).toBe(false);
+    expect(capabilityFlagsForSession('finance', false)['disputes.respond']).toBe(false);
+    expect(capabilityFlagsForSession('finance', false)['disputes.read']).toBe(true);
+    expect(capabilityFlags('viewer')['profile.manage']).toBe(false);
   });
 });
 

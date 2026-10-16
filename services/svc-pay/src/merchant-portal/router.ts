@@ -1,4 +1,5 @@
 import type { Principal } from '@intafaced/auth';
+import { requireMfa } from '@intafaced/auth';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import {
@@ -7,6 +8,8 @@ import {
   merchantAnalyticsVolumeSchema,
   merchantBusinessProfileConfirmInputSchema,
   merchantBusinessProfileDecideResultSchema,
+  merchantBusinessProfileReviewInputSchema,
+  merchantBusinessProfileReviewResultSchema,
   merchantBusinessProfileSchema,
   merchantBusinessProfileSubmitInputSchema,
   merchantBusinessProfileSubmitResultSchema,
@@ -15,10 +18,13 @@ import {
   merchantPortalMerchantInputSchema,
   merchantProfileHistoryInputSchema,
   merchantProfileHistorySchema,
+  merchantProfileSecondApprovalInputSchema,
+  merchantProfileSecondApprovalResultSchema,
   router,
   scopedProcedure,
   TRPCError,
 } from '@intafaced/contracts';
+import { consumePayApproval, unwiredApprovalConsumer, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import type { MerchantAreaFence } from '../merchant-ownership.js';
 import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { isInteractivePrincipal } from '../merchant-ops/roles.js';
@@ -38,17 +44,22 @@ import { MerchantProfileService } from './profile.js';
  *
  * Profile writes are owner or admin, and only from an interactive session.
  * A PayFac parent that can read a child cannot write that child's profile.
+ * Sensitive identity changes are applied by `businessProfile.review`
+ * (`admin:compliance`), the same operator class as `merchant.decideKyb`.
  */
 export function merchantPortalExtensions(deps: {
   sql: Sql;
   pay: Pick<PayService, 'getMerchant' | 'getMerchantByUserId'>;
   trees: MerchantAreaFence | null;
   team: MerchantTeamRead;
+  approvals?: ActionApprovalConsumer;
 }) {
+  const approvals = deps.approvals ?? unwiredApprovalConsumer();
   const profile = new MerchantProfileService(deps.sql, deps.pay, deps.trees, deps.team);
   const analytics = new MerchantAnalyticsService(deps.sql, deps.pay, deps.trees, deps.team);
   const read = scopedProcedure('pay:read', { module: 'pay' });
   const write = scopedProcedure('pay:write', { module: 'pay' });
+  const compliance = scopedProcedure('admin:compliance', { module: 'pay' });
 
   const userIdOf = (principal: { userId?: string } | null | undefined): string => {
     if (!principal?.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
@@ -63,7 +74,12 @@ export function merchantPortalExtensions(deps: {
     myAccess: read
       .input(z.object({}).strict())
       .output(merchantMyAccessSchema)
-      .query(({ ctx }) => wrapPortal(async () => listMyAccess(deps.sql, userIdOf(ctx.principal)))),
+      .query(({ ctx }) =>
+        wrapPortal(async () => {
+          const userId = userIdOf(ctx.principal);
+          return listMyAccess(deps.sql, userId, ctx.principal ? isInteractivePrincipal(ctx.principal) : false);
+        }),
+      ),
     businessProfile: router({
       get: read
         .input(merchantPortalMerchantInputSchema)
@@ -81,6 +97,33 @@ export function merchantPortalExtensions(deps: {
         .input(merchantBusinessProfileConfirmInputSchema)
         .output(merchantBusinessProfileDecideResultSchema)
         .mutation(({ ctx, input }) => wrapPortal(async () => profile.decide(interactive(ctx.principal), input))),
+      setSecondApproval: write
+        .input(merchantProfileSecondApprovalInputSchema)
+        .output(merchantProfileSecondApprovalResultSchema)
+        .mutation(({ ctx, input }) => wrapPortal(async () => profile.setSecondApproval(interactive(ctx.principal), input))),
+      /**
+       * Compliance decide. `admin:compliance`, MFA, and an identity approval,
+       * matching `merchant.decideKyb`. A merchant session cannot apply a
+       * sensitive identity change through confirm.
+       */
+      review: compliance
+        .input(merchantBusinessProfileReviewInputSchema)
+        .output(merchantBusinessProfileReviewResultSchema)
+        .mutation(({ ctx, input }) =>
+          wrapPortal(async () => {
+            requireMfa(ctx.principal);
+            const reviewerId = ctx.principal?.userId;
+            if (!reviewerId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.merchant_profile_review', {
+              merchantId: input.merchantId,
+              requestId: input.requestId,
+              decision: input.decision,
+              expectedChangeHash: input.expectedChangeHash,
+            });
+            const decided = await profile.review(reviewerId, input);
+            return { ...decided, confirmOperatorId };
+          }),
+        ),
     }),
     onboarding: router({
       progress: read

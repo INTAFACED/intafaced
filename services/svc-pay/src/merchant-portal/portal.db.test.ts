@@ -8,6 +8,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Context } from '@intafaced/contracts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
+import { stubApprovalConsumer } from '../action-approval-consume.js';
 import { createFounderAuthority } from '../founder-authority.js';
 import { teamReadFromSql } from '../merchant-team-read.js';
 import { createMerchantOpsRouter } from '../merchant-ops/router.js';
@@ -31,6 +32,8 @@ const migrations = readdirSync(drizzleDir)
 
 const id = () => randomUUID();
 const ADDRESS = { line1: '1 Market', line2: null, city: 'Berlin', region: null, postalCode: '10115', country: 'DE' };
+const APPROVAL = { approvalId: 'appr-profile', operationId: 'op-profile' };
+const GRAND_DEST = '0x222222222222222222222222222222222222abcd';
 const WINDOW = { from: '2026-10-05T00:00:00.000Z', to: '2026-10-19T00:00:00.000Z' };
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
@@ -131,6 +134,7 @@ describe('merchant portal procedures', () => {
   const childId = id();
   const grandId = id();
   const destRef = '0x1111111111111111111111111111111111111111';
+  const complianceUser = id();
 
   beforeAll(async () => {
     const adminDb = await openAdmin();
@@ -183,7 +187,8 @@ describe('merchant portal procedures', () => {
     await member(merchantA, owner, 'viewer', 'invited');
     await sql`
       INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref)
-      VALUES (${merchantA}, 'crypto-native', 'crypto', ${destRef})`;
+      VALUES (${merchantA}, 'crypto-native', 'crypto', ${destRef}),
+             (${grandId}, 'crypto-native', 'crypto', ${GRAND_DEST})`;
     await sql`
       UPDATE pay.merchants SET
         legal_name = 'Alpha Ltd', display_name = 'Alpha',
@@ -230,14 +235,18 @@ describe('merchant portal procedures', () => {
     await stop?.();
   });
 
-  const portal = () =>
-    createMerchantPortalRouter({ sql, pay: payLookup(sql), trees: null, team: teamReadFromSql(sql) }).createCaller(
-      ctxOf(principalOf(owner)),
-    );
+  const portalDeps = (withTrees: boolean) => ({
+    sql,
+    pay: payLookup(sql),
+    trees: withTrees ? new SubMerchantService(sql) : null,
+    team: teamReadFromSql(sql),
+    approvals: stubApprovalConsumer('approver-founder'),
+  });
   const as = (userId: string, over: Partial<Principal> = {}) =>
-    createMerchantPortalRouter({ sql, pay: payLookup(sql), trees: null, team: teamReadFromSql(sql) }).createCaller(
-      ctxOf(principalOf(userId, over)),
-    );
+    createMerchantPortalRouter(portalDeps(false)).createCaller(ctxOf(principalOf(userId, over)));
+  const asTree = (userId: string) => createMerchantPortalRouter(portalDeps(true)).createCaller(ctxOf(principalOf(userId)));
+  const compliance = () =>
+    createMerchantPortalRouter(portalDeps(false)).createCaller(ctxOf(principalOf(complianceUser, { scopes: ['admin:compliance'] })));
   const ops = (userId: string) =>
     createMerchantOpsRouter({
       sql,
@@ -258,8 +267,19 @@ describe('merchant portal procedures', () => {
     const mine = await as(owner).merchant.myAccess({});
     expect(mine.memberships.map((m) => ({ merchantId: m.merchantId, role: m.role }))).toEqual([{ merchantId: merchantA, role: 'owner' }]);
     expect(mine.memberships[0]?.verified).toBe(true);
+    expect(mine.memberships[0]?.identityChangePending).toBe(false);
+    expect(mine.memberships[0]?.sessionInteractive).toBe(true);
     expect(mine.memberships[0]?.pricingVisibility).toBe('full');
     expect(mine.memberships[0]?.capabilities['profile.manage']).toBe(true);
+    const keyed = await as(owner, { kid: 'ifc_test', mfa: true }).merchant.myAccess({});
+    expect(keyed.memberships[0]?.sessionInteractive).toBe(false);
+    expect(keyed.memberships[0]?.capabilities['profile.read']).toBe(true);
+    expect(keyed.memberships[0]?.capabilities['profile.manage']).toBe(false);
+    expect(keyed.memberships[0]?.capabilities['payout.approve']).toBe(false);
+    const noMfa = await as(owner, { mfa: false }).merchant.myAccess({});
+    expect(noMfa.memberships[0]?.sessionInteractive).toBe(false);
+    expect(noMfa.memberships[0]?.capabilities['team.manage']).toBe(false);
+    expect(noMfa.memberships[0]?.capabilities['payments.read']).toBe(true);
     const both = await as(admin).merchant.myAccess({});
     expect(both.memberships.map((m) => m.role)).toEqual(['admin']);
     expect(both.memberships[0]?.merchantId).toBe(merchantB);
@@ -286,9 +306,11 @@ describe('merchant portal procedures', () => {
       reason: 'legal name',
       legalName: 'Alpha Legal Ltd',
     });
-    expect(pending.outcome).toBe('pending_second_approval');
+    expect(pending.outcome).toBe('pending_review');
     expect(pending.changeHash).toEqual(expect.any(String));
     expect(pending.profile.legalName).toBe('Alpha Ltd');
+    const waiting = await as(owner).merchant.myAccess({});
+    expect(waiting.memberships[0]).toMatchObject({ verified: true, identityChangePending: true, legalName: 'Alpha Ltd' });
     const self = await refusal(() =>
       as(owner).merchant.businessProfile.confirm({
         merchantId: merchantA,
@@ -298,7 +320,7 @@ describe('merchant portal procedures', () => {
         reason: 'self',
       }),
     );
-    expect(self.cause).toBe('pay.profile_self_approval');
+    expect(self.cause).toBe('pay.profile_compliance_review');
     const mismatch = await refusal(() =>
       as(adminA).merchant.businessProfile.confirm({
         merchantId: merchantA,
@@ -309,12 +331,31 @@ describe('merchant portal procedures', () => {
       }),
     );
     expect(mismatch.cause).toBe('pay.change_hash_mismatch');
+    const merchantConfirm = await refusal(() =>
+      as(adminA).merchant.businessProfile.confirm({
+        merchantId: merchantA,
+        requestId: pending.requestId,
+        decision: 'confirm',
+        expectedChangeHash: pending.changeHash!,
+        reason: 'second approval',
+      }),
+    );
+    expect(merchantConfirm.cause).toBe('pay.profile_compliance_review');
     const still = await as(owner).merchant.businessProfile.get({ merchantId: merchantA });
     expect(still.legalName).toBe('Alpha Ltd');
+    const renamed = await as(owner).merchant.businessProfile.submit({
+      merchantId: merchantA,
+      expectedVersion: still.version,
+      reason: 'public name while identity waits',
+      displayName: 'Alpha Window',
+    });
+    expect(renamed.outcome).toBe('applied');
+    expect(renamed.profile.displayName).toBe('Alpha Window');
+    expect(renamed.profile.legalName).toBe('Alpha Ltd');
     await expect(
       as(finance).merchant.businessProfile.submit({
         merchantId: merchantA,
-        expectedVersion: still.version,
+        expectedVersion: renamed.version,
         reason: 'finance cannot',
         industry: 'Retail',
       }),
@@ -323,7 +364,7 @@ describe('merchant portal procedures', () => {
       await expect(
         as(userId).merchant.businessProfile.submit({
           merchantId: merchantA,
-          expectedVersion: still.version,
+          expectedVersion: renamed.version,
           reason: 'role fence',
           displayName: 'Nope',
         }),
@@ -332,22 +373,40 @@ describe('merchant portal procedures', () => {
     await expect(
       as(owner, { kid: 'ifc_test', mfa: true }).merchant.businessProfile.submit({
         merchantId: merchantA,
-        expectedVersion: still.version,
+        expectedVersion: renamed.version,
         reason: 'key',
         displayName: 'Nope',
       }),
     ).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'pay.profile_interactive_only' }) });
-    const confirmed = await as(adminA).merchant.businessProfile.confirm({
+    await expect(
+      as(owner).merchant.businessProfile.review({
+        merchantId: merchantA,
+        requestId: pending.requestId,
+        decision: 'approved',
+        reason: 'merchant cannot review',
+        expectedChangeHash: pending.changeHash!,
+        ...APPROVAL,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const confirmed = await compliance().merchant.businessProfile.review({
       merchantId: merchantA,
       requestId: pending.requestId,
-      decision: 'confirm',
+      decision: 'approved',
+      reason: 'dossier matches',
       expectedChangeHash: pending.changeHash!,
-      reason: 'second approval',
+      confirmOperatorId: 'typed-name-is-not-approval',
+      ...APPROVAL,
     });
     expect(confirmed.outcome).toBe('applied');
+    expect(confirmed.confirmOperatorId).toBe('approver-founder');
     expect(confirmed.profile.legalName).toBe('Alpha Legal Ltd');
+    expect(confirmed.profile.displayName).toBe('Alpha Window');
+    const settled = await as(owner).merchant.myAccess({});
+    expect(settled.memberships[0]).toMatchObject({ verified: true, identityChangePending: false, legalName: 'Alpha Legal Ltd' });
     const history = await as(viewer).merchant.businessProfile.history({ merchantId: merchantA, limit: 10 });
-    expect(history.items.some((item) => item.requestId === pending.requestId && item.status === 'applied')).toBe(true);
+    expect(
+      history.items.some((item) => item.requestId === pending.requestId && item.status === 'applied' && item.checkerId === complianceUser),
+    ).toBe(true);
     const ghost = id();
     const foreign = await refusal(() => as(stranger).merchant.businessProfile.get({ merchantId: merchantA }));
     const missing = await refusal(() => as(stranger).merchant.businessProfile.get({ merchantId: ghost }));
@@ -363,7 +422,7 @@ describe('merchant portal procedures', () => {
       reason: 'legal name',
       legalName: 'Beta Legal',
     });
-    expect(submitted.outcome).toBe('pending_second_approval');
+    expect(submitted.outcome).toBe('pending_review');
     await expect(
       as(admin).merchant.businessProfile.confirm({
         merchantId: merchantB,
@@ -393,6 +452,116 @@ describe('merchant portal procedures', () => {
     ).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'pay.profile_change_not_pending' }) });
   });
 
+  it('keeps the old legal name when compliance rejects', async () => {
+    const current = await as(stranger).merchant.businessProfile.get({ merchantId: merchantB });
+    const submitted = await as(stranger).merchant.businessProfile.submit({
+      merchantId: merchantB,
+      expectedVersion: current.version,
+      reason: 'legal name',
+      legalName: 'Beta Rejected Ltd',
+    });
+    expect(submitted.outcome).toBe('pending_review');
+    const rejected = await compliance().merchant.businessProfile.review({
+      merchantId: merchantB,
+      requestId: submitted.requestId,
+      decision: 'rejected',
+      reason: 'name does not match the dossier',
+      expectedChangeHash: submitted.changeHash!,
+      ...APPROVAL,
+    });
+    expect(rejected.outcome).toBe('rejected');
+    expect(rejected.profile.legalName).toBe('Beta');
+    const history = await as(admin).merchant.businessProfile.history({ merchantId: merchantB, limit: 5 });
+    expect(history.items.find((item) => item.requestId === submitted.requestId)).toMatchObject({
+      status: 'rejected',
+      checkerId: complianceUser,
+      checkerReason: 'name does not match the dossier',
+    });
+    expect((await as(stranger).merchant.myAccess({})).memberships[0]?.identityChangePending).toBe(false);
+  });
+
+  it('auto-rejects when the maker is no longer an active admin', async () => {
+    const current = await as(stranger).merchant.businessProfile.get({ merchantId: merchantB });
+    const submitted = await as(admin).merchant.businessProfile.submit({
+      merchantId: merchantB,
+      expectedVersion: current.version,
+      reason: 'legal name',
+      legalName: 'Beta Gone Admin',
+    });
+    expect(submitted.outcome).toBe('pending_review');
+    await sql`
+      UPDATE pay.merchant_team_members SET status = 'removed', removed_at = now()
+       WHERE merchant_id = ${merchantB} AND user_id = ${admin}`;
+    const decided = await compliance().merchant.businessProfile.review({
+      merchantId: merchantB,
+      requestId: submitted.requestId,
+      decision: 'approved',
+      reason: 'would have approved',
+      expectedChangeHash: submitted.changeHash!,
+      ...APPROVAL,
+    });
+    expect(decided.outcome).toBe('rejected');
+    expect(decided.profile.legalName).toBe('Beta');
+    const row = (await as(stranger).merchant.businessProfile.history({ merchantId: merchantB, limit: 5 })).items.find(
+      (item) => item.requestId === submitted.requestId,
+    );
+    expect(row).toMatchObject({ status: 'rejected', checkerReason: 'maker_no_longer_authorized' });
+    await sql`
+      UPDATE pay.merchant_team_members SET status = 'active', removed_at = NULL
+       WHERE merchant_id = ${merchantB} AND user_id = ${admin}`;
+  });
+
+  it('a merchant second approver does not apply a legal name, and a removed maker is auto-rejected', async () => {
+    await as(stranger).merchant.businessProfile.setSecondApproval({ merchantId: merchantB, enabled: true });
+    const current = await as(stranger).merchant.businessProfile.get({ merchantId: merchantB });
+    const submitted = await as(stranger).merchant.businessProfile.submit({
+      merchantId: merchantB,
+      expectedVersion: current.version,
+      reason: 'legal name',
+      legalName: 'Beta Checked',
+    });
+    expect(submitted.outcome).toBe('pending_second_approval');
+    const advanced = await as(admin).merchant.businessProfile.confirm({
+      merchantId: merchantB,
+      requestId: submitted.requestId,
+      decision: 'confirm',
+      expectedChangeHash: submitted.changeHash!,
+      reason: 'merchant check',
+    });
+    expect(advanced.outcome).toBe('pending_review');
+    expect(advanced.profile.legalName).toBe('Beta');
+    const applied = await compliance().merchant.businessProfile.review({
+      merchantId: merchantB,
+      requestId: submitted.requestId,
+      decision: 'approved',
+      reason: 'dossier matches',
+      expectedChangeHash: submitted.changeHash!,
+      ...APPROVAL,
+    });
+    expect(applied.outcome).toBe('applied');
+    expect(applied.profile.legalName).toBe('Beta Checked');
+    const again = await as(admin).merchant.businessProfile.submit({
+      merchantId: merchantB,
+      expectedVersion: applied.version,
+      reason: 'legal name',
+      legalName: 'Beta After Removal',
+    });
+    expect(again.outcome).toBe('pending_second_approval');
+    await sql`
+      UPDATE pay.merchant_team_members SET status = 'removed', removed_at = now()
+       WHERE merchant_id = ${merchantB} AND user_id = ${admin}`;
+    const dropped = await as(stranger).merchant.businessProfile.confirm({
+      merchantId: merchantB,
+      requestId: again.requestId,
+      decision: 'confirm',
+      expectedChangeHash: again.changeHash!,
+      reason: 'maker left',
+    });
+    expect(dropped.outcome).toBe('rejected');
+    expect(dropped.profile.legalName).toBe('Beta Checked');
+    await as(stranger).merchant.businessProfile.setSecondApproval({ merchantId: merchantB, enabled: false });
+  });
+
   it('reports onboarding blockers without a document vendor, a terms version, or a raw destination', async () => {
     const progress = await as(viewer).merchant.onboarding.progress({ merchantId: merchantA });
     expect(progress.documents).toEqual({ state: 'pending_vendor' });
@@ -403,6 +572,16 @@ describe('merchant portal procedures', () => {
     const text = JSON.stringify(progress);
     expect(text).not.toContain(destRef);
     expect(text).toContain('1111');
+    const parent = await asTree(parentUser).merchant.onboarding.progress({ merchantId: grandId });
+    expect(parent.destination.present).toBe(true);
+    expect(parent.destination.destinations.map((row) => row.destinationMasked).join(' ')).toContain('abcd');
+    expect(JSON.stringify(parent)).not.toContain(GRAND_DEST);
+    const mid = await asTree(childUser).merchant.onboarding.progress({ merchantId: grandId });
+    expect(mid.destination.present).toBe(true);
+    expect(mid.destination.destinations).toEqual([]);
+    const hidden = JSON.stringify(mid);
+    expect(hidden).not.toContain(GRAND_DEST);
+    expect(hidden).not.toContain('abcd');
   });
 
   it('reads volume and fees per asset and per week, and never adds two assets together', async () => {

@@ -47,8 +47,12 @@ export const merchantMembershipSchema = z
     role: merchantPortalRoleSchema,
     status: z.enum(['pending', 'active', 'suspended', 'closed']),
     kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
-    /** True only when the stored KYB status is approved. Status is separate. */
+    /** True only when the stored KYB status is approved. A pending identity change does not flip this. */
     verified: z.boolean(),
+    /** True while a sensitive identity proposal is waiting on INTAFACED compliance. The live row is still the old identity. */
+    identityChangePending: z.boolean(),
+    /** False for an API key or a session without MFA. Write capability flags are false in that case. */
+    sessionInteractive: z.boolean(),
     mode: z.enum(['gateway', 'psp', 'payfac']),
     displayName: z.string().nullable(),
     legalName: z.string().nullable(),
@@ -109,9 +113,9 @@ export const merchantBusinessProfileSubmitInputSchema = z
 export const merchantBusinessProfileSubmitResultSchema = z
   .object({
     requestId: z.string().uuid(),
-    outcome: z.enum(['applied', 'pending_second_approval']),
+    outcome: z.enum(['applied', 'pending_review', 'pending_second_approval']),
     version: z.string().regex(/^\d{1,18}$/),
-    /** Hash of the sensitive proposal. Confirm must send this exact value. Null when nothing is waiting. */
+    /** Hash of the sensitive proposal. Compliance review must send this exact value. Null when nothing is waiting. */
     changeHash: z.string().nullable(),
     profile: merchantBusinessProfileSchema,
   })
@@ -120,7 +124,7 @@ export const merchantBusinessProfileSubmitResultSchema = z
 export const merchantBusinessProfileDecideResultSchema = z
   .object({
     requestId: z.string().uuid(),
-    outcome: z.enum(['applied', 'rejected']),
+    outcome: z.enum(['applied', 'rejected', 'pending_review']),
     version: z.string().regex(/^\d{1,18}$/),
     profile: merchantBusinessProfileSchema,
   })
@@ -136,12 +140,59 @@ export const merchantBusinessProfileConfirmInputSchema = z
   })
   .strict();
 
+/**
+ * Optional merchant second approver. Default off: a sensitive submit goes
+ * straight to compliance review. Turning this on adds a merchant confirm
+ * step that still does not apply the identity.
+ */
+export const merchantProfileSecondApprovalInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    enabled: z.boolean(),
+  })
+  .strict();
+
+export const merchantProfileSecondApprovalResultSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    enabled: z.boolean(),
+  })
+  .strict();
+
+/**
+ * INTAFACED compliance decide for a sensitive identity proposal.
+ * Same approval shape as `merchant.decideKyb`: scope is `admin:compliance`,
+ * and a typed-in second name is not the approval.
+ */
+export const merchantBusinessProfileReviewInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    requestId: z.string().uuid(),
+    decision: z.enum(['approved', 'rejected']),
+    reason: z.string().trim().min(3).max(500),
+    expectedChangeHash: z.string().min(8).max(200),
+    confirmOperatorId: z.string().max(128).nullish(),
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
+  })
+  .strict();
+
+export const merchantBusinessProfileReviewResultSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    outcome: z.enum(['applied', 'rejected']),
+    version: z.string().regex(/^\d{1,18}$/),
+    profile: merchantBusinessProfileSchema,
+    confirmOperatorId: z.string(),
+  })
+  .strict();
+
 export const merchantProfileChangeSchema = z
   .object({
     requestId: z.string().uuid(),
     /** bigserial ordering key. A string, never a number. */
     seq: z.string().regex(/^\d+$/),
-    status: z.enum(['applied', 'pending', 'rejected', 'conflict']),
+    status: z.enum(['applied', 'pending', 'pending_review', 'rejected', 'conflict']),
     before: merchantBusinessProfileSchema.omit({ merchantId: true, version: true }),
     after: merchantBusinessProfileSchema.omit({ merchantId: true, version: true }),
     sensitiveKeys: z.array(z.enum(['legalName', 'address', 'statementDescriptor', 'industry'])),
@@ -149,6 +200,8 @@ export const merchantProfileChangeSchema = z
     expectedVersion: z.string().regex(/^\d{1,18}$/),
     makerId: z.string(),
     checkerId: z.string().nullable(),
+    /** Merchant who confirmed the optional second step. Null when that step is off or not taken. */
+    secondApproverId: z.string().nullable(),
     reason: z.string(),
     checkerReason: z.string().nullable(),
     createdAt: payTimestampSchema,

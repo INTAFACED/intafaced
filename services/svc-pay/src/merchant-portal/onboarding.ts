@@ -5,6 +5,7 @@ import { allowMerchantRead } from '../merchant-read-access.js';
 import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { maskDestination, safeDestinationLabel } from '../control/mask-destination.js';
 import type { PayService } from '../payment-service.js';
+import { SubMerchantError } from '../submerchants.js';
 import { ONBOARDING_BLOCKERS, type MerchantBusinessProfile } from '@intafaced/contracts';
 
 type Blocker = (typeof ONBOARDING_BLOCKERS)[number];
@@ -15,7 +16,9 @@ type Blocker = (typeof ONBOARDING_BLOCKERS)[number];
  * Documents stay `pending_vendor`: no KYB document vendor is configured, and
  * this read does not pretend one is. Terms stay `not_configured`: no terms
  * version is published, so there is nothing to accept. Destinations are masked
- * with the same function the payout approval list uses.
+ * with the same function the payout approval list uses. A PayFac parent sees
+ * those masked destinations only when it holds `settlement.payout` over the
+ * subject. The owner and an active team member still see them.
  */
 export async function readOnboardingProgress(
   sql: Sql,
@@ -33,6 +36,7 @@ export async function readOnboardingProgress(
     permission: 'profile.read',
   });
   const merchant = await pay.getMerchant(profile.merchantId);
+  const showDestinations = await payoutDestinationsVisible(pay, trees, team, userId, profile.merchantId, merchant.userId);
   const destinations = await sql<Array<{ rail_id: string; kind: string; ref: string }>>`
     SELECT rail_id, kind, ref FROM pay.merchant_payout_destinations
      WHERE merchant_id = ${profile.merchantId}
@@ -55,14 +59,44 @@ export async function readOnboardingProgress(
     terms: { state: 'not_configured' as const },
     destination: {
       present: destinations.length > 0,
-      destinations: destinations.map((row) => ({
-        railId: safeDestinationLabel(row.rail_id, row.ref),
-        kind: safeDestinationLabel(row.kind, row.ref),
-        destinationMasked: maskDestination(row.kind, row.ref),
-      })),
+      destinations: showDestinations
+        ? destinations.map((row) => ({
+            railId: safeDestinationLabel(row.rail_id, row.ref),
+            kind: safeDestinationLabel(row.kind, row.ref),
+            destinationMasked: maskDestination(row.kind, row.ref),
+          }))
+        : [],
     },
     kybStatus: merchant.kybStatus,
     merchantStatus: merchant.status,
     blocking,
   };
+}
+
+/**
+ * Owner and this merchant's team see masked destinations. A PayFac ancestor
+ * sees them only with the `settlement.payout` area. The root of a tree holds
+ * every area; an intermediate node does not until that area is granted.
+ */
+async function payoutDestinationsVisible(
+  pay: Pick<PayService, 'getMerchant' | 'getMerchantByUserId'>,
+  trees: MerchantAreaFence | null,
+  team: MerchantTeamRead,
+  userId: string | undefined,
+  merchantId: string,
+  ownerUserId: string,
+): Promise<boolean> {
+  if (!userId) return false;
+  if (userId === ownerUserId) return true;
+  if (await team.activeRole(userId, merchantId)) return true;
+  if (!trees) return false;
+  const actor = await pay.getMerchantByUserId(userId);
+  if (!actor) return false;
+  try {
+    await trees.assertHolds(actor.id, merchantId, 'settlement.payout');
+    return true;
+  } catch (err) {
+    if (err instanceof SubMerchantError) return false;
+    throw err;
+  }
 }

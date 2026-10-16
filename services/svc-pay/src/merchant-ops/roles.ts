@@ -93,6 +93,22 @@ export function capabilityFlags(role: MerchantRole): { [K in MerchantPermission]
   };
 }
 
+const WRITE_PERMISSIONS = new Set<MerchantPermission>(MERCHANT_PERMISSIONS.filter((permission) => !READS.includes(permission)));
+
+/**
+ * Role flags, then the session. An API key or a session without MFA keeps the
+ * reads and loses every write, including profile.manage and payout.approve.
+ */
+export function capabilityFlagsForSession(role: MerchantRole, sessionInteractive: boolean): { [K in MerchantPermission]: boolean } {
+  const flags = capabilityFlags(role);
+  if (sessionInteractive) return flags;
+  return Object.fromEntries(
+    MERCHANT_PERMISSIONS.map((permission) => [permission, flags[permission] && !WRITE_PERMISSIONS.has(permission)]),
+  ) as {
+    [K in MerchantPermission]: boolean;
+  };
+}
+
 /** Roles that hold a permission, for docs and tests. */
 export function rolesWithPermission(permission: MerchantPermission): MerchantRole[] {
   return (Object.keys(ROLE_PERMISSIONS) as MerchantRole[]).filter((r) => ROLE_PERMISSIONS[r].has(permission));

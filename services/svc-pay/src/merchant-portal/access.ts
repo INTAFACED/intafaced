@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { capabilityFlags, pricingVisibilityFor, TEAM_ROLES, type MerchantRole } from '../merchant-ops/roles.js';
+import { capabilityFlagsForSession, pricingVisibilityFor, TEAM_ROLES, type MerchantRole } from '../merchant-ops/roles.js';
 
 const STORED = new Set<string>(TEAM_ROLES);
 
@@ -13,7 +13,7 @@ const STORED = new Set<string>(TEAM_ROLES);
  * know the id of. `merchantOps.team.me` is a single resolved merchant and is
  * not this list.
  */
-export async function listMyAccess(sql: Sql, userId: string) {
+export async function listMyAccess(sql: Sql, userId: string, sessionInteractive: boolean) {
   const rows = await sql<
     Array<{
       id: string;
@@ -40,6 +40,13 @@ export async function listMyAccess(sql: Sql, userId: string) {
            AND m.user_id IS DISTINCT FROM ${userId}
       ) memberships
      ORDER BY ord, id`;
+  const ids = rows.map((row) => row.id);
+  const pending = ids.length
+    ? await sql<Array<{ merchant_id: string }>>`
+        SELECT DISTINCT merchant_id FROM pay.merchant_profile_changes
+         WHERE status = 'pending_review' AND merchant_id IN ${sql(ids)}`
+    : [];
+  const pendingIds = new Set(pending.map((row) => row.merchant_id));
   return {
     memberships: rows.flatMap((row) => {
       if (row.role !== 'owner' && !STORED.has(row.role)) return [];
@@ -51,10 +58,12 @@ export async function listMyAccess(sql: Sql, userId: string) {
           status: row.status,
           kybStatus: row.kyb_status,
           verified: row.kyb_status === 'approved',
+          identityChangePending: pendingIds.has(row.id),
+          sessionInteractive,
           mode: row.mode,
           displayName: row.display_name,
           legalName: row.legal_name,
-          capabilities: capabilityFlags(role),
+          capabilities: capabilityFlagsForSession(role, sessionInteractive),
           pricingVisibility: pricingVisibilityFor(role),
         },
       ];

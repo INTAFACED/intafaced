@@ -1,4 +1,6 @@
+import { AuthError } from '@intafaced/auth';
 import { TRPCError } from '@intafaced/contracts';
+import { ActionApprovalConsumeError } from '../action-approval-consume.js';
 import { PayError } from '../payment-service.js';
 import { ListQueryError } from '../list-page.js';
 import { MetricsError, metricsToTrpcError } from '../metrics/errors.js';
@@ -33,6 +35,16 @@ export async function wrapPortal<T>(fn: () => Promise<T>): Promise<T> {
   } catch (err) {
     if (err instanceof PortalError) {
       throw new TRPCError({ code: TRPC_CODE[err.kind], message: err.code, cause: err });
+    }
+    if (err instanceof AuthError) {
+      throw new TRPCError({
+        code: err.code === 'mfa.required' ? 'UNAUTHORIZED' : 'FORBIDDEN',
+        message: err.message,
+        cause: err,
+      });
+    }
+    if (err instanceof ActionApprovalConsumeError) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
     if (err instanceof ListQueryError) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: err.code, cause: err });

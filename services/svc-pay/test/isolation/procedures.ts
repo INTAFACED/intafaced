@@ -9,6 +9,9 @@
  *   FOUNDER_EXTRA    operator surfaces that are NOT under `founderAdmin.` / `payHalts.`
  *                    but are founder-only in effect. They guard themselves, so the
  *                    G7 static inventory cannot see them; the G1-G5 tables do.
+ *   COMPLIANCE_PROCS operator decides on `admin:compliance` (not founder-only,
+ *                    not a merchant pay:write door). Same class as
+ *                    `merchant.decideKyb` and `kyb.decide`.
  *   MERCHANT_PROCS   every merchant-scoped tRPC procedure that takes an id (M1).
  *   LIST_PROCS       every list endpoint (M2).
  *   REST_ROUTES      the same for the public REST door (M1/M2).
@@ -34,7 +37,12 @@ export const ghost = (): string => randomUUID();
 
 // ── G: founder-only ─────────────────────────────────────────────────────────
 
-/** Operator surfaces outside the two founder-only prefixes. Behavioural G tests only. */
+/**
+ * Compliance decides. Not founder-guarded and not in MERCHANT_PROCS: a pay:write
+ * session is refused by scope, the same way `merchant.decideKyb` and `kyb.decide` are.
+ */
+export const COMPLIANCE_PROCS = ['merchant.decideKyb', 'kyb.decide', 'merchant.businessProfile.review'] as const;
+
 export const FOUNDER_EXTRA = [
   'accountControls.change',
   'accountControls.getState',
@@ -344,6 +352,13 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     own: 'ok',
     sessionOnly: true,
     input: (i) => ({ merchantId: i.merchantId, reason: 'isolation drill', displayName: 'Isolation Name', expectedVersion: '0' }),
+  },
+  {
+    path: 'merchant.businessProfile.setSecondApproval',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ merchantId: i.merchantId, enabled: false }),
   },
   {
     path: 'merchant.businessProfile.confirm',

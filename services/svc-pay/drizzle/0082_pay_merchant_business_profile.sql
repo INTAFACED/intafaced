@@ -3,9 +3,10 @@
 -- Legal name and display name already live on pay.merchants (0071). This adds the
 -- rest of the business identity the merchant portal edits, plus an append-only
 -- change log. Sensitive fields (legal name, address, statement descriptor,
--- industry) are written on the merchant row only when a second owner or admin
--- confirms the stored proposal. Display name, website and support contact apply
--- on submit and are still logged.
+-- industry) stay off the live row until INTAFACED compliance approves the
+-- proposal. A merchant second approver is optional (`profile_second_approval`,
+-- default off) and never applies those fields. Display name, website and
+-- support contact apply on submit and are still logged.
 --
 -- No KYB vendor, no terms version, no fee and no limit is introduced here.
 -- Onboarding progress is derived from these columns, the existing KYB status,
@@ -23,6 +24,7 @@ ALTER TABLE "pay"."merchants" ADD COLUMN IF NOT EXISTS "address_city" text;
 ALTER TABLE "pay"."merchants" ADD COLUMN IF NOT EXISTS "address_region" text;
 ALTER TABLE "pay"."merchants" ADD COLUMN IF NOT EXISTS "address_postal_code" text;
 ALTER TABLE "pay"."merchants" ADD COLUMN IF NOT EXISTS "address_country" text;
+ALTER TABLE "pay"."merchants" ADD COLUMN IF NOT EXISTS "profile_second_approval" boolean NOT NULL DEFAULT false;
 
 ALTER TABLE "pay"."merchants" DROP CONSTRAINT IF EXISTS "merchants_profile_version_ck";
 ALTER TABLE "pay"."merchants" ADD CONSTRAINT "merchants_profile_version_ck" CHECK ("profile_version" >= 0);
@@ -90,7 +92,7 @@ CREATE TABLE IF NOT EXISTS "pay"."merchant_profile_changes" (
   "merchant_id"      uuid NOT NULL REFERENCES "pay"."merchants"("id"),
   "status"           text NOT NULL
     CONSTRAINT "merchant_profile_changes_status_known"
-    CHECK ("status" IN ('applied', 'pending', 'rejected', 'conflict')),
+    CHECK ("status" IN ('applied', 'pending', 'pending_review', 'rejected', 'conflict')),
   "before_profile"   jsonb NOT NULL,
   "after_profile"    jsonb NOT NULL,
   "sensitive_keys"   jsonb NOT NULL,
@@ -100,19 +102,25 @@ CREATE TABLE IF NOT EXISTS "pay"."merchant_profile_changes" (
   "maker_id"         text NOT NULL
     CONSTRAINT "merchant_profile_changes_maker_not_blank" CHECK (length(btrim("maker_id")) > 0),
   "checker_id"       text,
+  "second_approver_id" text,
   "reason"           text NOT NULL
     CONSTRAINT "merchant_profile_changes_reason_not_blank" CHECK (length(btrim("reason")) >= 3),
   "checker_reason"   text,
   "created_at"       timestamptz NOT NULL DEFAULT now(),
   "decided_at"       timestamptz,
   CONSTRAINT "merchant_profile_changes_maker_not_checker"
-    CHECK ("checker_id" IS NULL OR "checker_id" <> "maker_id")
+    CHECK ("checker_id" IS NULL OR "checker_id" <> "maker_id"),
+  CONSTRAINT "merchant_profile_changes_maker_not_second"
+    CHECK (
+      "second_approver_id" IS NULL
+      OR (length(btrim("second_approver_id")) > 0 AND "second_approver_id" <> "maker_id")
+    )
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "merchant_profile_changes_seq_idx"
   ON "pay"."merchant_profile_changes" ("seq");
 CREATE INDEX IF NOT EXISTS "merchant_profile_changes_merchant_idx"
   ON "pay"."merchant_profile_changes" ("merchant_id", "created_at" DESC, "request_id" DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS "merchant_profile_changes_one_pending"
+CREATE UNIQUE INDEX IF NOT EXISTS "merchant_profile_changes_one_open"
   ON "pay"."merchant_profile_changes" ("merchant_id")
-  WHERE "status" = 'pending';
+  WHERE "status" IN ('pending', 'pending_review');

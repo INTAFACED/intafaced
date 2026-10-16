@@ -284,7 +284,7 @@ export function createPayRouter(
     return { ...detail, pricingSnapshot: projectPricingSnapshot(detail.pricingSnapshot, audience) };
   };
 
-  const portal = portalSql && teamReads ? merchantPortalExtensions({ sql: portalSql, pay, trees, team: teamReads }) : null;
+  const portal = portalSql && teamReads ? merchantPortalExtensions({ sql: portalSql, pay, trees, team: teamReads, approvals }) : null;
 
   return router({
     health: publicProcedure

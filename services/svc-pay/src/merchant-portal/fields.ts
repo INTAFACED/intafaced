@@ -5,9 +5,11 @@ import { PortalError } from './errors.js';
 /**
  * Business-profile fields.
  *
- * Sensitive fields follow the control-room reviewed change: a submit records
- * the proposal and a different owner or admin confirms the exact hash before
- * the live row changes. Immediate fields apply on submit and are still logged.
+ * Sensitive fields (legal name, address, statement descriptor, industry) are
+ * proposed by one owner or admin and applied only when INTAFACED compliance
+ * approves that proposal. A merchant second approver is an optional extra
+ * step, default off, and does not apply the identity. Immediate fields apply
+ * on submit, including while a sensitive change is waiting, and are still logged.
  */
 
 export const SENSITIVE_KEYS = ['legalName', 'address', 'statementDescriptor', 'industry'] as const;
@@ -132,7 +134,7 @@ export function sensitiveKeysOf(sensitive: Partial<Pick<ProfileFields, Sensitive
   return SENSITIVE_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(sensitive, key));
 }
 
-/** The hash a second reviewer must send. Bound to the proposal and the version they were shown. */
+/** The hash compliance must send. Bound to the proposal and the version they were shown. */
 export function profileChangeHash(sensitive: Partial<Pick<ProfileFields, SensitiveKey>>, expectedVersion: string): string {
   return founderChangeHash({ kind: 'merchant_business_profile', proposed: sensitive }, expectedVersion);
 }

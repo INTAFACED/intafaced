@@ -3,6 +3,7 @@
 -- Drops the business-profile columns and the change log. Display and legal names
 -- from 0071 stay. No ledger row is touched.
 
+DROP INDEX IF EXISTS "pay"."merchant_profile_changes_one_open";
 DROP INDEX IF EXISTS "pay"."merchant_profile_changes_one_pending";
 DROP INDEX IF EXISTS "pay"."merchant_profile_changes_merchant_idx";
 DROP INDEX IF EXISTS "pay"."merchant_profile_changes_seq_idx";
@@ -27,4 +28,5 @@ ALTER TABLE "pay"."merchants" DROP COLUMN IF EXISTS "statement_descriptor";
 ALTER TABLE "pay"."merchants" DROP COLUMN IF EXISTS "support_phone";
 ALTER TABLE "pay"."merchants" DROP COLUMN IF EXISTS "support_email";
 ALTER TABLE "pay"."merchants" DROP COLUMN IF EXISTS "website";
+ALTER TABLE "pay"."merchants" DROP COLUMN IF EXISTS "profile_second_approval";
 ALTER TABLE "pay"."merchants" DROP COLUMN IF EXISTS "profile_version";
