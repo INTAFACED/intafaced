@@ -172,6 +172,13 @@ export interface MarketDataAdapter {
 // TRADING — credentials required, and the requirement is enforced
 // ════════════════════════════════════════════════════════════════════════════
 
+/** History search around a conversion claim. Times are unix milliseconds. */
+export interface ClosedOrderWindow {
+  readonly startTimeMs: number;
+  readonly endTimeMs: number;
+  readonly orderId?: string | null;
+}
+
 /**
  * A place-order request.
  *
@@ -208,8 +215,10 @@ export interface TradeAdapter {
    * A closed spot order, which some venues drop from the realtime list.
    * Absent on venues whose `fetchOrder` already returns closed orders.
    * `null` is a confirmed miss. Any other failure throws.
+   * `window` is the claim interval a history search must cover before a miss
+   * is real. Binance uses it for allOrders and myTrades.
    */
-  fetchClosedOrder?(symbol: string, clientOrderId: string): Promise<VenueOrder | null>;
+  fetchClosedOrder?(symbol: string, clientOrderId: string, window?: ClosedOrderWindow): Promise<VenueOrder | null>;
   openOrders(symbol?: string): Promise<VenueOrder[]>;
 }
 

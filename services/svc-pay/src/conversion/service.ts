@@ -19,7 +19,7 @@ import type { PlaceOrderRequest, VenueOrder } from '@intafaced/venue-contracts';
 import type { ConversionOrder, ConversionQuote, ConversionQuoteInput } from '@intafaced/contracts';
 import { loadApplicableRules, loadMerchantControl, monthlyIntake } from '../control/store.js';
 import { computePricing, resolvePricingRule } from '../control/pricing.js';
-import { findBlockingHalt } from '../halts/store.js';
+import { findBlockingHalt, PayHaltStore } from '../halts/store.js';
 import { postPayLedger } from '../ledger-receipt.js';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { requireMerchantPermission } from '../merchant-ops/roles.js';
@@ -37,6 +37,18 @@ const TO = 'USDT';
 const CLIENT_ORDER_ID_MAX = 36;
 const TERMINAL = new Set(['filled', 'partially_filled', 'failed', 'reversed', 'expired']);
 const OPEN_AT_VENUE = new Set<VenueOrder['status']>(['pending', 'open', 'partially_filled']);
+/**
+ * Technical safety floor. A venue miss is not proof the order is absent before
+ * this long after the placing claim. Not a business TTL: a shorter
+ * PAY_CONVERSION_PLACING_MAX_AGE_MS cannot undercut it.
+ */
+export const CONVERSION_ABSENT_FLOOR_MS = 15 * 60 * 1000;
+/** Second miss must be at least this long after the miss stored on the proposal. */
+const ABSENT_LOOK_GAP_MS = 5 * 60 * 1000;
+const LATE_FILL_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+const VENUE_WINDOW_LEAD_MS = 60 * 1000;
+const LATE_FILL_HALT_REASON = 'pay.conversion_late_fill';
+const LATE_FILL_AUDIT = 'pay.conversion_late_fill';
 
 export interface ConversionServiceDeps {
   sql: Sql;
@@ -100,6 +112,7 @@ interface OrderRow {
   minimum_output: string;
   failure_code: string | null;
   venue_order_id: string | null;
+  placing_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -116,7 +129,7 @@ const QUOTE_COLS = `id, merchant_id, settlement_id, from_asset, to_asset, from_a
 
 const ORDER_COLS = `id, request_id, quote_id, merchant_id, settlement_id, attempt, client_order_id, venue_id, symbol,
   status, from_asset, to_asset, from_amount::text, filled_from_amount::text, filled_to_amount::text,
-  fee_amount::text, spread_amount::text, minimum_output::text, failure_code, venue_order_id, created_at, updated_at`;
+  fee_amount::text, spread_amount::text, minimum_output::text, failure_code, venue_order_id, placing_at, created_at, updated_at`;
 
 function callerOf(principal: Principal | null): ConversionCaller {
   if (!principal?.userId) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
@@ -210,6 +223,15 @@ export function roundDownToStep(quantity: Amount, step: Amount): Amount {
   return (quantity / step) * step;
 }
 
+function sweepFailureCode(error: unknown): string {
+  if (error instanceof ConversionError) return error.code;
+  if (typeof error === 'object' && error && 'code' in error && typeof (error as { code: unknown }).code === 'string') {
+    const code = (error as { code: string }).code;
+    if (/^[a-z][a-z0-9_.]*$/i.test(code) && code.length <= 80) return code;
+  }
+  return 'pay.conversion_sweep_failed';
+}
+
 function proRate(part: Amount, filled: Amount, ordered: Amount): Amount {
   if (filled <= 0n || ordered <= 0n) return 0n;
   if (filled === ordered) return part;
@@ -266,6 +288,7 @@ export class ConversionService {
     if (input.fromAsset !== FROM || input.toAsset !== TO) {
       throw new ConversionError('pay.conversion_pair_unsupported', 'PRECONDITION_FAILED');
     }
+    await this.refuseIfLateFill();
     const caller = callerOf(principal);
     await assertOnMerchantTeam(this.deps.sql, caller, input.merchantId);
     this.assertWriteScope(principal);
@@ -331,6 +354,7 @@ export class ConversionService {
   }
 
   async execute(principal: Principal | null, input: { requestId: string; quoteId: string }): Promise<ConversionOrder> {
+    await this.refuseIfLateFill();
     const caller = callerOf(principal);
     const existing = await this.orderByRequest(input.requestId);
     if (existing) {
@@ -408,9 +432,15 @@ export class ConversionService {
     if (!row) return { requestId: input.requestId, status: 'missing', changeHash: null };
     if (row.status !== 'placing') return { requestId: input.requestId, status: 'not_placing', changeHash: null };
     const changeHash = this.resolveHash(row);
+    const evidence = await this.lookup(row);
+    const lookedUpAt = this.now();
     await this.deps.sql`
-      INSERT INTO pay.conversion_resolve_proposals (request_id, conversion_id, change_hash, reason, proposed_by, status)
-      VALUES (${input.requestId}, ${row.id}, ${changeHash}, ${input.reason}, ${actor}, 'pending')
+      INSERT INTO pay.conversion_resolve_proposals (
+        request_id, conversion_id, change_hash, reason, proposed_by, status, venue_lookup, venue_lookup_at
+      ) VALUES (
+        ${input.requestId}, ${row.id}, ${changeHash}, ${input.reason}, ${actor}, 'pending',
+        ${evidence ? 'present' : 'absent'}, ${lookedUpAt}
+      )
     `;
     await this.audit(row.id, 'resolve_proposed', actor, null, { changeHash });
     return { requestId: input.requestId, status: 'pending', changeHash };
@@ -459,12 +489,29 @@ export class ConversionService {
       return { requestId: input.requestId, status: 'rejected', changeHash: proposal.change_hash, order: null };
     }
     const evidence = await this.lookup(row);
-    let settled: OrderRow;
+    if (!evidence) this.assertAbsentProven(row, proposal);
+    const applied = await this.deps.sql.begin(async (raw) => {
+      const tx = raw as unknown as Sql;
+      const locked = await tx<OrderRow[]>`
+        SELECT ${tx.unsafe(ORDER_COLS)} FROM pay.conversion_orders
+         WHERE id = ${row.id}
+           AND status = 'placing'
+           AND date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', ${row.updated_at}::timestamptz)
+         FOR UPDATE
+      `;
+      if (!locked[0]) return null;
+      if (!evidence) {
+        return this.mark(locked[0].id, { status: 'failed', failureCode: 'pay.conversion_resolve_absent' }, tx);
+      }
+      return this.bookIn(tx, locked[0], evidence);
+    });
+    if (!applied) {
+      return { requestId: input.requestId, status: 'not_placing', changeHash: proposal.change_hash, order: null };
+    }
+    let settled = applied;
     if (!evidence) {
-      await this.releaseHold(row, parseAmount(row.from_amount), 0);
-      settled = await this.mark(row.id, { status: 'failed', failureCode: 'pay.conversion_resolve_absent' });
-    } else {
-      settled = await this.book(row, evidence);
+      await this.releaseHold(applied, parseAmount(applied.from_amount), 0);
+      settled = (await this.orderById(applied.id)) ?? applied;
     }
     await this.deps.sql`
       UPDATE pay.conversion_resolve_proposals
@@ -484,32 +531,39 @@ export class ConversionService {
    * alone. The amount released is the hold the ledger still has, not a figure
    * supplied by the caller.
    */
-  async sweepOrphanHolds(): Promise<{ released: number }> {
+  async sweepOrphanHolds(founderUserId: string): Promise<{ released: number; failures: Array<{ conversionId: string; code: string }> }> {
+    const actor = founderUserId.trim().toLowerCase();
+    if (!actor) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
     const merchants = await this.deps.sql<Array<{ id: string }>>`SELECT id FROM pay.merchants`;
     let released = 0;
+    const failures: Array<{ conversionId: string; code: string }> = [];
     for (const merchant of merchants) {
       const balances = await this.deps.ledger.balances('module', `pay:clearing:${merchant.id}`);
       for (const balance of balances) {
         const purpose = balance.account.purpose ?? '';
         if (balance.account.kind !== 'hold' || !purpose.startsWith('conversion:') || balance.amount <= 0n) continue;
         const conversionId = purpose.slice('conversion:'.length);
-        const row = await this.orderById(conversionId);
-        if (row && row.status !== 'failed' && row.status !== 'expired') continue;
-        await postPayLedger(
-          this.deps.ledger,
-          recipes.fxConversionRelease({
-            conversionId,
-            merchantId: merchant.id,
-            fromAsset: balance.account.assetId,
-            amount: balance.amount,
-            sequence: 0,
-          }),
-        );
-        await this.audit(row?.id ?? null, 'hold_swept', 'sweeper', null, { conversionId, amount: formatAmount(balance.amount) });
-        released += 1;
+        try {
+          const row = await this.orderById(conversionId);
+          if (row && row.status !== 'failed' && row.status !== 'expired') continue;
+          await postPayLedger(
+            this.deps.ledger,
+            recipes.fxConversionRelease({
+              conversionId,
+              merchantId: merchant.id,
+              fromAsset: balance.account.assetId,
+              amount: balance.amount,
+              sequence: 0,
+            }),
+          );
+          await this.audit(row?.id ?? null, 'hold_swept', actor, null, { conversionId, amount: formatAmount(balance.amount) });
+          released += 1;
+        } catch (error) {
+          failures.push({ conversionId, code: sweepFailureCode(error) });
+        }
       }
     }
-    return { released };
+    return { released, failures };
   }
 
   private resolveHash(row: OrderRow): string {
@@ -525,11 +579,21 @@ export class ConversionService {
     change_hash: string;
     proposed_by: string;
     status: string;
+    venue_lookup: string;
+    venue_lookup_at: Date;
   } | null> {
     const rows = await this.deps.sql<
-      Array<{ request_id: string; conversion_id: string; change_hash: string; proposed_by: string; status: string }>
+      Array<{
+        request_id: string;
+        conversion_id: string;
+        change_hash: string;
+        proposed_by: string;
+        status: string;
+        venue_lookup: string;
+        venue_lookup_at: Date;
+      }>
     >`
-      SELECT request_id, conversion_id, change_hash, proposed_by, status
+      SELECT request_id, conversion_id, change_hash, proposed_by, status, venue_lookup, venue_lookup_at
         FROM pay.conversion_resolve_proposals
        WHERE request_id = ${requestId}
     `;
@@ -690,6 +754,10 @@ export class ConversionService {
     if (unfunded) return orderView(unfunded);
     const prepared = await this.prepareLimit(fresh);
     if (prepared.kind === 'failed') return orderView(prepared.row);
+    if (prepared.kind === 'live') {
+      if (prepared.row.status === 'placing' || prepared.row.status === 'placed') return this.reconcile(prepared.row);
+      return orderView(prepared.row);
+    }
     const claimed = await this.claimPlacing(fresh.id);
     if (!claimed) return this.reconcile((await this.orderById(fresh.id)) ?? fresh);
     try {
@@ -751,7 +819,9 @@ export class ConversionService {
    * notional the order can never be sent: it fails and the hold is released.
    * An unknown filter or rate leaves the row at `intent_committed`.
    */
-  private async prepareLimit(row: OrderRow): Promise<{ kind: 'ready'; request: PlaceOrderRequest } | { kind: 'failed'; row: OrderRow }> {
+  private async prepareLimit(
+    row: OrderRow,
+  ): Promise<{ kind: 'ready'; request: PlaceOrderRequest } | { kind: 'failed'; row: OrderRow } | { kind: 'live'; row: OrderRow }> {
     const quote = await this.quoteById(row.quote_id);
     if (!quote) throw new ConversionError('pay.conversion_filters_unconfigured', 'SERVICE_UNAVAILABLE');
     let filters: ConversionSymbolFilters | null;
@@ -776,11 +846,16 @@ export class ConversionService {
     const quantity = roundDownToStep(parseAmount(row.from_amount), filters.stepSize);
     const notional = quantity > 0n && price > 0n ? mul(quantity, price) : 0n;
     if (quantity <= 0n || notional < filters.minNotional) {
-      await this.releaseHold(row, parseAmount(row.from_amount), 0);
-      return {
-        kind: 'failed',
-        row: await this.mark(row.id, { status: 'failed', failureCode: 'pay.conversion_below_min_notional' }),
-      };
+      const failed = await this.markIf(row.id, 'intent_committed', {
+        status: 'failed',
+        failureCode: 'pay.conversion_below_min_notional',
+      });
+      if (!failed) {
+        const live = (await this.orderById(row.id)) ?? row;
+        return { kind: 'live', row: live };
+      }
+      await this.releaseHold(failed, parseAmount(failed.from_amount), 0);
+      return { kind: 'failed', row: failed };
     }
     return {
       kind: 'ready',
@@ -796,11 +871,16 @@ export class ConversionService {
     };
   }
 
-  /** Realtime first, then closed-order history. A miss is null only when both say so. */
+  /** Realtime first, then closed-order history over the claim window. A miss is null only when both say so. */
   private async lookup(row: OrderRow): Promise<VenueOrder | null> {
     const live = await this.deps.venue.fetchOrder(row.symbol, row.client_order_id);
     if (live) return live;
-    return this.deps.venue.fetchClosedOrder(row.symbol, row.client_order_id);
+    const claim = row.placing_at ?? row.created_at;
+    return this.deps.venue.fetchClosedOrder(row.symbol, row.client_order_id, {
+      startTimeMs: claim.getTime() - VENUE_WINDOW_LEAD_MS,
+      endTimeMs: this.now().getTime(),
+      orderId: row.venue_order_id,
+    });
   }
 
   private async reconcile(row: OrderRow): Promise<ConversionOrder> {
@@ -810,15 +890,31 @@ export class ConversionService {
     if (this.deps.placingMaxAgeMs === null) {
       throw new ConversionError('pay.conversion_placing_retry_unconfigured', 'PRECONDITION_FAILED');
     }
-    const age = this.now().getTime() - row.created_at.getTime();
+    const claim = row.placing_at ?? row.created_at;
+    const age = this.now().getTime() - claim.getTime();
     if (age < this.deps.placingMaxAgeMs) return orderView(row);
-    return orderView(await this.mark(row.id, { status: 'placing', failureCode: 'pay.conversion_reconcile' }));
+    return orderView(await this.noteReconcile(row));
+  }
+
+  /**
+   * Stamp the reconcile code once. A second retry must not rewrite `updated_at`,
+   * or the founder proposal hash stops matching the row.
+   */
+  private async noteReconcile(row: OrderRow): Promise<OrderRow> {
+    if (row.failure_code) return row;
+    const rows = await this.deps.sql<OrderRow[]>`
+      UPDATE pay.conversion_orders
+         SET failure_code = 'pay.conversion_reconcile'
+       WHERE id = ${row.id} AND status = 'placing' AND failure_code IS NULL
+       RETURNING ${this.deps.sql.unsafe(ORDER_COLS)}
+    `;
+    return rows[0] ?? (await this.orderById(row.id)) ?? row;
   }
 
   private async claimPlacing(id: string): Promise<OrderRow | null> {
     const rows = await this.deps.sql<OrderRow[]>`
       UPDATE pay.conversion_orders
-         SET status = 'placing', updated_at = now()
+         SET status = 'placing', placing_at = COALESCE(placing_at, now()), updated_at = now()
        WHERE id = ${id} AND status = 'intent_committed'
        RETURNING ${this.deps.sql.unsafe(ORDER_COLS)}
     `;
@@ -829,7 +925,7 @@ export class ConversionService {
   private async releaseClaim(id: string): Promise<void> {
     await this.deps.sql`
       UPDATE pay.conversion_orders
-         SET status = 'intent_committed', updated_at = now()
+         SET status = 'intent_committed', placing_at = NULL, updated_at = now()
        WHERE id = ${id} AND status = 'placing'
     `;
   }
@@ -848,23 +944,38 @@ export class ConversionService {
   }
 
   private async book(row: OrderRow, order: VenueOrder): Promise<OrderRow> {
-    const fresh = (await this.orderById(row.id)) ?? row;
+    return this.deps.sql.begin(async (raw) => {
+      const tx = raw as unknown as Sql;
+      return this.bookIn(tx, row, order);
+    });
+  }
+
+  /** Caller holds the row lock on `sql`. A terminal row is left alone. */
+  private async bookIn(sql: Sql, row: OrderRow, order: VenueOrder): Promise<OrderRow> {
+    const locked = await sql<OrderRow[]>`
+      SELECT ${sql.unsafe(ORDER_COLS)} FROM pay.conversion_orders WHERE id = ${row.id} FOR UPDATE
+    `;
+    const fresh = locked[0] ?? row;
     if (TERMINAL.has(fresh.status)) return fresh;
 
-    if (order.filled > 0n) return this.bookFill(fresh, order);
+    if (order.filled > 0n) return this.bookFill(sql, fresh, order);
 
     if (order.status === 'rejected' || order.status === 'expired' || order.status === 'canceled') {
       await this.releaseHold(fresh, parseAmount(fresh.from_amount), 0);
-      return this.mark(fresh.id, {
-        status: 'failed',
-        failureCode: 'pay.conversion_venue_rejected',
-        venueOrderId: order.venueOrderId,
-      });
+      return this.mark(
+        fresh.id,
+        {
+          status: 'failed',
+          failureCode: 'pay.conversion_venue_rejected',
+          venueOrderId: order.venueOrderId,
+        },
+        sql,
+      );
     }
-    return this.mark(fresh.id, { status: 'placed', venueOrderId: order.venueOrderId });
+    return this.mark(fresh.id, { status: 'placed', venueOrderId: order.venueOrderId }, sql);
   }
 
-  private async bookFill(row: OrderRow, order: VenueOrder): Promise<OrderRow> {
+  private async bookFill(sql: Sql, row: OrderRow, order: VenueOrder): Promise<OrderRow> {
     let finalOrder = order;
     if (order.remaining > 0n && OPEN_AT_VENUE.has(order.status)) {
       try {
@@ -875,11 +986,15 @@ export class ConversionService {
     }
     if (finalOrder.filled <= 0n) {
       await this.releaseHold(row, parseAmount(row.from_amount), 0);
-      return this.mark(row.id, {
-        status: 'failed',
-        failureCode: 'pay.conversion_venue_rejected',
-        venueOrderId: finalOrder.venueOrderId,
-      });
+      return this.mark(
+        row.id,
+        {
+          status: 'failed',
+          failureCode: 'pay.conversion_venue_rejected',
+          venueOrderId: finalOrder.venueOrderId,
+        },
+        sql,
+      );
     }
 
     const ordered = parseAmount(row.from_amount);
@@ -913,21 +1028,31 @@ export class ConversionService {
     if (remainder > 0n) await this.releaseHold(row, remainder, 1);
     if (split.kind === 'reverse') {
       await postPayLedger(this.deps.ledger, recipes.fxConversionReverse(ledgerInput));
-      return this.mark(row.id, {
-        status: 'reversed',
-        failureCode: 'pay.conversion_below_minimum',
+      return this.mark(
+        row.id,
+        {
+          status: 'reversed',
+          failureCode: 'pay.conversion_below_minimum',
+          filledFrom: filled,
+          filledTo: received,
+          venueOrderId: finalOrder.venueOrderId,
+        },
+        sql,
+      );
+    }
+    // A full fill of the step-rounded venue quantity is filled. Comparing to
+    // from_amount reports that dust, which was never sent, as a partial.
+    const status = finalOrder.status === 'filled' && finalOrder.remaining === 0n ? 'filled' : 'partially_filled';
+    return this.mark(
+      row.id,
+      {
+        status,
         filledFrom: filled,
         filledTo: received,
         venueOrderId: finalOrder.venueOrderId,
-      });
-    }
-    const status = filled === ordered && finalOrder.remaining === 0n ? 'filled' : 'partially_filled';
-    return this.mark(row.id, {
-      status,
-      filledFrom: filled,
-      filledTo: received,
-      venueOrderId: finalOrder.venueOrderId,
-    });
+      },
+      sql,
+    );
   }
 
   private async releaseHold(row: OrderRow, amount: Amount, sequence: number): Promise<void> {
@@ -979,19 +1104,119 @@ export class ConversionService {
       filledTo?: Amount;
       venueOrderId?: string | null;
     },
+    sql: Sql = this.deps.sql,
   ): Promise<OrderRow> {
-    const rows = await this.deps.sql<OrderRow[]>`
-      UPDATE pay.conversion_orders SET
-        status = ${patch.status},
-        failure_code = ${patch.failureCode ?? null},
-        filled_from_amount = COALESCE(${patch.filledFrom === undefined ? null : formatAmount(patch.filledFrom)}::numeric, filled_from_amount),
-        filled_to_amount = COALESCE(${patch.filledTo === undefined ? null : formatAmount(patch.filledTo)}::numeric, filled_to_amount),
-        venue_order_id = COALESCE(${patch.venueOrderId ?? null}, venue_order_id),
-        updated_at = now()
-      WHERE id = ${id}
-      RETURNING ${this.deps.sql.unsafe(ORDER_COLS)}
+    const row = await this.markIf(id, null, patch, sql);
+    if (!row) throw new ConversionError('pay.conversion_unavailable', 'SERVICE_UNAVAILABLE');
+    return row;
+  }
+
+  /** `onlyStatus` null updates the row whatever its status is. Zero rows returns null. */
+  private async markIf(
+    id: string,
+    onlyStatus: string | null,
+    patch: {
+      status: string;
+      failureCode?: string | null;
+      filledFrom?: Amount;
+      filledTo?: Amount;
+      venueOrderId?: string | null;
+    },
+    sql: Sql = this.deps.sql,
+  ): Promise<OrderRow | null> {
+    const rows = onlyStatus
+      ? await sql<OrderRow[]>`
+          UPDATE pay.conversion_orders SET
+            status = ${patch.status},
+            failure_code = ${patch.failureCode ?? null},
+            filled_from_amount = COALESCE(${patch.filledFrom === undefined ? null : formatAmount(patch.filledFrom)}::numeric, filled_from_amount),
+            filled_to_amount = COALESCE(${patch.filledTo === undefined ? null : formatAmount(patch.filledTo)}::numeric, filled_to_amount),
+            venue_order_id = COALESCE(${patch.venueOrderId ?? null}, venue_order_id),
+            updated_at = now()
+          WHERE id = ${id} AND status = ${onlyStatus}
+          RETURNING ${sql.unsafe(ORDER_COLS)}
+        `
+      : await sql<OrderRow[]>`
+          UPDATE pay.conversion_orders SET
+            status = ${patch.status},
+            failure_code = ${patch.failureCode ?? null},
+            filled_from_amount = COALESCE(${patch.filledFrom === undefined ? null : formatAmount(patch.filledFrom)}::numeric, filled_from_amount),
+            filled_to_amount = COALESCE(${patch.filledTo === undefined ? null : formatAmount(patch.filledTo)}::numeric, filled_to_amount),
+            venue_order_id = COALESCE(${patch.venueOrderId ?? null}, venue_order_id),
+            updated_at = now()
+          WHERE id = ${id}
+          RETURNING ${sql.unsafe(ORDER_COLS)}
+        `;
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Absent is a release only after the claim has aged past the configured max
+   * and the 15-minute technical floor, and only when propose and confirm both
+   * missed with at least five minutes between those lookups.
+   */
+  private assertAbsentProven(row: OrderRow, proposal: { venue_lookup: string; venue_lookup_at: Date }): void {
+    if (this.deps.placingMaxAgeMs === null || !row.placing_at) {
+      throw new ConversionError('pay.conversion_resolve_absent_unproven', 'PRECONDITION_FAILED');
+    }
+    const required = Math.max(this.deps.placingMaxAgeMs, CONVERSION_ABSENT_FLOOR_MS);
+    if (this.now().getTime() - row.placing_at.getTime() < required) {
+      throw new ConversionError('pay.conversion_resolve_absent_unproven', 'PRECONDITION_FAILED');
+    }
+    if (proposal.venue_lookup !== 'absent') {
+      throw new ConversionError('pay.conversion_resolve_absent_unproven', 'PRECONDITION_FAILED');
+    }
+    if (this.now().getTime() - new Date(proposal.venue_lookup_at).getTime() < ABSENT_LOOK_GAP_MS) {
+      throw new ConversionError('pay.conversion_resolve_absent_unproven', 'PRECONDITION_FAILED');
+    }
+  }
+
+  /** New quotes and executes stop while a late fill is unresolved. */
+  private async refuseIfLateFill(): Promise<void> {
+    const newly = await this.detectLateFills();
+    if (newly || (await this.lateFillHalted())) {
+      throw new ConversionError('pay.conversion_late_fill_halt', 'SERVICE_UNAVAILABLE');
+    }
+  }
+
+  private async lateFillHalted(): Promise<boolean> {
+    const rows = await this.deps.sql<Array<{ reason: string | null }>>`
+      SELECT reason FROM pay.halts
+       WHERE scope = 'conversion' AND target = 'global' AND halted AND reason = ${LATE_FILL_HALT_REASON}
+       LIMIT 1
     `;
-    return rows[0]!;
+    return rows.length > 0;
+  }
+
+  /** Re-query absent resolves from the last 7 days. A fill is audited and halts conversion. Nothing is booked. */
+  private async detectLateFills(): Promise<boolean> {
+    const since = new Date(this.now().getTime() - LATE_FILL_LOOKBACK_MS);
+    const rows = await this.deps.sql<OrderRow[]>`
+      SELECT ${this.deps.sql.unsafe(ORDER_COLS)} FROM pay.conversion_orders
+       WHERE status = 'failed'
+         AND failure_code = 'pay.conversion_resolve_absent'
+         AND updated_at >= ${since}
+    `;
+    let newly = false;
+    for (const row of rows) {
+      const evidence = await this.lookup(row);
+      if (!evidence || evidence.filled <= 0n) continue;
+      const seen = await this.deps.sql<Array<{ id: string }>>`
+        SELECT id FROM pay.conversion_audit
+         WHERE conversion_id = ${row.id} AND action = ${LATE_FILL_AUDIT}
+         LIMIT 1
+      `;
+      if (seen[0]) continue;
+      await this.audit(row.id, LATE_FILL_AUDIT, 'late-fill', null, {
+        venueOrderId: evidence.venueOrderId,
+        filled: formatAmount(evidence.filled),
+      });
+      newly = true;
+    }
+    if (newly) {
+      await new PayHaltStore(this.deps.sql, { failures: null }).trip('conversion', { level: 'global' }, LATE_FILL_HALT_REASON);
+    }
+    return newly;
   }
 
   private async quoteById(id: string): Promise<QuoteRow | null> {

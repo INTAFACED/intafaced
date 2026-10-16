@@ -5,16 +5,23 @@ import {
   readInteger,
   requireCredentials,
   VenueUnavailableError,
+  type ClosedOrderWindow,
   type PlaceOrderRequest,
   type TradeAdapter,
   type VenueCredentials,
   type VenueDescriptor,
   type VenueOrder,
+  type VenueUnavailableReason,
 } from '@intafaced/venue-contracts';
 import { fetchHttpPort, type HttpPort } from '../transport.js';
 import { RateLimitGovernor } from '../rate-limit.js';
 import { assertCredentialVenue } from './credential-guard.js';
-import { assertFillReportMatchesStatus, assertKnownOrderStatus, throwVenueTransportFailure } from './order-outcome-honesty.js';
+import {
+  assertFillReportMatchesStatus,
+  assertKnownOrderStatus,
+  rethrowWithSent,
+  throwVenueTransportFailure,
+} from './order-outcome-honesty.js';
 import { assertTradeBookPayoutGradeBeforePlace } from '../trade-payout-gate.js';
 
 const REST_BASE = 'https://api.binance.com';
@@ -38,6 +45,24 @@ const VENUE: VenueDescriptor = {
   kind: 'external-cex',
   sequencedDepth: true,
 };
+
+function unavailable(reason: VenueUnavailableReason, message: string, sent: boolean): never {
+  throw new VenueUnavailableError(VENUE.id, reason, message, sent);
+}
+
+/** Binance history pages are not proof of a miss once they hit this cap. */
+const HISTORY_PAGE = 1000;
+/** Binance rejects a myTrades window longer than 24h. Stay strictly inside it. */
+const HISTORY_CHUNK_MS = 24 * 60 * 60 * 1000 - 1;
+
+function isBinanceOrderMissing(error: unknown): boolean {
+  return error instanceof VenueUnavailableError && /order does not exist/i.test(error.message);
+}
+
+function sameId(left: unknown, right: string): boolean {
+  if (left === undefined || left === null) return false;
+  return String(left).trim() === right;
+}
 
 export function signBinanceQuery(params: Readonly<Record<string, string>>, secret: string): string {
   const query = Object.keys(params)
@@ -150,65 +175,50 @@ export function binanceSymbolFilters(raw: Record<string, unknown>): {
   }
 }
 
-export function mapBinanceSpotOrder(body: Record<string, unknown>, unified: string, now: Date): VenueOrder {
+export function mapBinanceSpotOrder(body: Record<string, unknown>, unified: string, now: Date, sent = false): VenueOrder {
+  const fail = (message: string): never => {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', message, sent);
+  };
   const statusRaw = String(body.status ?? '');
   const status = BINANCE_ORDER_STATUS[statusRaw];
-  assertKnownOrderStatus(VENUE.id, status, statusRaw, 'order status');
+  assertKnownOrderStatus(VENUE.id, status, statusRaw, 'order status', sent);
   const orig = readDecimal(body.origQty, VENUE.id, 'origQty');
   const executed = readDecimal(body.executedQty, VENUE.id, 'executedQty');
-  if (orig <= 0n) {
-    throw new VenueUnavailableError(VENUE.id, 'malformed', 'origQty must be positive');
-  }
-  if (executed < 0n) {
-    throw new VenueUnavailableError(VENUE.id, 'malformed', 'executedQty must not be negative');
-  }
+  if (orig <= 0n) fail('origQty must be positive');
+  if (executed < 0n) fail('executedQty must not be negative');
   const remaining = orig - executed;
-  if (remaining < 0n) {
-    throw new VenueUnavailableError(VENUE.id, 'malformed', 'executedQty exceeds origQty');
-  }
+  if (remaining < 0n) fail('executedQty exceeds origQty');
   const quote = body.cummulativeQuoteQty;
   let averagePrice: VenueOrder['averagePrice'] = null;
   const quoteAmt = quote === undefined || quote === null ? 0n : readDecimal(quote, VENUE.id, 'cummulativeQuoteQty');
-  if (quoteAmt < 0n) {
-    throw new VenueUnavailableError(VENUE.id, 'malformed', 'cummulativeQuoteQty must not be negative');
-  }
+  if (quoteAmt < 0n) fail('cummulativeQuoteQty must not be negative');
   if ((executed === 0n) !== (quoteAmt === 0n)) {
-    throw new VenueUnavailableError(
-      VENUE.id,
-      'malformed',
-      'executedQty and cummulativeQuoteQty must either both be zero or both be positive',
-    );
+    fail('executedQty and cummulativeQuoteQty must either both be zero or both be positive');
   }
   if (executed > 0n) {
     averagePrice = div(quoteAmt, executed);
   }
   const typeRaw = String(body.type ?? '').toUpperCase();
   if (!['LIMIT', 'LIMIT_MAKER', 'MARKET'].includes(typeRaw)) {
-    throw new VenueUnavailableError(VENUE.id, 'malformed', `order type ${typeRaw || '(empty)'} is not a known Binance spot type`);
+    fail(`order type ${typeRaw || '(empty)'} is not a known Binance spot type`);
   }
   const type: VenueOrder['type'] = typeRaw === 'MARKET' ? 'market' : 'limit';
   const price =
     type === 'market' || body.price === undefined || body.price === null || String(body.price) === '0.00000000'
       ? null
       : readDecimal(body.price, VENUE.id, 'price');
-  if (type === 'limit' && (price === null || price <= 0n)) {
-    throw new VenueUnavailableError(VENUE.id, 'malformed', 'limit order price must be positive');
-  }
+  if (type === 'limit' && (price === null || price <= 0n)) fail('limit order price must be positive');
   const transact = body.transactTime ?? body.updateTime ?? body.time;
   const createdAt = transact === undefined || transact === null ? now : new Date(readInteger(transact, VENUE.id, 'transactTime'));
   const sideRaw = String(body.side ?? '').toUpperCase();
   if (sideRaw !== 'BUY' && sideRaw !== 'SELL') {
-    throw new VenueUnavailableError(VENUE.id, 'malformed', `order side ${sideRaw || '(empty)'} is not a known Binance side`);
+    fail(`order side ${sideRaw || '(empty)'} is not a known Binance side`);
   }
   const venueOrderId = body.orderId === undefined || body.orderId === null ? '' : String(body.orderId).trim();
   const clientOrderId = String(body.clientOrderId ?? body.origClientOrderId ?? '').trim();
-  if (!venueOrderId || venueOrderId === '0') {
-    throw new VenueUnavailableError(VENUE.id, 'malformed', 'orderId is missing or invalid');
-  }
-  if (!clientOrderId) {
-    throw new VenueUnavailableError(VENUE.id, 'malformed', 'clientOrderId is missing');
-  }
-  assertFillReportMatchesStatus(VENUE.id, status, executed, averagePrice);
+  if (!venueOrderId || venueOrderId === '0') fail('orderId is missing or invalid');
+  if (!clientOrderId) fail('clientOrderId is missing');
+  assertFillReportMatchesStatus(VENUE.id, status, executed, averagePrice, sent);
   const commission = Array.isArray(body.fills) ? sumBinanceFillCommission(body.fills) : { feePaid: null, feeAsset: null };
   return {
     venueId: VENUE.id,
@@ -264,21 +274,23 @@ export class BinanceSpotTrade implements TradeAdapter {
   async placeOrder(request: PlaceOrderRequest): Promise<VenueOrder> {
     const keys = requireCredentials(VENUE.id, 'placeOrder', this.#credentials);
     if (request.clientOrderId.length > 36) {
-      throw new VenueUnavailableError(VENUE.id, 'malformed', 'clientOrderId exceeds 36 characters');
+      unavailable('malformed', 'clientOrderId exceeds 36 characters', false);
     }
-    await assertTradeBookPayoutGradeBeforePlace(VENUE.id, request.symbol, {
-      http: this.#http,
-      clock: this.#clock,
-      limit: this.#snapshotLimit,
-    });
-    if (request.reduceOnly) {
-      throw new VenueUnavailableError(VENUE.id, 'not_ready', 'spot has no reduceOnly');
+    try {
+      await assertTradeBookPayoutGradeBeforePlace(VENUE.id, request.symbol, {
+        http: this.#http,
+        clock: this.#clock,
+        limit: this.#snapshotLimit,
+      });
+    } catch (error) {
+      rethrowWithSent(error, false);
     }
+    if (request.reduceOnly) unavailable('not_ready', 'spot has no reduceOnly', false);
     if (request.type === 'limit' && (request.price === undefined || request.price === null)) {
-      throw new VenueUnavailableError(VENUE.id, 'malformed', 'limit order requires price');
+      unavailable('malformed', 'limit order requires price', false);
     }
     if (request.type === 'market' && request.price !== undefined) {
-      throw new VenueUnavailableError(VENUE.id, 'malformed', 'market order must not carry price');
+      unavailable('malformed', 'market order must not carry price', false);
     }
     const params: Record<string, string> = {
       symbol: venueSymbolOf(request.symbol),
@@ -294,8 +306,12 @@ export class BinanceSpotTrade implements TradeAdapter {
       params.price = formatAmount(request.price!);
       if (!request.postOnly) params.timeInForce = request.timeInForce ?? 'GTC';
     }
-    const body = await this.#signedObject('POST', '/api/v3/order', params, keys, 'placeOrder');
-    return this.#withTrades(mapBinanceSpotOrder(body, request.symbol, new Date(this.#clock())), keys);
+    const body = await this.#signedObject('POST', '/api/v3/order', params, keys, 'placeOrder', false);
+    try {
+      return await this.#withTrades(mapBinanceSpotOrder(body, request.symbol, new Date(this.#clock()), true), keys, true);
+    } catch (error) {
+      rethrowWithSent(error, true);
+    }
   }
 
   async cancelOrder(symbol: string, clientOrderId: string): Promise<VenueOrder> {
@@ -312,7 +328,7 @@ export class BinanceSpotTrade implements TradeAdapter {
       keys,
       'cancelOrder',
     );
-    return this.#withTrades(mapBinanceSpotOrder(body, symbol, new Date(this.#clock())), keys);
+    return this.#withTrades(mapBinanceSpotOrder(body, symbol, new Date(this.#clock())), keys, false);
   }
 
   async fetchOrder(symbol: string, clientOrderId: string): Promise<VenueOrder> {
@@ -329,7 +345,60 @@ export class BinanceSpotTrade implements TradeAdapter {
       keys,
       'fetchOrder',
     );
-    return this.#withTrades(mapBinanceSpotOrder(body, symbol, new Date(this.#clock())), keys);
+    return this.#withTrades(mapBinanceSpotOrder(body, symbol, new Date(this.#clock())), keys, false);
+  }
+
+  /**
+   * Closed-order proof. GET by clientOrderId, then allOrders and myTrades
+   * across `window`. Any matching row is not a miss. A full history page is
+   * not a miss either — the id may sit on the next page.
+   */
+  async fetchClosedOrder(symbol: string, clientOrderId: string, window?: ClosedOrderWindow): Promise<VenueOrder | null> {
+    const keys = requireCredentials(VENUE.id, 'fetchClosedOrder', this.#credentials);
+    try {
+      return await this.fetchOrder(symbol, clientOrderId);
+    } catch (error) {
+      if (!isBinanceOrderMissing(error)) throw error;
+    }
+    if (!window || window.endTimeMs < window.startTimeMs) {
+      unavailable('unreachable', 'fetchClosedOrder has no claim window — outcome unknown, not a miss', false);
+    }
+    const orderId = window.orderId?.trim() || null;
+    const now = new Date(this.#clock());
+    for (let start = window.startTimeMs; start <= window.endTimeMs; start += HISTORY_CHUNK_MS) {
+      const end = Math.min(start + HISTORY_CHUNK_MS - 1, window.endTimeMs);
+      const orders = await this.#historyArray(
+        '/api/v3/allOrders',
+        { symbol: venueSymbolOf(symbol), startTime: String(start), endTime: String(end), limit: String(HISTORY_PAGE) },
+        keys,
+        'allOrders',
+      );
+      const orderHit = orders.find(
+        (row) =>
+          sameId(row.clientOrderId, clientOrderId) ||
+          sameId(row.origClientOrderId, clientOrderId) ||
+          (orderId !== null && sameId(row.orderId, orderId)),
+      );
+      if (orderHit) return this.#withTrades(mapBinanceSpotOrder(orderHit, symbol, now), keys, false);
+      const trades = await this.#historyArray(
+        '/api/v3/myTrades',
+        { symbol: venueSymbolOf(symbol), startTime: String(start), endTime: String(end), limit: String(HISTORY_PAGE) },
+        keys,
+        'myTrades',
+      );
+      const tradeHit = trades.find((row) => (orderId !== null && sameId(row.orderId, orderId)) || sameId(row.clientOrderId, clientOrderId));
+      if (tradeHit) return this.#orderById(symbol, String(tradeHit.orderId ?? orderId ?? ''), keys, now);
+    }
+    if (orderId) {
+      const byId = await this.#historyArray(
+        '/api/v3/myTrades',
+        { symbol: venueSymbolOf(symbol), orderId, limit: String(HISTORY_PAGE) },
+        keys,
+        'myTrades',
+      );
+      if (byId.length > 0) return this.#orderById(symbol, orderId, keys, now);
+    }
+    return null;
   }
 
   /** Quote-asset taker rate for a sell. Null when the venue does not say. */
@@ -356,7 +425,7 @@ export class BinanceSpotTrade implements TradeAdapter {
       throwVenueTransportFailure(VENUE.id, 'GET', '/api/v3/exchangeInfo', error);
     }
     if (response.status < 200 || response.status >= 300 || response.body === null || typeof response.body !== 'object') {
-      throw new VenueUnavailableError(VENUE.id, 'unreachable', `exchangeInfo HTTP ${response.status}`);
+      unavailable('unreachable', `exchangeInfo HTTP ${response.status}`, false);
     }
     const symbols = (response.body as { symbols?: unknown }).symbols;
     if (!Array.isArray(symbols) || symbols.length === 0) return null;
@@ -368,11 +437,7 @@ export class BinanceSpotTrade implements TradeAdapter {
   async openOrders(symbol?: string): Promise<VenueOrder[]> {
     const keys = requireCredentials(VENUE.id, 'openOrders', this.#credentials);
     if (!symbol) {
-      throw new VenueUnavailableError(
-        VENUE.id,
-        'not_ready',
-        'openOrders requires a unified symbol; native Binance symbols are not returned as unified symbols',
-      );
+      unavailable('not_ready', 'openOrders requires a unified symbol; native Binance symbols are not returned as unified symbols', false);
     }
     const params: Record<string, string> = {
       timestamp: String(this.#clock()),
@@ -380,23 +445,55 @@ export class BinanceSpotTrade implements TradeAdapter {
     };
     params.symbol = venueSymbolOf(symbol);
     const body = await this.#signed('GET', '/api/v3/openOrders', params, keys, 'openOrders');
-    if (!Array.isArray(body)) {
-      throw new VenueUnavailableError(VENUE.id, 'malformed', 'openOrders did not return an array');
-    }
+    if (!Array.isArray(body)) unavailable('malformed', 'openOrders did not return an array', false);
     const now = new Date(this.#clock());
     return body.map((row) => {
-      if (!row || typeof row !== 'object') {
-        throw new VenueUnavailableError(VENUE.id, 'malformed', 'openOrders row is not an object');
-      }
-      return mapBinanceSpotOrder(row as Record<string, unknown>, symbol, now);
+      if (!row || typeof row !== 'object') unavailable('malformed', 'openOrders row is not an object', false);
+      return mapBinanceSpotOrder(row as Record<string, unknown>, symbol, now, false);
     });
   }
 
-  async #withTrades(order: VenueOrder, keys: VenueCredentials): Promise<VenueOrder> {
-    if (order.filled <= 0n || order.feePaid !== null) return order;
-    if (!order.venueOrderId) {
-      throw new VenueUnavailableError(VENUE.id, 'malformed', 'myTrades requires orderId');
+  async #orderById(symbol: string, orderId: string, keys: VenueCredentials, now: Date): Promise<VenueOrder> {
+    if (!orderId.trim()) unavailable('unreachable', 'myTrades hit has no orderId — outcome unknown, not a miss', false);
+    const body = await this.#signedObject(
+      'GET',
+      '/api/v3/order',
+      { symbol: venueSymbolOf(symbol), orderId, timestamp: String(this.#clock()), recvWindow: '5000' },
+      keys,
+      'fetchOrder',
+      false,
+    );
+    return this.#withTrades(mapBinanceSpotOrder(body, symbol, now, false), keys, false);
+  }
+
+  /** A short history page. A full page is not a miss: the id may be past the cap. */
+  async #historyArray(
+    path: string,
+    params: Record<string, string>,
+    keys: VenueCredentials,
+    operation: string,
+  ): Promise<Record<string, unknown>[]> {
+    const body = await this.#signed(
+      'GET',
+      path,
+      { ...params, timestamp: String(this.#clock()), recvWindow: '5000' },
+      keys,
+      operation,
+      false,
+    );
+    if (!Array.isArray(body)) unavailable('malformed', `${operation} did not return an array`, false);
+    if (body.length >= HISTORY_PAGE) {
+      unavailable('unreachable', `${operation} history page is full — outcome unknown, not a miss`, false);
     }
+    return body.map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) unavailable('malformed', `${operation} row is not an object`, false);
+      return row as Record<string, unknown>;
+    });
+  }
+
+  async #withTrades(order: VenueOrder, keys: VenueCredentials, sent = false): Promise<VenueOrder> {
+    if (order.filled <= 0n || order.feePaid !== null) return order;
+    if (!order.venueOrderId) unavailable('malformed', 'myTrades requires orderId', sent);
     const body = await this.#signed(
       'GET',
       '/api/v3/myTrades',
@@ -408,10 +505,9 @@ export class BinanceSpotTrade implements TradeAdapter {
       },
       keys,
       'myTrades',
+      sent,
     );
-    if (!Array.isArray(body)) {
-      throw new VenueUnavailableError(VENUE.id, 'malformed', 'myTrades did not return an array');
-    }
+    if (!Array.isArray(body)) unavailable('malformed', 'myTrades did not return an array', sent);
     const fee = sumBinanceFillCommission(body);
     return { ...order, feePaid: fee.feePaid, feeAsset: fee.feeAsset };
   }
@@ -422,33 +518,45 @@ export class BinanceSpotTrade implements TradeAdapter {
     params: Record<string, string>,
     keys: VenueCredentials,
     operation: string,
+    sent = false,
   ): Promise<Record<string, unknown>> {
-    const body = await this.#signed(method, path, params, keys, operation);
+    const body = await this.#signed(method, path, params, keys, operation, sent);
     if (Array.isArray(body) || body === null || typeof body !== 'object') {
-      throw new VenueUnavailableError(VENUE.id, 'malformed', `${operation} did not return an object`);
+      unavailable('malformed', `${operation} did not return an object`, sent || operation === 'placeOrder');
     }
     return body;
   }
 
+  /**
+   * `sent` is true when the place POST was already dispatched before this call
+   * (the follow-up myTrades read). The place POST itself flips to sent at the
+   * moment it is handed to the transport, including a throw from that call.
+   */
   async #signed(
     method: 'GET' | 'POST' | 'DELETE',
     path: string,
     params: Record<string, string>,
     keys: VenueCredentials,
     operation: string,
+    sent = false,
   ): Promise<Record<string, unknown> | unknown[]> {
+    let dispatched = sent;
+    const fail = (reason: VenueUnavailableReason, message: string): never => {
+      unavailable(reason, message, dispatched);
+    };
     const post = this.#http.post?.bind(this.#http);
     const del = this.#http.delete?.bind(this.#http);
     if ((method === 'POST' && !post) || (method === 'DELETE' && !del)) {
-      throw new VenueUnavailableError(VENUE.id, 'not_ready', `${operation}: HTTP ${method} port is not wired`);
+      fail('not_ready', `${operation}: HTTP ${method} port is not wired`);
     }
 
     const now = this.#clock();
     const decision = this.#governor.tryAcquire(1, now);
     if (!decision.admitted) {
-      throw new VenueUnavailableError(VENUE.id, 'rate_limited', `${decision.detail} (retry in ${decision.retryAfterMs}ms)`);
+      fail('rate_limited', `${decision.detail} (retry in ${decision.retryAfterMs}ms)`);
     }
 
+    if (operation === 'placeOrder') dispatched = true;
     const query = signBinanceQuery(params, keys.apiSecret);
     const url = `${this.#restBase}${path}?${query}`;
     const headers = { 'X-MBX-APIKEY': keys.apiKey };
@@ -458,17 +566,13 @@ export class BinanceSpotTrade implements TradeAdapter {
       else if (method === 'POST') response = await post!(url, { headers });
       else response = await del!(url, { headers });
     } catch (error) {
-      throwVenueTransportFailure(VENUE.id, method, path, error);
+      throwVenueTransportFailure(VENUE.id, method, path, error, dispatched);
     }
 
     if (response.status === 429 || response.status === 418) {
       const retryAfterMs = retryAfterFrom(response.header('Retry-After'));
       this.#governor.observeVenueBackoff(retryAfterMs, `HTTP ${response.status}`, this.#clock());
-      throw new VenueUnavailableError(
-        VENUE.id,
-        'rate_limited',
-        `${VENUE.id} answered ${response.status}; backing off for ${retryAfterMs}ms`,
-      );
+      fail('rate_limited', `${VENUE.id} answered ${response.status}; backing off for ${retryAfterMs}ms`);
     }
 
     if (response.status < 200 || response.status >= 300 || response.body === null || typeof response.body !== 'object') {
@@ -476,7 +580,7 @@ export class BinanceSpotTrade implements TradeAdapter {
       const code = typeof payload?.code === 'number' ? payload.code : null;
       const msg = payload && 'msg' in payload ? String(payload.msg) : `HTTP ${response.status}`;
       const detail = code === null ? msg : `code ${code} (${msg})`;
-      throw new VenueUnavailableError(VENUE.id, 'unreachable', `${operation} ${detail}`);
+      fail('unreachable', `${operation} ${detail}`);
     }
 
     if (Array.isArray(response.body)) return response.body;

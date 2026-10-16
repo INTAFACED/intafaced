@@ -977,7 +977,7 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(http.requests[0]).toContain('/v5/order/history');
     const blocked = new FakeHttp();
     const refused = new BybitSpotTrade(keys, { http: blocked, clock: () => 1, snapshotLimit: 5 });
-    await expect(refused.placeOrder({ ...order, clientOrderId: 'x'.repeat(37) })).rejects.toThrow(/clientOrderId/);
+    await expect(refused.placeOrder({ ...order, clientOrderId: 'x'.repeat(37) })).rejects.toMatchObject({ sent: false });
     expect(blocked.requests).toHaveLength(0);
   });
 
@@ -1088,6 +1088,22 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
   it('names a definite rejection by its retCode', async () => {
     const http = new FakeHttp().queue(orderbook(1)).queue({ retCode: 170131, retMsg: 'Insufficient balance', result: {} });
     const trade = new BybitSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1, snapshotLimit: 5 });
-    await expect(trade.placeOrder(order)).rejects.toThrow(/retCode 170131 \(Insufficient balance\)/);
+    await expect(trade.placeOrder(order)).rejects.toMatchObject({
+      sent: true,
+      reason: 'unreachable',
+      message: expect.stringMatching(/retCode 170131 \(Insufficient balance\)/),
+    });
+  });
+
+  it('tags a follow-up realtime read that the governor refuses as sent', async () => {
+    const http = new FakeHttp().queue(orderbook(1)).queue({ retCode: 0, retMsg: 'OK', result: { orderId: '9', orderLinkId: 'abc' } });
+    const governor = new RateLimitGovernor(
+      { venueId: 'bybit-spot', capacity: 1, windowMs: 60_000, reservedHeadroomBps: 0, burstBps: 10_000 },
+      1,
+    );
+    const trade = new BybitSpotTrade(keys, { http, clock: () => 1, snapshotLimit: 5, governor });
+    await expect(trade.placeOrder(order)).rejects.toMatchObject({ sent: true, reason: 'rate_limited' });
+    expect(http.requests.some((url) => url.includes('/v5/order/create'))).toBe(true);
+    expect(http.requests.some((url) => url.includes('/v5/order/realtime'))).toBe(false);
   });
 });

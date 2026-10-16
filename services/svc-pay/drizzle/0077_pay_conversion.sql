@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS "pay"."conversion_orders" (
   "minimum_output"      numeric(60, 18) NOT NULL,
   "failure_code"        text,
   "venue_order_id"      text,
+  -- Set when the row becomes `placing`. The absent-resolve age uses this instant.
+  -- A failure-code stamp must not move it, or the founder hash and the floor drift.
+  "placing_at"          timestamptz,
   "created_at"          timestamptz NOT NULL DEFAULT now(),
   "updated_at"          timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "conversion_orders_pair" CHECK ("from_asset" = 'USD' AND "to_asset" = 'USDT'),
@@ -96,22 +99,31 @@ CREATE INDEX IF NOT EXISTS "conversion_orders_open_idx"
   ON "pay"."conversion_orders" ("from_asset", "status");
 CREATE INDEX IF NOT EXISTS "conversion_orders_merchant_idx"
   ON "pay"."conversion_orders" ("merchant_id", "created_at" DESC, "id" DESC);
+-- Late-fill scan: rows closed as an absent resolve, newest first.
+CREATE INDEX IF NOT EXISTS "conversion_orders_resolve_absent_idx"
+  ON "pay"."conversion_orders" ("updated_at" DESC)
+  WHERE "failure_code" = 'pay.conversion_resolve_absent';
 
 -- A founder proposes a resolve; a different founder confirms the same hash.
 -- The apply step reads the venue. The proposal stores no fill numbers.
+-- `venue_lookup` is what the venue said at propose time. An absent confirm is
+-- allowed only when that lookup was a miss and confirm misses again later.
 CREATE TABLE IF NOT EXISTS "pay"."conversion_resolve_proposals" (
-  "request_id"     uuid PRIMARY KEY,
-  "conversion_id"  uuid NOT NULL REFERENCES "pay"."conversion_orders"("id"),
-  "change_hash"    text NOT NULL,
-  "reason"         text NOT NULL,
-  "proposed_by"    text NOT NULL,
-  "status"         text NOT NULL,
-  "confirmed_by"   text,
-  "created_at"     timestamptz NOT NULL DEFAULT now(),
-  "decided_at"     timestamptz,
+  "request_id"       uuid PRIMARY KEY,
+  "conversion_id"    uuid NOT NULL REFERENCES "pay"."conversion_orders"("id"),
+  "change_hash"      text NOT NULL,
+  "reason"           text NOT NULL,
+  "proposed_by"      text NOT NULL,
+  "status"           text NOT NULL,
+  "venue_lookup"     text NOT NULL,
+  "venue_lookup_at"  timestamptz NOT NULL,
+  "confirmed_by"     text,
+  "created_at"       timestamptz NOT NULL DEFAULT now(),
+  "decided_at"       timestamptz,
   CONSTRAINT "conversion_resolve_status" CHECK ("status" IN ('pending', 'confirmed', 'rejected')),
   CONSTRAINT "conversion_resolve_hash" CHECK ("change_hash" ~ '^sha256:[0-9a-f]{64}$'),
-  CONSTRAINT "conversion_resolve_reason" CHECK (length(btrim("reason")) > 0)
+  CONSTRAINT "conversion_resolve_reason" CHECK (length(btrim("reason")) > 0),
+  CONSTRAINT "conversion_resolve_lookup" CHECK ("venue_lookup" IN ('absent', 'present'))
 );
 
 CREATE INDEX IF NOT EXISTS "conversion_resolve_order_idx"

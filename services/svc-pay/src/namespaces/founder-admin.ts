@@ -202,10 +202,10 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
           sweep: founder
             .input(z.object({}).strict())
             .output(conversionHoldSweepResultSchema)
-            .mutation(async () => {
+            .mutation(async ({ ctx }) => {
               if (!conversion) return notBuilt('founderAdmin.conversion.holds.sweep');
               try {
-                return await conversion.sweepOrphanHolds();
+                return await conversion.sweepOrphanHolds((ctx as FounderContext).founderUserId);
               } catch (error) {
                 throw mapConversionError(error);
               }

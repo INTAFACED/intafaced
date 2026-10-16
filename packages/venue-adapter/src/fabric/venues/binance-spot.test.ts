@@ -496,7 +496,7 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
         price: 1n,
         clientOrderId: 'x'.repeat(37),
       }),
-    ).rejects.toThrow(/clientOrderId/);
+    ).rejects.toMatchObject({ sent: false });
     expect(blocked.requests).toHaveLength(0);
   });
 
@@ -637,7 +637,47 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
         price: 100n * 10n ** 18n,
         clientOrderId: 'abc',
       }),
-    ).rejects.toMatchObject({ reason: 'unreachable' });
+    ).rejects.toMatchObject({ reason: 'unreachable', sent: true });
+  });
+
+  it('tags a follow-up myTrades governor refusal as sent', async () => {
+    const http = new FakeHttp().queue(depthSnapshot(1)).queue({
+      symbol: 'BTCUSDT',
+      orderId: 28,
+      clientOrderId: 'abc',
+      transactTime: 1_507_725_176_595,
+      price: '100.00',
+      origQty: '1.00000000',
+      executedQty: '1.00000000',
+      cummulativeQuoteQty: '100.00000000',
+      status: 'FILLED',
+      type: 'LIMIT',
+      side: 'SELL',
+    });
+    const governor = new RateLimitGovernor(
+      { venueId: 'binance-spot', capacity: 1, windowMs: 60_000, reservedHeadroomBps: 0, burstBps: 10_000 },
+      1,
+    );
+    const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
+    const trade = new BinanceSpotTrade(keys, {
+      http,
+      restBase: 'https://rest.test',
+      clock: () => 1,
+      snapshotLimit: 5,
+      governor,
+    });
+    await expect(
+      trade.placeOrder({
+        symbol: 'BTC/USDT',
+        side: 'sell',
+        type: 'limit',
+        amount: 1n * 10n ** 18n,
+        price: 100n * 10n ** 18n,
+        clientOrderId: 'abc',
+      }),
+    ).rejects.toMatchObject({ sent: true, reason: 'rate_limited' });
+    expect(http.requests.some((url) => url.includes('POST ') && url.includes('/api/v3/order'))).toBe(true);
+    expect(http.requests.some((url) => url.includes('/api/v3/myTrades'))).toBe(false);
   });
 
   it('balances maps free/locked from signed GET /api/v3/account — never a ledger input', async () => {
@@ -969,5 +1009,53 @@ describe('Binance spot commission and filters', () => {
     expect(formatAmount((await trade.commissionRate('BTC/USDT'))!)).toBe('0.001');
     expect(http.requests[0]).toContain('/api/v3/account/commission');
     expect(http.requests[0]).toContain('symbol=BTCUSDT');
+  });
+
+  const missing = { code: -2013, msg: 'Order does not exist.' };
+  const window = { startTimeMs: 1_700_000_000_000 - 60_000, endTimeMs: 1_700_000_000_000 };
+
+  it('treats an empty allOrders and myTrades window as a miss', async () => {
+    const http = new FakeHttp().queue(missing, 400).queue([]).queue([]);
+    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => window.endTimeMs });
+    await expect(trade.fetchClosedOrder('BTC/USDT', 'abc', window)).resolves.toBeNull();
+    expect(http.requests[1]).toContain('/api/v3/allOrders');
+    expect(http.requests[2]).toContain('/api/v3/myTrades');
+  });
+
+  it('is not a miss when allOrders contains the clientOrderId', async () => {
+    const http = new FakeHttp()
+      .queue(missing, 400)
+      .queue([filled])
+      .queue([{ commission: '0.10', commissionAsset: 'USDT', qty: '1', price: '100' }]);
+    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => window.endTimeMs });
+    const order = await trade.fetchClosedOrder('BTC/USDT', 'abc', window);
+    expect(order?.venueOrderId).toBe('28');
+    expect(order?.status).toBe('filled');
+  });
+
+  it('is not a miss when myTrades names the orderId inside the claim window', async () => {
+    const http = new FakeHttp()
+      .queue(missing, 400)
+      .queue([])
+      .queue([{ orderId: 28, qty: '1', price: '100' }])
+      .queue(filled)
+      .queue([{ commission: '0.10', commissionAsset: 'USDT', qty: '1', price: '100' }]);
+    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => window.endTimeMs });
+    const order = await trade.fetchClosedOrder('BTC/USDT', 'abc', { ...window, orderId: '28' });
+    expect(order?.clientOrderId).toBe('abc');
+    expect(http.requests.some((url) => url.includes('orderId=28') && !url.includes('myTrades'))).toBe(true);
+  });
+
+  it('refuses a full history page instead of calling it a miss', async () => {
+    const page = Array.from({ length: 1000 }, () => ({ clientOrderId: 'other' }));
+    const http = new FakeHttp().queue(missing, 400).queue(page);
+    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => window.endTimeMs });
+    await expect(trade.fetchClosedOrder('BTC/USDT', 'abc', window)).rejects.toThrow(/history page is full/);
+  });
+
+  it('refuses a closed-order lookup that has no claim window', async () => {
+    const http = new FakeHttp().queue(missing, 400);
+    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => window.endTimeMs });
+    await expect(trade.fetchClosedOrder('BTC/USDT', 'abc')).rejects.toThrow(/no claim window/);
   });
 });

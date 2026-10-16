@@ -133,6 +133,16 @@ export const conversionResolveConfirmResultSchema = z
 export const conversionHoldSweepResultSchema = z
   .object({
     released: z.number().int().nonnegative(),
+    failures: z
+      .array(
+        z
+          .object({
+            conversionId: z.string().min(1),
+            code: z.string().min(1),
+          })
+          .strict(),
+      )
+      .max(500),
   })
   .strict();
 

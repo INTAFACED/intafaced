@@ -8,6 +8,7 @@ import {
   VenueCredentialsMissingError,
   VenueUnavailableError,
   topOfBook,
+  type ClosedOrderWindow,
   type PlaceOrderRequest,
   type TradeAdapter,
   type VenueCredentials,
@@ -53,7 +54,7 @@ export interface ConversionVenue {
    */
   fetchOrder(symbol: string, clientOrderId: string): Promise<VenueOrder | null>;
   /** Closed spot orders. `null` is a confirmed miss, not a transport failure. */
-  fetchClosedOrder(symbol: string, clientOrderId: string): Promise<VenueOrder | null>;
+  fetchClosedOrder(symbol: string, clientOrderId: string, window?: ClosedOrderWindow): Promise<VenueOrder | null>;
   cancelOrder(symbol: string, clientOrderId: string): Promise<VenueOrder>;
   /**
    * Taker commission as a fraction of quote notional (`0.001` is 10 bps).
@@ -208,13 +209,14 @@ export function conversionVenueFromTrade(trade: TradeAdapter, quote: ConversionV
         throw new ConversionError('pay.conversion_venue_unknown', 'SERVICE_UNAVAILABLE');
       }
     },
-    async fetchClosedOrder(symbol, clientOrderId) {
+    async fetchClosedOrder(symbol, clientOrderId, window) {
       const fetchClosed = trade.fetchClosedOrder?.bind(trade);
-      if (!fetchClosed) return null;
+      if (!fetchClosed) throw new ConversionError('pay.conversion_venue_unknown', 'SERVICE_UNAVAILABLE');
       try {
-        return await fetchClosed(symbol, clientOrderId);
+        return await fetchClosed(symbol, clientOrderId, window);
       } catch (error) {
         if (error instanceof VenueCredentialsMissingError) throw credentialsUnconfigured();
+        if (error instanceof ConversionError) throw error;
         throw new ConversionError('pay.conversion_venue_unknown', 'SERVICE_UNAVAILABLE');
       }
     },
@@ -446,7 +448,7 @@ export function createMemoryConversionVenue(opts: {
         throw error;
       }
       if (request.clientOrderId.length > 36) {
-        throw new VenueUnavailableError(venueId, 'malformed', 'clientOrderId exceeds 36 characters');
+        throw new VenueUnavailableError(venueId, 'malformed', 'clientOrderId exceeds 36 characters', false);
       }
       const live = open.get(request.clientOrderId);
       if (live) return live;
