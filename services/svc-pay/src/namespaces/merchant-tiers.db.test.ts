@@ -772,6 +772,88 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
     expect(profile.caps?.some((cap) => cap.limit === '20')).toBe(false);
   });
 
+  it('an ask whose stored caps do not parse stays on the founder list, the drill-down and the merchant open read, and can be withdrawn or closed', async () => {
+    const owner = mounted().createCaller(ctxOf(OWNER_A));
+    const founder = mounted().createCaller(ctxOf(FOUNDER_1));
+    const { requestId, caps } = await seedUnreadableAsk(merchantA);
+    const goodId = randomUUID();
+    const goodCaps = [{ kind: 'per_payment' as const, assetCode: 'USDT', limit: '10' }];
+    await at(
+      mounted().createCaller(ctxOf(OWNER_B)),
+      'merchantControl.limits.requestIncrease',
+    )({
+      merchantId: merchantB,
+      requestId: goodId,
+      caps: goodCaps,
+      reason: 'B asks with readable caps',
+    });
+    const flagged = { raw: caps, capsReadable: false };
+    const listed = (await at(founder, 'founderAdmin.control.limitRequests.list')({ limit: 10 })) as {
+      requests: Array<{ merchantId: string; requestId: string; caps: unknown }>;
+      nextCursor: string | null;
+    };
+    expect(listed.nextCursor).toBeNull();
+    expect(listed.requests.map((row) => row.merchantId).sort()).toEqual([merchantA, merchantB].sort());
+    expect(listed.requests.find((row) => row.merchantId === merchantA)?.caps).toEqual(flagged);
+    expect(listed.requests.find((row) => row.merchantId === merchantB)?.caps).toEqual(goodCaps);
+
+    const view = (await at(founder, 'founderAdmin.merchants.drilldown')({ merchantId: merchantA, window })) as {
+      displayName: string;
+      pendingLimitRequests: Array<{ requestId: string; caps: unknown }>;
+    };
+    expect(view.displayName).toBe('Acme Shop');
+    expect(view.pendingLimitRequests).toEqual([expect.objectContaining({ requestId, caps: flagged })]);
+
+    expect(await at(owner, 'merchantControl.limits.open')({ merchantId: merchantA })).toMatchObject({
+      status: 'pending',
+      request: { requestId, caps: flagged },
+    });
+    const again = await at(
+      owner,
+      'merchantControl.limits.requestIncrease',
+    )({
+      merchantId: merchantA,
+      requestId: randomUUID(),
+      caps: [{ kind: 'daily_payout', assetCode: 'USDT', limit: '3' }],
+      reason: 'a second ask while the first is unreadable',
+    });
+    expect(again).toMatchObject({ outcome: 'already_open', requestId, caps: flagged });
+    expect(await sql`SELECT 1 FROM pay.control_limit_requests WHERE merchant_id = ${merchantA}`).toHaveLength(1);
+
+    const withdrawn = await at(
+      owner,
+      'merchantControl.limits.withdraw',
+    )({
+      merchantId: merchantA,
+      requestId,
+      reason: 'taking the unreadable ask back',
+    });
+    expect(withdrawn).toMatchObject({ status: 'withdrawn', requestId, caps: flagged, closeReason: 'taking the unreadable ask back' });
+
+    const second = await seedUnreadableAsk(merchantA);
+    const closed = await at(
+      founder,
+      'founderAdmin.control.limitRequests.close',
+    )({
+      requestId: second.requestId,
+      reason: 'close the unreadable ask by id',
+    });
+    expect(closed).toMatchObject({
+      status: 'closed',
+      requestId: second.requestId,
+      closeReason: 'close the unreadable ask by id',
+      closedBy: FOUNDER_1,
+    });
+    const [profile] = await sql<Array<{ caps_override: unknown }>>`
+      SELECT caps_override FROM pay.control_merchant_profiles WHERE merchant_id = ${merchantA}
+    `;
+    expect(profile?.caps_override ?? null).toBeNull();
+    const still = (await at(founder, 'founderAdmin.control.limitRequests.list')({ limit: 10 })) as {
+      requests: Array<{ requestId: string }>;
+    };
+    expect(still.requests.map((row) => row.requestId)).toEqual([goodId]);
+  });
+
   it('confirming a tier change closes the pending ask in that transaction, including one whose caps do not parse', async () => {
     await assignTier();
     const owner = mounted().createCaller(ctxOf(OWNER_A));
