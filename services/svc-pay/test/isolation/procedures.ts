@@ -51,7 +51,16 @@ export const FOUNDER_PREFIXES = [
   'payHalts.history',
   'payHalts.operatorStatus',
   'payHalts.pendingClears',
+  'b2bRamp.founderStatus',
 ] as const;
+
+/**
+ * Live-founder verdicts that are past the guard. While pay.b2b_ramp is off,
+ * founderStatus refuses with this cause; that is not an authority refusal.
+ */
+export const FOUNDER_FLAG_OFF: Readonly<Record<string, string>> = {
+  'b2bRamp.founderStatus': 'pay.b2b_ramp_off',
+};
 
 /** A merchant id nobody owns: the control-write targets it, so even a broken guard mutates nothing real. */
 const NOBODY = ghost();

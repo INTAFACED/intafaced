@@ -17,9 +17,8 @@ export { notBuilt, PayNotBuiltError } from './errors.js';
 
 /**
  * Path prefixes that must sit behind founder authority (checked by the static inventory test).
- * `b2bRamp.founderStatus` is founder-only. It is not in the isolation suite's
- * FOUNDER_PREFIXES list: that suite's positive control requires a founder call
- * to succeed, and this route refuses while the ramp flag is off.
+ * `b2bRamp.founderStatus` is founder-only. The isolation suite's live founder
+ * sweep includes it and expects `pay.b2b_ramp_off` while the ramp flag is off.
  */
 export const FOUNDER_ONLY_PREFIXES = [
   'founderAdmin.',

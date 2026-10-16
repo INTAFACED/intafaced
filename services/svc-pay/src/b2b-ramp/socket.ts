@@ -123,7 +123,10 @@ export class BankStatementReconciliation {
       if (inserted[0]) return { lineId };
     } catch (error) {
       const code = pgCode(error);
-      if (code === '23503' || code === '23514' || code === '22P02') throw new B2bRampError('pay.b2b_ramp_line_rejected', 'bad_request');
+      // 22003 is numeric overflow: a whole part past numeric(38,18) is a bad request, not an outage.
+      if (code === '23503' || code === '23514' || code === '22P02' || code === '22003') {
+        throw new B2bRampError('pay.b2b_ramp_line_rejected', 'bad_request');
+      }
       throw new B2bRampError('pay.b2b_ramp_unavailable', 'unavailable');
     }
 

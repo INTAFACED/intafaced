@@ -15,11 +15,15 @@ import { createB2bRampRouter } from './router.js';
 import { B2bRampError } from './errors.js';
 
 /**
- * Real Postgres on the assigned throwaway port. The client's claim never
- * becomes a credit; a bank line does, and only once, and never as a ledger post.
+ * Real Postgres. The admin URL is TEST_DATABASE_URL, not TEST_DATABASE_URL_PAY:
+ * creating a database needs CREATEDB, which the per-service role lacks. The pay
+ * URL is used when the admin URL is unset, so either variable being set skips
+ * the throwaway server. With neither set, a Homebrew postgresql@16 listens on
+ * the assigned port. The client's claim never becomes a credit; a bank line
+ * does, and only once, and never as a ledger post.
  */
 
-const PORT = 54937;
+const PORT = 54951;
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
 const migrations = ['0000_pay_init.sql', '0064_pay_merchant_team.sql', '0078_pay_b2b_ramp.sql'].map((name) =>
@@ -86,8 +90,8 @@ const principal = (user: string, scopes: string[] = ['pay:read', 'pay:write']): 
 const ctxOf = (p: Principal): Context => ({ principal: p, service: null, region: 'DE', requestId: randomUUID() });
 
 function postgresForTests(): { url: string; stop: () => void } {
-  const fromEnv = process.env.TEST_DATABASE_URL?.trim();
-  if (fromEnv?.includes(`:${PORT}/`)) return { url: fromEnv, stop: () => undefined };
+  const envUrl = (process.env.TEST_DATABASE_URL ?? process.env.TEST_DATABASE_URL_PAY)?.trim();
+  if (envUrl) return { url: envUrl, stop: () => undefined };
   return startThrowawayPostgres();
 }
 
@@ -302,5 +306,55 @@ describe('W10 bank-statement reconciliation (Postgres)', () => {
     const names = columns.map((row) => row.column_name);
     expect(names.some((name) => /balance|client|claim|fee/.test(name))).toBe(false);
     expect(names).toContain('ledger_posted');
+  });
+
+  it('refuses an amount with more than 20 integer digits as a bad request', async () => {
+    const owner = randomUUID();
+    const merchantId = await merchant(owner);
+    const amount = `${'9'.repeat(21)}.01`;
+    await expect(socket().recordBankLine(line(merchantId, { amount }))).rejects.toMatchObject({ kind: 'bad_request' });
+    await expect(socket().credit({ merchantId, bankLineId: `line-${randomUUID()}`, amount, asset: 'USD' })).rejects.toMatchObject({
+      kind: 'bad_request',
+    });
+    const rows = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM pay.b2b_ramp_bank_lines`;
+    expect(rows[0]!.n).toBe(0);
+    expect(await creditCount()).toBe(0);
+  });
+
+  it('treats a numeric overflow from Postgres (SQLSTATE 22003) as a bad request', async () => {
+    await db.sql`ALTER TABLE pay.b2b_ramp_bank_lines ALTER COLUMN amount TYPE numeric(4, 2)`;
+    try {
+      const owner = randomUUID();
+      const merchantId = await merchant(owner);
+      await expect(socket().recordBankLine(line(merchantId, { amount: '1000.00' }))).rejects.toMatchObject({
+        code: 'pay.b2b_ramp_line_rejected',
+        kind: 'bad_request',
+      });
+      const rows = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM pay.b2b_ramp_bank_lines`;
+      expect(rows[0]!.n).toBe(0);
+    } finally {
+      await db.sql`ALTER TABLE pay.b2b_ramp_bank_lines ALTER COLUMN amount TYPE numeric(38, 18)`;
+    }
+  });
+
+  it('refuses the downgrade when a bank line exists and when a credit exists', async () => {
+    const down = readFileSync(join(drizzle, '0078_pay_b2b_ramp.down.sql'), 'utf8');
+    const owner = randomUUID();
+    const merchantId = await merchant(owner);
+    const statement = line(merchantId);
+    await socket().recordBankLine(statement);
+    await expect(
+      db.sql.begin(async (tx) => {
+        await tx.unsafe(down);
+      }),
+    ).rejects.toThrow('pay.b2b_ramp_bank_lines prevents downgrade');
+
+    await socket().credit({ merchantId, bankLineId: statement.lineId, amount: '10.10', asset: 'USD' });
+    await expect(
+      db.sql.begin(async (tx) => {
+        await tx.unsafe(down);
+      }),
+    ).rejects.toThrow('pay.b2b_ramp_credits prevents downgrade');
+    expect(await creditCount()).toBe(1);
   });
 });
