@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import type { PayoutApproval } from '@intafaced/contracts';
+import type { FounderApprovalQueueItem, PayoutApproval } from '@intafaced/contracts';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { requireDualControl, DualControlError } from '../dual-control.js';
@@ -8,6 +8,7 @@ import { payoutPayloadHash, voidStaleApprovals, type PayoutPayload } from './app
 import { writeAudit } from './audit.js';
 import type { ControlAccessPorts } from './access.js';
 import { ControlError } from './errors.js';
+import { maskDestination, safeDestinationLabel } from './mask-destination.js';
 import { loadMerchantControl } from './store.js';
 
 /**
@@ -57,6 +58,8 @@ export interface ApprovalDetail extends PayoutApproval {
   readonly founderRequired: boolean;
   readonly checkerDecided: boolean;
   readonly founderApprovals: number;
+  /** Set once a founder has confirmed. Stripped from the merchant wire view. */
+  readonly founderFirstUserId: string | null;
 }
 
 export function toApprovalView(row: ApprovalRow, now: Date): ApprovalDetail {
@@ -75,16 +78,25 @@ export function toApprovalView(row: ApprovalRow, now: Date): ApprovalDetail {
     createdAt: row.created_at.toISOString(),
     decidedAt: row.decided_at ? row.decided_at.toISOString() : null,
     expiresAt: row.expires_at.toISOString(),
+    railId: safeDestinationLabel(row.rail_id, row.destination_ref),
+    destinationKind: safeDestinationLabel(row.destination_kind, row.destination_ref),
+    destinationMasked: maskDestination(row.destination_kind, row.destination_ref),
     founderRequired: row.founder_required,
     checkerDecided: row.checker_user_id !== null,
     founderApprovals: (row.founder_first_user_id ? 1 : 0) + (row.founder_second_user_id ? 1 : 0),
+    founderFirstUserId: row.founder_first_user_id,
   };
 }
 
-/** The contract view, without the internal progress fields. */
+/** The merchant wire view. No full destination, and no founder id. */
 export function toContractApproval(detail: ApprovalDetail): PayoutApproval {
-  const { founderRequired: _a, checkerDecided: _b, founderApprovals: _c, ...contract } = detail;
+  const { founderRequired: _a, checkerDecided: _b, founderApprovals: _c, founderFirstUserId: _d, ...contract } = detail;
   return contract;
+}
+
+/** Founder queue row: the merchant view plus which founder already confirmed, if any. */
+export function toFounderQueueItem(detail: ApprovalDetail): FounderApprovalQueueItem {
+  return { ...toContractApproval(detail), founderFirstUserId: detail.founderFirstUserId };
 }
 
 export interface ApprovalServiceOptions {
@@ -350,7 +362,10 @@ export class ApprovalService {
   }
 
   /** Founders waiting to sign: merchant-side approved, founder step still open. */
-  async founderQueue(input: { limit: number; cursor?: string }): Promise<{ approvals: ApprovalDetail[]; nextCursor: string | null }> {
+  async founderQueue(input: {
+    limit: number;
+    cursor?: string;
+  }): Promise<{ approvals: FounderApprovalQueueItem[]; nextCursor: string | null }> {
     const at = this.now();
     const after = input.cursor && /^\d+$/.test(input.cursor) ? input.cursor : '0';
     const rows = await this.sql<ApprovalRow[]>`
@@ -360,7 +375,7 @@ export class ApprovalService {
     `;
     const page = rows.slice(0, input.limit);
     return {
-      approvals: page.map((r) => toApprovalView(r, at)),
+      approvals: page.map((r) => toFounderQueueItem(toApprovalView(r, at))),
       nextCursor: rows.length > input.limit ? page[page.length - 1]!.seq : null,
     };
   }

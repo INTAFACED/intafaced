@@ -9,6 +9,8 @@ import {
   founderChangeSubmitInputSchema,
   founderChangeSubmitResultSchema,
   founderChangeConfirmInputSchema,
+  founderPendingChangeListInputSchema,
+  founderPendingChangeListSchema,
   founderApprovalQueueInputSchema,
   founderApprovalQueueSchema,
   founderTreasuryExposureSchema,
@@ -120,6 +122,10 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
                 .input(founderChangeConfirmInputSchema)
                 .output(founderChangeSubmitResultSchema)
                 .mutation(() => notBuilt('founderAdmin.changes.confirm')),
+              pending: founder
+                .input(founderPendingChangeListInputSchema)
+                .output(founderPendingChangeListSchema)
+                .query(() => notBuilt('founderAdmin.changes.pending')),
             },
       ),
       approvals: router(

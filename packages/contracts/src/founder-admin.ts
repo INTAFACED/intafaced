@@ -127,8 +127,88 @@ export const founderChangeConfirmInputSchema = z
 export const founderApprovalQueueInputSchema = z
   .object({ limit: z.number().int().min(1).max(200), cursor: z.string().max(256).optional() })
   .strict();
+/**
+ * Founder queue row. `founderFirstUserId` is the founder who already confirmed, when one has.
+ * The same founder must not confirm again; the service also refuses that call.
+ * Merchant approval lists use `payoutApprovalSchema` and do not carry this id.
+ */
+export const founderApprovalQueueItemSchema = payoutApprovalSchema.extend({ founderFirstUserId: z.string().uuid().nullable() }).strict();
+export type FounderApprovalQueueItem = z.infer<typeof founderApprovalQueueItemSchema>;
 export const founderApprovalQueueSchema = z
-  .object({ approvals: z.array(payoutApprovalSchema), nextCursor: z.string().nullable() })
+  .object({ approvals: z.array(founderApprovalQueueItemSchema), nextCursor: z.string().nullable() })
+  .strict();
+
+const payAuditCursorSchema = z.string().regex(/^\d{1,19}$/);
+export const FOUNDER_CONTROL_AUDIT_SCOPES = ['merchant', 'tier', 'pricing', 'approval'] as const;
+
+/** One append-only `pay.control_audit` row. `before` / `after` are the stored JSON, including `captured_over_cap`. */
+export const founderControlAuditEntrySchema = z
+  .object({
+    id: z.string().uuid(),
+    seq: payAuditCursorSchema,
+    scope: z.enum(FOUNDER_CONTROL_AUDIT_SCOPES),
+    scopeId: z.string().min(1).max(256),
+    merchantId: payMerchantIdSchema.nullable(),
+    kind: z.string().min(1).max(128),
+    outcome: z.string().min(1).max(64),
+    actorId: z.string().min(1).max(256),
+    secondActorId: z.string().min(1).max(256).nullable(),
+    requestId: payRequestIdSchema.nullable(),
+    reason: z.string().min(1).max(4000),
+    before: z.unknown().nullable(),
+    after: z.unknown().nullable(),
+    createdAt: payTimestampSchema,
+  })
+  .strict();
+export type FounderControlAuditEntry = z.infer<typeof founderControlAuditEntrySchema>;
+
+/** Newest first. `from` and `to` are inclusive. A reversed range is refused, not answered as empty. */
+export const founderControlAuditListInputSchema = z
+  .object({
+    limit: z.number().int().min(1).max(200),
+    cursor: payAuditCursorSchema.optional(),
+    merchantId: payMerchantIdSchema.optional(),
+    kind: z.string().trim().min(1).max(128).optional(),
+    from: payTimestampSchema.optional(),
+    to: payTimestampSchema.optional(),
+  })
+  .strict();
+export type FounderControlAuditListInput = z.infer<typeof founderControlAuditListInputSchema>;
+export const founderControlAuditListSchema = z
+  .object({ entries: z.array(founderControlAuditEntrySchema), nextCursor: z.string().nullable() })
+  .strict();
+
+export const FOUNDER_PENDING_CHANGE_SCOPES = ['merchant', 'tier', 'pricing'] as const;
+/** A control change one founder submitted and a different founder has not confirmed yet. */
+export const founderPendingChangeSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    seq: payAuditCursorSchema,
+    scope: z.enum(FOUNDER_PENDING_CHANGE_SCOPES),
+    scopeId: z.string().min(1).max(256),
+    merchantId: payMerchantIdSchema.nullable(),
+    /** The stored change target. Confirm with `changeHash` as `expectedChangeHash`. */
+    change: z.unknown(),
+    changeHash: payChangeHashSchema,
+    reason: z.string().min(1).max(4000),
+    expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
+    /** Founder who submitted. That same founder cannot confirm. */
+    makerUserId: z.string().uuid(),
+    createdAt: payTimestampSchema,
+  })
+  .strict();
+export type FounderPendingChange = z.infer<typeof founderPendingChangeSchema>;
+export const founderPendingChangeListInputSchema = z
+  .object({
+    limit: z.number().int().min(1).max(200),
+    cursor: payAuditCursorSchema.optional(),
+    merchantId: payMerchantIdSchema.optional(),
+    scope: z.enum(FOUNDER_PENDING_CHANGE_SCOPES).optional(),
+  })
+  .strict();
+export type FounderPendingChangeListInput = z.infer<typeof founderPendingChangeListInputSchema>;
+export const founderPendingChangeListSchema = z
+  .object({ changes: z.array(founderPendingChangeSchema), nextCursor: z.string().nullable() })
   .strict();
 
 export const founderTreasuryExposureSchema = z

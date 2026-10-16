@@ -8,6 +8,10 @@ import {
   founderChangeConfirmInputSchema,
   founderApprovalQueueInputSchema,
   founderApprovalQueueSchema,
+  founderControlAuditListInputSchema,
+  founderControlAuditListSchema,
+  founderPendingChangeListInputSchema,
+  founderPendingChangeListSchema,
   payoutApprovalSchema,
 } from '@intafaced/contracts';
 import type { ChangeOutcome } from '../control/changes.js';
@@ -72,6 +76,10 @@ export function founderChangeProcedures(founder: Founder, control: ControlServic
           return merchantResult(control, await control.changes.confirm(founderIdOf(ctx), input));
         }),
       ),
+    pending: founder
+      .input(founderPendingChangeListInputSchema)
+      .output(founderPendingChangeListSchema)
+      .query(({ input }) => guarded(() => control.changes.listPending(input))),
   };
 }
 
@@ -80,12 +88,7 @@ export function founderApprovalProcedures(founder: Founder, control: ControlServ
     list: founder
       .input(founderApprovalQueueInputSchema)
       .output(founderApprovalQueueSchema)
-      .query(({ input }) =>
-        guarded(async () => {
-          const page = await control.approvals.founderQueue(input);
-          return { approvals: page.approvals.map(toContractApproval), nextCursor: page.nextCursor };
-        }),
-      ),
+      .query(({ input }) => guarded(() => control.approvals.founderQueue(input))),
   };
 }
 
@@ -160,6 +163,12 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
         .mutation(({ ctx, input }) =>
           guarded(async () => toContractApproval(await control.approvals.founderDecide(founderIdOf(ctx), input))),
         ),
+    }),
+    audit: router({
+      list: founder
+        .input(founderControlAuditListInputSchema)
+        .output(founderControlAuditListSchema)
+        .query(({ input }) => guarded(() => control.listAudit(input))),
     }),
   });
 }

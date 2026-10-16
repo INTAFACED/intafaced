@@ -96,7 +96,7 @@ describe('control-room procedures', () => {
     const router = createPayNamespaces({ founderAuthority, control: new ControlService(sql, ownerAccessPorts(sql)) });
     expect(findUnguardedFounderProcedures(router, FOUNDER_ONLY_PREFIXES)).toEqual([]);
     const paths = Object.keys((router as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
-    expect(paths.filter((p) => p.startsWith('founderAdmin.control.')).length).toBe(7);
+    expect(paths.filter((p) => p.startsWith('founderAdmin.control.')).length).toBe(8);
   });
 
   describe('M1: merchant A cannot reach merchant B through any merchantControl procedure', () => {
@@ -192,6 +192,8 @@ describe('control-room procedures', () => {
         expectedChangeHash: `sha256:${'a'.repeat(64)}`,
       },
       'founderAdmin.approvals.list': { limit: 10 },
+      'founderAdmin.changes.pending': { limit: 10 },
+      'founderAdmin.control.audit.list': { limit: 10 },
     };
     for (const [path, input] of Object.entries(founderCalls)) {
       it(`${path}: a merchant session with every pay scope is refused; so is an API key and a founder without MFA`, async () => {

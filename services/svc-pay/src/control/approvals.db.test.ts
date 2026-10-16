@@ -14,7 +14,8 @@ import { REFERENCE_RAIL_ROUTING_PROFILES } from '../routing/decide.js';
 import postgres from 'postgres';
 import { composeGuards, FRESH, settleGuardRefusal } from '../seams/guards.js';
 import { teamAccessPorts, type ControlAccessPorts } from './access.js';
-import { ApprovalService } from './approvals.js';
+import { ApprovalService, toContractApproval } from './approvals.js';
+import { maskDestination } from './mask-destination.js';
 import { ChangeService } from './changes.js';
 import { createControlGuards } from './guards.js';
 import {
@@ -318,6 +319,42 @@ describe('payout maker-checker', () => {
       'payout.founder_decided',
       'payout.approval_consumed',
     ]);
+  });
+
+  it('lists a masked destination and rail, never the full destination, and names the first founder only on the founder queue', async () => {
+    const iban = 'DE89370400440532013000';
+    await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref) VALUES (${merchantId}, 'card-sandbox', 'bank', ${iban})`;
+    const bankSettlement = await settled(merchantId, ['60'], 'w-mask-bank');
+    const bank = toContractApproval(
+      await approvals.request(maker(), { merchantId, settlementId: bankSettlement.id, railId: 'card-sandbox' }),
+    );
+    expect(bank).toMatchObject({ railId: 'card-sandbox', destinationKind: 'bank', destinationMasked: '••••3000' });
+    expect(JSON.stringify(bank)).not.toContain(iban);
+    expect(bank).not.toHaveProperty('founderFirstUserId');
+
+    const cryptoSettlement = await settled(merchantId, ['80', '80'], 'w-mask-founder');
+    const req = await approvals.request(maker(), { merchantId, settlementId: cryptoSettlement.id, railId: 'crypto-native' });
+    await approvals.decide(finance(), decideInput(req));
+    const queued = (await approvals.founderQueue({ limit: 50 })).approvals.find((a) => a.approvalId === req.approvalId);
+    expect(queued).toMatchObject({
+      railId: 'crypto-native',
+      destinationKind: 'crypto',
+      destinationMasked: maskDestination('crypto', DEST_A.ref),
+      founderFirstUserId: null,
+    });
+    expect(JSON.stringify(queued)).not.toContain(DEST_A.ref);
+
+    const first = toContractApproval(await approvals.founderDecide(FOUNDER_1, decideInput(req)));
+    expect(first).not.toHaveProperty('founderFirstUserId');
+    expect(JSON.stringify(first)).not.toContain(DEST_A.ref);
+    const after = (await approvals.founderQueue({ limit: 50 })).approvals.find((a) => a.approvalId === req.approvalId);
+    expect(after?.founderFirstUserId).toBe(FOUNDER_1);
+
+    const listed = (await approvals.list(maker(), { merchantId, limit: 50 })).find((a) => a.approvalId === req.approvalId)!;
+    const merchantWire = toContractApproval(listed);
+    expect(merchantWire).not.toHaveProperty('founderFirstUserId');
+    expect(JSON.stringify(merchantWire)).not.toContain(DEST_A.ref);
+    expect(merchantWire.destinationMasked).toBe(maskDestination('crypto', DEST_A.ref));
   });
 
   it('the database refuses an approved founder-required row without two founders', async () => {

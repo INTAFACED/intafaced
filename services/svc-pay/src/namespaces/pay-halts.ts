@@ -10,6 +10,8 @@ import {
   payHaltSetResultSchema,
   payHaltHistoryInputSchema,
   payHaltEventSchema,
+  payHaltPendingClearListInputSchema,
+  payHaltPendingClearListSchema,
 } from '@intafaced/contracts';
 import type { FounderAuthority } from '../founder-authority.js';
 import { PayHaltError, type PayHaltStore } from '../halts/store.js';
@@ -20,10 +22,10 @@ import { founderProcedure, type FounderContext } from './founder-procedure.js';
  * `payHalts.*` (W5).
  *   - `status` is readable by a merchant: its own effective halts, MERCHANT-SAFE
  *     shape only (on/off and since when; no reason, actor or trip source).
- *   - `operatorStatus`, `set` and `history` are OPERATOR actions behind founder
- *     authority. Setting a halt takes one founder. CLEARING one takes two distinct
- *     founders: the first call answers `pending_confirmation`, a different
- *     founder repeating the same call applies it.
+ *   - `operatorStatus`, `set`, `history` and `pendingClears` are OPERATOR actions
+ *     behind founder authority. Setting a halt takes one founder. CLEARING one takes
+ *     two distinct founders: the first call answers `pending_confirmation`, a different
+ *     founder repeating the same call applies it. `pendingClears` lists those open proposals.
  *
  * Without a store (`deps` absent) every procedure refuses with
  * `pay.halt_store_unavailable`; it never answers "nothing is halted".
@@ -97,6 +99,17 @@ export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: 
           if (!deps) return unavailable();
           try {
             return await deps.store.history(input);
+          } catch (error) {
+            return mapError(error);
+          }
+        }),
+      pendingClears: founder
+        .input(payHaltPendingClearListInputSchema)
+        .output(payHaltPendingClearListSchema)
+        .query(async ({ input }) => {
+          if (!deps) return unavailable();
+          try {
+            return await deps.store.pendingClears(input);
           } catch (error) {
             return mapError(error);
           }
