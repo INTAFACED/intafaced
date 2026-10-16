@@ -421,6 +421,15 @@ describe('money crosses this boundary as a decimal string', () => {
     });
   });
 
+  it('a caller who does not own the merchant cannot read merchant balances', async () => {
+    stub.ownedBy('99999999-9999-4999-8999-999999999999');
+    const api = await caller(['pay:read']);
+    const err = await api.merchant.balances({ merchantId: MERCHANT, assetId: 'USDT' }).catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBe('NOT_FOUND');
+    expect(stub.calls.some((c) => c.method === 'merchantBalance')).toBe(false);
+    expect(stub.calls.some((c) => c.method === 'clearingBalance')).toBe(false);
+  });
+
   it('passes an optional capture amount through as a bigint, and omits it when absent', async () => {
     const api = await caller(['pay:write']);
 

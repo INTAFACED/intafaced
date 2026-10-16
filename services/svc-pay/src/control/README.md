@@ -11,7 +11,7 @@ Tiers, caps, layered pricing, reserves and payout maker-checker. Behind `PAY_MER
 | Intake caps (daily, monthly)                          | Create refuses read-only when the headroom is already used. Counted at capture, in `afterPaymentCaptureBooked`, after the ledger post. | A created payment is not volume: public checkout lets anyone create one. |
 | Per-payment cap                                       | Create (single-payment bound, no counter).                                                                                             | At capture it only flags.                                                |
 | Pricing band volume                                   | Captured volume. The pricing snapshot is written at capture.                                                                           |                                                                          |
-| Daily payout cap, beneficiary cap, approval threshold | `beforePayoutAdmit`, and `beforeUserMoneyWithdrawal` for an owner's withdrawal.                                                        | Counted once per settlement (or withdrawal) per UTC day.                 |
+| Daily payout cap, beneficiary cap, approval threshold | `beforePayoutAdmit` on a proceeds payout, and `beforeUserMoneyWithdrawal` while the owner still has a legacy settlement of that asset. | Counted once per settlement (or withdrawal) per UTC day.                 |
 | Maker-checker                                         | `ApprovalService` plus `requirePayoutApproval`. Approver is `payout.approve` on the merchant team (owner, admin, finance).             |                                                                          |
 
 ### A capture is never refused by a cap
@@ -30,19 +30,17 @@ counters) with a 2s lock timeout, so no counter lock spans a rail or ledger call
 `pay.guard_unavailable` and the retry finishes the capture as a recovery. Payout and withdrawal admissions take
 the treasury advisory lock first, then the counters (see `seams/lock-order.db.test.ts`).
 
-## Known residual: the owner's user-money exits that W1 does not hold
+## Settlement credit
 
-Settlement credits a merchant's net to `userAvailable(merchant.userId)`. W1 holds `withdrawal.create` from that
-account (`beforeUserMoneyWithdrawal`, only when the owner's merchant has settled that asset). It does NOT hold the
-other ways out of the same account:
+Settlement credits `merchantProceeds(merchantId)`, not `userAvailable(merchant.userId)`. The payout trio debits
+that pot, and `beforePayoutAdmit` is the cap, beneficiary, and maker-checker hook. Personal `withdrawal.create`
+is not held to those caps: the owner's deposits are not settlement.
 
-- svc-bank card spend (`services/svc-bank/src/cards/card-service.ts`, `commitHold`, `withdrawHold` from the user account),
-- svc-bank bank transfers (`services/svc-bank/src/transfers/transfer-service.ts`, `bankTransfer` posts, one-off and scheduled),
-- trading (the user's available balance is spendable on the exchange).
+Card spend, bank transfer, trading, P2P, stake, earn, sub-account moves, and pay-by-handle still debit
+`userAvailable` (or a hold funded from it). They do not name `pay:proceeds:`. Windows settled before this
+account existed stay on the personal balance; this change does not split that history.
 
-So the payout bypass is narrowed, not closed. The structural fix is a separate merchant-proceeds account that
-settlement credits instead of the owner's personal account, with payout and withdrawal debiting only that account.
-Until then the controls cap the one rail W1 can see; do not describe the control room as covering every exit.
+`beforeUserMoneyWithdrawal` remains on the seam for treasury exposure. It does not apply merchant payout policy.
 
 ## Pre-enable checklist (before setting `PAY_MERCHANT_CONTROLS=required`)
 

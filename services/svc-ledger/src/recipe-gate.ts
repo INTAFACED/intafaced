@@ -296,6 +296,36 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     { name: 'paymentRefund', post: recipes.paymentRefund({ ...refund, source: 'settled' }) },
     { name: 'paymentRefundReverse', post: recipes.paymentRefundReverse(refund) },
     { name: 'paymentRefundReverse', post: recipes.paymentRefundReverse({ ...refund, source: 'settled' }) },
+    {
+      name: 'merchantProceedsPayoutHold',
+      post: recipes.merchantProceedsPayoutHold({
+        merchantId: 'm1',
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        withdrawalId: 'w1',
+      }),
+    },
+    {
+      name: 'merchantProceedsPayoutSettle',
+      post: recipes.merchantProceedsPayoutSettle({
+        merchantId: 'm1',
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        withdrawalId: 'w1',
+      }),
+    },
+    {
+      name: 'merchantProceedsPayoutReverse',
+      post: recipes.merchantProceedsPayoutReverse({
+        merchantId: 'm1',
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        withdrawalId: 'w1',
+      }),
+    },
     { name: 'chargebackOpen', post: recipes.chargebackOpen(chargeback) },
     { name: 'chargebackOpen', post: recipes.chargebackOpen({ ...chargeback, fromClearing: 0n, fromMerchantBalance: AMT }) },
     { name: 'chargebackShortfall', post: recipes.chargebackShortfall(shortfall) },

@@ -412,69 +412,13 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
     },
 
     /**
-     * A merchant's net is credited to the OWNER's user-money account, and
-     * `withdrawal.create` debits that same account. Without this hook an owner could move
-     * settled funds out through a withdrawal and skip every payout control. So a
-     * withdrawal by a merchant owner is held to the same daily payout cap, beneficiary cap
-     * and approval threshold of each merchant the user owns THAT HAS SETTLED THIS ASSET.
-     * (Funds in the account cannot be told apart by origin, so every such merchant's limits
-     * apply. A merchant that never settled the asset, or has no settlements, holds nothing.)
-     *
-     * THIS IS NOT THE WHOLE EXIT. The owner's user-money account has other ways out (card
-     * spend, bank transfers, trading) that this hook does not see; see
-     * services/svc-pay/src/control/README.md "Known residual".
-     *
-     * An amount at or above the approval threshold is refused `pay.approval_required`: a
-     * maker-checker approval is bound to a settlement, and a withdrawal has none, so there
-     * is nothing to approve yet. Closed rather than open.
-     *
-     * Locks: the caller's registry runs the treasury advisory lock (W5) before this, and
-     * here the counters are taken merchant by merchant in id order, daily then beneficiary,
-     * the same order the payout admission uses within one merchant.
+     * Personal `withdrawal.create` debits `userAvailable`. Settlement credits
+     * `merchantProceeds`, and the payout trio debits that pot under
+     * `beforePayoutAdmit`. Applying payout caps here would hold the owner's
+     * own deposits to a policy that no longer sees settlement.
      */
-    async beforeUserMoneyWithdrawal(ctx) {
-      if (ctx.replay.kind !== 'fresh') return;
-      const { tx } = ctx;
-      // Only a merchant that has SETTLED this asset puts its proceeds in the owner's account in this
-      // asset. A dormant merchant, or one that never settled this asset, does not hold a withdrawal of it.
-      const owned = await tx<Array<{ id: string }>>`
-        SELECT m.id FROM pay.merchants m
-         WHERE m.user_id = ${ctx.userId}
-           AND EXISTS (SELECT 1 FROM pay.settlements s WHERE s.merchant_id = m.id AND s.asset_id = ${ctx.assetId})
-         ORDER BY m.id
-      `;
-      if (owned.length === 0) return;
-      const at = now();
-      for (const { id } of owned) {
-        const merchantId = id.toLowerCase();
-        const control = await loadMerchantControl(tx, merchantId);
-        const tier = requireTier(control);
-        const caps = effectiveCaps(control) ?? [];
-        const dailyPayout = moneyCapLimit(caps, 'daily_payout', ctx.assetId);
-        const beneficiaries = countCapLimit(caps);
-        if (dailyPayout === null || beneficiaries === null) throw new ControlRefusal('pay.caps_unconfigured');
-        const approvalThreshold = tier.approvalThresholds.get(ctx.assetId);
-        if (approvalThreshold === undefined) throw new ControlRefusal('pay.approval_threshold_unconfigured');
-        if (ctx.amount >= approvalThreshold) throw new ControlRefusal('pay.approval_required');
-
-        const eventKey = `withdrawal:${merchantId}:${ctx.userId.toLowerCase()}:${ctx.clientRef}:${dayKey(at)}`;
-        await consumeMoney(tx, {
-          merchantId,
-          kind: 'daily_payout',
-          assetCode: ctx.assetId,
-          periodKey: dayKey(at),
-          eventKey,
-          amount: ctx.amount,
-          limit: dailyPayout,
-        });
-        await consumeBeneficiary(tx, {
-          merchantId,
-          periodKey: dayKey(at),
-          destination: destinationKey(ctx.destination),
-          eventKey,
-          limit: beneficiaries,
-        });
-      }
+    async beforeUserMoneyWithdrawal() {
+      return;
     },
 
     async beforeSettlementRun(ctx) {

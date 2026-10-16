@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { PayGuardRefusal, type GuardReplay, type PartialPayGuards } from '../seams/guards.js';
-import { findBlockingHalt, findBlockingHaltForTargets, type PayHaltStore } from './store.js';
+import { findBlockingHalt, type PayHaltStore } from './store.js';
 import type { PayHaltScope } from './types.js';
 
 /**
@@ -12,11 +12,9 @@ import type { PayHaltScope } from './types.js';
  *   beforePayoutExecute        payout       (+ auto-trip from the payout book)
  *   beforeSettlementRun        settlement   (prepare and post)
  *   beforeConversion           conversion
- *   beforeUserMoneyWithdrawal  payout       (global switch AND the switch of every merchant the
- *                              user owns: settlement posts a merchant's net into the
- *                              owner's user-money account, and `withdrawal.create`
- *                              debits that same account, so a merchant payout halt
- *                              must stop that exit too)
+ *   beforeUserMoneyWithdrawal  none         (settlement credits merchant proceeds, and
+ *                              the payout trio is what a payout halt stops. A personal
+ *                              withdrawal of userAvailable is not that exit.)
  *   beforeRefund               NONE, by decision: a refund returns a payer's own
  *                              money. A halt that traps funds is not a safety
  *                              control (the edge switch lets `cancel` through for
@@ -29,11 +27,11 @@ import type { PayHaltScope } from './types.js';
  *       bookkeeping (payment admit, settlement run, conversion): only FRESH work
  *       is refused. A `recovery` finishes value already in flight (a frozen window,
  *       a captured payment) and does not even read the store.
- *       rail sends (`beforePayoutExecute`, `beforeUserMoneyWithdrawal`): a payout
- *       halt also refuses a `recovery`, because finishing it calls the rail and
- *       money would leave. The booked hold is left exactly as it is, so the
- *       operation is PAUSED, not stranded: nothing is released or marked failed,
- *       and the same call completes once the halt clears.
+ *       rail sends (`beforePayoutExecute`): a payout halt also refuses a
+ *       `recovery`, because finishing it calls the rail and money would leave.
+ *       The booked hold is left exactly as it is, so the operation is PAUSED,
+ *       not stranded: nothing is released or marked failed, and the same call
+ *       completes once the halt clears. Personal withdrawals are not this path.
  *       A held withdrawal whose rail attempt already has a recorded outcome (accepted
  *       with a receipt, or refused) sends nothing: `UserMoneyService` classifies it a
  *       `replay` (settle or reverse only), so a halt never freezes that bookkeeping.
@@ -73,28 +71,6 @@ export async function assertNotHalted(
   let blocking;
   try {
     blocking = await findBlockingHalt(conn, scope, merchantId);
-  } catch (error) {
-    if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
-    throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
-  }
-  if (blocking) throw new PayGuardRefusal(GUARD_HALTED, 'unavailable');
-}
-
-/**
- * A user's money can leave through a payout switch set for any merchant they own
- * (settlement credits `userAvailable(merchant.userId)`). Refuse when the payout
- * scope is halted globally or for one of those merchants. Fails closed.
- */
-async function assertUserMoneyNotHalted(conn: Sql, userId: string, replay: GuardReplay): Promise<void> {
-  if (passesRailSend(replay)) return;
-  let blocking;
-  try {
-    const owned = await conn<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE user_id = ${userId}`;
-    blocking = await findBlockingHaltForTargets(
-      conn,
-      'payout',
-      owned.map((m) => m.id.toLowerCase()),
-    );
   } catch (error) {
     if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
     throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
@@ -156,7 +132,10 @@ export function createHaltGuards(deps: { sql: Sql; store: PayHaltStore }): Parti
     beforePayoutExecute: (ctx) => payoutRailGuard(ctx.sql, ctx.merchantId, ctx.railId, ctx.replay),
     beforeSettlementRun: (ctx) => assertNotHalted(ctx.sql, 'settlement', ctx.merchantId, ctx.replay),
     beforeConversion: (ctx) => assertNotHalted(ctx.sql, 'conversion', ctx.merchantId, ctx.replay),
-    beforeUserMoneyWithdrawal: (ctx) => assertUserMoneyNotHalted(ctx.tx, ctx.userId, ctx.replay),
+    beforeUserMoneyWithdrawal: async () => {
+      // Proceeds is the settlement credit. A payout halt stops the payout trio
+      // in beforePayoutAdmit / beforePayoutExecute, not a personal withdrawal.
+    },
     // beforeRefund: deliberately absent. See the table above.
   };
 }

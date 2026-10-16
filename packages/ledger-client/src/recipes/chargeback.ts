@@ -1,7 +1,7 @@
 import { sum, type Amount } from '../money.js';
 import type { AccountRef, EntryInput, PostRequest } from '../types.js';
 import { InvalidEntryError } from '../types.js';
-import { insuranceFund, merchantClearing, railBoundary, userAvailable } from '../accounts.js';
+import { insuranceFund, merchantClearing, merchantProceeds, railBoundary } from '../accounts.js';
 
 /**
  * CHARGEBACK RECIPES (§6.1 · pay.fraud).
@@ -115,7 +115,7 @@ export interface ChargebackInput {
   /** The payment being disputed. Recorded in meta; never part of a key. */
   paymentId: string;
   merchantId: string;
-  /** The merchant's own sovereign account — the balance they trade and spend from. */
+  /** Kept for callers. The settled leg uses proceeds, not this user's trading balance. */
   merchantUserId: string;
   assetId: string;
   /** The rail the original payment arrived on. Value goes back out through it. */
@@ -132,13 +132,13 @@ export interface ChargebackInput {
   fromClearing: Amount;
 
   /**
-   * Taken from the merchant's SETTLED, SPENDABLE balance.
+   * Taken from the merchant's SETTLED proceeds.
    *
    * This is the leg that can fail, and it is the interesting one. Once
-   * settlement has run, the money is the merchant's and they may have spent it,
-   * traded it or withdrawn it. `userAvailable` is hard non-negative (§4.2's
-   * database CHECK), so a merchant who no longer has it makes this post FAIL
-   * rather than pushing their balance below zero.
+   * settlement has run, the money is in proceeds and a payout may have sent it
+   * out. Proceeds is a `module` account, hard non-negative, so a merchant who
+   * no longer has it makes this post FAIL rather than pushing the balance
+   * below zero or taking the shortfall from the owner's trading balance.
    *
    * That failure is correct and it is the point at which svc-pay must decide
    * between calling this with less and covering the rest through
@@ -191,7 +191,7 @@ export function chargebackOpen(input: ChargebackInput): PostRequest {
 
   const entries: EntryInput[] = [
     ...(input.fromClearing > 0n ? [credit(merchantClearing(input.merchantId, input.assetId), input.fromClearing)] : []),
-    ...(input.fromMerchantBalance > 0n ? [credit(userAvailable(input.merchantUserId, input.assetId), input.fromMerchantBalance)] : []),
+    ...(input.fromMerchantBalance > 0n ? [credit(merchantProceeds(input.merchantId, input.assetId), input.fromMerchantBalance)] : []),
     debit(railBoundary(input.rail, input.assetId), total),
   ];
 
@@ -317,7 +317,7 @@ export function chargebackWon(input: ChargebackInput): PostRequest {
   const entries: EntryInput[] = [
     credit(railBoundary(input.rail, input.assetId), total),
     ...(input.fromClearing > 0n ? [debit(merchantClearing(input.merchantId, input.assetId), input.fromClearing)] : []),
-    ...(input.fromMerchantBalance > 0n ? [debit(userAvailable(input.merchantUserId, input.assetId), input.fromMerchantBalance)] : []),
+    ...(input.fromMerchantBalance > 0n ? [debit(merchantProceeds(input.merchantId, input.assetId), input.fromMerchantBalance)] : []),
   ];
 
   return {

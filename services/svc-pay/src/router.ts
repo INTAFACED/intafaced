@@ -599,8 +599,9 @@ export function createPayRouter(
         ),
 
       /**
-       * What we owe this merchant but have not settled, and what they can
-       * already spend. Both read from the LEDGER, not from svc-pay's tables —
+       * What we owe this merchant but have not settled, and the settled proceeds
+       * they can pay out. Not the owner's trading balance. Both read from the
+       * LEDGER, not from svc-pay's tables —
        * the two are independent on purpose, which is what makes reconciliation
        * meaningful (Doctrine §0.6).
        */

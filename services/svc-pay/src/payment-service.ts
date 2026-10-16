@@ -19,11 +19,11 @@ import {
   InvalidEntryError,
   LedgerError,
   merchantClearing,
+  merchantProceeds,
   mulBps,
   parseAmount,
   railBoundary,
   recipes,
-  userAvailable,
   type Amount,
   type LedgerClient,
   type LedgerTx,
@@ -48,7 +48,7 @@ import {
   PayoutDestinationMissingError,
   type MerchantPayoutDestinations,
 } from './merchant-payout-destination.js';
-import { settlementLedgerPlan } from './settlement-ledger.js';
+import { settlementLedgerPlan, type SettlementLedgerPlan } from './settlement-ledger.js';
 import {
   finalizePayoutIdentity,
   PayoutAdmissionError,
@@ -920,6 +920,38 @@ const TRANSITIONS: Readonly<Record<PaymentStatus, readonly PaymentStatus[]>> = {
 
 /** The v1 public checkout estate: one rail, and the only one that can ever be live. */
 export const DEFAULT_CHECKOUT_RAILS: readonly CheckoutRail[] = [{ railId: 'crypto-native', method: 'crypto' }];
+
+/** Hold keys for one payout attempt. The legacy key is a pre-cutover user hold. */
+function payoutHoldKeys(settlementId: string, attempt: number): { legacy: string; proceeds: string } {
+  const withdrawalId = `${settlementId}:${attempt}`;
+  return {
+    legacy: `withdraw.hold:${withdrawalId}`,
+    proceeds: `pay.proceeds.payout.hold:${withdrawalId}`,
+  };
+}
+
+/**
+ * A hold booked before proceeds existed debited `userAvailable` into a user
+ * withdrawal hold. Finishing it uses that trio. A new attempt uses proceeds.
+ * Posting the proceeds trio on top of the legacy hold would pay twice.
+ */
+function legacyUserPayoutPlan(
+  userId: string,
+  assetId: string,
+  amount: Amount,
+  railId: string,
+  withdrawalId: string,
+  destinationKind: SettlementLedgerPlan['destinationKind'],
+): SettlementLedgerPlan {
+  const withdrawal = { userId, assetId, amount, rail: railId, withdrawalId };
+  return {
+    withdrawalId,
+    destinationKind,
+    hold: recipes.withdrawHold(withdrawal),
+    settle: recipes.withdrawSettle(withdrawal),
+    reverse: recipes.withdrawReverse(withdrawal),
+  };
+}
 
 function isCardishCheckoutRail(rail: CheckoutRail): boolean {
   return rail.method.trim().toLowerCase() === 'card' || /card|psp|acquirer/i.test(rail.railId);
@@ -2692,8 +2724,8 @@ export class PayService {
     const boundary = (await this.ledger.balance(railBoundary(input.rail, input.assetId))).accountId;
     if (!boundary || debit.accountId !== boundary) return null;
     const clearing = (await this.ledger.balance(merchantClearing(input.merchantId, input.assetId))).accountId;
-    const available = (await this.ledger.balance(userAvailable(input.merchantUserId, input.assetId))).accountId;
-    const source = credit.accountId === clearing ? ('clearing' as const) : credit.accountId === available ? ('settled' as const) : null;
+    const proceeds = (await this.ledger.balance(merchantProceeds(input.merchantId, input.assetId))).accountId;
+    const source = credit.accountId === clearing ? ('clearing' as const) : credit.accountId === proceeds ? ('settled' as const) : null;
     if (!source) return null;
 
     if (credit.amount !== input.amount) {
@@ -3420,14 +3452,14 @@ export class PayService {
    * Pay a settled window out of the book, to a bank or a chain (§6.1 "payout to
    * bank/crypto via adapter `payout`").
    *
-   * Reuses the ledger's existing withdrawal recipes rather than inventing a
-   * fourth payment recipe, because the shape is exactly a withdrawal: hold the
-   * funds while the rail works, settle on success, reverse on failure. There is
-   * no state in which the merchant's money is neither in their available
-   * balance, nor in their hold, nor gone with a rail reference against it.
+   * Holds, settles, and reverses `merchantProceeds`. A personal withdrawal is
+   * not this exit. There is no state in which the merchant's money is neither
+   * in proceeds, nor in the proceeds payout hold, nor gone with a rail
+   * reference against it. An attempt already held on the owner's user account
+   * finishes on that hold so a second proceeds hold is not posted.
    *
    * IF THIS CRASHES between the hold and the payout, the funds are in the
-   * merchant's `hold` account and the settlement is still `posted`. Re-running
+   * proceeds payout hold and the settlement is still `posted`. Re-running
    * re-posts the hold (idempotent on the settlement id), asks the rail again
    * (idempotent on the settlement id), and finishes.
    */
@@ -3467,7 +3499,8 @@ export class PayService {
           const adapter = this.rails.require(admission?.rail_id ?? input.railId, 'payout');
           assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
           if (!admission) {
-            if (await this.ledger.getTxByKey(`withdraw.hold:${settlement.id}:${settlement.payoutAttempts}`))
+            const held = payoutHoldKeys(settlement.id, settlement.payoutAttempts);
+            if ((await this.ledger.getTxByKey(held.legacy)) || (await this.ledger.getTxByKey(held.proceeds)))
               throw new PayError('Original payout owner record is missing', 'pay.payout_admission_missing');
             const merchant = await this.getMerchant(settlement.merchantId, connection);
             const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, input.destination, connection);
@@ -3488,7 +3521,8 @@ export class PayService {
               },
               async (tx) => {
                 this.assertMerchantActive(await this.lockMerchantEligibility(tx, merchant.id));
-                if (await this.ledger.getTxByKey(`withdraw.hold:${settlement.id}:${settlement.payoutAttempts}`))
+                const held = payoutHoldKeys(settlement.id, settlement.payoutAttempts);
+                if ((await this.ledger.getTxByKey(held.legacy)) || (await this.ledger.getTxByKey(held.proceeds)))
                   throw new PayError(
                     'Unrecorded payout requires attributed recovery; hold alone cannot establish original destination',
                     'pay.payout_admission_missing',
@@ -3533,15 +3567,28 @@ export class PayService {
             if (error instanceof PayoutAdmissionError) throw new PayError(error.message, error.code);
             throw error;
           }
-          const plan = settlementLedgerPlan({
+          const proceedsPlan = settlementLedgerPlan({
             settlementId: admission.settlement_id,
             payoutAttempt: admission.attempt,
-            merchantUserId: admission.merchant_user_id,
+            merchantId: admission.merchant_id,
             assetId: admission.asset_id,
             amount: parseAmount(admission.net),
             railId: admission.rail_id,
             destinationKind: admission.destination_kind,
           });
+          // An attempt already held on the owner's user account finishes on that
+          // hold. The proceeds trio would book a second payout.
+          const legacyHold = await this.ledger.getTxByKey(payoutHoldKeys(admission.settlement_id, admission.attempt).legacy);
+          const plan = legacyHold
+            ? legacyUserPayoutPlan(
+                admission.merchant_user_id,
+                admission.asset_id,
+                parseAmount(admission.net),
+                admission.rail_id,
+                proceedsPlan.withdrawalId,
+                proceedsPlan.destinationKind,
+              )
+            : proceedsPlan;
           const outcomes = await connection`SELECT kind,payload FROM pay.payout_outcomes WHERE admission_id=${admission.id}`;
           let accepted = outcomes.find((outcome) => outcome.kind === 'rail_accepted')?.payload as { railRef: string } | undefined;
           let refused = outcomes.find((outcome) => outcome.kind === 'rail_refused')?.payload as
@@ -3729,10 +3776,17 @@ export class PayService {
     return (await this.ledger.balance(merchantClearing(merchantId, assetId))).amount;
   }
 
-  /** What a merchant can actually spend — the balance they trade from. */
+  /**
+   * Settled net this merchant can pay out: `merchantProceeds(merchantId)`.
+   *
+   * Not the owner's trading balance. That stays `userAvailable`. Windows
+   * settled before this account existed credited the personal balance, and a
+   * replay of that key does not move the money. Summing proceeds under-counts
+   * that history; the shortfall is still on the personal account.
+   */
   async merchantBalance(merchantId: string, assetId: string): Promise<Amount> {
-    const merchant = await this.getMerchant(merchantId);
-    return (await this.ledger.balance(userAvailable(merchant.userId, assetId))).amount;
+    await this.getMerchant(merchantId);
+    return (await this.ledger.balance(merchantProceeds(merchantId, assetId))).amount;
   }
 
   /**

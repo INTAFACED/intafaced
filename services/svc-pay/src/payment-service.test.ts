@@ -11,6 +11,7 @@ import {
   formatAmount,
   houseFees,
   merchantClearing,
+  merchantProceeds,
   parseAmount as amt,
   railBoundary,
   recipes,
@@ -286,6 +287,14 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
   const availableOf = async (userId: string, assetId = 'USDT') =>
     formatAmount((await ledger.balance(userAvailable(userId, assetId))).amount);
+  const proceedsOf = async (merchantId: string, assetId = 'USDT') =>
+    formatAmount((await ledger.balance(merchantProceeds(merchantId, assetId))).amount);
+  const proceedsHeldOf = async (merchantId: string, assetId = 'USDT') => {
+    const all = await ledger.balances('module', `pay:proceeds:${merchantId}`);
+    return formatAmount(
+      all.filter((b) => b.account.kind === 'hold' && b.account.assetId === assetId).reduce((acc, b) => acc + b.amount, 0n),
+    );
+  };
   const clearingOf = async (merchantId: string, assetId = 'USDT') =>
     formatAmount((await ledger.balance(merchantClearing(merchantId, assetId))).amount);
   /**
@@ -353,9 +362,9 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(formatAmount(settlement.fees)).toBe('2.5');
       expect(formatAmount(settlement.net)).toBe('97.5');
 
-      // §6.1: "merchant net posts to their ledger account — the same balance
-      // graph they trade and spend from".
-      expect(await availableOf(MERCHANT_USER)).toBe('97.5');
+      // Settled net is this merchant's proceeds, not the owner's trading balance.
+      expect(await proceedsOf(m.id)).toBe('97.5');
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
       expect(await clearingOf(m.id)).toBe('0');
       expect(await feesOf()).toBe('2.5');
 
@@ -396,7 +405,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       const settlement = await settle(m.id, '2026-07-27');
       expect(formatAmount(settlement.net)).toBe('2.475');
-      expect(await availableOf(MERCHANT_USER)).toBe('2.475');
+      expect(await proceedsOf(m.id)).toBe('2.475');
       expect(ledger.totalsByAsset().USDT).toBe('0');
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
@@ -479,7 +488,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const settlement = await settle(m.id, 'w-partial');
       expect(formatAmount(settlement.gross)).toBe('60');
       expect(formatAmount(settlement.fees)).toBe('6');
-      expect(await availableOf(MERCHANT_USER)).toBe('54');
+      expect(await proceedsOf(m.id)).toBe('54');
       expect(ledger.totalsByAsset().USDT).toBe('0');
     });
 
@@ -550,11 +559,11 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
       await settle(m.id, 'w-post');
-      expect(await availableOf(MERCHANT_USER)).toBe('100');
+      expect(await proceedsOf(m.id)).toBe('100');
 
       await pay.refund(payment.id, amt('40'));
 
-      expect(await availableOf(MERCHANT_USER)).toBe('60');
+      expect(await proceedsOf(m.id)).toBe('60');
       expect(await clearingOf(m.id)).toBe('0');
       expect(ledger.totalsByAsset().USDT).toBe('0');
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -565,14 +574,14 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
       await settle(m.id, 'w-short');
-      expect(await availableOf(MERCHANT_USER)).toBe('90');
+      expect(await proceedsOf(m.id)).toBe('90');
 
       // The fee is not returned on a refund, so the merchant is 10 short. The
       // ledger refuses, and the refund does not happen at the rail either —
       // which is the entire reason the ledger moves first.
       await expect(pay.refund(payment.id, amt('100'))).rejects.toThrow();
 
-      expect(await availableOf(MERCHANT_USER)).toBe('90');
+      expect(await proceedsOf(m.id)).toBe('90');
       expect(await feesOf()).toBe('10');
       expect(ledger.totalsByAsset().USDT).toBe('0');
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -1058,8 +1067,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const settlement = await settle(m.id, 'w-stale-short');
       // The merchant then withdraws everything: nothing is left anywhere to cover the dispute.
       await ledger.post(
-        recipes.withdrawHold({
-          userId: MERCHANT_USER,
+        recipes.merchantProceedsPayoutHold({
+          merchantId: m.id,
           assetId: 'USDT',
           amount: settlement.net,
           rail: 'crypto-native',
@@ -1107,8 +1116,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       await expect(flaky.handleWebhook('card-sandbox', delivery)).rejects.toThrow(/upstream unavailable/);
       const settlement = await settle(m.id, 'w-prod-short');
       await ledger.post(
-        recipes.withdrawHold({
-          userId: MERCHANT_USER,
+        recipes.merchantProceedsPayoutHold({
+          merchantId: m.id,
           assetId: 'USDT',
           amount: settlement.net,
           rail: 'crypto-native',
@@ -1530,7 +1539,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(settled.status).toBe('posted');
       expect(formatAmount(settled.gross)).toBe('40');
       expect(captured.status).toBe('captured');
-      expect(await availableOf(MERCHANT_USER)).toBe('40');
+      expect(await proceedsOf(m.id)).toBe('40');
       expect(await clearingOf(m.id)).toBe('15');
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
@@ -1546,7 +1555,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       expect(formatAmount(settlement.gross)).toBe('60');
       expect(formatAmount(settlement.fees)).toBe('1.2');
-      expect(await availableOf(MERCHANT_USER)).toBe('58.8');
+      expect(await proceedsOf(m.id)).toBe('58.8');
       expect(await clearingOf(m.id)).toBe('0');
     });
 
@@ -1561,7 +1570,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       expect(second.id).toBe(first.id);
       expect(third.id).toBe(first.id);
-      expect(await availableOf(MERCHANT_USER)).toBe('97.5');
+      expect(await proceedsOf(m.id)).toBe('97.5');
       expect(ledger.journal().filter((t) => t.reason === 'pay.settled')).toHaveLength(1);
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
@@ -1590,7 +1599,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       await expect(settle(m.id, 'w-heal-lag')).rejects.toThrow(/injected crash after merchantSettlement/);
 
       // Ledger moved; SQL projection did not.
-      expect(await availableOf(MERCHANT_USER)).toBe('40');
+      expect(await proceedsOf(m.id)).toBe('40');
       expect(await clearingOf(m.id)).toBe('0');
       expect(ledger.journal().filter((t) => t.reason === 'pay.settled')).toHaveLength(1);
       const pending = await sql<{ status: string }[]>`
@@ -1603,7 +1612,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       ledger.post = realPost;
       const healed = await settle(m.id, 'w-heal-lag');
       expect(healed.status).toBe('posted');
-      expect(await availableOf(MERCHANT_USER)).toBe('40');
+      expect(await proceedsOf(m.id)).toBe('40');
       expect(await clearingOf(m.id)).toBe('0');
       expect(ledger.journal().filter((t) => t.reason === 'pay.settled')).toHaveLength(1);
       expect((await pay.getPayment(payment.id)).status).toBe('settled');
@@ -1622,8 +1631,10 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const b = await settle(m.id, 'w-multi', 'BTC');
 
       expect(a.id).not.toBe(b.id);
-      expect(await availableOf(MERCHANT_USER, 'USDT')).toBe('100');
-      expect(await availableOf(MERCHANT_USER, 'BTC')).toBe('0.5');
+      expect(await proceedsOf(m.id, 'USDT')).toBe('100');
+      expect(await proceedsOf(m.id, 'BTC')).toBe('0.5');
+      expect(await availableOf(MERCHANT_USER, 'USDT')).toBe('0');
+      expect(await availableOf(MERCHANT_USER, 'BTC')).toBe('0');
       expect(ledger.totalsByAsset().USDT).toBe('0');
       expect(ledger.totalsByAsset().BTC).toBe('0');
     });
@@ -1639,7 +1650,9 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       await settle(a.id, 'w-sep');
 
-      expect(await availableOf(MERCHANT_USER)).toBe('100');
+      expect(await proceedsOf(a.id)).toBe('100');
+      expect(await proceedsOf(b.id)).toBe('0');
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
       expect(await availableOf(OTHER_USER)).toBe('0');
       // B's money is untouched and still theirs, in their own clearing account.
       expect(await clearingOf(b.id)).toBe('70');
@@ -1666,7 +1679,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       const settlement = await settle(m.id, 'w-refunded');
       expect(formatAmount(settlement.gross)).toBe('30');
-      expect(await availableOf(MERCHANT_USER)).toBe('30');
+      expect(await proceedsOf(m.id)).toBe('30');
     });
 
     it('REFUSES a pre-settlement refund once the payment is frozen in a pending window', async () => {
@@ -1731,7 +1744,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(settlement.status).toBe('posted');
       expect((await gated.getPayment(payment.id)).status).toBe('settled');
       await gated.refund(payment.id, amt('40'));
-      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('60');
+      expect(formatAmount((await base.balance(merchantProceeds(m.id, 'USDT'))).amount)).toBe('60');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
       expect(base.reconcile()).toEqual({ ok: true });
     });
 
@@ -1756,7 +1770,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       const settlement = await settle(m.id, 'w-open-refund');
       expect(formatAmount(settlement.gross)).toBe('30');
-      expect(await availableOf(MERCHANT_USER)).toBe('30');
+      expect(await proceedsOf(m.id)).toBe('30');
       // Still captured — not swallowed by a window it did not join.
       expect((await pay.getPayment(inflight.id)).status).toBe('captured');
     });
@@ -1824,6 +1838,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       // Nothing moved to the merchant — clearing still holds the capture.
       expect(formatAmount((await base.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('100');
+      expect(formatAmount((await base.balance(merchantProceeds(m.id, 'USDT'))).amount)).toBe('0');
       expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
     });
 
@@ -1890,7 +1905,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         reason: 'ops: retry after ledger outage',
       });
       expect(healed.status).toBe('posted');
-      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('55');
+      expect(formatAmount((await base.balance(merchantProceeds(m.id, 'USDT'))).amount)).toBe('55');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
       expect(base.journal().filter((t) => t.reason === 'pay.settled')).toHaveLength(1);
       expect(base.reconcile()).toEqual({ ok: true });
 
@@ -1946,7 +1962,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       ).rejects.toThrow(/injected crash after merchantSettlement/);
 
       // Ledger already credited; row still pending.
-      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('80');
+      expect(formatAmount((await base.balance(merchantProceeds(m.id, 'USDT'))).amount)).toBe('80');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
       expect(base.journal().filter((t) => t.reason === 'pay.settled')).toHaveLength(1);
       const lagRow = (
         await sql<Array<{ id: string; status: string }>>`
@@ -1961,7 +1978,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       });
       expect(healed.status).toBe('posted');
       // Still one settle credit — not zeroed and not doubled.
-      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('80');
+      expect(formatAmount((await base.balance(merchantProceeds(m.id, 'USDT'))).amount)).toBe('80');
       expect(base.journal().filter((t) => t.reason === 'pay.settled')).toHaveLength(1);
 
       // New capture settles under a later window only for the new amount.
@@ -1984,7 +2001,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       });
       expect(later.status).toBe('posted');
       expect(formatAmount(later.gross)).toBe('20');
-      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('100');
+      expect(formatAmount((await base.balance(merchantProceeds(m.id, 'USDT'))).amount)).toBe('100');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
       expect(base.journal().filter((t) => t.reason === 'pay.settled')).toHaveLength(2);
       expect(base.reconcile()).toEqual({ ok: true });
     });
@@ -2069,7 +2087,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const again = await settle(m.id, 'w-then-suspend');
       expect(again.id).toBe(posted.id);
       expect(again.status).toBe('posted');
-      expect(await availableOf(MERCHANT_USER)).toBe('15');
+      expect(await proceedsOf(m.id)).toBe('15');
     });
 
     it('rounds the fee in the house’s favour by at most one unit of precision', async () => {
@@ -2351,7 +2369,9 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       // The pre-admission check (payment-service.ts:3192) and the in-admission check
       // (:3213) both asked the door whether the hold was already booked.
       const asked = calls.filter((c) => c.path === '/trpc/txByKey').map((c) => c.body.idempotencyKey);
-      expect(asked).toEqual([`withdraw.hold:${settlement.id}:0`, `withdraw.hold:${settlement.id}:0`]);
+      const legacy = `withdraw.hold:${settlement.id}:0`;
+      const proceeds = `pay.proceeds.payout.hold:${settlement.id}:0`;
+      expect(asked).toEqual([legacy, proceeds, legacy, proceeds, legacy]);
       expect(calls.every((c) => c.service === 'svc-pay')).toBe(true);
       expect(calls.some((c) => c.path === '/trpc/post')).toBe(true);
       expect(chain.outboundTransfers()).toHaveLength(1);
@@ -2387,9 +2407,9 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       } finally {
         globalThis.fetch = realFetch;
       }
-      // Two on the first attempt, plus one on the retry: the recovered admission asks the ledger
-      // whether the hold is booked so beforePayoutExecute can be told `recovery` (seams/guards.ts).
-      expect(calls.filter((c) => c.path === '/trpc/txByKey')).toHaveLength(3);
+      // First attempt looks up the legacy user hold and the proceeds hold, before admission and inside it.
+      // The retry looks up the legacy key, then the proceeds hold, so recovery can tell beforePayoutExecute.
+      expect(calls.filter((c) => c.path === '/trpc/txByKey')).toHaveLength(6);
       expect(chain.outboundTransfers()).toHaveLength(1);
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
@@ -2398,6 +2418,15 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         payment = await cryptoPayment(m.id, '5');
       await pay.capture(payment.id);
       const settlement = await settle(m.id, 'legacy-unowned-hold');
+      await ledger.post(
+        recipes.deposit({
+          userId: MERCHANT_USER,
+          assetId: 'USDT',
+          amount: settlement.net,
+          rail: 'test',
+          railRef: `legacy-hold-${settlement.id}`,
+        }),
+      );
       await ledger.post(
         recipes.withdrawHold({
           userId: MERCHANT_USER,
@@ -2444,7 +2473,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(0);
       expect(chain.outboundTransfers()).toHaveLength(0);
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
-      expect(await availableOf(MERCHANT_USER)).toBe('7');
+      expect(await proceedsOf(m.id)).toBe('7');
       expect(await destinations.require({ merchantId: m.id, railId: 'crypto-native' })).toEqual(originalDestination);
     });
     it('recovers original durable admission after a crash before hold and later suspension', async () => {
@@ -2497,7 +2526,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       let crash = true;
       ledger.post = async (request) => {
         const result = await originalPost(request);
-        if (crash && request.reason === 'withdraw.held') {
+        if (crash && request.reason === 'pay.proceeds.payout.held') {
           crash = false;
           throw new Error('test.hold_crash');
         }
@@ -2564,6 +2593,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       expect(paid.status).toBe('paid_out');
       expect(paid.payoutRef).toBeTruthy();
+      expect(await proceedsOf(m.id)).toBe('0');
+      expect(await proceedsHeldOf(m.id)).toBe('0');
       expect(await availableOf(MERCHANT_USER)).toBe('0');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect(chain.totalSent('USDT')).toBe('10');
@@ -2575,8 +2606,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
           .slice(journalBeforePayout)
           .map((tx) => ({ key: tx.idempotencyKey, reason: tx.reason })),
       ).toEqual([
-        { key: `withdraw.hold:${settlement.id}:0`, reason: 'withdraw.held' },
-        { key: `withdraw.settle:${settlement.id}:0`, reason: 'withdraw.settled' },
+        { key: `pay.proceeds.payout.hold:${settlement.id}:0`, reason: 'pay.proceeds.payout.held' },
+        { key: `pay.proceeds.payout.settle:${settlement.id}:0`, reason: 'pay.proceeds.payout.settled' },
       ]);
     });
 
@@ -2596,7 +2627,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       ).rejects.toMatchObject({ code: 'pay.rail_not_live' });
 
       expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBeforePayout);
-      expect(await availableOf(MERCHANT_USER)).toBe('50');
+      expect(await proceedsOf(m.id)).toBe('50');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -2617,7 +2648,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       } finally {
         await sql.unsafe('DROP TRIGGER test_fail_reverse_projection ON pay.settlements;DROP FUNCTION pay.test_fail_reverse_projection();');
       }
-      expect(await availableOf(MERCHANT_USER)).toBe('12');
+      expect(await proceedsOf(m.id)).toBe('12');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       await sql`UPDATE pay.merchants SET status='suspended' WHERE id=${m.id}`;
       await expect(pay.payoutSettlement(request)).rejects.toMatchObject({ code: 'pay.rail_failed' });
@@ -2642,7 +2673,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       // Held, then released. There is no state in which the merchant's money is
       // neither available, nor held, nor gone with a reference against it.
-      expect(await availableOf(MERCHANT_USER)).toBe('50');
+      expect(await proceedsOf(m.id)).toBe('50');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect((await pay.getSettlement(settlement.id)).status).toBe('failed');
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -2654,6 +2685,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         destination: { kind: 'bank', ref: 'GB82WEST12345698765432' },
       });
       expect(retried.status).toBe('paid_out');
+      expect(await proceedsOf(m.id)).toBe('0');
       expect(await availableOf(MERCHANT_USER)).toBe('0');
     });
 
@@ -2707,7 +2739,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       await pay.capture(payment.id);
       const settlement = await settle(m.id, 'w-payout-suspended');
       expect(settlement.status).toBe('posted');
-      expect(await availableOf(MERCHANT_USER)).toBe('25');
+      expect(await proceedsOf(m.id)).toBe('25');
 
       await sql`UPDATE pay.merchants SET status = 'suspended' WHERE id = ${m.id}`;
 
@@ -2720,7 +2752,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       ).rejects.toMatchObject({ code: 'pay.merchant_inactive' });
 
       // No hold, no rail send, settlement still posted, balance still theirs.
-      expect(await availableOf(MERCHANT_USER)).toBe('25');
+      expect(await proceedsOf(m.id)).toBe('25');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
       expect(chain.totalSent('USDT')).toBe('0');
@@ -2765,14 +2797,14 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       await pay.capture(payment.id);
       const settlement = await settle(m.id, 'w-payout-g4-hold');
       expect(settlement.status).toBe('posted');
-      expect(await availableOf(MERCHANT_USER)).toBe('15');
+      expect(await proceedsOf(m.id)).toBe('15');
 
       // Drive the actual admission + hold path, then crash before the rail.
       const originalPost = ledger.post.bind(ledger);
       let crash = true;
       ledger.post = async (request) => {
         const result = await originalPost(request);
-        if (crash && request.reason === 'withdraw.held') {
+        if (crash && request.reason === 'pay.proceeds.payout.held') {
           crash = false;
           throw new Error('test.crash_after_hold');
         }
@@ -2785,7 +2817,9 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
           destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
         }),
       ).rejects.toThrow('test.crash_after_hold');
-      expect(await heldTotalOf(MERCHANT_USER)).toBe('15');
+      expect(await proceedsHeldOf(m.id)).toBe('15');
+      expect(await proceedsOf(m.id)).toBe('0');
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect(await availableOf(MERCHANT_USER)).toBe('0');
 
       await sql`UPDATE pay.merchants SET status = 'suspended' WHERE id = ${m.id}`;
@@ -2797,6 +2831,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
       });
       expect(paid.status).toBe('paid_out');
+      expect(await proceedsHeldOf(m.id)).toBe('0');
+      expect(await proceedsOf(m.id)).toBe('0');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect(await availableOf(MERCHANT_USER)).toBe('0');
       expect(chain.totalSent('USDT')).toBe('15');
@@ -2808,7 +2844,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const payment2 = await cryptoPayment(m.id, '7');
       await pay.capture(payment2.id);
       const settlement2 = await settle(m.id, 'w-payout-g4-new');
-      expect(await availableOf(MERCHANT_USER)).toBe('7');
+      expect(await proceedsOf(m.id)).toBe('7');
       await sql`UPDATE pay.merchants SET status = 'suspended' WHERE id = ${m.id}`;
       await expect(
         pay.payoutSettlement({
@@ -2818,7 +2854,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         }),
       ).rejects.toMatchObject({ code: 'pay.merchant_inactive' });
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
-      expect(await availableOf(MERCHANT_USER)).toBe('7');
+      expect(await proceedsOf(m.id)).toBe('7');
     });
 
     /**
@@ -2831,7 +2867,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const payment = await cryptoPayment(m.id, '12');
       await pay.capture(payment.id);
       const settlement = await settle(m.id, 'w-payout-iban');
-      expect(await availableOf(MERCHANT_USER)).toBe('12');
+      expect(await proceedsOf(m.id)).toBe('12');
 
       await expect(
         pay.payoutSettlement({
@@ -2841,7 +2877,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         }),
       ).rejects.toMatchObject({ code: 'pay.destination_kind_mismatch' });
 
-      expect(await availableOf(MERCHANT_USER)).toBe('12');
+      expect(await proceedsOf(m.id)).toBe('12');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
       expect(chain.totalSent('USDT')).toBe('0');
@@ -2861,7 +2897,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       });
 
       expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
-      expect(await availableOf(MERCHANT_USER)).toBe('9');
+      expect(await proceedsOf(m.id)).toBe('9');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
       expect(chain.totalSent('USDT')).toBe('0');
@@ -2884,6 +2920,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(paid.status).toBe('paid_out');
       expect(chain.totalSent('USDT')).toBe('11');
       expect(chain.outboundTransfers()[0]?.to).toBe('0x000000000000000000000000000000000000dEaD');
+      expect(await proceedsOf(m.id)).toBe('0');
+      expect(await proceedsHeldOf(m.id)).toBe('0');
       expect(await availableOf(MERCHANT_USER)).toBe('0');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -2935,7 +2973,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.verifyChain()).toEqual({ ok: true });
 
       // And the merchant's own account holds exactly what was settled to it.
-      expect(await availableOf(MERCHANT_USER)).toBe(formatAmount(settlementA.net));
+      expect(await proceedsOf(a.id)).toBe(formatAmount(settlementA.net));
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
       expect(await clearingOf(a.id)).toBe('0');
       expect(await clearingOf(b.id)).toBe('0');
     });
@@ -2950,6 +2989,16 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       // The clearing account is the answer, and it is reachable without reading
       // a single svc-pay table — which is what makes reconciliation meaningful.
       expect(formatAmount(await pay.clearingBalance(m.id, 'USDT'))).toBe('100');
+    });
+
+    it('reads settled proceeds from the merchant proceeds account', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '40');
+      await pay.capture(payment.id);
+      await settle(m.id, 'w-proceeds-balance');
+      expect(formatAmount(await pay.merchantBalance(m.id, 'USDT'))).toBe('40');
+      expect(await proceedsOf(m.id)).toBe('40');
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
     });
 
     it('holds no numeric balance column of its own', async () => {
@@ -3116,8 +3165,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const replay = await pay.capture(authorized.id);
       expect(replay).toEqual(captured);
       // Capture credits the merchant clearing account; settlement is the
-      // separate transition that moves net value into the user's available
-      // balance. A completed retry must not perform either move again.
+      // separate transition that moves net value into merchant proceeds.
+      // A completed retry must not perform either move again.
       expect(await availableOf(MERCHANT_USER)).toBe('0');
       expect(await clearingOf(m.id)).toBe('25');
       expect((await pay.history(authorized.id, 50)).filter((event) => event.event === 'captured')).toHaveLength(1);
