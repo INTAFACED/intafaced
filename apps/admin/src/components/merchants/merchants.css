@@ -6,6 +6,7 @@
  */
 
 .mp-page {
+  --if-accent: #C8F64A;
   display: flex;
   flex-direction: column;
   gap: 20px;

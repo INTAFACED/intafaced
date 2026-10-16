@@ -4,7 +4,15 @@ import { describeFreshness } from '@/lib/merchants/time';
 import { AutoTripCard, HaltHistoryTable, HaltStatesTable, PendingClearsGap } from './halts-panels';
 import { AsOf, Card, FailureState, KpiTile, PageHead, StateBlock } from './ui';
 
-export function TreasuryView({ data, currentUserId }: { data: TreasuryData; currentUserId?: string }) {
+export function TreasuryView({
+  data,
+  currentUserId,
+  showHeader = true,
+}: {
+  data: TreasuryData;
+  currentUserId?: string;
+  showHeader?: boolean;
+}) {
   const here = '/merchants/treasury';
   const exposure = data.exposure.kind === 'ok' ? data.exposure.data : null;
   const status = data.status.kind === 'ok' ? data.status.data : null;
@@ -12,11 +20,13 @@ export function TreasuryView({ data, currentUserId }: { data: TreasuryData; curr
   const readFresh = { asOf: data.readAt, lagSeconds: 0 };
   return (
     <div className="mp-page">
-      <PageHead
-        title="Treasury and halts"
-        purpose="How much the platform is exposed per asset, which operations are paused, and whether anything pauses by itself. Read only: changing a limit or a halt needs two founders and is not done from this page yet."
-        back={{ href: '/merchants', label: 'Merchants dashboard' }}
-      />
+      {showHeader ? (
+        <PageHead
+          title="Treasury and halts"
+          purpose="How much the platform is exposed per asset, which operations are paused, and whether anything pauses by itself. Read only: changing a limit or a halt needs two founders and is not done from this page yet."
+          back={{ href: '/merchants', label: 'Merchants dashboard' }}
+        />
+      ) : null}
 
       <div className="mp-kpis" role="group" aria-label="Treasury and halt summary">
         <KpiTile

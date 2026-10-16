@@ -1,0 +1,74 @@
+'use client';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { SCREENS } from '@/lib/founder-ops/screens';
+export function PageFinder() {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (!dialog.current?.open) dialog.current?.showModal();
+      }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
+  return (
+    <>
+      <button className="mp-btn" type="button" onClick={() => dialog.current?.showModal()}>
+        Find page <kbd>Ctrl K</kbd>
+      </button>
+      <dialog className="fo-dialog" ref={dialog}>
+        <form method="dialog">
+          <button className="mp-btn" aria-label="Close page search">
+            Close
+          </button>
+        </form>
+        <label className="mp-field">
+          Find a founder page
+          <input className="mp-input" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </label>
+        <nav aria-label="Founder page search" className="fo-directory">
+          {[
+            { route: '/merchants', title: 'Overview' },
+            { route: '/merchants/all', title: 'All merchants' },
+            { route: '/merchants/approvals', title: 'Approvals queue' },
+            { route: '/merchants/treasury', title: 'Treasury and halts' },
+            { route: '/conversion/venues', title: 'Venue registry' },
+            { route: '/conversion/networks', title: 'Settlement networks' },
+            { route: '/conversion/wallets', title: 'Wallet routes' },
+            ...SCREENS.filter((s) => !s.route.includes(':')),
+          ]
+            .filter((s) => s.title.toLowerCase().includes(query.toLowerCase()))
+            .map((s) => (
+              <a key={s.route} href={s.route}>
+                {s.title}
+              </a>
+            ))}
+        </nav>
+      </dialog>
+    </>
+  );
+}
+export function LiveRefresh({ readAt }: { readAt: string }) {
+  const router = useRouter();
+  const [paused, setPaused] = useState(false);
+  useEffect(() => {
+    if (paused) return;
+    const timer = setInterval(() => router.refresh(), 15000);
+    return () => clearInterval(timer);
+  }, [paused, router]);
+  return (
+    <div className="mp-asof" role="status">
+      <span>
+        Snapshot checked at <time dateTime={readAt}>{readAt}</time>. {paused ? 'Refresh paused.' : 'Refresh every 15 seconds.'} Event feed
+        lag: unavailable.
+      </span>
+      <button type="button" className="mp-btn" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>
+        {paused ? 'Resume refresh' : 'Pause refresh'}
+      </button>
+    </div>
+  );
+}
