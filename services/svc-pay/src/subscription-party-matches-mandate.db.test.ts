@@ -249,11 +249,15 @@ describe('a subscription merchant and customer match the mandate', () => {
       return rows[0]?.def;
     }
 
-    async function insertSubscription(merchantId: string, customerId: string): Promise<StoredSubscription> {
+    async function insertSubscription(
+      merchantId: string,
+      customerId: string,
+      status: 'active' | 'cancelled' = 'active',
+    ): Promise<StoredSubscription> {
       return one(
         await db<StoredSubscription[]>`
-          INSERT INTO subscriptions (mandate_id, merchant_id, customer_id, next_run_at)
-          VALUES (${mandate.id}, ${merchantId}, ${customerId}, ${NEXT_RUN_AT})
+          INSERT INTO subscriptions (mandate_id, merchant_id, customer_id, next_run_at, status)
+          VALUES (${mandate.id}, ${merchantId}, ${customerId}, ${NEXT_RUN_AT}, ${status})
           RETURNING id, mandate_id, merchant_id, customer_id
         `,
         'subscription',
@@ -283,8 +287,11 @@ describe('a subscription merchant and customer match the mandate', () => {
     expect(await mandateIdFk()).toBe('FOREIGN KEY (mandate_id) REFERENCES subscription_mandates(id)');
     expect(await constraints()).toEqual([]);
 
-    const merchantMismatch = await insertSubscription(merchantB.id, FIXTURE_CUSTOMER);
-    const customerMismatch = await insertSubscription(merchantA.id, OTHER_CUSTOMER);
+    // 0081 allows only one open subscription per mandate. These two mismatches
+    // have to exist together so 0030's foreign key fails closed; cancelled is
+    // not open, so the party rows can sit side by side.
+    const merchantMismatch = await insertSubscription(merchantB.id, FIXTURE_CUSTOMER, 'cancelled');
+    const customerMismatch = await insertSubscription(merchantA.id, OTHER_CUSTOMER, 'cancelled');
     expect(merchantMismatch.mandate_id).toBe(mandate.id);
     expect(merchantMismatch.merchant_id).toBe(merchantB.id);
     expect(merchantMismatch.customer_id).toBe(FIXTURE_CUSTOMER);

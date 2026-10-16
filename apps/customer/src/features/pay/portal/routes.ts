@@ -1,6 +1,16 @@
 import type { PlainKey } from './copy';
 
 export type PortalRoom =
+  | 'money'
+  | 'money-activity'
+  | 'reports'
+  | 'report-exports'
+  | 'links'
+  | 'link-new'
+  | 'link'
+  | 'refunds'
+  | 'refund-new'
+  | 'refund'
   | 'dashboard'
   | 'onboarding'
   | 'team'
@@ -19,7 +29,8 @@ export type PortalRoom =
   | 'approvals'
   | 'pricing'
   | 'limits';
-export type PortalRoute = { room: PortalRoom; param?: string };
+export type OnboardingStep = 'business' | 'verification' | 'go-live';
+export type PortalRoute = { room: PortalRoom; param?: string; step?: OnboardingStep };
 
 /** The rooms W3a and W3b own. Detail rooms carry their id in the path, so a link can be shared and survives a reload. */
 export function parsePortalRoute(path: string): PortalRoute | null {
@@ -36,8 +47,20 @@ export function parsePortalRoute(path: string): PortalRoute | null {
       return v;
     }
   };
+  if (a === 'money') return b === undefined ? { room: 'money' } : b === 'activity' ? { room: 'money-activity' } : null;
+  if (a === 'reports') return b === undefined ? { room: 'reports' } : b === 'exports' ? { room: 'report-exports' } : null;
+  if (a === 'links') {
+    if (new URLSearchParams(query).get('view') === 'tools') return null;
+    return b === undefined ? { room: 'links' } : b === 'new' ? { room: 'link-new' } : { room: 'link', param: decode(b) };
+  }
+  if (a === 'refunds')
+    return b === undefined ? { room: 'refunds' } : b === 'new' ? { room: 'refund-new' } : { room: 'refund', param: decode(b) };
   if (a === 'merchant' && b === undefined) return { room: 'dashboard' };
-  if (a === 'onboarding' && b === undefined) return { room: 'onboarding' };
+  if (a === 'onboarding') {
+    if (b === undefined) return { room: 'onboarding' };
+    if (b === 'business' || b === 'verification' || b === 'go-live') return { room: 'onboarding', step: b };
+    return null;
+  }
   if (a === 'team' && b === undefined) return { room: 'team' };
   if (a === 'exports' && b === undefined) return { room: 'exports' };
   if (a === 'notifications' && b === undefined) return { room: 'notifications' };
@@ -62,6 +85,7 @@ export function parsePortalRoute(path: string): PortalRoute | null {
 
 /** Links added to the Business Pay menu, in the order they are shown. */
 export const portalLinks: ReadonlyArray<readonly [string, PlainKey]> = [
+  ['/pay/refunds', 'navRefunds'],
   ['/pay/onboarding', 'navOnboarding'],
   ['/pay/team', 'navTeam'],
   ['/pay/exports', 'navExports'],

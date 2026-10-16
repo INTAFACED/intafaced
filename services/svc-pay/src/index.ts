@@ -59,6 +59,10 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { createEdgeContext, mergeRouters, retainRawBody, createIdentityOperationDecisionClient } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { setIsolationDenialSink } from './isolation-log.js';
+import { onCapturedOverCap } from './control/over-cap-signal.js';
+import { setOverCapNoticeLogger } from './control/guards.js';
+import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
+import { setCaptureReconcileLogger } from './capture-reconcile.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -195,7 +199,7 @@ const identityAdmission = createIdentityOperationDecisionClient({
   secret: env.IDENTITY_ADMISSION_SECRET,
 });
 const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPermissionIntents(tx, current, identityAdmission));
-const payGuards = buildPayGuards({ sql });
+const payGuards = buildPayGuards({ sql, ledger });
 const pay = new PayService(sql, ledger, rails, {
   guards: payGuards,
   identityOperationAdmission: identityAdmission,
@@ -411,6 +415,17 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 // Callers get a uniform not-found; operators get the real reason (log only).
 setIsolationDenialSink((denial) => app.log.warn({ isolation: denial }, 'pay.isolation_denied'));
 setPaymentFactsReadFailureSink((event) => app.log.warn(event, 'payment facts unread after commit'));
+onCapturedOverCap((signal) => {
+  app.log.warn({ event: 'payment.captured_over_cap', ...signal }, 'payment.captured_over_cap');
+});
+setOverCapNoticeLogger((fields, message) => {
+  app.log.warn(fields, message);
+});
+setCaptureReconcileLogger({
+  warn: (fields, message) => {
+    app.log.warn(fields, message);
+  },
+});
 
 // Keep the exact request bytes so S2S verifiers can check the signed digest
 // (L2-6). Installed once here; internal registers pass `installRawBody: false`
@@ -492,6 +507,13 @@ registerSubscriptionCycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   subscriptions,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  installRawBody: false,
+});
+
+registerCaptureReconcileRoutes(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  pay,
+  mode: env.PAY_CAPTURE_RECONCILE,
   installRawBody: false,
 });
 

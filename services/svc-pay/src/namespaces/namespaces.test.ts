@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { mergeRouters, router, scopedProcedure, type Context } from '@intafaced/contracts';
+import type { ControlService } from '../control/service.js';
 import { createFounderAuthority } from '../founder-authority.js';
 import { createPayNamespaces, FOUNDER_ONLY_PREFIXES, findUnguardedFounderProcedures, founderProcedure } from './index.js';
 
@@ -44,6 +45,7 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
     input: { requestId: id(), scope: 'intake', target: { level: 'global' }, halted: true, reason: 'drill', expectedVersion: '0' },
   },
   'payHalts.history': { founder: true, input: { limit: 10 } },
+  'payHalts.pendingClears': { founder: true, input: { limit: 10 } },
   'payHalts.operatorStatus': { founder: true, input: {} },
   'founderAdmin.merchants.list': { founder: true, input: { limit: 10 } },
   'founderAdmin.merchants.drilldown': { founder: true, input: { merchantId, window } },
@@ -67,7 +69,9 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
     founder: true,
     input: { requestId: id(), decision: 'confirm', reason: 'second founder agrees', expectedChangeHash: `sha256:${'a'.repeat(64)}` },
   },
+  'founderAdmin.changes.pending': { founder: true, input: { limit: 10 } },
   'founderAdmin.approvals.list': { founder: true, input: { limit: 10 } },
+  'founderAdmin.approvals.destination': { founder: true, input: { approvalId: id() } },
   'founderAdmin.treasury.exposure': { founder: true, input: {} },
 };
 
@@ -124,7 +128,7 @@ describe('W0 namespaces are mounted', () => {
     expect(src).toContain('startMetricsRefresher(metrics.projector');
     expect(src).toContain('payHalts: { store: new PayHaltStore(sql,');
     expect(src).toContain('control: new ControlService(sql, teamAccessPorts(sql))');
-    expect(src).toContain('const payGuards = buildPayGuards({ sql });');
+    expect(src).toContain('const payGuards = buildPayGuards({ sql, ledger });');
     // One registry instance serves both the payment service and the user-money service.
     expect(src.match(/guards: payGuards,/g)).toHaveLength(2);
   });
@@ -180,6 +184,22 @@ describe('payHalts.* without a halt store refuses closed', () => {
 describe('G7: static inventory of founder-only procedures', () => {
   it('no founderAdmin.* (or operator payHalts.*) procedure is outside founder authority', () => {
     expect(findUnguardedFounderProcedures(build(vi.fn()), FOUNDER_ONLY_PREFIXES)).toEqual([]);
+  });
+
+  it('founderAdmin.approvals.destination is a mutation, so a reveal is not a cacheable query', () => {
+    const typeOf = (routerValue: unknown) =>
+      (routerValue as { _def: { procedures: Record<string, { _def: { type: string } }> } })._def.procedures[
+        'founderAdmin.approvals.destination'
+      ]!._def.type;
+    expect(typeOf(build(vi.fn()))).toBe('mutation');
+    expect(
+      typeOf(
+        createPayNamespaces({
+          founderAuthority: createFounderAuthority({ ...identity, fetcher: vi.fn() }),
+          control: {} as ControlService,
+        }),
+      ),
+    ).toBe('mutation');
   });
 
   it('every procedure the manifest marks founder-only is guarded, and founderAdmin.* is all of them', () => {

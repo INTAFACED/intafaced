@@ -588,6 +588,7 @@ export async function snapshotMerchant(w: World, merchantId: string): Promise<st
     controlProfile: await q('control_merchant_profiles', 'merchant_id'),
     controlApprovals: await q('control_payout_approvals', 'merchant_id'),
     controlAudit: await q('control_audit', 'merchant_id'),
+    limitRequests: await q('control_limit_requests', 'merchant_id'),
     disputeCases: defaultDisputeCaseStore.listForMerchant(merchantId),
   });
 }

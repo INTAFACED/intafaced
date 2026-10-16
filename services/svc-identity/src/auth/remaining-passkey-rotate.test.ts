@@ -68,6 +68,7 @@ describe('remainingPasskeyRotates — unenroll first of two', () => {
       prefix: 'ifk_live',
       mode: 'live',
       revokedKeyId: 'old',
+      signingSecret: null,
     });
     await expect(
       rotateApiKeyAfterPasskey(minter, fakeSql([[{ webauthn_creds: [remaining] }], [oldRow]]), rotateInput),

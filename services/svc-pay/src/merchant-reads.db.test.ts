@@ -59,7 +59,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
 
 async function ctx(scopes: string[], userId: string): Promise<Context> {
   const { token } = await issueAccessToken({ userId, sessionId: randomUUID(), scopes, tier: 'full', mfa: true }, authConfig);
-  return { principal: await verifyAccessToken(token, authConfig), region: 'DE', requestId: randomUUID() };
+  return { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: randomUUID() };
 }
 
 function payCode(err: unknown): { trpc: string | undefined; pay: string | undefined } {
@@ -466,7 +466,7 @@ describe('merchant team reads, list pages, and stored detail', () => {
     const rest = await pay.listPayments({ merchantId: mine.id, limit: 1, railMode: 'sandbox', cursor: page.nextCursor! });
     expect(rest.items.map((item) => item.id)).toEqual([oldest.id]);
     expect(rest.nextCursor).toBeNull();
-    expect([page.items[0]!.id, rest.items[0]!.id]).not.toContain(live.id);
+    expect([page.items[0]!.id, rest.items[0]!.id]).not.toContain(live!.id);
   });
 
   it('emits a settlement failure only while the settlement is failed', async () => {

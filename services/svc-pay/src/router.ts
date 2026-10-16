@@ -687,8 +687,9 @@ export function createPayRouter(
         ),
 
       /**
-       * What we owe this merchant but have not settled, and what they can
-       * already spend. Both read from the LEDGER, not from svc-pay's tables —
+       * What we owe this merchant but have not settled, and the settled proceeds
+       * they can pay out. Not the owner's trading balance. Both read from the
+       * LEDGER, not from svc-pay's tables —
        * the two are independent on purpose, which is what makes reconciliation
        * meaningful (Doctrine §0.6).
        */
@@ -1948,6 +1949,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.routing_no_rail':
       case 'pay.rail_outcome_unknown':
       case 'pay.ledger_outcome_unknown':
+      case 'pay.settlement_book_unrecognised':
       case 'pay.identity_admission_unavailable':
       case 'pay.payout_destination_missing':
       case 'pay.payout_admission_missing':
@@ -1969,6 +1971,8 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.subscription_cycle_list_limit_unset':
       case 'pay.due_subscriptions_batch_limit_unset':
       case 'pay.due_webhook_deliveries_batch_limit_unset':
+      case 'pay.capture_reconcile_disabled':
+      case 'pay.capture_reconcile_batch_limit_unset':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':
@@ -1982,6 +1986,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.chargeback_plan_conflict':
       case 'pay.settlement_in_flight':
       case 'pay.settlement_desynced':
+      case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':
         return 'CONFLICT' as const;
       case 'pay.withdrawal_not_found':

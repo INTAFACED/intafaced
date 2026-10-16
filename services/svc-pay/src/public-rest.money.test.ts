@@ -7,7 +7,14 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { MemoryLedger, formatAmount, merchantClearing, userAvailable, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  merchantClearing,
+  merchantProceeds,
+  type LedgerClient,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import { PayService } from './payment-service.js';
 import { registerPublicPayRest } from './public-rest.js';
 import { MemoryRestIdempotencyStore, type RestIdempotencyStore } from './rest-idempotency.js';
@@ -212,7 +219,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
   }
 
   const clearingOf = async (merchantId: string) => formatAmount((await ledger.balance(merchantClearing(merchantId, ASSET))).amount);
-  const availableOf = async (userId: string) => formatAmount((await ledger.balance(userAvailable(userId, ASSET))).amount);
+  const proceedsOf = async (merchantId: string) => formatAmount((await ledger.balance(merchantProceeds(merchantId, ASSET))).amount);
   const keysMatching = (prefix: string) => postedKeys.filter((k) => k.startsWith(prefix));
 
   /** Merchant with a zero fee: this suite is about movement and identity, not pricing. */
@@ -554,7 +561,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
       });
 
       expect(res.json().clearing).toBe(await clearingOf(m.id));
-      expect(res.json().available).toBe(await availableOf(OWNER));
+      expect(res.json().available).toBe(await proceedsOf(m.id));
     });
   });
 });

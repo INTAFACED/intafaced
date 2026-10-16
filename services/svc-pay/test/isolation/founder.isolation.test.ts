@@ -93,6 +93,7 @@ describe('G: founder-only procedures', () => {
         'founderAdmin.changes.submit',
         'founderAdmin.changes.confirm',
         'founderAdmin.approvals.list',
+        'founderAdmin.approvals.destination',
         'founderAdmin.control.tiers.list',
         'founderAdmin.control.pricing.rules',
         'founderAdmin.control.merchant.get',
@@ -109,7 +110,7 @@ describe('G: founder-only procedures', () => {
 
   it('W1: every founder procedure of the control room has an explicit input in procedures.ts (a bare `{}` would only prove refusal)', () => {
     const w1 = inventoried.filter((p) => p.startsWith('founderAdmin.control.') || /^founderAdmin\.(changes|approvals)\./.test(p));
-    expect(w1).toHaveLength(10);
+    expect(w1).toHaveLength(15);
     for (const p of w1) expect(FOUNDER_INPUTS[p], `${p} has no entry in FOUNDER_INPUTS`).toBeDefined();
   });
 

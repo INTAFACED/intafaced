@@ -220,6 +220,42 @@ export function merchantClearing(merchantId: string, assetId: string): AccountRe
 }
 
 /**
+ * MERCHANT PROCEEDS — settled net this merchant can pay out.
+ *
+ * Not the owner's trading balance. Card spend, bank transfer, and trade spend
+ * `userAvailable`. This pot is named only by pay settlement, a settled refund,
+ * the chargeback settled leg, and the payout trio. `merchantId` is the pay
+ * merchant id, so two merchants of one person do not share it.
+ *
+ * `module` accounts are hard non-negative, so a payout cannot overdraw one
+ * merchant into another's pot or into the owner's trading balance. The owner
+ * id follows the clearing slug (`pay:proceeds:<uuid>`): a lowercase letter,
+ * then colon-separated segments. A bare merchant UUID is not an owner id.
+ */
+export function merchantProceeds(merchantId: string, assetId: string): AccountRef {
+  return { ownerType: 'module', ownerId: `pay:proceeds:${merchantId}`, assetId, kind: 'available' };
+}
+
+/**
+ * One in-flight payout, funded from that merchant's proceeds.
+ *
+ * The hold sits on the proceeds owner. `assertPairedLocks` funds a hold only
+ * from the same owner's available balance, so proceeds cannot be parked in
+ * the user's withdrawal hold (where a personal `withdrawSettle` would send
+ * them out).
+ */
+export function merchantProceedsPayoutHold(merchantId: string, assetId: string, withdrawalId: string): AccountRef {
+  if (!withdrawalId?.trim()) throw new Error('merchantProceedsPayoutHold requires a withdrawalId — e.g. `<settlementId>:<attempt>`');
+  return {
+    ownerType: 'module',
+    ownerId: `pay:proceeds:${merchantId}`,
+    assetId,
+    kind: 'hold',
+    purpose: `payout:${withdrawalId.trim()}`,
+  };
+}
+
+/**
  * The yield reserve behind one svc-bank earn pool (§8.1).
  *
  * Interest is paid OUT of this account, which means a pool can only ever pay

@@ -69,8 +69,9 @@ import type { Amount } from '@intafaced/ledger-client';
  *     nothing). A `recovery` that is BOOKKEEPING ONLY (a settlement post, a
  *     payment capture) MUST finish: refusing it leaves a frozen window or a
  *     captured payment half recorded. A `recovery` that would SEND to a rail
- *     (`beforePayoutExecute`, `beforeUserMoneyWithdrawal`) is refused by a PAYOUT
- *     halt, because a halt that lets money leave is not a halt. The booked hold is
+ *     (`beforePayoutExecute`) is refused by a PAYOUT halt, because a halt that
+ *     lets merchant proceeds leave is not a halt. A personal withdrawal is not
+ *     that exit: settlement credits proceeds. The booked hold is
  *     untouched, so that operation is paused, not stranded: nothing is released
  *     or marked failed, and the same call completes once the halt clears. A guard
  *     that refuses a rail-send recovery must therefore refuse BEFORE the hold is
@@ -203,6 +204,12 @@ export interface PaymentCaptureBookedContext {
   readonly merchantId: string;
   readonly assetId: string;
   readonly amount: Amount;
+  /**
+   * When set, intake is counted on this instant's day and month. The
+   * authorized-capture reconciler passes the ledger transaction's postedAt so a
+   * capture booked earlier is not charged to the run. A live capture omits it.
+   */
+  readonly at?: Date;
 }
 
 /** Context for `beforePayoutAdmit`; runs inside the transaction that records a NEW payout admission. */

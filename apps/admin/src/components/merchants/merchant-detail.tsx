@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { DRILLDOWN } from '@/lib/founder-ops/screens';
 import type { MerchantMetricsSeries, MerchantMetricsSnapshot } from '@intafaced/contracts';
 import { daysEndingAt } from '@/lib/merchants/dates';
 import type { ControlsData, MerchantApprovalsData, MerchantDetailData, MerchantHaltsData, MetricPreset } from '@/lib/merchants/loaders';
@@ -166,6 +167,13 @@ export function MerchantDetailView({
         ))}
       </nav>
 
+      <nav className="mp-pills" aria-label="Full merchant drilldown">
+        {DRILLDOWN.map((row) => (
+          <a key={row[1]} href={`/merchants/${merchantId}/${row[1]}`}>
+            {row[2]}
+          </a>
+        ))}
+      </nav>
       {tab === 'overview' ? <Overview data={data} asset={asset} today={today} here={here} assetHref={(a) => href({ asset: a })} /> : null}
       {tab === 'payments' ? <Payments metrics={data.metrics} here={here} /> : null}
       {tab === 'settlements' ? <Settlements metrics={data.metrics} here={here} /> : null}
@@ -204,6 +212,22 @@ function MetricsGate({
   );
 }
 
+/** A pending ask whose stored caps are not a cap. The raw JSON is not shown. */
+function UnreadableLimitAsks({ drilldown }: { drilldown: MerchantDetailData['drilldown'] }) {
+  if (drilldown.kind !== 'ok') return null;
+  const rows = drilldown.data.pendingLimitRequests.filter((request) => !Array.isArray(request.caps));
+  if (rows.length === 0) return null;
+  return (
+    <Card id="limit-asks" title="Open limit requests" sub="Stored asks for higher caps. They are not the caps this merchant can use.">
+      <ul>
+        {rows.map((request) => (
+          <li key={request.requestId}>caps unreadable</li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function Overview({
   data,
   asset,
@@ -219,6 +243,7 @@ function Overview({
 }) {
   return (
     <>
+      <UnreadableLimitAsks drilldown={data.drilldown} />
       <MetricsGate metrics={data.metrics} here={here}>
         {(m) => (
           <div className="mp-kpis" role="group" aria-label="Key figures">

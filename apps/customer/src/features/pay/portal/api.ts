@@ -1,6 +1,7 @@
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 import * as p from './schemas';
+import { linkSchema } from '../schemas';
 import { portalRefusal, refusalText } from './refusal';
 
 /**
@@ -28,6 +29,8 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
     query(procedure, { limit: PAGE_SIZE, ...input }, p.page(item), signal);
   return {
     userId,
+    links: (merchantId: string, limit: number, signal?: AbortSignal) =>
+      query('merchant.listLinks', { merchantId, limit }, z.array(linkSchema), signal),
     merchant: (signal?: AbortSignal) => query('merchant.me', undefined, p.merchantRecordSchema, signal),
     rails: (signal?: AbortSignal) => query('railHealth', undefined, p.railSchema, signal),
     snapshot: (merchantId: string, preset: p.MetricPreset, signal?: AbortSignal) =>

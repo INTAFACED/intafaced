@@ -1,0 +1,9 @@
+[project]
+name = "intafaced-pay"
+version = "0.0.0"
+description = "INTAFACED merchant Payments client. Private. Not published."
+requires-python = ">=3.11"
+classifiers = ["Private :: Do Not Upload"]
+
+[tool.setuptools.packages.find]
+include = ["intafaced_pay*"]

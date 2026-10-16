@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import type { PayHaltPendingClear, PayHaltPendingClearListInput } from '@intafaced/contracts';
 import type {
   PayHaltEvent,
   PayHaltMerchantState,
@@ -150,6 +151,31 @@ export class PayHaltStore {
     }
   }
 
+  /**
+   * Operator view of the switches that cover one merchant: the global switch and that merchant's switch,
+   * per scope. Other merchants' rows are not included. A missing row is "never set" (`halted: false`,
+   * version `0`), the same as `operatorStatus`. A failed read is `readable: false`, not "nothing is halted".
+   */
+  async operatorStatusForMerchant(merchantId: string): Promise<PayHaltOperatorStatus> {
+    const autoTrip = this.autoTripPosture();
+    const merchant = merchantId.toLowerCase();
+    try {
+      const rows = await this.sql<HaltRow[]>`
+        SELECT * FROM pay.halts WHERE target = 'global' OR target = ${merchant} ORDER BY scope, target
+      `;
+      const states = rows.map(stateOf);
+      for (const scope of PAY_HALT_SCOPES) {
+        if (!states.some((s) => s.scope === scope && s.target.level === 'global')) states.push(neverHalted(scope, { level: 'global' }));
+        if (!states.some((s) => s.scope === scope && s.target.level === 'merchant' && s.target.merchantId === merchant)) {
+          states.push(neverHalted(scope, { level: 'merchant', merchantId: merchant }));
+        }
+      }
+      return { readable: true, autoTrip, states };
+    } catch {
+      return { readable: false, autoTrip, states: [] };
+    }
+  }
+
   /** Operator view: every halt row that exists, plus the global switch of each scope even when never set. */
   async operatorStatus(): Promise<PayHaltOperatorStatus> {
     const autoTrip = this.autoTripPosture();
@@ -176,6 +202,53 @@ export class PayHaltStore {
        LIMIT ${input.limit}
     `;
     return rows.map((row) => ({ ...stateOf(row), confirmedByUserId: row.confirmed_by_user_id }));
+  }
+
+  /**
+   * Clears a founder has proposed that a different founder has not confirmed, still inside the
+   * confirm window, and whose expected_version still equals the current halt version. A proposal
+   * left behind after the halt moved is omitted.
+   *
+   * Ordered by request id. That cursor can skip a row inserted behind it: request ids are random
+   * UUIDs, so a new id that sorts before the cursor never appears on a later page.
+   */
+  async pendingClears(input: PayHaltPendingClearListInput): Promise<{ proposals: PayHaltPendingClear[]; nextCursor: string | null }> {
+    const cursor = input.cursor ?? null;
+    const oldest = new Date(Date.now() - CLEAR_PROPOSAL_TTL_MS);
+    const rows = await this.sql<
+      Array<{
+        request_id: string;
+        scope: PayHaltScope;
+        target: string;
+        expected_version: string | number | bigint;
+        reason: string;
+        requested_by_user_id: string;
+        requested_at: Date | string;
+      }>
+    >`
+      SELECT r.request_id, r.scope, r.target, r.expected_version, r.reason, r.requested_by_user_id, r.requested_at
+        FROM pay.halt_clear_requests r
+        JOIN pay.halts h
+          ON h.scope = r.scope AND h.target = r.target AND h.halted AND h.version = r.expected_version
+       WHERE r.status = 'pending'
+         AND r.requested_at >= ${oldest}
+         AND (${cursor}::uuid IS NULL OR r.request_id > ${cursor}::uuid)
+       ORDER BY r.request_id ASC
+       LIMIT ${input.limit + 1}
+    `;
+    const page = rows.slice(0, input.limit);
+    return {
+      proposals: page.map((row) => ({
+        requestId: row.request_id,
+        scope: row.scope,
+        target: targetOf(row.target),
+        expectedVersion: String(row.expected_version),
+        reason: row.reason,
+        requestedByUserId: row.requested_by_user_id,
+        requestedAt: new Date(row.requested_at).toISOString(),
+      })),
+      nextCursor: rows.length > input.limit ? page[page.length - 1]!.request_id : null,
+    };
   }
 
   /**

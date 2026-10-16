@@ -43,6 +43,10 @@ export class ControlRefusal extends PayGuardRefusal {
 
 export const CONTROL_ERROR_CODES = [
   'pay.merchant_not_found',
+  'pay.merchant_inactive',
+  'pay.interactive_required',
+  'pay.limit_request_not_found',
+  'pay.limit_request_not_pending',
   'pay.tier_unassigned',
   'pay.tier_not_found',
   'pay.approval_not_found',
@@ -73,6 +77,10 @@ export type ControlErrorClass = 'not_found' | 'forbidden' | 'precondition' | 'co
 
 const CLASS_OF: Record<ControlErrorCode, ControlErrorClass> = {
   'pay.merchant_not_found': 'not_found',
+  'pay.merchant_inactive': 'precondition',
+  'pay.interactive_required': 'forbidden',
+  'pay.limit_request_not_found': 'not_found',
+  'pay.limit_request_not_pending': 'conflict',
   'pay.tier_not_found': 'not_found',
   'pay.approval_not_found': 'not_found',
   'pay.change_not_found': 'not_found',

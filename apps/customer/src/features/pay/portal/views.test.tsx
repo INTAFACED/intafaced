@@ -259,7 +259,8 @@ describe('onboarding', () => {
         starterFeeBps={null}
       />,
     );
-    expect(out).toContain('You are live in sandbox');
+    expect(out).toContain('Destination saved for this visit');
+    expect(out).not.toContain('You are live in sandbox');
     expect(out).toContain('Waiting for verification to be approved');
     expect(out).toContain('Your tier and limits arrive soon');
   });
