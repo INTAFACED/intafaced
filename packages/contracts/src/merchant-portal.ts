@@ -1,0 +1,311 @@
+import { z } from 'zod';
+import { payAmountStringSchema, payAssetCodeSchema, payMerchantIdSchema, payTimestampSchema } from './merchant-control.js';
+import { payListCursorSchema } from './pay-merchant-reads.js';
+
+/**
+ * Merchant portal reads that the customer app can treat as the business-access
+ * source, plus the business profile and the volume/fee series.
+ *
+ * Amounts are decimal strings, one asset per row. Two assets are never folded
+ * into one figure. A missing business number stays null or a named
+ * not-configured state: this module does not publish a fee, a cap, or a terms
+ * version.
+ */
+
+export const MERCHANT_PORTAL_ROLES = ['owner', 'admin', 'finance', 'developer', 'viewer'] as const;
+export const merchantPortalRoleSchema = z.enum(MERCHANT_PORTAL_ROLES);
+
+/**
+ * One boolean per team permission. The service fills these from the role table.
+ * Keep the keys aligned with `MERCHANT_PERMISSIONS` in svc-pay (the portal test pins it).
+ */
+export const merchantCapabilityFlagsSchema = z
+  .object({
+    'team.read': z.boolean(),
+    'team.manage': z.boolean(),
+    'disputes.read': z.boolean(),
+    'disputes.respond': z.boolean(),
+    'customers.read': z.boolean(),
+    'kyb.read': z.boolean(),
+    'profile.read': z.boolean(),
+    'profile.manage': z.boolean(),
+    'exports.create': z.boolean(),
+    'exports.read': z.boolean(),
+    'notifications.read': z.boolean(),
+    'notifications.manage': z.boolean(),
+    'payments.read': z.boolean(),
+    'settlements.read': z.boolean(),
+    'halts.read': z.boolean(),
+    'payout.request': z.boolean(),
+    'payout.approve': z.boolean(),
+  })
+  .strict();
+
+export const merchantMembershipSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    role: merchantPortalRoleSchema,
+    status: z.enum(['pending', 'active', 'suspended', 'closed']),
+    kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
+    /** True only when the stored KYB status is approved. Status is separate. */
+    verified: z.boolean(),
+    mode: z.enum(['gateway', 'psp', 'payfac']),
+    displayName: z.string().nullable(),
+    legalName: z.string().nullable(),
+    capabilities: merchantCapabilityFlagsSchema,
+    /** Viewer and developer stay on the fee-only pricing projection. */
+    pricingVisibility: z.enum(['full', 'fee_only']),
+  })
+  .strict();
+
+export const merchantMyAccessSchema = z.object({ memberships: z.array(merchantMembershipSchema) }).strict();
+export type MerchantMyAccess = z.infer<typeof merchantMyAccessSchema>;
+
+export const merchantAddressSchema = z
+  .object({
+    line1: z.string(),
+    line2: z.string().nullable(),
+    city: z.string(),
+    region: z.string().nullable(),
+    postalCode: z.string(),
+    country: z.string().regex(/^[A-Z]{2}$/),
+  })
+  .strict();
+
+export const merchantBusinessProfileSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    version: z.string().regex(/^\d{1,18}$/),
+    displayName: z.string().nullable(),
+    legalName: z.string().nullable(),
+    address: merchantAddressSchema.nullable(),
+    website: z.string().nullable(),
+    supportEmail: z.string().nullable(),
+    supportPhone: z.string().nullable(),
+    statementDescriptor: z.string().nullable(),
+    industry: z.string().nullable(),
+  })
+  .strict();
+export type MerchantBusinessProfile = z.infer<typeof merchantBusinessProfileSchema>;
+
+const profileField = z.string().nullable().optional();
+
+export const merchantBusinessProfileSubmitInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    expectedVersion: z.string().regex(/^\d{1,18}$/),
+    reason: z.string().trim().min(3).max(500),
+    displayName: profileField,
+    legalName: profileField,
+    address: merchantAddressSchema.nullable().optional(),
+    website: profileField,
+    supportEmail: profileField,
+    supportPhone: profileField,
+    statementDescriptor: profileField,
+    industry: profileField,
+  })
+  .strict();
+
+export const merchantBusinessProfileSubmitResultSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    outcome: z.enum(['applied', 'pending_second_approval']),
+    version: z.string().regex(/^\d{1,18}$/),
+    /** Hash of the sensitive proposal. Confirm must send this exact value. Null when nothing is waiting. */
+    changeHash: z.string().nullable(),
+    profile: merchantBusinessProfileSchema,
+  })
+  .strict();
+
+export const merchantBusinessProfileDecideResultSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    outcome: z.enum(['applied', 'rejected']),
+    version: z.string().regex(/^\d{1,18}$/),
+    profile: merchantBusinessProfileSchema,
+  })
+  .strict();
+
+export const merchantBusinessProfileConfirmInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    requestId: z.string().uuid(),
+    decision: z.enum(['confirm', 'reject', 'withdraw']),
+    expectedChangeHash: z.string().min(8).max(200),
+    reason: z.string().trim().min(3).max(500),
+  })
+  .strict();
+
+export const merchantProfileChangeSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    /** bigserial ordering key. A string, never a number. */
+    seq: z.string().regex(/^\d+$/),
+    status: z.enum(['applied', 'pending', 'rejected', 'conflict']),
+    before: merchantBusinessProfileSchema.omit({ merchantId: true, version: true }),
+    after: merchantBusinessProfileSchema.omit({ merchantId: true, version: true }),
+    sensitiveKeys: z.array(z.enum(['legalName', 'address', 'statementDescriptor', 'industry'])),
+    changeHash: z.string(),
+    expectedVersion: z.string().regex(/^\d{1,18}$/),
+    makerId: z.string(),
+    checkerId: z.string().nullable(),
+    reason: z.string(),
+    checkerReason: z.string().nullable(),
+    createdAt: payTimestampSchema,
+    decidedAt: payTimestampSchema.nullable(),
+  })
+  .strict();
+
+export const merchantProfileHistoryInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    limit: z.number().int().min(1).max(200).optional(),
+    cursor: payListCursorSchema.optional(),
+  })
+  .strict();
+
+export const merchantProfileHistorySchema = z
+  .object({
+    items: z.array(merchantProfileChangeSchema),
+    nextCursor: z.string().nullable(),
+  })
+  .strict();
+
+export const merchantPortalMerchantInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
+
+export const ONBOARDING_BLOCKERS = [
+  'business_incomplete',
+  'documents_pending_vendor',
+  'destination_missing',
+  'terms_not_configured',
+  'kyb_not_approved',
+  'merchant_not_active',
+] as const;
+
+export const merchantOnboardingProgressSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    business: z
+      .object({
+        done: z.boolean(),
+        missing: z.array(z.enum(['legalName', 'displayName', 'address'])),
+      })
+      .strict(),
+    /** No document vendor is wired. This state does not become "done". */
+    documents: z.object({ state: z.literal('pending_vendor') }).strict(),
+    /** No terms version is configured. Accepting terms is refused until one is set. */
+    terms: z.object({ state: z.literal('not_configured') }).strict(),
+    destination: z
+      .object({
+        present: z.boolean(),
+        destinations: z.array(
+          z
+            .object({
+              railId: z.string(),
+              kind: z.string(),
+              destinationMasked: z.string(),
+            })
+            .strict(),
+        ),
+      })
+      .strict(),
+    kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
+    merchantStatus: z.enum(['pending', 'active', 'suspended', 'closed']),
+    blocking: z.array(z.enum(ONBOARDING_BLOCKERS)),
+  })
+  .strict();
+
+export const merchantAnalyticsBucketSchema = z.enum(['day', 'week']);
+
+export const merchantAnalyticsInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    from: payTimestampSchema,
+    to: payTimestampSchema,
+    bucket: merchantAnalyticsBucketSchema,
+    limit: z.number().int().min(1).max(200).optional(),
+    cursor: payListCursorSchema.optional(),
+    assetId: payAssetCodeSchema.optional(),
+  })
+  .strict();
+
+export const metricsFreshnessOutSchema = z
+  .object({ asOf: payTimestampSchema.nullable(), lagSeconds: z.number().int().min(0).nullable() })
+  .strict();
+
+export const merchantVolumePointSchema = z
+  .object({
+    period: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    assetCode: payAssetCodeSchema,
+    count: z.number().int().min(0),
+    volume: payAmountStringSchema,
+  })
+  .strict();
+
+export const merchantAnalyticsVolumeSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    bucket: merchantAnalyticsBucketSchema,
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    freshness: metricsFreshnessOutSchema,
+    items: z.array(merchantVolumePointSchema),
+    nextCursor: z.string().nullable(),
+  })
+  .strict();
+
+export const merchantFeePointSchema = z
+  .object({
+    period: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    assetCode: payAssetCodeSchema,
+    gross: payAmountStringSchema,
+    fees: payAmountStringSchema,
+    net: payAmountStringSchema,
+    refunded: payAmountStringSchema,
+  })
+  .strict();
+
+export const merchantAnalyticsFeesSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    bucket: merchantAnalyticsBucketSchema,
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    freshness: metricsFreshnessOutSchema,
+    items: z.array(merchantFeePointSchema),
+    nextCursor: z.string().nullable(),
+    /**
+     * The day rollup stores fee totals, not the pricing rule that produced them.
+     * An effective rate recomputed from those totals would be a number this
+     * service did not record. It stays null until rule snapshots are aggregated.
+     */
+    effectiveRate: z.null(),
+    effectiveRateReason: z.literal('not_aggregated'),
+    /** Conversion cost is not on the merchant-day projection. */
+    conversionCost: z.null(),
+    byRule: z.array(z.never()),
+  })
+  .strict();
+
+export const merchantCustomerSeriesInputSchema = z
+  .object({
+    customerRef: z.string().trim().min(1).max(200),
+    from: payTimestampSchema,
+    to: payTimestampSchema,
+    bucket: merchantAnalyticsBucketSchema,
+    limit: z.number().int().min(1).max(200).optional(),
+    cursor: payListCursorSchema.optional(),
+    assetId: payAssetCodeSchema.optional(),
+  })
+  .strict();
+
+export const merchantCustomerSeriesSchema = z
+  .object({
+    customerRef: z.string(),
+    bucket: merchantAnalyticsBucketSchema,
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    items: z.array(merchantVolumePointSchema),
+    nextCursor: z.string().nullable(),
+  })
+  .strict();
