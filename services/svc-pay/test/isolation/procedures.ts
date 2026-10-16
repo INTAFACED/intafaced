@@ -46,7 +46,6 @@ export const FOUNDER_EXTRA = [
 /** Prefixes whose procedures must be founder-guarded (mirror of FOUNDER_ONLY_PREFIXES, restated so a change there is noticed). */
 export const FOUNDER_PREFIXES = [
   'founderAdmin.',
-  'founderAdmin.approvals.destination',
   'payHalts.set',
   'payHalts.history',
   'payHalts.operatorStatus',

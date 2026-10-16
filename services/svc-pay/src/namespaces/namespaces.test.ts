@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { mergeRouters, router, scopedProcedure, type Context } from '@intafaced/contracts';
+import type { ControlService } from '../control/service.js';
 import { createFounderAuthority } from '../founder-authority.js';
 import { createPayNamespaces, FOUNDER_ONLY_PREFIXES, findUnguardedFounderProcedures, founderProcedure } from './index.js';
 
@@ -183,6 +184,22 @@ describe('payHalts.* without a halt store refuses closed', () => {
 describe('G7: static inventory of founder-only procedures', () => {
   it('no founderAdmin.* (or operator payHalts.*) procedure is outside founder authority', () => {
     expect(findUnguardedFounderProcedures(build(vi.fn()), FOUNDER_ONLY_PREFIXES)).toEqual([]);
+  });
+
+  it('founderAdmin.approvals.destination is a mutation, so a reveal is not a cacheable query', () => {
+    const typeOf = (routerValue: unknown) =>
+      (routerValue as { _def: { procedures: Record<string, { _def: { type: string } }> } })._def.procedures[
+        'founderAdmin.approvals.destination'
+      ]!._def.type;
+    expect(typeOf(build(vi.fn()))).toBe('mutation');
+    expect(
+      typeOf(
+        createPayNamespaces({
+          founderAuthority: createFounderAuthority({ ...identity, fetcher: vi.fn() }),
+          control: {} as ControlService,
+        }),
+      ),
+    ).toBe('mutation');
   });
 
   it('every procedure the manifest marks founder-only is guarded, and founderAdmin.* is all of them', () => {
