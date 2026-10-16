@@ -536,7 +536,7 @@ export class ExportService {
                 csvRaw(r.id as string),
                 csvRaw(r.payment_id as string),
                 at.toISOString(),
-                money(String(r.amount ?? '0')),
+                r.amount === null || r.amount === undefined || String(r.amount).trim() === '' ? '' : money(String(r.amount)),
                 csvText(r.asset as string),
               ]
             : [

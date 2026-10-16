@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -144,7 +145,7 @@ async function build(
   idempotency = new MemoryRestIdempotencyStore(),
   webhooks?: MerchantWebhookService,
 ): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, genReqId: () => randomUUID() });
   await registerPublicPayRest(app, {
     edgeSecret: SECRET,
     serviceName: 'svc-pay',
@@ -1257,9 +1258,13 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
     const res = await app.inject({ method: 'GET', url: `/v1/payment-links?merchantId=${MERCHANT}` });
     expect(res.statusCode).toBe(401);
     const requestId = res.headers['x-request-id'];
-    expect(typeof requestId).toBe('string');
-    expect(String(requestId).length).toBeGreaterThan(0);
+    expect(requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(String(requestId).startsWith('req-')).toBe(false);
     expect(res.json().error.requestId).toBe(requestId);
     expect(res.json().error.code).toBe('pay.unauthorized');
+    const again = await app.inject({ method: 'GET', url: `/v1/payment-links?merchantId=${MERCHANT}` });
+    expect(again.headers['x-request-id']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(again.headers['x-request-id']).not.toBe(requestId);
+    expect(again.json().error.requestId).toBe(again.headers['x-request-id']);
   });
 });

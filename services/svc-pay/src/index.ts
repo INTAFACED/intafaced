@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { MerchantAccountControls } from './merchant-account-controls.js';
 import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
 import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
@@ -68,6 +69,7 @@ import { onCapturedOverCap } from './control/over-cap-signal.js';
 import { setOverCapNoticeLogger } from './control/guards.js';
 import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { setCaptureReconcileLogger } from './capture-reconcile.js';
+import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -421,6 +423,7 @@ export const appRouter = mergeRouters(
     sql,
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
+    webhookRetry: loadWebhookRetryLimit(process.env),
     payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) },
     treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql, ledger) },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
@@ -435,7 +438,7 @@ export type { SubMerchantRouter } from './submerchant-router.js';
 export type { SubscriptionRouter } from './subscription-router.js';
 export type { PayNamespacesRouter } from './namespaces/index.js';
 
-const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000, genReqId: () => randomUUID() });
 app.addHook('onRequest', async (req, reply) => {
   reply.header('x-request-id', req.id);
 });

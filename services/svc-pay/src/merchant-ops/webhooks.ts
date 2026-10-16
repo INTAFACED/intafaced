@@ -29,6 +29,23 @@ export interface WebhookRetryLimit {
   readonly windowMs: number;
 }
 
+const POSITIVE_INT = /^[1-9][0-9]*$/;
+
+/**
+ * Retry budget. Both values are required together. Either one unset, blank,
+ * zero, or not a positive integer leaves retry unconfigured: the call refuses.
+ * There is no default count and no default window.
+ */
+export function loadWebhookRetryLimit(env: Record<string, string | undefined>): WebhookRetryLimit | undefined {
+  const maxRaw = env.PAY_WEBHOOK_RETRY_MAX?.trim() ?? '';
+  const windowRaw = env.PAY_WEBHOOK_RETRY_WINDOW_MS?.trim() ?? '';
+  if (!POSITIVE_INT.test(maxRaw) || !POSITIVE_INT.test(windowRaw)) return undefined;
+  const maxPerWindow = Number(maxRaw);
+  const windowMs = Number(windowRaw);
+  if (!Number.isSafeInteger(maxPerWindow) || !Number.isSafeInteger(windowMs)) return undefined;
+  return { maxPerWindow, windowMs };
+}
+
 const notFound = () => new MerchantOpsError('pay.webhook_endpoint_not_found', 'not_found');
 const deliveryNotFound = () => new MerchantOpsError('pay.webhook_delivery_not_found', 'not_found');
 
@@ -254,14 +271,19 @@ export class WebhookOps {
     }
     const sql = this.sql;
     return sql.begin(async (tx) => {
-      const prior = await tx<Array<{ delivery_id: string }>>`
-        SELECT delivery_id FROM pay.merchant_webhook_retries
-         WHERE merchant_id = ${caller.merchantId} AND request_id = ${input.requestId}::uuid`;
-      if (prior[0]) {
+      const replay = async () => {
+        const prior = await tx<Array<{ delivery_id: string }>>`
+          SELECT delivery_id FROM pay.merchant_webhook_retries
+           WHERE merchant_id = ${caller.merchantId} AND request_id = ${input.requestId}::uuid`;
+        if (!prior[0]) return null;
         if (prior[0].delivery_id !== input.deliveryId) throw new MerchantOpsError('pay.request_id_reused', 'conflict');
         return { retried: false as const, delivery: await loadDelivery(tx, caller.merchantId, input.deliveryId) };
-      }
+      };
+      const first = await replay();
+      if (first) return first;
       await tx`SELECT id FROM pay.merchants WHERE id = ${caller.merchantId} FOR UPDATE`;
+      const again = await replay();
+      if (again) return again;
       const windowStart = new Date(Date.now() - limit.windowMs);
       const counted = await tx<Array<{ n: number }>>`
         SELECT count(*)::int AS n FROM pay.merchant_webhook_retries

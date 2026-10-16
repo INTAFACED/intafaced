@@ -106,12 +106,41 @@ export class ActivityFeed {
     }
     const sql = this.sql;
     const merchantId = caller.merchantId;
+    const cap = limit + 1;
+    /**
+     * Each source stops at one page. The cursor, time window, and filters sit
+     * inside the branch so a narrow page cannot scan that source's history.
+     * `occurred`, `idCol`, `actionSql`, `actorSql`, and `objectIdSql` are fixed
+     * column expressions, never caller text.
+     */
+    const bound = (
+      objectType: ActivityObjectType,
+      occurred: string,
+      idCol: string,
+      actionSql: string,
+      actorSql: string,
+      objectIdSql: string,
+    ) => {
+      const skipType = input.objectType !== undefined && input.objectType !== objectType;
+      return sql`
+        ${skipType ? sql`AND false` : sql``}
+        ${after ? sql`AND (${sql.unsafe(occurred)}, ${sql.unsafe(idCol)}::text) < ((${after.ts}::text)::timestamptz, ${after.key})` : sql``}
+        ${input.from ? sql`AND ${sql.unsafe(occurred)} >= (${input.from}::text)::timestamptz` : sql``}
+        ${input.to ? sql`AND ${sql.unsafe(occurred)} < (${input.to}::text)::timestamptz` : sql``}
+        ${input.action ? sql`AND (${sql.unsafe(actionSql)}) = ${input.action}` : sql``}
+        ${input.actorId ? sql`AND (${sql.unsafe(actorSql)}) = ${input.actorId}` : sql``}
+        ${input.search ? sql`AND (${sql.unsafe(objectIdSql)} = ${input.search} OR ${sql.unsafe(idCol)}::text = ${input.search})` : sql``}
+        ORDER BY ${sql.unsafe(occurred)} DESC, ${sql.unsafe(idCol)} DESC
+        LIMIT ${cap}`;
+    };
+    const paymentActor = `CASE WHEN coalesce(e.payload->>'actorUserId', '') ~ '^[A-Za-z0-9:_-]{1,128}$' THEN e.payload->>'actorUserId' ELSE 'system' END`;
+    const kybActor = `CASE WHEN k.actor_scope LIKE 'pay:%' THEN k.actor_id ELSE 'intafaced' END`;
     const rows = await sql<ActivityRow[]>`
       WITH events AS (
+        (
         SELECT e.id::text AS id, e.ts AS occurred_at,
                to_char(e.ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts,
-               CASE WHEN coalesce(e.payload->>'actorUserId', '') ~ '^[A-Za-z0-9:_-]{1,128}$'
-                    THEN e.payload->>'actorUserId' ELSE 'system' END AS actor_id,
+               ${sql.unsafe(paymentActor)} AS actor_id,
                e.event AS action, 'payment'::text AS object_type, e.payment_id::text AS object_id,
                jsonb_strip_nulls(jsonb_build_object(
                  'amount', CASE WHEN e.payload->>'amount' ~ '^[0-9]+(\\.[0-9]+)?$' THEN e.payload->>'amount' ELSE NULL END,
@@ -121,7 +150,10 @@ export class ActivityFeed {
           FROM pay.payment_events e
           JOIN pay.payments p ON p.id = e.payment_id
          WHERE p.merchant_id = ${merchantId}
+         ${bound('payment', 'e.ts', 'e.id', 'e.event', paymentActor, 'e.payment_id::text')}
+        )
         UNION ALL
+        (
         SELECT t.id::text, t.created_at,
                to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
                t.actor_id, t.action, 'team', t.member_user_id,
@@ -129,15 +161,21 @@ export class ActivityFeed {
                NULL, NULL
           FROM pay.merchant_team_events t
          WHERE t.merchant_id = ${merchantId}
+         ${bound('team', 't.created_at', 't.id', 't.action', 't.actor_id', 't.member_user_id')}
+        )
         UNION ALL
+        (
         SELECT k.id::text, k.created_at,
                to_char(k.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
-               k.actor_id, k.to_status::text, 'kyb', k.id::text,
+               ${sql.unsafe(kybActor)}, k.to_status::text, 'kyb', k.id::text,
                jsonb_build_object('fromStatus', k.from_status::text, 'toStatus', k.to_status::text),
                NULL, NULL
           FROM pay.merchant_kyb_events k
          WHERE k.merchant_id = ${merchantId}
+         ${bound('kyb', 'k.created_at', 'k.id', 'k.to_status::text', kybActor, 'k.id::text')}
+        )
         UNION ALL
+        (
         SELECT r.id::text, r.created_at,
                to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
                r.responded_by, r.action, 'dispute', r.dispute_id,
@@ -145,7 +183,10 @@ export class ActivityFeed {
                NULL, NULL
           FROM pay.merchant_dispute_responses r
          WHERE r.merchant_id = ${merchantId}
+         ${bound('dispute', 'r.created_at', 'r.id', 'r.action', 'r.responded_by', 'r.dispute_id')}
+        )
         UNION ALL
+        (
         SELECT v.id::text, v.created_at,
                to_char(v.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
                v.added_by, 'evidence_added', 'dispute', v.dispute_id,
@@ -153,7 +194,10 @@ export class ActivityFeed {
                NULL, NULL
           FROM pay.merchant_dispute_evidence v
          WHERE v.merchant_id = ${merchantId}
+         ${bound('dispute', 'v.created_at', 'v.id', `'evidence_added'`, 'v.added_by', 'v.dispute_id')}
+        )
         UNION ALL
+        (
         SELECT x.id::text, x.created_at,
                to_char(x.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
                x.requested_by, 'export_' || x.status, 'export', x.id::text,
@@ -161,7 +205,10 @@ export class ActivityFeed {
                NULL, NULL
           FROM pay.merchant_export_jobs x
          WHERE x.merchant_id = ${merchantId}
+         ${bound('export', 'x.created_at', 'x.id', `'export_' || x.status`, 'x.requested_by', 'x.id::text')}
+        )
         UNION ALL
+        (
         SELECT a.id::text, a.created_at,
                to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
                a.maker_user_id, 'payout_' || a.status, 'approval', a.id::text,
@@ -174,7 +221,10 @@ export class ActivityFeed {
                a.destination_kind, a.destination_ref
           FROM pay.control_payout_approvals a
          WHERE a.merchant_id = ${merchantId}
+         ${bound('approval', 'a.created_at', 'a.id', `'payout_' || a.status`, 'a.maker_user_id', 'a.id::text')}
+        )
         UNION ALL
+        (
         SELECT w.id::text, w.created_at,
                to_char(w.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
                'system', 'endpoint_' || w.status, 'webhook', w.id::text,
@@ -182,7 +232,10 @@ export class ActivityFeed {
                NULL, NULL
           FROM pay.merchant_webhook_endpoints w
          WHERE w.merchant_id = ${merchantId}
+         ${bound('webhook', 'w.created_at', 'w.id', `'endpoint_' || w.status`, `'system'`, 'w.id::text')}
+        )
         UNION ALL
+        (
         SELECT d.id::text, d.created_at,
                to_char(d.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
                'system', 'delivery_' || d.status, 'webhook', d.id::text,
@@ -190,19 +243,13 @@ export class ActivityFeed {
                NULL, NULL
           FROM pay.merchant_webhook_deliveries d
          WHERE d.merchant_id = ${merchantId}
+         ${bound('webhook', 'd.created_at', 'd.id', `'delivery_' || d.status`, `'system'`, 'd.id::text')}
+        )
       )
       SELECT id, cursor_ts, occurred_at, actor_id, action, object_type, object_id, detail, destination_kind, destination_ref
         FROM events
-       WHERE true
-         ${input.objectType ? sql`AND object_type = ${input.objectType}` : sql``}
-         ${input.action ? sql`AND action = ${input.action}` : sql``}
-         ${input.actorId ? sql`AND actor_id = ${input.actorId}` : sql``}
-         ${input.search ? sql`AND (object_id = ${input.search} OR id = ${input.search})` : sql``}
-         ${input.from ? sql`AND occurred_at >= (${input.from}::text)::timestamptz` : sql``}
-         ${input.to ? sql`AND occurred_at < (${input.to}::text)::timestamptz` : sql``}
-         ${after ? sql`AND (occurred_at, id) < ((${after.ts}::text)::timestamptz, ${after.key})` : sql``}
        ORDER BY occurred_at DESC, id DESC
-       LIMIT ${limit + 1}`;
+       LIMIT ${cap}`;
     return toPage(rows, limit, toItem, (row) => encodeCursor(row.cursor_ts, row.id));
   }
 }

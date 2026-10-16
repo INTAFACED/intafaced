@@ -133,7 +133,7 @@ it('validates merchant ownership on schedule list and detail responses', async (
       JSON.stringify({
         result: {
           data: url.includes('subscription.list')
-            ? [{ ...subscription, merchantId: 'foreign' }]
+            ? { items: [{ ...subscription, merchantId: 'foreign' }], nextCursor: null }
             : { ...subscription, merchantId: 'foreign' },
         },
       }),
