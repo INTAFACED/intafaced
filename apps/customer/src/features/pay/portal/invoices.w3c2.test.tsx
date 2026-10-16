@@ -1,0 +1,24 @@
+import { renderToString } from 'react-dom/server';
+import { expect, it, vi } from 'vitest';
+vi.mock('../../../shared/preferences', async (original) => {
+  const real = await original<typeof import('../../../shared/preferences')>();
+  return { ...real, usePreferences: () => real.currentPreferences() };
+});
+import { Invoices } from './Invoices';
+import { parsePortalRoute } from './routes';
+it('routes invoice references separately from the list', () => {
+  expect(parsePortalRoute('/pay/invoices')).toEqual({ room: 'invoices' });
+  expect(parsePortalRoute('/pay/invoices/a%2Fb')).toEqual({ room: 'invoice', param: 'a/b' });
+});
+it('does not invent balances or an invoice write path', () => {
+  const out = renderToString(<Invoices />);
+  expect(out).toContain('Arrives with the next backend update');
+  expect(out).toContain('href="/pay/subscriptions"');
+  expect(out).toMatch(/<button[^>]*disabled/);
+  expect(out).not.toMatch(/\$0|0\.00|<input/);
+});
+it('does not confirm the existence of an unreadable invoice', () => {
+  const out = renderToString(<Invoices invoiceId="TEST-foreign-reference" />);
+  expect(out).toContain('does not confirm whether the reference exists');
+  expect(out).not.toContain('Paid');
+});
