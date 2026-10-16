@@ -175,6 +175,10 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     reason: 'isolation drill',
   }),
   'founderAdmin.control.limitRequests.list': () => ({ limit: 10 }),
+  'founderAdmin.control.limitRequests.close': (w) => ({
+    requestId: w.control.pendingLimitRequestId,
+    reason: 'isolation drill close',
+  }),
   'founderAdmin.treasury.exposure': () => ({}),
   // W15 operator notes: A is a real merchant, and the seeded note is live exactly until the positive control retracts it.
   'founderAdmin.ops.notes.add': (w) => ({ merchantId: w.e.A.merchantId, body: 'isolation drill', tags: ['drill'], flagged: false }),
@@ -353,12 +357,21 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     path: 'merchantControl.limits.requestIncrease',
     scope: 'pay:write',
     own: 'ok',
+    sessionOnly: true,
     input: (i) => ({
       merchantId: i.merchantId,
       requestId: randomUUID(),
       caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '10' }],
       reason: 'isolation drill',
     }),
+  },
+  {
+    path: 'merchantControl.limits.withdraw',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
+    ownCause: 'pay.limit_request_not_found',
+    input: (i) => ({ merchantId: i.merchantId, requestId: randomUUID(), reason: 'isolation drill' }),
   },
   // pay:payout is interactive-only, so there is no key case. "My merchant + their settlement" must look like a missing settlement.
   {

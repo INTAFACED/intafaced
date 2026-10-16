@@ -211,6 +211,31 @@ describe('founder merchant names', () => {
       }).success,
     ).toBe(false);
     expect(merchantTierListSchema.safeParse({ status: 'configured', ownTierId: null, tiers: [] }).success).toBe(false);
+    const own = {
+      id: 'test-tier',
+      name: 'TEST VALUE',
+      archetype: 'standard' as const,
+      caps: [{ kind: 'beneficiaries_per_day' as const, limit: 1 }],
+      reserve: null,
+      version: '1',
+    };
+    const configured = merchantTierListSchema.parse({ status: 'configured', ownTierId: 'test-tier', tiers: [own] });
+    if (configured.status !== 'configured') throw new Error('expected the merchant’s own tier');
+    expect(configured.tiers).toHaveLength(1);
+    expect(
+      merchantTierListSchema.safeParse({
+        status: 'configured',
+        ownTierId: 'test-tier',
+        tiers: [own, { ...own, id: 'other-tier', name: 'Other' }],
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantTierListSchema.safeParse({
+        status: 'configured',
+        ownTierId: 'other-tier',
+        tiers: [own],
+      }).success,
+    ).toBe(false);
   });
 
   it('pricing history with nothing configured carries no events', () => {
@@ -259,6 +284,96 @@ describe('founder merchant names', () => {
         reason: 'need more room',
       }).success,
     ).toBe(true);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '0' }],
+        reason: 'zero is not an ask',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '0.0' }],
+        reason: 'zero is not an ask',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '0.5' }],
+        reason: 'a fraction above zero',
+      }).success,
+    ).toBe(true);
+    const thirty = '9'.repeat(30);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: thirty }],
+        reason: 'thirty integer digits',
+      }).success,
+    ).toBe(true);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: `${thirty}9` }],
+        reason: 'thirty-one integer digits',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'beneficiaries_per_day', limit: 0 }],
+        reason: 'a zero count',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'beneficiaries_per_day', limit: 1 }],
+        reason: 'one beneficiary',
+      }).success,
+    ).toBe(true);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [
+          { kind: 'per_payment', assetCode: 'USDT', limit: '10' },
+          { kind: 'per_payment', assetCode: 'USDT', limit: '11' },
+        ],
+        reason: 'the same cap twice',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [
+          { kind: 'per_payment', assetCode: 'USDT', limit: '10' },
+          { kind: 'per_payment', assetCode: 'USD', limit: '11' },
+        ],
+        reason: 'same kind, two assets',
+      }).success,
+    ).toBe(true);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [
+          { kind: 'beneficiaries_per_day', limit: 1 },
+          { kind: 'beneficiaries_per_day', limit: 2 },
+        ],
+        reason: 'the count cap twice',
+      }).success,
+    ).toBe(false);
   });
 });
 

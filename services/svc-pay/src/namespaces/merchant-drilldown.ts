@@ -22,7 +22,10 @@ export async function readMerchantDrilldown(deps: {
   merchantId: string;
   window: PayMetricWindow;
 }): Promise<FounderMerchantDrilldown> {
-  const { control, metrics, halts, merchantId, window } = deps;
+  const { control, metrics, halts, window } = deps;
+  // Postgres returns uuid text in lowercase. Compare and answer in that form so an
+  // uppercase id still finds the merchant it names.
+  const merchantId = deps.merchantId.toLowerCase();
   const [listed, record, metricsSnapshot, controlProfile, haltsView, pendingApprovals, openLimit, audit] = await Promise.all([
     metrics.reader.merchantList({ limit: 1, filter: { merchantId } }),
     control.merchantRecord(merchantId),
@@ -34,7 +37,7 @@ export async function readMerchantDrilldown(deps: {
     control.recentAudit(merchantId, RECENT_LIMIT),
   ]);
   const row = listed.rows[0];
-  if (!record || !row || row.merchantId !== merchantId) throw merchantNotFound();
+  if (!record || !row || row.merchantId.toLowerCase() !== merchantId) throw merchantNotFound();
   return {
     merchantId,
     displayName: record.displayName,

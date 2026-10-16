@@ -48,6 +48,8 @@ export interface ControlSeed {
   readonly changeMerchantId: string;
   /** The profile version the founder `changes.submit` positive control expects. */
   readonly changeMerchantVersion: string;
+  /** One pending limit ask, closed by the founder positive control. */
+  readonly pendingLimitRequestId: string;
 }
 
 export async function seedControl(
@@ -118,6 +120,17 @@ export async function seedControl(
   });
   if (configureSubmit.outcome !== 'pending_second_approval') throw new Error(`seed tier change ${configureSubmit.outcome}`);
 
+  const askMerchant = entities[0];
+  if (!askMerchant) throw new Error('seed limit request needs a merchant');
+  const pendingLimitRequestId = randomUUID();
+  const asked = await control.requestLimitIncrease(makePrincipal(askMerchant.userId), {
+    merchantId: askMerchant.merchantId,
+    requestId: pendingLimitRequestId,
+    caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '10' }],
+    reason: 'isolation seed ask',
+  });
+  if (asked.outcome !== 'stored') throw new Error(`seed limit request ${asked.outcome}`);
+
   return {
     approvalIds,
     founderApprovalId: rows[0]!.id,
@@ -128,5 +141,6 @@ export async function seedControl(
     pendingConfigureHash: founderChangeHash(configureTarget, '0'),
     changeMerchantId: changeMerchant.merchantId,
     changeMerchantVersion,
+    pendingLimitRequestId,
   };
 }
