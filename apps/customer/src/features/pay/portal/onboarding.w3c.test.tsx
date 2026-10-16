@@ -8,13 +8,13 @@ import { OnboardingView } from './Onboarding';
 import type { PortalApi } from './api';
 import { parsePortalRoute } from './routes';
 
-const base = {
+const base: Parameters<typeof OnboardingView>[0] = {
   portal: {} as PortalApi,
   merchant: null,
   kyb: { status: 'ready', data: null } as const,
   history: null,
   loadMoreHistory: () => {},
-  rails: { status: 'ready', data: [] } as const,
+  rails: { status: 'ready', data: [] },
   starterFeeBps: null,
   saved: null,
   onCreated: () => {},

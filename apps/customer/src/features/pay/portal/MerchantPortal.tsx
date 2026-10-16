@@ -23,6 +23,9 @@ import { parsePortalRoute, portalLinks, type PortalRoute } from './routes';
 import { Team } from './Team';
 import type { MemberRole, MerchantRecord } from './schemas';
 import './portal.css';
+import { Refunds } from './Refunds';
+import { w3cCopy } from './w3c-copy';
+import type { PayBusinessAuthority } from '../pay-api';
 
 type Account = { merchantId: string; record: MerchantRecord | null; role: MemberRole | null };
 
@@ -34,10 +37,12 @@ type Account = { merchantId: string; record: MerchantRecord | null; role: Member
  */
 export function MerchantPortal({
   path,
+  authority = null,
   starterFeeBps = null,
   legacyHome = null,
 }: {
   path: string;
+  authority?: PayBusinessAuthority | null;
   starterFeeBps?: number | null;
   legacyHome?: ReactNode;
 }) {
@@ -51,6 +56,7 @@ export function MerchantPortal({
     <PortalFrame route={route}>
       <PortalRoom
         route={route}
+        authority={authority}
         portal={portal}
         merchant={merchant.resource}
         reloadMerchant={merchant.reload}
@@ -88,23 +94,56 @@ export function PortalFrame({ route, children }: { route: PortalRoute; children:
 }
 
 const hrefFor = (route: PortalRoute) =>
-  route.room === 'dashboard'
-    ? '/pay/merchant'
-    : route.room === 'dispute'
-      ? '/pay/disputes'
-      : route.room === 'customer'
-        ? '/pay/customers'
-        : route.room === 'payment'
-          ? '/pay/payments'
-          : route.room === 'settlement'
-            ? '/pay/settlements'
-            : route.room === 'payout'
-              ? '/pay/payouts'
-              : `/pay/${route.room}`;
+  route.room === 'refund' || route.room === 'refund-new'
+    ? '/pay/refunds'
+    : route.room === 'dashboard'
+      ? '/pay/merchant'
+      : route.room === 'dispute'
+        ? '/pay/disputes'
+        : route.room === 'customer'
+          ? '/pay/customers'
+          : route.room === 'payment'
+            ? '/pay/payments'
+            : route.room === 'settlement'
+              ? '/pay/settlements'
+              : route.room === 'payout'
+                ? '/pay/payouts'
+                : `/pay/${route.room}`;
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
+  const c = w3cCopy.t;
   switch (route.room) {
+    case 'refunds':
+      return {
+        title: c('refundsTitle'),
+        purpose: c('refundsPurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/refunds/new">
+            {c('issueRefund')}
+          </a>
+        ),
+      };
+    case 'refund-new':
+      return {
+        title: c('issueRefund'),
+        purpose: c('issuePurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/payments">
+            {c('openPayments')}
+          </a>
+        ),
+      };
+    case 'refund':
+      return {
+        title: c('refundTitle'),
+        purpose: c('refundPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/refunds">
+            {c('backRefunds')}
+          </a>
+        ),
+      };
     case 'dashboard':
       return {
         title: t('pageDashboard'),
@@ -212,6 +251,7 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
 
 function PortalRoom({
   route,
+  authority,
   portal,
   merchant,
   reloadMerchant,
@@ -220,6 +260,7 @@ function PortalRoom({
   legacyHome,
 }: {
   route: PortalRoute;
+  authority: PayBusinessAuthority | null;
   portal: PortalApi;
   merchant: Resource<MerchantRecord | null>;
   reloadMerchant: () => void;
@@ -230,6 +271,18 @@ function PortalRoom({
   const { t } = portalCopy.useCopy();
   const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
+    case 'refunds':
+    case 'refund-new':
+    case 'refund':
+      return (
+        <WithAccount {...acct}>
+          {({ role }) => (
+            <OwnerOnly role={role}>
+              <Refunds portal={portal} refundId={route.param} create={route.room === 'refund-new'} authority={authority} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
     case 'dashboard':
       return (
         <Gate resource={merchant} retry={reloadMerchant} rows={5}>

@@ -82,3 +82,63 @@ test('onboarding: verification history and activation gaps have no fabricated cl
   await snap(page, 'P04-go-live');
   await axe(page);
 });
+
+const REFUNDED_PAYMENT = 'aa000003-0000-4000-8000-000000000003';
+test('refunds: exact payment history, URL filters, CSV and detail timeline', async ({ page }) => {
+  const mock = await setup(page);
+  await signIn(page, '/pay/refunds');
+  await expect(page.getByText(/The account-wide refund list/)).toBeVisible();
+  await page.getByLabel('Original payment ID *').fill(REFUNDED_PAYMENT);
+  await page.getByRole('button', { name: 'Look up payment', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Refunds', exact: true }).getByRole('table')).toBeVisible();
+  await expect(page.getByText('1 refunds shown for this payment.')).toBeVisible();
+  await snap(page, 'P08-refunds');
+  await axe(page);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download shown refunds (CSV)' }).click();
+  expect((await download).suggestedFilename()).toBe('payment-refunds.csv');
+  await page.getByLabel('Refund status').selectOption('reversed');
+  await expect(page).toHaveURL(/status=reversed/);
+  await expect(page.getByText(/No refunds match this status/)).toBeVisible();
+  await page.getByLabel('Refund status').selectOption('');
+  await phone(page, 'P08-refunds');
+  await page.getByRole('link', { name: 'TEST-refund-1', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Refund detail', level: 1 })).toBeVisible();
+  await expect(page.getByText('Refund confirmed', { exact: true })).toBeVisible();
+  await snap(page, 'P10-refund-detail-phone');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await snap(page, 'P10-refund-detail');
+  await axe(page);
+  expect(mock.calls.filter((call) => call.procedure === 'payment.refund')).toEqual([]);
+});
+
+test('refund creation: missing verified company authority refuses closed without a mutation', async ({ page }) => {
+  const mock = await setup(page);
+  await signIn(page, `/pay/refunds/new?payment=${REFUNDED_PAYMENT}`);
+  await expect(page.getByText(/Refund submission needs verified company membership/)).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Confirm/ })).toHaveCount(0);
+  await snap(page, 'P09-new-refund');
+  await axe(page);
+  await phone(page, 'P09-new-refund');
+  expect(mock.calls.filter((call) => call.procedure === 'payment.refund')).toEqual([]);
+});
+
+test('refunds: invalid input makes no payment request and a foreign payment reveals no existence', async ({ page }) => {
+  const mock = await setup(page);
+  await signIn(page, '/pay/refunds');
+  await page.getByLabel('Original payment ID *').fill('not-a-payment');
+  await page.getByRole('button', { name: 'Look up payment', exact: true }).click();
+  await expect(page.getByText('Enter a complete payment ID from your payments list.')).toBeVisible();
+  expect(mock.calls.filter((call) => call.procedure === 'payment.get')).toEqual([]);
+  await page.route('**/api/pay/trpc/payment.get?*', (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { message: 'pay.payment_not_found', data: { cause: { code: 'pay.payment_not_found' } } } }),
+    }),
+  );
+  await page.getByLabel('Original payment ID *').fill(REFUNDED_PAYMENT);
+  await page.getByRole('button', { name: 'Look up payment', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+  await expect(page.getByText('pay.payment_not_found')).toHaveCount(0);
+});

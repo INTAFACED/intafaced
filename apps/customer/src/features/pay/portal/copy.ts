@@ -6,6 +6,7 @@ import { defineCopy } from '../../../shared/i18n';
  * number that was not published by INTAFACED.
  */
 const en = {
+  navRefunds: 'Refunds',
   // shell
   navOnboarding: 'Set up your account',
   navTeam: 'Team and roles',

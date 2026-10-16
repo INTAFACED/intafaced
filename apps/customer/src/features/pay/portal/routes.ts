@@ -1,6 +1,9 @@
 import type { PlainKey } from './copy';
 
 export type PortalRoom =
+  | 'refunds'
+  | 'refund-new'
+  | 'refund'
   | 'dashboard'
   | 'onboarding'
   | 'team'
@@ -37,6 +40,8 @@ export function parsePortalRoute(path: string): PortalRoute | null {
       return v;
     }
   };
+  if (a === 'refunds')
+    return b === undefined ? { room: 'refunds' } : b === 'new' ? { room: 'refund-new' } : { room: 'refund', param: decode(b) };
   if (a === 'merchant' && b === undefined) return { room: 'dashboard' };
   if (a === 'onboarding') {
     if (b === undefined) return { room: 'onboarding' };
@@ -67,6 +72,7 @@ export function parsePortalRoute(path: string): PortalRoute | null {
 
 /** Links added to the Business Pay menu, in the order they are shown. */
 export const portalLinks: ReadonlyArray<readonly [string, PlainKey]> = [
+  ['/pay/refunds', 'navRefunds'],
   ['/pay/onboarding', 'navOnboarding'],
   ['/pay/team', 'navTeam'],
   ['/pay/exports', 'navExports'],

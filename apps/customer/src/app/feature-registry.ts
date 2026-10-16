@@ -29,6 +29,9 @@ export interface Feature {
 
 // `/pay/checkout` is the payer-facing hosted checkout: it stays public and is not hidden here.
 const businessPaySlugs = [
+  'refunds',
+  'refunds/new',
+  'refunds/:refundId',
   'merchant',
   'money',
   'links',

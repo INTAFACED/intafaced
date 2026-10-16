@@ -61,6 +61,7 @@ export const w3cCopy = defineCopy('pay.portal.w3c', {
   newest: 'Newest first',
   oldest: 'Oldest first',
   noMatches: 'No refunds match this status. Choose All statuses to see the available history.',
+  staleRecords: 'These records were read more than five minutes ago. Look up the payment again before relying on its current outcome.',
   backMerchant: 'Back to merchant dashboard',
   serverProgress:
     'Business and verification progress comes from your account. Saving a destination does not activate payments or live mode.',

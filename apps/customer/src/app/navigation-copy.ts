@@ -2,6 +2,12 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  Refunds: 'Refunds',
+  'Find refunds by their original payment': 'Find refunds by their original payment',
+  'Issue a refund': 'Issue a refund',
+  'Review a full or partial refund': 'Review a full or partial refund',
+  'Refund detail': 'Refund detail',
+  'One recorded refund': 'One recorded refund',
   'Business details': 'Business details',
   'Save your legal business and contact details': 'Save your legal business and contact details',
   'Submit and track business verification': 'Submit and track business verification',
