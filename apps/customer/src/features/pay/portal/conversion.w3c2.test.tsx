@@ -30,3 +30,10 @@ it('does not leak the existence of an unreadable conversion order', () => {
     'does not confirm whether the reference exists',
   );
 });
+
+it('shows unavailable source and target assets until quote configuration exists', () => {
+  const out = renderToString(<ConversionView {...props} room="conversion-new" />);
+  expect(out).toMatch(/Source asset<\/dt><dd[^>]*>Unavailable<\/dd>/);
+  expect(out).toMatch(/Target asset<\/dt><dd[^>]*>Unavailable<\/dd>/);
+  expect(out).not.toMatch(/<dd[^>]*>(USD|USDT)<\/dd>/);
+});

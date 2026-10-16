@@ -697,21 +697,25 @@ export function createBusinessPayApi(
     schema: ZodType<T>,
     scope: 'pay:write' | 'pay:refund' | 'pay:payout',
     operation: string,
+    reference?: string,
   ): Promise<ApiResult<T>> {
     const denied = access(scope);
     if (denied) return denied;
     const checked = await merchant();
     if (!checked.ok) return checked;
-    return guard.run(`${userId}:${operation}`, () =>
-      api.mutate(
-        'pay',
-        procedure,
-        input,
-        schema.refine(
-          (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
-          'The mutation outcome belongs to another merchant.',
+    return guard.run(
+      `${userId}:${operation}`,
+      () =>
+        api.mutate(
+          'pay',
+          procedure,
+          input,
+          schema.refine(
+            (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
+            'The mutation outcome belongs to another merchant.',
+          ),
         ),
-      ),
+      reference,
     );
   }
   return {

@@ -228,8 +228,11 @@ export const extensionCopy = defineCopy('pay.portal.w3c2', {
   cancelSubscription: 'Cancel subscription',
   cancelEffect:
     'Cancel this schedule immediately and stop its future scheduled cycles. Previously settled invoice executions and payments are unchanged.',
+  checkSubscriptionOriginal: 'Check original action',
+  subscriptionStillUnresolved:
+    'The original outcome is still unconfirmed. No action was resent. Check again after the service has updated.',
   unresolvedSubscription:
-    'An earlier subscription action has not been confirmed. Refresh and inspect the schedule before starting another action.',
+    'An earlier subscription action has not been confirmed. Check the original action before starting another action.',
   projectedEnd: 'Projected resumed end',
   openEnded: 'Open ended',
   chooseMandate: 'Active customer mandate *',

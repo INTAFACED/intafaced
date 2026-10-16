@@ -262,10 +262,10 @@ test('keyboard search remains available and stored light preference follows exis
 });
 
 // Isolated component fixtures exercise the reachable controls without granting the real App a company membership.
-async function developerFixture(page, kind) {
+async function developerFixture(page, kind, uncertainAction = false) {
   await page.goto('/login');
   await page.evaluate(
-    async ({ kind, subscription, mandate }) => {
+    async ({ kind, subscription, mandate, uncertainAction }) => {
       const loadedModule = (name) =>
         performance
           .getEntriesByType('resource')
@@ -321,9 +321,12 @@ async function developerFixture(page, kind) {
       ];
       const ready = (data) => ({ status: 'ready', data });
       window.__fixtureCalls = [];
+      const { createPayMutationGuard } = await import('/src/features/pay/pay-api.ts');
+      const guard = createPayMutationGuard();
+      window.__fixtureGuard = guard;
       const pay = {
         authority: { userId: 'TEST', merchantId: 'TEST', scopes: ['pay:read', 'pay:write'] },
-        guard: { status: () => null },
+        guard,
         access: () => null,
         keys: async () => ({ ok: true, data: keys }),
         createSandboxKey: async () => {
@@ -339,9 +342,20 @@ async function developerFixture(page, kind) {
           window.__fixtureCalls.push('register');
           return { ok: true, data: { ...endpoint, secret: 'TEST-WEBHOOK-ONCE-ONLY' } };
         },
-        mutate: async (procedure, input, _schema, scope, guardKey) => {
+        query: async (procedure, input) => {
+          window.__fixtureReads = [...(window.__fixtureReads ?? []), { procedure, input }];
+          const saved = window.__fixtureProof;
+          return { ok: true, data: procedure === 'subscription.list' ? (saved ? [saved] : []) : (saved ?? subscription) };
+        },
+        mutate: async (procedure, input, _schema, scope, guardKey, reference) => {
           window.__fixtureCalls.push({ procedure, input, scope, guardKey });
           await new Promise((r) => setTimeout(r, 50));
+          if (uncertainAction)
+            return guard.run(
+              `TEST:${guardKey}`,
+              async () => ({ ok: false, reason: 'uncertain', code: 'pay.operation_unresolved', message: 'TEST timeout' }),
+              reference,
+            );
           return { ok: true, data: subscription };
         },
         manageWebhook: async () => {
@@ -411,7 +425,7 @@ async function developerFixture(page, kind) {
         ),
       );
     },
-    { kind, subscription, mandate },
+    { kind, subscription, mandate, uncertainAction },
   );
   await expect(page.locator('#isolated-fixture .pp')).toBeVisible();
 }
@@ -485,6 +499,10 @@ test('subscription component: create reviews the authorized terms and uses the e
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('cannot pull funds from the customer');
   await expect(dialog).toContainText('29.99');
+  for (const value of ['TEST-customer', 'monthly', 'Open ended', 'No ceiling returned', 'USDT', 'crypto_invoice', D])
+    await expect(dialog).toContainText(value);
+  await expect(dialog.locator('time')).toHaveAttribute('datetime', at);
+  if (shots) await page.screenshot({ path: `${shots}/P19-review-fixes-TEST.png`, fullPage: true });
   await dialog.getByRole('button', { name: 'Confirm create subscription', exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.__fixtureCalls))
@@ -493,8 +511,55 @@ test('subscription component: create reviews the authorized terms and uses the e
         procedure: 'subscription.create',
         input: { mandateId: D, path: 'crypto_invoice' },
         scope: 'pay:write',
-        guardKey: 'subscription-create',
+        guardKey: `subscription-create:${D}`,
       },
     ]);
   await expect(page.getByRole('link', { name: `Subscription detail: ${S}`, exact: true })).toBeVisible();
+});
+
+test('subscription review fixes: uncertain create is mandate-scoped and check-original unlocks without another POST', async ({ page }) => {
+  await developerFixture(page, 'subscription-create', true);
+  await page.getByLabel('Active customer mandate *').selectOption(D);
+  await page.getByLabel('Supported charge path *').selectOption('crypto_invoice');
+  await page.getByRole('button', { name: 'Create subscription', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm create subscription', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('TEST timeout');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
+  const check = page.getByRole('button', { name: 'Check original action', exact: true });
+  await expect(check).toBeVisible();
+  await check.click();
+  await expect(page.getByText(/original outcome is still unconfirmed/)).toBeVisible();
+  await page.evaluate(
+    ({ subscription }) => {
+      window.__fixtureProof = { ...subscription, createdAt: new Date().toISOString() };
+    },
+    { subscription },
+  );
+  await check.click();
+  await expect(page.getByRole('link', { name: `Subscription detail: ${S}`, exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
+  expect(
+    await page.evaluate(() => window.__fixtureGuard.status(`TEST:subscription-create:${'77777777-7777-4777-8777-777777777777'}`)),
+  ).toBeNull();
+});
+test('subscription review fixes: uncertain pause checks recorded status and releases only the original lock', async ({ page }) => {
+  await developerFixture(page, 'subscription', true);
+  await page.getByRole('button', { name: 'Pause subscription', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm pause subscription', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('TEST timeout');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
+  const check = page.getByRole('button', { name: 'Check original action', exact: true });
+  await check.click();
+  await expect(page.getByText(/original outcome is still unconfirmed/)).toBeVisible();
+  if (shots) await page.screenshot({ path: `${shots}/P18-recovery-fixes-TEST.png`, fullPage: true });
+  await page.evaluate(
+    ({ subscription }) => {
+      window.__fixtureProof = { ...subscription, status: 'paused' };
+    },
+    { subscription },
+  );
+  await check.click();
+  await expect(check).toHaveCount(0);
+  expect(await page.evaluate(() => window.__fixtureGuard.status(`TEST:subscription:${'66666666-6666-4666-8666-666666666666'}`))).toBeNull();
+  expect(await page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
 });

@@ -67,8 +67,8 @@ export function ConversionView({
           <PaySection title={c.t('quoteTerms')}>
             <PayDetails
               values={[
-                [c.t('sourceAsset'), 'USD'],
-                [c.t('targetAsset'), 'USDT'],
+                [c.t('sourceAsset'), c.t('unavailable')],
+                [c.t('targetAsset'), c.t('unavailable')],
                 ...[c.t('rate'), c.t('spread'), c.t('fee'), c.t('minimumReceived'), c.t('quoteExpiry')].map(
                   (label) => [label, c.t('unavailable')] as [string, string],
                 ),

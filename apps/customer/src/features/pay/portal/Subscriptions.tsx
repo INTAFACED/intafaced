@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
@@ -15,6 +15,8 @@ import { extensionCopy as c } from './extension-copy';
 import type { PortalApi } from './api';
 import type { Cycle } from './billing-schemas';
 import type { PortalRoute } from './routes';
+import type { ApiResult } from '../../../shared/api';
+import { checkSubscriptionOriginal, checkSubscriptionCreateOriginal } from './subscription-recovery';
 
 type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
@@ -441,16 +443,85 @@ export function SubscriptionDetailView({
     </div>
   );
 }
+function SubscriptionRecovery({
+  check,
+  onKnown,
+}: {
+  check: (current: () => boolean) => Promise<ApiResult<Subscription>>;
+  onKnown: (subscription: Subscription) => void;
+}) {
+  const mounted = useRef(true);
+  const busyRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  return (
+    <div className="stack">
+      <p className="pp-callout" role="status">
+        {c.t('unresolvedSubscription')}
+      </p>
+      <Button
+        disabled={busy}
+        onClick={async () => {
+          if (busyRef.current) return;
+          busyRef.current = true;
+          setBusy(true);
+          try {
+            const result = await check(() => mounted.current);
+            if (!mounted.current) return;
+            if (result.ok) onKnown(result.data);
+            else setMessage(c.t('subscriptionStillUnresolved'));
+          } finally {
+            busyRef.current = false;
+            if (mounted.current) setBusy(false);
+          }
+        }}
+      >
+        {c.t('checkSubscriptionOriginal')}
+      </Button>
+      {message && <p role="status">{message}</p>}
+    </div>
+  );
+}
+export function SubscriptionTerms({ mandate: m, path }: { mandate: Mandate; path: string }) {
+  return (
+    <PayDetails
+      values={[
+        [c.t('customer'), m.customerId],
+        [c.t('mandate'), m.id],
+        [c.t('chargePath'), path || c.t('unavailable')],
+        [c.t('amount'), <Money value={m.amount} asset={m.assetId} />],
+        [c.t('cadence'), m.cadence],
+        [c.t('mandateStart'), <PayTime value={m.startsAt} />],
+        [c.t('mandateEnd'), m.endsAt ? <PayTime value={m.endsAt} /> : c.t('openEnded')],
+        [c.t('authorizedCeiling'), m.ceiling !== null ? <Money value={m.ceiling} asset={m.assetId} /> : c.t('noCeiling')],
+      ]}
+    />
+  );
+}
 function SubscriptionActions({ subscription: s, pay, reload }: { subscription: Subscription; pay: BusinessPayApi; reload: () => void }) {
+  const [revision, setRevision] = useState(0);
+  // Refresh guard state without remounting an in-flight confirmation.
+  const [, refreshLock] = useState(0);
   const [projected, setProjected] = useState<string | null | undefined>();
   const locked = Boolean(pay.guard.status(`${pay.authority!.userId}:subscription:${s.id}`));
   const disabled = locked || Boolean(pay.access('pay:write'));
   return (
     <div className="stack">
       {locked && (
-        <p className="pp-callout" role="status">
-          {c.t('unresolvedSubscription')}
-        </p>
+        <SubscriptionRecovery
+          key={`${pay.authority!.userId}:${s.id}`}
+          check={(current) => checkSubscriptionOriginal(pay, s.id, current)}
+          onKnown={() => {
+            setRevision((v) => v + 1);
+            reload();
+          }}
+        />
       )}
       <div className="pp-actions">
         {(['pause', 'resume', 'cancel'] as const)
@@ -464,6 +535,7 @@ function SubscriptionActions({ subscription: s, pay, reload }: { subscription: S
           .map((action) => (
             <span key={action} title={disabled ? c.t(locked ? 'unresolvedSubscription' : 'subscriptionAuthority') : undefined}>
               <ReviewedAction
+                key={revision}
                 title={c.t(action === 'pause' ? 'pauseSubscription' : action === 'resume' ? 'resumeSubscription' : 'cancelSubscription')}
                 description={c.t(action === 'pause' ? 'pauseEffect' : action === 'resume' ? 'resumeEffect' : 'cancelEffect')}
                 review={
@@ -477,24 +549,30 @@ function SubscriptionActions({ subscription: s, pay, reload }: { subscription: S
                 }
                 disabled={disabled}
                 perform={async () => {
-                  if (action === 'resume') {
-                    const result = await pay.mutate(
-                      'subscription.resume',
+                  try {
+                    if (action === 'resume') {
+                      const result = await pay.mutate(
+                        'subscription.resume',
+                        { subscriptionId: s.id },
+                        z.object({ subscription: subscriptionSchema, projectedEnd: z.string().nullable() }),
+                        'pay:write',
+                        `subscription:${s.id}`,
+                        'active',
+                      );
+                      if (result.ok) setProjected(result.data.projectedEnd);
+                      return result.ok ? { ok: true as const, data: result.data.subscription } : result;
+                    }
+                    return await pay.mutate(
+                      `subscription.${action}`,
                       { subscriptionId: s.id },
-                      z.object({ subscription: subscriptionSchema, projectedEnd: z.string().nullable() }),
+                      subscriptionSchema,
                       'pay:write',
                       `subscription:${s.id}`,
+                      action === 'pause' ? 'paused' : 'cancelled',
                     );
-                    if (result.ok) setProjected(result.data.projectedEnd);
-                    return result.ok ? { ok: true as const, data: result.data.subscription } : result;
+                  } finally {
+                    refreshLock((v) => v + 1);
                   }
-                  return pay.mutate(
-                    `subscription.${action}`,
-                    { subscriptionId: s.id },
-                    subscriptionSchema,
-                    'pay:write',
-                    `subscription:${s.id}`,
-                  );
                 }}
                 onConfirmed={reload}
               />
@@ -535,12 +613,16 @@ export function CreateSubscriptionView({
   pay: BusinessPayApi | null;
   reload: () => void;
 }) {
+  const [revision, setRevision] = useState(0);
+  // Refresh guard state without remounting an in-flight confirmation.
+  const [, refreshLock] = useState(0);
   const [mandateId, setMandateId] = useState('');
   const [path, setPath] = useState('');
   const [created, setCreated] = useState('');
   useUnsavedForm(Boolean(mandateId || path), c.t('draftWarning'));
   const choices = mandates.status === 'ready' ? mandates.data.filter((m) => m.status === 'active') : [];
   const selected = choices.find((m) => m.id === mandateId);
+  const locked = Boolean(pay && mandateId && pay.guard.status(`${pay.authority!.userId}:subscription-create:${mandateId}`));
   const allowed = posture.status === 'ready' && posture.data.paths.some((p) => p.path === path && p.charge !== 'refuse');
   return (
     <div className="stack">
@@ -577,40 +659,52 @@ export function CreateSubscriptionView({
                       : []),
                   ]}
                 />
-                {selected && (
-                  <PayDetails
-                    values={[
-                      [c.t('customer'), selected.customerId],
-                      [c.t('amount'), <Money value={selected.amount} asset={selected.assetId} />],
-                      [c.t('mandate'), selected.id],
-                    ]}
+                {selected && <SubscriptionTerms mandate={selected} path={path} />}
+                {pay && locked && (
+                  <SubscriptionRecovery
+                    key={`${pay.authority!.userId}:${mandateId}`}
+                    check={(current) => checkSubscriptionCreateOriginal(pay, mandateId, current)}
+                    onKnown={(data) => {
+                      setCreated(data.id);
+                      setMandateId('');
+                      setPath('');
+                      setRevision((v) => v + 1);
+                      reload();
+                    }}
                   />
                 )}
                 {pay ? (
                   <span
-                    title={!selected || !allowed ? c.t('termsGap') : pay.access('pay:write') ? c.t('subscriptionAuthority') : undefined}
+                    title={
+                      locked
+                        ? c.t('unresolvedSubscription')
+                        : !selected || !allowed
+                          ? c.t('termsGap')
+                          : pay.access('pay:write')
+                            ? c.t('subscriptionAuthority')
+                            : undefined
+                    }
                   >
                     <ReviewedAction
+                      key={`${mandateId}:${revision}`}
                       title={c.t('createSubscription')}
                       description={c.t('subscriptionCreateReview')}
-                      review={
-                        <PayDetails
-                          values={[
-                            [c.t('mandate'), mandateId],
-                            [c.t('chargePath'), path],
-                            [c.t('amount'), selected ? <Money value={selected.amount} asset={selected.assetId} /> : c.t('unavailable')],
-                          ]}
-                        />
-                      }
-                      disabled={
-                        !selected ||
-                        !allowed ||
-                        Boolean(pay.access('pay:write')) ||
-                        Boolean(pay.guard.status(`${pay.authority!.userId}:subscription-create`))
-                      }
-                      perform={() =>
-                        pay.mutate('subscription.create', { mandateId, path }, subscriptionSchema, 'pay:write', 'subscription-create')
-                      }
+                      review={selected && <SubscriptionTerms mandate={selected} path={path} />}
+                      disabled={!selected || !allowed || Boolean(pay.access('pay:write')) || locked}
+                      perform={async () => {
+                        try {
+                          return await pay.mutate(
+                            'subscription.create',
+                            { mandateId, path },
+                            subscriptionSchema,
+                            'pay:write',
+                            `subscription-create:${mandateId}`,
+                            JSON.stringify({ path, after: new Date().toISOString() }),
+                          );
+                        } finally {
+                          refreshLock((v) => v + 1);
+                        }
+                      }}
                       onConfirmed={(data) => {
                         setCreated(data.id);
                         setMandateId('');
