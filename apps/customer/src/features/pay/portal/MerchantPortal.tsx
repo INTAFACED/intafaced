@@ -26,6 +26,7 @@ import './portal.css';
 import { Refunds } from './Refunds';
 import { Links } from './Links';
 import { MerchantMoney, BalanceActivity } from './Money';
+import { Developers, developerHeader } from './Developers';
 import { Invoices } from './Invoices';
 import { extensionCopy } from './extension-copy';
 import { Reports } from './Reports';
@@ -125,6 +126,13 @@ type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
   const c = w3cCopy.t;
   switch (route.room) {
+    case 'developer':
+    case 'developer-keys':
+    case 'developer-signing':
+    case 'developer-webhooks':
+    case 'developer-endpoint':
+    case 'developer-deliveries':
+      return developerHeader(route);
     case 'invoices':
     case 'invoice':
       return {
@@ -363,6 +371,13 @@ function PortalRoom({
   const { t } = portalCopy.useCopy();
   const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
+    case 'developer':
+    case 'developer-keys':
+    case 'developer-signing':
+    case 'developer-webhooks':
+    case 'developer-endpoint':
+    case 'developer-deliveries':
+      return <WithAccount {...acct}>{() => <Developers route={route} authority={authority} />}</WithAccount>;
     case 'invoices':
     case 'invoice':
       return <WithAccount {...acct}>{() => <Invoices invoiceId={route.param} />}</WithAccount>;

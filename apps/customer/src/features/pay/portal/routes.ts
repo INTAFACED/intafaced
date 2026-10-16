@@ -1,6 +1,12 @@
 import type { PlainKey } from './copy';
 
 export type PortalRoom =
+  | 'developer'
+  | 'developer-keys'
+  | 'developer-signing'
+  | 'developer-webhooks'
+  | 'developer-endpoint'
+  | 'developer-deliveries'
   | 'invoices'
   | 'invoice'
   | 'money'
@@ -41,7 +47,7 @@ export function parsePortalRoute(path: string): PortalRoute | null {
   const segments = clean.split('/').filter(Boolean);
   if (segments[0] !== 'pay') return null;
   const [, a, b, extra] = segments;
-  if (extra !== undefined) return null;
+  if (extra !== undefined && !(a === 'developer' && b === 'webhooks' && segments.length === 4)) return null;
   const decode = (v: string) => {
     try {
       return decodeURIComponent(v);
@@ -49,6 +55,12 @@ export function parsePortalRoute(path: string): PortalRoute | null {
       return v;
     }
   };
+  if (a === 'developer') {
+    if (b === undefined) return { room: 'developer' };
+    if (b === 'webhooks') return extra ? { room: 'developer-endpoint', param: decode(extra) } : { room: 'developer-webhooks' };
+    if (b === 'keys' || b === 'signing' || b === 'deliveries') return { room: `developer-${b}` };
+    return null;
+  }
   if (a === 'invoices') return b === undefined ? { room: 'invoices' } : { room: 'invoice', param: decode(b) };
   if (a === 'money') return b === undefined ? { room: 'money' } : b === 'activity' ? { room: 'money-activity' } : null;
   if (a === 'reports') return b === undefined ? { room: 'reports' } : b === 'exports' ? { room: 'report-exports' } : null;

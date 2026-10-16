@@ -2,6 +2,15 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  'API keys': 'API keys',
+  'Sandbox credentials and their scopes': 'Sandbox credentials and their scopes',
+  'Request signing': 'Request signing',
+  'Request signing availability': 'Request signing availability',
+  'Webhook endpoints': 'Webhook endpoints',
+  'Merchant event receivers': 'Merchant event receivers',
+  'Webhook deliveries': 'Webhook deliveries',
+  'Recorded event delivery attempts': 'Recorded event delivery attempts',
+
   'Balance activity': 'Balance activity',
   'Records explaining merchant balance changes': 'Records explaining merchant balance changes',
   'Export jobs': 'Export jobs',
