@@ -216,3 +216,126 @@ export const merchantControlApprovalDecideInputSchema = z
     reason: payReasonSchema,
   })
   .strict();
+
+/**
+ * What a merchant may see of a configured tier: the commercial terms (caps and
+ * reserve). Founder thresholds, approval bars, TTL and how many other merchants
+ * sit on the tier are not in this shape.
+ */
+export const merchantTierSummarySchema = z
+  .object({
+    id: payRiskTierIdSchema,
+    name: z.string().min(1).max(64),
+    archetype: z.enum(['psp', 'broker', 'gaming', 'standard']),
+    caps: z.array(payCapSchema).min(1).max(32),
+    reserve: payReserveSchema.nullable(),
+    version: payVersionSchema,
+  })
+  .strict();
+export type MerchantTierSummary = z.infer<typeof merchantTierSummarySchema>;
+
+export const merchantTierListInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
+/**
+ * `not_configured` means nobody has defined a tier. The response then carries no
+ * tier names and no caps. An assigned merchant with an empty catalogue is the
+ * same answer: there is nothing to list.
+ */
+export const merchantTierListSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('not_configured'), ownTierId: z.null() }).strict(),
+  z
+    .object({
+      status: z.literal('configured'),
+      /** Null when this merchant has not been assigned a tier. The catalogue is still real. */
+      ownTierId: payRiskTierIdSchema.nullable(),
+      tiers: z.array(merchantTierSummarySchema).min(1).max(200),
+    })
+    .strict(),
+]);
+export type MerchantTierList = z.infer<typeof merchantTierListSchema>;
+
+/** One pricing rule as it was written, including a superseded row, so a later edit cannot hide the old price. */
+export const merchantPricingHistoryEventSchema = z
+  .object({
+    ruleId: z.string().uuid(),
+    layer: payPricingLayerSchema,
+    scopeId: z.string().min(1).max(64).nullable(),
+    assetCode: payAssetCodeSchema,
+    bands: z.array(payPricingBandSchema).min(1).max(64),
+    spreadBps: payBpsSchema.nullable(),
+    roundingBeneficiary: payRoundingBeneficiarySchema,
+    minFee: payAmountStringSchema.nullable(),
+    maxFee: payAmountStringSchema.nullable(),
+    version: payVersionSchema,
+    createdAt: payTimestampSchema,
+    supersededAt: payTimestampSchema.nullable(),
+  })
+  .strict();
+export type MerchantPricingHistoryEvent = z.infer<typeof merchantPricingHistoryEventSchema>;
+
+export const merchantPricingHistoryInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    /** Required. A missing page size is a refusal, never an invented default. */
+    limit: z.number().int().min(1).max(200),
+  })
+  .strict();
+export const merchantPricingHistorySchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('not_configured'), events: z.tuple([]) }).strict(),
+  z.object({ status: z.literal('configured'), events: z.array(merchantPricingHistoryEventSchema).min(1).max(200) }).strict(),
+]);
+export type MerchantPricingHistory = z.infer<typeof merchantPricingHistorySchema>;
+
+/**
+ * A merchant's ask for higher caps. Storing it does not change the caps the
+ * money path reads. Those still change only through the founder dual-control flow.
+ */
+export const merchantLimitRequestSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    merchantId: payMerchantIdSchema,
+    caps: z.array(payCapSchema).min(1).max(32),
+    reason: payReasonSchema,
+    status: z.literal('pending'),
+    requestedBy: z.string().min(1).max(128),
+    createdAt: payTimestampSchema,
+  })
+  .strict();
+export type MerchantLimitRequest = z.infer<typeof merchantLimitRequestSchema>;
+
+export const merchantLimitIncreaseInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    requestId: payRequestIdSchema,
+    caps: z.array(payCapSchema).min(1).max(32),
+    reason: payReasonSchema,
+  })
+  .strict();
+export const merchantLimitIncreaseResultSchema = merchantLimitRequestSchema
+  .extend({ outcome: z.enum(['stored', 'already_open']) })
+  .strict();
+export type MerchantLimitIncreaseResult = z.infer<typeof merchantLimitIncreaseResultSchema>;
+
+/** The caller's open request, or `none` when they have not asked. `none` is not a cap. */
+export const merchantLimitOpenInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
+export const merchantLimitOpenSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('none') }).strict(),
+  z.object({ status: z.literal('pending'), request: merchantLimitRequestSchema }).strict(),
+]);
+export type MerchantLimitOpen = z.infer<typeof merchantLimitOpenSchema>;
+
+export const founderLimitRequestListInputSchema = z
+  .object({
+    limit: z.number().int().min(1).max(200),
+    cursor: z
+      .string()
+      .regex(/^[1-9]\d*$/)
+      .optional(),
+  })
+  .strict();
+export const founderLimitRequestListSchema = z
+  .object({
+    requests: z.array(merchantLimitRequestSchema).max(200),
+    nextCursor: z.string().nullable(),
+  })
+  .strict();
+export type FounderLimitRequestList = z.infer<typeof founderLimitRequestListSchema>;

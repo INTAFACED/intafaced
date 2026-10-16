@@ -508,6 +508,7 @@ describe('merchant drill-down', () => {
         merchantId: MID,
         displayName: 'Acme Shop',
         legalName: 'Acme Trading Ltd',
+        status: 'active',
         metrics: snapshot,
         control: {
           merchantId: MID,
@@ -521,6 +522,9 @@ describe('merchant drill-down', () => {
         },
         halts: { readable: true, autoTrip: { enabled: false, consecutiveFailures: null }, states: [] },
         pendingApprovals: [],
+        pendingLimitRequests: [],
+        recentAudit: [],
+        auditTruncated: false,
         operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
       },
     });

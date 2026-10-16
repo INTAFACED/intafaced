@@ -13,6 +13,9 @@ import {
   founderMerchantListSchema,
   founderMerchantRowSchema,
   founderPendingChangeListInputSchema,
+  merchantLimitIncreaseInputSchema,
+  merchantPricingHistorySchema,
+  merchantTierListSchema,
   payoutApprovalSchema,
   merchantControlChangeInputSchema,
   merchantMetricsInputSchema,
@@ -170,10 +173,14 @@ describe('founder merchant names', () => {
       merchantId,
       displayName: 'Acme Shop',
       legalName: 'Acme Trading Ltd',
+      status: 'active' as const,
       metrics: snapshot,
       control: { merchantId, tierId: null, archetypeId: null, caps: null, pricing: null, reserve: null, version: '1', updatedAt: null },
       halts: { readable: true, autoTrip: { enabled: false, consecutiveFailures: null }, states: [] },
       pendingApprovals: [],
+      pendingLimitRequests: [],
+      recentAudit: [],
+      auditTruncated: false,
       operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
     };
     const parsed = founderMerchantDrilldownSchema.parse(drilldown);
@@ -187,6 +194,71 @@ describe('founder merchant names', () => {
     expect(founderMerchantDrilldownSchema.safeParse(noLegal).success).toBe(false);
     expect(founderMerchantDrilldownSchema.safeParse(noDisplay).success).toBe(false);
     expect(founderMerchantDrilldownSchema.safeParse({ ...drilldown, tradingName: 'x' }).success).toBe(false);
+    expect(founderMerchantDrilldownSchema.safeParse({ ...drilldown, status: 'live' }).success).toBe(false);
+  });
+
+  it('a tier list with nothing configured carries no tier and no caps', () => {
+    expect(merchantTierListSchema.parse({ status: 'not_configured', ownTierId: null })).toEqual({
+      status: 'not_configured',
+      ownTierId: null,
+    });
+    expect(merchantTierListSchema.safeParse({ status: 'not_configured', ownTierId: null, tiers: [] }).success).toBe(false);
+    expect(
+      merchantTierListSchema.safeParse({
+        status: 'not_configured',
+        ownTierId: 'starter',
+        tiers: [{ id: 'starter', name: 'Starter', archetype: 'standard', caps: [], reserve: null, version: '1' }],
+      }).success,
+    ).toBe(false);
+    expect(merchantTierListSchema.safeParse({ status: 'configured', ownTierId: null, tiers: [] }).success).toBe(false);
+  });
+
+  it('pricing history with nothing configured carries no events', () => {
+    expect(merchantPricingHistorySchema.parse({ status: 'not_configured', events: [] })).toEqual({
+      status: 'not_configured',
+      events: [],
+    });
+    expect(
+      merchantPricingHistorySchema.safeParse({
+        status: 'not_configured',
+        events: [
+          {
+            ruleId: merchantId,
+            layer: 'global',
+            scopeId: null,
+            assetCode: 'USDT',
+            bands: [{ fromAmount: '0', feeBps: 250, flatFee: '0.3' }],
+            spreadBps: null,
+            roundingBeneficiary: 'platform',
+            minFee: null,
+            maxFee: null,
+            version: '1',
+            createdAt: '2026-10-16T00:00:00.000Z',
+            supersededAt: null,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('a limit-increase ask refuses a numeric money cap', () => {
+    const requestId = randomUUID();
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: 10 }],
+        reason: 'need more room',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '10' }],
+        reason: 'need more room',
+      }).success,
+    ).toBe(true);
   });
 });
 
