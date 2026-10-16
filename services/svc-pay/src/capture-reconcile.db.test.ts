@@ -220,6 +220,46 @@ describe('authorized capture reconciler', () => {
     }
   });
 
+  it('writes one mismatch audit per ledger transaction across repeated runs', async () => {
+    const m = await merchant();
+    const first = await authorized(m.id, '10');
+    const second = await authorized(m.id, '11');
+    await postCapture(first, parseAmount('9'));
+    await postCapture(second, parseAmount('8'));
+    const txFirst = await ledger.getTxByKey(`payment.capture:${first.id}`);
+    const txSecond = await ledger.getTxByKey(`payment.capture:${second.id}`);
+    const once = await pay.reconcileAuthorizedCaptures({ limit: 10 }, 'required');
+    const twice = await pay.reconcileAuthorizedCaptures({ limit: 10 }, 'required');
+    expect(once).toMatchObject({ examined: 2, mismatched: 2, reconciled: 0, failed: 0 });
+    expect(twice).toMatchObject({ examined: 2, mismatched: 2, reconciled: 0, failed: 0 });
+    expect(await statusOf(first.id)).toBe('authorized');
+    expect(await statusOf(second.id)).toBe('authorized');
+    const rows = await sql<Array<{ ledger: string }>>`
+      SELECT after->>'ledgerTxId' AS ledger FROM pay.control_audit
+       WHERE kind = 'payment.capture_reconcile_mismatch'
+       ORDER BY after->>'ledgerTxId'
+    `;
+    expect(rows.map((row) => row.ledger).sort()).toEqual([txFirst!.id, txSecond!.id].sort());
+  });
+
+  it('leaves an authorized payment mismatched when its rail reference is blank', async () => {
+    const m = await merchant();
+    const stuck = await authorized(m.id, '10');
+    await postCapture(stuck);
+    await sql`UPDATE pay.payments SET rail_ref = '' WHERE id = ${stuck.id}`;
+    const report = await pay.reconcileAuthorizedCaptures({ limit: 5 }, 'required');
+    expect(report).toMatchObject({ examined: 1, reconciled: 0, mismatched: 1, failed: 0 });
+    expect(await statusOf(stuck.id)).toBe('authorized');
+    expect(await capturedEvents(stuck.id)).toHaveLength(0);
+    const again = await pay.reconcileAuthorizedCaptures({ limit: 5 }, 'required');
+    expect(again).toMatchObject({ mismatched: 1, reconciled: 0 });
+    const rows = await sql`
+      SELECT id FROM pay.control_audit
+       WHERE kind = 'payment.capture_reconcile_mismatch' AND after->>'paymentId' = ${stuck.id}
+    `;
+    expect(rows).toHaveLength(1);
+  });
+
   it('refuses while the flag is off and when the limit is blank', async () => {
     const m = await merchant();
     const stuck = await authorized(m.id, '10');
