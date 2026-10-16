@@ -4,8 +4,8 @@ Two humans, several AI agents, one repo. This file is how that stays clean.
 
 Read once, properly. It takes five minutes and saves a week.
 
-> The **what** to build is [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md).
-> The **rules** for building it are [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md).
+> The **rules** are [`AGENTS.md`](AGENTS.md). The **map** is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+> The July law ([`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md)) remains the spec the coverage gate reads.
 > This file is **how we collaborate**.
 
 ---
@@ -13,7 +13,7 @@ Read once, properly. It takes five minutes and saves a week.
 ## 0 · 60-second ship (Denon, Shehzad, Nitro agents)
 
 1. One service per PR. Worktree. Review and verify your change, then squash-merge your own PR when required branch-protection checks pass.
-2. **Merge when done, after the merge gate passes.** Agents own the technical review and relevant local checks. Run `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` from an up-to-date `origin/main` checkout. It passes only if every check finished, Gitleaks and Dependency audit passed, and the PR adds no failure that main's latest finished CI run does not already have (a red main is not your blocker, a new red is). Then run the merge command it prints. `pnpm verify` is informational; required branch-protection checks still apply. Nobody waits for Nitro to Approve routine code.
+2. **Merge when done, after the merge gate passes.** Agents own the technical review and relevant local checks. Run `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` from an up-to-date `origin/main` checkout. It passes only if every check finished, Gitleaks and Dependency audit passed, and the PR adds no failure that main's latest finished CI run does not already have (a red main is not your blocker, a new red is). Then run the merge command it prints. `pnpm verify` is informational; required branch-protection checks still apply. Nobody waits for Nitro to approve routine code. Money, security, or auth work also needs an exact-head Opus PASS until main's "Tests (full)" check has three consecutive green push runs (see `AGENTS.md`).
 3. Investigate a failed check by its **job name**. Fix failures introduced by your change and report unrelated baseline failures. Do not weaken a gate or ask Nitro to interpret the logs.
 4. `audited:true` stays false until a paid external audit. Leave it. Keep shipping.
 5. Money still through `packages/ledger-client`. No balances in a service. No money in a `number`. No fake books, mids, or vendor names in the UI.
@@ -33,7 +33,7 @@ main ─────●──────●──────●─────
 - `main` is **always deployable**. Green tip is the goal; red tip is a defect, not a mode of work.
 - **If `main` is red**, agents diagnose the failure and coordinate a focused fix without competing edits to the same files. Independent, verified changes may still merge when their required checks pass. An unrelated full-suite failure does not freeze the fleet. Failures affecting the change must be resolved before that work is called done.
 - Every change is a **short-lived branch → PR → merge**. No exceptions, including for "tiny" changes.
-- **No long-lived branches.** A branch older than ~2 days is a merge conflict waiting to happen. Split the work instead.
+- **No long-lived branches.** A branch older than ~2 days is a merge conflict waiting to happen. Split the work instead. Do not delete the old branch. `AGENTS.md` is the removal rule: `git worktree remove` with no `--force`, and the branch stays.
 - **No direct pushes to `main`.**
 - **Trunk CI finishes every merge.** `ci.yml` does **not** cancel in-progress runs on `main` (PR branches still cancel superseding pushes). Unlimited parallel ship stays; the trunk signal must not be sacrificed to a cancel storm.
 
@@ -77,10 +77,10 @@ This is the single highest-leverage rule in this file. With multiple people and 
 ```bash
 pnpm wt feat/svc-identity-rank-events   # create worktree + install deps
 pnpm wt:list                            # what exists
-git worktree remove --force <worktree-path>  # from home, after preserving the work
+git worktree remove <worktree-path>     # from the checkout that owns it; no --force; keep the branch
 ```
 
-Worktrees live in `../intafaced-worktrees/<branch>` — a sibling of the main checkout, never inside it.
+Worktrees live in a sibling directory of the checkout, named from the repo folder (`tooling/scripts/worktree.mjs`). Do not run `pnpm wt:rm` or `pnpm wt:gc:apply`. Those delete a merged branch or force-remove the folder. See `AGENTS.md`.
 
 **The main checkout is for one thing only:** `git pull` on `main`, and reading. Never edit there.
 

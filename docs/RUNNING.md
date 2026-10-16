@@ -1,6 +1,8 @@
 # Running the platform
 
-Eleven services, two Next apps, and the infrastructure they need — one command.
+> **CORRECTION 2026-10-16.** The eleven-service count, the "two Next apps" line, the 21-container check, and any `apps/web` sentence below are stale. The current map is [`ARCHITECTURE.md`](ARCHITECTURE.md). `pnpm platform:up` and `pnpm infra:up` still match the root `package.json`. Re-check `docker-compose.apps.yml` before trusting a container count in this file.
+
+Bring the fleet up with the commands below. What is in the fleet is [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
@@ -260,8 +262,9 @@ dependency.
 **Not dependencies, checked:** svc-pay and svc-bank open no bus connection at
 all (their `index.ts` says so), so neither waits on NATS. svc-matching has no
 `DATABASE_URL` — §5.1 gives it in-memory books and a file journal — so it does
-not wait on `migrate`. Neither app calls a service today; `apps/web` reads no
-environment and `apps/admin` reads only `LAUNCH_DROP`.
+not wait on `migrate`. `apps/web` is not in this tree. The customer site proxies
+`/api/` to `svc-edge` and `/ws/` to `svc-ws` (`apps/customer/nginx.conf`).
+`apps/admin` is the Next operator console.
 
 ---
 

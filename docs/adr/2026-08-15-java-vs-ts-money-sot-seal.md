@@ -1,6 +1,8 @@
 # ADR: Java vs TypeScript money source of truth — sealed forever
 
-**Status:** **Accepted — 2026-08-15.** Language seal only. Does not re-open D-S-17.
+> **CORRECTION 2026-10-16.** The money seal still matches main: balances post through `packages/ledger-client`, and `MemberWalletService.increaseBalance` throws. Do not follow the UI row in §2 that names `vendor/upstream-exchange/05_Web_Front` as the sole product UI. The served customer site is `apps/customer`. See [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md).
+
+**Status:** **Accepted — 2026-08-15.** Language seal only. Does not re-open D-S-17. The UI row in §2 is superseded.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P4-07**.
 **Depends on (unchanged):** [`2026-08-02-adopt-vendored-product-keep-our-ledger.md`](2026-08-02-adopt-vendored-product-keep-our-ledger.md) (“Yes for the product. No for the book.”) · [`2026-08-04-java-dual-book-residual.md`](2026-08-04-java-dual-book-residual.md) (D-S-17 residual grades, jars, scans).

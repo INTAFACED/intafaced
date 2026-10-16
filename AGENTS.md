@@ -1,55 +1,89 @@
-# Instructions for AI agents
+# Agent rules
 
-INTAFACED monorepo. Build the product and ship it.
+This file is the one set of rules. The map of the tree is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). If `INTAFACED_DEFINITIVE_BUILD.md`, an older ADR, or a service README disagrees with this file or with that map, follow this file and the code it cites.
 
-Doctrine: [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md). Protocol: [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md).
+Checked against commit `425647517` on 2026-10-16.
 
-Locate code with `rg`, `rg --files`, and focused Git history. Graphify is retired; historical instructions to install, query, or update it are obsolete.
+## What you change
 
-## Ship (full access)
+Build the product in the module [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) names for that capability. The customer screen is `apps/customer` (React 19, Vite). Compose service `vendor-shell` builds `apps/customer/Dockerfile` and publishes `:8090` (`docker-compose.apps.yml:1774`, `:1780`, `:1789`).
 
-1. Review, audit, and debug the change. **Merge when done.** Any agent may merge their own pull request.
-2. **Merge only after the merge gate passes.** Run `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` from an up-to-date `origin/main` checkout, not from the PR's branch. It waits for every check and passes only if Gitleaks and Dependency audit pass and the PR adds no failure that main's latest finished CI run does not already have, down to the failing gate ids and test tasks inside a job that is already red (a ratchet: a red main is not your blocker, a new red is). Docs-only PRs (CI skipped by its path filter) pass on the checks that did report, so a failing docs Prettier check blocks them; agent-rule files are never docs-only. The gate never merges; run the merge command it prints as its own step. A PR that changes a gate file (`tooling/ci`, `.github/workflows`) needs a `ci:` or `gate:` title. A 403 or 429 from `gh` means stop. Do not retry in a loop, do not switch accounts, and do not create a new token.
-3. Start without waiting for a person, an audit seal, FREEZE, a tracker claim, LIVE-LANES, or `pnpm ledger`. A blocked money path refuses closed, with an honest empty state. Leave the audit flag alone.
-4. Any product path is fair game once its dependencies are met, including money. A blank price, limit, or sanctions list stays blank: refuse that action with a typed error. Do not invent live §8 magnitudes or sanctions list content.
+The Vue tree at `vendor/upstream-exchange/05_Web_Front` stays on disk and is not served (`docker-compose.apps.yml:1741`). Do not craft it. `apps/web` is not in the tree. `apps/admin` is the operator console. `apps/invitation` is the public join app and is not a compose HTTP process. `apps/mobile` wraps the React customer build (`apps/mobile/package.json:6`, `apps/mobile/scripts/build-wrap.mjs:3`).
+
+Shell composition that still stands:
+
+- One signed-in frame. New screens render into `main`. One toast host for the app (`apps/customer/src/app/Shell.tsx:9`).
+- A feature the customer should not see yet is a `hidden` row in `apps/customer/src/app/feature-registry.ts`. Menus read that file.
+- The browser stays on one origin. nginx sends `/api/` to `svc-edge:4000` and `/ws/` to `svc-ws:4014`, and deep links fall through to `index.html` (`apps/customer/nginx.conf:41`, `:47`, `:59`).
+- Audience that still stands from the July law: pro trader workbench; retail uses Convert and is not the terminal default (`INTAFACED_DEFINITIVE_BUILD.md` §5.3, the audience clause). The UI may be replaced (`docs/adr/2026-10-02-redesign-may-replace-product-ui.md:9`).
 
 ## Money
 
-1. Move value only through `packages/ledger-client`. No module holds its own balance.
-2. Never store money in a `number`. Decimal strings on the wire, scaled bigint in memory.
-3. A **second money book** is out. This redesign may replace the product UI and the unsettled color lock: [`docs/adr/2026-10-02-redesign-may-replace-product-ui.md`](docs/adr/2026-10-02-redesign-may-replace-product-ui.md). **Internet leverage law:** [`docs/INTERNET-LEVERAGE-LAW.md`](docs/INTERNET-LEVERAGE-LAW.md). Exchange take/keep/never: [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **§0.3**. Leave FIX, SBE, and Greeks as adapters. Leave npm `ccxt` and a second CLOB uninstalled. INTACHAIN stays parked until Nitro writes GO.
+1. Move value only through `packages/ledger-client`. The package says it is the only way any service touches balances (`packages/ledger-client/src/index.ts:2`). Add a recipe under `packages/ledger-client/src/recipes`. Do not assemble ledger entries inline. No module holds its own balance (July law §0 rule 6).
+2. Never store money in a `number`. Decimal strings on the wire, scaled bigint in memory (`packages/ledger-client/src/index.ts:2` doctrine quote; `services/svc-trade/src/spot/matching-client.ts:13`).
+3. `svc-ledger`'s `PostgresLedger` is the store (`services/svc-ledger/src/ledger/postgres-ledger.ts:63`). `MemoryLedger` is the in-memory spec the Postgres ledger matches, not a second production book.
+4. Java must not credit a balance. `MemberWalletService.increaseBalance` throws (`vendor/upstream-exchange/00_framework/core/src/main/java/com/bizzan/bitrade/service/MemberWalletService.java:310`).
+5. A protocol-plane service does not import ledger write recipes. The read type is `ReadOnlyLedgerClient` (`packages/ledger-client/src/client.ts:51`). `tooling/ci/custody-scan.mjs` flags a writable import on that plane.
+6. A blank price, limit, or sanctions list stays blank. Refuse that action with a typed error. Do not invent a live price, a mid, or a balance (`docs/adr/2026-10-02-redesign-may-replace-product-ui.md:14`).
+7. Idempotency keys are business keys, not random UUIDs. A retry finds the original (agent protocol §5, carried).
+8. A money path asks: if this crashes here, whose funds are stranded? If the answer is anyone's, the design is wrong (agent protocol §5, carried).
+9. npm `ccxt` stays uninstalled. No `package.json` in this tree depends on it (searched 2026-10-16). The public exchange shape lives in `packages/exchange-contract`. That shape is not the npm package.
+10. Do not add a second matcher. The house book is `services/svc-matching`. `services/svc-matching-rust-stage1` is a socket and says the TypeScript engine remains the default (`services/svc-matching-rust-stage1/src/lib.rs:4`). It is not a compose service. `SovereignVenue.sol` is a protocol-plane book and `audited` stays false (`services/svc-protocol/contracts/venue/SovereignVenue.sol:9`). INTACORE and `services/svc-chain` are not in the tree.
+11. Hyperswitch stays out of the money path. `services/svc-pay/src/psp-mode.test.ts` refuses that package name.
+12. FIX (`services/svc-fix`), SBE (`packages/sbe-codec`), and Greeks (`packages/greeks-adapter`) stay adapters.
 
-## One chain of work
+`svc-trade` allows and funds a spot order, `svc-matching` matches it, and the ledger posts the fill (`services/svc-trade/README.md:5`, `services/svc-matching/README.md:3`). Order words live in `packages/exchange-contract`. Do not import `svc-matching` source from another service; `svc-trade` calls it over HTTP (`services/svc-trade/src/spot/matching-client.ts:7`).
 
-1. Work in a worktree (`pnpm wt <branch>`), never the main checkout. Bare `git worktree add` is the wrong start. Orca `worktree create` is the same thing with a sidebar card.
-2. One service per pull request. Never push `main`.
-3. If an open pull request already touches that service, or the same files, leave it and take a different part. Several agents may work at once on different parts.
-4. When you stop and this folder is not home, remove the worktree from the home checkout with `git worktree remove --force`. `orca worktree rm` deletes the branch. `git branch -D` deletes the branch. Leave home, OS, and PSP in place. `pnpm wt <branch>` restores a folder.
+## Planes
 
-## INTACHAIN
+Trading stays on the house book. INTACHAIN stays parked until Nitro writes GO (`docs/adr/2026-09-03-protocol-rails-until-intachain.md:13`). Do not start `svc-chain` or P1. Base work that already exists may continue.
 
-Trading stays on the house book. Base work that already exists continues. INTACHAIN stays parked until Nitro writes GO. Leave `svc-chain` and P1 unstarted. [`docs/adr/2026-09-03-protocol-rails-until-intachain.md`](docs/adr/2026-09-03-protocol-rails-until-intachain.md).
+Custody follows who holds the asset (July law §22, `INTAFACED_DEFINITIVE_BUILD.md:584`):
+
+- The platform never holds the asset: permissionless. No KYC on that path.
+- The platform holds the asset or touches fiat or card rails: tiered verification.
+
+Do not put a KYC check on the protocol plane. Either the module is custodial and belongs on the fiat plane, or the check is wrong.
+
+## Ship
+
+1. One service per pull request, plus that service's own tests and README. Cross-service work is two PRs: first `packages/contracts` and/or `packages/events`, then the service. Never the reverse (agent protocol §1, carried).
+2. Services do not import each other's database schemas. Cross-service calls go through `packages/contracts` or `packages/events` (July law §2, the rule under the layout).
+3. Do not publish an undeclared NATS subject. Add it to `packages/events`. Subject shape: `intafaced.<service>.<entity>.<verb>`, past tense. Money amounts in payloads are decimal strings (agent protocol §6, carried).
+4. Run the checks that exercise the change. `pnpm gates` is the list in `tooling/ci/gates.mjs`. Do not hardcode that count. `pnpm verify` is informational.
+5. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes, run from an up-to-date `origin/main` checkout, not from the PR branch. The gate never merges. Run the merge command it prints. A red main is not your blocker. A new red is. A 403 or 429 from `gh` means stop. Do not retry in a loop, do not switch accounts, and do not create a new token.
+6. Money, security, or auth work also needs an exact-head Claude Opus PASS before merge, until main's "Tests (full)" check has three consecutive green push runs (decision D-121, 2026-10-15). A red in code the PR touches blocks. `tasks/CI-flakes.md` is not in this tree (checked 2026-10-16), so a red cannot be excused by naming that file until the file exists.
+7. Routine code does not wait for Nitro. An owner hold already set on a preview stays held until that owner clicks it. Do not turn that hold into a wait on every other pull request (decision D-125, 2026-10-16, is one such hold).
+8. Never push `main`. `.githooks/pre-push` refuses a direct push. Trunk CI does not cancel an in-progress run on `main` (`.github/workflows/ci.yml:64`).
+9. `audited: true` stays false until a paid external audit.
+10. A module is shipped when `pnpm gate <service>` is green and the checklist it prints is signed (July law §0 rule 1 and §14). Do not leave a temporary path in place of that.
+
+## Worktrees
+
+Work in a worktree. Create one with `pnpm wt <branch>`. The directory is a sibling of the checkout, named from the repo folder (`tooling/scripts/worktree.mjs:33`). Bare `git worktree add` is the wrong start.
+
+When you stop, remove the folder with `git worktree remove <path>` and no `--force` (decision D-119, 2026-10-15). Keep the branch. `git worktree remove` without `--force` refuses uncommitted edits.
+
+Do not run `pnpm wt:rm` (it deletes a merged branch, `tooling/scripts/worktree.mjs:489`), `pnpm wt:gc:apply` (it runs `git worktree remove --force`, `tooling/scripts/worktree-gc.mjs:487`), `orca worktree rm`, or `git branch -D`. Branches are not deleted.
+
+Use a dedicated test database per worktree. Do not share one migrate-on-startup Postgres across concurrent worktrees.
 
 ## What you write
 
-Spend the session on the product. `/grill-with-docs` may add one `GLOSSARY.md` entry, or one ADR in the existing dated `docs/adr/` shape, when a word or a hard-to-reverse decision has just settled. Do not start a `0001-` series. Status boards, LIVE-LANES, and tracker recooks stay unwritten.
+Spend the session on the product. Do not write status boards, LIVE-LANES, or tracker recooks. A hard-to-reverse decision that has just settled may add one dated ADR under `docs/adr/`, matching the files already there. Do not start a `0001-` series. `GLOSSARY.md` is created at the root when the first term is settled (`docs/agents/domain.md`).
 
-Coordination map, not a permission system: [`docs/COORDINATION-TRUTH-LAYERS.md`](docs/COORDINATION-TRUTH-LAYERS.md).
+User-facing copy names Identity Blueprint, Sovereign Intelligence, or Neural Engine. It does not name a partner or a model vendor (July law §0 rule 7).
 
-## Skills
+Graphify is retired. Do not install, query, or update it. No lockfile entry for it (searched 2026-10-16).
 
-Use the installed skills. This file wins where a skill says to wait for a person, wait for CI beyond the merge gate, or use `git worktree add`.
+## Language
 
-## Agent skills
+New product services are TypeScript. These already exist and stay: `services/svc-fix` (Java), `services/svc-protocol/contracts` (Solidity), `services/svc-matching-rust-stage1` (Rust socket, not the default engine). The July law's "TypeScript everywhere" line does not delete them and does not authorize a second matcher.
 
-### Issue tracker
+External rails sit behind internal interfaces. The platform does not depend on a named partner to boot (July law §0 rule 4).
 
-Issues and specs live as GitHub issues on Phantom-X-007/intafaced. Use the `gh` CLI only when an active account is logged in. See `docs/agents/issue-tracker.md`.
+Three shared systems only: Identity (`svc-identity`), Balance (`svc-ledger`), Token (`svc-token`). A feature that needs a fourth shared system gets redesigned (July law §0 rule 3).
 
-### Triage labels
+## Links that stay
 
-Canonical roles, each label equal to its name: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: one root `GLOSSARY.md` and dated ADRs in `docs/adr/`. See `docs/agents/domain.md`.
+Issue tracker, triage labels, and domain-doc shape: `docs/agents/`. Coordination map: `docs/COORDINATION-TRUTH-LAYERS.md`. Pro-desk take, keep, and never list: `PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md` §0.3. Internet leverage: `docs/INTERNET-LEVERAGE-LAW.md`. The July law remains the spec the coverage gate reads; its shell, layout, and "one language" sentences are corrected at the top of that file.

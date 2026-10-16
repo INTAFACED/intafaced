@@ -320,9 +320,9 @@ After a consumer is attached, **nats.js owns TCP reconnect** for that connection
 
 Pin: `src/env.isolation.test.ts` + `FORBIDDEN_SERVICE_CREDENTIALS` in `env.ts`.
 
-**How the browser reaches this:** the vendor shell nginx proxies same-origin `/ws/` → `svc-ws:4014/`
-(`vendor/upstream-exchange/05_Web_Front/nginx.conf`). Compose: `vendor-shell` on `:8090` depends on `svc-ws`.
-Direct `NEXT_PUBLIC_WS_URL` / `apps/web` wiring is not the compose path for the live terminal.
+**How the browser reaches this:** the customer nginx proxies same-origin `/ws/` → `svc-ws:4014/`
+(`apps/customer/nginx.conf`). Compose service `vendor-shell` builds `apps/customer/Dockerfile`, publishes `:8090`, and depends on `svc-ws`.
+`apps/web` is not in this tree. The Vue nginx under `vendor/upstream-exchange/05_Web_Front` is not the served path.
 
 ---
 

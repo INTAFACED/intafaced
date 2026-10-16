@@ -2,6 +2,10 @@
 ### Sovereign OS · Master Engineering Document
 **Version 2.2 — FINAL · July 2026 · Phantom Capital Holdings · Strictly Confidential**
 
+> **CORRECTION 2026-10-16.** This file is still the product spec the coverage gate reads (`tooling/ci/coverage-check.mjs` keys off `## N ·` headings). It is not the map of the tree. Where this file disagrees with [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) or [`AGENTS.md`](AGENTS.md), those two win.
+>
+> Do not follow: §0 rule 5 ("TypeScript everywhere") as a ban on the Java FIX gateway, the Solidity contracts, or the unwired Rust matcher socket; §1 row "Frontend | Next.js" as a description of every surface; §2's tree where it names `apps/web`, `ws-gateway`, `svc-launch`, or `svc-core-ops`; any sentence that makes `vendor/upstream-exchange/05_Web_Front` the served customer screen. The served screen is `apps/customer`. §5.3 below is rewritten to that fact. The `## N ·` headings are unchanged so the coverage gate still resolves.
+
 ---
 
 ## 0 · DOCTRINE
@@ -258,11 +262,15 @@ otc_quotes     (id, user_id, side, base, quote, qty, quoted_px, expires_at, stat
 **Liquidity:** internal MM bot account (house-owned, own strategy config) seeds books at launch; external venue aggregation is an adapter behind `LiquiditySource` interface — later, per Doctrine 4.
 **Forex markets:** same engine, `kind:spot` with fiat pairs — rails to fund them arrive with svc-pay adapters.
 
-### 5.3 The product shell — Trade surfaces · sole surface = the vendored Vue shell on `:8090`, `apps/web` retired (ADR `docs/adr/2026-08-03-retire-apps-web-port-to-vue-shell.md`, Accepted — settled, not re-litigated) · audience = pro trader workbench, retail via Convert and never terminal-default · one kit = iView 3 through CSS variables, never forked
-- Pro terminal: multi-book layout, depth, hotkeys, TradingView-style charting (lightweight-charts lib), sub-account switcher
-- Convert: single-card swap UI (the retail on-ramp)
-- Copy: leader boards with audited badges; Mirror follow flow with guardrail defaults from Blueprint (Phase 4 hook)
-- ws-gateway streams: `depth.<market>`, `trades.<market>`, `orders.<userId>`, `positions.<userId>`
+### 5.3 The product shell — `apps/customer` (React) on `:8090`
+
+Superseded 2026-10-16. The served customer screen is `apps/customer`, built by compose service `vendor-shell`. The Vue tree under `vendor/upstream-exchange/05_Web_Front` is not served. `apps/web` is not in the tree. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Audience that still stands: pro trader workbench; retail uses Convert and is not the terminal default.
+
+- One React app, one shell frame, same-origin `/api/` and `/ws/`.
+- Pro terminal: multi-book layout, depth, hotkeys, the chart already in the product, sub-account switcher.
+- Convert: the retail swap path.
+- Copy: leader boards and mirror follow stay inside the same app.
+- Live depth and trades come from `svc-ws`, not from a separate `ws-gateway` app.
 
 ### 5.4 Phase 2 exit criteria
 - Engine determinism replay test green; 10k orders/s sustained on dev hardware

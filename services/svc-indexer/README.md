@@ -1,6 +1,6 @@
 # svc-indexer
 
-**Chain → Postgres read models for `apps/web` — books, fills, positions (§17.5).**
+**Chain → Postgres read models — books, fills, positions (§17.5).** `apps/web` is not in this tree. The served customer app is `apps/customer`.
 
 The Protocol Plane keeps its state on chain, not in our ledger. A UI cannot query a chain fast enough to render an order book, so this service follows chain state and projects it into tables the app can query. It is the read path, and only the read path.
 

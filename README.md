@@ -1,8 +1,8 @@
 # INTAFACED — Sovereign OS
 
-> The law is [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md).
-> The working rules are [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md).
-> This file only tells you how to run it.
+> Rules: [`AGENTS.md`](AGENTS.md). Map of the tree: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+> The July law ([`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md)) is the spec the coverage gate reads. Its shell and layout sentences are corrected at the top of that file.
+> This file tells you how to run it.
 
 ---
 
@@ -26,7 +26,7 @@ Full board: **[docs/TRACKER.md](docs/TRACKER.md)** · `pnpm tracker ready`
 
 ## Run it
 
-**The whole platform — eleven services, both apps, and the infrastructure:**
+**The whole platform — services, apps, and infrastructure.** What is in the fleet is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The old "eleven services, both apps" count is stale.
 
 ```bash
 pnpm install

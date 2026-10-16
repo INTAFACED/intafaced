@@ -1,6 +1,8 @@
 # ADR: retire `apps/web`, port the terminal into the Vue shell
 
-**Status:** **Accepted — 2026-08-03.** Owner decision, stated and confirmed.
+> **SUPERSEDED 2026-10-16 for the UI conclusion.** Do not follow the Vue-shell decision below. The served customer site is `apps/customer` (see [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) and [`2026-10-02-redesign-may-replace-product-ui.md`](2026-10-02-redesign-may-replace-product-ui.md)). This file stays because the tracker and the July law cite it. The text under this banner is the 2026-08-03 record, not a current instruction.
+
+**Status:** **Accepted — 2026-08-03.** Owner decision, stated and confirmed. Superseded for the served UI on 2026-10-16.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Supersedes in scope:** the front-end half of [`2026-07-28-vendored-exchange-ui.md`](2026-07-28-vendored-exchange-ui.md) — that ADR chose to port vendored screens _into_ `apps/web`; the direction is now the reverse.
 **Depends on:** [`2026-08-02-adopt-vendored-product-keep-our-ledger.md`](2026-08-02-adopt-vendored-product-keep-our-ledger.md) (Accepted). This closes the open question left at its §"Open, and owner-gated".
