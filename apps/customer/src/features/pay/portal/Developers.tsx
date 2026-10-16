@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { z } from 'zod';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState } from '../../../shared/ui';
+import { Button, DataTable, EmptyState } from '@intafaced/ui';
 import { PayDetails, PaySection, PayTime, ReviewedAction } from '../components';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../pay-api';
 import { CreateWebhook, SandboxKeys, WebhookToggle } from '../MerchantNetwork';
@@ -47,9 +47,9 @@ export function developerHeader(route: PortalRoute) {
     title: c.t(title),
     purpose: c.t('developerPurpose'),
     action: (
-      <a className="button button--secondary" href="/pay/developer/webhooks">
+      <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/developer/webhooks" />}>
         {c.t('endpointsTitle')}
-      </a>
+      </Button>
     ),
   };
 }

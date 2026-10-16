@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Field } from '../../../shared/ui';
+import { StatusTag, Button, DataTable, EmptyState, Field } from '@intafaced/ui';
 import { PayDetails, PaySection, PayTime, ReviewedAction } from '../components';
 import { validatedMutation } from '../BusinessPay';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../pay-api';
@@ -167,7 +167,7 @@ export function LinksView({
                   <ReviewedAction
                     title={t('deactivateLink')}
                     description={t('deactivateBody')}
-                    variant="danger"
+                    variant="sell"
                     review={
                       <PayDetails
                         values={[
@@ -313,15 +313,13 @@ export function LinksView({
 function LinkChip({ value }: { value: ReturnType<typeof linkState> }) {
   const { t } = w3cCopy.useCopy();
   return (
-    <span
-      className={`pp-chip ${value === 'active' ? 'pp-chip--good' : value === 'inactive' ? '' : 'pp-chip--attention'}`}
+    <StatusTag
+      status={value === 'active' ? 'filled' : value === 'inactive' ? 'working' : 'pending'}
       title={t(`${value}Tip`)}
-    >
-      {t(value)}
-    </span>
+      label={t(value)}
+    />
   );
 }
-
 export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merchantId: string }) {
   const { t } = w3cCopy.useCopy();
   const [form, setForm] = useState({ label: '', amount: '', currency: '', profileId: '', expiry: '', maxUses: '' });

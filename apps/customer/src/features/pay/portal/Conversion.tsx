@@ -1,5 +1,5 @@
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button } from '../../../shared/ui';
+import { Button } from '@intafaced/ui';
 import { PayDetails, PaySection } from '../components';
 import { HaltBanner } from './components';
 import { Arrives, CopyReference, PortalBack } from './ExtensionTools';
@@ -20,9 +20,14 @@ export function conversionHeader(route: PortalRoute) {
           : 'conversionPurpose',
     ),
     action: (
-      <a className="button button--secondary" href={route.room === 'conversion' ? '/pay/money' : '/pay/conversion'}>
+      <Button
+        variant="secondary"
+        nativeButton={false}
+        role="link"
+        render={<a href={route.room === 'conversion' ? '/pay/money' : '/pay/conversion'} />}
+      >
         {c.t(route.room === 'conversion' ? 'openBalances' : 'conversionTitle')}
-      </a>
+      </Button>
     ),
   };
 }

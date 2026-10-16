@@ -1,6 +1,6 @@
 import { formatAmount as fromScaled, parseAmount as toScaled } from '../../../shared/money';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Field } from '../../../shared/ui';
+import { Button, DataTable, EmptyState, Field } from '@intafaced/ui';
 import { PayTime, PaySection } from '../components';
 import {
   AsOf,

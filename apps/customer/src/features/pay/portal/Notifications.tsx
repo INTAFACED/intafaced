@@ -3,7 +3,7 @@ import { extensionCopy as c } from './extension-copy';
 import { useUnsavedForm } from './useUnsavedForm';
 import { useCallback, useEffect, useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, Field, Tabs } from '../../../shared/ui';
+import { Button, Field, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { PayTime, PaySection } from '../components';
 import { Gate, ListShell, MoreFooter, SelectField } from './components';
 import { portalCopy } from './copy';

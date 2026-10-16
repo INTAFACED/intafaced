@@ -1,4 +1,4 @@
-import { Button } from '../../../shared/ui';
+import { Button } from '@intafaced/ui';
 import { PayDetails, PaySection } from '../components';
 import { Arrives, CopyReference, PortalBack } from './ExtensionTools';
 import { extensionCopy as c } from './extension-copy';

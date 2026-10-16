@@ -1,7 +1,8 @@
+import { Button } from '@intafaced/ui';
 import { useMemo, type ReactNode } from 'react';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
-import { EmptyState, Page } from '../../../shared/ui';
+import { EmptyState, Page } from '@intafaced/ui';
 import { payCopy } from '../copy';
 import { businessRooms } from '../BusinessPay';
 import { createPortalApi, type PortalApi } from './api';
@@ -149,9 +150,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: extensionCopy.t('complianceTitle'),
         purpose: extensionCopy.t('compliancePurpose'),
         action: (
-          <a className="button button--primary" href="/pay/onboarding/verification">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/onboarding/verification" />}>
             {extensionCopy.t('verificationAction')}
-          </a>
+          </Button>
         ),
       };
     case 'settings':
@@ -163,9 +164,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         ),
         purpose: extensionCopy.t('settingsPurpose'),
         action: (
-          <a className="button button--secondary" href="/pay/settings/notifications">
+          <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/settings/notifications" />}>
             {extensionCopy.t('notificationSettings')}
-          </a>
+          </Button>
         ),
       };
     case 'developer':
@@ -181,9 +182,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: extensionCopy.t(route.room === 'invoice' ? 'invoiceTitle' : 'invoicesTitle'),
         purpose: extensionCopy.t('invoicesPurpose'),
         action: (
-          <a className="button button--secondary" href="/pay/subscriptions">
+          <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/subscriptions" />}>
             {extensionCopy.t('openSubscriptions')}
-          </a>
+          </Button>
         ),
       };
     case 'money':
@@ -191,9 +192,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: c('moneyTitle'),
         purpose: c('moneyPurpose'),
         action: (
-          <a className="button button--primary" href="/pay/money/activity">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/money/activity" />}>
             {c('openStatement')}
-          </a>
+          </Button>
         ),
       };
     case 'money-activity':
@@ -201,9 +202,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: c('statementTitle'),
         purpose: c('statementPurpose'),
         action: (
-          <a className="button button--secondary" href="/pay/exports">
+          <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/exports" />}>
             {c('exportJobs')}
-          </a>
+          </Button>
         ),
       };
     case 'reports':
@@ -211,9 +212,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: c('reportsTitle'),
         purpose: c('reportsPurpose'),
         action: (
-          <a className="button button--primary" href="/pay/reports/exports">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/reports/exports" />}>
             {c('exportJobs')}
-          </a>
+          </Button>
         ),
       };
     case 'report-exports':
@@ -221,9 +222,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: c('exportJobs'),
         purpose: c('exportJobsPurpose'),
         action: (
-          <a className="button button--primary" href="#request">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="#request" />}>
             {c('reportAction')}
-          </a>
+          </Button>
         ),
       };
     case 'links':
@@ -231,9 +232,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: c('linksTitle'),
         purpose: c('linksPurpose'),
         action: (
-          <a className="button button--primary" href="/pay/links/new">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links/new" />}>
             {c('linkNew')}
-          </a>
+          </Button>
         ),
       };
     case 'link-new':
@@ -241,9 +242,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: c('linkNew'),
         purpose: c('linkNewPurpose'),
         action: (
-          <a className="button button--secondary" href="/pay/links">
+          <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/links" />}>
             {c('backLinks')}
-          </a>
+          </Button>
         ),
       };
     case 'link':
@@ -251,9 +252,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: c('linkDetail'),
         purpose: c('linkDetailPurpose'),
         action: (
-          <a className="button button--secondary" href="/pay/links/new">
+          <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/links/new" />}>
             {c('linkNew')}
-          </a>
+          </Button>
         ),
       };
     case 'refunds':
@@ -261,9 +262,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: c('refundsTitle'),
         purpose: c('refundsPurpose'),
         action: (
-          <a className="button button--primary" href="/pay/refunds/new">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/refunds/new" />}>
             {c('issueRefund')}
-          </a>
+          </Button>
         ),
       };
     case 'refund-new':
@@ -271,9 +272,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: c('issueRefund'),
         purpose: c('issuePurpose'),
         action: (
-          <a className="button button--secondary" href="/pay/payments">
+          <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/payments" />}>
             {c('openPayments')}
-          </a>
+          </Button>
         ),
       };
     case 'refund':
@@ -281,9 +282,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: c('refundTitle'),
         purpose: c('refundPurpose'),
         action: (
-          <a className="button button--secondary" href="/pay/refunds">
+          <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/refunds" />}>
             {c('backRefunds')}
-          </a>
+          </Button>
         ),
       };
     case 'dashboard':
@@ -291,9 +292,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: t('pageDashboard'),
         purpose: t('purposeDashboard'),
         action: (
-          <a className="button button--primary" href="/pay/links">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links" />}>
             {t('actCreateLink')}
-          </a>
+          </Button>
         ),
       };
     case 'onboarding':
@@ -303,9 +304,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
           : t('pageOnboarding'),
         purpose: t('purposeOnboarding'),
         action: (
-          <a className="button button--primary" href="/pay/merchant">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/merchant" />}>
             {t('openDashboard')}
-          </a>
+          </Button>
         ),
       };
     case 'team':
@@ -313,9 +314,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: t('pageTeam'),
         purpose: t('purposeTeam'),
         action: (
-          <a className="button button--primary" href="#invite">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="#invite" />}>
             {t('actInvite')}
-          </a>
+          </Button>
         ),
       };
     case 'disputes':
@@ -331,9 +332,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: t('pageExports'),
         purpose: t('purposeExports'),
         action: (
-          <a className="button button--primary" href="#request">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="#request" />}>
             {t('actRequestExport')}
-          </a>
+          </Button>
         ),
       };
     case 'notifications':
@@ -343,9 +344,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: t('pagePayments'),
         purpose: t('purposePayments'),
         action: (
-          <a className="button button--primary" href="/pay/payments?view=tools">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/payments?view=tools" />}>
             {t('actPaymentTools')}
-          </a>
+          </Button>
         ),
       };
     case 'payment':
@@ -353,9 +354,14 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: t('pagePayment'),
         purpose: t('purposePayment'),
         action: route.param ? (
-          <a className="button button--primary" href={`/pay/payments?view=tools&payment=${encodeURIComponent(route.param)}`}>
+          <Button
+            variant="primary"
+            nativeButton={false}
+            role="link"
+            render={<a href={`/pay/payments?view=tools&payment=${encodeURIComponent(route.param)}`} />}
+          >
             {t('refundOrCapture')}
-          </a>
+          </Button>
         ) : undefined,
       };
     case 'settlements':
@@ -363,9 +369,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: t('pageSettlements'),
         purpose: t('purposeSettlements'),
         action: (
-          <a className="button button--primary" href="/pay/settlements?view=tools">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/settlements?view=tools" />}>
             {t('actSettlementTools')}
-          </a>
+          </Button>
         ),
       };
     case 'settlement':
@@ -375,9 +381,9 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         title: t('pagePayouts'),
         purpose: t('purposePayouts'),
         action: (
-          <a className="button button--primary" href="/pay/payouts?view=tools">
+          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/payouts?view=tools" />}>
             {t('actRequestPayout')}
-          </a>
+          </Button>
         ),
       };
     case 'payout':
@@ -523,9 +529,9 @@ function PortalRoom({
                 <EmptyState
                   title={t('noMerchantTitle')}
                   action={
-                    <a className="button button--primary" href="/pay/onboarding">
+                    <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/onboarding" />}>
                       {t('startSetup')}
-                    </a>
+                    </Button>
                   }
                 >
                   {t('noMerchantBody')}
@@ -674,9 +680,9 @@ export function WithAccount({
           <EmptyState
             title={t('noMerchantTitle')}
             action={
-              <a className="button button--primary" href="/pay/onboarding">
+              <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/onboarding" />}>
                 {t('startSetup')}
-              </a>
+              </Button>
             }
           >
             {t('noMerchantBody')}

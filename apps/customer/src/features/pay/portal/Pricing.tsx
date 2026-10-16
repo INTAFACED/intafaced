@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, Field } from '../../../shared/ui';
+import { Button, DataTable, Field } from '@intafaced/ui';
 import { PayTime, PaySection } from '../components';
 import { ComingSoon, Facts, Gate, Money, NotConfigured, PortalFailure, ReadAt, SelectField } from './components';
 import { portalCopy } from './copy';

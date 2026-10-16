@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Field } from '../../../shared/ui';
+import { StatusTag, Button, DataTable, EmptyState, Field } from '@intafaced/ui';
 import { PaySection, PayTime } from '../components';
 import { MerchantRefund } from '../MerchantRefund';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../pay-api';
@@ -307,11 +307,10 @@ export function RefundHistoryView({
 function RefundChip({ state }: { state: PaymentRefund['state'] }) {
   const { t } = w3cCopy.useCopy();
   return (
-    <span
-      className={`pp-chip ${state === 'completed' ? 'pp-chip--good' : state === 'reversed' ? 'pp-chip--bad' : 'pp-chip--attention'}`}
+    <StatusTag
+      status={state === 'completed' ? 'filled' : state === 'reversed' ? 'failed' : 'pending'}
       title={t(state === 'completed' ? 'completedTip' : state === 'reversed' ? 'reversedTip' : 'in_progressTip')}
-    >
-      {t(state)}
-    </span>
+      label={t(state)}
+    />
   );
 }

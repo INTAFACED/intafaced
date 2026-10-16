@@ -3,7 +3,7 @@ import { extensionCopy as c } from './extension-copy';
 import { useUnsavedForm } from './useUnsavedForm';
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
-import { DataTable, Field } from '../../../shared/ui';
+import { DataTable, Field } from '@intafaced/ui';
 import { PayTime, PaySection, ReviewedAction } from '../components';
 import { Kpi, KpiGrid, Chip, Gate, ListShell, MoreFooter, SelectField, Timeline } from './components';
 import { portalCopy } from './copy';
@@ -319,7 +319,7 @@ function MemberRow({
             />
             <ReviewedAction
               title={t('remove')}
-              variant="danger"
+              variant="sell"
               description={t('removeBody')}
               review={<p>{t('removeReview', { who: member.userId })}</p>}
               perform={() => portal.removeMember(member.memberId!)}

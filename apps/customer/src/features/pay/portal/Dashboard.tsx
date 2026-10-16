@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { displayAmount } from '../../../shared/money';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Tabs } from '../../../shared/ui';
+import { Button, DataTable, EmptyState, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { PaySection } from '../components';
 import { AsOf, Chip, ComingSoon, Gate, Kpi, KpiGrid, Money, MoneyLines } from './components';
 import { portalCopy } from './copy';
@@ -133,9 +133,9 @@ export function DashboardView({
         <EmptyState
           title={t('dashEmptyTitle')}
           action={
-            <a className="button button--primary" href="/pay/links">
+            <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links" />}>
               {t('dashEmptyAction')}
-            </a>
+            </Button>
           }
         >
           {t('dashEmptyBody')}

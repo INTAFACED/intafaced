@@ -1,6 +1,7 @@
+import { Button } from '@intafaced/ui';
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Field } from '../../../shared/ui';
+import { Field } from '@intafaced/ui';
 import { PayDetails, PaySection, ReviewedAction } from '../components';
 import { Chip, ComingSoon, Gate, ListShell, MoreFooter, PortalFailure, SelectField, Timeline } from './components';
 import { portalCopy } from './copy';
@@ -503,12 +504,12 @@ function SandboxSummary({ merchant, saved, liveWaiting }: { merchant: MerchantRe
         ]}
       />
       <div className="pp-actions">
-        <a className="button button--primary" href="/pay/merchant">
+        <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/merchant" />}>
           {t('openDashboard')}
-        </a>
-        <a className="button button--secondary" href="/pay/links">
+        </Button>
+        <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/links" />}>
           {t('createFirstLink')}
-        </a>
+        </Button>
       </div>
     </PaySection>
   );

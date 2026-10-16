@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState } from '../../../shared/ui';
+import { Button, DataTable, EmptyState } from '@intafaced/ui';
 import { PayTime, PaySection, ReviewedAction } from '../components';
 import {
   BackLink,
@@ -428,7 +428,7 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
             />
             <ReviewedAction
               title={t('acceptLiability')}
-              variant="danger"
+              variant="sell"
               description={t('acceptLiabilityBody')}
               review={
                 <Facts

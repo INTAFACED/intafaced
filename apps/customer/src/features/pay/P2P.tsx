@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
-import { Button, DataTable, Field, Page } from '../../shared/ui';
+import { Button, DataTable, Field, Page } from '@intafaced/ui';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
 import {
   PayAmount,

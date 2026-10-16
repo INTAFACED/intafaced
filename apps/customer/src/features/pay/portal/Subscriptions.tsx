@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Field } from '../../../shared/ui';
+import { StatusTag, Button, DataTable, EmptyState, Field } from '@intafaced/ui';
 import { PayDetails, PaySection, PayTime, ReviewedAction } from '../components';
 import { CreateMandate } from '../MerchantBilling';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../pay-api';
@@ -29,27 +29,27 @@ export function subscriptionHeader(route: PortalRoute) {
     ),
     purpose: c.t(route.room === 'subscription-new' ? 'createSubscriptionPurpose' : 'subscriptionsPurpose'),
     action: (
-      <a className="button button--primary" href={route.room === 'subscription-new' ? '/pay/subscriptions' : '/pay/subscriptions/new'}>
+      <Button
+        variant="primary"
+        nativeButton={false}
+        role="link"
+        render={<a href={route.room === 'subscription-new' ? '/pay/subscriptions' : '/pay/subscriptions/new'} />}
+      >
         {c.t(route.room === 'subscription-new' ? 'subscriptionsTitle' : 'createSubscription')}
-      </a>
+      </Button>
     ),
   };
 }
 export function SubscriptionChip({ status }: { status: Subscription['status'] }) {
-  return (
-    <span className={`pp-chip${status === 'active' ? ' pp-chip--good' : ''}`} title={c.t(`subscription_${status}`)}>
-      {c.t(status)}
-    </span>
-  );
+  return <StatusTag status={status === 'active' ? 'filled' : 'working'} title={c.t(`subscription_${status}`)} label={c.t(status)} />;
 }
 export function CycleChip({ status }: { status: Cycle['status'] }) {
   return (
-    <span
-      className={`pp-chip${status === 'settled' ? ' pp-chip--good' : status === 'rejected' ? ' pp-chip--bad' : ''}`}
+    <StatusTag
+      status={status === 'settled' ? 'filled' : status === 'rejected' ? 'failed' : 'working'}
       title={c.t(`cycle_${status}`)}
-    >
-      {c.t(status)}
-    </span>
+      label={c.t(status)}
+    />
   );
 }
 export function Subscriptions({

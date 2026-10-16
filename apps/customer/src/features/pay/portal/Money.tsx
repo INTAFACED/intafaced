@@ -1,5 +1,5 @@
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState } from '../../../shared/ui';
+import { Button, DataTable, EmptyState } from '@intafaced/ui';
 import { PaySection } from '../components';
 import { AsOf, BackLink, ComingSoon, Facts, Gate, Kpi, KpiGrid, Money as Amount, NotConfigured, SelectField } from './components';
 import { useNow, useUrlParam } from './hooks';
@@ -112,9 +112,9 @@ export function MoneyView({
                 <EmptyState
                   title={t('balanceEmpty')}
                   action={
-                    <a className="button button--primary" href="/pay/links/new">
+                    <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links/new" />}>
                       {t('linkNew')}
-                    </a>
+                    </Button>
                   }
                 >
                   {t('balanceEmptyBody')}
@@ -155,9 +155,9 @@ export function BalanceActivity() {
       <BackLink href="/pay/money">{t('moneyTitle')}</BackLink>
       <ComingSoon title={t('nextBackend')}>{t('activityGap')}</ComingSoon>
       <div className="pp-actions">
-        <a className="button button--secondary" href="/pay/payments">
+        <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/payments" />}>
           {t('openPayments')}
-        </a>
+        </Button>
         <a className="text-link" href="/pay/settlements">
           {t('openSettlements')}
         </a>

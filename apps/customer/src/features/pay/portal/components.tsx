@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
-import { Button, EmptyState } from '../../../shared/ui';
+import { Button, EmptyState, StateBlock, StatusTag, Amount } from '@intafaced/ui';
 import { PayTime } from '../components';
 import type { ListState } from './hooks';
 import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
@@ -14,14 +14,7 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 /** Loading skeleton (B11): the shape of the page that is coming, announced once to assistive tech. */
 export function PortalLoading({ rows = 3, label }: { rows?: number; label?: string }) {
   const { t } = portalCopy.useCopy();
-  return (
-    <div className="pp-skeleton" role="status" aria-busy="true">
-      <span className="pp-sr">{label ?? t('loading')}</span>
-      {Array.from({ length: rows }, (_, i) => (
-        <span key={i} className="pp-skeleton-row" aria-hidden="true" />
-      ))}
-    </div>
-  );
+  return <StateBlock kind="loading" rows={rows} label={label ?? t('loading')} />;
 }
 
 /** A procedure that is not built or not mounted yet is not an error: say when it arrives, and show nothing made up. */
@@ -162,7 +155,7 @@ export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[
     <span className="pp-lines">
       {items.map((item) => (
         <span key={item.assetCode} className="pp-line">
-          {displayAmount(item.amount)}{' '}
+          <Amount value={displayAmount(item.amount)} sensitive={false} />{' '}
           <span className="pp-unit" lang="zxx">
             {item.assetCode}
           </span>
@@ -174,7 +167,7 @@ export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[
 export function Money({ value, asset }: { value: string; asset: string }) {
   return (
     <span className="numeric pp-money">
-      {displayAmount(value)}{' '}
+      <Amount value={displayAmount(value)} sensitive={false} />{' '}
       <span className="pp-unit" lang="zxx">
         {asset}
       </span>
@@ -207,13 +200,7 @@ export function AsOf({ freshness }: { freshness: Freshness }) {
   );
 }
 
-const tone = {
-  good: 'pp-chip--good',
-  attention: 'pp-chip--attention',
-  bad: 'pp-chip--bad',
-  neutral: '',
-} as const;
-type Tone = keyof typeof tone;
+type Tone = 'good' | 'attention' | 'bad' | 'neutral';
 const chips = {
   dispute: {
     open: ['chipDispute_open', 'tipDispute_open', 'attention'],
@@ -285,15 +272,10 @@ export type ChipKind = keyof typeof chips;
 export function Chip({ kind, value }: { kind: ChipKind; value: string }) {
   const { t } = portalCopy.useCopy();
   const entry = (chips[kind] as Record<string, readonly [PlainKey, PlainKey, Tone]>)[value];
-  if (!entry) return <span className="pp-chip">{value}</span>;
+  if (!entry) return <StatusTag className="pp-chip" status="working" label={value} />;
   const [label, tip, toneName] = entry;
-  return (
-    <span className={`pp-chip ${tone[toneName]}`} title={t(tip)}>
-      <span className="pp-chip-dot" aria-hidden="true" />
-      {t(label)}
-      <span className="pp-sr"> ({t(tip)})</span>
-    </span>
-  );
+  const status = { good: 'filled', attention: 'pending', bad: 'failed', neutral: 'working' } as const;
+  return <StatusTag className="pp-chip" status={status[toneName]} label={t(label)} title={t(tip)} aria-label={`${t(label)} (${t(tip)})`} />;
 }
 
 export type TimelineItem = { at: string; title: string; detail?: string };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, DataTable, Field } from '../../../shared/ui';
+import { Button, DataTable, Field } from '@intafaced/ui';
 import { PayTime, PaySection, ReviewedAction } from '../components';
 import { Chip, ListShell, MoreFooter, SelectField } from './components';
 import { portalCopy } from './copy';

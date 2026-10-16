@@ -2,7 +2,7 @@ import { useId, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
-import { Button, Dialog, Field } from '../../shared/ui';
+import { Button, ReviewDialog as Dialog, Field } from '@intafaced/ui';
 import { useSession } from '../session/session';
 import { PayAmount, PayTime } from './components';
 import type { BusinessPayApi } from './pay-api';
@@ -502,7 +502,7 @@ export function MerchantRefund({
         <Copy k="back" />
       </Button>
       {currentReview && (
-        <Dialog title={t('review')} onClose={() => dismiss(currentReview, false)}>
+        <Dialog closeLabel={t('back')} title={t('review')} onClose={() => dismiss(currentReview, false)}>
           <div className="merchant-refund merchant-refund-review">
             <p className="muted">
               <Copy k="reviewBody" />

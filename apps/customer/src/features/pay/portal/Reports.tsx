@@ -1,4 +1,4 @@
-import { DataTable } from '../../../shared/ui';
+import { DataTable } from '@intafaced/ui';
 import { PaySection } from '../components';
 import { BackLink, ComingSoon } from './components';
 import { w3cCopy } from './w3c-copy';

@@ -5,7 +5,7 @@ import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
 import { displayAmount } from '../../shared/money';
-import { Button, DataTable, Field, Page } from '../../shared/ui';
+import { Button, DataTable, Field, Page } from '@intafaced/ui';
 import type { ApiResult } from '../../shared/api';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status, PayTime } from './components';

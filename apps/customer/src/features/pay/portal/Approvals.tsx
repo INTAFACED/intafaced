@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, EmptyState, Field } from '../../../shared/ui';
+import { Button, EmptyState, Field } from '@intafaced/ui';
 import { PayTime, PaySection, ReviewedAction } from '../components';
 import { Chip, Facts, HaltBanner, Kpi, KpiGrid, Money, PortalFailure, PortalLoading, ReadAt, SelectField, SpanText } from './components';
 import { portalCopy } from './copy';
@@ -390,7 +390,7 @@ export function ApprovalDecision({
         />
         <ReviewedAction
           title={t('reject')}
-          variant="danger"
+          variant="sell"
           description={t('rejectBody')}
           review={review(t('reject'))}
           perform={decide('reject')}

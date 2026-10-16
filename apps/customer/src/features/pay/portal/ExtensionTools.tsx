@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Field } from '../../../shared/ui';
+import { StatusTag, Button, Field } from '@intafaced/ui';
 import { PayTime } from '../components';
 import { useNow, useUrlParam } from './hooks';
 import { buildCsv, downloadText } from './csv';
@@ -70,12 +70,11 @@ export const recordStates = ['active', 'revoked', 'disabled', 'pending', 'delive
 export type RecordStatus = (typeof recordStates)[number];
 export function RecordChip({ status }: { status: RecordStatus }) {
   return (
-    <span
-      className={`pp-chip${status === 'delivered' || status === 'active' ? ' pp-chip--good' : status === 'failed' || status === 'dead' ? ' pp-chip--bad' : ''}`}
+    <StatusTag
+      status={status === 'active' || status === 'delivered' ? 'filled' : status === 'failed' || status === 'dead' ? 'failed' : 'working'}
       title={c.t(`${status}Tip`)}
-    >
-      {c.t(status)}
-    </span>
+      label={c.t(status)}
+    />
   );
 }
 export function useWindowFilters() {

@@ -4,7 +4,7 @@ import { payCopy, PayCopy } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Field, Tabs } from '../../shared/ui';
+import { Button, DataTable, Field, ChoiceGroup as Tabs } from '@intafaced/ui';
 import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { validatedMutation } from './BusinessPay';

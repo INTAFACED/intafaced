@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Field, Tabs } from '../../../shared/ui';
+import { Button, DataTable, EmptyState, Field, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { PayTime, PaySection } from '../components';
 import {
   AsOf,
@@ -323,9 +323,9 @@ function PaymentList({
                 {t('clearFilters')}
               </Button>
             ) : (
-              <a className="button button--primary" href="/pay/links">
+              <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links" />}>
                 {t('actCreateLink')}
-              </a>
+              </Button>
             )
           }
         >

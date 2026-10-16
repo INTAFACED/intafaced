@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
-import { Button, Field, Page } from '../../shared/ui';
+import { Button, Field, Page } from '@intafaced/ui';
 import { createCheckoutApi } from './pay-api';
 import { PayDetails, PayNotice, PaySection, PayState, ReviewedAction, Status, PayTime } from './components';
 import type { checkoutSchema, resolvedLinkSchema } from './schemas';

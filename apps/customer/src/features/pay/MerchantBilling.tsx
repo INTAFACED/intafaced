@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
-import { Button, DataTable, Field } from '../../shared/ui';
+import { Button, DataTable, Field } from '@intafaced/ui';
 import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { validatedMutation } from './BusinessPay';

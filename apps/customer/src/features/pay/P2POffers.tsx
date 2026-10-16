@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui';
 import type { PersonalPayApi } from './pay-api';
 import { id, type Offer } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Field, Tabs } from '../../../shared/ui';
+import { Button, DataTable, EmptyState, Field, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { PaySection } from '../components';
 import {
   AsOf,

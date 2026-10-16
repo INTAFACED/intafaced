@@ -7,7 +7,7 @@ import { Checkout } from './Checkout';
 import type { PayBusinessAuthority } from './pay-api';
 import { payCopy, PayCopy } from './copy';
 import { PayNotice } from './components';
-import { Page } from '../../shared/ui';
+import { Page } from '@intafaced/ui';
 import './pay.css';
 
 const BusinessContext = createContext<PayBusinessAuthority | null>(null);

@@ -1,6 +1,6 @@
 import { Fragment } from 'react';
 import { useResource } from '../../shared/resource';
-import { Button } from '../../shared/ui';
+import { Button } from '@intafaced/ui';
 import { navigate } from '../../app/location';
 import { PayDetails, PaySection, PayState } from './components';
 import type { PersonalPayApi } from './pay-api';

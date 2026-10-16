@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button } from '../../../shared/ui';
+import { Button } from '@intafaced/ui';
 import { PaySection } from '../components';
 import { Chip, Gate, Kpi, KpiGrid, ListShell, MoreFooter, Timeline } from './components';
 import { useCursorList, useReadAt, type ListState } from './hooks';
