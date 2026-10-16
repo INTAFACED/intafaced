@@ -19,7 +19,8 @@ export type PortalRoom =
   | 'approvals'
   | 'pricing'
   | 'limits';
-export type PortalRoute = { room: PortalRoom; param?: string };
+export type OnboardingStep = 'business' | 'verification' | 'go-live';
+export type PortalRoute = { room: PortalRoom; param?: string; step?: OnboardingStep };
 
 /** The rooms W3a and W3b own. Detail rooms carry their id in the path, so a link can be shared and survives a reload. */
 export function parsePortalRoute(path: string): PortalRoute | null {
@@ -37,7 +38,11 @@ export function parsePortalRoute(path: string): PortalRoute | null {
     }
   };
   if (a === 'merchant' && b === undefined) return { room: 'dashboard' };
-  if (a === 'onboarding' && b === undefined) return { room: 'onboarding' };
+  if (a === 'onboarding') {
+    if (b === undefined) return { room: 'onboarding' };
+    if (b === 'business' || b === 'verification' || b === 'go-live') return { room: 'onboarding', step: b };
+    return null;
+  }
   if (a === 'team' && b === undefined) return { room: 'team' };
   if (a === 'exports' && b === undefined) return { room: 'exports' };
   if (a === 'notifications' && b === undefined) return { room: 'notifications' };

@@ -116,7 +116,17 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         ),
       };
     case 'onboarding':
-      return { title: t('pageOnboarding'), purpose: t('purposeOnboarding') };
+      return {
+        title: route.step
+          ? t(route.step === 'business' ? 'step1Title' : route.step === 'verification' ? 'step2Title' : 'step3Title')
+          : t('pageOnboarding'),
+        purpose: t('purposeOnboarding'),
+        action: (
+          <a className="button button--primary" href="/pay/merchant">
+            {t('openDashboard')}
+          </a>
+        ),
+      };
     case 'team':
       return {
         title: t('pageTeam'),
@@ -254,7 +264,9 @@ function PortalRoom({
     case 'onboarding':
       return (
         <Gate resource={merchant} retry={reloadMerchant} rows={4}>
-          {(record) => <Onboarding portal={portal} merchant={record} reloadMerchant={reloadMerchant} starterFeeBps={starterFeeBps} />}
+          {(record) => (
+            <Onboarding step={route.step} portal={portal} merchant={record} reloadMerchant={reloadMerchant} starterFeeBps={starterFeeBps} />
+          )}
         </Gate>
       );
     case 'team':
