@@ -3,8 +3,11 @@
  *
  * A rejected approval does not keep a later confirmation failed. A confirmation
  * does not survive a later reversal. `rail.sent` is not confirmation: send
- * without a confirm stays at the settlement's posted state. The settlement
- * status column is not an input, so the two cannot disagree inside this read.
+ * without a confirm stays at the settlement's posted state.
+ *
+ * This function sees kinds only. `readPayoutLifecycle` appends one synthetic
+ * kind when the settlement status column is ahead of the recorded timestamps,
+ * so the derived status is never lower than that column.
  */
 
 export const LIFECYCLE_KINDS = [
@@ -45,11 +48,14 @@ const RANK: Record<LifecycleKind, number> = {
 };
 
 export function compareLifecycleEvents(
-  a: { at: string; kind: LifecycleKind; id: string },
-  b: { at: string; kind: LifecycleKind; id: string },
+  a: { at: string | null; kind: LifecycleKind; id: string },
+  b: { at: string | null; kind: LifecycleKind; id: string },
 ): number {
-  const time = a.at < b.at ? -1 : a.at > b.at ? 1 : 0;
-  if (time !== 0) return time;
+  if (a.at === null || b.at === null) {
+    if (a.at !== b.at) return a.at === null ? 1 : -1;
+  } else if (a.at !== b.at) {
+    return a.at < b.at ? -1 : 1;
+  }
   const rank = RANK[a.kind] - RANK[b.kind];
   if (rank !== 0) return rank;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;

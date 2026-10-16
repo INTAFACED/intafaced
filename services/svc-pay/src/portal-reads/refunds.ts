@@ -241,6 +241,26 @@ export async function listMerchantRefunds(
   return { items, nextCursor: pageCursor(rows, limit) };
 }
 
+/**
+ * Merchant id of a refund event, and nothing else.
+ *
+ * `payment.refunds.get` fences on this before `readMerchantRefund`. Amount
+ * parsing and ledger reads stay behind that fence, so a malformed row the
+ * caller does not own is `pay.refund_not_found`.
+ */
+export async function locateRefundMerchant(sql: Sql, refundEventId: string, fail: PayFail): Promise<{ merchantId: string }> {
+  const rows = await sql<Array<{ merchant_id: string }>>`
+    SELECT p.merchant_id
+      FROM pay.payment_events e
+      JOIN pay.payments p ON p.id = e.payment_id
+     WHERE e.event = 'refund.posted' AND e.id = ${refundEventId}
+     LIMIT 1
+  `;
+  const merchantId = rows[0]?.merchant_id;
+  if (!merchantId) return fail(`Refund ${refundEventId} not found`, 'pay.refund_not_found');
+  return { merchantId };
+}
+
 export async function readMerchantRefund(sql: Sql, ledger: Reader, refundEventId: string, fail: PayFail): Promise<RefundItem> {
   const rows = await refundRows(sql, { refundEventId });
   const row = rows[0];

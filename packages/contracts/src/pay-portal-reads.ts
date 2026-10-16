@@ -116,10 +116,22 @@ export const payStatementLineSchema = z
     amount: payAmountStringSchema,
     account: payStatementAccountSchema,
     direction: z.enum(['debit', 'credit']),
-    /** Clearing balance of this asset after this line. Decimal string. */
-    runningClearing: payAmountStringSchema,
-    /** Proceeds available balance of this asset after this line. Decimal string. */
-    runningProceeds: payAmountStringSchema,
+    /**
+     * Clearing movement inside the statement window, after this line.
+     * Null when `runningOrder` is `order_ambiguous`.
+     */
+    runningClearing: payAmountStringSchema.nullable(),
+    /**
+     * Proceeds movement inside the statement window, after this line.
+     * Null when `runningOrder` is `order_ambiguous`.
+     */
+    runningProceeds: payAmountStringSchema.nullable(),
+    /**
+     * `clear` when this line followed ledger order. `order_ambiguous` when
+     * same-timestamp lines could not be ordered and the reconstruction would
+     * have gone negative. The page still returns.
+     */
+    runningOrder: z.enum(['clear', 'order_ambiguous']),
     paymentId: z.string().uuid().nullable(),
     settlementId: z.string().uuid().nullable(),
     ledgerTxId: z.string().uuid(),
@@ -132,16 +144,18 @@ export const payStatementTieAccountSchema = z
     assetId: payAssetCodeSchema,
     clearing: z
       .object({
-        statement: payAmountStringSchema,
+        statement: payAmountStringSchema.nullable(),
         ledger: payAmountStringSchema,
-        matches: z.boolean(),
+        /** Null when the opening is unknown or the reconstruction was flagged. */
+        matches: z.boolean().nullable(),
       })
       .strict(),
     proceeds: z
       .object({
-        statement: payAmountStringSchema,
+        statement: payAmountStringSchema.nullable(),
         ledger: payAmountStringSchema,
-        matches: z.boolean(),
+        /** Null when the opening is unknown or the reconstruction was flagged. */
+        matches: z.boolean().nullable(),
       })
       .strict(),
   })
@@ -153,12 +167,32 @@ export const payStatementListInputSchema = z
     limit: pageLimitSchema,
     cursor: payListCursorSchema.optional(),
     assetId: payAssetCodeSchema.optional(),
+    /**
+     * Both bounds are required by the procedure (`pay.statement_range_required`).
+     * They stay optional here so a missing bound is that code, not a schema miss.
+     * The span is at most 92 days. One request resolves at most 2000 ledger keys.
+     */
     from: payTimestampSchema.optional(),
     to: payTimestampSchema.optional(),
   })
   .strict();
 
+export const payStatementOpeningSchema = z
+  .object({
+    assetId: payAssetCodeSchema,
+    clearing: payAmountStringSchema,
+    proceeds: payAmountStringSchema,
+  })
+  .strict();
+
 export const payStatementPageSchema = payPageSchema(payStatementLineSchema).extend({
+  /**
+   * `within_range` until the ledger exposes a balance at `from`.
+   * `from_opening` when that balance was read and the lines start from it.
+   */
+  runningBalances: z.enum(['within_range', 'from_opening']),
+  /** Null when `runningBalances` is `within_range`. */
+  opening: z.array(payStatementOpeningSchema).nullable(),
   tieOut: z
     .object({
       /**
@@ -193,7 +227,9 @@ export const payLifecycleStatusSchema = z.enum(['pending', 'posted', 'paid_out',
 export const payLifecycleEventSchema = z
   .object({
     id: z.string().uuid(),
-    at: payTimestampSchema,
+    /** Null when `timeKnown` is false. The column recorded the fact and not the time. */
+    at: payTimestampSchema.nullable(),
+    timeKnown: z.boolean(),
     kind: payLifecycleKindSchema,
     approvalId: z.string().uuid().nullable(),
     railId: z.string().min(1).max(64).nullable(),
@@ -201,12 +237,18 @@ export const payLifecycleEventSchema = z
     destinationMasked: z.string().min(1).max(64).nullable(),
     failure: payMerchantFailureSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .refine((event) => event.timeKnown === (event.at !== null), {
+    message: 'A lifecycle event names a timestamp only when the time is known',
+  });
 
 export const payPayoutLifecycleSchema = z
   .object({
     settlementId: z.string().uuid(),
-    /** Derived from `events` in time order. Not copied from the settlement status column. */
+    /**
+     * Derived from `events` in time order. A synthetic event floors this to
+     * the settlement status column when that column has no timestamp.
+     */
     status: payLifecycleStatusSchema,
     screening: payDestinationScreeningSchema,
     fee: payAmountStringSchema.nullable(),

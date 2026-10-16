@@ -3,7 +3,7 @@ import { DESTINATION_CHANGE_FLOW } from './destinations.js';
 import { derivePayoutLifecycleStatus, type LifecycleKind } from './lifecycle-status.js';
 
 describe('payout lifecycle status', () => {
-  it('derives status from the timeline and ignores a status column that is not an input', () => {
+  it('derives status from kinds in timeline order', () => {
     expect(derivePayoutLifecycleStatus(['settlement.opened', 'settlement.posted', 'rail.sent'])).toBe('posted');
     expect(derivePayoutLifecycleStatus(['settlement.opened', 'approval.rejected', 'settlement.posted', 'rail.confirmed'])).toBe('paid_out');
     expect(derivePayoutLifecycleStatus(['settlement.posted', 'rail.confirmed', 'payout.reversed'])).toBe('failed');

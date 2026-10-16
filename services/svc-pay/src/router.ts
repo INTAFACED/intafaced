@@ -951,12 +951,12 @@ export function createPayRouter(
           .output(payRefundItemSchema)
           .query(({ ctx, input }) =>
             wrap(async () => {
-              const located = await pay.readRefund(input.refundEventId);
+              const located = await pay.locateRefund(input.refundEventId);
               await refuseAsMissing(
                 assertRead(ctx.principal.userId, located.merchantId, 'trpc.payment.refunds.get', 'payments.read'),
                 () => new PayError(`Refund ${input.refundEventId} not found`, 'pay.refund_not_found'),
               );
-              return located.item;
+              return pay.readRefund(input.refundEventId);
             }),
           ),
       }),
@@ -1063,8 +1063,10 @@ export function createPayRouter(
         ),
 
       /**
-       * Composed payout timeline. `status` is derived from the events, so it
-       * cannot disagree with the timeline. The settlement status column is not copied.
+       * Composed payout timeline. `status` is derived from the events.
+       * When the status column is ahead of the recorded timestamps, one
+       * synthetic event (`timeKnown: false`) floors that status. The read
+       * never reports a status lower than the column.
        */
       lifecycle: scopedProcedure('pay:read', { module: 'pay' })
         .input(payPayoutLifecycleInputSchema)
@@ -2052,6 +2054,9 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.destination_list_limit_unset':
       case 'pay.refund_list_limit_unset':
       case 'pay.statement_list_limit_unset':
+      case 'pay.statement_range_required':
+      case 'pay.statement_range_too_wide':
+      case 'pay.statement_too_large':
       case 'pay.withdrawal_list_limit_unset':
       case 'pay.webhook_delivery_list_limit_unset':
       case 'pay.webhook_endpoint_list_limit_unset':

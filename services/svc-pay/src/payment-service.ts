@@ -80,7 +80,7 @@ import { affiliateLegAfterPaySettlement, fireAffiliateAccrue, NoopAffiliateAccru
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 import { listMerchantPayoutDestinations } from './portal-reads/destinations.js';
 import { readPayoutLifecycle as readPayoutLifecycleProjection } from './portal-reads/lifecycle.js';
-import { listMerchantRefunds, readMerchantRefund } from './portal-reads/refunds.js';
+import { listMerchantRefunds, locateRefundMerchant, readMerchantRefund } from './portal-reads/refunds.js';
 import { listMerchantStatement } from './portal-reads/statement.js';
 
 /**
@@ -286,6 +286,12 @@ export type PayErrorCode =
   | 'pay.refund_list_limit_unset'
   /** Statement page size unpublished. Blank is not 50. */
   | 'pay.statement_list_limit_unset'
+  /** `merchant.statement.list` without both `from` and `to`. A statement is not the whole history. */
+  | 'pay.statement_range_required'
+  /** Statement window longer than the 92-day technical safety bound. */
+  | 'pay.statement_range_too_wide'
+  /** More than 2000 candidate ledger keys in one statement request. */
+  | 'pay.statement_too_large'
   | 'pay.list_cursor_invalid'
   | 'pay.list_search_invalid'
   | 'pay.list_asset_invalid'
@@ -4610,10 +4616,14 @@ export class PayService {
     return listMerchantRefunds(this.sql, this.ledger, input, (message, code) => this.portalFail(message, code));
   }
 
-  /** The row is loaded so the router can fence its merchant. A miss is `pay.refund_not_found`. */
-  async readRefund(refundEventId: string) {
-    const item = await readMerchantRefund(this.sql, this.ledger, refundEventId, (message, code) => this.portalFail(message, code));
-    return { merchantId: item.merchantId, item };
+  /** Merchant id only. The router fences before any amount parse or ledger read. A miss is `pay.refund_not_found`. */
+  locateRefund(refundEventId: string) {
+    return locateRefundMerchant(this.sql, refundEventId, (message, code) => this.portalFail(message, code));
+  }
+
+  /** The refund projection. Call only after the merchant fence. A miss is `pay.refund_not_found`. */
+  readRefund(refundEventId: string) {
+    return readMerchantRefund(this.sql, this.ledger, refundEventId, (message, code) => this.portalFail(message, code));
   }
 
   listStatement(input: Parameters<typeof listMerchantStatement>[2]) {

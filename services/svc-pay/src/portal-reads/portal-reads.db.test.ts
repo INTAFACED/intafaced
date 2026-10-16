@@ -60,6 +60,13 @@ function payCode(err: unknown): { trpc: string | undefined; pay: string | undefi
   return { trpc: error.code, pay: /pay\.[a-z0-9_.]+/.exec(error.message ?? '')?.[0] };
 }
 
+function coveringRange(): { from: string; to: string } {
+  return {
+    from: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    to: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
 async function refused(run: Promise<unknown>) {
   try {
     await run;
@@ -195,17 +202,20 @@ describe('merchant portal reads', () => {
       pay: 'pay.refund_list_limit_unset',
     });
 
-    const statement = await owner.merchant.statement.list({ merchantId: mine.id, limit: 50 });
+    const statement = await owner.merchant.statement.list({ merchantId: mine.id, limit: 50, ...coveringRange() });
+    expect(statement.runningBalances).toBe('within_range');
+    expect(statement.opening).toBeNull();
     expect(statement.tieOut).toEqual({
       reserve: 'not_booked',
       accounts: [
         {
           assetId: 'USDT',
-          clearing: { statement: '0', ledger: '0', matches: true },
-          proceeds: { statement: '8.75', ledger: '8.75', matches: true },
+          clearing: { statement: '0', ledger: '0', matches: null },
+          proceeds: { statement: '8.75', ledger: '8.75', matches: null },
         },
       ],
     });
+    expect(statement.items.every((line) => line.runningOrder === 'clear')).toBe(true);
     expect(statement.items.some((line) => line.kind === 'payment_captured')).toBe(true);
     expect(statement.items.some((line) => line.kind === 'fee' && line.amount === '0.25')).toBe(true);
     expect(statement.items.some((line) => line.kind === 'settlement' && line.account === 'proceeds')).toBe(true);
@@ -217,12 +227,15 @@ describe('merchant portal reads', () => {
     expect(body).not.toContain('ruleId');
 
     const developer = router.createCaller(await ctx(DEVELOPER));
-    expect(JSON.stringify(await developer.merchant.statement.list({ merchantId: mine.id, limit: 20 }))).not.toContain('feeBps');
+    expect(JSON.stringify(await developer.merchant.statement.list({ merchantId: mine.id, limit: 20, ...coveringRange() }))).not.toContain(
+      'feeBps',
+    );
     const viewer = router.createCaller(await ctx(VIEWER));
     expect((await viewer.payment.refunds.list({ merchantId: mine.id, limit: 20 })).items).toHaveLength(1);
-    expect(
-      (await viewer.settlement.lifecycle({ settlementId: settlement.id })).events.some((event) => event.kind === 'settlement.posted'),
-    ).toBe(true);
+    const postedLife = await viewer.settlement.lifecycle({ settlementId: settlement.id });
+    expect(postedLife.events.some((event) => event.kind === 'settlement.posted' && event.timeKnown)).toBe(true);
+    expect(postedLife.events.some((event) => event.timeKnown === false)).toBe(false);
+    expect(postedLife.status).toBe('posted');
   });
 
   it('classifies a legacy settled refund as userAvailable when that is the pot the ledger credited', async () => {
@@ -262,7 +275,7 @@ describe('merchant portal reads', () => {
     expect(page.items[0]?.ledgerEffect).toMatchObject({ recorded: true, pot: 'userAvailable', direction: 'credit', ledgerTxId: tx.id });
   });
 
-  it('keeps a paid-out timeline complete when an earlier approval was rejected, and does not copy the status column', async () => {
+  it('keeps a paid-out timeline when an earlier approval was rejected, and floors a column that has no confirming time', async () => {
     const mine = await merchant(OWNER);
     const { settlement } = await settled(mine.id, '2026-10-16');
     await sql`
@@ -307,6 +320,7 @@ describe('merchant portal reads', () => {
     expect(kinds).toContain('approval.rejected');
     expect(kinds).toContain('rail.sent');
     expect(kinds).toContain('rail.confirmed');
+    expect(life.events.find((event) => event.kind === 'rail.confirmed')).toMatchObject({ timeKnown: true });
     expect(kinds.indexOf('approval.rejected')).toBeLessThan(kinds.indexOf('rail.confirmed'));
     const wire = JSON.stringify(life);
     expect(wire).not.toContain(DEST);
@@ -329,9 +343,9 @@ describe('merchant portal reads', () => {
          SET status = 'paid_out', payout_method = 'crypto-native', payout_ref = ${DEST}
        WHERE id = ${lied.id}`;
     const column = await owner.settlement.lifecycle({ settlementId: lied.id });
-    expect(column.status).not.toBe('paid_out');
-    expect(column.status).toBe('posted');
-    expect(column.events.some((event) => event.kind === 'rail.confirmed')).toBe(false);
+    expect((await owner.settlement.get({ settlementId: lied.id })).status).toBe('paid_out');
+    expect(column.status).toBe('paid_out');
+    expect(column.events.find((event) => event.kind === 'rail.confirmed')).toMatchObject({ at: null, timeKnown: false });
   });
 
   it('masks the destination inventory and refuses a foreign merchant the same way as a missing one', async () => {
@@ -397,5 +411,138 @@ describe('merchant portal reads', () => {
     expect(await refused(owner.merchant.statement.list({ merchantId: mine.id }))).toMatchObject({
       pay: 'pay.statement_list_limit_unset',
     });
+  });
+
+  it('floors lifecycle status to the column when migration 0073 timestamps were not backfilled', async () => {
+    const mine = await merchant(OWNER);
+    const owner = router.createCaller(await ctx(OWNER));
+    const cases = [
+      { status: 'posted', kind: 'settlement.posted' },
+      { status: 'paid_out', kind: 'rail.confirmed' },
+      { status: 'failed', kind: 'rail.refused' },
+    ] as const;
+    for (const item of cases) {
+      const { settlement } = await settled(mine.id, `pre-0073-${item.status}`);
+      if (item.status === 'paid_out') {
+        await sql`
+          UPDATE pay.settlements
+             SET status = 'paid_out', payout_method = 'crypto-native', payout_ref = 'pre0073-ref',
+                 settled_at = NULL, sent_at = NULL, failed_at = NULL
+           WHERE id = ${settlement.id}`;
+      } else if (item.status === 'failed') {
+        await sql`
+          UPDATE pay.settlements
+             SET status = 'failed', settled_at = NULL, sent_at = NULL, failed_at = NULL
+           WHERE id = ${settlement.id}`;
+      } else {
+        await sql`
+          UPDATE pay.settlements
+             SET status = 'posted', settled_at = NULL, sent_at = NULL, failed_at = NULL
+           WHERE id = ${settlement.id}`;
+      }
+      const life = await owner.settlement.lifecycle({ settlementId: settlement.id });
+      expect(life.status).toBe(item.status);
+      expect((await owner.settlement.get({ settlementId: settlement.id })).status).toBe(item.status);
+      expect(life.events.find((event) => event.kind === item.kind && event.timeKnown === false)).toMatchObject({
+        at: null,
+        timeKnown: false,
+      });
+      expect(JSON.stringify(life)).not.toContain('pre0073-ref');
+    }
+  });
+
+  it('reports a malformed refund on another merchant as not found, and parses the amount only after the fence', async () => {
+    const mine = await merchant(OWNER);
+    const other = await merchant(OTHER);
+    const foreignPayment = await captured(other.id);
+    const foreign = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (${foreignPayment.id}, 'refund.posted', ${sql.json({ refundId: 'rf-foreign-bad', amount: 'nope' })})
+      RETURNING id`;
+    const owner = router.createCaller(await ctx(OWNER));
+    expect(await refused(owner.payment.refunds.get({ refundEventId: foreign[0]!.id }))).toMatchObject({
+      pay: 'pay.refund_not_found',
+    });
+
+    const ownPayment = await captured(mine.id);
+    const own = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (${ownPayment.id}, 'refund.posted', ${sql.json({ refundId: 'rf-own-bad', amount: 'nope' })})
+      RETURNING id`;
+    expect(await refused(owner.payment.refunds.get({ refundEventId: own[0]!.id }))).toMatchObject({
+      pay: 'pay.invalid_amount',
+    });
+  });
+
+  it('requires a statement window, refuses a span past 92 days, and caps in-range ledger keys at 2000', async () => {
+    const mine = await merchant(OWNER);
+    const owner = router.createCaller(await ctx(OWNER));
+    const day = 24 * 60 * 60 * 1000;
+    const from = new Date('2026-01-01T00:00:00.000Z');
+    const edge = new Date(from.getTime() + 92 * day).toISOString();
+    expect(await refused(owner.merchant.statement.list({ merchantId: mine.id, limit: 20, to: edge }))).toMatchObject({
+      pay: 'pay.statement_range_required',
+    });
+    expect(await refused(owner.merchant.statement.list({ merchantId: mine.id, limit: 20, from: from.toISOString() }))).toMatchObject({
+      pay: 'pay.statement_range_required',
+    });
+    expect(
+      await refused(
+        owner.merchant.statement.list({
+          merchantId: mine.id,
+          limit: 20,
+          from: from.toISOString(),
+          to: new Date(from.getTime() + 92 * day + 1).toISOString(),
+        }),
+      ),
+    ).toMatchObject({ pay: 'pay.statement_range_too_wide' });
+    const empty = await owner.merchant.statement.list({
+      merchantId: mine.id,
+      limit: 20,
+      from: from.toISOString(),
+      to: edge,
+    });
+    expect(empty.items).toEqual([]);
+    expect(empty.opening).toBeNull();
+    expect(empty.runningBalances).toBe('within_range');
+
+    await sql`
+      INSERT INTO pay.payments (merchant_id, amount, currency, method, rail_adapter, status)
+      SELECT ${mine.id}, 1, 'USDT', 'card', 'card-sandbox', 'created'
+      FROM generate_series(1, 2001)`;
+    await sql`
+      INSERT INTO pay.payment_events (payment_id, event, ts)
+      SELECT id, 'captured',
+             CASE WHEN n = 2001 THEN TIMESTAMPTZ '2020-07-01T00:00:00Z' ELSE TIMESTAMPTZ '2020-06-01T00:00:00Z' END
+        FROM (
+          SELECT id, row_number() OVER (ORDER BY id) AS n
+            FROM pay.payments
+           WHERE merchant_id = ${mine.id}
+        ) numbered`;
+    const bounded = await owner.merchant.statement.list({
+      merchantId: mine.id,
+      limit: 20,
+      from: '2020-06-01T00:00:00.000Z',
+      to: '2020-06-15T00:00:00.000Z',
+    });
+    expect(bounded.items).toEqual([]);
+    expect(bounded.runningBalances).toBe('within_range');
+    const outside = await owner.merchant.statement.list({
+      merchantId: mine.id,
+      limit: 20,
+      from: '2024-01-01T00:00:00.000Z',
+      to: '2024-01-15T00:00:00.000Z',
+    });
+    expect(outside.items).toEqual([]);
+    expect(
+      await refused(
+        owner.merchant.statement.list({
+          merchantId: mine.id,
+          limit: 20,
+          from: '2020-06-01T00:00:00.000Z',
+          to: '2020-07-02T00:00:00.000Z',
+        }),
+      ),
+    ).toMatchObject({ pay: 'pay.statement_too_large' });
   });
 });

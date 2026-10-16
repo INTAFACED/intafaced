@@ -4,11 +4,14 @@ import { maskDestination, safeDestinationLabel } from '../control/mask-destinati
 import { safeFailure, type MerchantFailure } from '../merchant-failure.js';
 import type { PayFail } from './common.js';
 import { stableUuid } from './common.js';
-import { compareLifecycleEvents, derivePayoutLifecycleStatus, type LifecycleKind } from './lifecycle-status.js';
+import { compareLifecycleEvents, derivePayoutLifecycleStatus, type LifecycleKind, type LifecycleStatus } from './lifecycle-status.js';
 
 /**
  * One payout's timeline. Status is `derivePayoutLifecycleStatus` of these
- * events. The settlement status column is not copied onto the result.
+ * events. When the settlement status column is ahead of the recorded
+ * timestamps, one synthetic event `{ at: null, timeKnown: false }` is
+ * appended so the derived status is not lower than the column. Rows written
+ * before migration 0073 have no `settled_at` / `sent_at` / `failed_at`.
  *
  * Screening is `not_recorded`: W9 does not store a destination verdict.
  * Destinations are masked. Rail references and approval free text stay off
@@ -17,7 +20,8 @@ import { compareLifecycleEvents, derivePayoutLifecycleStatus, type LifecycleKind
 
 export interface LifecycleEvent {
   id: string;
-  at: string;
+  at: string | null;
+  timeKnown: boolean;
   kind: LifecycleKind;
   approvalId: string | null;
   railId: string | null;
@@ -61,6 +65,7 @@ export async function readPayoutLifecycle(sql: Sql, settlementId: string, fail: 
       id: string;
       merchant_id: string;
       fees: string;
+      status: string;
       created_at: Date;
       settled_at: Date | null;
       sent_at: Date | null;
@@ -68,7 +73,7 @@ export async function readPayoutLifecycle(sql: Sql, settlementId: string, fail: 
       failure_code: string | null;
     }>
   >`
-    SELECT id, merchant_id, fees::text, created_at, settled_at, sent_at, failed_at, failure_code
+    SELECT id, merchant_id, fees::text, status::text AS status, created_at, settled_at, sent_at, failed_at, failure_code
       FROM pay.settlements WHERE id = ${settlementId}
   `;
   const settlement = settlements[0];
@@ -274,18 +279,33 @@ export async function readPayoutLifecycle(sql: Sql, settlementId: string, fail: 
     });
   }
 
-  const events: LifecycleEvent[] = built
-    .map((event) => ({
-      id: stableUuid(`${settlement.id}:${event.source}`),
-      at: iso(event.at),
-      kind: event.kind,
-      approvalId: event.approvalId,
-      railId: event.railId,
-      destinationKind: event.destinationKind,
-      destinationMasked: event.destinationMasked,
-      failure: event.failure,
-    }))
-    .sort(compareLifecycleEvents);
+  const events: LifecycleEvent[] = built.map((event) => ({
+    id: stableUuid(`${settlement.id}:${event.source}`),
+    at: iso(event.at),
+    timeKnown: true,
+    kind: event.kind,
+    approvalId: event.approvalId,
+    railId: event.railId,
+    destinationKind: event.destinationKind,
+    destinationMasked: event.destinationMasked,
+    failure: event.failure,
+  }));
+  const column = lifecycleStatus(settlement.status);
+  const floor = column ? floorKind(column, settlement.failure_code) : null;
+  if (column && floor && STATUS_RANK[derivePayoutLifecycleStatus(events.map((event) => event.kind))] < STATUS_RANK[column]) {
+    events.push({
+      id: stableUuid(`${settlement.id}:floor-${column}`),
+      at: null,
+      timeKnown: false,
+      kind: floor,
+      approvalId: null,
+      railId: null,
+      destinationKind: null,
+      destinationMasked: null,
+      failure: column === 'failed' ? safeFailure(settlement.failure_code) : null,
+    });
+  }
+  events.sort(compareLifecycleEvents);
 
   const status = derivePayoutLifecycleStatus(events.map((event) => event.kind));
   const withDestination = [...events].reverse().find((event) => event.destinationMasked && event.railId && event.destinationKind);
@@ -308,6 +328,26 @@ export async function readPayoutLifecycle(sql: Sql, settlementId: string, fail: 
     failure,
     events,
   };
+}
+
+const STATUS_RANK: Record<LifecycleStatus, number> = {
+  pending: 0,
+  posted: 1,
+  paid_out: 2,
+  failed: 3,
+};
+
+function lifecycleStatus(status: string): LifecycleStatus | null {
+  if (status === 'pending' || status === 'posted' || status === 'paid_out' || status === 'failed') return status;
+  return null;
+}
+
+/** The kind that raises derived status to the column when no timestamp records it. */
+function floorKind(status: LifecycleStatus, failureCode: string | null): LifecycleKind | null {
+  if (status === 'posted') return 'settlement.posted';
+  if (status === 'paid_out') return 'rail.confirmed';
+  if (status === 'failed') return failureCode === 'pay.settlement_released' ? 'settlement.released' : 'rail.refused';
+  return null;
 }
 
 function decisionKind(status: string): LifecycleKind | null {

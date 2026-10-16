@@ -30,6 +30,11 @@ const hash = `sha256:${'a'.repeat(64)}`;
 const window = { kind: 'preset', preset: 'today' } as const;
 /** An explicit range must sit on UTC midnights. */
 const series = { from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day' } as const;
+/** Statement reads refuse without a window. Seven days sits inside the 92-day technical cap. */
+function statementWindow(): { from: string; to: string } {
+  const to = Date.now() + 24 * 60 * 60 * 1000;
+  return { from: new Date(to - 7 * 24 * 60 * 60 * 1000).toISOString(), to: new Date(to).toISOString() };
+}
 export const ghost = (): string => randomUUID();
 
 // ── G: founder-only ─────────────────────────────────────────────────────────
@@ -350,7 +355,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     path: 'merchant.statement.list',
     scope: 'pay:read',
     own: 'ok',
-    input: (i) => ({ merchantId: i.merchantId, limit: 50 }),
+    input: (i) => ({ merchantId: i.merchantId, limit: 50, ...statementWindow() }),
   },
   // W5: the merchant-readable halt status for a named merchant (merchant-safe shape; an unnamed read is the global switch only).
   { path: 'payHalts.status', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
@@ -613,7 +618,7 @@ export const LIST_PROCS: ListProc[] = [
   },
   {
     name: 'trpc merchant.statement.list',
-    call: { via: 'trpc', path: 'merchant.statement.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
+    call: { via: 'trpc', path: 'merchant.statement.list', input: (e) => ({ merchantId: e.merchantId, limit: 200, ...statementWindow() }) },
     rows: pageRows,
   },
   {
@@ -796,7 +801,7 @@ export const TREE_PROCS: TreeProc[] = [
   { path: 'merchant.payoutDestinations.list', area: 'settlement.payout', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'payment.refunds.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'payment.refunds.get', area: 'payment', input: (i) => ({ refundEventId: i.refundEventId }) },
-  { path: 'merchant.statement.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
+  { path: 'merchant.statement.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50, ...statementWindow() }) },
   // The merchant metrics need BOTH `payment` and `settlement` over the subject; neither is a default grant, so one name stands for the pair.
   { path: 'merchantMetrics.snapshot', area: 'payment', input: (i) => ({ merchantId: i.merchantId, window }) },
   { path: 'merchantMetrics.series', area: 'payment', input: (i) => ({ merchantId: i.merchantId, ...series }) },

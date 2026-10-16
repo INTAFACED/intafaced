@@ -58,6 +58,18 @@ Internal tRPC (`src/router.ts`). Money is a **decimal string** in both direction
 
 Refunds and payouts carry their own scopes. Taking a payment and sending money back out are not the same authority. Bad destinations refuse as `pay.invalid_destination_ref` / `pay.destination_kind_mismatch` **before** any hold.
 
+### Merchant statement (`merchant.statement.list`)
+
+The page is one window, not the merchant's whole history. `from` and `to` are required (`pay.statement_range_required`). The span is at most 92 days (`pay.statement_range_too_wide`). One request resolves at most 2000 candidate ledger keys (`pay.statement_too_large`). Those two numbers are technical safety bounds so a read cannot walk every capture, settlement, refund, dispute, and payout the merchant has ever had. They are not a retention policy and not a fee.
+
+Running balances sum movements inside that window. A true opening balance at `from` needs a ledger balance-as-of. `LedgerClient` does not expose one, so the response says `runningBalances: "within_range"` and `opening: null`. Same-timestamp lines follow the ledger sequence when a client exposes `seq` or `sequence`, otherwise the hash chain (`previousHash`). A line whose reconstructed balance would go negative is flagged (`runningOrder: "order_ambiguous"`) and the page still returns.
+
+TODO: svc-ledger should grow a cursor that pages entries by account. This procedure should read that cursor instead of guessing ledger keys from pay rows.
+
+`payment.refunds.get` loads the merchant id and fences before it parses an amount or reads the ledger. A malformed row the caller does not own is `pay.refund_not_found`.
+
+`settlement.lifecycle` derives status from the timeline. When the status column is ahead of `settled_at` / `sent_at` / `failed_at` (migration 0073 did not backfill them), the read adds one synthetic event `{ at: null, timeKnown: false }` so the derived status is not lower than the column.
+
 **HTTP:** `POST /webhooks/:railId` (public, signature-authenticated), `GET /health`, `GET /ready`, hosted checkout `GET /checkout?token=` / `GET /pay/link/:token` (public HTML; browser via edge `/api/pay/checkout?token=`).
 
 ### User money in and out
