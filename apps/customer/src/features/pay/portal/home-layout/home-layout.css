@@ -7,12 +7,10 @@
     color: var(--if-fg);
     font-family: var(--if-font-ui);
   }
-  .plo *,
-  .plo-mobile-dialog * {
+  .plo * {
     box-sizing: border-box;
   }
-  .plo :where(h1, h2, h3, p, ul),
-  .plo-mobile-dialog :where(ul, p) {
+  .plo :where(h1, h2, h3, p, ul) {
     margin: 0;
     padding: 0;
   }
@@ -21,8 +19,8 @@
     color: inherit;
     text-decoration: none;
   }
-  .plo :where(a, button, summary):focus-visible,
-  .plo-grouped :where(a, summary):focus-visible {
+  .plo :where(a, button):focus-visible,
+  .plo-grouped :where(a, button):focus-visible {
     outline: 2px solid var(--if-lime);
     outline-offset: 4px;
   }
@@ -51,18 +49,6 @@
     font-size: 12px;
     color: var(--if-fg-2) !important;
   }
-  .plo--dashboard .plo-heading {
-    margin: 24px 0 28px;
-  }
-  .plo--dashboard .plo-heading h1 {
-    font-size: 14px;
-    font-weight: 500;
-    margin: 0;
-  }
-  .plo--dashboard .plo-heading p,
-  .plo--dashboard .plo-eyebrow {
-    display: none;
-  }
   .plo-tabs {
     display: flex;
     gap: 28px;
@@ -82,23 +68,6 @@
   .plo-tabs a[aria-current] {
     color: var(--if-fg);
     border-color: var(--if-lime);
-  }
-  .plo-tabs--c {
-    border: 0;
-    border-radius: 12px;
-    background: var(--if-panel);
-    gap: 4px;
-    padding: 4px;
-  }
-  .plo-tabs--c a {
-    border: 0;
-    border-radius: 9px;
-    padding: 0 24px;
-    min-height: 40px;
-  }
-  .plo-tabs--c a[aria-current] {
-    background: var(--if-hover);
-    color: var(--if-lime);
   }
   .plo-subtabs {
     display: flex;
@@ -132,13 +101,6 @@
   }
   .plo-balance {
     padding: 0 0 32px;
-  }
-  .plo-list-gap {
-    font-size: 12px;
-    color: var(--if-fg-2);
-    margin-bottom: 24px !important;
-    max-width: 720px;
-    line-height: 20px;
   }
   .plo-label {
     color: var(--if-fg-2);
@@ -326,23 +288,6 @@
     gap: 8px;
     min-height: 72px;
   }
-  .plo-disclosure {
-    border-top: 1px solid var(--if-line);
-    padding: 24px 0;
-  }
-  .plo-disclosure > summary {
-    cursor: pointer;
-    font-size: 16px;
-    font-weight: 500;
-    min-height: 32px;
-  }
-  .plo-disclosure[open] > summary {
-    margin-bottom: 24px;
-  }
-  .plo-card.plo-disclosure {
-    padding: 24px;
-    border: 0;
-  }
   .plo-volume {
     margin-bottom: 24px;
   }
@@ -381,57 +326,9 @@
     font-size: 11px;
     margin: 12px 0;
   }
-  .plo--b {
-    display: grid;
-    grid-template-columns: 200px minmax(0, 1fr);
-    gap: 64px;
-  }
-  .plo--b .plo-content {
-    max-width: 800px;
-    width: 100%;
-    margin: 0 auto;
-  }
-  .plo-sidebar {
-    border-right: 1px solid var(--if-line);
-    padding: 28px 20px 0 0;
-  }
-  .plo-sidebar > p {
-    font-size: 12px;
-    color: var(--if-fg-2);
-    margin-bottom: 24px;
-  }
-  .plo-grouped {
-    color: var(--if-fg);
-    font-family: var(--if-font-ui);
-  }
-  .plo-grouped details {
-    border-bottom: 1px solid var(--if-line);
-  }
-  .plo-grouped summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    min-height: 52px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    list-style: none;
-  }
-  .plo-grouped summary::-webkit-details-marker {
-    display: none;
-  }
-  .plo-grouped details[open] summary svg {
-    transform: rotate(180deg);
-  }
-  .plo-grouped details > div {
-    padding-bottom: 12px;
-  }
   .plo-grouped a {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    font-size: 12px;
     min-height: 44px;
     padding: 8px 12px;
     border-radius: 8px;
@@ -447,62 +344,6 @@
     padding: 12px 20px;
     max-height: 75vh;
     overflow-y: auto;
-  }
-  .plo--b .plo-heading {
-    margin-top: 24px;
-  }
-  .plo-centered {
-    width: 100%;
-    max-width: 720px;
-    margin: 0 auto;
-  }
-  .plo--b .plo-balance {
-    padding: 0 0 48px;
-  }
-  .plo--b .plo-feed {
-    padding-bottom: 24px;
-  }
-  .plo--b .plo-payment-feed a {
-    min-height: 88px;
-  }
-  .plo-trading {
-    width: 100%;
-  }
-  .plo--c .plo-heading {
-    margin-bottom: 20px;
-  }
-  .plo--c .plo-balance {
-    padding-bottom: 28px;
-  }
-  .plo--c .plo-chart {
-    height: 260px;
-  }
-  .plo--c .plo-kpi-strip {
-    border-top: 1px solid var(--if-line);
-    border-bottom: 1px solid var(--if-line);
-    padding: 24px 0;
-  }
-  .plo--c .plo-kpi-strip a + a {
-    border-left: 1px solid var(--if-line);
-    padding-left: 24px;
-  }
-  .plo-activity-tabs {
-    display: flex;
-    gap: 32px;
-    border-bottom: 1px solid var(--if-line);
-    margin: 16px 0 24px;
-  }
-  .plo-activity-tabs a {
-    color: var(--if-fg-2);
-    font-size: 15px;
-    padding-bottom: 16px;
-  }
-  .plo-activity-tabs a[aria-current] {
-    color: var(--if-fg);
-    border-bottom: 2px solid var(--if-lime);
-  }
-  .plo-mobile-menu {
-    display: none;
   }
   /* The existing Payments component keeps its data, filters, export and review flows. */
   .if-business .plo .pay-section {
@@ -546,61 +387,88 @@
   .if-business .plo [data-slot='table-container'] {
     border-radius: 12px;
   }
-  .plo-mobile-dialog {
-    max-height: 80dvh;
-    overflow-y: auto;
+  .plo-content {
+    padding-top: 28px;
+  }
+  .plo-subtabs {
+    padding-top: 4px;
+    gap: 24px;
+    scrollbar-width: thin;
+  }
+  .plo-subtabs a {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    border-bottom: 2px solid transparent;
+  }
+  .plo-subtabs a[aria-current] {
+    border-color: var(--if-line);
+  }
+  .if-business .plo [data-slot='button'] {
+    border-radius: 999px;
+  }
+  .if-business .plo .pay-section {
+    background: var(--if-panel);
+    padding: 24px;
+    border-radius: 16px;
+  }
+  .plo-heading {
+    margin-top: 0;
+  }
+  .plo [data-slot='status-tag'] {
+    border-radius: 999px;
+    border-color: transparent;
+    padding-inline: 8px;
+  }
+  .plo-money-exact {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .plo-money-exact button {
+    font-size: 11px;
+    min-height: 32px;
+    padding: 2px 6px;
+  }
+  .if-business .plo .pp-kpi-value {
+    overflow-wrap: anywhere;
+  }
+  .plo [data-slot='accordion-panel'] .pp-dashboard {
+    padding-top: 20px;
   }
   @media (max-width: 1000px) {
     .plo-home-grid {
       grid-template-columns: minmax(0, 1fr) 320px;
     }
-    .plo--b {
-      gap: 32px;
-      grid-template-columns: 170px minmax(0, 1fr);
-    }
     .plo-kpi-strip {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       row-gap: 24px;
-    }
-    .plo--c .plo-kpi-strip a + a {
-      border-left: 0;
-      padding-left: 0;
     }
   }
   @media (max-width: 760px) {
     .plo {
       width: calc(100% - 32px);
-      padding-top: 12px;
-      padding-bottom: 150px;
+      padding: 12px 0 120px;
     }
     .plo-home-grid {
-      width: 100%;
       display: block;
     }
     .plo-rail {
-      margin-top: 0;
-    }
-    .plo--b {
-      display: block;
-    }
-    .plo-sidebar {
-      display: none;
+      margin-top: 24px;
     }
     .plo-tabs {
       gap: 24px;
     }
     .plo-tabs a {
       font-size: 12px;
-      min-height: 44px;
-    }
-    .plo-tabs--c {
-      gap: 4px;
-    }
-    .plo-tabs--c a {
-      padding: 0 16px;
+      min-height: 48px;
     }
     .plo-subtabs {
       gap: 24px;
+    }
+    .plo-content {
+      padding-top: 24px;
     }
     .plo-number {
       font-size: 40px;
@@ -617,7 +485,8 @@
       padding-bottom: 28px;
     }
     .plo-heading {
-      margin: 24px 0;
+      margin: 0 0 24px;
+      flex-wrap: wrap;
     }
     .plo-heading h1 {
       font-size: 24px;
@@ -628,43 +497,20 @@
     }
     .plo-actions [data-slot='button'] {
       font-size: 12px;
-      padding-left: 14px;
-      padding-right: 14px;
+      padding-inline: 14px;
       min-height: 44px;
     }
     .plo-actions [data-slot='button'] svg {
       width: 14px;
     }
-    .plo-card {
+    .plo-card,
+    .if-business .plo .pay-section {
       padding: 20px;
-    }
-    .plo-mobile-menu {
-      position: fixed;
-      bottom: 78px;
-      right: 16px;
-      z-index: 30;
-      display: block;
-    }
-    .plo-mobile-menu [data-slot='button'] {
-      border-radius: 999px;
-      box-shadow: 0 4px 24px var(--if-scrim);
-      min-height: 48px;
-      gap: 8px;
-    }
-    .plo-mobile-dialog {
-      top: auto;
-      bottom: 16px;
-      translate: 0;
-      transform: translateX(-50%);
-      width: calc(100vw - 24px);
-      border-radius: 20px;
-      padding: 24px;
     }
     .plo .pp-asof {
       font-size: 10px;
     }
-    .plo-chart,
-    .plo--c .plo-chart {
+    .plo-chart {
       height: 180px;
       gap: 3px;
     }
@@ -687,16 +533,12 @@
       flex-direction: column;
       align-items: flex-start;
     }
-    /* At phone width the payment reference opens the full record; keep status in reach. */
     .plo--payments .pay-section table :is(th, td):is(:nth-child(2), :nth-child(4), :nth-child(5), :nth-child(7)) {
       display: none;
     }
     .plo--payments .pay-section table {
       min-width: 100%;
       width: 100%;
-    }
-    .plo--b .plo-balance {
-      padding-bottom: 36px;
     }
   }
 }

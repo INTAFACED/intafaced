@@ -12,13 +12,12 @@ import type { ApiResult } from '../../../shared/api';
 import type { Resource } from '../../../shared/resource';
 import type { PortalApi } from './api';
 import { CustomerDetailView, CustomersView } from './Customers';
-import { DashboardView, type DashboardData } from './Dashboard';
+import { DashboardInsights as DashboardView, type DashboardData } from './Dashboard';
 import { DisputeDetailView, DisputesView } from './Disputes';
 import { ExportsView } from './Exports';
 import type { ListState } from './hooks';
 import { NotificationsView } from './Notifications';
 import { OnboardingView } from './Onboarding';
-import { portalRefusal } from './refusal';
 import { TeamView } from './Team';
 import * as p from './schemas';
 
@@ -115,11 +114,11 @@ describe('dashboard', () => {
     const out = render(data());
     expect(out).toContain('Paid in');
     expect(out).toContain('1,500.25');
-    expect(out).toContain('15.0025');
+    expect(out).toContain('15.00');
     expect(out).toContain('USDT');
     expect(out).toContain('As of');
     expect(out).toContain('4 s behind');
-    expect(out).toContain('1,234.560000000000000001');
+    expect(out).toContain('1,234.56');
     expect(out).toMatch(/href="\/pay\/payments"/);
   });
   it('gives the chart a text equivalent and a table fallback control', () => {

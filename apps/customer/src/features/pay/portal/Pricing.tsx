@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
-import { displayAmount } from '../../../shared/money';
+import { portalAmount } from './presentation';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Button, DataTable, Field } from '@intafaced/ui';
 import { PayTime, PaySection } from '../components';
@@ -246,7 +246,7 @@ export function FeeCalculator({ portal, merchantId, assets }: { portal: PortalAp
       {outcome &&
         (outcome.result.ok ? (
           <div aria-live="polite">
-            <h3 className="pp-sub">{t('calcResultFor', { amount: displayAmount(outcome.amount), asset: outcome.asset })}</h3>
+            <h3 className="pp-sub">{t('calcResultFor', { amount: portalAmount(outcome.amount, outcome.asset), asset: outcome.asset })}</h3>
             <Facts
               items={[
                 [t('calcFee'), <Money value={outcome.result.data.fee} asset={outcome.asset} />],

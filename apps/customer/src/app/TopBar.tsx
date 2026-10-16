@@ -12,8 +12,7 @@ import { ShellIcon } from './icons';
 import { accountMenu, tabSpecs, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
 import { TopSearch } from './TopSearch';
-import { currentLayout, layoutHref } from '../features/pay/portal/layout-options/layout';
-import { GroupedMenu } from '../features/pay/portal/layout-options/Navigation';
+import { GroupedMenu, groups } from '../features/pay/portal/home-layout/Navigation';
 
 /** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
 export function useBannerOffset() {
@@ -54,8 +53,9 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
   const link = useRef<HTMLAnchorElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const menuId = useId();
-  const layout = currentLayout();
-  const groupedPay = tab.door === 'Pay' && layout;
+  const groupedPay =
+    tab.door === 'Pay' &&
+    groups.some((g) => g.items.some(([href]) => location.pathname === href || location.pathname.startsWith(href + '/')));
   const hasMenu = Boolean(groupedPay) || tab.items.length > 0;
   const show = () => {
     clearTimeout(timer.current);
@@ -88,7 +88,7 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
       <a
         ref={link}
         className="tb-tab"
-        href={groupedPay ? layoutHref(tab.href, groupedPay) : tab.href}
+        href={tab.href}
         aria-current={current === tab.door ? 'page' : undefined}
         aria-expanded={hasMenu ? open : undefined}
         aria-controls={hasMenu && open ? menuId : undefined}
@@ -101,7 +101,7 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
         // TODO(B1): swap to the Base UI NavigationMenu in @intafaced/ui (same rows, same copy).
         <div className="tb-popover tb-menu" id={menuId}>
           {groupedPay ? (
-            <GroupedMenu layout={groupedPay} here={location.pathname} close={() => setOpen(false)} />
+            <GroupedMenu here={location.pathname} close={() => setOpen(false)} />
           ) : (
             <ul>
               {tab.items.map((item) => (

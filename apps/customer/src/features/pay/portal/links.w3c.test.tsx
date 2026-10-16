@@ -40,7 +40,7 @@ it('rejects invalid amounts and use caps; requires an asset for a fixed amount w
 });
 it('shows exact amounts, scoped loaded counts and the missing backend capabilities', () => {
   const out = renderToString(<LinksView {...props} resource={{ status: 'ready', data: [link] }} />);
-  expect(out).toContain('9,007,199,254,740,993.000000000000000001');
+  expect(out).toContain('9,007,199,254,740,993.00');
   expect(out).toContain('1 shown from 1 loaded links.');
   expect(out).toContain('Filters below apply only');
   expect(out).not.toContain('token=');

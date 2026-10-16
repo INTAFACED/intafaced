@@ -1,3 +1,4 @@
+import { paymentLabel, portalAmount } from './portal/presentation';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
@@ -112,17 +113,17 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
                 {rows.map((payment) => (
                   <tr key={payment.id}>
                     <td>
-                      {payment.id.slice(0, 8)}
+                      {paymentLabel(payment)}
                       <small className="pay-cell-note">{payment.createdAt}</small>
                     </td>
                     <td className="numeric">
-                      {displayAmount(payment.amount)} {payment.assetId}
+                      {portalAmount(payment.amount, payment.assetId)} {payment.assetId}
                     </td>
                     <td className="numeric">
-                      {displayAmount(payment.capturedAmount)} {payment.assetId}
+                      {portalAmount(payment.capturedAmount, payment.assetId)} {payment.assetId}
                     </td>
                     <td className="numeric">
-                      {displayAmount(payment.refundedAmount)} {payment.assetId}
+                      {portalAmount(payment.refundedAmount, payment.assetId)} {payment.assetId}
                     </td>
                     <td>
                       <Status value={payment.status} />

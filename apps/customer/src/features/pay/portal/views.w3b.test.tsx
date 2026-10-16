@@ -12,8 +12,6 @@ import type { ApiResult } from '../../../shared/api';
 import type { Resource } from '../../../shared/resource';
 import type { PortalApi } from './api';
 import { ApprovalsView } from './Approvals';
-import { OwnerOnly } from './MerchantPortal';
-import { portalCopy } from './copy';
 import { LimitsView } from './Limits';
 import { PaymentDetailView, PaymentsView } from './Payments';
 import { PayoutDetailView, PayoutsView } from './Payouts';
@@ -643,8 +641,8 @@ describe('payout approvals queue (P31)', () => {
   });
   it('shows the older request first, and hides decided requests under the default "waiting" filter', () => {
     const out = view();
-    expect(out.indexOf('>985<')).toBeGreaterThan(-1);
-    expect(out.indexOf('>985<')).toBeLessThan(out.indexOf('>40<'));
+    expect(out.indexOf('>985.00<')).toBeGreaterThan(-1);
+    expect(out.indexOf('>985.00<')).toBeLessThan(out.indexOf('>40.00<'));
     expect(out).not.toContain('A second person rejected it');
   });
   it('disables a request you made, with the reason in words', () => {

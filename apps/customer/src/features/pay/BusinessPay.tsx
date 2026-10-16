@@ -1,3 +1,4 @@
+import { portalAmount } from './portal/presentation';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useMemo, useState } from 'react';
 import { z } from 'zod';
@@ -5,7 +6,7 @@ import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
 import { displayAmount } from '../../shared/money';
-import { Button, DataTable, Field, Page } from '@intafaced/ui';
+import { Button, DataTable, Field } from '@intafaced/ui';
 import type { ApiResult } from '../../shared/api';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status, PayTime } from './components';
@@ -13,10 +14,10 @@ import { MerchantPayments } from './MerchantPayments';
 import { MerchantBilling } from './MerchantBilling';
 import { MerchantNetwork, MerchantPermissions, MerchantDeveloper } from './MerchantNetwork';
 import * as s from './schemas';
-import { portalLinks } from './portal/routes';
-import { portalCopy } from './portal/copy';
+import { LayoutFrame } from './portal/home-layout/Frame';
+import './portal/portal.css';
 
-/** The Business Pay menu. The merchant portal (`portal/`) shows the same entries plus its own. */
+/** Legacy room lookup. The shared portal frame owns navigation for every merchant route. */
 export const businessRooms = [
   ['/pay/merchant', 'overview'],
   ['/pay/money', 'balance'],
@@ -42,22 +43,10 @@ export function BusinessPay({ path, authority }: { path: string; authority: PayB
   const room = rooms.find(([route]) => route === current)?.[1] ?? 'merchantDesk';
   const merchant = useResource((signal) => pay.merchant(signal), `pay:merchant:${userId}:${authority?.companyId ?? 'unavailable'}`);
   return (
-    <Page eyebrow={payCopy.t('businessPay')} title={<PayCopy k={room} />} description={authority?.companyName}>
+    <LayoutFrame here={current ?? '/pay/merchant'} title={<PayCopy k={room} />} purpose={authority?.companyName}>
       <PayState resource={merchant.resource} retry={merchant.reload}>
         {(record) => (
-          <div className="pay-business">
-            <nav aria-label={payCopy.t('businessPayRooms')} className="pay-business-nav">
-              {rooms.map(([route, label]) => (
-                <a href={route} key={route} aria-current={route === current ? 'page' : undefined}>
-                  <PayCopy k={label} />
-                </a>
-              ))}
-              {portalLinks.map(([route, label]) => (
-                <a href={route} key={route}>
-                  {portalCopy.t(label)}
-                </a>
-              ))}
-            </nav>
+          <div className="stack">
             <div className="pay-business-content">
               {current === '/pay/money' ? (
                 <MerchantBalance pay={pay} />
@@ -99,7 +88,7 @@ export function BusinessPay({ path, authority }: { path: string; authority: PayB
           </a>
         </div>
       )}
-    </Page>
+    </LayoutFrame>
   );
 }
 export async function validatedMutation<I, O>(
@@ -250,13 +239,13 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
                   <p className="muted">
                     <PayCopy k="available" /> {asset}
                   </p>
-                  <strong className="pay-value numeric">{hideBalances ? payCopy.t('hidden') : displayAmount(data.available)}</strong>
+                  <strong className="pay-value numeric">{hideBalances ? payCopy.t('hidden') : portalAmount(data.available, asset)}</strong>
                 </div>
                 <div>
                   <p className="muted">
                     <PayCopy k="clearing" /> {asset}
                   </p>
-                  <strong className="pay-value numeric">{hideBalances ? payCopy.t('hidden') : displayAmount(data.clearing)}</strong>
+                  <strong className="pay-value numeric">{hideBalances ? payCopy.t('hidden') : portalAmount(data.clearing, asset)}</strong>
                 </div>
               </div>
             )}
@@ -403,7 +392,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
                     <td className="numeric">
                       {link.amount === null
                         ? payCopy.t('payerChooses')
-                        : `${displayAmount(link.amount)} ${link.currency ?? payCopy.t('assetChosenByPayer')}`}
+                        : `${portalAmount(link.amount, link.currency ?? '')} ${link.currency ?? payCopy.t('assetChosenByPayer')}`}
                     </td>
                     <td>
                       {link.uses} / {link.maxUses ?? payCopy.t('unbounded')}
@@ -543,9 +532,9 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                       {record.window}
                       <small className="pay-cell-note">{record.assetId}</small>
                     </td>
-                    <td className="numeric">{displayAmount(record.gross)}</td>
-                    <td className="numeric">{displayAmount(record.fees)}</td>
-                    <td className="numeric">{displayAmount(record.net)}</td>
+                    <td className="numeric">{portalAmount(record.gross, record.assetId)}</td>
+                    <td className="numeric">{portalAmount(record.fees, record.assetId)}</td>
+                    <td className="numeric">{portalAmount(record.net, record.assetId)}</td>
                     <td>
                       <Status value={record.status} />
                     </td>

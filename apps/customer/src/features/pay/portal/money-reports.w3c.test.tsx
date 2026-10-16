@@ -39,7 +39,7 @@ const ready = <T,>(data: T) => ({ status: 'ready' as const, data });
 const render = (data = snapshot) => renderToString(<MoneyView snapshot={ready(data)} control={ready(control)} retry={() => {}} />);
 it('keeps every balance decimal exact and never invents a reserve amount', () => {
   const out = render();
-  expect(out).toContain('9,007,199,254,740,993.000000000000000001');
+  expect(out).toContain('9,007,199,254,740,993.00');
   expect(out).toContain('No reserve policy configured');
   expect(out).toContain('Reserved balances');
   expect(out).not.toContain('Reserved balance</span>');

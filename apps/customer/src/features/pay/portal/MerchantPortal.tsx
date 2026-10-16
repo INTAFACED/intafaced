@@ -2,9 +2,7 @@ import { Button } from '@intafaced/ui';
 import { useMemo, type ReactNode } from 'react';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
-import { EmptyState, Page } from '@intafaced/ui';
-import { payCopy } from '../copy';
-import { businessRooms } from '../BusinessPay';
+import { EmptyState } from '@intafaced/ui';
 import { createPortalApi, type PortalApi } from './api';
 import { Gate, PortalLoading } from './components';
 import { portalCopy } from './copy';
@@ -20,12 +18,12 @@ import { PaymentDetailPage, Payments } from './Payments';
 import { PayoutDetailPage, Payouts } from './Payouts';
 import { Pricing } from './Pricing';
 import { SettlementDetailPage, Settlements } from './Settlements';
-import { parsePortalRoute, portalLinks, type PortalRoute } from './routes';
+import { parsePortalRoute, type PortalRoute } from './routes';
 import { Team } from './Team';
 import type { MemberRole, MerchantRecord } from './schemas';
 import './portal.css';
-import { currentLayout } from './layout-options/layout';
-import { LayoutFrame } from './layout-options/Frame';
+import { ExactMoneyContext } from './presentation';
+import { LayoutFrame } from './home-layout/Frame';
 import { Refunds } from './Refunds';
 import { Links } from './Links';
 import { MerchantMoney, BalanceActivity } from './Money';
@@ -75,7 +73,7 @@ export function MerchantPortal({
         reloadMerchant={merchant.reload}
         team={team.resource}
         starterFeeBps={starterFeeBps}
-        legacyHome={!currentLayout() && legacyHome}
+        legacyHome={legacyHome}
       />
     </PortalFrame>
   );
@@ -85,31 +83,14 @@ export function PortalFrame({ route, children }: { route: PortalRoute; children:
   const { t } = portalCopy.useCopy();
   const copy = roomCopy(route, t);
   const here = hrefFor(route);
-  const layout = currentLayout();
-  if (layout)
-    return (
-      <LayoutFrame layout={layout} here={here} title={copy.title} purpose={copy.purpose} action={copy.action}>
-        {children}
-      </LayoutFrame>
-    );
   return (
-    <Page eyebrow={payCopy.t('businessPay')} title={copy.title} description={copy.purpose} actions={copy.action}>
-      <div className="pay-business">
-        <nav aria-label={payCopy.t('businessPayRooms')} className="pay-business-nav">
-          {businessRooms.map(([href, label]) => (
-            <a href={href} key={href} aria-current={href === here ? 'page' : undefined}>
-              {payCopy.t(label)}
-            </a>
-          ))}
-          {portalLinks.map(([href, label]) => (
-            <a href={href} key={href} aria-current={href === here ? 'page' : undefined}>
-              {t(label)}
-            </a>
-          ))}
-        </nav>
-        <div className="pay-business-content pp">{children}</div>
-      </div>
-    </Page>
+    <LayoutFrame here={here} title={copy.title} purpose={copy.purpose} action={copy.action}>
+      <ExactMoneyContext.Provider
+        value={Boolean(route.param || route.step) || route.room.endsWith('-new') || route.room === 'money-activity'}
+      >
+        {children}
+      </ExactMoneyContext.Provider>
+    </LayoutFrame>
   );
 }
 
@@ -549,7 +530,7 @@ function PortalRoom({
             return (
               <div className="stack">
                 <Dashboard portal={portal} merchantId={account.merchantId} merchant={account.record} role={account.role} />
-                {!currentLayout() && legacyHome}
+                {legacyHome}
               </div>
             );
           }}

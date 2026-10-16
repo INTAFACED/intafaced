@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
-import { currentLayout } from './layout-options/layout';
-import { LayoutDashboard } from './layout-options/Dashboard';
-import { displayAmount } from '../../../shared/money';
+import { LayoutDashboard } from './home-layout/Dashboard';
+import { portalAmount } from './presentation';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { PaySection } from '../components';
@@ -43,22 +42,10 @@ export function Dashboard({
     d30.reload();
     series.reload();
   };
-  const layout = currentLayout();
-  if (layout)
-    return (
-      <LayoutDashboard
-        layout={layout}
-        portal={portal}
-        merchantId={merchantId}
-        merchant={merchant}
-        role={role}
-        data={{ today: today.resource, rolling_7d: d7.resource, rolling_30d: d30.resource, series: series.resource }}
-        retry={retry}
-        todayDay={utcDay(now)}
-      />
-    );
   return (
-    <DashboardView
+    <LayoutDashboard
+      portal={portal}
+      merchantId={merchantId}
       merchant={merchant}
       role={role}
       data={{ today: today.resource, rolling_7d: d7.resource, rolling_30d: d30.resource, series: series.resource }}
@@ -67,8 +54,9 @@ export function Dashboard({
     />
   );
 }
+export { LayoutDashboardView as DashboardView } from './home-layout/Dashboard';
 
-export function DashboardView({
+export function DashboardInsights({
   merchant,
   role,
   data,
@@ -290,7 +278,7 @@ function DailyChart({ series, retry, todayDay }: { series: Resource<Series>; ret
               {assets.length > 1 && <Tabs items={assets} value={asset} onChange={setAssetPick} label={t('chartAsset')} />}
               <div className="pp-chart" role="img" aria-label={t('chartAria', { asset, days })}>
                 {rows.map((bar) => (
-                  <div key={bar.day} className="pp-bar-slot" title={`${bar.day}: ${displayAmount(bar.volume)} ${asset}`}>
+                  <div key={bar.day} className="pp-bar-slot" title={`${bar.day}: ${portalAmount(bar.volume, asset)} ${asset}`}>
                     <span
                       className={`pp-bar${bar.today ? ' pp-bar--today' : ''}`}
                       style={{ height: `${Math.max(bar.pct, bar.pct > 0 ? 2 : 0)}%` }}
@@ -310,7 +298,7 @@ function DailyChart({ series, retry, todayDay }: { series: Resource<Series>; ret
                   {[...rows].reverse().map((bar) => (
                     <tr key={bar.day}>
                       <td>{bar.day}</td>
-                      <td className="numeric">{displayAmount(bar.volume)}</td>
+                      <td className="numeric">{portalAmount(bar.volume, asset)}</td>
                     </tr>
                   ))}
                 </DataTable>

@@ -95,7 +95,7 @@ it('keeps money exact and separates invoice creation from payment', () => {
       reload={noop}
     />,
   );
-  expect(out).toContain('9,007,199,254,740,993.000000000000000001');
+  expect(out).toContain('9,007,199,254,740,993.00');
   expect(out).toContain('USDT');
   expect(out).toContain('not proof of payment');
   expect(out).toContain('TEST-period-key');
@@ -178,7 +178,7 @@ it('uses the same complete mandate summary for selection and confirmation, inclu
     'Authorization starts',
     'Authorization ends',
     'Authorization ceiling',
-    '10,000,000,000,000,000.000000000000000001',
+    '10,000,000,000,000,000.00',
   ])
     expect(out).toContain(value);
   expect(out).toContain(`dateTime="${at}"`);

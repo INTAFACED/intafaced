@@ -213,6 +213,8 @@ export const checkoutSchema = z.object({
 });
 export const paymentSchema = z.object({
   id,
+  customerRef: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
   merchantId: id,
   profileId: id.nullable(),
   amount,

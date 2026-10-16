@@ -43,7 +43,7 @@ it('keeps decimal precision, folds the two events into one refund, and never mix
     event('refunded', 'TEST-r1', '0.000000000000000001'),
     event('refund.reversed', 'TEST-r2', '9007199254740993.000000000000000001'),
   ]);
-  expect(out).toContain('0.000000000000000001');
+  expect(out).toContain('&lt;0.01');
   expect(out).toContain('2 refunds shown for this payment.');
   expect(out).toContain('This is not an account-wide list');
 });

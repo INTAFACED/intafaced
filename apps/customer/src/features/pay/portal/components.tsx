@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
-import { displayAmount } from '../../../shared/money';
-import { Button, EmptyState, StateBlock, StatusTag, Amount } from '@intafaced/ui';
+import { MoneyDisplay } from './presentation';
+import { Button, EmptyState, StateBlock, StatusTag } from '@intafaced/ui';
 import { PayTime } from '../components';
 import type { ListState } from './hooks';
 import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
@@ -21,7 +21,7 @@ export function PortalLoading({ rows = 3, label }: { rows?: number; label?: stri
 export function ComingSoon({ title, children }: { title?: string; children?: ReactNode }) {
   const { t } = portalCopy.useCopy();
   return (
-    <section className="pp-soon" aria-label={title ?? t('comingSoonTitle')}>
+    <section className="pp-soon">
       <span className="pp-soon-tag">{t('comingSoonTag')}</span>
       <h3>{title ?? t('comingSoonTitle')}</h3>
       <p>{children ?? t('comingSoonBody')}</p>
@@ -155,7 +155,7 @@ export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[
     <span className="pp-lines">
       {items.map((item) => (
         <span key={item.assetCode} className="pp-line">
-          <Amount value={displayAmount(item.amount)} sensitive={false} />{' '}
+          <MoneyDisplay value={item.amount} asset={item.assetCode} />{' '}
           <span className="pp-unit" lang="zxx">
             {item.assetCode}
           </span>
@@ -167,7 +167,7 @@ export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[
 export function Money({ value, asset }: { value: string; asset: string }) {
   return (
     <span className="numeric pp-money">
-      <Amount value={displayAmount(value)} sensitive={false} />{' '}
+      <MoneyDisplay value={value} asset={asset} />{' '}
       <span className="pp-unit" lang="zxx">
         {asset}
       </span>

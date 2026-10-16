@@ -1,5 +1,3 @@
-import type { PlainKey } from './copy';
-
 export type PortalRoom =
   | 'conversion'
   | 'conversion-new'
@@ -126,18 +124,3 @@ export function parsePortalRoute(path: string): PortalRoute | null {
   }
   return null;
 }
-
-/** Links added to the Business Pay menu, in the order they are shown. */
-export const portalLinks: ReadonlyArray<readonly [string, PlainKey]> = [
-  ['/pay/conversion', 'navConversion'],
-  ['/pay/compliance', 'navCompliance'],
-  ['/pay/settings', 'navSettings'],
-  ['/pay/refunds', 'navRefunds'],
-  ['/pay/onboarding', 'navOnboarding'],
-  ['/pay/team', 'navTeam'],
-  ['/pay/exports', 'navExports'],
-  ['/pay/notifications', 'navNotifications'],
-  ['/pay/approvals', 'navApprovals'],
-  ['/pay/pricing', 'navPricing'],
-  ['/pay/limits', 'navLimits'],
-];
