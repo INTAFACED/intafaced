@@ -12,6 +12,7 @@ import {
   ciWouldRun,
   collapseChecks,
   coverageProblems,
+  sharedRequiredCheckProblem,
   mainCopyProblem,
   mergeCommand,
   runGate,
@@ -101,7 +102,11 @@ function world(extra = {}) {
     observed.push(i);
     return w.evidence ?? { pass: true, reasons: [], classifications: [], summary: ['Exact head CI checks passed.'] };
   };
-  const run = (o = {}, deps = {}) => runGate(opts(o), { gh, ...clock(), evidenceCollector, ...deps });
+  const readLiveMain = () => {
+    const value = typeof w.liveMain === 'function' ? w.liveMain() : (w.liveMain ?? w.mergeBaseTip ?? TARGET);
+    return value;
+  };
+  const run = (o = {}, deps = {}) => runGate(opts(o), { gh, ...clock(), evidenceCollector, readLiveMain, ...deps });
   return { w, gh, calls, observed, run };
 }
 
@@ -362,7 +367,7 @@ function fakeGit(overrides = {}) {
   const git = (args) => {
     const key = args.join(' ');
     calls.push(key);
-    return overrides[key] ?? { status: 0, stdout: args[0] === 'rev-parse' ? HEAD + '\n' : '', stderr: '' };
+    return overrides[key] ?? { status: 0, stdout: args[0] === 'rev-parse' ? `${TARGET}\n` : '', stderr: '' };
   };
   return { git, calls };
 }
@@ -445,7 +450,7 @@ test('verified lifecycle saves exact bound receipt before posting PASS', async (
         return writePassReceipt(i);
       },
     });
-    assert.equal(writeInput.gateSha, HEAD);
+    assert.equal(writeInput.gateSha, TARGET);
     assert.equal(writeInput.base, TARGET);
     assert.ok(existsSync(r.receipt.path));
     const saved = JSON.parse(readFileSync(r.receipt.path, 'utf8'));
@@ -727,5 +732,44 @@ test('tested base is the merge result main parent, not the PR creation base or m
   const result = await w.run();
   assert.equal(result.base, TARGET);
   assert.equal(result.reviewBase, BASE);
+  assert.equal(result.liveMain, TARGET);
   assert.equal(w.observed[0].mergeSha, MERGE);
 });
+test('a stale merge parent that is not live main is refused at the start', async () => {
+  const live = 'e'.repeat(40);
+  const w = world({ liveMain: live });
+  await assert.rejects(w.run(), /Tested main parent .* is not the live main ref/);
+});
+test('live main moving before the verdict is refused', async () => {
+  let reads = 0;
+  const w = world({ liveMain: () => (reads++ === 0 ? TARGET : 'e'.repeat(40)) });
+  await assert.rejects(w.run(), /Live main moved during this gate run/);
+});
+test('two runs sharing a required check key fail closed instead of keeping the latest', async () => {
+  const older = {
+    ...REQ[0],
+    bucket: 'fail',
+    state: 'FAIL',
+    completedAt: '2026-10-15T00:00:00Z',
+    link: 'https://github.com/o/r/actions/runs/1/job/9',
+  };
+  const newer = { ...REQ[0], bucket: 'pass', completedAt: '2026-10-16T00:00:00Z', link: 'https://github.com/o/r/actions/runs/2/job/10' };
+  assert.match(sharedRequiredCheckProblem([older, newer]), /Gitleaks\/Gitleaks ×2/);
+  assert.equal(sharedRequiredCheckProblem([...REQ, ...CI]), null);
+  await assert.rejects(world({ checks: [older, newer, REQ[1], ...CI] }).run(), /shared by more than one run/);
+});
+test('pre-receipt refuses a tested parent that is not the captured live main', async () =>
+  withReceipts(async (receiptRoot) => {
+    const stale = 'e'.repeat(40);
+    const w = world({ liveMain: stale, mergeBaseTip: stale });
+    await assert.rejects(
+      runVerifiedGate(opts(), {
+        git: fakeGit().git,
+        gh: w.gh,
+        receiptRoot,
+        runGateFn: (o) => w.run(o),
+        writeReceipt: () => assert.fail('stale main parent must not write a receipt'),
+      }),
+      /Tested main parent .* is not the live main ref/,
+    );
+  }));

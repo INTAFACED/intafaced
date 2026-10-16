@@ -650,6 +650,8 @@ export async function collectEvidence({ gh, repo, head, base, mergeSha, checks, 
       if (merge.sha !== testedSha || merge.parents?.length !== 2 || merge.parents[0]?.sha !== base || merge.parents[1]?.sha !== head)
         throw new Error('tested merge parents do not match target-main tip and exact PR head');
       if (TEST_JOB_POLICY[check.name]) {
+        const scopeProblem = coverageProblem(check, files);
+        if (scopeProblem) throw new Error(scopeProblem);
         const headProof = testExecutionProof(headJob, headLog, files, workspaceRoots),
           baseProof = testExecutionProof(baseJob, baseLog, files, workspaceRoots);
         if (headProof.problem || baseProof.problem) throw new Error(headProof.problem || baseProof.problem);

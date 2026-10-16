@@ -10,7 +10,7 @@ import { evaluateGateFileRule } from './gate-file-guard.mjs';
 import { GitHubRefusalError, ghJson, makeGh } from './gate-gh.mjs';
 import { classify } from '../ci/ci-affected.mjs';
 import { collectEvidence } from './merge-evidence.mjs';
-import { isProtectedPath, validateOpusReview, writePassReceipt, invalidateReceipt } from './merge-review.mjs';
+import { canonicalPatch, isProtectedPath, validateOpusReview, writePassReceipt, invalidateReceipt } from './merge-review.mjs';
 
 export const REPO = 'Phantom-X-007/intafaced';
 export const MARKER = '<!-- merge-gate -->';
@@ -104,6 +104,23 @@ export function ciWouldRun(files, patterns = CI_PR_PATHS) {
   });
 }
 
+/**
+ * Two runs that share a required check key fail closed. A later green Gitleaks
+ * (or a PR-added workflow that reuses the required name) must not hide a red one.
+ * Non-required keys still collapse to the latest attempt.
+ */
+export function sharedRequiredCheckProblem(checks) {
+  const counts = new Map();
+  for (const check of checks) {
+    const key = keyOf(check);
+    if (!REQUIRED_KEYS.includes(key)) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const shared = [...counts.entries()].filter(([, count]) => count > 1);
+  if (!shared.length) return null;
+  return `Required check key is shared by more than one run: ${shared.map(([key, count]) => `${key} ×${count}`).join(', ')}.`;
+}
+
 /** One entry per workflow+name (a re-run leaves several): keep the latest by completedAt, a pending entry counts as latest. */
 export function collapseChecks(checks) {
   const byName = new Map();
@@ -153,8 +170,16 @@ export async function runGate(
     log = () => {},
     evidenceCollector = collectEvidence,
     reviewValidator = validateOpusReview,
+    readLiveMain,
+    readCanonicalPatch,
   } = {},
 ) {
+  const liveMainRef = () => {
+    if (typeof readLiveMain !== 'function') throw new GateError('Live main ref is required to bind the tested parent.');
+    const sha = String(readLiveMain() ?? '').trim();
+    if (!/^[0-9a-f]{40}$/.test(sha)) throw new GateError('Could not read the live main ref.');
+    return sha;
+  };
   const { pr, head, repo } = o;
   const viewPr = () =>
     readPrSnapshot(gh, repo, pr, 'number,state,isDraft,headRefOid,baseRefOid,baseRefName,title,body,changedFiles,mergeable,url');
@@ -178,6 +203,7 @@ export async function runGate(
       throw new GateError('PR title or declarations changed while checking; run the gate again.');
   };
   assertSnapshot(first, true);
+  const liveMain = liveMainRef();
   const pages = ghJson(gh, ['api', '--paginate', '--slurp', `repos/${repo}/pulls/${pr}/files`]);
   const entries = pages.flat();
   if (!entries.length || entries.some((f) => typeof f.filename !== 'string'))
@@ -200,6 +226,7 @@ export async function runGate(
     )
       throw new GateError('GitHub merge result does not bind the target main parent and exact PR head.');
     base = merge.parents[0].sha;
+    if (base !== liveMain) throw new GateError(`Tested main parent ${base} is not the live main ref ${liveMain}.`);
   }
   const compared = ghJson(gh, ['api', `repos/${repo}/compare/${base}...${head}`]);
   const reviewBase = compared.merge_base_commit?.sha;
@@ -212,7 +239,12 @@ export async function runGate(
   const declarations = [trustedBody(first), ...comments.map((c) => c.body ?? '')].join('\n');
   const readChecks = () => {
     const r = gh(['pr', 'checks', String(pr), '-R', repo, '--json', 'name,state,bucket,workflow,link,completedAt'], { allowFail: true });
-    if (r.stdout.trim()) return collapseChecks(JSON.parse(r.stdout));
+    if (r.stdout.trim()) {
+      const raw = JSON.parse(r.stdout);
+      const shared = sharedRequiredCheckProblem(raw);
+      if (shared) throw new GateError(shared);
+      return collapseChecks(raw);
+    }
     if (/no checks reported/i.test(r.stderr)) return [];
     throw new GateError(`gh pr checks returned nothing (${r.status}): ${r.stderr.trim().slice(0, 300)}`);
   };
@@ -277,11 +309,27 @@ export async function runGate(
     if (!evidence.pass && !evidence.reasons.length) reasons.push('Exact-base/head evidence did not pass.');
   }
   const protectedFiles = files.filter(isProtectedPath);
-  const reviewResult = protectedFiles.length ? reviewValidator({ head, base: reviewBase, declarations }) : { pass: true, reasons: [] };
+  let patch;
+  if (protectedFiles.length && readCanonicalPatch) {
+    try {
+      patch = readCanonicalPatch({ base: reviewBase, head });
+    } catch (error) {
+      throw new GateError(`Canonical patch failed: ${error.message}`);
+    }
+    if (!patch || !/^[a-f0-9]{64}$/.test(patch.hash ?? '') || !Array.isArray(patch.files))
+      throw new GateError('Canonical patch did not return a hash and file list.');
+  }
+  const reviewResult = protectedFiles.length
+    ? reviewValidator({ head, base: reviewBase, declarations, patch })
+    : { pass: true, reasons: [] };
   reasons.push(...reviewResult.reasons);
   if (!reviewResult.pass && !reviewResult.reasons.length) reasons.push('Independent Opus review did not pass.');
   const final = viewPr();
   assertSnapshot(final);
+  const liveMainAtVerdict = liveMainRef();
+  if (liveMainAtVerdict !== liveMain) throw new GateError('Live main moved during this gate run; run its current copy again.');
+  if (!docsOnly && base !== liveMainAtVerdict)
+    throw new GateError(`Tested main parent ${base} is not the live main ref ${liveMainAtVerdict}.`);
   if (final.mergeable === 'CONFLICTING') reasons.push('PR has merge conflicts with main');
   // Evidence can take minutes. Reject a newly started run or any changed check before issuing a verdict.
   const finalChecks = readChecks(),
@@ -306,6 +354,8 @@ export async function runGate(
     evidence,
     protectedFiles,
     review: reviewResult.review,
+    patch,
+    liveMain,
   };
   const verdict = evalResult.pass ? 'PASS' : 'FAIL';
   const comment = renderEvidenceComment({ verdict, head, base, reviewBase, targetBase, pr, repo, checks: settled.checks, evalResult });
@@ -317,8 +367,10 @@ export async function runGate(
     comment,
     base,
     reviewBase,
+    liveMain,
     mergeSha,
     targetBase,
+    patch,
     snapshot: first,
     checks: settled.checks,
     declarationComments,
@@ -351,7 +403,7 @@ export function renderEvidenceComment({ verdict, head, base, reviewBase, targetB
     MARKER,
     `**Merge gate: ${verdict}** for head \`${head}\``,
     '',
-    `- Review merge base: \`${reviewBase}\`; tested target main: \`${base}\`.`,
+    `- Review merge base: \`${reviewBase}\`; tested target main: \`${base}\`; live main: \`${e.liveMain ?? base}\`.`,
     `- Required checks: ${REQUIRED.map((r) => `${r.name} ${e.required[r.name]}`).join(', ')}.`,
     `- Finished checks reported: ${checks.length}.`,
   ];
@@ -362,6 +414,7 @@ export function renderEvidenceComment({ verdict, head, base, reviewBase, targetB
     lines.push(
       `- Gate files changed: ${e.gate.gateFiles.map((f) => `\`${f.file}\``).join(', ')} (${e.gate.declared ? 'declared' : 'undeclared'}); judged by origin/main's copy.`,
     );
+  if (e.patch) lines.push(`- Canonical patch \`${e.patch.hash}\` (${e.patch.files.length} files).`);
   if (e.protectedFiles.length)
     lines.push(`- Independent Opus review: ${e.review ? `PASS, session ${e.review.reviewerSession}` : 'missing or invalid'}.`);
   if (e.reasons.length) lines.push('', 'Blocked because:', ...e.reasons.map((r) => `- ${r}`));
@@ -427,19 +480,28 @@ export async function runVerifiedGate(
   try {
     const problem = mainCopyProblem(git);
     if (problem) throw new GateError(problem);
-    const gateSha = git(['rev-parse', 'origin/main']).stdout.trim();
-    const result = await runGateFn({ ...o, comment: false }, { gh, log });
+    const readLiveMain = () => {
+      const parsed = git(['rev-parse', 'origin/main']);
+      const sha = String(parsed.stdout ?? '').trim();
+      if (parsed.status !== 0 || !/^[0-9a-f]{40}$/.test(sha)) throw new GateError('Could not read the live main ref.');
+      return sha;
+    };
+    const readCanonicalPatch = ({ base, head }) => canonicalPatch({ git, base, head });
+    const gateSha = readLiveMain();
+    const result = await runGateFn({ ...o, comment: false }, { gh, log, readLiveMain, readCanonicalPatch });
     if (result.code === 0) {
       const finalProblem = mainCopyProblem(git);
       if (finalProblem) throw new GateError(finalProblem);
-      if (git(['rev-parse', 'origin/main']).stdout.trim() !== gateSha)
-        throw new GateError('origin/main moved during this gate run; run its current copy again.');
+      if (readLiveMain() !== gateSha) throw new GateError('origin/main moved during this gate run; run its current copy again.');
+      if (!result.evalResult.docsOnly && result.base !== gateSha)
+        throw new GateError(`Tested main parent ${result.base} is not the live main ref ${gateSha}.`);
       // Fetching main can take time; bind the receipt again to the PR and unchanged finished checks afterwards.
-      const checks = collapseChecks(
-        ghJson(gh, ['pr', 'checks', String(o.pr), '-R', o.repo, '--json', 'name,state,bucket,workflow,link,completedAt'], {
-          allowFail: true,
-        }),
-      );
+      const rawChecks = ghJson(gh, ['pr', 'checks', String(o.pr), '-R', o.repo, '--json', 'name,state,bucket,workflow,link,completedAt'], {
+        allowFail: true,
+      });
+      const shared = sharedRequiredCheckProblem(rawChecks);
+      if (shared) throw new GateError(shared);
+      const checks = collapseChecks(rawChecks);
       const runs = ghJson(gh, [
         'run',
         'list',
@@ -474,10 +536,18 @@ export async function runVerifiedGate(
       )
         throw new GateError('PR changed before receipt; run the gate again.');
       if (result.evalResult.protectedFiles.length) {
+        let patch = result.patch;
+        if (patch) {
+          const again = readCanonicalPatch({ base: result.reviewBase, head: o.head });
+          if (again.hash !== patch.hash || again.files.join('\n') !== patch.files.join('\n'))
+            throw new GateError('Canonical patch changed before receipt; run the gate again.');
+          patch = again;
+        }
         const fresh = reviewValidator({
           head: o.head,
           base: result.reviewBase,
           declarations: [trustedBody(cur), ...comments.map((c) => c.body ?? '')].join('\n'),
+          patch,
         });
         const earlier = result.evalResult.review;
         if (
@@ -487,7 +557,8 @@ export async function runVerifiedGate(
           fresh.review.base !== result.reviewBase ||
           fresh.review.authorSession !== earlier?.authorSession ||
           fresh.review.reviewerSession !== earlier?.reviewerSession ||
-          fresh.review.parentSession !== earlier?.parentSession
+          fresh.review.parentSession !== earlier?.parentSession ||
+          (earlier?.patchHash !== undefined && fresh.review.patchHash !== earlier.patchHash)
         )
           throw new GateError('Opus review changed or was withdrawn before receipt; review the exact head again.');
         result.evalResult.review = fresh.review;

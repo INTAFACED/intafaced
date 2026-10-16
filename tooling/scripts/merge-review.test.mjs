@@ -17,7 +17,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MONEY_PATH_ROOTS } from '../ci/money-skip-inventory.mjs';
 import { GATE_PATHS } from './gate-file-guard.mjs';
-import { invalidateReceipt, isProtectedPath, validateOpusReview, validatePassReceipt, writePassReceipt } from './merge-review.mjs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  canonicalPatch,
+  invalidateReceipt,
+  isProtectedPath,
+  validateOpusReview,
+  validatePassReceipt,
+  writePassReceipt,
+} from './merge-review.mjs';
 
 const head = 'a'.repeat(40);
 const base = 'b'.repeat(40);
@@ -26,6 +35,9 @@ const author = '11111111-1111-4111-8111-111111111111';
 const reviewer = '22222222-2222-4222-8222-222222222222';
 const marker = `Opus-Review: ${head} ${reviewer} PASS`;
 const declarations = `Author-Session: ${author}\n${marker}`;
+const patchHash = 'ab'.repeat(32);
+const patch = { hash: patchHash, files: ['src/a.ts'] };
+const patchQuote = `Patch-Hash: ${patchHash}\nPatch-File: src/a.ts`;
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'merge-review-'));
@@ -37,7 +49,11 @@ function fixture(t) {
   const assistant = (overrides = {}) => ({
     type: 'assistant',
     sessionId: reviewer,
-    message: { role: 'assistant', model: 'claude-opus-4-6', content: [{ type: 'text', text: `Reviewed invariants.\n${marker}` }] },
+    message: {
+      role: 'assistant',
+      model: 'claude-opus-4-6',
+      content: [{ type: 'text', text: `Reviewed invariants.\n${patchQuote}\n${marker}` }],
+    },
     ...overrides,
   });
   const diffEntries = (
@@ -60,7 +76,7 @@ function fixture(t) {
   ];
   const save = (entries = [assistant()], { withDiff = true } = {}) =>
     writeFileSync(path, [...(withDiff ? diffEntries() : []), ...entries].map((entry) => JSON.stringify(entry)).join('\n'));
-  const validate = (extra = {}) => validateOpusReview({ head, base, declarations, projectsRoot, ...extra });
+  const validate = (extra = {}) => validateOpusReview({ head, base, declarations, patch, projectsRoot, ...extra });
   return { root, projectsRoot, project, path, assistant, diffEntries, save, validate };
 }
 
@@ -191,32 +207,35 @@ test('prompted marker or exact head plus PASS cannot forge a review', (t) => {
   }
 });
 
-test('review requires a successful exact-head diff read before the verdict', (t) => {
+test('a review counts only when the report quotes the canonical patch hash and file list', (t) => {
   const f = fixture(t);
+  const bare = f.assistant({
+    message: { role: 'assistant', model: 'claude-opus-4-6', content: [{ type: 'text', text: `Reviewed invariants.\n${marker}` }] },
+  });
+  f.save([bare], { withDiff: false });
+  assert.equal(f.validate().pass, false, 'verdict without the patch quote is not a review');
+  f.save([...f.diffEntries(`git diff ${base}...${head}`), bare], { withDiff: false });
+  assert.equal(f.validate().pass, false, 'a direct diff command is not proof');
   f.save(undefined, { withDiff: false });
-  assert.equal(f.validate().pass, false, 'verdict alone is not proof of review');
-  for (const entries of [
-    f.diffEntries(`git diff ${base}...${'d'.repeat(40)}`),
-    f.diffEntries(`echo git diff ${base}...${head}`),
-    f.diffEntries(`git diff ${base}...${head}`, 'fatal: bad object', true),
-    f.diffEntries(`git diff ${base}...${head}`, ''),
-    f.diffEntries(`git diff ${base}...${head}`, 'unrelated output'),
-    f.diffEntries(`git show --no-patch ${head}`),
-    f.diffEntries(`git show -s ${head}`),
-    f.diffEntries().map((entry) => (entry.type === 'user' ? { ...entry, sessionId: undefined } : entry)),
-    f.diffEntries().slice(0, 1),
+  assert.equal(f.validate().pass, true, 'quoting the supplied hash and file list is the proof');
+  assert.equal(f.validate().review.patchHash, patchHash);
+  assert.deepEqual(f.validate().review.patchFiles, ['src/a.ts']);
+  for (const text of [
+    `Reviewed invariants.\nPatch-Hash: ${'cd'.repeat(32)}\nPatch-File: src/a.ts\n${marker}`,
+    `Reviewed invariants.\nPatch-Hash: ${patchHash}\nPatch-File: other.ts\n${marker}`,
+    `Reviewed invariants.\nPatch-Hash: ${patchHash}\nPatch-File: src/a.ts\nPatch-File: extra.ts\n${marker}`,
+    `Reviewed invariants.\nPatch-Hash: ${patchHash}\n${marker}`,
+    `Reviewed invariants.\n\`\`\`\nPatch-Hash: ${patchHash}\nPatch-File: src/a.ts\n\`\`\`\n${marker}`,
   ]) {
-    f.save([...entries, f.assistant()], { withDiff: false });
-    assert.equal(f.validate().pass, false, JSON.stringify(entries));
+    f.save([f.assistant({ message: { role: 'assistant', model: 'claude-opus-4-6', content: [{ type: 'text', text }] } })], {
+      withDiff: false,
+    });
+    assert.equal(f.validate().pass, false, text);
   }
-  f.save([f.assistant(), ...f.diffEntries()], { withDiff: false });
-  assert.equal(f.validate().pass, false, 'reading after the verdict cannot prove that verdict');
-  for (const command of [`git -C /repo diff ${base}...${head}`, `git diff --no-ext-diff --no-textconv ${base}...${head}`]) {
-    f.save([...f.diffEntries(command), f.assistant()], { withDiff: false });
-    assert.equal(f.validate().pass, true, command);
-  }
-  f.save([...f.diffEntries('gh pr diff 123'), f.assistant()], { withDiff: false });
-  assert.equal(f.validate().pass, false, 'unbound PR diff cannot prove exact-head review');
+  f.save(undefined, { withDiff: false });
+  assert.equal(f.validate({ patch: undefined }).pass, false, 'the gate must supply the canonical patch');
+  assert.equal(f.validate({ base: undefined }).pass, false, 'range base is mandatory');
+  assert.equal(f.validate().review.base, base);
 });
 
 test('reviewer transcript cannot also execute git commit or push', (t) => {
@@ -481,40 +500,92 @@ test('receipt consumer binds live head, current gate revision and a bounded nonf
   assert.equal(validate(null).pass, false);
 });
 
-test('review must read the complete expected merge-base...head range, not one commit or a path subset', (t) => {
-  const f = fixture(t);
-  for (const command of [
-    `git show ${head}`,
-    `git diff ${head}^...${head}`,
-    `git diff ${'d'.repeat(40)}...${head}`,
-    `git diff ${base}...${head} -- src/a.ts`,
-    `git diff --name-only ${base}...${head}`,
-    `git diff ${base} ${head} -- src/a.ts`,
-    `git diff ${base}...${head} --diff-filter=M`,
-    `test "$(gh pr view 123 --json headRefOid --jq .headRefOid)" = "${head}" && gh pr diff 123`,
-  ]) {
-    f.save([...f.diffEntries(command), f.assistant()], { withDiff: false });
-    assert.equal(f.validate().pass, false, command);
-  }
-  f.save();
-  assert.equal(f.validate().review.base, base);
-  assert.equal(f.validate({ base: undefined }).pass, false, 'range base is mandatory');
-});
-
-test('review diff proof requires direct output, not a filtered pipeline or background command', (t) => {
+test('review transcripts reject env prefixes, git globals other than --no-pager, and truncated output', (t) => {
   const f = fixture(t);
   const diff = `git diff ${base}...${head}`;
   for (const command of [
-    `${diff} | head -n 6`,
-    `${diff} | sed -n '1,6p'`,
-    `${diff} |& head -n 6`,
-    `${diff} &`,
-    `${diff} > patch.txt`,
-    `(${diff}) | head -n 6`,
+    `GIT_EXTERNAL_DIFF=/tmp/evil ${diff}`,
+    `GIT_DIR=/tmp/elsewhere ${diff}`,
+    `env GIT_EXTERNAL_DIFF=/tmp/evil ${diff}`,
+    `git -c diff.external=/tmp/evil diff ${base}...${head}`,
+    `git -c core.attributesFile=/tmp/attr diff ${base}...${head}`,
+    `git -C /repo diff ${base}...${head}`,
+    `git --git-dir=/tmp/elsewhere diff ${base}...${head}`,
+    `bash -c 'GIT_DIR=/tmp/elsewhere git diff ${base}...${head}'`,
   ]) {
     f.save([...f.diffEntries(command), f.assistant()], { withDiff: false });
     assert.equal(f.validate().pass, false, command);
   }
-  f.save([...f.diffEntries(`${diff}\n`), f.assistant()], { withDiff: false });
-  assert.equal(f.validate().pass, true, 'direct complete-range patch still qualifies');
+  const preview =
+    '<persisted-output>\nOutput too large (40KB). Full output saved to: /tmp/tool-results/patch.txt\n\nPreview (first 2KB):\ndiff --git a/src/a.ts b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n</persisted-output>';
+  f.save([...f.diffEntries(diff, preview), f.assistant()], { withDiff: false });
+  assert.equal(f.validate().pass, false, 'persisted preview cannot authorize a review');
+  f.save([...f.diffEntries(`git --no-pager ${diff}`), f.assistant()], { withDiff: false });
+  assert.equal(f.validate().pass, true, '--no-pager is the only allowed git global and is not itself proof');
+  f.save([f.assistant()], { withDiff: false });
+  assert.equal(f.validate().pass, true, 'the report quote stands without a reviewer diff command');
 });
+
+test('canonical patch keeps text hidden by .gitattributes -diff', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'canonical-patch-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const git = (args) =>
+    spawnSync('git', args, {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'gate-test',
+        GIT_AUTHOR_EMAIL: 'gate-test@example.com',
+        GIT_COMMITTER_NAME: 'gate-test',
+        GIT_COMMITTER_EMAIL: 'gate-test@example.com',
+      },
+    });
+  assert.equal(git(['init']).status, 0);
+  writeFileSync(join(dir, 'secret.js'), 'const value = 1;\n');
+  assert.equal(git(['add', 'secret.js']).status, 0);
+  assert.equal(git(['commit', '-m', 'base']).status, 0);
+  const hiddenBase = git(['rev-parse', 'HEAD']).stdout.trim();
+  writeFileSync(join(dir, '.gitattributes'), 'secret.js -diff\n');
+  writeFileSync(join(dir, 'secret.js'), 'const value = 2;\n');
+  assert.equal(git(['add', '.gitattributes', 'secret.js']).status, 0);
+  assert.equal(git(['commit', '-m', 'hide']).status, 0);
+  const hiddenHead = git(['rev-parse', 'HEAD']).stdout.trim();
+  const naive = git(['diff', '--no-color', `${hiddenBase}...${hiddenHead}`]);
+  assert.match(naive.stdout, /Binary files a\/secret\.js and b\/secret\.js differ/);
+  assert.doesNotMatch(naive.stdout, /const value = 2/);
+  const canonical = canonicalPatch({ git: (args) => git(args), base: hiddenBase, head: hiddenHead });
+  assert.match(canonical.patch, /const value = 2/);
+  assert.deepEqual(canonical.files, ['.gitattributes', 'secret.js']);
+  assert.equal(canonical.hash, createHash('sha256').update(canonical.patch).digest('hex'));
+  assert.notEqual(canonical.hash, createHash('sha256').update(naive.stdout).digest('hex'));
+  const f = fixture(t);
+  const quote = (hash, files) =>
+    `Reviewed invariants.\nPatch-Hash: ${hash}\n${files.map((file) => `Patch-File: ${file}`).join('\n')}\n${marker}`;
+  f.save(
+    [
+      f.assistant({
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-6',
+          content: [{ type: 'text', text: quote(createHash('sha256').update(naive.stdout).digest('hex'), canonical.files) }],
+        },
+      }),
+    ],
+    { withDiff: false },
+  );
+  assert.equal(f.validate({ patch: canonical }).pass, false, 'the attribute-hidden diff hash does not count');
+  f.save(
+    [
+      f.assistant({
+        message: { role: 'assistant', model: 'claude-opus-4-6', content: [{ type: 'text', text: quote(canonical.hash, canonical.files) }] },
+      }),
+    ],
+    { withDiff: false },
+  );
+  assert.equal(f.validate({ patch: canonical }).pass, true, resultReason(f.validate({ patch: canonical })));
+});
+
+function resultReason(result) {
+  return result.reasons.join('; ');
+}

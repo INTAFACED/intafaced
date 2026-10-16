@@ -534,7 +534,7 @@ test('broad coverage denominator comes from trusted workspaces, never only emitt
     headLog: passedUi,
     baseConclusion: 'success',
     baseLog: passedUi,
-    files: ['package.json'],
+    files: ['tooling/scripts/a.mjs'],
   });
   f.options.checks = [{ ...check, bucket: 'pass' }];
   f.options.workspaceRoots = new Map([
@@ -552,6 +552,20 @@ test('broad coverage denominator comes from trusted workspaces, never only emitt
       : result;
   };
   assert.equal((await collectEvidence(f.options)).pass, true);
+});
+
+test('green proofs apply the same CI and test-selection coverage refusal as failures', async () => {
+  const f = fixture({
+    headJob: job(201, 'success'),
+    headLog: passedUi,
+    baseConclusion: 'success',
+    baseLog: passedUi,
+    files: ['package.json'],
+  });
+  f.options.checks = [{ ...check, bucket: 'pass' }];
+  const result = await collectEvidence(f.options);
+  assert.equal(result.pass, false);
+  assert.match(result.reasons.join(' '), /CI\/test selection changed/);
 });
 
 test('changed workspaces may be covered by separate exact-commit shards, with no workspace omitted', async () => {

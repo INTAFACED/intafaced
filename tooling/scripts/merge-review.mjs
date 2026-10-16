@@ -1,12 +1,14 @@
 /**
  * Local review provenance and exact-head merge receipts.
  *
- * This verifies local Claude transcript structure, not a cryptographic identity:
- * someone who can edit ~/.claude/projects or this user's private receipt cache
- * can forge it. Session separation proves distinct session IDs, not distinct
- * humans, independent judgment, or that the reviewer inspected every change.
- * Only assistant text blocks supply verdicts. Tool calls and successful results
- * establish that a diff was read; user prompts and thinking cannot approve.
+ * The gate computes the canonical patch itself and a review counts only when the
+ * assistant report quotes that patch hash and file list. A transcript diff
+ * command is not proof. This is an accident guard: someone who can edit
+ * ~/.claude/projects or this user's private receipt cache can forge a report
+ * that quotes a hash. Session separation proves distinct session IDs, not
+ * distinct humans, independent judgment, or that the reviewer understood the
+ * change. Only assistant text blocks supply verdicts. User prompts and thinking
+ * cannot approve.
  */
 import {
   constants,
@@ -50,11 +52,95 @@ export function isProtectedPath(file) {
 }
 
 const SHA = /^[a-f0-9]{40}$/i;
+const PATCH_HASH = /^[a-f0-9]{64}$/;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const AGENT_ID = /^[a-f0-9]{7,64}$/i;
 const reviewerId = (id) => typeof id === 'string' && (UUID.test(id) || AGENT_ID.test(id));
 const DEFAULT_RECEIPTS = join(homedir(), '.cache/intafaced/merge-gate/receipts');
 const MAX_TRANSCRIPT_BYTES = 128 * 1024 * 1024;
+const TRUNCATED_OUTPUT = /<persisted-output>|Output too large|Full output saved to|output was truncated/i;
+
+function pathFromDiffMarker(line) {
+  if (!line) return undefined;
+  const body = line.replace(/^(?:---|\+\+\+) /, '').replace(/\t.*$/, '');
+  if (body === '/dev/null') return undefined;
+  const raw = body.startsWith('"') ? body.slice(1, -1).replace(/\\([\\"])/g, '$1') : body;
+  return raw.startsWith('a/') || raw.startsWith('b/') ? raw.slice(2) : undefined;
+}
+
+/** File paths from one canonical patch. A header without a path fails closed. */
+export function filesInCanonicalPatch(patch) {
+  const files = [];
+  const lines = String(patch).split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('diff --git ')) continue;
+    let minus;
+    let plus;
+    for (let j = i + 1; j < lines.length && !lines[j].startsWith('diff --git '); j++) {
+      if (minus === undefined && lines[j].startsWith('--- ')) minus = lines[j];
+      if (lines[j].startsWith('+++ ')) {
+        plus = lines[j];
+        break;
+      }
+    }
+    const path = pathFromDiffMarker(plus) ?? pathFromDiffMarker(minus);
+    if (!path) throw new Error('Canonical patch has a diff header without a file path.');
+    files.push(path);
+  }
+  return files;
+}
+
+/**
+ * The gate's own patch. `git` is `(args) => {status, stdout, stderr}` and is
+ * called with exactly the lead's diff options. A checkout wrapper may prepend
+ * `-C <origin/main worktree>`; it must not drop these options.
+ * `.gitattributes -diff` is defeated by `--text`. `core.attributesFile=/dev/null`
+ * drops the extra user attributes file. External diffs and textconv are off.
+ */
+export function canonicalPatch({ git, base, head }) {
+  if (typeof git !== 'function' || !SHA.test(base ?? '') || !SHA.test(head ?? ''))
+    throw new Error('Canonical patch requires a git runner and full merge-base and head SHAs.');
+  const args = [
+    '-c',
+    'core.attributesFile=/dev/null',
+    'diff',
+    '--no-ext-diff',
+    '--no-textconv',
+    '--text',
+    '--no-color',
+    `${base}...${head}`,
+  ];
+  const result = git(args);
+  if (!result || result.status !== 0) {
+    throw new Error(
+      `Canonical patch failed (${String(result?.stderr ?? '')
+        .trim()
+        .slice(0, 200)})`,
+    );
+  }
+  const patch = String(result.stdout ?? '');
+  return { hash: createHash('sha256').update(patch).digest('hex'), files: filesInCanonicalPatch(patch), patch };
+}
+
+function sameFileList(quoted, expected) {
+  if (quoted.length !== expected.length) return false;
+  const left = [...quoted].sort();
+  const right = [...expected].sort();
+  return left.every((file, index) => file === right[index]);
+}
+
+/** The report must quote the gate's hash and exactly its file list, on plain lines. */
+function patchQuoted(lines, patch) {
+  if (!patch || !PATCH_HASH.test(patch.hash ?? '') || !Array.isArray(patch.files)) return false;
+  const hashes = [];
+  const files = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^Patch-Hash: [a-f0-9]{64}$/.test(trimmed)) hashes.push(trimmed.slice('Patch-Hash: '.length));
+    else if (trimmed.startsWith('Patch-File: ')) files.push(trimmed.slice('Patch-File: '.length));
+  }
+  return hashes.length === 1 && hashes[0] === patch.hash && sameFileList(files, patch.files);
+}
 
 // A marker embedded in a fenced example or blockquote is not a review verdict.
 function plainLines(text) {
@@ -167,19 +253,53 @@ function reviewerMutation(commands, depth = 0) {
   });
 }
 
-function readsExactDiff(commands, base, head) {
-  // A range in a pipeline proves only what the filter returned. Accept one
-  // direct command; retain its terminating separator to also reject `diff &`.
-  if (commands.length !== 1) return false;
-  const { words, before, after } = commands[0];
-  if ([before, after].some((separator) => separator !== undefined && separator !== '\n')) return false;
-  const git = gitOperation(words);
-  if (!git || words.some((word) => /[$`]/.test(word)) || git[0] !== 'diff') return false;
-  const args = git.slice(1).filter((arg) => !['--no-ext-diff', '--no-textconv', '--no-color'].includes(arg));
-  return args.length === 1 && args[0].toLowerCase() === `${base}...${head}`.toLowerCase();
+function gitInvocationRejection(words) {
+  const rest = [...words];
+  while (['command', 'then', 'do', 'else', 'if', 'elif', 'while', 'until', '!'].includes(rest[0])) rest.shift();
+  if (rest[0] === 'env') rest.shift();
+  const assignments = [];
+  while (rest.length && /^[A-Za-z_]\w*=/.test(rest[0])) assignments.push(rest.shift());
+  if (!/(?:^|\/)git$/.test(rest[0] ?? '')) return undefined;
+  if (assignments.length) return 'Reviewer git command uses an environment-variable prefix.';
+  rest.shift();
+  while (rest[0]?.startsWith('-')) {
+    const flag = rest.shift();
+    if (flag === '--') break;
+    if (flag === '--no-pager') continue;
+    return 'Reviewer git command uses a global option other than --no-pager.';
+  }
+  return undefined;
 }
 
-function reviewInTranscript(file, session, reviewer, head, base, subagent = false) {
+function rejectedGitInvocation(commands, depth = 0) {
+  if (depth > 4) return 'Reviewer shell command cannot be safely inspected.';
+  for (const { words } of commands) {
+    const reason = gitInvocationRejection(words);
+    if (reason) return reason;
+    const args = executableWords(words);
+    if (/^(?:.*\/)?(?:ba|z|da)?sh$/.test(args[0] ?? '')) {
+      const flag = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg));
+      if (flag > 0 && typeof args[flag + 1] === 'string') {
+        const nested = shellCommands(args[flag + 1]);
+        if (!nested) return 'Reviewer shell command cannot be safely inspected.';
+        const nestedReason = rejectedGitInvocation(nested, depth + 1);
+        if (nestedReason) return nestedReason;
+      }
+    }
+  }
+  return undefined;
+}
+
+function contentBlocks(message) {
+  if (!message) return [];
+  return Array.isArray(message.content) ? message.content : [{ type: 'text', text: message.content }];
+}
+
+function truncatedToolOutput(message) {
+  return contentBlocks(message).some((block) => block?.type === 'tool_result' && TRUNCATED_OUTPUT.test(textContent(block.content)));
+}
+
+function reviewInTranscript(file, session, reviewer, head, patch, subagent = false) {
   const st = lstatSync(file);
   if (!st.isFile() || st.isSymbolicLink() || st.size > MAX_TRANSCRIPT_BYTES) return undefined;
   const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
@@ -192,8 +312,7 @@ function reviewInTranscript(file, session, reviewer, head, base, subagent = fals
     closeSync(fd);
   }
   let matched;
-  let diffToolUseId;
-  const diffCalls = new Set();
+  const report = [];
   for (const line of source.split('\n')) {
     if (!line.trim()) continue;
     const entry = JSON.parse(line);
@@ -209,41 +328,37 @@ function reviewInTranscript(file, session, reviewer, head, base, subagent = fals
     )
       return undefined;
     const message = entry.message;
+    if (truncatedToolOutput(message)) return { blocked: 'Reviewer tool output is persisted or truncated.' };
     if (entry.type === 'user' && message?.role === 'user') {
       const prompt = textContent(message.content);
       if (/Opus-Review:/i.test(prompt) || (prompt.toLowerCase().includes(head.toLowerCase()) && /\bPASS\b/i.test(prompt)))
         return { blocked: 'Reviewer user prompt contains the verdict marker or exact head plus PASS.' };
-      for (const block of Array.isArray(message.content) ? message.content : []) {
-        if (
-          block?.type === 'tool_result' &&
-          diffCalls.has(block.tool_use_id) &&
-          block.is_error !== true &&
-          /^(?:diff --git .+|@@ .+@@)/m.test(textContent(block.content))
-        )
-          diffToolUseId = block.tool_use_id;
-      }
     }
     if (entry.type !== 'assistant' || entry.sessionId !== session || message?.role !== 'assistant') continue;
-    const blocks = Array.isArray(message.content) ? message.content : [{ type: 'text', text: message.content }];
+    const blocks = contentBlocks(message);
     for (const block of blocks) {
       if (block?.type === 'tool_use' && block.name === 'Bash' && typeof block.input?.command === 'string') {
         const commands = shellCommands(block.input.command);
         if (!commands) return { blocked: 'Reviewer shell command cannot be safely inspected.' };
         if (reviewerMutation(commands)) return { blocked: 'Reviewer transcript executes git commit or git push.' };
-        if (typeof block.id === 'string' && readsExactDiff(commands, base, head)) diffCalls.add(block.id);
+        const rejected = rejectedGitInvocation(commands);
+        if (rejected) return { blocked: rejected };
       }
     }
+    report.push(...plainLines(textContent(message.content)));
     for (const text of plainLines(textContent(message.content))) {
       const verdict = reviewVerdict(text);
       if (!verdict || verdict[1].toLowerCase() !== head.toLowerCase()) continue;
       if (verdict[3].toUpperCase() !== 'PASS') return { blocked: 'Reviewer transcript contains a non-PASS exact-head verdict.' };
-      if (verdict[2].toLowerCase() === reviewer.toLowerCase()) matched = { model: message.model, diffToolUseId };
+      if (verdict[2].toLowerCase() === reviewer.toLowerCase() && patchQuoted(report, patch))
+        matched = { model: message.model, patchHash: patch.hash, patchFiles: [...patch.files] };
     }
   }
-  if (!matched?.diffToolUseId || !/^claude-opus-[a-z0-9][a-z0-9.-]*$/i.test(matched.model)) return undefined;
+  if (!matched || !/^claude-opus-[a-z0-9][a-z0-9.-]*$/i.test(matched.model)) return undefined;
   return {
     model: matched.model,
-    diffToolUseId: matched.diffToolUseId,
+    patchHash: matched.patchHash,
+    patchFiles: matched.patchFiles,
     transcriptSha256: createHash('sha256').update(source).digest('hex'),
     transcriptPath: file,
     ...(subagent ? { parentSession: session } : {}),
@@ -254,10 +369,12 @@ function reviewInTranscript(file, session, reviewer, head, base, subagent = fals
  * Declarations are PR body + comment text, each marker on its own line:
  * Author-Session: <UUID>
  * Opus-Review: <40-hex head> <reviewer UUID or agent ID> PASS
- * Any non-PASS exact-head verdict blocks. Assistant Opus PASS requires an earlier
- * successful complete merge-base...head diff read and an author-independent parent/session.
+ * Any non-PASS exact-head verdict blocks. Assistant Opus PASS counts only when
+ * that report quotes the gate's canonical patch hash and exact file list.
+ * The parent/session must differ from the declared author. A diff command in
+ * the transcript is not proof.
  */
-export function validateOpusReview({ head, base, declarations, projectsRoot = join(homedir(), '.claude/projects') }) {
+export function validateOpusReview({ head, base, declarations, patch, projectsRoot = join(homedir(), '.claude/projects') }) {
   const fail = (reason) => ({ pass: false, reasons: [reason] });
   if (typeof head !== 'string' || !SHA.test(head)) return fail('Opus review requires a full 40-hex head SHA.');
   if (!SHA.test(base ?? '')) return fail('Opus review requires the full PR merge-base SHA.');
@@ -277,6 +394,8 @@ export function validateOpusReview({ head, base, declarations, projectsRoot = jo
   }
   const candidates = [...candidatesById.values()];
   if (!candidates.length) return fail('Missing valid exact-head Opus-Review: <sha> <reviewer UUID or agent ID> PASS declaration.');
+  if (!patch || !PATCH_HASH.test(patch.hash ?? '') || !Array.isArray(patch.files) || patch.files.some((file) => typeof file !== 'string'))
+    return fail('Opus review requires the canonical patch hash and file list.');
   let directories;
   try {
     if (lstatSync(projectsRoot).isSymbolicLink()) return fail('Claude projects root must not be a symlink.');
@@ -324,7 +443,7 @@ export function validateOpusReview({ head, base, declarations, projectsRoot = jo
       }
       for (const { file, session, subagent } of paths) {
         try {
-          const verified = reviewInTranscript(file, session, reviewerSession, head, base, subagent);
+          const verified = reviewInTranscript(file, session, reviewerSession, head, patch, subagent);
           if (verified?.blocked) return fail(verified.blocked);
           if (verified) approved = { head: head.toLowerCase(), base: base.toLowerCase(), authorSession, reviewerSession, ...verified };
         } catch {
@@ -332,7 +451,7 @@ export function validateOpusReview({ head, base, declarations, projectsRoot = jo
         }
       }
     }
-    reasons.push(`No valid assistant Opus PASS with exact-head diff evidence and session metadata for reviewer ${reviewerSession}.`);
+    reasons.push(`No valid assistant Opus PASS quoting the canonical patch hash and file list for reviewer ${reviewerSession}.`);
   }
   if (approved) return { pass: true, reasons: [], review: approved };
   return { pass: false, reasons: [...new Set(reasons)] };
