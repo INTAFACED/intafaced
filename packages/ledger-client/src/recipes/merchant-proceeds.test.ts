@@ -178,6 +178,58 @@ describe('merchant proceeds account', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
+  it('a settled refund with the pre-cutover pot credits userAvailable and the reverse returns there', async () => {
+    await capture('pay-old-refund', '40');
+    await ledger.post({
+      idempotencyKey: `settlement:${MERCHANT}:w-old-refund:${ASSET}`,
+      module: 'pay',
+      reason: 'pay.settled',
+      meta: { merchantId: MERCHANT, window: 'w-old-refund', assetId: ASSET },
+      entries: [
+        { account: merchantClearing(MERCHANT, ASSET), direction: 'credit', amount: amt('40') },
+        { account: userAvailable(OWNER, ASSET), direction: 'debit', amount: amt('40') },
+      ],
+    });
+    const settled = {
+      refundId: 'old-1',
+      paymentId: 'pay-old-refund',
+      merchantId: MERCHANT,
+      merchantUserId: OWNER,
+      assetId: ASSET,
+      amount: amt('15'),
+      rail: 'card-sandbox',
+      source: 'settled' as const,
+      settledPot: 'user' as const,
+    };
+    const forward = recipes.paymentRefund(settled);
+    expect(forward.entries[0]?.account).toEqual(userAvailable(OWNER, ASSET));
+    expect(forward.meta).not.toHaveProperty('settledPot');
+    await ledger.post(forward);
+    expect(await personal()).toBe('25');
+    expect(await proceeds()).toBe('0');
+    await ledger.post(recipes.paymentRefundReverse(settled));
+    expect(await personal()).toBe('40');
+    expect(await proceeds()).toBe('0');
+
+    const opened = recipes.chargebackOpen({
+      disputeId: 'dp-old',
+      paymentId: 'pay-old-refund',
+      merchantId: MERCHANT,
+      merchantUserId: OWNER,
+      assetId: ASSET,
+      rail: 'card-sandbox',
+      fromClearing: amt('0'),
+      fromMerchantBalance: amt('10'),
+      settledPot: 'user',
+    });
+    expect(opened.entries[0]?.account).toEqual(userAvailable(OWNER, ASSET));
+    expect(opened.meta).not.toHaveProperty('settledPot');
+    await ledger.post(opened);
+    expect(await personal()).toBe('30');
+    expect(await proceeds()).toBe('0');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('a settled refund larger than proceeds fails and does not debit the personal balance', async () => {
     await capture('pay-short', '100');
     await settle('w-short', '100', '10');

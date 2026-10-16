@@ -33,14 +33,19 @@ the treasury advisory lock first, then the counters (see `seams/lock-order.db.te
 ## Settlement credit
 
 Settlement credits `merchantProceeds(merchantId)`, not `userAvailable(merchant.userId)`. The payout trio debits
-that pot, and `beforePayoutAdmit` is the cap, beneficiary, and maker-checker hook. Personal `withdrawal.create`
-is not held to those caps: the owner's deposits are not settlement.
+that pot, and `beforePayoutAdmit` is the cap, beneficiary, and maker-checker hook for a proceeds payout.
+Personal `withdrawal.create` is held to those caps only while the owner still has a pre-cutover settlement of
+that asset: the ledger transaction `settlement:<merchant>:<window>:<asset>` debits `userAvailable`. A merchant
+whose posted windows all debit proceeds is skipped, so the owner's own deposits are not capped for a balance
+the payout no longer draws.
 
 Card spend, bank transfer, trading, P2P, stake, earn, sub-account moves, and pay-by-handle still debit
 `userAvailable` (or a hold funded from it). They do not name `pay:proceeds:`. Windows settled before this
 account existed stay on the personal balance; this change does not split that history.
 
-`beforeUserMoneyWithdrawal` remains on the seam for treasury exposure. It does not apply merchant payout policy.
+`beforeUserMoneyWithdrawal` remains on the seam for treasury exposure. It applies merchant payout policy only
+for a merchant that still has a legacy settlement of the asset being withdrawn. A global payout halt still
+refuses every personal withdrawal, including a recovery that would call the rail.
 
 ## Pre-enable checklist (before setting `PAY_MERCHANT_CONTROLS=required`)
 

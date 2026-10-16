@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { merchantIdsWithLegacySettlement, type SettlementBookReader } from '../settlement-book.js';
 import type { PartialPayGuards, PaymentAdmitContext, PaymentCaptureBookedContext } from '../seams/guards.js';
 import { recordMerchantNotification, type NewNotification } from '../merchant-ops/notifications.js';
 import { writeAudit } from './audit.js';
@@ -59,6 +60,8 @@ export interface ControlGuardDeps {
   readonly now?: () => Date;
   /** Over-cap notice failures. Omitted: the boot logger set by `setOverCapNoticeLogger`. */
   readonly warn?: (fields: Record<string, unknown>, message: string) => void;
+  /** Settlement-key reader. Absent: a posted window counts as legacy (fail closed). */
+  readonly ledger?: SettlementBookReader;
 }
 
 type NoticeWarn = (fields: Record<string, unknown>, message: string) => void;
@@ -68,6 +71,8 @@ let overCapNoticeWarn: NoticeWarn = () => undefined;
 export function setOverCapNoticeLogger(warn: NoticeWarn): void {
   overCapNoticeWarn = warn;
 }
+
+const RETRYABLE_PG = new Set(['40001', '40P01']);
 
 function requireTier(control: MerchantControl): TierConfig {
   if (!control.tier) throw new ControlRefusal('pay.tier_unassigned');
@@ -412,13 +417,59 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
     },
 
     /**
-     * Personal `withdrawal.create` debits `userAvailable`. Settlement credits
-     * `merchantProceeds`, and the payout trio debits that pot under
-     * `beforePayoutAdmit`. Applying payout caps here would hold the owner's
-     * own deposits to a policy that no longer sees settlement.
+     * Personal `withdrawal.create` debits `userAvailable`. A pre-cutover
+     * settlement debited that same account, so an owner could move that net
+     * out and skip every payout control. The daily payout cap, beneficiary cap,
+     * and approval threshold apply to each merchant the user owns that still
+     * has such a settlement of THIS asset. A merchant whose posted windows all
+     * debit proceeds is skipped: that net is not on this balance.
+     *
+     * An amount at or above the approval threshold is refused
+     * `pay.approval_required`: a maker-checker approval is bound to a
+     * settlement, and a withdrawal has none. Closed rather than open.
      */
-    async beforeUserMoneyWithdrawal() {
-      return;
+    async beforeUserMoneyWithdrawal(ctx) {
+      if (ctx.replay.kind !== 'fresh') return;
+      const { tx } = ctx;
+      let owned: string[];
+      try {
+        owned = await merchantIdsWithLegacySettlement(tx, deps.ledger, ctx.userId, ctx.assetId);
+      } catch (error) {
+        if (error instanceof ControlRefusal) throw error;
+        if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
+        throw new ControlRefusal('pay.control_unreadable', 'unavailable');
+      }
+      if (owned.length === 0) return;
+      const at = now();
+      for (const merchantId of owned) {
+        const control = await loadMerchantControl(tx, merchantId);
+        const tier = requireTier(control);
+        const caps = effectiveCaps(control) ?? [];
+        const dailyPayout = moneyCapLimit(caps, 'daily_payout', ctx.assetId);
+        const beneficiaries = countCapLimit(caps);
+        if (dailyPayout === null || beneficiaries === null) throw new ControlRefusal('pay.caps_unconfigured');
+        const approvalThreshold = tier.approvalThresholds.get(ctx.assetId);
+        if (approvalThreshold === undefined) throw new ControlRefusal('pay.approval_threshold_unconfigured');
+        if (ctx.amount >= approvalThreshold) throw new ControlRefusal('pay.approval_required');
+
+        const eventKey = `withdrawal:${merchantId}:${ctx.userId.toLowerCase()}:${ctx.clientRef}:${dayKey(at)}`;
+        await consumeMoney(tx, {
+          merchantId,
+          kind: 'daily_payout',
+          assetCode: ctx.assetId,
+          periodKey: dayKey(at),
+          eventKey,
+          amount: ctx.amount,
+          limit: dailyPayout,
+        });
+        await consumeBeneficiary(tx, {
+          merchantId,
+          periodKey: dayKey(at),
+          destination: destinationKey(ctx.destination),
+          eventKey,
+          limit: beneficiaries,
+        });
+      }
     },
 
     async beforeSettlementRun(ctx) {

@@ -72,13 +72,15 @@ New recipes, used by `settlementLedgerPlan` in `services/svc-pay/src/settlement-
 
 `PaymentService.merchantBalance` today reads `userAvailable(merchant.userId)` and is documented as the balance the merchant trades from. After the cutover it reads `merchantProceeds(merchantId)`. Callers that show "what this merchant can pay out" follow that read. Callers that show the person's trading balance keep reading `userAvailable` and must not be switched.
 
+BusinessPay "Available" shows proceeds only. A window settled before this account existed stays on the owner's personal balance, and that is where that history is spent until someone moves it. Moving it is a later option, not part of this change: one ledger post per merchant and asset (credit `userAvailable`, debit proceeds), two founders, payload hash bound, default off until the amount source is reviewed. That reclass is not built.
+
 The ledger `balance` call is service-to-service. The procedure that returns this number to a person stays the existing merchant read: the caller owns the merchant or is on its team. A founder sees it only through a founder procedure. This design adds no public balance dump.
 
 ### Controls
 
 `beforePayoutAdmit` stays on merchant payout, and the payout now debits proceeds. Caps, beneficiary limits, and maker-checker stay behind `PAY_MERCHANT_CONTROLS` (default off). Off means those checks are no-ops. It does not mean settlement credits `userAvailable`.
 
-`beforeUserMoneyWithdrawal` exists because settlement lands on `userAvailable(merchant.userId)`, so a payout halt or cap has to watch the owner's personal withdrawal. After proceeds is the only settlement credit, that hook no longer protects merchant money. Leave it in place until the payout path is debiting proceeds, then stop applying merchant payout caps to `withdrawal.create` on `userAvailable`. Otherwise a merchant's own deposits stay under a payout policy that can no longer see settlement. Doing the unhook in the same change as the recipe avoids a window where payouts leave proceeds with no cap hook and personal withdrawals are still capped for a balance they do not hold.
+`beforeUserMoneyWithdrawal` exists because a pre-cutover settlement landed on `userAvailable(merchant.userId)`, so a payout halt or cap has to watch the owner's personal withdrawal while that net is still there. The hook stays for every merchant whose own settlement post still debits `userAvailable`. A merchant whose posted windows all debit proceeds skips it, so the owner's deposits are not capped for a balance the payout no longer draws. A global payout halt still refuses every personal withdrawal, including a recovery that would call the rail.
 
 ## Migration
 
@@ -93,7 +95,7 @@ Cutover order, one change:
 1. Add `merchantProceeds` and the payout-hold constructor.
 2. Point settlement, settled refund and reverse, chargeback open and won, and `merchantBalance` at proceeds.
 3. Point `settlementLedgerPlan` at the payout trio.
-4. Drop `beforeUserMoneyWithdrawal`'s merchant-payout coupling once step 3 is in.
+4. Keep `beforeUserMoneyWithdrawal`'s merchant-payout coupling for any merchant that still has a legacy settlement post. Skip it only when that merchant's posted windows all debit proceeds.
 
 Shipping step 2 without step 3 leaves settled net in proceeds and payouts debiting an empty `userAvailable`. Payouts fail closed. Merchants cannot be paid. Ship them together.
 

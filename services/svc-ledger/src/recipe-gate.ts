@@ -294,8 +294,10 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     },
     { name: 'paymentRefund', post: recipes.paymentRefund(refund) },
     { name: 'paymentRefund', post: recipes.paymentRefund({ ...refund, source: 'settled' }) },
+    { name: 'paymentRefund', post: recipes.paymentRefund({ ...refund, source: 'settled', settledPot: 'user' }) },
     { name: 'paymentRefundReverse', post: recipes.paymentRefundReverse(refund) },
     { name: 'paymentRefundReverse', post: recipes.paymentRefundReverse({ ...refund, source: 'settled' }) },
+    { name: 'paymentRefundReverse', post: recipes.paymentRefundReverse({ ...refund, source: 'settled', settledPot: 'user' }) },
     {
       name: 'merchantProceedsPayoutHold',
       post: recipes.merchantProceedsPayoutHold({
@@ -327,6 +329,10 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     { name: 'chargebackOpen', post: recipes.chargebackOpen(chargeback) },
+    {
+      name: 'chargebackOpen',
+      post: recipes.chargebackOpen({ ...chargeback, fromClearing: 0n, fromMerchantBalance: AMT, settledPot: 'user' }),
+    },
     { name: 'chargebackOpen', post: recipes.chargebackOpen({ ...chargeback, fromClearing: 0n, fromMerchantBalance: AMT }) },
     { name: 'chargebackShortfall', post: recipes.chargebackShortfall(shortfall) },
     { name: 'chargebackWon', post: recipes.chargebackWon(chargeback) },
@@ -549,6 +555,20 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         rail: 'card-sandbox',
         fromClearing: AMT,
         fromMerchantBalance: AMT,
+      }),
+    },
+    {
+      name: 'chargebackWon',
+      post: recipes.chargebackWon({
+        disputeId: 'd1',
+        paymentId: 'p1',
+        merchantId: 'm1',
+        merchantUserId: U,
+        assetId: 'USDT',
+        rail: 'card-sandbox',
+        fromClearing: 0n,
+        fromMerchantBalance: AMT,
+        settledPot: 'user',
       }),
     },
   ];

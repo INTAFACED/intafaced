@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { formatAmount, MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
+import { formatAmount, MemoryLedger, merchantClearing, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
 import { signPayload } from '../rails/webhook-signature.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
@@ -68,7 +68,7 @@ describe('W1 control guards', () => {
     await adminStop();
   }, 30_000);
 
-  const required = () => composeGuards(createControlGuards({ sql, mode: 'required' }));
+  const required = () => composeGuards(createControlGuards({ sql, mode: 'required', ledger }));
   const service = (guards = required()) =>
     new PayService(sql, ledger, rails, {
       payoutDestinations: memoryPayoutDestinations(),
@@ -679,7 +679,7 @@ describe('W1 control guards', () => {
         tier: { ...TEST_TIER, caps: TEST_TIER.caps.map((c) => (c.kind === 'daily_payout' ? { ...c, limit: '30' } : c)) },
       });
       let clock = new Date('2026-03-10T10:00:00Z');
-      const g = composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock }));
+      const g = composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock, ledger }));
       const settlementId = randomUUID();
       const byDay = async () =>
         Object.fromEntries(
@@ -799,6 +799,43 @@ describe('W1 control guards', () => {
       expect((await sql`SELECT 1 FROM pay.control_beneficiaries`).length).toBe(0);
     });
 
+    it('required: an owner withdrawal is refused when the merchant still has a legacy settlement over the payout cap', async () => {
+      const m = await merchant(OWNER);
+      await configure(m.id, { tier: wdTier('30') });
+      const off = service(composeGuards({}));
+      const created = await pay(off, m.id, '10');
+      await fund(off, created.id, '10');
+      await off.capture(created.id);
+      windowSeq += 1;
+      const window = `wd-legacy-${windowSeq}`;
+      await ledger.post({
+        idempotencyKey: `settlement:${m.id}:${window}:USDT`,
+        module: 'pay',
+        reason: 'pay.settled',
+        meta: { merchantId: m.id, window, assetId: 'USDT' },
+        entries: [
+          { account: merchantClearing(m.id, 'USDT'), direction: 'credit', amount: amt('10') },
+          { account: userAvailable(OWNER, 'USDT'), direction: 'debit', amount: amt('10') },
+        ],
+      });
+      const settled = await off.settleWindow({
+        merchantId: m.id,
+        window,
+        assetId: 'USDT',
+        from: new Date(Date.now() - 86_400_000),
+        to: new Date(Date.now() + 86_400_000),
+      });
+      expect(settled.status).toBe('posted');
+      const svc = await funded(required());
+      expect((await svc.withdraw(request('legacy-w1', '20'))).status).toBe('sent');
+      expect(await usage(m.id, 'daily_payout')).toBe('20');
+      await expect(svc.withdraw(request('legacy-w2', '10.000000000000000001'))).rejects.toMatchObject({
+        code: 'pay.cap_daily_payout_exceeded',
+      });
+      expect((await sql`SELECT 1 FROM pay.withdrawals WHERE client_ref = 'legacy-w2'`).length).toBe(0);
+      expect(await usage(m.id, 'daily_payout')).toBe('20');
+    });
+
     it('required: beforePayoutAdmit still enforces the daily payout cap on the proceeds payout', async () => {
       const m = await merchant(OWNER);
       await configure(m.id, { tier: wdTier('30') });
@@ -853,7 +890,7 @@ describe('W1 control guards', () => {
       await configure(m.id, { tier: wdTier('30') });
       await settle(m.id);
       let clock = new Date('2026-03-10T10:00:00Z');
-      const g = composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock }));
+      const g = composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock, ledger }));
       const ctx = (tx: unknown, over: Record<string, unknown> = {}) => ({
         tx: tx as never,
         userId: OWNER,

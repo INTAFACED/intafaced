@@ -24,10 +24,12 @@ import {
   parseAmount,
   railBoundary,
   recipes,
+  userAvailable,
   type Amount,
   type LedgerClient,
   type LedgerTx,
 } from '@intafaced/ledger-client';
+import { classifySettlementTx, legacyPostMatchesFrozen, readSettlementBook, settlementIdempotencyKey } from './settlement-book.js';
 import type { PaymentIntent, RailAdapter, RailEvent, RailResult, RailWebhookRequest } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, PublicCheckoutUnavailable, type ValueMovementPolicy } from './rails/posture.js';
@@ -225,6 +227,18 @@ export type PayErrorCode =
    * same settlement key would disagree with the ledger idempotency key.
    */
   | 'pay.settlement_desynced'
+  /**
+   * This window's ledger key already holds a personal-balance settlement whose
+   * amounts do not match the frozen row. Releasing it would free the payments
+   * for a second credit, so the row stays pending.
+   */
+  | 'pay.settlement_ledger_conflict'
+  /**
+   * A settlement key is missing, or its post is neither the personal-balance
+   * shape nor the proceeds shape. Paying, refunding, or adopting it would
+   * guess which pot holds the net.
+   */
+  | 'pay.settlement_book_unrecognised'
   | 'pay.settlement_not_pending'
   | 'pay.rail_declined'
   | 'pay.rail_failed'
@@ -2567,7 +2581,9 @@ export class PayService {
         const refundId = options.refundId ?? `${row.id}:${sequence + 1}`;
         const merchant = await this.getMerchant(row.merchant_id);
         let source = row.status === 'settled' ? ('settled' as const) : ('clearing' as const);
-        const refundRequest = (from: 'clearing' | 'settled') =>
+        let settledPot: 'proceeds' | 'user' =
+          source === 'settled' ? await this.settledPotForPayment(tx, row.id, merchant.userId) : 'proceeds';
+        const refundRequest = (from: 'clearing' | 'settled', pot: 'proceeds' | 'user') =>
           recipes.paymentRefund({
             refundId,
             paymentId: row.id,
@@ -2577,11 +2593,12 @@ export class PayService {
             amount,
             rail: row.rail_adapter,
             source: from,
+            ...(from === 'settled' && pot === 'user' ? { settledPot: 'user' as const } : {}),
           });
 
         let posted: LedgerTx;
         try {
-          posted = await postPayLedger(this.ledger, refundRequest(source));
+          posted = await postPayLedger(this.ledger, refundRequest(source, settledPot));
         } catch (error) {
           // `source` is derived from the payment's CURRENT status, but the ledger key
           // `payment.refund:<paymentId>:<refundId>` does not contain it and it decides which account is debited. If an
@@ -2591,7 +2608,7 @@ export class PayService {
           // would fail, while a new refundId would debit the merchant twice. Recover only that case: the booked
           // transaction is read back, checked leg by leg, and its own source is adopted.
           const recovered = await this.recoverBookedRefund(error, {
-            key: refundRequest(source).idempotencyKey,
+            key: refundRequest(source, settledPot).idempotencyKey,
             paymentId: row.id,
             refundId,
             merchantId: row.merchant_id,
@@ -2603,6 +2620,7 @@ export class PayService {
           if (!recovered) throw error;
           posted = recovered.tx;
           source = recovered.source;
+          settledPot = recovered.settledPot;
         }
 
         await appendEvent(tx, row.id, 'refund.posted', {
@@ -2612,7 +2630,16 @@ export class PayService {
           ledgerTxId: posted.id,
         });
 
-        return { replay: false as const, row, refundId, source, merchant, captured: totals.captured, refunded: totals.refunded };
+        return {
+          replay: false as const,
+          row,
+          refundId,
+          source,
+          settledPot,
+          merchant,
+          captured: totals.captured,
+          refunded: totals.refunded,
+        };
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
@@ -2642,6 +2669,7 @@ export class PayService {
           amount,
           rail: row.rail_adapter,
           source: prepared.source,
+          ...(prepared.source === 'settled' && prepared.settledPot === 'user' ? { settledPot: 'user' as const } : {}),
         };
 
         if (!result.ok) {
@@ -2690,13 +2718,46 @@ export class PayService {
   }
 
   /**
+   * The pot a settled payment's own settlement post debited.
+   * No settled event, or a post that is neither legacy nor proceeds, refuses.
+   */
+  private async settledPotForPayment(sql: Sql, paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
+    const rows = await sql<Array<{ settlement_id: string | null }>>`
+      SELECT payload->>'settlementId' AS settlement_id
+        FROM pay.payment_events
+       WHERE payment_id = ${paymentId} AND event = 'settled'
+       ORDER BY seq DESC
+       LIMIT 1
+    `;
+    const settlementId = rows[0]?.settlement_id;
+    if (!settlementId) {
+      throw new PayError(`Payment ${paymentId} has no settlement post to draw a settled refund from`, 'pay.settlement_book_unrecognised', {
+        paymentId,
+      });
+    }
+    const settlement = await this.getSettlement(settlementId, sql);
+    const book = await readSettlementBook(this.ledger, {
+      merchantId: settlement.merchantId,
+      merchantUserId,
+      window: settlement.window,
+      assetId: settlement.assetId,
+    });
+    if (book === 'legacy') return 'user';
+    if (book === 'proceeds') return 'proceeds';
+    throw new PayError(`Payment ${paymentId} settlement book is not recognised`, 'pay.settlement_book_unrecognised', {
+      paymentId,
+      settlementId,
+    });
+  }
+
+  /**
    * A refund whose first attempt was booked by svc-ledger but never acknowledged to us (see the phase-1 call).
    *
    * Returns the booked transaction and the source it was booked from, when `error` is a receipt mismatch or an
    * idempotency refusal AND the ledger really holds this refund key with exactly the two legs `paymentRefund` books:
-   * the merchant account (clearing or available) credited and the rail boundary debited, in this asset. A booking for a
-   * different amount is a refund id reused for another refund (`pay.refund_id_conflict`). Anything else, including
-   * nothing booked, returns null so the caller rethrows the original error.
+   * the merchant account (clearing, proceeds, or the pre-cutover user available) credited and the rail boundary debited,
+   * in this asset. A booking for a different amount is a refund id reused for another refund (`pay.refund_id_conflict`).
+   * Anything else, including nothing booked, returns null so the caller rethrows the original error.
    */
   private async recoverBookedRefund(
     error: unknown,
@@ -2710,7 +2771,7 @@ export class PayService {
       rail: string;
       amount: Amount;
     },
-  ): Promise<{ tx: LedgerTx; source: 'clearing' | 'settled' } | null> {
+  ): Promise<{ tx: LedgerTx; source: 'clearing' | 'settled'; settledPot: 'proceeds' | 'user' } | null> {
     if (!(error instanceof LedgerError) || (error.code !== 'pay.ledger_receipt_mismatch' && error.code !== 'ledger.idempotency_conflict')) {
       return null;
     }
@@ -2725,7 +2786,14 @@ export class PayService {
     if (!boundary || debit.accountId !== boundary) return null;
     const clearing = (await this.ledger.balance(merchantClearing(input.merchantId, input.assetId))).accountId;
     const proceeds = (await this.ledger.balance(merchantProceeds(input.merchantId, input.assetId))).accountId;
-    const source = credit.accountId === clearing ? ('clearing' as const) : credit.accountId === proceeds ? ('settled' as const) : null;
+    const personal = (await this.ledger.balance(userAvailable(input.merchantUserId, input.assetId))).accountId;
+    const settledPot: 'proceeds' | 'user' = personal !== '' && credit.accountId === personal ? 'user' : 'proceeds';
+    const source =
+      credit.accountId === clearing
+        ? ('clearing' as const)
+        : credit.accountId === proceeds || settledPot === 'user'
+          ? ('settled' as const)
+          : null;
     if (!source) return null;
 
     if (credit.amount !== input.amount) {
@@ -2740,7 +2808,7 @@ export class PayService {
         },
       );
     }
-    return { tx: booked, source };
+    return { tx: booked, source, settledPot: source === 'settled' ? settledPot : 'proceeds' };
   }
 
   // ── Webhooks ───────────────────────────────────────────────────────────────
@@ -3125,17 +3193,43 @@ export class PayService {
           );
         }
 
-        await postPayLedger(
-          this.ledger,
-          recipes.merchantSettlement({
-            merchantId: row.merchant_id,
-            merchantUserId: merchant.userId,
-            window: row.window,
-            assetId: row.asset_id,
-            gross,
-            fee: fees,
-          }),
-        );
+        const settlementPost = recipes.merchantSettlement({
+          merchantId: row.merchant_id,
+          merchantUserId: merchant.userId,
+          window: row.window,
+          assetId: row.asset_id,
+          gross,
+          fee: fees,
+        });
+        const bookInput = {
+          merchantId: row.merchant_id,
+          merchantUserId: merchant.userId,
+          assetId: row.asset_id,
+        };
+        // A window posted before proceeds existed already holds this key, debiting
+        // userAvailable. Posting the proceeds body would conflict. Adopt that
+        // transaction: the ledger post is the legacy mark, and this row becomes posted.
+        const existing = await this.ledger.getTxByKey(settlementPost.idempotencyKey);
+        if (!existing) {
+          await postPayLedger(this.ledger, settlementPost);
+        } else {
+          const book = await classifySettlementTx(this.ledger, existing, bookInput);
+          if (book === 'proceeds') {
+            await postPayLedger(this.ledger, settlementPost);
+          } else if (book === 'legacy') {
+            if (!(await legacyPostMatchesFrozen(this.ledger, existing, { ...bookInput, gross, fee: fees }))) {
+              throw new PayError(
+                `Settlement ${row.id} already has a personal-balance post that does not match the frozen window`,
+                'pay.settlement_ledger_conflict',
+                { settlementId: row.id },
+              );
+            }
+          } else {
+            throw new PayError(`Settlement ${row.id} ledger post is not a recognised settlement`, 'pay.settlement_book_unrecognised', {
+              settlementId: row.id,
+            });
+          }
+        }
 
         await tx`
           UPDATE pay.settlements SET status = 'posted', payout_method = 'ledger', updated_at = now()
@@ -3576,19 +3670,44 @@ export class PayService {
             railId: admission.rail_id,
             destinationKind: admission.destination_kind,
           });
-          // An attempt already held on the owner's user account finishes on that
-          // hold. The proceeds trio would book a second payout.
-          const legacyHold = await this.ledger.getTxByKey(payoutHoldKeys(admission.settlement_id, admission.attempt).legacy);
-          const plan = legacyHold
-            ? legacyUserPayoutPlan(
-                admission.merchant_user_id,
-                admission.asset_id,
-                parseAmount(admission.net),
-                admission.rail_id,
-                proceedsPlan.withdrawalId,
-                proceedsPlan.destinationKind,
-              )
-            : proceedsPlan;
+          // The settlement's own post decides the pot. A pre-cutover window
+          // debited userAvailable, so its payout is the personal withdraw trio.
+          // A proceeds window never pays from that hold.
+          const settlementTx = await this.ledger.getTxByKey(
+            settlementIdempotencyKey(admission.merchant_id, admission.window, admission.asset_id),
+          );
+          if (!settlementTx) {
+            throw new PayError(`Settlement ${admission.settlement_id} has no settlement post`, 'pay.settlement_book_unrecognised', {
+              settlementId: admission.settlement_id,
+            });
+          }
+          const book = await classifySettlementTx(this.ledger, settlementTx, {
+            merchantId: admission.merchant_id,
+            merchantUserId: admission.merchant_user_id,
+            assetId: admission.asset_id,
+          });
+          const plan =
+            book === 'legacy'
+              ? legacyUserPayoutPlan(
+                  admission.merchant_user_id,
+                  admission.asset_id,
+                  parseAmount(admission.net),
+                  admission.rail_id,
+                  proceedsPlan.withdrawalId,
+                  proceedsPlan.destinationKind,
+                )
+              : book === 'proceeds'
+                ? proceedsPlan
+                : null;
+          if (!plan) {
+            throw new PayError(
+              `Settlement ${admission.settlement_id} ledger post is not a recognised settlement`,
+              'pay.settlement_book_unrecognised',
+              {
+                settlementId: admission.settlement_id,
+              },
+            );
+          }
           const outcomes = await connection`SELECT kind,payload FROM pay.payout_outcomes WHERE admission_id=${admission.id}`;
           let accepted = outcomes.find((outcome) => outcome.kind === 'rail_accepted')?.payload as { railRef: string } | undefined;
           let refused = outcomes.find((outcome) => outcome.kind === 'rail_refused')?.payload as
@@ -3810,9 +3929,13 @@ export class PayService {
     // balances, and the opening recipe's key is the dispute id: a redelivery after a crash (post committed, delivery
     // marker not yet written) would otherwise re-split from balances the first post already moved, and book the same key
     // with different amounts. Replays post the stored plan.
+    const settledPot = payment.status === 'settled' ? await this.settledPotForPayment(this.sql, payment.id, merchant.userId) : 'proceeds';
     const compute = async () => {
       const clearing = await this.clearingBalance(input.merchantId, input.assetId);
-      const available = await this.merchantBalance(input.merchantId, input.assetId);
+      const available =
+        settledPot === 'user'
+          ? (await this.ledger.balance(userAvailable(merchant.userId, input.assetId))).amount
+          : await this.merchantBalance(input.merchantId, input.assetId);
       const fromClearing = clearing < amount ? clearing : amount;
       const fromMerchantBalance = amount - fromClearing;
       if (fromMerchantBalance > available) {
@@ -3834,6 +3957,7 @@ export class PayService {
         rail: payment.railAdapter,
         fromClearing: plan.fromClearing,
         fromMerchantBalance: plan.fromMerchantBalance,
+        ...(settledPot === 'user' ? { settledPot: 'user' as const } : {}),
       };
       try {
         const posted = await postDisputeOpening(this.ledger, request);

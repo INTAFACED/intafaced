@@ -274,6 +274,20 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
     return pay.authorize(payment.id);
   }
 
+  /** A pre-cutover settlement post: net debits the owner's userAvailable. Fee is zero. */
+  async function postLegacySettlement(merchantId: string, window: string, gross: string, assetId = 'USDT') {
+    await ledger.post({
+      idempotencyKey: `settlement:${merchantId}:${window}:${assetId}`,
+      module: 'pay',
+      reason: 'pay.settled',
+      meta: { merchantId, window, assetId },
+      entries: [
+        { account: merchantClearing(merchantId, assetId), direction: 'credit', amount: amt(gross) },
+        { account: userAvailable(MERCHANT_USER, assetId), direction: 'debit', amount: amt(gross) },
+      ],
+    });
+  }
+
   /** Settle with wide explicit bounds so the test never straddles UTC midnight. */
   async function settle(merchantId: string, window: string, assetId = 'USDT') {
     return pay.settleWindow({
@@ -834,11 +848,90 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
     });
   });
 
+  it('a pre-cutover settled refund draws on userAvailable, and a lost reply recovers that booking', async () => {
+    const realPost = ledger.post.bind(ledger);
+    const gate = { lose: true };
+    ledger.post = async (request) => {
+      const tx = await realPost(request);
+      if (gate.lose && request.reason === 'payment.refunded') {
+        gate.lose = false;
+        throw new Error('simulated lost acknowledgement');
+      }
+      return tx;
+    };
+    try {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '40');
+      await pay.capture(payment.id);
+      await postLegacySettlement(m.id, 'w-legacy-refund', '40');
+      await settle(m.id, 'w-legacy-refund');
+      expect(await availableOf(MERCHANT_USER)).toBe('40');
+      expect(await proceedsOf(m.id)).toBe('0');
+      card.failNext('acquirer.unavailable', 'Simulated acquirer failure');
+      await expect(pay.refund(payment.id, amt('15'), { refundId: 'legacy-lost' })).rejects.toThrow(/lost acknowledgement/);
+      await expect(pay.refund(payment.id, amt('15'), { refundId: 'legacy-lost' })).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(await availableOf(MERCHANT_USER)).toBe('40');
+      expect(await proceedsOf(m.id)).toBe('0');
+      const personalId = (await ledger.balance(userAvailable(MERCHANT_USER, 'USDT'))).accountId;
+      const refunds = ledger.journal().filter((tx) => tx.reason === 'payment.refunded');
+      expect(refunds).toHaveLength(1);
+      expect(refunds[0]!.entries.find((entry) => entry.direction === 'credit')?.accountId).toBe(personalId);
+      const reversed = ledger.journal().filter((tx) => tx.reason === 'payment.refund.reversed');
+      expect(reversed).toHaveLength(1);
+      expect(reversed[0]!.entries.find((entry) => entry.direction === 'debit')?.accountId).toBe(personalId);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    } finally {
+      ledger.post = realPost;
+    }
+  });
+
   // ── Capture rules ─────────────────────────────────────────────────────────
 
   describe('chargeback opening replay', () => {
     const open = (m: { id: string }, paymentId: string, disputeId: string, amount: string) =>
       pay.openChargeback({ disputeId, paymentId, merchantId: m.id, amount, assetId: 'USDT' });
+
+    it('replays a legacy stored chargeback plan from userAvailable without a second booking', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '80');
+      await pay.capture(payment.id);
+      await postLegacySettlement(m.id, 'w-legacy-cb', '80');
+      await settle(m.id, 'w-legacy-cb');
+      const disputeId = 'dp-legacy-replay';
+      const booked = await ledger.post(
+        recipes.chargebackOpen({
+          disputeId,
+          paymentId: payment.id,
+          merchantId: m.id,
+          merchantUserId: MERCHANT_USER,
+          assetId: 'USDT',
+          rail: 'card-sandbox',
+          fromClearing: amt('0'),
+          fromMerchantBalance: amt('30'),
+          settledPot: 'user',
+        }),
+      );
+      await sql`
+        INSERT INTO pay.payment_events (payment_id, event, payload)
+        VALUES (
+          ${payment.id},
+          'chargeback.opening_planned',
+          ${sql.json({ disputeId, amount: '30', fromClearing: '0', fromMerchantBalance: '30' } as never)}
+        )
+      `;
+      const replayed = await pay.openChargeback({
+        disputeId,
+        paymentId: payment.id,
+        merchantId: m.id,
+        amount: '30',
+        assetId: 'USDT',
+      });
+      expect(replayed.txId).toBe(booked.id);
+      expect(await availableOf(MERCHANT_USER)).toBe('50');
+      expect(await proceedsOf(m.id)).toBe('0');
+      expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
 
     it('replays the stored split after the first opening has moved the balances it was computed from', async () => {
       const m = await merchant(0);
@@ -901,9 +994,13 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       let armed = true;
       const flaky = new Proxy(ledger, {
         get(target, prop, receiver) {
-          // svc-pay's production client (ledger-client.ts) does not expose key lookups: it throws, with exactly this text.
+          // The chargeback void's dispute-key lookup used to be the only getTxByKey on this path.
+          // A settlement key is answered: the pot is decided from that post. Any other key still throws,
+          // which is what proves a failed dispute-key lookup does not stop the void.
           if (prop === 'getTxByKey' && opts.productionLookup) {
-            return async () => {
+            const read = target.getTxByKey.bind(target);
+            return async (key: string) => {
+              if (key.startsWith('settlement:')) return read(key);
               throw new Error('getTxByKey is not exposed over the internal ledger API — query svc-ledger directly');
             };
           }
@@ -1916,6 +2013,55 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       });
     });
 
+    it('adopts a pre-cutover settlement post instead of conflicting, and release heals onto it', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '40');
+      await pay.capture(payment.id);
+      const window = 'w-adopt-legacy';
+      await postLegacySettlement(m.id, window, '40');
+      const posted = await settle(m.id, window);
+      expect(posted.status).toBe('posted');
+      expect(await availableOf(MERCHANT_USER)).toBe('40');
+      expect(await proceedsOf(m.id)).toBe('0');
+      expect(ledger.journal().filter((tx) => tx.reason === 'pay.settled')).toHaveLength(1);
+      expect((await pay.getPayment(payment.id)).status).toBe('settled');
+
+      const stuckMerchant = await merchant(0);
+      const stuckPayment = await cardPayment(stuckMerchant.id, '25');
+      await pay.capture(stuckPayment.id);
+      const blocked = new PayService(
+        sql,
+        {
+          post: async () => {
+            throw new Error('ledger down');
+          },
+          balance: (ref) => ledger.balance(ref),
+          balances: (ownerType, ownerId) => ledger.balances(ownerType, ownerId),
+          getTx: (id) => ledger.getTx(id),
+          getTxByKey: (key) => ledger.getTxByKey(key),
+        },
+        rails,
+      );
+      await expect(
+        blocked.settleWindow({
+          merchantId: stuckMerchant.id,
+          window: 'w-adopt-release',
+          assetId: 'USDT',
+          from: new Date(Date.now() - 24 * 3600_000),
+          to: new Date(Date.now() + 24 * 3600_000),
+        }),
+      ).rejects.toThrow(/ledger down/);
+      await postLegacySettlement(stuckMerchant.id, 'w-adopt-release', '25');
+      const healed = await pay.releasePendingSettlement({
+        settlementId: (await pay.listSettlements({ merchantId: stuckMerchant.id, limit: 50 }))[0]!.id,
+        reason: 'adopt legacy post',
+      });
+      expect(healed.status).toBe('posted');
+      expect(await availableOf(MERCHANT_USER)).toBe('65');
+      expect(await proceedsOf(stuckMerchant.id)).toBe('0');
+      expect(ledger.journal().filter((tx) => tx.reason === 'pay.settled')).toHaveLength(2);
+    });
+
     /**
      * W8 residual — dual-book lag (ledger ahead of SQL) then ops release must
      * heal, not free payments into a later window that double-credits.
@@ -2371,7 +2517,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const asked = calls.filter((c) => c.path === '/trpc/txByKey').map((c) => c.body.idempotencyKey);
       const legacy = `withdraw.hold:${settlement.id}:0`;
       const proceeds = `pay.proceeds.payout.hold:${settlement.id}:0`;
-      expect(asked).toEqual([legacy, proceeds, legacy, proceeds, legacy]);
+      const settlementKey = `settlement:${m.id}:payout-over-http-ledger:USDT`;
+      expect(asked).toEqual([legacy, proceeds, legacy, proceeds, settlementKey]);
       expect(calls.every((c) => c.service === 'svc-pay')).toBe(true);
       expect(calls.some((c) => c.path === '/trpc/post')).toBe(true);
       expect(chain.outboundTransfers()).toHaveLength(1);
@@ -2407,8 +2554,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       } finally {
         globalThis.fetch = realFetch;
       }
-      // First attempt looks up the legacy user hold and the proceeds hold, before admission and inside it.
-      // The retry looks up the legacy key, then the proceeds hold, so recovery can tell beforePayoutExecute.
+      // First attempt looks up both hold keys before admission and inside it, then crashes.
+      // The retry reads the settlement post to choose the pot, then the chosen hold.
       expect(calls.filter((c) => c.path === '/trpc/txByKey')).toHaveLength(6);
       expect(chain.outboundTransfers()).toHaveLength(1);
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -2687,6 +2834,99 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(retried.status).toBe('paid_out');
       expect(await proceedsOf(m.id)).toBe('0');
       expect(await availableOf(MERCHANT_USER)).toBe('0');
+    });
+
+    it('a pre-cutover settlement pays out from userAvailable', async () => {
+      const m = await merchant(0);
+      const payment = await cryptoPayment(m.id, '18');
+      await pay.capture(payment.id);
+      await postLegacySettlement(m.id, 'w-legacy-payout', '18');
+      const settlement = await settle(m.id, 'w-legacy-payout');
+      expect(await availableOf(MERCHANT_USER)).toBe('18');
+      expect(await proceedsOf(m.id)).toBe('0');
+      const paid = await pay.payoutSettlement({
+        settlementId: settlement.id,
+        railId: 'crypto-native',
+        destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f11' },
+      });
+      expect(paid.status).toBe('paid_out');
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
+      expect(await proceedsOf(m.id)).toBe('0');
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
+      expect(
+        ledger
+          .journal()
+          .filter((tx) => tx.reason.startsWith('withdraw.') || tx.reason.startsWith('pay.proceeds.payout'))
+          .map((tx) => tx.reason),
+      ).toEqual(['withdraw.held', 'withdraw.settled']);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('an in-flight pre-cutover hold finishes on the personal withdraw trio', async () => {
+      const m = await merchant(0);
+      const payment = await cryptoPayment(m.id, '14');
+      await pay.capture(payment.id);
+      await postLegacySettlement(m.id, 'w-legacy-hold', '14');
+      const settlement = await settle(m.id, 'w-legacy-hold');
+      const originalPost = ledger.post.bind(ledger);
+      let crash = true;
+      ledger.post = async (request) => {
+        const result = await originalPost(request);
+        if (crash && request.reason === 'withdraw.held') {
+          crash = false;
+          throw new Error('test.legacy_hold_crash');
+        }
+        return result;
+      };
+      const request = {
+        settlementId: settlement.id,
+        railId: 'crypto-native',
+        destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f12' },
+      };
+      await expect(pay.payoutSettlement(request)).rejects.toThrow('test.legacy_hold_crash');
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('14');
+      expect(await proceedsOf(m.id)).toBe('0');
+      ledger.post = originalPost;
+      const paid = await pay.payoutSettlement(request);
+      expect(paid.status).toBe('paid_out');
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
+      expect(await proceedsOf(m.id)).toBe('0');
+      expect(ledger.journal().filter((tx) => tx.reason.startsWith('pay.proceeds.payout'))).toHaveLength(0);
+      expect(ledger.journal().filter((tx) => tx.reason === 'withdraw.settled')).toHaveLength(1);
+      expect(chain.outboundTransfers()).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a refused pre-cutover payout returns to userAvailable and the next attempt settles from there', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '16');
+      await pay.capture(payment.id);
+      await postLegacySettlement(m.id, 'w-legacy-reverse', '16');
+      const settlement = await settle(m.id, 'w-legacy-reverse');
+      card.failNext('bank.rejected', 'Beneficiary closed');
+      await expect(
+        pay.payoutSettlement({
+          settlementId: settlement.id,
+          railId: 'card-sandbox',
+          destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+        }),
+      ).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(await availableOf(MERCHANT_USER)).toBe('16');
+      expect(await proceedsOf(m.id)).toBe('0');
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
+      const paid = await pay.payoutSettlement({
+        settlementId: settlement.id,
+        railId: 'card-sandbox',
+        destination: { kind: 'bank', ref: 'GB82WEST12345698765432' },
+      });
+      expect(paid.status).toBe('paid_out');
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
+      expect(await proceedsOf(m.id)).toBe('0');
+      expect(ledger.journal().filter((tx) => tx.reason.startsWith('pay.proceeds.payout'))).toHaveLength(0);
+      expect(ledger.journal().map((tx) => tx.reason)).toEqual(
+        expect.arrayContaining(['withdraw.held', 'withdraw.reversed', 'withdraw.settled']),
+      );
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
     it('is idempotent — paying out twice pays once', async () => {

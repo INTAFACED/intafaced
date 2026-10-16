@@ -826,8 +826,10 @@ export interface PaymentRefundInput {
   paymentId: string;
   merchantId: string;
   /**
-   * Kept for callers. A settled refund draws on proceeds, not this user's
-   * trading balance, and does not take a shortfall from it.
+   * The owner's trading balance. A settled refund uses it only when
+   * `settledPot` is `user`: that payment's settlement post debited
+   * `userAvailable`. The default settled pot is proceeds, and a settled refund
+   * does not take a shortfall from this balance.
    */
   merchantUserId: string;
   assetId: string;
@@ -837,16 +839,21 @@ export interface PaymentRefundInput {
    * Where the money comes back from.
    *
    * Before settlement the value is still in clearing. After settlement it is
-   * in proceeds. A settled refund that exceeds proceeds fails with insufficient
-   * funds. It does not take the shortfall from the owner's personal balance.
+   * in the pot that settlement post debited. A settled refund that exceeds
+   * that pot fails with insufficient funds.
    */
   source: 'clearing' | 'settled';
+  /**
+   * Which account a settled refund draws. Omitted means proceeds.
+   * `user` is the pre-cutover pot: the settlement key debited `userAvailable`.
+   */
+  settledPot?: 'proceeds' | 'user';
 }
 
 function refundPot(input: PaymentRefundInput): AccountRef {
-  return input.source === 'clearing'
-    ? merchantClearing(input.merchantId, input.assetId)
-    : merchantProceeds(input.merchantId, input.assetId);
+  if (input.source === 'clearing') return merchantClearing(input.merchantId, input.assetId);
+  if (input.settledPot === 'user') return userAvailable(input.merchantUserId, input.assetId);
+  return merchantProceeds(input.merchantId, input.assetId);
 }
 
 /**
