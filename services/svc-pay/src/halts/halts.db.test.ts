@@ -391,6 +391,22 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
         [`${railHaltKey('crypto-native')} auto_trip`, `${userHaltKey(USER)} auto_trip`].sort(),
       );
     });
+
+    it('clears a halted rail through both founders when this process no longer registers it', async () => {
+      const rail = { level: 'rail' as const, railId: 'x' };
+      const knowing = storeOn(poolA, {}, { has: (railId) => railId === 'x' });
+      expect((await knowing.set(FOUNDER_A, setInput({ scope: 'payout', target: rail, reason: 'rail outage' }))).outcome).toBe('changed');
+
+      const blind = storeOn(poolA, {}, { has: () => false });
+      const clear = setInput({ scope: 'payout', target: rail, halted: false, expectedVersion: '1', reason: 'rail removed' });
+      expect((await blind.set(FOUNDER_A, clear)).outcome).toBe('pending_confirmation');
+      const confirmed = await blind.set(FOUNDER_B, clear);
+      expect(confirmed.outcome).toBe('changed');
+      expect(confirmed.state).toMatchObject({ halted: false, target: rail });
+      expect(await poolA`SELECT 1 FROM pay.halts WHERE target = ${'rail:x'} AND halted`).toHaveLength(0);
+      const row = await poolA<{ target: string; halted: boolean }[]>`SELECT target, halted FROM pay.halts WHERE target = ${'rail:x'}`;
+      expect(row).toEqual([{ target: 'rail:x', halted: false }]);
+    });
   });
 
   describe('a halt stops fresh work and rail sends; bookkeeping recoveries and replays finish', () => {

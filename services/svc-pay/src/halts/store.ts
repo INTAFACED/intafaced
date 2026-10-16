@@ -304,8 +304,9 @@ export class PayHaltStore {
     const actor = actorUserId.toLowerCase();
     const key = targetKey(input.target);
     // Before any write, including a clear. Guards enforce a user or rail halt on
-    // payout only, so another scope is refused here. Auto-trip writes through
-    // recordFailure, not set().
+    // payout only, so another scope is refused here. A clear skips the rail
+    // registry check: the existing row and expectedVersion already prove the
+    // target. Auto-trip writes through recordFailure, not set().
     this.assertOperatorTarget(input);
     if (input.target.level === 'merchant') {
       const found = await this.sql`SELECT 1 FROM pay.merchants WHERE id = ${key}`;
@@ -361,8 +362,10 @@ export class PayHaltStore {
   /**
    * Founder targets only. A user or rail halt is enforced on payout alone, so any
    * other scope is refused rather than stored. svc-pay does not own the user
-   * table, so a user id is checked for uuid shape and not for a row. A rail id
-   * must be one this process has registered.
+   * table, so a user id is checked for uuid shape and not for a row. A new rail
+   * halt must name a rail this process has registered. A clear skips that check:
+   * the existing row and expectedVersion already prove the target, including a
+   * rail this process no longer registers.
    */
   private assertOperatorTarget(input: PayHaltSetInput): void {
     const target = input.target;
@@ -372,7 +375,7 @@ export class PayHaltStore {
     if (target.level === 'user' && !payMerchantIdSchema.safeParse(target.userId).success) {
       throw new PayHaltError('pay.halt_target_unsupported');
     }
-    if (target.level === 'rail' && !this.rails.has(target.railId)) {
+    if (input.halted && target.level === 'rail' && !this.rails.has(target.railId)) {
       throw new PayHaltError('pay.halt_target_unknown_rail');
     }
   }
