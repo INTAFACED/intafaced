@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus, MemorySeenStore } from '@intafaced/events';
-import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { createTestDb } from './fixture-truncate.testkit.js';
 import { applyBlueprintCreated, applyBlueprintDeleted, readBlueprintId } from './blueprint-profile.js';
 import { subscribeBlueprintProfileEvents } from './events.js';
 

@@ -4,9 +4,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
-import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
+import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
 import { canonicalInvite, founderEnrolmentConfig, generateFounderInvites, type FounderEnrolmentConfig } from './founder-enrolment.js';
 import { totp } from './totp.js';
@@ -38,67 +39,6 @@ const tokenConfig = {
   refreshTtlSeconds: 2_592_000,
 };
 const PASSWORD = 'correct horse battery staple';
-
-/** One try plus three retries. A stuck cycle still fails the test. */
-const FIXTURE_TRUNCATE_ATTEMPTS = 4;
-
-function postgresCode(err: unknown): string | undefined {
-  if (typeof err !== 'object' || err === null || !('code' in err)) return undefined;
-  const code = (err as { code?: unknown }).code;
-  return typeof code === 'string' ? code : undefined;
-}
-
-/**
- * Fixture TRUNCATE only. Enrolment fires a navigator projection insert and does
- * not wait for it, so the next reset can deadlock with that insert (40P01).
- * Postgres aborts one side; retrying the truncate is safe. No other error,
- * including serialization failure, is retried, and product statements are not.
- */
-async function retryFixtureTruncate(run: () => Promise<void>): Promise<void> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      await run();
-      return;
-    } catch (err) {
-      if (postgresCode(err) !== '40P01' || attempt >= FIXTURE_TRUNCATE_ATTEMPTS) throw err;
-    }
-  }
-}
-
-describe('founder enrolment fixture truncate', () => {
-  it('retries deadlock_detected and then returns', async () => {
-    let calls = 0;
-    await retryFixtureTruncate(async () => {
-      calls += 1;
-      if (calls < 3) throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
-    });
-    expect(calls).toBe(3);
-  });
-
-  it('does not retry any other database error', async () => {
-    let calls = 0;
-    const failure = Object.assign(new Error('serialization failure'), { code: '40001' });
-    await expect(
-      retryFixtureTruncate(async () => {
-        calls += 1;
-        throw failure;
-      }),
-    ).rejects.toBe(failure);
-    expect(calls).toBe(1);
-  });
-
-  it('stops at the attempt bound and surfaces the deadlock', async () => {
-    let calls = 0;
-    const failure = Object.assign(new Error('deadlock detected'), { code: '40P01' });
-    await expect(
-      retryFixtureTruncate(async () => {
-        calls += 1;
-        throw failure;
-      }),
-    ).rejects.toBe(failure);
-    expect(calls).toBe(FIXTURE_TRUNCATE_ATTEMPTS);
-  });
-});
 
 const available = await postgresAvailable(URL);
 
@@ -149,7 +89,7 @@ if (!available) {
   };
 
   beforeEach(async () => {
-    await retryFixtureTruncate(() => db.truncateAll());
+    await db.truncateAll();
     logged.length = 0;
     clock = new Date('2026-10-14T00:00:00.000Z');
     invites = generateFounderInvites(clock);
@@ -269,7 +209,7 @@ if (!available) {
 
     it('RACE: parallel enrolments with the same invite give exactly one winner and one account', async () => {
       for (let round = 0; round < 3; round += 1) {
-        await retryFixtureTruncate(() => db.truncateAll());
+        await db.truncateAll();
         const fresh = generateFounderInvites(clock);
         const cfg = founderEnrolmentConfig(fresh.hashes.join(','), fresh.expiresAt);
         const caller = api({ invites: cfg });
