@@ -155,7 +155,20 @@ describe('svc-pay public REST money (source)', () => {
   });
 });
 
-describe('svc-pay public REST money paths PG-hard', () => {
+/**
+ * 30 s per test, not vitest's 5 s default. Ten local runs of this file on an
+ * idle throwaway Postgres finished the tests in 587 to 662 ms, 13 passed each
+ * time. On CI the journal-lost partial refund alone has been 1254 ms, 1298 ms
+ * and 2995 ms while the rest of the pay package shares one Postgres, so a 5 s
+ * limit is a speed failure on a loaded runner. The customer-only run that went
+ * red named this test; the body does not replan a second refund.
+ *
+ * vitest does not cancel a test body that has timed out. The body keeps
+ * posting while the next test's beforeEach TRUNCATE takes ACCESS EXCLUSIVE
+ * on the pay tables, and the two deadlock. The same budget is already on the
+ * money PG-hard suite. It is a limit, not a retry.
+ */
+describe('svc-pay public REST money paths PG-hard', { timeout: 30_000 }, () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
   let ledger: MemoryLedger;
@@ -418,9 +431,11 @@ describe('svc-pay public REST money paths PG-hard', () => {
       const id = await captured(http, m.id);
       const headers = { ...signed(), 'idempotency-key': `refund:${id}:partial` };
 
-      await http.inject({ method: 'POST', url: `/v1/payments/${id}/refund`, headers, payload: { amount: '10' } });
+      const first = await http.inject({ method: 'POST', url: `/v1/payments/${id}/refund`, headers, payload: { amount: '10' } });
+      expect(first.statusCode, first.payload).toBe(200);
       const retried = await build(new MemoryRestIdempotencyStore());
       const second = await retried.inject({ method: 'POST', url: `/v1/payments/${id}/refund`, headers, payload: { amount: '10' } });
+      expect(second.statusCode, second.payload).toBe(200);
 
       // 90, not 80. One business event, one movement.
       expect(await clearingOf(m.id)).toBe('90');
