@@ -88,12 +88,12 @@ describe('matching action-approval consume', () => {
 
 const approvalCmd = { approvalId: 'appr-1', operationId: 'op-1' };
 
-function echoingApproval(mutate: (row: Record<string, unknown>) => void = () => {}): ActionApprovalConsumer {
+function echoingApproval(actionType: string, mutate: (row: Record<string, unknown>) => void = () => {}): ActionApprovalConsumer {
   return {
     async consume(input) {
       const row: Record<string, unknown> = {
         ...input,
-        actionType: input.targetId,
+        actionType,
         requesterId: 'founder-a',
         approverId: 'founder-b',
         policyVersion: 'v1',
@@ -113,7 +113,7 @@ describe('founder attestation at matching consume', () => {
   it('refuses opening a market when identity sends no attestation', async () => {
     await expect(
       consumeMatchingApproval(
-        echoingApproval((row) => {
+        echoingApproval('matching.open', (row) => {
           delete row.approverIsFounder;
           delete row.requesterIsFounder;
         }),
@@ -128,7 +128,13 @@ describe('founder attestation at matching consume', () => {
   it('refuses a forged or mismatched founder attestation', async () => {
     const refuse = (mutate: (row: Record<string, unknown>) => void) =>
       expect(
-        consumeMatchingApproval(echoingApproval(mutate), approvalCmd, 'matching.resume', { marketId: 'BTC-USDT' }, 'resume:BTC-USDT'),
+        consumeMatchingApproval(
+          echoingApproval('matching.resume', mutate),
+          approvalCmd,
+          'matching.resume',
+          { marketId: 'BTC-USDT' },
+          'resume:BTC-USDT',
+        ),
       ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
     await refuse((row) => {
       row.approverIsFounder = false;
@@ -146,7 +152,7 @@ describe('founder attestation at matching consume', () => {
     });
     await expect(
       consumeMatchingApproval(
-        echoingApproval((row) => {
+        echoingApproval('matching.halt', (row) => {
           delete row.approverIsFounder;
           delete row.requesterIsFounder;
         }),
@@ -160,7 +166,7 @@ describe('founder attestation at matching consume', () => {
 
   it('accepts a distinct founder pair for opening a market', async () => {
     await expect(
-      consumeMatchingApproval(echoingApproval(), approvalCmd, 'matching.open', { marketId: 'BTC-USDT' }, 'open:BTC-USDT'),
+      consumeMatchingApproval(echoingApproval('matching.open'), approvalCmd, 'matching.open', { marketId: 'BTC-USDT' }, 'open:BTC-USDT'),
     ).resolves.toMatchObject({ approverId: 'founder-b' });
   });
 
@@ -173,7 +179,7 @@ describe('founder attestation at matching consume', () => {
     ] as const;
     for (const [actionType, targetId] of brakes) {
       const consumed = await consumeMatchingApproval(
-        echoingApproval((row) => {
+        echoingApproval(actionType, (row) => {
           delete row.approverIsFounder;
           delete row.requesterIsFounder;
         }),

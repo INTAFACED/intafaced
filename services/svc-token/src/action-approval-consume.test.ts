@@ -78,12 +78,12 @@ describe('token action-approval consume', () => {
 
 const approvalCmd = { approvalId: 'appr-1', operationId: 'op-1' };
 
-function echoingApproval(mutate: (row: Record<string, unknown>) => void = () => {}): ActionApprovalConsumer {
+function echoingApproval(actionType: string, mutate: (row: Record<string, unknown>) => void = () => {}): ActionApprovalConsumer {
   return {
     async consume(input) {
       const row: Record<string, unknown> = {
         ...input,
-        actionType: input.targetId,
+        actionType,
         requesterId: 'founder-a',
         approverId: 'founder-b',
         policyVersion: 'v1',
@@ -103,7 +103,7 @@ describe('founder attestation at token consume', () => {
   it('refuses a founder action when identity sends no attestation', async () => {
     await expect(
       consumeTokenApproval(
-        echoingApproval((row) => {
+        echoingApproval('token.revenue.distribute', (row) => {
           delete row.approverIsFounder;
           delete row.requesterIsFounder;
         }),
@@ -118,7 +118,7 @@ describe('founder attestation at token consume', () => {
   it('refuses a forged or mismatched founder attestation', async () => {
     const refuse = (mutate: (row: Record<string, unknown>) => void) =>
       expect(
-        consumeTokenApproval(echoingApproval(mutate), approvalCmd, 'token.buyback.record', { runId: 'r1' }, 'r1'),
+        consumeTokenApproval(echoingApproval('token.buyback.record', mutate), approvalCmd, 'token.buyback.record', { runId: 'r1' }, 'r1'),
       ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
     await refuse((row) => {
       row.approverIsFounder = false;
@@ -136,7 +136,7 @@ describe('founder attestation at token consume', () => {
 
   it('accepts a distinct founder pair', async () => {
     await expect(
-      consumeTokenApproval(echoingApproval(), approvalCmd, 'token.revenue.distribute', { windowId: 'w1' }, 'w1'),
+      consumeTokenApproval(echoingApproval('token.revenue.distribute'), approvalCmd, 'token.revenue.distribute', { windowId: 'w1' }, 'w1'),
     ).resolves.toMatchObject({ approverId: 'founder-b', approverIsFounder: true, requesterIsFounder: true });
   });
 

@@ -217,6 +217,9 @@ describe('founder attestation at the consumer', () => {
       reason: 'forged',
     });
     expect(founderAttestationVerdict({ ...open, ...founders }, subject)).toEqual({ ok: true });
-    expect(founderAttestationVerdict({ ...open, ...founders, actionType: 'open:BTC-USDT' }, subject)).toEqual({ ok: true });
+    expect(founderAttestationVerdict({ ...open, ...founders, actionType: 'open:BTC-USDT' }, subject)).toEqual({
+      ok: false,
+      reason: 'forged',
+    });
   });
 });

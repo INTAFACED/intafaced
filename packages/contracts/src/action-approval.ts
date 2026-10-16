@@ -156,10 +156,9 @@ export function approvalCannotExecute(row: ActionApproval): boolean {
 /**
  * Operator-audience protective verbs. A brake must not wait for both founders.
  * The exception holds only when the type, the target service, and the target verb all agree.
- * Same list as svc-identity `PROTECTIVE_ACTIONS` in `action-approval-audience.ts`.
- * Every other consume needs identity's founder attestation.
+ * svc-identity decides audience from this same list. Every other consume needs identity's founder attestation.
  */
-const PROTECTIVE_OPERATOR_APPROVALS: readonly {
+export const PROTECTIVE_OPERATOR_APPROVALS: readonly {
   readonly actionType: string;
   readonly targetService: string;
   readonly targetVerb: string;
@@ -200,10 +199,9 @@ function sameBinding(left: string, right: string): boolean {
   return left.trim() === right.trim();
 }
 
-/** Identity stores the action type. A test double may echo the target id in that field. */
+/** Identity stores the action type. A row that only repeats the target id names a different action. */
 function namesThisAction(row: ActionApproval, subject: FounderApprovalSubject): boolean {
-  const type = normApproval(row.actionType);
-  return type === normApproval(subject.actionType) || type === normApproval(subject.targetId);
+  return normApproval(row.actionType) === normApproval(subject.actionType);
 }
 
 function distinctParties(row: ActionApproval): boolean {

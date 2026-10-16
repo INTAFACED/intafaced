@@ -60,13 +60,20 @@ export function unwiredApprovalConsumer(): ActionApprovalConsumer {
   };
 }
 
+/** `resume:BTC-USDT` is the target of `matching.resume`. Identity stores the action type, not the target id. */
+function matchingActionTypeForTarget(targetId: string): string {
+  const colon = targetId.indexOf(':');
+  const verb = colon === -1 ? targetId : targetId.slice(0, colon);
+  return verb.startsWith('matching.') ? verb : `matching.${verb}`;
+}
+
 export function stubApprovalConsumer(approverId: string): ActionApprovalConsumer {
   return {
     async consume(input) {
       const parsed = actionApprovalConsumeInputSchema.parse(input);
       return actionApprovalSchema.parse({
         ...parsed,
-        actionType: parsed.targetId,
+        actionType: matchingActionTypeForTarget(parsed.targetId),
         requesterId: 'requester',
         approverId,
         approverIsFounder: true,

@@ -52,13 +52,18 @@ export function unwiredApprovalConsumer(): ActionApprovalConsumer {
   };
 }
 
+/** `posting_freeze` is the target of `ledger.freeze`. Identity stores the action type, not the target id. */
+function ledgerActionTypeForTarget(targetId: string): string {
+  return targetId.startsWith('posting_') ? `ledger.${targetId.slice('posting_'.length)}` : targetId;
+}
+
 export function stubApprovalConsumer(approverId: string): ActionApprovalConsumer {
   return {
     async consume(input) {
       const parsed = actionApprovalConsumeInputSchema.parse(input);
       return actionApprovalSchema.parse({
         ...parsed,
-        actionType: parsed.targetId,
+        actionType: ledgerActionTypeForTarget(parsed.targetId),
         requesterId: 'requester',
         approverId,
         approverIsFounder: true,

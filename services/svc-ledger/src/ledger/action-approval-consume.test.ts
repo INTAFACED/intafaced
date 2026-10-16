@@ -135,12 +135,12 @@ describe('ledger action-approval consume', () => {
 
 const approvalCmd = { approvalId: 'appr-1', operationId: 'op-1' };
 
-function echoingApproval(mutate: (row: Record<string, unknown>) => void = () => {}): ActionApprovalConsumer {
+function echoingApproval(actionType: string, mutate: (row: Record<string, unknown>) => void = () => {}): ActionApprovalConsumer {
   return {
     async consume(input) {
       const row: Record<string, unknown> = {
         ...input,
-        actionType: input.targetId,
+        actionType,
         requesterId: 'founder-a',
         approverId: 'founder-b',
         policyVersion: 'v1',
@@ -160,7 +160,7 @@ describe('founder attestation at ledger consume', () => {
   it('refuses a thaw when identity sends no attestation', async () => {
     await expect(
       consumeLedgerApproval(
-        echoingApproval((row) => {
+        echoingApproval('ledger.unfreeze', (row) => {
           delete row.approverIsFounder;
           delete row.requesterIsFounder;
         }),
@@ -176,7 +176,7 @@ describe('founder attestation at ledger consume', () => {
   it('refuses a forged or mismatched founder attestation', async () => {
     const refuse = (mutate: (row: Record<string, unknown>) => void) =>
       expect(
-        consumeLedgerApproval(echoingApproval(mutate), approvalCmd, 'ledger.reconcile', 'posting_reconcile', '1', {}),
+        consumeLedgerApproval(echoingApproval('ledger.reconcile', mutate), approvalCmd, 'ledger.reconcile', 'posting_reconcile', '1', {}),
       ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
     await refuse((row) => {
       row.requesterIsFounder = false;
@@ -192,7 +192,7 @@ describe('founder attestation at ledger consume', () => {
     });
     await expect(
       consumeLedgerApproval(
-        echoingApproval((row) => {
+        echoingApproval('ledger.freeze', (row) => {
           delete row.approverIsFounder;
           delete row.requesterIsFounder;
         }),
@@ -207,12 +207,12 @@ describe('founder attestation at ledger consume', () => {
 
   it('accepts a distinct founder pair for thaw and reconcile', async () => {
     await expect(
-      consumeLedgerApproval(echoingApproval(), approvalCmd, 'ledger.unfreeze', 'posting_unfreeze', '1', {}),
+      consumeLedgerApproval(echoingApproval('ledger.unfreeze'), approvalCmd, 'ledger.unfreeze', 'posting_unfreeze', '1', {}),
     ).resolves.toMatchObject({
       approverId: 'founder-b',
     });
     await expect(
-      consumeLedgerApproval(echoingApproval(), approvalCmd, 'ledger.reconcile', 'posting_reconcile', '1', {}),
+      consumeLedgerApproval(echoingApproval('ledger.reconcile'), approvalCmd, 'ledger.reconcile', 'posting_reconcile', '1', {}),
     ).resolves.toMatchObject({
       approverId: 'founder-b',
     });
@@ -220,7 +220,7 @@ describe('founder attestation at ledger consume', () => {
 
   it('leaves ledger.freeze working without an attestation', async () => {
     const frozen = await consumeLedgerApproval(
-      echoingApproval((row) => {
+      echoingApproval('ledger.freeze', (row) => {
         delete row.approverIsFounder;
         delete row.requesterIsFounder;
         row.approverId = 'ops-b';

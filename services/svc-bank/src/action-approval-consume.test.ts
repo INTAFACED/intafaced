@@ -210,12 +210,12 @@ describe('identity consume client', () => {
 
 const approvalCmd = { approvalId: 'appr-1', operationId: 'op-1' };
 
-function echoingApproval(mutate: (row: Record<string, unknown>) => void = () => {}): ActionApprovalConsumer {
+function echoingApproval(actionType: string, mutate: (row: Record<string, unknown>) => void = () => {}): ActionApprovalConsumer {
   return {
     async consume(input) {
       const row: Record<string, unknown> = {
         ...input,
-        actionType: input.targetId,
+        actionType,
         requesterId: 'founder-a',
         approverId: 'founder-b',
         policyVersion: 'v1',
@@ -235,7 +235,7 @@ describe('founder attestation at bank consume', () => {
   it('refuses a founder action when identity sends no attestation', async () => {
     await expect(
       consumeBankOpsApproval(
-        echoingApproval((row) => {
+        echoingApproval('bank.fund_pool', (row) => {
           delete row.approverIsFounder;
           delete row.requesterIsFounder;
         }),
@@ -248,7 +248,9 @@ describe('founder attestation at bank consume', () => {
 
   it('refuses a forged or mismatched founder attestation', async () => {
     const refuse = (mutate: (row: Record<string, unknown>) => void) =>
-      expect(consumeBankOpsApproval(echoingApproval(mutate), approvalCmd, 'bank.seize_loan', { loanId: 'l' })).rejects.toMatchObject({
+      expect(
+        consumeBankOpsApproval(echoingApproval('bank.seize_loan', mutate), approvalCmd, 'bank.seize_loan', { loanId: 'l' }),
+      ).rejects.toMatchObject({
         code: 'action_approval.not_founders',
       });
     await refuse((row) => {
@@ -270,7 +272,9 @@ describe('founder attestation at bank consume', () => {
   });
 
   it('accepts a distinct founder pair', async () => {
-    await expect(consumeBankOpsApproval(echoingApproval(), approvalCmd, 'bank.fund_pool', { poolId: 'p' })).resolves.toBe('founder-b');
+    await expect(consumeBankOpsApproval(echoingApproval('bank.fund_pool'), approvalCmd, 'bank.fund_pool', { poolId: 'p' })).resolves.toBe(
+      'founder-b',
+    );
   });
 
   it('leaves protective verbs working without an attestation', () => {
