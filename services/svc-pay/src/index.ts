@@ -4,6 +4,8 @@ import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
 import { createPayfacAuthorityGuard, drainPayfacPermissionIntents } from './payfac-authority.js';
 import { createFounderAuthority } from './founder-authority.js';
 import { ControlService, teamAccessPorts } from './control/index.js';
+import { teamReadFromSql } from './merchant-team-read.js';
+import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
 import { retryAdoptConfig } from './halts/adopt-boot.js';
@@ -377,7 +379,7 @@ const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql)),
   createMerchantStateRouter(
     merchantState,
     new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {
@@ -402,7 +404,7 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
-    payHalts: { store: haltStore, merchants: pay },
+    payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) },
     treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: UNWIRED_CONVERSION_INVENTORY },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
     control: new ControlService(sql, teamAccessPorts(sql)),
@@ -418,6 +420,7 @@ export type { PayNamespacesRouter } from './namespaces/index.js';
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 // Callers get a uniform not-found; operators get the real reason (log only).
 setIsolationDenialSink((denial) => app.log.warn({ isolation: denial }, 'pay.isolation_denied'));
+setPaymentFactsReadFailureSink((event) => app.log.warn(event, 'payment facts unread after commit'));
 onCapturedOverCap((signal) => {
   app.log.warn({ event: 'payment.captured_over_cap', ...signal }, 'payment.captured_over_cap');
 });
@@ -557,6 +560,7 @@ await registerPublicPayRest(app, {
   idempotency: new PostgresRestIdempotencyStore(sql),
   webhooks: merchantWebhooks,
   trees: subMerchants,
+  teamReads: teamReadFromSql(sql),
 });
 
 /** Drain outbound merchant webhook deliveries (ADR §2.4 retry). */

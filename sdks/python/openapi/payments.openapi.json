@@ -23,7 +23,7 @@
     }
   },
   "info": {
-    "description": "Merchant payments API.\n\nHuman quickstart (no monorepo required): docs/pay/MERCHANT-PUBLIC-API-QUICKSTART.md\n\n**Amounts are decimal strings** with an explicit `assetId` — never minor units and never a JSON number.\nA payment of one dollar ten is `\"1.1\"`, not `110` and not `1.1` as a number.\n\nAmounts are **canonical**: no trailing zeros. An amount created as `1.10` is returned as `\"1.1\"`.\nCompare amounts numerically or with a decimal library — never by string equality.\n\n**Authentication** is an `ifc_…` (live) or `ifc_test_…` (sandbox) API key as a bearer token.\nKeys are exchanged for a short-lived principal at the edge; this service never sees the key itself.\n\n**Sandbox keys** (mode=sandbox / `key_env=sandbox`): createPayment always uses the sandbox rail\n(`card-sandbox`). A **live** key that names a sandbox rail is refused (`pay.sandbox_rail_refused`).\nEvery payment response includes `mode: \"sandbox\" | \"live\"` from the rail posture — never silent.\nThere is no parallel sandbox deployment — same API, rail posture only.\n\n**Idempotency-Key** is required on every mutating POST. A repeated key with the same body returns\nthe original result; a repeated key with a different body is `409 pay.idempotency_conflict`.\n\n**Errors** carry a stable `pay.*` code. Branch on the code, never on the message.\n\n**Webhooks** (ADR §2.4): HMAC-SHA256 over `timestamp + \".\" + raw body` in\n`X-Intafaced-Signature`, with `X-Intafaced-Timestamp`. At-least-once — dedupe on event `id`.\nBodies carry payment **state**, not instructions. Permanently failing endpoints are disabled\nand listed under webhook-deliveries.\n\nThis surface does **not** imply a live card acquirer (Class X / `socket.psp-partners`).",
+    "description": "Merchant payments API.\n\nHuman quickstart (no monorepo required): docs/pay/MERCHANT-PUBLIC-API-QUICKSTART.md\n\n**Amounts are decimal strings** with an explicit `assetId` — never minor units and never a JSON number.\nA payment of one dollar ten is `\"1.1\"`, not `110` and not `1.1` as a number.\n\nAmounts are **canonical**: no trailing zeros. An amount created as `1.10` is returned as `\"1.1\"`.\nCompare amounts numerically or with a decimal library — never by string equality.\n\n**Authentication** is an `ifc_…` (live) or `ifc_test_…` (sandbox) API key as a bearer token.\nKeys are exchanged for a short-lived principal at the edge; this service never sees the key itself.\n\n**Sandbox keys** (mode=sandbox / `key_env=sandbox`): createPayment always uses the sandbox rail\n(`card-sandbox`). A **live** key that names a sandbox rail is refused (`pay.sandbox_rail_refused`).\nEvery payment response includes `mode: \"sandbox\" | \"live\"` from the rail posture — never silent.\n`GET /payments` returns `{ items, nextCursor }` (ADR 2026-08-07 §2.7, pre-launch amendment 2026-10-16).\n`nextCursor` is null on the last page. A sandbox key is scoped to sandbox rails before the cursor is chosen.\nThere is no parallel sandbox deployment — same API, rail posture only.\n\n**Idempotency-Key** is required on every mutating POST. A repeated key with the same body returns\nthe original result; a repeated key with a different body is `409 pay.idempotency_conflict`.\n\n**Errors** carry a stable `pay.*` code. Branch on the code, never on the message.\n\n**Webhooks** (ADR §2.4): HMAC-SHA256 over `timestamp + \".\" + raw body` in\n`X-Intafaced-Signature`, with `X-Intafaced-Timestamp`. At-least-once — dedupe on event `id`.\nBodies carry payment **state**, not instructions. Permanently failing endpoints are disabled\nand listed under webhook-deliveries.\n\nThis surface does **not** imply a live card acquirer (Class X / `socket.psp-partners`).",
     "title": "Payments API",
     "version": "1.0.0"
   },
@@ -677,6 +677,7 @@
     },
     "/payments": {
       "get": {
+        "description": "Returns `{ items, nextCursor }`. `nextCursor` is null on the last page. Pre-launch this replaced a bare array (ADR 2026-08-07 §2.7 amendment 2026-10-16): there are no external callers yet, and keyset paging needs the cursor. A sandbox key lists sandbox rails before the cursor is chosen, so `nextCursor` never names a live payment.",
         "parameters": [
           {
             "in": "query",
@@ -705,6 +706,54 @@
               "minimum": 1,
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assetId",
+            "required": false,
+            "schema": {
+              "maxLength": 16,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -712,71 +761,96 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "properties": {
-                      "amount": {
-                        "description": "Decimal string. Never minor units, never a number (ADR §2.3).",
-                        "type": "string"
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "amount": {
+                            "description": "Decimal string. Never minor units, never a number (ADR §2.3).",
+                            "type": "string"
+                          },
+                          "assetId": {
+                            "type": "string"
+                          },
+                          "capturedAmount": {
+                            "description": "Decimal string.",
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "failure": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "type": ["object", "null"]
+                          },
+                          "id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "merchantId": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": ["string", "null"]
+                          },
+                          "mode": {
+                            "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
+                            "enum": ["live", "sandbox"],
+                            "type": "string"
+                          },
+                          "pricingSnapshot": {
+                            "additionalProperties": true,
+                            "type": ["object", "null"]
+                          },
+                          "profileId": {
+                            "type": ["string", "null"]
+                          },
+                          "railAdapter": {
+                            "type": ["string", "null"]
+                          },
+                          "railRef": {
+                            "type": ["string", "null"]
+                          },
+                          "refundedAmount": {
+                            "description": "Decimal string.",
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": ["created", "authorized", "captured", "settled", "refunded", "disputed", "failed"],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "merchantId",
+                          "amount",
+                          "assetId",
+                          "status",
+                          "mode",
+                          "capturedAmount",
+                          "refundedAmount",
+                          "createdAt"
+                        ],
+                        "type": "object"
                       },
-                      "assetId": {
-                        "type": "string"
-                      },
-                      "capturedAmount": {
-                        "description": "Decimal string.",
-                        "type": "string"
-                      },
-                      "createdAt": {
-                        "format": "date-time",
-                        "type": "string"
-                      },
-                      "id": {
-                        "format": "uuid",
-                        "type": "string"
-                      },
-                      "merchantId": {
-                        "format": "uuid",
-                        "type": "string"
-                      },
-                      "method": {
-                        "type": ["string", "null"]
-                      },
-                      "mode": {
-                        "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
-                        "enum": ["live", "sandbox"],
-                        "type": "string"
-                      },
-                      "profileId": {
-                        "type": ["string", "null"]
-                      },
-                      "railAdapter": {
-                        "type": ["string", "null"]
-                      },
-                      "railRef": {
-                        "type": ["string", "null"]
-                      },
-                      "refundedAmount": {
-                        "description": "Decimal string.",
-                        "type": "string"
-                      },
-                      "status": {
-                        "enum": ["created", "authorized", "captured", "settled", "refunded", "disputed", "failed"],
-                        "type": "string"
-                      }
+                      "type": "array"
                     },
-                    "required": [
-                      "id",
-                      "merchantId",
-                      "amount",
-                      "assetId",
-                      "status",
-                      "mode",
-                      "capturedAmount",
-                      "refundedAmount",
-                      "createdAt"
-                    ],
-                    "type": "object"
+                    "nextCursor": {
+                      "type": ["string", "null"]
+                    }
                   },
-                  "type": "array"
+                  "required": ["items", "nextCursor"],
+                  "type": "object"
                 }
               }
             },
@@ -963,6 +1037,18 @@
                       "format": "date-time",
                       "type": "string"
                     },
+                    "failure": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": ["object", "null"]
+                    },
                     "id": {
                       "format": "uuid",
                       "type": "string"
@@ -978,6 +1064,10 @@
                       "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
                       "enum": ["live", "sandbox"],
                       "type": "string"
+                    },
+                    "pricingSnapshot": {
+                      "additionalProperties": true,
+                      "type": ["object", "null"]
                     },
                     "profileId": {
                       "type": ["string", "null"]
@@ -1173,6 +1263,18 @@
                       "format": "date-time",
                       "type": "string"
                     },
+                    "failure": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": ["object", "null"]
+                    },
                     "id": {
                       "format": "uuid",
                       "type": "string"
@@ -1188,6 +1290,10 @@
                       "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
                       "enum": ["live", "sandbox"],
                       "type": "string"
+                    },
+                    "pricingSnapshot": {
+                      "additionalProperties": true,
+                      "type": ["object", "null"]
                     },
                     "profileId": {
                       "type": ["string", "null"]
@@ -1381,6 +1487,18 @@
                       "format": "date-time",
                       "type": "string"
                     },
+                    "failure": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": ["object", "null"]
+                    },
                     "id": {
                       "format": "uuid",
                       "type": "string"
@@ -1396,6 +1514,10 @@
                       "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
                       "enum": ["live", "sandbox"],
                       "type": "string"
+                    },
+                    "pricingSnapshot": {
+                      "additionalProperties": true,
+                      "type": ["object", "null"]
                     },
                     "profileId": {
                       "type": ["string", "null"]
@@ -1645,6 +1767,18 @@
                       "format": "date-time",
                       "type": "string"
                     },
+                    "failure": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": ["object", "null"]
+                    },
                     "id": {
                       "format": "uuid",
                       "type": "string"
@@ -1660,6 +1794,10 @@
                       "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
                       "enum": ["live", "sandbox"],
                       "type": "string"
+                    },
+                    "pricingSnapshot": {
+                      "additionalProperties": true,
+                      "type": ["object", "null"]
                     },
                     "profileId": {
                       "type": ["string", "null"]
@@ -1914,6 +2052,18 @@
                       "format": "date-time",
                       "type": "string"
                     },
+                    "failure": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": ["object", "null"]
+                    },
                     "id": {
                       "format": "uuid",
                       "type": "string"
@@ -1929,6 +2079,10 @@
                       "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
                       "enum": ["live", "sandbox"],
                       "type": "string"
+                    },
+                    "pricingSnapshot": {
+                      "additionalProperties": true,
+                      "type": ["object", "null"]
                     },
                     "profileId": {
                       "type": ["string", "null"]

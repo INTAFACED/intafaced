@@ -1,6 +1,7 @@
 // Generated from the Payments OpenAPI document. Do not edit.
 // Regenerate: pnpm exec tsx tooling/scripts/sdk-from-openapi.ts
 import type { PayCallInput, PayClient, PayResponse } from './client.js';
+import { paymentPageFromResponse, type PayPaymentPage } from './payments-page.js';
 
 export interface PayOperations {
   /** Merchant balance for one asset */
@@ -12,7 +13,7 @@ export interface PayOperations {
   /** Deactivate a payment link */
   deletePaymentLinksById(input: PayCallInput & { readonly params: { readonly id: string } }): Promise<PayResponse>;
   /** List a merchant’s payments, newest first */
-  getPayments(input: PayCallInput): Promise<PayResponse>;
+  getPayments(input: PayCallInput): Promise<PayPaymentPage>;
   /** Create a payment */
   postPayments(input: PayCallInput): Promise<PayResponse>;
   /** Fetch one payment */
@@ -59,8 +60,9 @@ export function bindOperations(client: PayClient): PayOperations {
     deletePaymentLinksById(input) {
       return client.call({ ...input, method: 'DELETE', path: '/payment-links/{id}', idempotency: false });
     },
-    getPayments(input) {
-      return client.call({ ...input, method: 'GET', path: '/payments', idempotency: false });
+    async getPayments(input) {
+      const response = await client.call({ ...input, method: 'GET', path: '/payments', idempotency: false });
+      return paymentPageFromResponse(response);
     },
     postPayments(input) {
       return client.call({ ...input, method: 'POST', path: '/payments', idempotency: true });

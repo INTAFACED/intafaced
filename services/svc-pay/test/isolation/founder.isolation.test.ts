@@ -400,7 +400,7 @@ describe('G: founder-only procedures', () => {
         'const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env), rails);',
       );
       for (const piece of [
-        'payHalts: { store: haltStore, merchants: pay }',
+        'payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) }',
         'treasury: { sql,',
         'control: new ControlService(sql, teamAccessPorts(sql))',
       ]) {

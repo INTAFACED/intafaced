@@ -26,6 +26,13 @@ import './portal.css';
 import { Refunds } from './Refunds';
 import { Links } from './Links';
 import { MerchantMoney, BalanceActivity } from './Money';
+import { Conversion, conversionHeader } from './Conversion';
+import { Subscriptions, subscriptionHeader } from './Subscriptions';
+import { Compliance } from './Compliance';
+import { Settings, SettingsNav } from './Settings';
+import { Developers, developerHeader } from './Developers';
+import { Invoices } from './Invoices';
+import { extensionCopy } from './extension-copy';
 import { Reports } from './Reports';
 import { w3cCopy } from './w3c-copy';
 import type { PayBusinessAuthority } from '../pay-api';
@@ -96,8 +103,13 @@ export function PortalFrame({ route, children }: { route: PortalRoute; children:
   );
 }
 
-const hrefFor = (route: PortalRoute) =>
-  route.room === 'money-activity'
+const hrefFor = (route: PortalRoute) => {
+  if (route.room.startsWith('developer')) return '/pay/developer';
+  if (route.room === 'invoice') return '/pay/invoices';
+  if (route.room === 'subscription' || route.room === 'subscription-new') return '/pay/subscriptions';
+  if (route.room.startsWith('settings')) return '/pay/settings';
+  if (route.room.startsWith('conversion')) return '/pay/conversion';
+  return route.room === 'money-activity'
     ? '/pay/money'
     : route.room === 'report-exports'
       ? '/pay/reports'
@@ -118,11 +130,62 @@ const hrefFor = (route: PortalRoute) =>
                     : route.room === 'payout'
                       ? '/pay/payouts'
                       : `/pay/${route.room}`;
+};
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
   const c = w3cCopy.t;
   switch (route.room) {
+    case 'conversion':
+    case 'conversion-new':
+    case 'conversion-order':
+      return conversionHeader(route);
+    case 'subscriptions':
+    case 'subscription':
+    case 'subscription-new':
+      return subscriptionHeader(route);
+    case 'compliance':
+      return {
+        title: extensionCopy.t('complianceTitle'),
+        purpose: extensionCopy.t('compliancePurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/onboarding/verification">
+            {extensionCopy.t('verificationAction')}
+          </a>
+        ),
+      };
+    case 'settings':
+    case 'settings-team':
+    case 'settings-notifications':
+      return {
+        title: extensionCopy.t(
+          route.room === 'settings-team' ? 'teamTitle' : route.room === 'settings-notifications' ? 'notificationSettings' : 'settingsTitle',
+        ),
+        purpose: extensionCopy.t('settingsPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/settings/notifications">
+            {extensionCopy.t('notificationSettings')}
+          </a>
+        ),
+      };
+    case 'developer':
+    case 'developer-keys':
+    case 'developer-signing':
+    case 'developer-webhooks':
+    case 'developer-endpoint':
+    case 'developer-deliveries':
+      return developerHeader(route);
+    case 'invoices':
+    case 'invoice':
+      return {
+        title: extensionCopy.t(route.room === 'invoice' ? 'invoiceTitle' : 'invoicesTitle'),
+        purpose: extensionCopy.t('invoicesPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/subscriptions">
+            {extensionCopy.t('openSubscriptions')}
+          </a>
+        ),
+      };
     case 'money':
       return {
         title: c('moneyTitle'),
@@ -350,6 +413,56 @@ function PortalRoom({
   const { t } = portalCopy.useCopy();
   const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
+    case 'conversion':
+    case 'conversion-new':
+    case 'conversion-order':
+      return (
+        <WithAccount {...acct}>{({ merchantId }) => <Conversion portal={portal} merchantId={merchantId} route={route} />}</WithAccount>
+      );
+    case 'subscriptions':
+    case 'subscription':
+    case 'subscription-new':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Subscriptions portal={portal} merchantId={merchantId} route={route} authority={authority} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'compliance':
+      return <WithAccount {...acct}>{() => <Compliance portal={portal} />}</WithAccount>;
+    case 'settings':
+      return <WithAccount {...acct}>{({ record }) => <Settings merchant={record} />}</WithAccount>;
+    case 'settings-team':
+      return (
+        <div className="stack">
+          <SettingsNav />
+          <Team portal={portal} />
+        </div>
+      );
+    case 'settings-notifications':
+      return (
+        <WithAccount {...acct}>
+          {() => (
+            <div className="stack">
+              <SettingsNav />
+              <Notifications portal={portal} preferencesOnly />
+            </div>
+          )}
+        </WithAccount>
+      );
+    case 'developer':
+    case 'developer-keys':
+    case 'developer-signing':
+    case 'developer-webhooks':
+    case 'developer-endpoint':
+    case 'developer-deliveries':
+      return <WithAccount {...acct}>{() => <Developers route={route} authority={authority} />}</WithAccount>;
+    case 'invoices':
+    case 'invoice':
+      return <WithAccount {...acct}>{() => <Invoices invoiceId={route.param} />}</WithAccount>;
     case 'money':
       return (
         <WithAccount {...acct}>

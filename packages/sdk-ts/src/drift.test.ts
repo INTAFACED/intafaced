@@ -20,6 +20,22 @@ describe('SDK spec drift', () => {
     });
   });
 
+  it('types GET /payments as a page', async () => {
+    const mod = (await import(generatorHref)) as {
+      operationsFromSpec: (spec: { paths: Record<string, unknown> }) => unknown[];
+      renderTypeScript: (ops: readonly unknown[]) => string;
+      renderPython: (ops: readonly unknown[]) => string;
+    };
+    const ops = mod.operationsFromSpec({ paths: { '/payments': { get: { summary: 'List a merchant’s payments, newest first' } } } });
+    const ts = mod.renderTypeScript(ops);
+    const py = mod.renderPython(ops);
+    expect(ts).toContain('getPayments(input: PayCallInput): Promise<PayPaymentPage>');
+    expect(ts).toContain('paymentPageFromResponse');
+    expect(py).toContain('def get_payments(');
+    expect(py).toContain('-> PayPaymentPage');
+    expect(py).toContain('payment_page_from_response');
+  });
+
   it('refuses a founder or operator path', async () => {
     const mod = (await import(generatorHref)) as {
       assertMerchantSurface: (spec: { paths: Record<string, unknown> }) => void;

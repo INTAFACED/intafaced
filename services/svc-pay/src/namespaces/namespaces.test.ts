@@ -130,7 +130,7 @@ describe('W0 namespaces are mounted', () => {
     expect(src).toContain('retryAdoptConfig');
     expect(src).toContain('haltStore.adoptConfig()');
     expect(src).toContain('setAutoTripAccountErrorSink');
-    expect(src).toContain('payHalts: { store: haltStore, merchants: pay }');
+    expect(src).toContain('payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) }');
     expect(src).toContain('control: new ControlService(sql, teamAccessPorts(sql))');
     expect(src).toContain('const payGuards = buildPayGuards({ sql, ledger });');
     // One registry instance serves both the payment service and the user-money service.

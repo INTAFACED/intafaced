@@ -101,8 +101,8 @@ describe('M: merchant isolation', () => {
     it('a merchant with rows in every table sees ONLY them: B’s own list is B’s, and is disjoint from A’s', async () => {
       const a = await callTrpc(w, ctxFor('session', 'A'), 'payment.list', { merchantId: w.e.A.merchantId, limit: 200 });
       const b = await callTrpc(w, ctxFor('session', 'B'), 'payment.list', { merchantId: w.e.B.merchantId, limit: 200 });
-      const aIds = (a as { value: Array<{ id: string }> }).value.map((r) => r.id);
-      const bIds = (b as { value: Array<{ id: string }> }).value.map((r) => r.id);
+      const aIds = (a as { value: { items: Array<{ id: string }> } }).value.items.map((r) => r.id);
+      const bIds = (b as { value: { items: Array<{ id: string }> } }).value.items.map((r) => r.id);
       expect(aIds.length).toBeGreaterThan(0);
       expect(bIds.length).toBeGreaterThan(0);
       expect(aIds.filter((x) => bIds.includes(x))).toEqual([]);

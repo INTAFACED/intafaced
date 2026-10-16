@@ -44,6 +44,7 @@ import { CardSandboxAdapter } from '../../src/rails/card-sandbox.js';
 import { BankPayoutAbsentAdapter } from '../../src/rails/bank-payout.js';
 import { RailRegistry } from '../../src/rails/registry.js';
 import { registerPublicPayRest } from '../../src/public-rest.js';
+import { teamReadFromSql } from '../../src/merchant-team-read.js';
 import { createPayRouter } from '../../src/router.js';
 import { createSubMerchantRouter } from '../../src/submerchant-router.js';
 import { SubMerchantService } from '../../src/submerchants.js';
@@ -230,7 +231,15 @@ function composeRouter(parts: {
   // src/index.ts: `actionApprovals` is the identity client when IDENTITY_URL is set, else this refusing consumer.
   const actionApprovals = unwiredApprovalConsumer();
   return mergeRouters(
-    createPayRouter(parts.pay, parts.rails, parts.userMoney, parts.subMerchants, parts.destinations, actionApprovals),
+    createPayRouter(
+      parts.pay,
+      parts.rails,
+      parts.userMoney,
+      parts.subMerchants,
+      parts.destinations,
+      actionApprovals,
+      teamReadFromSql(parts.sql),
+    ),
     createMerchantStateRouter(new MerchantStateService(parts.sql), new MerchantAccountControls(parts.sql, parts.founderAuthority)),
     createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), actionApprovals, parts.pay),
     createSubMerchantRouter(parts.subMerchants, parts.pay),
@@ -242,7 +251,11 @@ function composeRouter(parts: {
       sql: parts.sql, // W15: merchantOps.* and founderAdmin.ops.*
       // W5: the same Postgres halt store the guards read, and the treasury exposure read. Limits come from an
       // EMPTY environment, as in an unconfigured deployment (no defaults); the conversion reader is the unwired one.
-      payHalts: { store: new PayHaltStore(parts.sql, loadHaltAutoTripConfig({})), merchants: parts.pay },
+      payHalts: {
+        store: new PayHaltStore(parts.sql, loadHaltAutoTripConfig({})),
+        merchants: parts.pay,
+        team: teamReadFromSql(parts.sql),
+      },
       treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: UNWIRED_CONVERSION_INVENTORY },
       // W1: as src/index.ts, the approver is whoever holds payout.approve on the merchant team (W15 roles).
       control: new ControlService(parts.sql, teamAccessPorts(parts.sql)),
@@ -296,7 +309,14 @@ export async function createWorld(): Promise<World> {
   const appRouter = composeRouter({ pay, rails, userMoney, subMerchants, destinations, sql, founderAuthority, metrics });
 
   const rest = Fastify();
-  await registerPublicPayRest(rest, { edgeSecret: EDGE_SECRET, serviceName: 'svc-pay', pay, webhooks, trees: subMerchants });
+  await registerPublicPayRest(rest, {
+    edgeSecret: EDGE_SECRET,
+    serviceName: 'svc-pay',
+    pay,
+    webhooks,
+    trees: subMerchants,
+    teamReads: teamReadFromSql(sql),
+  });
   await rest.ready();
 
   // ── seed ──

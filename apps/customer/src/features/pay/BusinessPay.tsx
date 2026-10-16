@@ -453,7 +453,15 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
   const [destination, setDestination] = useState('');
   const [reason, setReason] = useState('');
   const records = useResource(
-    (signal) => pay.query('settlement.list', { merchantId, limit }, z.array(s.settlementSchema), signal),
+    (signal) =>
+      pay
+        .query(
+          'settlement.list',
+          { merchantId, limit },
+          z.object({ items: z.array(s.settlementSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:settlements:${merchantId}:${limit}`,
   );
   const details = useResource(

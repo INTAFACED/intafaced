@@ -84,8 +84,12 @@ const migrations = [
   '0006_pay_merchant_status_history.sql',
   '0014_pay_merchant_payout_destinations.sql',
   '0018_pay_founder_controls_admission.sql',
+  // Payment and settlement reads select the stored pricing row. The table is empty here.
+  '0050_pay_control_tiers.sql',
+  '0051_pay_control_pricing.sql',
   // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
   '0071_pay_merchant_names.sql',
+  '0073_pay_settlement_read.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-test-secret-at-least-32-characters';
@@ -2225,7 +2229,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       ).rejects.toThrow(/ledger down/);
       await postLegacySettlement(stuckMerchant.id, 'w-adopt-release', '25');
       const healed = await pay.releasePendingSettlement({
-        settlementId: (await pay.listSettlements({ merchantId: stuckMerchant.id, limit: 50 }))[0]!.id,
+        settlementId: (await pay.listSettlements({ merchantId: stuckMerchant.id, limit: 50 })).items[0]!.id,
         reason: 'adopt legacy post',
       });
       expect(healed.status).toBe('posted');
@@ -2997,6 +3001,9 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(await proceedsOf(m.id)).toBe('50');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect((await pay.getSettlement(settlement.id)).status).toBe('failed');
+      const failedRead = await pay.readSettlement(settlement.id);
+      expect(failedRead.failure).toEqual({ code: 'bank.rejected', message: 'The payout was rejected.' });
+      expect(failedRead.failedAt).toBeInstanceOf(Date);
       expect(ledger.reconcile()).toEqual({ ok: true });
 
       // And it can be retried onto a working destination.
@@ -3008,6 +3015,41 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(retried.status).toBe('paid_out');
       expect(await proceedsOf(m.id)).toBe('0');
       expect(await availableOf(MERCHANT_USER)).toBe('0');
+      const paidRead = await pay.readSettlement(settlement.id);
+      expect(paidRead.status).toBe('paid_out');
+      expect(paidRead.failure).toBeNull();
+      expect(paidRead.failedAt).toBeNull();
+      const [cleared] = await sql<Array<{ failed_at: Date | null; failure_code: string | null }>>`
+        SELECT failed_at, failure_code FROM pay.settlements WHERE id = ${settlement.id}`;
+      expect(cleared!.failed_at).toBeNull();
+      expect(cleared!.failure_code).toBeNull();
+    });
+
+    it('overwrites the settlement failure on each refusal instead of keeping the first', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '50');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'w-payout-fail-overwrite');
+      const request = {
+        settlementId: settlement.id,
+        railId: 'card-sandbox',
+        destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+      };
+      card.failNext('bank.rejected', 'Beneficiary account closed');
+      await expect(pay.payoutSettlement(request)).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      await sql`
+        UPDATE pay.settlements
+           SET failed_at = '2000-01-01T00:00:00.000Z', failure_code = 'card.declined'
+         WHERE id = ${settlement.id}`;
+      card.failNext('acquirer.unavailable', 'rail text that must not become the stored code');
+      await expect(pay.payoutSettlement(request)).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      const [row] = await sql<Array<{ failed_at: Date; failure_code: string }>>`
+        SELECT failed_at, failure_code FROM pay.settlements WHERE id = ${settlement.id}`;
+      expect(row!.failure_code).toBe('acquirer.unavailable');
+      expect(row!.failed_at.toISOString().startsWith('2000-01-01')).toBe(false);
+      const read = await pay.readSettlement(settlement.id);
+      expect(read.status).toBe('failed');
+      expect(read.failure?.code).toBe('acquirer.unavailable');
     });
 
     it('a pre-cutover settlement pays out from userAvailable', async () => {
@@ -4318,10 +4360,11 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       await pay.capture(payment.id);
 
       const listed = await pay.listPayments({ merchantId: m.id, status: 'captured', limit: 50 });
-      expect(listed).toHaveLength(1);
-      expect(listed[0]!.id).toBe(payment.id);
-      expect(listed[0]!.status).toBe('captured');
-      expect(formatAmount(listed[0]!.capturedAmount)).toBe('25');
+      expect(listed.items).toHaveLength(1);
+      expect(listed.items[0]!.id).toBe(payment.id);
+      expect(listed.items[0]!.status).toBe('captured');
+      expect(formatAmount(listed.items[0]!.capturedAmount)).toBe('25');
+      expect(listed.items[0]!.pricingSnapshot).toBeNull();
     });
 
     it('card path still refunds after capture (acquiring E2E on sandbox)', async () => {

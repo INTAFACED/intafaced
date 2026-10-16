@@ -25,6 +25,14 @@ export {
   type SignedPayRequest,
 } from './sign.js';
 export { bindOperations, type PayOperations } from './operations.js';
+export {
+  paymentPageFromResponse,
+  parsePaymentPage,
+  type PayFailure,
+  type PayPayment,
+  type PayPaymentPage,
+  type PayPaymentStatus,
+} from './payments-page.js';
 
 export function createPayClient(options: PayClientOptions): PayClient & PayOperations {
   const client = new PayClient(options);
