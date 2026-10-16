@@ -691,6 +691,14 @@ export function createBusinessPayApi(
     }
     return result;
   }
+  /**
+   * Does not forward an Idempotency-Key. `api.mutate` options are `{ signal }`
+   * only, and this method does not take a header. `subscription.create` on
+   * the server accepts `idempotencyKey` in the procedure input; this client
+   * cannot put that key on the request. A second open subscription is refused
+   * by the server. The `operation` string below is still one browser's
+   * localStorage guard.
+   */
   async function mutate<T>(
     procedure: string,
     input: unknown,

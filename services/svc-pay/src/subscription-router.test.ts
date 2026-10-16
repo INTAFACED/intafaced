@@ -263,4 +263,38 @@ describe('subscription merchant surface', () => {
     await expect(api.subscription.cancel({ subscriptionId: SUB })).rejects.toThrow(/submerchant_permission_denied|FORBIDDEN/i);
     expect(calls).not.toContain('cancelSubscription');
   });
+
+  it('forwards Idempotency-Key to createSubscription', async () => {
+    let seen: string | undefined;
+    subs.createSubscription = async (input: { idempotencyKey?: string }) => {
+      seen = input.idempotencyKey;
+      calls.push('createSubscription');
+      return subRecord();
+    };
+    router = createSubscriptionRouter(subs, pay, null);
+    const api = await caller(['pay:write']);
+    await api.subscription.create({ mandateId: MANDATE, idempotencyKey: 'sub-create-1' });
+    expect(seen).toBe('sub-create-1');
+  });
+
+  it('refuses a blank Idempotency-Key before creating', async () => {
+    const api = await caller(['pay:write']);
+    await expect(api.subscription.create({ mandateId: MANDATE, idempotencyKey: '   ' })).rejects.toThrow();
+    expect(calls).not.toContain('createSubscription');
+  });
+
+  it('maps an open mandate and an idempotency conflict to CONFLICT', async () => {
+    const apiFor = async (code: 'pay.subscription_mandate_open' | 'pay.idempotency_conflict') => {
+      subs.createSubscription = async () => {
+        throw new PayError(code, code);
+      };
+      return createSubscriptionRouter(subs, pay, null).createCaller(await ctx(['pay:write']));
+    };
+    const open = await apiFor('pay.subscription_mandate_open');
+    await expect(open.subscription.create({ mandateId: MANDATE })).rejects.toMatchObject({ code: 'CONFLICT' });
+    const conflict = await apiFor('pay.idempotency_conflict');
+    await expect(conflict.subscription.create({ mandateId: MANDATE, idempotencyKey: 'k' })).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+  });
 });

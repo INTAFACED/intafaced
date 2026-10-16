@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { bigint, bigserial, boolean, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
@@ -723,7 +724,31 @@ export const subscriptions = pay.table(
     index('subscriptions_due_idx').on(t.status, t.nextRunAt),
     index('subscriptions_merchant_idx').on(t.merchantId),
     index('subscriptions_mandate_idx').on(t.mandateId),
+    // Open = not cancelled and not completed. Paused still occupies the mandate.
+    uniqueIndex('subscriptions_one_open_per_mandate_uq')
+      .on(t.mandateId)
+      .where(sql`${t.status} in ('active', 'paused')`),
   ],
+);
+
+/**
+ * Idempotency-Key journal for subscription.create. Owner is the merchant.
+ * Same key and same body stores one subscription id. Same key and a different
+ * fingerprint is a conflict. A committed row always has subscription_id; the
+ * column is nullable only while the create transaction is still open.
+ */
+export const subscriptionCreateIdempotency = pay.table(
+  'subscription_create_idempotency',
+  {
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestFingerprint: text('request_fingerprint').notNull(),
+    subscriptionId: uuid('subscription_id').references(() => subscriptions.id),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ name: 'subscription_create_idempotency_pkey', columns: [t.merchantId, t.idempotencyKey] })],
 );
 
 /**
@@ -791,5 +816,6 @@ export const schema = {
   merchantWebhookDeliveries,
   subscriptionMandates,
   subscriptions,
+  subscriptionCreateIdempotency,
   subscriptionExecutions,
 };

@@ -211,6 +211,8 @@ function toTrpcError(err: unknown): unknown {
        */
       case 'pay.subscription_resume_exceeds_mandate':
       case 'pay.subscription_exceeds_mandate':
+      case 'pay.subscription_mandate_open':
+      case 'pay.idempotency_conflict':
         return 'CONFLICT' as const;
       /*
        * The merchant cannot fix an unpublished platform fee rate, so this is not
@@ -447,12 +449,27 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
           return { ...posture, paths: [...posture.paths] };
         }),
 
+      /**
+       * Idempotency-Key is `idempotencyKey` on the input. The tRPC context has
+       * no header slot, so this is the same place refunds put `refundId`.
+       * Same key and same body returns the original subscription. Same key and
+       * a different body refuses `pay.idempotency_conflict`. A second open
+       * subscription on the mandate refuses `pay.subscription_mandate_open`
+       * even with a new key. The customer `pay.mutate` path does not forward
+       * an HTTP header — see `createBusinessPayApi`.
+       */
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
             mandateId: z.string().uuid(),
             /** Default crypto_invoice — never invents a pull path. */
             path: z.enum(['crypto_invoice', 'card', 'card_mandate']).optional(),
+            /**
+             * Caller's Idempotency-Key. Omit it and the mandate unique index is
+             * still enforced. Blank or over 255 characters is refused. 255 is
+             * the existing public REST cap, not a new product limit.
+             */
+            idempotencyKey: z.string().trim().min(1).max(255).optional(),
           }),
         )
         .output(subscriptionView)
@@ -463,6 +480,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
             const sub = await subscriptions.createSubscription({
               mandateId: input.mandateId,
               path: input.path,
+              idempotencyKey: input.idempotencyKey,
             });
             return toSubOut(sub);
           }),

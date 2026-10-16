@@ -98,6 +98,9 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                   />
                 }
                 perform={() =>
+                  // pay.mutate does not forward an Idempotency-Key header.
+                  // See createBusinessPayApi. The server refuses a second open
+                  // subscription for this mandate.
                   validatedMutation(
                     pay,
                     'subscription.create',
