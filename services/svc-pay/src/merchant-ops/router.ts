@@ -185,6 +185,9 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         void: write
           .input(z.object({ requestId: id, invoiceId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.void(await callerOf(ctx), input))),
+        reissueLink: write
+          .input(z.object({ requestId: id, invoiceId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.reissueLink(await callerOf(ctx), input))),
         markPaidByPayment: write
           .input(z.object({ requestId: id, invoiceId: id, paymentId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.markPaidByPayment(await callerOf(ctx), input))),

@@ -106,8 +106,8 @@ export class DisputeOpsService {
     private readonly evidenceGate: DisputeEvidenceGate = EVIDENCE_UPLOAD_OFF,
   ) {}
 
-  private owned(caller: MerchantCaller, disputeId: string): DisputeCase {
-    const c = this.store.get(disputeId);
+  private async owned(caller: MerchantCaller, disputeId: string): Promise<DisputeCase> {
+    const c = await this.store.get(disputeId);
     if (!c || c.merchantId !== caller.merchantId) throw notFound();
     return c;
   }
@@ -127,9 +127,8 @@ export class DisputeOpsService {
     if (afterMs !== null && beforeMs !== null && afterMs > beforeMs) {
       throw new MerchantOpsError('pay.dispute_deadline_filter_invalid', 'bad_request');
     }
-    // Newest first. The in-memory store keys by ISO millisecond timestamps, so the cursor does too.
-    const all = this.store
-      .listForMerchant(caller.merchantId)
+    // Newest first. The store keys by ISO millisecond timestamps, so the cursor does too.
+    const all = (await this.store.listForMerchant(caller.merchantId))
       .filter((c) => (input.status ? c.status === input.status : true))
       .filter((c) => (input.paymentId ? c.paymentId === input.paymentId : true))
       .slice()
@@ -150,9 +149,9 @@ export class DisputeOpsService {
   }
 
   /** Counts for the KPI strip: open, won, lost ... and amount at risk per asset. Decimal strings. */
-  summary(caller: MerchantCaller) {
+  async summary(caller: MerchantCaller) {
     assertPermission(caller, 'disputes.read');
-    const cases = this.store.listForMerchant(caller.merchantId);
+    const cases = await this.store.listForMerchant(caller.merchantId);
     const byStatus: Record<DisputeCaseStatus, number> = { open: 0, contested: 0, accepted: 0, won: 0, lost: 0 };
     const risk = new Map<string, bigint>();
     for (const c of cases) {
@@ -168,7 +167,7 @@ export class DisputeOpsService {
 
   async get(caller: MerchantCaller, disputeId: string) {
     assertPermission(caller, 'disputes.read');
-    const c = this.owned(caller, disputeId);
+    const c = await this.owned(caller, disputeId);
     const sql = this.sql;
     const dues = await this.dueByDispute(caller.merchantId, [c.disputeId]);
     const evidence = await sql<EvidenceRow[]>`
@@ -236,7 +235,7 @@ export class DisputeOpsService {
     },
   ) {
     assertPermission(caller, 'disputes.respond');
-    const c = this.owned(caller, input.disputeId);
+    const c = await this.owned(caller, input.disputeId);
     if (!OPEN.has(c.status)) throw new MerchantOpsError('pay.dispute_closed', 'conflict');
     const rows = await this.sql<EvidenceRow[]>`
       INSERT INTO pay.merchant_dispute_evidence (merchant_id, dispute_id, kind, file_name, content_type, size_bytes, sha256, note, added_by)
@@ -265,7 +264,7 @@ export class DisputeOpsService {
     },
   ) {
     assertPermission(caller, 'disputes.respond');
-    const c = this.owned(caller, input.disputeId);
+    const c = await this.owned(caller, input.disputeId);
     if (!OPEN.has(c.status)) throw new MerchantOpsError('pay.dispute_closed', 'conflict');
     if (!this.evidenceGate.uploadEnabled) throw new MerchantOpsError('pay.dispute_evidence_upload_off', 'unavailable');
     const scanner = this.evidenceGate.scanner;
@@ -294,9 +293,14 @@ export class DisputeOpsService {
     return evidenceView({ ...row, has_content: true });
   }
 
-  /** Bytes for one evidence row this merchant owns. Another merchant's id matches a missing id. */
+  /**
+   * Bytes for one evidence row this merchant owns. Another merchant's id matches a missing id.
+   * Download is a respond action: owner, admin, or finance, and only from an interactive session.
+   * An API key with the role still cannot read the bytes.
+   */
   async getEvidence(caller: MerchantCaller, evidenceId: string) {
-    assertPermission(caller, 'disputes.read');
+    assertPermission(caller, 'disputes.respond');
+    if (!caller.interactive) throw new MerchantOpsError('pay.dispute_evidence_interactive_only', 'forbidden');
     const rows = await this.sql<Array<EvidenceRow & { dispute_id: string; content: Buffer | null }>>`
       SELECT e.id, e.dispute_id, e.kind, e.file_name, e.content_type, e.size_bytes::text, e.sha256, e.note, e.added_by, e.created_at,
              (c.evidence_id IS NOT NULL) AS has_content, c.content
@@ -305,7 +309,8 @@ export class DisputeOpsService {
           ON c.evidence_id = e.id AND c.merchant_id = e.merchant_id
        WHERE e.merchant_id = ${caller.merchantId} AND e.id = ${evidenceId}::uuid`;
     const row = rows[0];
-    if (!row || !this.store.get(row.dispute_id) || this.store.get(row.dispute_id)?.merchantId !== caller.merchantId) {
+    const dispute = row ? await this.store.get(row.dispute_id) : null;
+    if (!row || !dispute || dispute.merchantId !== caller.merchantId) {
       throw new MerchantOpsError('pay.dispute_evidence_not_found', 'not_found');
     }
     if (!row.content) throw new MerchantOpsError('pay.dispute_evidence_content_absent', 'conflict');
@@ -334,7 +339,7 @@ export class DisputeOpsService {
         throw new MerchantOpsError('pay.request_id_reused', 'conflict');
       return this.get(caller, input.disputeId);
     }
-    const c = this.owned(caller, input.disputeId);
+    const c = await this.owned(caller, input.disputeId);
     if (!OPEN.has(c.status)) throw new MerchantOpsError('pay.dispute_closed', 'conflict');
     if (input.action === 'contest' && c.status !== 'open') throw new MerchantOpsError('pay.dispute_invalid_transition', 'conflict');
     await sql.begin(async (tx) => {
@@ -351,8 +356,8 @@ export class DisputeOpsService {
         RETURNING id`;
       if (!inserted[0]) throw new MerchantOpsError('pay.request_id_reused', 'conflict');
       try {
-        if (input.action === 'contest') this.store.contest(c.disputeId);
-        else this.store.accept(c.disputeId);
+        if (input.action === 'contest') await this.store.contest(c.disputeId, undefined, tx);
+        else await this.store.accept(c.disputeId, undefined, tx);
       } catch (error) {
         if (error instanceof DisputeCaseError) {
           throw new MerchantOpsError(

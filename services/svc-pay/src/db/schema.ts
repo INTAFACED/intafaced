@@ -844,6 +844,41 @@ export const disputeResponseDeadlines = pay.table(
   (t) => [primaryKey({ name: 'dispute_response_deadlines_pkey', columns: [t.merchantId, t.disputeId] })],
 );
 
+/** Durable dispute case. Amount is a decimal string. Opening ledger fields do not change. */
+export const disputeCases = pay.table(
+  'dispute_cases',
+  {
+    disputeId: text('dispute_id').primaryKey(),
+    paymentId: text('payment_id').notNull(),
+    merchantId: uuid('merchant_id').notNull(),
+    amount: text('amount').notNull(),
+    assetId: text('asset_id').notNull(),
+    reasonCode: text('reason_code'),
+    status: text('status').notNull(),
+    openedAt: tstz('opened_at').notNull(),
+    updatedAt: tstz('updated_at').notNull(),
+    contestedAt: tstz('contested_at'),
+    closedAt: tstz('closed_at'),
+    paymentMarkedDisputed: boolean('payment_marked_disputed').notNull(),
+    ledgerWire: text('ledger_wire').notNull(),
+    ledgerTxId: text('ledger_tx_id'),
+    ledgerRefuse: jsonb('ledger_refuse'),
+  },
+  (t) => [index('dispute_cases_merchant_idx').on(t.merchantId, t.openedAt, t.disputeId)],
+);
+
+/** One applied rail resolution per rail event id. */
+export const disputeCaseRailEvents = pay.table(
+  'dispute_case_rail_events',
+  {
+    railEventId: text('rail_event_id').primaryKey(),
+    disputeId: text('dispute_id').notNull(),
+    outcome: text('outcome').notNull(),
+    appliedAt: tstz('applied_at').notNull().defaultNow(),
+  },
+  (t) => [index('dispute_case_rail_events_dispute_idx').on(t.disputeId, t.appliedAt)],
+);
+
 /** Evidence file bytes. Metadata stays on merchant_dispute_evidence. */
 export const merchantDisputeEvidenceContent = pay.table('merchant_dispute_evidence_content', {
   evidenceId: uuid('evidence_id').primaryKey(),
@@ -909,6 +944,8 @@ export const schema = {
   subscriptionCreateIdempotency,
   subscriptionExecutions,
   disputeResponseDeadlines,
+  disputeCases,
+  disputeCaseRailEvents,
   merchantDisputeEvidenceContent,
   merchantInvoices,
   merchantInvoiceActions,

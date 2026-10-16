@@ -77,8 +77,13 @@ describe('postDisputeOpening — ledger-client only', () => {
     expect(formatAmount(event?.amount ?? 0n)).toBe('10');
   });
 
-  it('card-sandbox keeps a rail evidence due date and rejects a malformed one', () => {
-    const rail = new CardSandboxAdapter({ secret: 'svc-pay-test-secret-at-least-32-characters', toleranceSeconds: 300 });
+  it('card-sandbox keeps a rail evidence due date and treats a malformed one as absent', () => {
+    const noted: string[] = [];
+    const rail = new CardSandboxAdapter({
+      secret: 'svc-pay-test-secret-at-least-32-characters',
+      toleranceSeconds: 300,
+      noteMalformedEvidenceDueBy: (eventId) => noted.push(eventId),
+    });
     const due = '2026-11-01T15:04:05.000Z';
     const event = rail.verifyWebhook(
       rail.signWebhook({
@@ -92,30 +97,33 @@ describe('postDisputeOpening — ledger-client only', () => {
       }),
     );
     expect(event?.evidenceDueBy?.toISOString()).toBe(due);
-    expect(
-      rail.verifyWebhook(
-        rail.signWebhook({
-          id: 'evt_bad_due',
-          type: 'dispute.opened',
-          ref: 'ch_1',
-          amount: '10',
-          disputeId: 'dsp-bad',
-          evidenceDueBy: 'not-a-date',
-        }),
-      ),
-    ).toBeNull();
-    expect(
-      rail.verifyWebhook(
-        rail.signWebhook({
-          id: 'evt_num_due',
-          type: 'dispute.opened',
-          ref: 'ch_1',
-          amount: '10',
-          disputeId: 'dsp-num',
-          evidenceDueBy: 30,
-        }),
-      ),
-    ).toBeNull();
+    expect(event?.type).toBe('dispute.opened');
+    const bad = rail.verifyWebhook(
+      rail.signWebhook({
+        id: 'evt_bad_due',
+        type: 'dispute.opened',
+        ref: 'ch_1',
+        amount: '10',
+        disputeId: 'dsp-bad',
+        evidenceDueBy: 'not-a-date',
+      }),
+    );
+    expect(bad?.type).toBe('dispute.opened');
+    expect(bad?.disputeId).toBe('dsp-bad');
+    expect(bad?.evidenceDueBy).toBeUndefined();
+    const numeric = rail.verifyWebhook(
+      rail.signWebhook({
+        id: 'evt_num_due',
+        type: 'dispute.opened',
+        ref: 'ch_1',
+        amount: '10',
+        disputeId: 'dsp-num',
+        evidenceDueBy: 30,
+      }),
+    );
+    expect(numeric?.type).toBe('dispute.opened');
+    expect(numeric?.evidenceDueBy).toBeUndefined();
+    expect(noted).toEqual(['evt_bad_due', 'evt_num_due']);
   });
 
   it('cover-fail refuse uses the uncovered code, not posted', () => {

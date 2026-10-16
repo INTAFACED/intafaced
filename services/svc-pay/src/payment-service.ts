@@ -76,6 +76,8 @@ import {
   refuseChargebackPlanConflict,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
+  type DisputeCaseStore,
+  type RailResolutionOutcome,
 } from './fraud/dispute-case.js';
 import { affiliateLegAfterPaySettlement, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
@@ -765,6 +767,12 @@ export interface PayServiceOptions {
   readonly haltStore?: PayHaltStore;
 
   /**
+   * Dispute cases. Production passes the Postgres store. Omitted keeps the
+   * process-local store so unit tests do not need a dispute table.
+   */
+  readonly disputeCases?: DisputeCaseStore;
+
+  /**
    * Fee rate used when a merchant's pricing does not state one.
    *
    * There is no silent default of zero: a merchant settled at 0 bps by accident
@@ -1107,6 +1115,7 @@ export class PayService {
   private readonly afterPayoutAdmission: (() => void | Promise<void>) | undefined;
   private readonly guards: PayGuards;
   private readonly haltStore: PayHaltStore | undefined;
+  private readonly disputeCases: DisputeCaseStore;
 
   constructor(
     private readonly sql: Sql,
@@ -1136,6 +1145,7 @@ export class PayService {
     this.afterPayoutAdmission = options.afterPayoutAdmission;
     this.guards = options.guards ?? NOOP_GUARDS;
     this.haltStore = options.haltStore;
+    this.disputeCases = options.disputeCases ?? defaultDisputeCaseStore;
   }
 
   /**
@@ -3189,7 +3199,7 @@ export class PayService {
             });
             marked = true;
           }
-          defaultDisputeCaseStore.open({
+          await this.disputeCases.open({
             disputeId,
             paymentId: payment.id,
             merchantId: payment.merchant_id,
@@ -3217,17 +3227,22 @@ export class PayService {
         // further. Neither path picks a pot from the payment's current status.
         // The opening (and its replay) already chose it in `chargebackSettledPot`.
         const disputeId = event.disputeId?.trim();
-        if (disputeId && defaultDisputeCaseStore.get(disputeId)) {
-          if (event.type === 'dispute.won') defaultDisputeCaseStore.markWon(disputeId);
-          else if (event.type === 'dispute.lost') defaultDisputeCaseStore.markLost(disputeId);
-          else defaultDisputeCaseStore.accept(disputeId);
-          await recordRailDisputeDeadline(this.sql, {
-            merchantId: payment.merchant_id,
+        if (disputeId) {
+          const outcome: RailResolutionOutcome = event.type === 'dispute.won' ? 'won' : event.type === 'dispute.lost' ? 'lost' : 'closed';
+          const resolved = await this.disputeCases.applyRailResolution({
             disputeId,
-            evidenceDueBy: event.evidenceDueBy ?? null,
             railEventId: deliveryKey,
+            outcome,
           });
-          applied = true;
+          if (resolved) {
+            await recordRailDisputeDeadline(this.sql, {
+              merchantId: payment.merchant_id,
+              disputeId,
+              evidenceDueBy: event.evidenceDueBy ?? null,
+              railEventId: deliveryKey,
+            });
+            applied = true;
+          }
         }
         break;
       }

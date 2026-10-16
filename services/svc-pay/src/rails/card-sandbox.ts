@@ -35,6 +35,8 @@ export interface CardSandboxOptions {
   readonly now?: () => Date;
   /** Deliveries older than this are treated as replays. Owner-published — never invent 300. */
   readonly toleranceSeconds: number;
+  /** A due date that is not a parseable string is ignored. The event still stands. */
+  readonly noteMalformedEvidenceDueBy?: (eventId: string) => void;
 }
 
 /** Instrument tokens that steer the sandbox, the way a real sandbox uses test PANs. */
@@ -313,7 +315,7 @@ export class CardSandboxAdapter implements RailAdapter {
       return null;
     }
 
-    return toRailEvent(this.id, body);
+    return toRailEvent(this.id, body, this.options.noteMalformedEvidenceDueBy);
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
@@ -383,7 +385,7 @@ const EVENT_TYPES = new Set([
 ]);
 
 /** Shape-check a verified body. A valid signature proves origin, not structure. */
-function toRailEvent(railId: string, body: unknown): RailEvent | null {
+function toRailEvent(railId: string, body: unknown, noteMalformedEvidenceDueBy?: (eventId: string) => void): RailEvent | null {
   if (typeof body !== 'object' || body === null) return null;
   const b = body as Record<string, unknown>;
 
@@ -414,10 +416,14 @@ function toRailEvent(railId: string, body: unknown): RailEvent | null {
   const reasonCode = typeof b.reasonCode === 'string' && b.reasonCode.trim() ? b.reasonCode.trim() : undefined;
   let evidenceDueBy: Date | undefined;
   if (b.evidenceDueBy !== undefined && b.evidenceDueBy !== null) {
-    if (typeof b.evidenceDueBy !== 'string') return null;
-    const parsed = new Date(b.evidenceDueBy);
-    if (Number.isNaN(parsed.getTime())) return null;
-    evidenceDueBy = parsed;
+    const parsed = typeof b.evidenceDueBy === 'string' ? new Date(b.evidenceDueBy) : null;
+    if (!parsed || Number.isNaN(parsed.getTime())) {
+      // A bad due date must not drop the dispute. The opening still runs; the
+      // deadline stays absent, which is what a rail that sent none looks like.
+      noteMalformedEvidenceDueBy?.(eventId);
+    } else {
+      evidenceDueBy = parsed;
+    }
   }
 
   return {

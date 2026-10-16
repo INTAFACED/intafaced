@@ -468,6 +468,8 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     path: 'merchantOps.disputes.getEvidence',
     scope: 'pay:read',
     own: 'ok',
+    // Evidence bytes are an interactive respond action. An API key is refused even for the owner.
+    sessionOnly: true,
     input: (i) => ({ evidenceId: i.evidenceId }),
   },
   {
@@ -506,6 +508,12 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     scope: 'pay:write',
     own: 'service',
     ownCause: 'pay.invoice_paid',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
+  },
+  {
+    path: 'merchantOps.invoices.reissueLink',
+    scope: 'pay:write',
+    own: 'service',
     input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
   },
   {

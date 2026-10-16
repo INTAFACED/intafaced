@@ -87,6 +87,18 @@ describe('D26-P1-P5 chargeback dispute case mechanism', () => {
     expect(store.markWon('dsp-posted').ledgerTxId).toBe('tx-chargeback-1');
   });
 
+  it('applies a rail outcome once per event id', () => {
+    const store = new MemoryDisputeCaseStore();
+    store.open({ disputeId: 'dsp-rail', paymentId: 'p', merchantId: 'm', amount: '1', assetId: 'USDT' });
+    const won = store.applyRailResolution({ disputeId: 'dsp-rail', railEventId: 'rail:1', outcome: 'won' });
+    expect(won?.status).toBe('won');
+    const again = store.applyRailResolution({ disputeId: 'dsp-rail', railEventId: 'rail:1', outcome: 'won' });
+    expect(again?.status).toBe('won');
+    expect(again?.closedAt).toBe(won?.closedAt);
+    expect(() => store.applyRailResolution({ disputeId: 'dsp-rail', railEventId: 'rail:2', outcome: 'lost' })).toThrow(DisputeCaseError);
+    expect(store.applyRailResolution({ disputeId: 'missing', railEventId: 'rail:3', outcome: 'lost' })).toBeNull();
+  });
+
   it('refuses invalid transitions and blank dispute ids', () => {
     const store = new MemoryDisputeCaseStore();
     expect(() =>

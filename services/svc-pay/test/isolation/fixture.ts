@@ -638,6 +638,7 @@ export async function snapshotMerchant(w: World, merchantId: string): Promise<st
     disputeResponses: await q('merchant_dispute_responses', 'merchant_id'),
     invoices: await q('merchant_invoices', 'merchant_id'),
     invoiceActions: await q('merchant_invoice_actions', 'merchant_id'),
+    disputeCasesPg: await q('dispute_cases', 'merchant_id'),
     // W1
     controlProfile: await q('control_merchant_profiles', 'merchant_id'),
     controlApprovals: await q('control_payout_approvals', 'merchant_id'),

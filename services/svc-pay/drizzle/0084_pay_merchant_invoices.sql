@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS "pay"."merchant_invoice_actions" (
   "created_at" timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY ("merchant_id", "request_id"),
   CONSTRAINT "merchant_invoice_actions_action_ck"
-    CHECK ("action" IN ('create', 'send', 'void', 'mark_paid')),
+    CHECK ("action" IN ('create', 'send', 'void', 'mark_paid', 'reissue_link')),
   CONSTRAINT "merchant_invoice_actions_fingerprint_ck"
     CHECK ("fingerprint" ~ '^[0-9a-f]{64}$')
 );

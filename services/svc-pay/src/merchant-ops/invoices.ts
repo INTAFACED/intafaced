@@ -271,26 +271,111 @@ export class InvoiceService {
     } catch (error) {
       payRefusal(error);
     }
-    const saved = await this.sql<InvoiceRow[]>`
-      UPDATE pay.merchant_invoices
-         SET status = 'sent', payment_link_id = ${link.id}, sent_at = now(), updated_at = now()
-       WHERE id = ${invoice.id} AND merchant_id = ${caller.merchantId} AND status = 'draft'
-       RETURNING ${this.returning()}`;
-    if (!saved[0]) {
-      await this.links.deactivatePaymentLink?.(caller.merchantId, link.id);
-      const current = await this.owned(caller, invoice.id);
-      throw statusError(current?.status ?? 'draft');
-    }
+    let saved: InvoiceRow | null;
     try {
-      await this.recordAction(caller, input.requestId, 'send', fp, invoice.id);
+      saved = await this.sql.begin(async (tx) => {
+        const rows = await tx<InvoiceRow[]>`
+          UPDATE pay.merchant_invoices
+             SET status = 'sent', payment_link_id = ${link.id}, sent_at = now(), updated_at = now()
+           WHERE id = ${invoice.id} AND merchant_id = ${caller.merchantId} AND status = 'draft'
+           RETURNING ${this.returning()}`;
+        const row = rows[0];
+        if (!row) return null;
+        await this.recordAction(caller, input.requestId, 'send', fp, invoice.id, tx as unknown as Sql);
+        return row;
+      });
     } catch (error) {
+      await this.deactivateLink(caller.merchantId, link.id);
       if (!uniqueViolation(error)) throw error;
       const raced = await this.action(caller, input.requestId);
       if (!raced) throw error;
       this.sameAction(raced, 'send', fp);
+      return { invoice: await this.get(caller, raced.invoice_id), paymentLink: await this.linkView(caller, raced.invoice_id, null) };
+    }
+    if (!saved) {
+      await this.deactivateLink(caller.merchantId, link.id);
+      const current = await this.owned(caller, invoice.id);
+      throw statusError(current?.status ?? 'draft');
     }
     return {
-      invoice: view(saved[0]),
+      invoice: view(saved),
+      paymentLink: {
+        id: link.id,
+        prefix: link.prefix,
+        expiresAt: link.expiresAt.toISOString(),
+        maxUses: link.maxUses,
+        token: link.token,
+        alreadyIssued: false,
+      } satisfies InvoicePaymentLinkView,
+    };
+  }
+
+  /**
+   * Replace the link on a sent invoice. The previous link is deactivated
+   * before a new single-use link is minted. The token is returned once;
+   * the same requestId replays the invoice without it.
+   */
+  async reissueLink(caller: MerchantCaller, input: { requestId: string; invoiceId: string }) {
+    assertPermission(caller, 'invoices.write');
+    const fp = fingerprint('reissue_link', [input.invoiceId]);
+    const prior = await this.action(caller, input.requestId);
+    if (prior) {
+      this.sameAction(prior, 'reissue_link', fp);
+      return { invoice: await this.get(caller, prior.invoice_id), paymentLink: await this.linkView(caller, prior.invoice_id, null) };
+    }
+    const invoice = await this.owned(caller, input.invoiceId);
+    if (!invoice) throw notFound();
+    if (invoice.status !== 'sent' || !invoice.payment_link_id) throw statusError(invoice.status);
+    if (!this.links) throw new MerchantOpsError('pay.invoice_payment_link_unwired', 'unavailable');
+    await this.assertActive(caller);
+    const oldLinkId = invoice.payment_link_id;
+    const deactivated = await this.deactivateLink(caller.merchantId, oldLinkId);
+    if (!deactivated) throw new MerchantOpsError('pay.invoice_link_deactivate_failed', 'conflict');
+    const amount = parseInvoiceAmount(money(invoice.amount));
+    let link: Awaited<ReturnType<InvoiceLinkPort['createPaymentLink']>>;
+    try {
+      link = await this.links.createPaymentLink({
+        merchantId: caller.merchantId,
+        label: linkLabel(invoice.description),
+        amount,
+        currency: invoice.asset_id,
+        maxUses: 1,
+      });
+    } catch (error) {
+      payRefusal(error);
+    }
+    let saved: InvoiceRow | null;
+    try {
+      saved = await this.sql.begin(async (tx) => {
+        const rows = await tx<InvoiceRow[]>`
+          UPDATE pay.merchant_invoices
+             SET payment_link_id = ${link.id}, updated_at = now()
+           WHERE id = ${invoice.id}
+             AND merchant_id = ${caller.merchantId}
+             AND status = 'sent'
+             AND payment_link_id = ${oldLinkId}
+           RETURNING ${this.returning()}`;
+        const row = rows[0];
+        if (!row) return null;
+        await this.recordAction(caller, input.requestId, 'reissue_link', fp, invoice.id, tx as unknown as Sql);
+        return row;
+      });
+    } catch (error) {
+      await this.deactivateLink(caller.merchantId, link.id);
+      if (!uniqueViolation(error)) throw error;
+      const raced = await this.action(caller, input.requestId);
+      if (!raced) throw error;
+      this.sameAction(raced, 'reissue_link', fp);
+      return { invoice: await this.get(caller, raced.invoice_id), paymentLink: await this.linkView(caller, raced.invoice_id, null) };
+    }
+    if (!saved) {
+      await this.deactivateLink(caller.merchantId, link.id);
+      const current = await this.owned(caller, invoice.id);
+      if (!current || current.status !== 'sent') throw statusError(current?.status ?? invoice.status);
+      throw new MerchantOpsError('pay.invoice_link_reissue_conflict', 'conflict');
+    }
+    return {
+      invoice: view(saved),
       paymentLink: {
         id: link.id,
         prefix: link.prefix,
@@ -313,17 +398,42 @@ export class InvoiceService {
     const invoice = await this.owned(caller, input.invoiceId);
     if (!invoice) throw notFound();
     if (invoice.status !== 'draft' && invoice.status !== 'sent') throw statusError(invoice.status);
-    const saved = await this.sql<InvoiceRow[]>`
-      UPDATE pay.merchant_invoices
-         SET status = 'void', voided_at = now(), updated_at = now()
-       WHERE id = ${invoice.id} AND merchant_id = ${caller.merchantId} AND status IN ('draft', 'sent')
-       RETURNING ${this.returning()}`;
-    if (!saved[0]) {
-      const current = await this.owned(caller, invoice.id);
-      throw statusError(current?.status ?? invoice.status);
+    try {
+      const saved = await this.sql.begin(async (tx) => {
+        if (invoice.status === 'sent') {
+          const linkId = invoice.payment_link_id;
+          if (!linkId) throw new MerchantOpsError('pay.invoice_link_deactivate_failed', 'conflict');
+          const dead = await tx<Array<{ id: string }>>`
+            UPDATE pay.payment_links
+               SET active = false
+             WHERE id = ${linkId} AND merchant_id = ${caller.merchantId}
+             RETURNING id`;
+          if (!dead[0]) throw new MerchantOpsError('pay.invoice_link_deactivate_failed', 'conflict');
+        }
+        const rows = await tx<InvoiceRow[]>`
+          UPDATE pay.merchant_invoices
+             SET status = 'void', voided_at = now(), updated_at = now()
+           WHERE id = ${invoice.id} AND merchant_id = ${caller.merchantId} AND status IN ('draft', 'sent')
+           RETURNING ${this.returning()}`;
+        const row = rows[0];
+        if (!row) {
+          const current = await tx<Array<{ status: string }>>`
+            SELECT status FROM pay.merchant_invoices
+             WHERE id = ${invoice.id} AND merchant_id = ${caller.merchantId}`;
+          throw statusError(current[0]?.status ?? invoice.status);
+        }
+        await this.recordAction(caller, input.requestId, 'void', fp, invoice.id, tx as unknown as Sql);
+        return row;
+      });
+      return view(saved);
+    } catch (error) {
+      if (error instanceof MerchantOpsError) throw error;
+      if (!uniqueViolation(error)) throw error;
+      const raced = await this.action(caller, input.requestId);
+      if (!raced) throw error;
+      this.sameAction(raced, 'void', fp);
+      return this.get(caller, raced.invoice_id);
     }
-    await this.recordAction(caller, input.requestId, 'void', fp, invoice.id);
-    return view(saved[0]);
   }
 
   /**
@@ -424,10 +534,27 @@ export class InvoiceService {
     if (prior.action !== action || prior.fingerprint !== fp) throw new MerchantOpsError('pay.request_id_reused', 'conflict');
   }
 
-  private async recordAction(caller: MerchantCaller, requestId: string, action: string, fp: string, invoiceId: string): Promise<void> {
-    await this.sql`
+  private async recordAction(
+    caller: MerchantCaller,
+    requestId: string,
+    action: string,
+    fp: string,
+    invoiceId: string,
+    db: Sql = this.sql,
+  ): Promise<void> {
+    await db`
       INSERT INTO pay.merchant_invoice_actions (merchant_id, request_id, invoice_id, action, fingerprint)
       VALUES (${caller.merchantId}, ${requestId}::uuid, ${invoiceId}, ${action}, ${fp})`;
+  }
+
+  /** Mark a link inactive. False when this merchant has no such link. */
+  private async deactivateLink(merchantId: string, linkId: string): Promise<boolean> {
+    const rows = await this.sql<Array<{ id: string }>>`
+      UPDATE pay.payment_links
+         SET active = false
+       WHERE id = ${linkId} AND merchant_id = ${merchantId}
+       RETURNING id`;
+    return rows.length > 0;
   }
 
   private async linkView(caller: MerchantCaller, invoiceId: string, token: string | null): Promise<InvoicePaymentLinkView | null> {

@@ -15,6 +15,7 @@ import { defaultDisputeCaseStore } from '../fraud/dispute-case.js';
 import { PayService } from '../payment-service.js';
 import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { RailRegistry } from '../rails/registry.js';
+import { REFERENCE_RAIL_ROUTING_PROFILES } from '../routing/decide.js';
 import { recordRailDisputeDeadline } from './dispute-deadlines.js';
 import type { DisputeEvidenceGate, DisputeEvidenceScanner } from './dispute-evidence-policy.js';
 import type { InvoiceLinkPort } from './invoices.js';
@@ -146,6 +147,18 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
     await db?.drop();
     await adminStop();
   });
+
+  function payAttempt() {
+    const rail = new CardSandboxAdapter({ secret: 'svc-pay-test-secret-at-least-32-characters', toleranceSeconds: 300 });
+    return new PayService(sql, new MemoryLedger(), new RailRegistry([rail]), {
+      checkoutRails: [{ railId: 'card-sandbox', method: 'card' }],
+      checkoutRiskBand: 'low',
+      publicCheckoutMovement: 'allow-sandbox',
+      routingProfiles: REFERENCE_RAIL_ROUTING_PROFILES.map((profile) =>
+        profile.railId === 'card-sandbox' ? { ...profile, successRate: '0.88' } : profile,
+      ),
+    });
+  }
 
   async function payment(status: string, amount = '10', merchantId = merchant) {
     const rows = await sql<Array<{ id: string }>>`
@@ -290,6 +303,20 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
     };
     expect(Buffer.from(got.contentBase64, 'base64').equals(bytes)).toBe(true);
     expect(got.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+    expect((await refusal(() => as(viewer).merchantOps.disputes.getEvidence({ evidenceId: uploaded.evidenceId }))).cause).toBe(
+      'pay.team_role_forbidden',
+    );
+    expect((await refusal(() => as(developer).merchantOps.disputes.getEvidence({ evidenceId: uploaded.evidenceId }))).cause).toBe(
+      'pay.team_role_forbidden',
+    );
+    const apiKey = routerFor().createCaller(ctxOf(principalOf(owner, { kid: nid(), mfa: false })));
+    expect((await refusal(() => apiKey.merchantOps.disputes.getEvidence({ evidenceId: uploaded.evidenceId }))).cause).toBe(
+      'pay.dispute_evidence_interactive_only',
+    );
+    const financeBytes = (await as(finance).merchantOps.disputes.getEvidence({ evidenceId: uploaded.evidenceId })) as {
+      contentBase64: string;
+    };
+    expect(Buffer.from(financeBytes.contentBase64, 'base64').equals(bytes)).toBe(true);
     const detail = await ownerCaller.merchantOps.disputes.get({ disputeId });
     expect(JSON.stringify(detail)).not.toContain(body.contentBase64);
     expect(JSON.stringify(detail)).toContain('"hasContent":true');
@@ -457,8 +484,19 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
       'pay.invoice_paid',
     );
 
+    const live = await payAttempt();
+    expect((await live.resolvePaymentLink(sent.paymentLink.token!)).id).toBe(sent.invoice.paymentLinkId);
     const voided = (await ownerCaller.merchantOps.invoices.void({ requestId: nid(), invoiceId: draft.id })) as { status: string };
     expect(voided.status).toBe('void');
+    const linkRow = await sql<Array<{ active: boolean }>>`SELECT active FROM pay.payment_links WHERE id = ${sent.invoice.paymentLinkId}`;
+    expect(linkRow[0]!.active).toBe(false);
+    await expect(live.resolvePaymentLink(sent.paymentLink.token!)).rejects.toMatchObject({ code: 'pay.link_not_found' });
+    await expect(live.openCheckoutSession({ linkToken: sent.paymentLink.token!, geoCountry: 'DE', method: 'card' })).rejects.toMatchObject({
+      code: 'pay.link_not_found',
+    });
+    const sessions = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.checkout_sessions WHERE link_id = ${sent.invoice.paymentLinkId}`;
+    expect(sessions[0]!.n).toBe(0);
 
     expect((await refusal(() => as(viewer).merchantOps.invoices.create({ requestId: nid(), assetId: 'USDT', amount: '1' }))).cause).toBe(
       'pay.team_role_forbidden',
@@ -476,6 +514,97 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
     const visible = (await as(viewer).merchantOps.invoices.list({ limit: 20 })) as { items: Array<{ id: string }> };
     expect(visible.items.map((i) => i.id)).toContain(draft.id);
     expect(visible.items.map((i) => i.id)).not.toContain(foreignInvoice.id);
+  });
+
+  it('reissues a sent invoice link once per request and refuses a void whose link cannot be deactivated', async () => {
+    const ownerCaller = as(owner);
+    const created = (await ownerCaller.merchantOps.invoices.create({
+      requestId: nid(),
+      assetId: 'USDT',
+      amount: '4',
+      description: 'Reissue me',
+    })) as { id: string };
+    const sent = (await ownerCaller.merchantOps.invoices.send({ requestId: nid(), invoiceId: created.id })) as {
+      invoice: { paymentLinkId: string | null };
+      paymentLink: { token: string | null };
+    };
+    const oldToken = sent.paymentLink.token!;
+    const checkout = payAttempt();
+    expect((await checkout.resolvePaymentLink(oldToken)).id).toBe(sent.invoice.paymentLinkId);
+
+    const requestId = nid();
+    const reissued = (await ownerCaller.merchantOps.invoices.reissueLink({ requestId, invoiceId: created.id })) as {
+      invoice: { status: string; paymentLinkId: string | null };
+      paymentLink: { token: string | null; alreadyIssued: boolean; maxUses: number | null; id: string };
+    };
+    expect(reissued.invoice.status).toBe('sent');
+    expect(reissued.paymentLink.token).toMatch(/^pl_/);
+    expect(reissued.paymentLink.alreadyIssued).toBe(false);
+    expect(reissued.paymentLink.maxUses).toBe(1);
+    expect(reissued.invoice.paymentLinkId).not.toBe(sent.invoice.paymentLinkId);
+    const oldActive = await sql<Array<{ active: boolean }>>`SELECT active FROM pay.payment_links WHERE id = ${sent.invoice.paymentLinkId}`;
+    expect(oldActive[0]!.active).toBe(false);
+    await expect(checkout.resolvePaymentLink(oldToken)).rejects.toMatchObject({ code: 'pay.link_not_found' });
+    expect((await checkout.resolvePaymentLink(reissued.paymentLink.token!)).id).toBe(reissued.invoice.paymentLinkId);
+
+    const lost = (await ownerCaller.merchantOps.invoices.reissueLink({ requestId, invoiceId: created.id })) as {
+      invoice: { paymentLinkId: string | null };
+      paymentLink: { token: string | null; alreadyIssued: boolean };
+    };
+    expect(lost.invoice.paymentLinkId).toBe(reissued.invoice.paymentLinkId);
+    expect(lost.paymentLink.token).toBeNull();
+    expect(lost.paymentLink.alreadyIssued).toBe(true);
+    const links = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.merchant_invoices WHERE id = ${created.id}`;
+    expect(links[0]!.n).toBe(1);
+    const activeLinks = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.payment_links
+       WHERE merchant_id = ${merchant} AND id IN (${sent.invoice.paymentLinkId}, ${reissued.invoice.paymentLinkId}) AND active = true`;
+    expect(activeLinks[0]!.n).toBe(1);
+
+    expect((await refusal(() => as(viewer).merchantOps.invoices.reissueLink({ requestId: nid(), invoiceId: created.id }))).cause).toBe(
+      'pay.team_role_forbidden',
+    );
+    expect((await refusal(() => as(developer).merchantOps.invoices.reissueLink({ requestId: nid(), invoiceId: created.id }))).cause).toBe(
+      'pay.team_role_forbidden',
+    );
+    const financeSent = (await as(finance).merchantOps.invoices.create({ requestId: nid(), assetId: 'USDT', amount: '1' })) as {
+      id: string;
+    };
+    await as(finance).merchantOps.invoices.send({ requestId: nid(), invoiceId: financeSent.id });
+    const financeReissue = (await as(finance).merchantOps.invoices.reissueLink({ requestId: nid(), invoiceId: financeSent.id })) as {
+      paymentLink: { token: string | null };
+    };
+    expect(financeReissue.paymentLink.token).toMatch(/^pl_/);
+
+    const stuck = (await ownerCaller.merchantOps.invoices.create({ requestId: nid(), assetId: 'USDT', amount: '6' })) as { id: string };
+    const stuckSent = (await ownerCaller.merchantOps.invoices.send({ requestId: nid(), invoiceId: stuck.id })) as {
+      invoice: { paymentLinkId: string | null; status: string };
+      paymentLink: { token: string | null };
+    };
+    const foreignLink = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.payment_links (merchant_id, token_hash, token_prefix, label, amount, currency, max_uses, expires_at)
+      VALUES (
+        ${foreign},
+        ${createHash('sha256').update(`pl_${nid()}`).digest('hex')},
+        ${'pl_foreign'},
+        ${'foreign'},
+        ${'6'},
+        ${'USDT'},
+        ${1},
+        ${new Date(Date.now() + 86_400_000)}
+      )
+      RETURNING id`;
+    await sql`UPDATE pay.merchant_invoices SET payment_link_id = ${foreignLink[0]!.id} WHERE id = ${stuck.id}`;
+    expect((await refusal(() => ownerCaller.merchantOps.invoices.void({ requestId: nid(), invoiceId: stuck.id }))).cause).toBe(
+      'pay.invoice_link_deactivate_failed',
+    );
+    const still = (await ownerCaller.merchantOps.invoices.get({ invoiceId: stuck.id })) as { status: string; paymentLinkId: string | null };
+    expect(still.status).toBe('sent');
+    expect(still.paymentLinkId).toBe(foreignLink[0]!.id);
+    const foreignActive = await sql<Array<{ active: boolean }>>`SELECT active FROM pay.payment_links WHERE id = ${foreignLink[0]!.id}`;
+    expect(foreignActive[0]!.active).toBe(true);
+    expect((await checkout.resolvePaymentLink(stuckSent.paymentLink.token!)).id).toBe(stuckSent.invoice.paymentLinkId);
   });
 
   it('records the webhook due date on the dispute the rail named', async () => {
