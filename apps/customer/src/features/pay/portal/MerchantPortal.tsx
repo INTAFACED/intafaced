@@ -26,6 +26,7 @@ import './portal.css';
 import { Refunds } from './Refunds';
 import { Links } from './Links';
 import { MerchantMoney, BalanceActivity } from './Money';
+import { Settings, SettingsNav } from './Settings';
 import { Developers, developerHeader } from './Developers';
 import { Invoices } from './Invoices';
 import { extensionCopy } from './extension-copy';
@@ -126,6 +127,20 @@ type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
   const c = w3cCopy.t;
   switch (route.room) {
+    case 'settings':
+    case 'settings-team':
+    case 'settings-notifications':
+      return {
+        title: extensionCopy.t(
+          route.room === 'settings-team' ? 'teamTitle' : route.room === 'settings-notifications' ? 'notificationSettings' : 'settingsTitle',
+        ),
+        purpose: extensionCopy.t('settingsPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/settings/notifications">
+            {extensionCopy.t('notificationSettings')}
+          </a>
+        ),
+      };
     case 'developer':
     case 'developer-keys':
     case 'developer-signing':
@@ -371,6 +386,26 @@ function PortalRoom({
   const { t } = portalCopy.useCopy();
   const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
+    case 'settings':
+      return <WithAccount {...acct}>{({ record }) => <Settings merchant={record} />}</WithAccount>;
+    case 'settings-team':
+      return (
+        <div className="stack">
+          <SettingsNav />
+          <Team portal={portal} />
+        </div>
+      );
+    case 'settings-notifications':
+      return (
+        <WithAccount {...acct}>
+          {() => (
+            <div className="stack">
+              <SettingsNav />
+              <Notifications portal={portal} preferencesOnly />
+            </div>
+          )}
+        </WithAccount>
+      );
     case 'developer':
     case 'developer-keys':
     case 'developer-signing':

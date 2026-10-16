@@ -1,6 +1,9 @@
 import type { PlainKey } from './copy';
 
 export type PortalRoom =
+  | 'settings'
+  | 'settings-team'
+  | 'settings-notifications'
   | 'developer'
   | 'developer-keys'
   | 'developer-signing'
@@ -55,6 +58,12 @@ export function parsePortalRoute(path: string): PortalRoute | null {
       return v;
     }
   };
+  if (a === 'settings') {
+    if (b === undefined || b === 'profile') return { room: 'settings' };
+    if (b === 'team') return { room: 'settings-team' };
+    if (b === 'notifications') return { room: 'settings-notifications' };
+    return null;
+  }
   if (a === 'developer') {
     if (b === undefined) return { room: 'developer' };
     if (b === 'webhooks') return extra ? { room: 'developer-endpoint', param: decode(extra) } : { room: 'developer-webhooks' };
@@ -100,6 +109,7 @@ export function parsePortalRoute(path: string): PortalRoute | null {
 
 /** Links added to the Business Pay menu, in the order they are shown. */
 export const portalLinks: ReadonlyArray<readonly [string, PlainKey]> = [
+  ['/pay/settings', 'navSettings'],
   ['/pay/refunds', 'navRefunds'],
   ['/pay/onboarding', 'navOnboarding'],
   ['/pay/team', 'navTeam'],
