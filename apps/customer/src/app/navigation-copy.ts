@@ -2,6 +2,10 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  'Balance activity': 'Balance activity',
+  'Records explaining merchant balance changes': 'Records explaining merchant balance changes',
+  'Export jobs': 'Export jobs',
+  'Request and download account reports': 'Request and download account reports',
   'Create a payment link': 'Create a payment link',
   'Review a new checkout link': 'Review a new checkout link',
   'Payment link': 'Payment link',

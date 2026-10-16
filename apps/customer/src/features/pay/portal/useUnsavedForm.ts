@@ -18,9 +18,21 @@ export function useUnsavedForm(dirty: boolean, message: string) {
         event.stopImmediatePropagation();
       }
     };
+    // Same-document Back/Forward happens before popstate through the Navigation API.
+    // Cancelling here preserves the current history entry and its forward stack.
+    const traversal = (event: Event) => {
+      const destination = event as Event & { navigationType?: string; destination?: { url: string } };
+      if (destination.navigationType !== 'traverse' || !event.cancelable || !destination.destination) return;
+      const target = new URL(destination.destination.url);
+      if (target.pathname === location.pathname && target.search === location.search) return;
+      if (!window.confirm(message)) event.preventDefault();
+    };
+    const navigation = (window as Window & { navigation?: EventTarget }).navigation;
+    navigation?.addEventListener('navigate', traversal);
     window.addEventListener('beforeunload', unload);
     document.addEventListener('click', navigate, true);
     return () => {
+      navigation?.removeEventListener('navigate', traversal);
       window.removeEventListener('beforeunload', unload);
       document.removeEventListener('click', navigate, true);
     };

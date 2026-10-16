@@ -178,6 +178,7 @@ export const rooms: readonly Room[] = [
     [
       ['merchant', 'Merchant home', 'Manage your business payments'],
       ['money', 'Merchant balance', 'Funds belonging to your merchant account'],
+      ['money/activity', 'Balance activity', 'Records explaining merchant balance changes'],
       ['links', 'Payment links', 'Share a payment link'],
       ['links/new', 'Create a payment link', 'Review a new checkout link'],
       ['checkout', 'Checkout', 'Hosted payment checkout'],
@@ -193,6 +194,7 @@ export const rooms: readonly Room[] = [
       ['invoices', 'Invoices', 'Issue and manage invoices'],
       ['subscriptions', 'Subscriptions', 'Recurring billing'],
       ['reports', 'Reports', 'Export business activity'],
+      ['reports/exports', 'Export jobs', 'Request and download account reports'],
       ['developer', 'Developer', 'Test keys and webhooks'],
       ['onboarding', 'Set up your account', 'Open your merchant account in three steps'],
       ['onboarding/business', 'Business details', 'Save your legal business and contact details'],

@@ -1,6 +1,10 @@
 import type { PlainKey } from './copy';
 
 export type PortalRoom =
+  | 'money'
+  | 'money-activity'
+  | 'reports'
+  | 'report-exports'
   | 'links'
   | 'link-new'
   | 'link'
@@ -43,6 +47,8 @@ export function parsePortalRoute(path: string): PortalRoute | null {
       return v;
     }
   };
+  if (a === 'money') return b === undefined ? { room: 'money' } : b === 'activity' ? { room: 'money-activity' } : null;
+  if (a === 'reports') return b === undefined ? { room: 'reports' } : b === 'exports' ? { room: 'report-exports' } : null;
   if (a === 'links') {
     if (new URLSearchParams(query).get('view') === 'tools') return null;
     return b === undefined ? { room: 'links' } : b === 'new' ? { room: 'link-new' } : { room: 'link', param: decode(b) };

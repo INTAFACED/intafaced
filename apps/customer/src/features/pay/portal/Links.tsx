@@ -355,6 +355,7 @@ export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merc
   );
   return (
     <PaySection title={t('linkNew')}>
+      <ComingSoon title={t('nextBackend')}>{t('linkFormGap')}</ComingSoon>
       {noWrite && <ComingSoon title={t('nextBackend')}>{t('linkAuthorityGap')}</ComingSoon>}
       <div className="form-stack pp-form">
         <fieldset className="pp-group">

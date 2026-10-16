@@ -39,6 +39,13 @@ async function snap(page, name) {
     badge.style.cssText = 'margin:0;background:#c8f64a;color:#111;padding:6px 24px;font:12px system-ui';
     document.body.prepend(badge);
   });
+  // Start at the top so sticky shell elements are not captured halfway down a long form.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await page.screenshot({ path: `${shots}/${name}-viewport.png`, fullPage: false });
   await page.screenshot({ path: `${shots}/${name}.png`, fullPage: true });
 }
 async function phone(page, name) {
@@ -216,4 +223,89 @@ test('payment-link creation: validates fields and does not bypass missing write 
   await axe(page);
   await phone(page, 'P14-new-payment-link');
   expect(mock.calls.filter((call) => call.procedure === 'merchant.createLink')).toEqual([]);
+});
+
+test('merchant money: snapshot balances, separate assets and honest statement gap', async ({ page }) => {
+  const mock = await setup(page);
+  await signIn(page, '/pay/money');
+  await expect(page.getByRole('heading', { name: 'Merchant balances', level: 1 })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Merchant balances' })).toBeVisible();
+  await expect(page.getByText(/A configured reserve policy does not prove funds/)).toBeVisible();
+  await snap(page, 'P24-money');
+  await axe(page);
+  await phone(page, 'P24-money');
+  await page.getByRole('link', { name: 'Open balance activity', exact: true }).click();
+  await expect(page.getByText(/No running balance is estimated here/)).toBeVisible();
+  await snap(page, 'P25-balance-activity-phone');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await snap(page, 'P25-balance-activity');
+  await axe(page);
+  expect(mock.calls.some((call) => call.procedure === 'merchantMetrics.snapshot')).toBe(true);
+});
+
+test('reports: only supported catalog kinds and the reused export form receives the selected kind', async ({ page }) => {
+  await setup(page);
+  await signIn(page, '/pay/reports');
+  await expect(page.getByRole('heading', { name: 'Available report types' })).toBeVisible();
+  await snap(page, 'P52-reports');
+  await axe(page);
+  await phone(page, 'P52-reports');
+  await page
+    .getByRole('row', { name: /Settlements Settlement windows/ })
+    .getByRole('link', { name: 'Request report' })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Export jobs', level: 1 })).toBeVisible();
+  await expect(page.locator('#request select').first()).toHaveValue('settlements');
+  await snap(page, 'P53-export-jobs-phone');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await snap(page, 'P53-export-jobs');
+  await axe(page);
+});
+
+test('stored light preference: app policy stays dark, all W3c routes remain accessible, and the search keyboard shortcut works', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ theme: 'light' })));
+  await setup(page);
+  await page.route('**/api/pay/trpc/merchant.listLinks?*', (route) => reply(route, testLinks()));
+  await signIn(page, '/pay/money');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  for (const [id, path, title] of [
+    ['P02', '/pay/onboarding/business', 'Business details'],
+    ['P03', '/pay/onboarding/verification', 'Verification'],
+    ['P04', '/pay/onboarding/go-live', 'Payout destination'],
+    ['P08', `/pay/refunds?payment=${REFUNDED_PAYMENT}`, 'Refunds'],
+    ['P09', `/pay/refunds/new?payment=${REFUNDED_PAYMENT}`, 'Issue a refund'],
+    ['P10', `/pay/refunds/TEST-refund-1?payment=${REFUNDED_PAYMENT}`, 'Refund detail'],
+    ['P13', '/pay/links', 'Payment links'],
+    ['P14', '/pay/links/new', 'Create a payment link'],
+    ['P15', `/pay/links/${LINK_ID}`, 'Payment link'],
+    ['P24', '/pay/money', 'Merchant balances'],
+    ['P25', '/pay/money/activity', 'Balance activity'],
+    ['P52', '/pay/reports', 'Reports'],
+    ['P53', '/pay/reports/exports', 'Export jobs'],
+  ]) {
+    await go(page, path);
+    await expect(page.getByRole('heading', { name: title, level: 1, exact: true })).toBeVisible();
+    await expect(page.locator('.pp .pp-skeleton')).toHaveCount(0);
+    await axe(page);
+    await snap(page, `${id}-stored-light-policy-dark`);
+  }
+  await page.keyboard.press('Control+k');
+  await expect(page.getByRole('combobox', { name: 'Search markets' })).toBeFocused();
+});
+
+test('unsaved business details survive a cancelled browser Back traversal', async ({ page }) => {
+  await setup(page, 'new');
+  await signIn(page, '/pay/merchant');
+  await go(page, '/pay/onboarding/business');
+  await page.getByLabel('Legal business name *').fill('TEST retained draft');
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.evaluate(() => history.back());
+  await expect(page).toHaveURL(/onboarding\/business$/);
+  await expect(page.getByLabel('Legal business name *')).toHaveValue('TEST retained draft');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.evaluate(() => history.back());
+  await expect(page).toHaveURL(/pay\/merchant$/);
 });

@@ -25,6 +25,8 @@ import type { MemberRole, MerchantRecord } from './schemas';
 import './portal.css';
 import { Refunds } from './Refunds';
 import { Links } from './Links';
+import { MerchantMoney, BalanceActivity } from './Money';
+import { Reports } from './Reports';
 import { w3cCopy } from './w3c-copy';
 import type { PayBusinessAuthority } from '../pay-api';
 
@@ -95,28 +97,72 @@ export function PortalFrame({ route, children }: { route: PortalRoute; children:
 }
 
 const hrefFor = (route: PortalRoute) =>
-  route.room === 'link' || route.room === 'link-new'
-    ? '/pay/links'
-    : route.room === 'refund' || route.room === 'refund-new'
-      ? '/pay/refunds'
-      : route.room === 'dashboard'
-        ? '/pay/merchant'
-        : route.room === 'dispute'
-          ? '/pay/disputes'
-          : route.room === 'customer'
-            ? '/pay/customers'
-            : route.room === 'payment'
-              ? '/pay/payments'
-              : route.room === 'settlement'
-                ? '/pay/settlements'
-                : route.room === 'payout'
-                  ? '/pay/payouts'
-                  : `/pay/${route.room}`;
+  route.room === 'money-activity'
+    ? '/pay/money'
+    : route.room === 'report-exports'
+      ? '/pay/reports'
+      : route.room === 'link' || route.room === 'link-new'
+        ? '/pay/links'
+        : route.room === 'refund' || route.room === 'refund-new'
+          ? '/pay/refunds'
+          : route.room === 'dashboard'
+            ? '/pay/merchant'
+            : route.room === 'dispute'
+              ? '/pay/disputes'
+              : route.room === 'customer'
+                ? '/pay/customers'
+                : route.room === 'payment'
+                  ? '/pay/payments'
+                  : route.room === 'settlement'
+                    ? '/pay/settlements'
+                    : route.room === 'payout'
+                      ? '/pay/payouts'
+                      : `/pay/${route.room}`;
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
   const c = w3cCopy.t;
   switch (route.room) {
+    case 'money':
+      return {
+        title: c('moneyTitle'),
+        purpose: c('moneyPurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/money/activity">
+            {c('openStatement')}
+          </a>
+        ),
+      };
+    case 'money-activity':
+      return {
+        title: c('statementTitle'),
+        purpose: c('statementPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/exports">
+            {c('exportJobs')}
+          </a>
+        ),
+      };
+    case 'reports':
+      return {
+        title: c('reportsTitle'),
+        purpose: c('reportsPurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/reports/exports">
+            {c('exportJobs')}
+          </a>
+        ),
+      };
+    case 'report-exports':
+      return {
+        title: c('exportJobs'),
+        purpose: c('exportJobsPurpose'),
+        action: (
+          <a className="button button--primary" href="#request">
+            {c('reportAction')}
+          </a>
+        ),
+      };
     case 'links':
       return {
         title: c('linksTitle'),
@@ -304,6 +350,22 @@ function PortalRoom({
   const { t } = portalCopy.useCopy();
   const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
+    case 'money':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <MerchantMoney portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'money-activity':
+      return <WithAccount {...acct}>{() => <BalanceActivity />}</WithAccount>;
+    case 'reports':
+      return <WithAccount {...acct}>{() => <Reports />}</WithAccount>;
+    case 'report-exports':
+      return <Exports portal={portal} />;
     case 'links':
     case 'link-new':
     case 'link':

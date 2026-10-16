@@ -17,7 +17,7 @@ const en = {
   actCreateLink: 'Create a payment link',
   pageOnboarding: 'Set up your account',
   purposeOnboarding:
-    'Three steps: your business details, verification, and where you get paid. You can start taking test payments as soon as it is done.',
+    'Three steps: your business details, verification, and where you get paid. Each step shows what is saved and what still needs to be connected.',
   pageTeam: 'Team and roles',
   purposeTeam: 'Who can see and do what on this account.',
   actInvite: 'Invite someone',
@@ -187,7 +187,8 @@ const en = {
     'Send INTAFACED the reference of your business verification file. INTAFACED reviews it and decides; it is never approved automatically.',
   step3Title: 'Payout destination',
   step3Short: 'Where you get paid',
-  step3Body: 'Choose where your money is sent when you pay out. You can start in sandbox now; live payouts wait for verification.',
+  step3Body:
+    'Choose where your money is sent when you pay out. Saving a destination does not activate payments; live payouts wait for verification and operator activation.',
   groupBusiness: 'Your business',
   groupContact: 'Contact',
   groupVolume: 'What you expect',

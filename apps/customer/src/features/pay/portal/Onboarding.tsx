@@ -293,6 +293,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated }: Parameters
           }}
           onConfirmed={onCreated}
           disabled={invalid || starterFeeBps === null}
+          disabledReason={t(starterFeeBps === null ? 'noStarterPricingBody' : 'fixFieldsFirst')}
         />
         {invalid && <p className="muted pp-note">{t('fixFieldsFirst')}</p>}
       </form>
@@ -360,6 +361,7 @@ function StepVerification({
                       onKybSubmitted();
                     }}
                     disabled={ref.trim().length === 0}
+                    disabledReason={t('hKybRef')}
                   />
                 </div>
               )}
@@ -470,6 +472,7 @@ function StepPayout({ portal, merchant, rails, saved, onDestinationSaved, retry 
                 perform={() => portal.setPayoutDestination(merchant.id, chosen.id, kind, ref.trim())}
                 onConfirmed={(data) => onDestinationSaved({ railId: data.railId, kind: data.kind, ref: data.ref })}
                 disabled={ref.trim() === '' || !shapeOk}
+                disabledReason={t(kind === 'crypto' ? 'hAddress' : 'hBankRef')}
               />
               {saved && (
                 <p className="pp-confirmed" role="status">
