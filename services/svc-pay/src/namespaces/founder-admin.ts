@@ -141,7 +141,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
               destination: founder
                 .input(founderApprovalDestinationInputSchema)
                 .output(founderApprovalDestinationSchema)
-                .query(() => notBuilt('founderAdmin.approvals.destination')),
+                .mutation(() => notBuilt('founderAdmin.approvals.destination')),
             },
       ),
       // W1 control room (tier definitions, pricing layers, usage, founder payout approvals). Mounted only with a ControlService.

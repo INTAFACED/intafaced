@@ -17,7 +17,6 @@ export { notBuilt, PayNotBuiltError } from './errors.js';
 /** Path prefixes that must sit behind founder authority (checked by the static inventory test). */
 export const FOUNDER_ONLY_PREFIXES = [
   'founderAdmin.',
-  'founderAdmin.approvals.destination',
   'payHalts.set',
   'payHalts.history',
   'payHalts.operatorStatus',

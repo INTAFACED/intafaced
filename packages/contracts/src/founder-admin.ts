@@ -153,12 +153,11 @@ export const founderApprovalQueueSchema = z
   .object({ approvals: z.array(founderApprovalQueueItemSchema), nextCursor: z.string().nullable() })
   .strict();
 
-/** Postgres `bigint` max (2^63−1). A 19-digit string can still be larger; the cast would throw. */
+/** Postgres `bigint` max (2^63−1). One check so a non-digit never reaches `BigInt` (`safeParse` must not throw). */
 const PG_BIGINT_MAX = 9223372036854775807n;
 const payAuditCursorSchema = z
   .string()
-  .regex(/^\d{1,19}$/)
-  .refine((value) => BigInt(value) <= PG_BIGINT_MAX, 'cursor exceeds bigint max');
+  .refine((value) => /^\d{1,19}$/.test(value) && BigInt(value) <= PG_BIGINT_MAX, 'cursor exceeds bigint max');
 export const FOUNDER_CONTROL_AUDIT_SCOPES = ['merchant', 'tier', 'pricing', 'approval'] as const;
 
 /** One append-only `pay.control_audit` row. `before` / `after` are the stored JSON, including `captured_over_cap`. */
