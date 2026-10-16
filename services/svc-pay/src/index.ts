@@ -197,7 +197,7 @@ const identityAdmission = createIdentityOperationDecisionClient({
   secret: env.IDENTITY_ADMISSION_SECRET,
 });
 const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPermissionIntents(tx, current, identityAdmission));
-const payGuards = buildPayGuards({ sql });
+const payGuards = buildPayGuards({ sql, ledger });
 const pay = new PayService(sql, ledger, rails, {
   guards: payGuards,
   identityOperationAdmission: identityAdmission,

@@ -46,7 +46,6 @@ export const FOUNDER_EXTRA = [
 /** Prefixes whose procedures must be founder-guarded (mirror of FOUNDER_ONLY_PREFIXES, restated so a change there is noticed). */
 export const FOUNDER_PREFIXES = [
   'founderAdmin.',
-  'founderAdmin.approvals.destination',
   'payHalts.set',
   'payHalts.history',
   'payHalts.operatorStatus',
@@ -120,7 +119,7 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
   // Takes no input (`{}` is what the sweep sends by default); listed so the entry is explicit.
   'payHalts.operatorStatus': () => undefined,
   'founderAdmin.merchants.list': () => ({ limit: 10 }),
-  'founderAdmin.merchants.drilldown': () => ({ merchantId: NOBODY, window }),
+  'founderAdmin.merchants.drilldown': (w) => ({ merchantId: w.e.A.merchantId, window }),
   'founderAdmin.metrics.global': () => ({ window }),
   // A real merchant: founder authority replaces ownership, so the founder gets A's figures.
   'founderAdmin.metrics.merchant': (w) => ({ merchantId: w.e.A.merchantId, window }),
@@ -183,6 +182,11 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     decision: 'approve',
     expectedPayloadHash: w.control.founderApprovalHash,
     reason: 'isolation drill',
+  }),
+  'founderAdmin.control.limitRequests.list': () => ({ limit: 10 }),
+  'founderAdmin.control.limitRequests.close': (w) => ({
+    requestId: w.control.pendingLimitRequestId,
+    reason: 'isolation drill close',
   }),
   'founderAdmin.treasury.exposure': () => ({}),
   // W15 operator notes: A is a real merchant, and the seeded note is live exactly until the positive control retracts it.
@@ -355,6 +359,29 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, assetCode: 'USDT', amount: '10' }),
   },
   { path: 'merchantControl.approvals.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
+  { path: 'merchantControl.tiers.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchantControl.pricing.history', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 20 }) },
+  { path: 'merchantControl.limits.open', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  {
+    path: 'merchantControl.limits.requestIncrease',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({
+      merchantId: i.merchantId,
+      requestId: randomUUID(),
+      caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '10' }],
+      reason: 'isolation drill',
+    }),
+  },
+  {
+    path: 'merchantControl.limits.withdraw',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
+    ownCause: 'pay.limit_request_not_found',
+    input: (i) => ({ merchantId: i.merchantId, requestId: randomUUID(), reason: 'isolation drill' }),
+  },
   // pay:payout is interactive-only, so there is no key case. "My merchant + their settlement" must look like a missing settlement.
   {
     path: 'merchantControl.approvals.request',

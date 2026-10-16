@@ -82,6 +82,66 @@ export async function listControlAudit(
   };
 }
 
+export interface MerchantAuditEvent {
+  readonly id: string;
+  readonly seq: string;
+  readonly scope: 'merchant' | 'tier' | 'pricing' | 'approval';
+  readonly scopeId: string;
+  readonly kind: string;
+  readonly outcome: string;
+  readonly actorId: string;
+  readonly secondActorId: string | null;
+  readonly requestId: string | null;
+  readonly reason: string;
+  readonly createdAt: string;
+}
+
+/** Newest audit rows for one merchant. `limit` is a page cap the caller already bounded. */
+export async function readMerchantAudit(
+  sql: Sql,
+  merchantId: string,
+  limit: number,
+): Promise<{ events: MerchantAuditEvent[]; truncated: boolean }> {
+  const rows = await sql<
+    Array<{
+      id: string;
+      seq: string | number;
+      scope: MerchantAuditEvent['scope'];
+      scope_id: string;
+      kind: string;
+      outcome: string;
+      actor_id: string;
+      second_actor_id: string | null;
+      request_id: string | null;
+      reason: string;
+      created_at: Date | string;
+    }>
+  >`
+    SELECT id, seq, scope, scope_id, kind, outcome, actor_id, second_actor_id, request_id, reason, created_at
+      FROM pay.control_audit
+     WHERE merchant_id = ${merchantId}
+     ORDER BY seq DESC
+     LIMIT ${limit + 1}
+  `;
+  const page = rows.slice(0, limit);
+  return {
+    truncated: rows.length > limit,
+    events: page.map((row) => ({
+      id: row.id,
+      seq: String(row.seq),
+      scope: row.scope,
+      scopeId: row.scope_id,
+      kind: row.kind,
+      outcome: row.outcome,
+      actorId: row.actor_id,
+      secondActorId: row.second_actor_id,
+      requestId: row.request_id,
+      reason: row.reason,
+      createdAt: new Date(row.created_at).toISOString(),
+    })),
+  };
+}
+
 /** Append one audit row. Always inside the same transaction as the change it records. */
 export async function writeAudit(tx: Sql, row: AuditRow): Promise<void> {
   await tx`

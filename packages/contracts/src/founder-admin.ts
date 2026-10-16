@@ -3,6 +3,7 @@ import {
   merchantControlChangeInputSchema,
   merchantControlChangeResultSchema,
   merchantControlProfileSchema,
+  merchantLimitRequestSchema,
   payAmountStringSchema,
   payAssetCodeSchema,
   payDestinationKindSchema,
@@ -71,16 +72,44 @@ export const founderMerchantListSchema = z
 export type FounderMerchantList = z.infer<typeof founderMerchantListSchema>;
 
 export const founderMerchantDrilldownInputSchema = z.object({ merchantId: payMerchantIdSchema, window: payMetricWindowSchema }).strict();
+
+/** One `pay.control_audit` row for this merchant. `before` / `after` blobs stay in the table; this is the trail a founder reads. */
+export const founderControlAuditEventSchema = z
+  .object({
+    id: z.string().uuid(),
+    seq: z.string().regex(/^[1-9]\d*$/),
+    scope: z.enum(['merchant', 'tier', 'pricing', 'approval']),
+    scopeId: z.string().min(1).max(128),
+    kind: z.string().min(1).max(128),
+    outcome: z.string().min(1).max(64),
+    actorId: z.string().min(1).max(128),
+    secondActorId: z.string().min(1).max(128).nullable(),
+    requestId: z.string().uuid().nullable(),
+    reason: z.string().min(1).max(4000),
+    createdAt: payTimestampSchema,
+  })
+  .strict();
+export type FounderControlAuditEvent = z.infer<typeof founderControlAuditEventSchema>;
+
 /** The same data the merchant sees, plus operator-only fields. */
 export const founderMerchantDrilldownSchema = z
   .object({
     merchantId: payMerchantIdSchema,
     displayName: founderMerchantNameSchema,
     legalName: founderMerchantNameSchema,
+    /** Account status from `pay.merchants`. Not a tier and not a cap. */
+    status: z.enum(['pending', 'active', 'suspended', 'closed']),
+    /** Windowed payment and settlement summary from the metrics read model. */
     metrics: merchantMetricsSnapshotSchema,
     control: merchantControlProfileSchema,
+    /** Global switches plus this merchant's switches. Other merchants' halt rows are not here. */
     halts: payHaltOperatorStatusSchema,
-    pendingApprovals: z.array(payoutApprovalSchema),
+    pendingApprovals: z.array(payoutApprovalSchema).max(200),
+    /** Open limit-increase requests. They are asks, not applied caps. */
+    pendingLimitRequests: z.array(merchantLimitRequestSchema).max(200),
+    /** Newest first, at most the founder list ceiling (200). */
+    recentAudit: z.array(founderControlAuditEventSchema).max(200),
+    auditTruncated: z.boolean(),
     operator: z
       .object({
         kybStatus: z.string(),
@@ -153,12 +182,11 @@ export const founderApprovalQueueSchema = z
   .object({ approvals: z.array(founderApprovalQueueItemSchema), nextCursor: z.string().nullable() })
   .strict();
 
-/** Postgres `bigint` max (2^63−1). A 19-digit string can still be larger; the cast would throw. */
+/** Postgres `bigint` max (2^63−1). One check so a non-digit never reaches `BigInt` (`safeParse` must not throw). */
 const PG_BIGINT_MAX = 9223372036854775807n;
 const payAuditCursorSchema = z
   .string()
-  .regex(/^\d{1,19}$/)
-  .refine((value) => BigInt(value) <= PG_BIGINT_MAX, 'cursor exceeds bigint max');
+  .refine((value) => /^\d{1,19}$/.test(value) && BigInt(value) <= PG_BIGINT_MAX, 'cursor exceeds bigint max');
 export const FOUNDER_CONTROL_AUDIT_SCOPES = ['merchant', 'tier', 'pricing', 'approval'] as const;
 
 /** One append-only `pay.control_audit` row. `before` / `after` are the stored JSON, including `captured_over_cap`. */

@@ -17,8 +17,9 @@ import { writeAudit } from './control/audit.js';
  *
  * The HTTP ledger client returns `meta: {}` from `getTx`. Account ids and
  * directions are what prove the booked legs are this merchant's clearing debit
- * and this rail's boundary credit. A missing rail reference is a mismatch only
- * when those accounts cannot be read.
+ * and this rail's boundary credit. A payment with no rail reference is a
+ * mismatch, the same as a live capture. Account ids that cannot be read are a
+ * mismatch too: there is no rail-reference-only fallback.
  *
  * `off` refuses and reads nothing. A blank limit refuses — this file does not
  * pick a batch size.
@@ -47,7 +48,11 @@ export interface CaptureReconcileCursor {
 
 export interface CaptureReconcileInput {
   readonly limit?: number;
-  readonly cursor?: CaptureReconcileCursor;
+  /**
+   * Absent means start at the oldest authorized row. `null` is a bad body,
+   * not "start over", and is refused.
+   */
+  readonly cursor?: CaptureReconcileCursor | null;
 }
 
 export interface CaptureReconcileReport {
@@ -183,15 +188,18 @@ function entriesOnCaptureAccounts(entries: LedgerTx['entries'], accounts: Captur
 }
 
 /**
- * The booked capture is this payment's, for this amount, and either the rail
- * and clearing accounts match or (only when those ids cannot be read) the rail
- * reference is present on both sides and agrees.
+ * The booked capture is this payment's, for this amount, on this merchant's
+ * clearing account and this rail's boundary account. The payment must already
+ * have a rail reference: a live capture refuses without one, and so does this.
  */
 export function matchBookedCapture(
   row: AuthorizedPaymentRow,
   booked: LedgerTx,
   accounts: CaptureAccountIds,
 ): BookedCaptureCompletion | null {
+  // Same refusal as capture(): no rail reference, no completion. Do not borrow
+  // the ledger meta's rail reference to fill one in.
+  if (!row.rail_ref) return null;
   const key = captureIdempotencyKey(row.id);
   if (booked.idempotencyKey !== key || booked.module !== 'pay' || booked.reason !== 'payment.captured') return null;
   if (booked.entries.length === 0) return null;
@@ -208,21 +216,13 @@ export function matchBookedCapture(
   const metaPayment = booked.meta?.paymentId;
   if (typeof metaPayment === 'string' && metaPayment.toLowerCase() !== row.id.toLowerCase()) return null;
   const metaRail = booked.meta?.railRef;
-  if (typeof metaRail === 'string' && row.rail_ref && metaRail !== row.rail_ref) return null;
+  if (typeof metaRail === 'string' && metaRail !== row.rail_ref) return null;
 
   const postedAt = booked.postedAt;
   if (!(postedAt instanceof Date) || !Number.isFinite(postedAt.getTime())) return null;
 
-  const verifiable = captureAccountsVerifiable(accounts);
-  if (verifiable) {
-    if (!entriesOnCaptureAccounts(booked.entries, accounts)) return null;
-  } else if (typeof metaRail !== 'string' || !row.rail_ref || metaRail !== row.rail_ref) {
-    return null;
-  }
-
-  const railRef = row.rail_ref ?? (typeof metaRail === 'string' ? metaRail : '');
-  if (!railRef && !verifiable) return null;
-  return { ledgerTxId: booked.id, amount: authorized, railRef, postedAt };
+  if (!captureAccountsVerifiable(accounts) || !entriesOnCaptureAccounts(booked.entries, accounts)) return null;
+  return { ledgerTxId: booked.id, amount: authorized, railRef: row.rail_ref, postedAt };
 }
 
 async function expectedCaptureAccounts(
@@ -247,18 +247,47 @@ function assertBatchLimit(limit: number | undefined): number {
   return limit;
 }
 
-function assertCursor(cursor: CaptureReconcileCursor | undefined): CaptureReconcileCursor | null {
+function assertCursor(cursor: unknown): CaptureReconcileCursor | null {
   if (cursor === undefined) return null;
-  // `Date.parse` only keeps milliseconds. The cursor string keeps the microseconds
-  // Postgres stored, and that string is what the next query casts.
-  const millisecond = cursor.createdAt.replace(/(\.\d{3})\d+/, '$1');
-  if (typeof cursor.createdAt !== 'string' || !CURSOR_AT.test(cursor.createdAt) || !Number.isFinite(Date.parse(millisecond))) {
+  if (cursor === null || typeof cursor !== 'object' || Array.isArray(cursor)) {
+    throw new CaptureReconcileError('cursor is not an object', 'pay.validation_failed');
+  }
+  const createdAt = (cursor as { createdAt?: unknown }).createdAt;
+  const id = (cursor as { id?: unknown }).id;
+  // Type-check before any string method. A number here used to throw and surface as 500.
+  if (typeof createdAt !== 'string' || !CURSOR_AT.test(createdAt)) {
     throw new CaptureReconcileError('cursor.createdAt is not an instant', 'pay.validation_failed');
   }
-  if (typeof cursor.id !== 'string' || !PAYMENT_ID.test(cursor.id)) {
+  // `Date.parse` only keeps milliseconds. The cursor string keeps the microseconds
+  // Postgres stored, and that string is what the next query casts.
+  const millisecond = createdAt.replace(/(\.\d{3})\d+/, '$1');
+  if (!Number.isFinite(Date.parse(millisecond))) {
+    throw new CaptureReconcileError('cursor.createdAt is not an instant', 'pay.validation_failed');
+  }
+  if (typeof id !== 'string' || !PAYMENT_ID.test(id)) {
     throw new CaptureReconcileError('cursor.id is not a payment id', 'pay.validation_failed');
   }
-  return { createdAt: cursor.createdAt, id: cursor.id };
+  return { createdAt, id };
+}
+
+/**
+ * The cron body, checked before a connection is reserved. A missing cursor
+ * starts at the oldest row. `null`, a non-object, or a non-string `createdAt`
+ * is refused here so the route can answer 400 instead of letting a method
+ * throw on the wrong shape.
+ */
+export function captureReconcileInputFromBody(body: unknown): CaptureReconcileInput {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    throw new CaptureReconcileError('reconcile body is not an object', 'pay.validation_failed');
+  }
+  const record = body as { limit?: unknown; cursor?: unknown };
+  const input: { limit?: number; cursor?: CaptureReconcileCursor } = {};
+  if ('limit' in record) input.limit = record.limit as number;
+  if ('cursor' in record) {
+    const cursor = assertCursor(record.cursor);
+    if (cursor) input.cursor = cursor;
+  }
+  return input;
 }
 
 interface Candidate {
@@ -390,6 +419,38 @@ export async function runCaptureReconcile(
   return { busy: false, examined, reconciled, leftAuthorized, alreadyCaptured, mismatched, failed, nextCursor };
 }
 
+/**
+ * One mismatch row per ledger transaction. The pass lock is held, so the
+ * existence check and the insert cannot race another runner. A later pass
+ * sees the row and does not append again.
+ */
+async function writeMismatchAuditOnce(
+  tx: Sql,
+  row: AuthorizedPaymentRow,
+  ledgerTxId: string,
+  key: string,
+  merchantStatus: string,
+): Promise<void> {
+  const existing = await tx<Array<{ id: string }>>`
+    SELECT id FROM pay.control_audit
+     WHERE kind = 'payment.capture_reconcile_mismatch'
+       AND after->>'ledgerTxId' = ${ledgerTxId}
+     LIMIT 1
+  `;
+  if (existing.length > 0) return;
+  await writeAudit(tx, {
+    scope: 'merchant',
+    scopeId: row.merchant_id,
+    merchantId: row.merchant_id,
+    kind: 'payment.capture_reconcile_mismatch',
+    outcome: 'mismatch',
+    actorId: 'system:capture_reconcile',
+    reason: 'booked capture does not match this authorization',
+    before: { status: merchantStatus },
+    after: { paymentId: row.id, ledgerTxId, idempotencyKey: key },
+  });
+}
+
 async function reconcileOne(deps: CaptureReconcileDeps, conn: Sql, candidate: Candidate): Promise<OneOutcome> {
   const key = captureIdempotencyKey(candidate.id);
   const booked = await deps.ledger.getTxByKey(key);
@@ -420,17 +481,7 @@ async function reconcileOne(deps: CaptureReconcileDeps, conn: Sql, candidate: Ca
         SELECT status FROM pay.merchants WHERE id = ${row.merchant_id}
       `;
       const merchantStatus = statusRows[0]?.status ?? 'missing';
-      await writeAudit(tx, {
-        scope: 'merchant',
-        scopeId: row.merchant_id,
-        merchantId: row.merchant_id,
-        kind: 'payment.capture_reconcile_mismatch',
-        outcome: 'mismatch',
-        actorId: 'system:capture_reconcile',
-        reason: 'booked capture does not match this authorization',
-        before: { status: merchantStatus },
-        after: { paymentId: row.id, ledgerTxId: booked.id, idempotencyKey: key },
-      });
+      await writeMismatchAuditOnce(tx, row, booked.id, key, merchantStatus);
       return { kind: 'mismatch', paymentId: row.id, merchantId: row.merchant_id, merchantStatus };
     }
     const view = await deps.complete(tx, row, match);

@@ -73,6 +73,7 @@ describe('newlyEnrolledPasskeyRotates — enroll after last unenroll', () => {
       prefix: 'ifk_live',
       mode: 'live',
       revokedKeyId: 'old',
+      signingSecret: null,
     });
     await expect(
       rotateApiKeyAfterPasskey(minter, fakeSql([[{ webauthn_creds: [enrolledAgain] }], [oldRow]]), rotateInput),

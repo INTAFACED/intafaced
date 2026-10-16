@@ -14,6 +14,10 @@ import {
   founderControlAuditListSchema,
   founderPendingChangeListInputSchema,
   founderPendingChangeListSchema,
+  founderLimitRequestListInputSchema,
+  founderLimitRequestListSchema,
+  founderLimitRequestCloseInputSchema,
+  founderLimitRequestCloseResultSchema,
   payoutApprovalSchema,
 } from '@intafaced/contracts';
 import type { ChangeOutcome } from '../control/changes.js';
@@ -91,11 +95,11 @@ export function founderApprovalProcedures(founder: Founder, control: ControlServ
       .input(founderApprovalQueueInputSchema)
       .output(founderApprovalQueueSchema)
       .query(({ input }) => guarded(() => control.approvals.founderQueue(input))),
-    /** Full destination of one queue row. Not mounted on any merchant procedure. */
+    /** Full destination of one queue row. A mutation so a reveal is never a cached GET: each call is one audit row. */
     destination: founder
       .input(founderApprovalDestinationInputSchema)
       .output(founderApprovalDestinationSchema)
-      .query(({ ctx, input }) => guarded(() => control.approvals.founderDestination(founderIdOf(ctx), input.approvalId))),
+      .mutation(({ ctx, input }) => guarded(() => control.approvals.founderDestination(founderIdOf(ctx), input.approvalId))),
   };
 }
 
@@ -170,6 +174,17 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
         .mutation(({ ctx, input }) =>
           guarded(async () => toContractApproval(await control.approvals.founderDecide(founderIdOf(ctx), input))),
         ),
+    }),
+    /** Open limit-increase asks. Reading them does not change caps. Closing one does not either. */
+    limitRequests: router({
+      list: founder
+        .input(founderLimitRequestListInputSchema)
+        .output(founderLimitRequestListSchema)
+        .query(({ input }) => guarded(() => control.listPendingLimitRequests(input))),
+      close: founder
+        .input(founderLimitRequestCloseInputSchema)
+        .output(founderLimitRequestCloseResultSchema)
+        .mutation(({ ctx, input }) => guarded(() => control.closeLimitRequest(founderIdOf(ctx), input))),
     }),
     audit: router({
       list: founder

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { mergeRouters, router, scopedProcedure, type Context } from '@intafaced/contracts';
+import type { ControlService } from '../control/service.js';
 import { createFounderAuthority } from '../founder-authority.js';
 import { createPayNamespaces, FOUNDER_ONLY_PREFIXES, findUnguardedFounderProcedures, founderProcedure } from './index.js';
 
@@ -127,7 +128,7 @@ describe('W0 namespaces are mounted', () => {
     expect(src).toContain('startMetricsRefresher(metrics.projector');
     expect(src).toContain('payHalts: { store: new PayHaltStore(sql,');
     expect(src).toContain('control: new ControlService(sql, teamAccessPorts(sql))');
-    expect(src).toContain('const payGuards = buildPayGuards({ sql });');
+    expect(src).toContain('const payGuards = buildPayGuards({ sql, ledger });');
     // One registry instance serves both the payment service and the user-money service.
     expect(src.match(/guards: payGuards,/g)).toHaveLength(2);
   });
@@ -189,6 +190,22 @@ describe('G7: static inventory of founder-only procedures', () => {
     const r = build(vi.fn());
     expect(allProcedures(r)).toContain('b2bRamp.founderStatus');
     expect(findUnguardedFounderProcedures(r, ['b2bRamp.founderStatus'])).toEqual([]);
+  });
+
+  it('founderAdmin.approvals.destination is a mutation, so a reveal is not a cacheable query', () => {
+    const typeOf = (routerValue: unknown) =>
+      (routerValue as { _def: { procedures: Record<string, { _def: { type: string } }> } })._def.procedures[
+        'founderAdmin.approvals.destination'
+      ]!._def.type;
+    expect(typeOf(build(vi.fn()))).toBe('mutation');
+    expect(
+      typeOf(
+        createPayNamespaces({
+          founderAuthority: createFounderAuthority({ ...identity, fetcher: vi.fn() }),
+          control: {} as ControlService,
+        }),
+      ),
+    ).toBe('mutation');
   });
 
   it('every procedure the manifest marks founder-only is guarded, and founderAdmin.* is all of them', () => {

@@ -36,6 +36,10 @@ export type OwnershipSnapshot = {
   readonly expiresAt?: Date;
   /** API-key only. Omitted = unbound. Never invent a bind. */
   readonly accountId?: string;
+  /** API-key only. True means a key-minted JWT is not enough: the call must be signed. */
+  readonly requireSignature?: boolean;
+  /** API-key only. True means a catch-all or empty allowlist refuses. */
+  readonly requireNonEmptyIpAllowlist?: boolean;
 };
 
 export type AccountStatusSnapshot = {
@@ -47,6 +51,8 @@ export type LiveCredentialErrorCode =
   | 'unavailable'
   | 'auth.api_key_denied'
   | 'auth.api_key_revoked'
+  | 'auth.signature_required'
+  | 'auth.ip_allowlist_required'
   | 'auth.ip_not_allowed'
   | 'auth.domain_not_allowed'
   | 'auth.product_not_allowed'
@@ -121,6 +127,17 @@ async function load<T>(read: () => Promise<T | null>): Promise<T | null> {
   }
 }
 
+const CATCH_ALL_ALLOWLIST = new Set(['0.0.0.0/0', '::/0']);
+
+/** Same rule as the edge: a catch-all route counts as an empty allowlist. */
+function ipAllowlistSatisfied(requireNonEmpty: boolean, allowlist: readonly string[] | null | undefined): boolean {
+  if (!requireNonEmpty) return true;
+  return (allowlist ?? []).some((entry) => {
+    const trimmed = entry.trim().toLowerCase();
+    return trimmed.length > 0 && !CATCH_ALL_ALLOWLIST.has(trimmed);
+  });
+}
+
 function denyKey(): never {
   throw new LiveCredentialError('API key not found', 'auth.api_key_denied');
 }
@@ -150,6 +167,13 @@ export async function assertLiveCredential(port: LiveCredentialPort, input: Live
     if (!row || row.id !== id || row.userId !== input.userId) denyKey();
     if (row.revoked) {
       throw new LiveCredentialError('API key is revoked', 'auth.api_key_revoked');
+    }
+    // A key-minted JWT is not a signed raw-key request. Same belt as the edge live check.
+    if (row.requireSignature === true) {
+      throw new LiveCredentialError('API key requires a signed request', 'auth.signature_required');
+    }
+    if (!ipAllowlistSatisfied(row.requireNonEmptyIpAllowlist === true, row.ipAllowlist)) {
+      throw new LiveCredentialError('API key requires a non-empty IP allowlist', 'auth.ip_allowlist_required');
     }
     if (!apiKeyIpAllowed(row.ipAllowlist ?? [], input.callerIp)) {
       throw new LiveCredentialError('Caller IP is not on the API key', 'auth.ip_not_allowed');
@@ -231,6 +255,16 @@ export interface IdentityOwnershipClientOptions {
 }
 
 /** Read an optional string[] off the raw body. Schema-unknown — not invented. */
+export function optionalBooleanFlag(body: unknown, ...keys: string[]): boolean | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const rec = body as Record<string, unknown>;
+  for (const key of keys) {
+    if (rec[key] === true) return true;
+    if (rec[key] === false) return false;
+  }
+  return undefined;
+}
+
 export function optionalIpAllowlist(body: unknown): readonly string[] | undefined {
   if (!body || typeof body !== 'object') return undefined;
   const rec = body as Record<string, unknown>;
@@ -314,6 +348,8 @@ export function createIdentityOwnershipClient(
         const productAllowlist = optionalProductAllowlist(body);
         const expiresAt = optionalExpiresAt(body);
         const accountId = optionalAccountIdFromBody(body);
+        const requireSignature = optionalBooleanFlag(body, 'requireSignature', 'require_signature');
+        const requireNonEmptyIpAllowlist = optionalBooleanFlag(body, 'requireNonEmptyIpAllowlist', 'require_non_empty_ip_allowlist');
         return {
           id: parsed.id,
           userId: parsed.userId,
@@ -323,6 +359,8 @@ export function createIdentityOwnershipClient(
           ...(productAllowlist === undefined ? {} : { productAllowlist }),
           ...(expiresAt === undefined ? {} : { expiresAt }),
           ...(accountId === undefined ? {} : { accountId }),
+          ...(requireSignature === undefined ? {} : { requireSignature }),
+          ...(requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist }),
         };
       });
     },

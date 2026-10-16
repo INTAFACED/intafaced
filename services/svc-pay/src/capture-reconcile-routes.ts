@@ -10,7 +10,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
-import type { CaptureReconcileCursor, CaptureReconcileMode } from './capture-reconcile.js';
+import { CaptureReconcileError, captureReconcileInputFromBody, type CaptureReconcileMode } from './capture-reconcile.js';
 import { PayError, type PayService } from './payment-service.js';
 
 export interface CaptureReconcileRouteDeps {
@@ -24,31 +24,26 @@ export interface CaptureReconcileRouteDeps {
 export function registerCaptureReconcileRoutes(app: FastifyInstance, deps: CaptureReconcileRouteDeps): void {
   if (deps.installRawBody !== false) retainRawBody(app);
 
-  app.post<{ Body: { limit?: number; cursor?: { createdAt?: string; id?: string } } }>(
-    '/internal/jobs/reconcile-authorized-captures',
-    async (req, reply) => {
-      if (verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: 'require' }).service === null) {
-        return reply.code(401).send({ error: 'pay.unauthenticated', message: 'service credentials required' });
+  app.post('/internal/jobs/reconcile-authorized-captures', async (req, reply) => {
+    if (verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: 'require' }).service === null) {
+      return reply.code(401).send({ error: 'pay.unauthenticated', message: 'service credentials required' });
+    }
+    try {
+      // Shape first. A null cursor or a numeric createdAt must be 400, not a throw from a string method.
+      const input = captureReconcileInputFromBody(req.body);
+      const report = await deps.pay.reconcileAuthorizedCaptures(input, deps.mode);
+      if (report.busy) return reply.code(409).send(report);
+      return report;
+    } catch (err) {
+      const code = err instanceof PayError || err instanceof CaptureReconcileError ? err.code : undefined;
+      const message = err instanceof Error ? err.message : 'capture reconcile failed';
+      if (code === 'pay.capture_reconcile_disabled') {
+        return reply.code(409).send({ error: code, message });
       }
-      const rawCursor = req.body?.cursor;
-      const cursor: CaptureReconcileCursor | undefined =
-        rawCursor === undefined ? undefined : { createdAt: rawCursor.createdAt ?? '', id: rawCursor.id ?? '' };
-      try {
-        const report = await deps.pay.reconcileAuthorizedCaptures(
-          cursor === undefined ? { limit: req.body?.limit } : { limit: req.body?.limit, cursor },
-          deps.mode,
-        );
-        if (report.busy) return reply.code(409).send(report);
-        return report;
-      } catch (err) {
-        if (err instanceof PayError && err.code === 'pay.capture_reconcile_disabled') {
-          return reply.code(409).send({ error: err.code, message: err.message });
-        }
-        if (err instanceof PayError && (err.code === 'pay.capture_reconcile_batch_limit_unset' || err.code === 'pay.validation_failed')) {
-          return reply.code(400).send({ error: err.code, message: err.message });
-        }
-        throw err;
+      if (code === 'pay.capture_reconcile_batch_limit_unset' || code === 'pay.validation_failed') {
+        return reply.code(400).send({ error: code, message });
       }
-    },
-  );
+      throw err;
+    }
+  });
 }

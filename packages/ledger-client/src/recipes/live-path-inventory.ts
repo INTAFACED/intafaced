@@ -74,6 +74,9 @@ export const RECIPE_MATRIX = {
   merchantSettlement: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/payment-service.ts' },
   paymentRefund: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/payment-service.ts' },
   paymentRefundReverse: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/payment-service.ts' },
+  merchantProceedsPayoutHold: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/settlement-ledger.ts' },
+  merchantProceedsPayoutSettle: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/settlement-ledger.ts' },
+  merchantProceedsPayoutReverse: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/settlement-ledger.ts' },
   chargebackOpen: {
     kind: 'socket',
     socket: '§13',

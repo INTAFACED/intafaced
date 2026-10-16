@@ -22,7 +22,6 @@ export { notBuilt, PayNotBuiltError } from './errors.js';
  */
 export const FOUNDER_ONLY_PREFIXES = [
   'founderAdmin.',
-  'founderAdmin.approvals.destination',
   'payHalts.set',
   'payHalts.history',
   'payHalts.operatorStatus',
@@ -55,6 +54,7 @@ export function createPayNamespaces(deps: {
       ops: createFounderOpsRouter(opsDeps),
       treasury: deps.treasury,
       control: deps.control,
+      halts: deps.payHalts?.store,
     }),
     createConversionRouter(),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),

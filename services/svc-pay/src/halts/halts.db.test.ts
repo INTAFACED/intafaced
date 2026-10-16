@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
+import { MemoryLedger, merchantClearing, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PayService } from '../payment-service.js';
 import { UserMoneyService } from '../user-money-service.js';
@@ -123,7 +123,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
   /** A replica: its own pool, its own store and guards. */
   const replica = (sql: postgres.Sql, env: Record<string, string> = {}) => ({
     store: storeOn(sql, env),
-    guards: composeGuards(createHaltGuards({ sql, store: storeOn(sql, env) })),
+    guards: composeGuards(createHaltGuards({ sql, store: storeOn(sql, env), ledger })),
   });
   const payService = (guards: ReturnType<typeof composeGuards>, sql: postgres.Sql = poolA) =>
     new PayService(sql, ledger, rails, { payoutDestinations: memoryPayoutDestinations(), guards });
@@ -418,32 +418,35 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       replay,
     });
 
-    it('a merchant-level payout halt refuses its owner, not another user; the global switch refuses everyone', async () => {
+    it('a global payout halt refuses every personal withdrawal; a merchant halt does not, until that merchant has a legacy settlement', async () => {
       const g = replica(poolA);
       const pay = payService(composeGuards());
       const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
       await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
-      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({
-        code: 'pay.guard_halted',
-        kind: 'unavailable',
-      });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).resolves.toBeUndefined();
       await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).resolves.toBeUndefined();
-      // An intake halt on that merchant is not a payout halt.
+      await capturedCryptoPayment(pay, m.id, '10');
+      await settle(pay, m.id, 'proceeds-only');
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).resolves.toBeUndefined();
+      // An intake halt is not a payout halt.
       await poolA`TRUNCATE pay.halts, pay.halt_events RESTART IDENTITY CASCADE`;
       await g.store.set(FOUNDER_A, setInput({ scope: 'intake', target: { level: 'merchant', merchantId: m.id } }));
       await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).resolves.toBeUndefined();
       await g.store.set(FOUNDER_A, setInput({ scope: 'payout' }));
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({
+        code: 'pay.guard_halted',
+        kind: 'unavailable',
+      });
       await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).rejects.toMatchObject({ code: 'pay.guard_halted' });
     });
 
-    it('a read error refuses with the store-unavailable code', async () => {
+    it('a dead halt store refuses a personal withdrawal', async () => {
       const dead = postgres(db.url, { max: 1, onnotice: () => undefined });
       await dead.end();
       await expect(replica(dead).guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER, FRESH, dead))).rejects.toMatchObject({
         code: 'pay.guard_halt_store_unavailable',
         kind: 'unavailable',
       });
-      // The merchants read failing (not the halts table) refuses too.
       await poolA`ALTER TABLE pay.merchants RENAME TO merchants_offline`;
       try {
         await expect(replica(poolA).guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({
@@ -465,7 +468,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       ).resolves.toBeUndefined();
     });
 
-    it('end to end: a merchant owner cannot withdraw settled money while their merchant is payout-halted, and can after the clear', async () => {
+    it('end to end: a merchant owner can withdraw a personal deposit while their merchant is payout-halted', async () => {
       const g = replica(poolA);
       const pay = payService(composeGuards());
       const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
@@ -480,23 +483,57 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       });
       await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
       const request = { userId: USER, assetId: 'USDT', amount: amt('20'), rail: 'card-sandbox', destination: BANK, clientRef: 'w-halted' };
-      await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.guard_halted' });
-      expect(await poolA`SELECT 1 FROM pay.withdrawals`).toHaveLength(0);
-      expect(chain.outboundTransfers()).toHaveLength(0);
-      expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(amt('50'));
-
-      const clear = setInput({
-        scope: 'payout',
-        target: { level: 'merchant', merchantId: m.id },
-        halted: false,
-        expectedVersion: '1',
-        reason: 'all clear',
-      });
-      await g.store.set(FOUNDER_A, clear);
-      await g.store.set(FOUNDER_B, clear);
       const sent = await money.withdraw(request);
       expect(sent.status).toBe('sent');
       expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(amt('30'));
+    });
+
+    it('a merchant payout halt refuses the owner while a legacy settlement still debits their personal balance', async () => {
+      const g = replica(poolA);
+      const pay = payService(composeGuards());
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const window = 'legacy-halt';
+      await ledger.post({
+        idempotencyKey: `settlement:${m.id}:${window}:USDT`,
+        module: 'pay',
+        reason: 'pay.settled',
+        meta: { merchantId: m.id, window, assetId: 'USDT' },
+        entries: [
+          { account: merchantClearing(m.id, 'USDT'), direction: 'credit', amount: amt('10') },
+          { account: userAvailable(USER, 'USDT'), direction: 'debit', amount: amt('10') },
+        ],
+      });
+      const posted = await settle(pay, m.id, window);
+      expect(posted.status).toBe('posted');
+      await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).resolves.toBeUndefined();
+    });
+
+    it('a merchant payout halt refuses the owner while a pending row still has a pre-cutover post', async () => {
+      const g = replica(poolA);
+      const pay = payService(composeGuards());
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const window = 'legacy-pending-halt';
+      await ledger.post({
+        idempotencyKey: `settlement:${m.id}:${window}:USDT`,
+        module: 'pay',
+        reason: 'pay.settled',
+        meta: { merchantId: m.id, window, assetId: 'USDT' },
+        entries: [
+          { account: merchantClearing(m.id, 'USDT'), direction: 'credit', amount: amt('10') },
+          { account: userAvailable(USER, 'USDT'), direction: 'debit', amount: amt('10') },
+        ],
+      });
+      await poolA`
+        INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status)
+        VALUES (${m.id}, ${window}, 'USDT', 10, 0, 10, 'pending')
+      `;
+      await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).resolves.toBeUndefined();
     });
   });
 
@@ -594,7 +631,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('held with no rail outcome, halted: refused and still held with no rail call; it completes after the two-founder clear', async () => {
+    it('held with no rail outcome: a global payout halt refuses the retry that would call the rail', async () => {
       const realPayout = card.payout.bind(card);
       let died = false;
       card.payout = async (instruction) => {
@@ -612,19 +649,10 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
 
       const g = replica(poolA);
       await haltPayout(g);
-      await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      // No rail receipt yet, so the retry would send. A global payout halt refuses that.
       await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.guard_halted' });
       expect(railCalls).toBe(1);
       expect(await rowStatus()).toEqual(['held']);
-      expect(await attemptOutcome()).toEqual(['requested']);
-      expect(await available()).toBe(amt('30'));
-
-      const clear = setInput({ scope: 'payout', halted: false, expectedVersion: '1', reason: 'all clear' });
-      await g.store.set(FOUNDER_A, clear);
-      await g.store.set(FOUNDER_B, clear);
-      const done = await money.withdraw(request);
-      expect(done.status).toBe('sent');
-      expect(railCalls).toBe(2);
       expect(await available()).toBe(amt('30'));
       expect(ledger.reconcile()).toEqual({ ok: true });
     });

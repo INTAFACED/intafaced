@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import type { SettlementBookReader } from '../../settlement-book.js';
 import { createHaltGuards } from '../../halts/guards.js';
 import { loadHaltAutoTripConfig } from '../../halts/config.js';
 import { PayHaltStore } from '../../halts/store.js';
@@ -22,10 +23,12 @@ export function createW5HaltsGuards(deps: {
   env?: Record<string, string | undefined>;
   /** The conversion path (W6) supplies its own open-inventory reader here. */
   conversionInventory?: ConversionInventorySource;
+  /** Settlement-key reader for the personal-withdrawal halt. */
+  ledger?: SettlementBookReader;
 }): PartialPayGuards {
   const env = deps.env ?? process.env;
   const store = new PayHaltStore(deps.sql, loadHaltAutoTripConfig(env));
-  const halts = createHaltGuards({ sql: deps.sql, store });
+  const halts = createHaltGuards({ sql: deps.sql, store, ledger: deps.ledger });
   const treasury = createTreasuryGuards({
     mode: loadTreasuryMode(env),
     limits: loadTreasuryLimits(env),

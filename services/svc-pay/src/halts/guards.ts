@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { PayGuardRefusal, type GuardReplay, type PartialPayGuards } from '../seams/guards.js';
+import { merchantIdsWithLegacySettlement, type SettlementBookReader } from '../settlement-book.js';
 import { findBlockingHalt, findBlockingHaltForTargets, type PayHaltStore } from './store.js';
 import type { PayHaltScope } from './types.js';
 
@@ -12,11 +13,12 @@ import type { PayHaltScope } from './types.js';
  *   beforePayoutExecute        payout       (+ auto-trip from the payout book)
  *   beforeSettlementRun        settlement   (prepare and post)
  *   beforeConversion           conversion
- *   beforeUserMoneyWithdrawal  payout       (global switch AND the switch of every merchant the
- *                              user owns: settlement posts a merchant's net into the
- *                              owner's user-money account, and `withdrawal.create`
- *                              debits that same account, so a merchant payout halt
- *                              must stop that exit too)
+ *   beforeUserMoneyWithdrawal  payout       (the global switch, always, and the switch of
+ *                              every merchant the user owns that still has a legacy
+ *                              settlement: that window's ledger post debited
+ *                              userAvailable, and withdrawal.create debits the same
+ *                              account. A merchant whose settled net is only on
+ *                              proceeds is not this exit.)
  *   beforeRefund               NONE, by decision: a refund returns a payer's own
  *                              money. A halt that traps funds is not a safety
  *                              control (the edge switch lets `cancel` through for
@@ -33,7 +35,9 @@ import type { PayHaltScope } from './types.js';
  *       halt also refuses a `recovery`, because finishing it calls the rail and
  *       money would leave. The booked hold is left exactly as it is, so the
  *       operation is PAUSED, not stranded: nothing is released or marked failed,
- *       and the same call completes once the halt clears.
+ *       and the same call completes once the halt clears. The global payout
+ *       switch is that halt for every personal withdrawal. A merchant switch is
+ *       that halt only while the merchant still has a legacy settlement.
  *       A held withdrawal whose rail attempt already has a recorded outcome (accepted
  *       with a receipt, or refused) sends nothing: `UserMoneyService` classifies it a
  *       `replay` (settle or reverse only), so a halt never freezes that bookkeeping.
@@ -81,28 +85,6 @@ export async function assertNotHalted(
 }
 
 /**
- * A user's money can leave through a payout switch set for any merchant they own
- * (settlement credits `userAvailable(merchant.userId)`). Refuse when the payout
- * scope is halted globally or for one of those merchants. Fails closed.
- */
-async function assertUserMoneyNotHalted(conn: Sql, userId: string, replay: GuardReplay): Promise<void> {
-  if (passesRailSend(replay)) return;
-  let blocking;
-  try {
-    const owned = await conn<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE user_id = ${userId}`;
-    blocking = await findBlockingHaltForTargets(
-      conn,
-      'payout',
-      owned.map((m) => m.id.toLowerCase()),
-    );
-  } catch (error) {
-    if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
-    throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
-  }
-  if (blocking) throw new PayGuardRefusal(GUARD_HALTED, 'unavailable');
-}
-
-/**
  * Latest `failures` terminal rail results for `railId` since the payout switch last changed:
  * all refusals means the rail has failed that many times in a row.
  */
@@ -121,7 +103,12 @@ async function railFailureStreakReached(conn: Sql, store: PayHaltStore, railId: 
   return rows.length === failures && rows.every((r) => r.kind === 'rail_refused');
 }
 
-export function createHaltGuards(deps: { sql: Sql; store: PayHaltStore }): PartialPayGuards {
+export function createHaltGuards(deps: {
+  sql: Sql;
+  store: PayHaltStore;
+  /** Settlement-key reader. Absent: a posted window counts as legacy (fail closed). */
+  ledger?: SettlementBookReader;
+}): PartialPayGuards {
   const failures = deps.store.autoTripPosture().consecutiveFailures;
 
   /** Auto-trip from the payout book. The halt is written on the POOL, so it outlives the caller's rolled-back transaction. */
@@ -156,7 +143,28 @@ export function createHaltGuards(deps: { sql: Sql; store: PayHaltStore }): Parti
     beforePayoutExecute: (ctx) => payoutRailGuard(ctx.sql, ctx.merchantId, ctx.railId, ctx.replay),
     beforeSettlementRun: (ctx) => assertNotHalted(ctx.sql, 'settlement', ctx.merchantId, ctx.replay),
     beforeConversion: (ctx) => assertNotHalted(ctx.sql, 'conversion', ctx.merchantId, ctx.replay),
-    beforeUserMoneyWithdrawal: (ctx) => assertUserMoneyNotHalted(ctx.tx, ctx.userId, ctx.replay),
+    beforeUserMoneyWithdrawal: async (ctx) => {
+      // Replay settles or reverses a receipt already on file and sends nothing.
+      // A fresh withdrawal and a recovery both call the rail, so a payout halt pauses them.
+      if (passesRailSend(ctx.replay)) return;
+      let targets: string[];
+      try {
+        targets = await merchantIdsWithLegacySettlement(ctx.tx, deps.ledger, ctx.userId);
+      } catch (error) {
+        if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
+        throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
+      }
+      let blocking;
+      try {
+        // ['global', ...legacy merchant ids]. The global switch always counts.
+        // A merchant switch counts only while that merchant still has legacy settled net.
+        blocking = await findBlockingHaltForTargets(ctx.tx, 'payout', targets);
+      } catch (error) {
+        if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
+        throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
+      }
+      if (blocking) throw new PayGuardRefusal(GUARD_HALTED, 'unavailable');
+    },
     // beforeRefund: deliberately absent. See the table above.
   };
 }
