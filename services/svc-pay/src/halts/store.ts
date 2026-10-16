@@ -151,6 +151,31 @@ export class PayHaltStore {
     }
   }
 
+  /**
+   * Operator view of the switches that cover one merchant: the global switch and that merchant's switch,
+   * per scope. Other merchants' rows are not included. A missing row is "never set" (`halted: false`,
+   * version `0`), the same as `operatorStatus`. A failed read is `readable: false`, not "nothing is halted".
+   */
+  async operatorStatusForMerchant(merchantId: string): Promise<PayHaltOperatorStatus> {
+    const autoTrip = this.autoTripPosture();
+    const merchant = merchantId.toLowerCase();
+    try {
+      const rows = await this.sql<HaltRow[]>`
+        SELECT * FROM pay.halts WHERE target = 'global' OR target = ${merchant} ORDER BY scope, target
+      `;
+      const states = rows.map(stateOf);
+      for (const scope of PAY_HALT_SCOPES) {
+        if (!states.some((s) => s.scope === scope && s.target.level === 'global')) states.push(neverHalted(scope, { level: 'global' }));
+        if (!states.some((s) => s.scope === scope && s.target.level === 'merchant' && s.target.merchantId === merchant)) {
+          states.push(neverHalted(scope, { level: 'merchant', merchantId: merchant }));
+        }
+      }
+      return { readable: true, autoTrip, states };
+    } catch {
+      return { readable: false, autoTrip, states: [] };
+    }
+  }
+
   /** Operator view: every halt row that exists, plus the global switch of each scope even when never set. */
   async operatorStatus(): Promise<PayHaltOperatorStatus> {
     const autoTrip = this.autoTripPosture();

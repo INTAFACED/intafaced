@@ -212,6 +212,22 @@ function MetricsGate({
   );
 }
 
+/** A pending ask whose stored caps are not a cap. The raw JSON is not shown. */
+function UnreadableLimitAsks({ drilldown }: { drilldown: MerchantDetailData['drilldown'] }) {
+  if (drilldown.kind !== 'ok') return null;
+  const rows = drilldown.data.pendingLimitRequests.filter((request) => !Array.isArray(request.caps));
+  if (rows.length === 0) return null;
+  return (
+    <Card id="limit-asks" title="Open limit requests" sub="Stored asks for higher caps. They are not the caps this merchant can use.">
+      <ul>
+        {rows.map((request) => (
+          <li key={request.requestId}>caps unreadable</li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function Overview({
   data,
   asset,
@@ -227,6 +243,7 @@ function Overview({
 }) {
   return (
     <>
+      <UnreadableLimitAsks drilldown={data.drilldown} />
       <MetricsGate metrics={data.metrics} here={here}>
         {(m) => (
           <div className="mp-kpis" role="group" aria-label="Key figures">

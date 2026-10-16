@@ -361,6 +361,18 @@ export class ApprovalService {
     );
   }
 
+  /** Pending payout approvals for one merchant. Caller has already been authorised (founder drill-down). */
+  async pendingForMerchant(merchantId: string, limit: number): Promise<ApprovalDetail[]> {
+    const at = this.now();
+    const rows = await this.sql<ApprovalRow[]>`
+      SELECT * FROM pay.control_payout_approvals
+       WHERE merchant_id = ${merchantId} AND status = 'pending'
+       ORDER BY seq DESC
+       LIMIT ${limit}
+    `;
+    return rows.map((row) => toApprovalView(row, at)).filter((approval) => approval.status === 'pending');
+  }
+
   /** Founders waiting to sign: merchant-side approved, founder step still open. */
   async founderQueue(input: {
     limit: number;

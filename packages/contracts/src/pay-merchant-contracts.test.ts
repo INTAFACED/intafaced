@@ -12,7 +12,13 @@ import {
   founderMerchantListInputSchema,
   founderMerchantListSchema,
   founderMerchantRowSchema,
+  founderLimitRequestCloseResultSchema,
   founderPendingChangeListInputSchema,
+  merchantLimitIncreaseInputSchema,
+  merchantLimitRequestSchema,
+  merchantLimitWithdrawResultSchema,
+  merchantPricingHistorySchema,
+  merchantTierListSchema,
   payoutApprovalSchema,
   merchantControlChangeInputSchema,
   merchantMetricsInputSchema,
@@ -170,10 +176,14 @@ describe('founder merchant names', () => {
       merchantId,
       displayName: 'Acme Shop',
       legalName: 'Acme Trading Ltd',
+      status: 'active' as const,
       metrics: snapshot,
       control: { merchantId, tierId: null, archetypeId: null, caps: null, pricing: null, reserve: null, version: '1', updatedAt: null },
       halts: { readable: true, autoTrip: { enabled: false, consecutiveFailures: null }, states: [] },
       pendingApprovals: [],
+      pendingLimitRequests: [],
+      recentAudit: [],
+      auditTruncated: false,
       operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
     };
     const parsed = founderMerchantDrilldownSchema.parse(drilldown);
@@ -187,6 +197,230 @@ describe('founder merchant names', () => {
     expect(founderMerchantDrilldownSchema.safeParse(noLegal).success).toBe(false);
     expect(founderMerchantDrilldownSchema.safeParse(noDisplay).success).toBe(false);
     expect(founderMerchantDrilldownSchema.safeParse({ ...drilldown, tradingName: 'x' }).success).toBe(false);
+    expect(founderMerchantDrilldownSchema.safeParse({ ...drilldown, status: 'live' }).success).toBe(false);
+    const flagged = {
+      requestId: randomUUID(),
+      merchantId,
+      caps: { raw: [{ kind: 'per_payment', assetCode: 'USDT', limit: 10 }], capsReadable: false as const },
+      reason: 'stored ask',
+      status: 'pending' as const,
+      requestedBy: 'owner',
+      createdAt: '2026-10-16T00:00:00.000Z',
+    };
+    expect(merchantLimitRequestSchema.parse(flagged).caps).toEqual(flagged.caps);
+    expect(founderMerchantDrilldownSchema.safeParse({ ...drilldown, pendingLimitRequests: [flagged] }).success).toBe(true);
+    expect(
+      merchantLimitRequestSchema.safeParse({ ...flagged, caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: 10 }] }).success,
+    ).toBe(false);
+    const readable = [{ kind: 'per_payment' as const, assetCode: 'USDT', limit: '10' }];
+    expect(merchantLimitRequestSchema.parse({ ...flagged, caps: readable }).caps).toEqual(readable);
+  });
+
+  it('a tier list with nothing configured carries no tier and no caps', () => {
+    expect(merchantTierListSchema.parse({ status: 'not_configured', ownTierId: null })).toEqual({
+      status: 'not_configured',
+      ownTierId: null,
+    });
+    expect(merchantTierListSchema.safeParse({ status: 'not_configured', ownTierId: null, tiers: [] }).success).toBe(false);
+    expect(
+      merchantTierListSchema.safeParse({
+        status: 'not_configured',
+        ownTierId: 'starter',
+        tiers: [{ id: 'starter', name: 'Starter', archetype: 'standard', caps: [], reserve: null, version: '1' }],
+      }).success,
+    ).toBe(false);
+    expect(merchantTierListSchema.safeParse({ status: 'configured', ownTierId: null, tiers: [] }).success).toBe(false);
+    const own = {
+      id: 'test-tier',
+      name: 'TEST VALUE',
+      archetype: 'standard' as const,
+      caps: [{ kind: 'beneficiaries_per_day' as const, limit: 1 }],
+      reserve: null,
+      version: '1',
+    };
+    const configured = merchantTierListSchema.parse({ status: 'configured', ownTierId: 'test-tier', tiers: [own] });
+    if (configured.status !== 'configured') throw new Error('expected the merchant’s own tier');
+    expect(configured.tiers).toHaveLength(1);
+    expect(
+      merchantTierListSchema.safeParse({
+        status: 'configured',
+        ownTierId: 'test-tier',
+        tiers: [own, { ...own, id: 'other-tier', name: 'Other' }],
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantTierListSchema.safeParse({
+        status: 'configured',
+        ownTierId: 'other-tier',
+        tiers: [own],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('pricing history with nothing configured carries no events', () => {
+    expect(merchantPricingHistorySchema.parse({ status: 'not_configured', events: [] })).toEqual({
+      status: 'not_configured',
+      events: [],
+    });
+    expect(
+      merchantPricingHistorySchema.safeParse({
+        status: 'not_configured',
+        events: [
+          {
+            ruleId: merchantId,
+            layer: 'global',
+            scopeId: null,
+            assetCode: 'USDT',
+            bands: [{ fromAmount: '0', feeBps: 250, flatFee: '0.3' }],
+            spreadBps: null,
+            roundingBeneficiary: 'platform',
+            minFee: null,
+            maxFee: null,
+            version: '1',
+            createdAt: '2026-10-16T00:00:00.000Z',
+            supersededAt: null,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('a limit-increase ask refuses a numeric money cap', () => {
+    const requestId = randomUUID();
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: 10 }],
+        reason: 'need more room',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '10' }],
+        reason: 'need more room',
+      }).success,
+    ).toBe(true);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '0' }],
+        reason: 'zero is not an ask',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '0.0' }],
+        reason: 'zero is not an ask',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'daily_intake', assetCode: 'USDT', limit: '0.5' }],
+        reason: 'a fraction above zero',
+      }).success,
+    ).toBe(true);
+    const thirty = '9'.repeat(30);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: thirty }],
+        reason: 'thirty integer digits',
+      }).success,
+    ).toBe(true);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: `${thirty}9` }],
+        reason: 'thirty-one integer digits',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'beneficiaries_per_day', limit: 0 }],
+        reason: 'a zero count',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [{ kind: 'beneficiaries_per_day', limit: 1 }],
+        reason: 'one beneficiary',
+      }).success,
+    ).toBe(true);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [
+          { kind: 'per_payment', assetCode: 'USDT', limit: '10' },
+          { kind: 'per_payment', assetCode: 'USDT', limit: '11' },
+        ],
+        reason: 'the same cap twice',
+      }).success,
+    ).toBe(false);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [
+          { kind: 'per_payment', assetCode: 'USDT', limit: '10' },
+          { kind: 'per_payment', assetCode: 'USD', limit: '11' },
+        ],
+        reason: 'same kind, two assets',
+      }).success,
+    ).toBe(true);
+    expect(
+      merchantLimitIncreaseInputSchema.safeParse({
+        merchantId,
+        requestId,
+        caps: [
+          { kind: 'beneficiaries_per_day', limit: 1 },
+          { kind: 'beneficiaries_per_day', limit: 2 },
+        ],
+        reason: 'the count cap twice',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('a founder close still succeeds when the stored caps are not a cap', () => {
+    const closed = {
+      requestId: randomUUID(),
+      merchantId,
+      reason: 'need more room',
+      requestedBy: 'owner',
+      createdAt: '2026-10-16T00:00:00.000Z',
+      status: 'closed' as const,
+      closedAt: '2026-10-16T01:00:00.000Z',
+      closedBy: 'founder',
+      closeReason: 'not this quarter',
+    };
+    const readable = [{ kind: 'per_payment' as const, assetCode: 'USDT', limit: '10' }];
+    expect(founderLimitRequestCloseResultSchema.safeParse({ ...closed, caps: readable }).success).toBe(true);
+    const unreadable = [{ kind: 'per_payment', assetCode: 'USDT', limit: 10 }];
+    const parsed = founderLimitRequestCloseResultSchema.safeParse({ ...closed, caps: unreadable });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.caps).toEqual(unreadable);
+    const withdrawn = { ...closed, status: 'withdrawn' as const, closeReason: 'taking it back' };
+    expect(
+      merchantLimitWithdrawResultSchema.safeParse({
+        ...withdrawn,
+        caps: { raw: unreadable, capsReadable: false },
+      }).success,
+    ).toBe(true);
+    expect(merchantLimitWithdrawResultSchema.safeParse({ ...withdrawn, caps: readable }).success).toBe(true);
   });
 });
 
