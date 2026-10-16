@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { merchantIdsWithLegacySettlement, type SettlementBookReader } from '../settlement-book.js';
 import type { PartialPayGuards, PaymentAdmitContext, PaymentCaptureBookedContext } from '../seams/guards.js';
 import { recordMerchantNotification, type NewNotification } from '../merchant-ops/notifications.js';
 import { writeAudit } from './audit.js';
@@ -59,6 +60,8 @@ export interface ControlGuardDeps {
   readonly now?: () => Date;
   /** Over-cap notice failures. Omitted: the boot logger set by `setOverCapNoticeLogger`. */
   readonly warn?: (fields: Record<string, unknown>, message: string) => void;
+  /** Settlement-key reader. Absent: a posted window counts as legacy (fail closed). */
+  readonly ledger?: SettlementBookReader;
 }
 
 type NoticeWarn = (fields: Record<string, unknown>, message: string) => void;
@@ -68,6 +71,8 @@ let overCapNoticeWarn: NoticeWarn = () => undefined;
 export function setOverCapNoticeLogger(warn: NoticeWarn): void {
   overCapNoticeWarn = warn;
 }
+
+const RETRYABLE_PG = new Set(['40001', '40P01']);
 
 function requireTier(control: MerchantControl): TierConfig {
   if (!control.tier) throw new ControlRefusal('pay.tier_unassigned');
@@ -412,41 +417,31 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
     },
 
     /**
-     * A merchant's net is credited to the OWNER's user-money account, and
-     * `withdrawal.create` debits that same account. Without this hook an owner could move
-     * settled funds out through a withdrawal and skip every payout control. So a
-     * withdrawal by a merchant owner is held to the same daily payout cap, beneficiary cap
-     * and approval threshold of each merchant the user owns THAT HAS SETTLED THIS ASSET.
-     * (Funds in the account cannot be told apart by origin, so every such merchant's limits
-     * apply. A merchant that never settled the asset, or has no settlements, holds nothing.)
+     * Personal `withdrawal.create` debits `userAvailable`. A pre-cutover
+     * settlement debited that same account, so an owner could move that net
+     * out and skip every payout control. The daily payout cap, beneficiary cap,
+     * and approval threshold apply to each merchant the user owns that still
+     * has such a settlement of THIS asset. A merchant whose posted windows all
+     * debit proceeds is skipped: that net is not on this balance.
      *
-     * THIS IS NOT THE WHOLE EXIT. The owner's user-money account has other ways out (card
-     * spend, bank transfers, trading) that this hook does not see; see
-     * services/svc-pay/src/control/README.md "Known residual".
-     *
-     * An amount at or above the approval threshold is refused `pay.approval_required`: a
-     * maker-checker approval is bound to a settlement, and a withdrawal has none, so there
-     * is nothing to approve yet. Closed rather than open.
-     *
-     * Locks: the caller's registry runs the treasury advisory lock (W5) before this, and
-     * here the counters are taken merchant by merchant in id order, daily then beneficiary,
-     * the same order the payout admission uses within one merchant.
+     * An amount at or above the approval threshold is refused
+     * `pay.approval_required`: a maker-checker approval is bound to a
+     * settlement, and a withdrawal has none. Closed rather than open.
      */
     async beforeUserMoneyWithdrawal(ctx) {
       if (ctx.replay.kind !== 'fresh') return;
       const { tx } = ctx;
-      // Only a merchant that has SETTLED this asset puts its proceeds in the owner's account in this
-      // asset. A dormant merchant, or one that never settled this asset, does not hold a withdrawal of it.
-      const owned = await tx<Array<{ id: string }>>`
-        SELECT m.id FROM pay.merchants m
-         WHERE m.user_id = ${ctx.userId}
-           AND EXISTS (SELECT 1 FROM pay.settlements s WHERE s.merchant_id = m.id AND s.asset_id = ${ctx.assetId})
-         ORDER BY m.id
-      `;
+      let owned: string[];
+      try {
+        owned = await merchantIdsWithLegacySettlement(tx, deps.ledger, ctx.userId, ctx.assetId);
+      } catch (error) {
+        if (error instanceof ControlRefusal) throw error;
+        if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
+        throw new ControlRefusal('pay.control_unreadable', 'unavailable');
+      }
       if (owned.length === 0) return;
       const at = now();
-      for (const { id } of owned) {
-        const merchantId = id.toLowerCase();
+      for (const merchantId of owned) {
         const control = await loadMerchantControl(tx, merchantId);
         const tier = requireTier(control);
         const caps = effectiveCaps(control) ?? [];
