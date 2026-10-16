@@ -44,7 +44,14 @@ function PayRooms({ path }: { path: string }) {
     return <P2P key={path} path={path} />;
   if (current === '/pay' && authority) return <BusinessPay path="/pay/merchant" authority={authority} />;
   if (parsePortalRoute(path))
-    return <MerchantPortal key={path} path={path} legacyHome={authority ? <BusinessHomeSection authority={authority} /> : null} />;
+    return (
+      <MerchantPortal
+        key={path}
+        path={path}
+        authority={authority}
+        legacyHome={authority ? <BusinessHomeSection authority={authority} /> : null}
+      />
+    );
   if (current === '/pay/request' || current === '/pay/bills' || current === '/pay/global')
     return <UnconnectedPersonalRoom current={current} />;
   return <BusinessPay key={path} path={path} authority={authority} />;

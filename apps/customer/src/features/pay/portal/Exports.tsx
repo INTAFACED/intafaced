@@ -65,7 +65,9 @@ export function ExportsView({
   const { t } = portalCopy.useCopy();
   return (
     <div className="stack">
-      <RequestForm portal={portal} onRequested={reload} />
+      <div id="request">
+        <RequestForm portal={portal} onRequested={reload} />
+      </div>
       <PaySection
         title={t('jobsTitle')}
         description={t('jobsBody')}
@@ -184,7 +186,10 @@ function JobRow({ job, portal }: { job: ExportJob; portal: PortalApi }) {
 
 function RequestForm({ portal, onRequested }: { portal: PortalApi; onRequested: () => void }) {
   const { t } = portalCopy.useCopy();
-  const [kind, setKind] = useState<ExportKind>('payments');
+  const [kind, setKind] = useState<ExportKind>(() => {
+    const requested = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('report');
+    return exportKinds.includes(requested as ExportKind) ? (requested as ExportKind) : 'payments';
+  });
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [status, setStatus] = useState('');

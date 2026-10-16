@@ -256,7 +256,7 @@ describe('portal routes', () => {
     expect(parsePortalRoute('/pay/notifications')).toEqual({ room: 'notifications' });
   });
   it('leaves every other room, and the older disputed-payments list, to Business Pay', () => {
-    for (const path of ['/pay/links', '/pay/disputes?view=payments', '/pay', '/p2p', '/pay/team/x/y', '/pay/exports/1'])
+    for (const path of ['/pay/links?view=tools', '/pay/disputes?view=payments', '/pay', '/p2p', '/pay/team/x/y', '/pay/exports/1'])
       expect(parsePortalRoute(path), path).toBeNull();
   });
   it('maps the W3b pages and keeps their older tools reachable', () => {

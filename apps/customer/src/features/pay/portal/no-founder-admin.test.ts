@@ -36,7 +36,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       expect(name, name).toMatch(
         new RegExp(
           [
-            '^(merchantOps\\.|merchantMetrics\\.|merchant\\.(me|create|submitKyb|setPayoutDestination)$|railHealth$',
+            '^(merchantOps\\.|merchantMetrics\\.|merchant\\.(me|create|submitKyb|setPayoutDestination|listLinks)$|railHealth$',
             // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
             'payment\\.(list|get|history)$',
             'settlement\\.(list|get)$',

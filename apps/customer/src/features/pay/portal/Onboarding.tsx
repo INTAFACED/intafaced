@@ -21,6 +21,9 @@ import type { PortalApi } from './api';
 import type { KybEvent, MerchantRecord } from './schemas';
 import { kybCurrentSchema } from './schemas';
 import type { z } from 'zod';
+import type { OnboardingStep } from './routes';
+import { useUnsavedForm } from './useUnsavedForm';
+import { w3cCopy } from './w3c-copy';
 
 type Kyb = z.infer<typeof kybCurrentSchema>;
 type Rails = Array<{ id: string; capabilities: string[]; mode: 'live' | 'sandbox' | 'absent'; usable: boolean; healthy: boolean }>;
@@ -37,7 +40,9 @@ export function Onboarding({
   merchant,
   reloadMerchant,
   starterFeeBps,
+  step,
 }: {
+  step?: OnboardingStep;
   portal: PortalApi;
   merchant: MerchantRecord | null;
   reloadMerchant: () => void;
@@ -56,6 +61,7 @@ export function Onboarding({
   const [saved, setSaved] = useState<SavedDestination | null>(null);
   return (
     <OnboardingView
+      step={step}
       portal={portal}
       merchant={merchant}
       kyb={kyb.resource as Resource<Kyb | null>}
@@ -80,6 +86,7 @@ export function Onboarding({
 }
 
 export function OnboardingView(props: {
+  step?: OnboardingStep;
   portal: PortalApi;
   merchant: MerchantRecord | null;
   kyb: Resource<Kyb | null>;
@@ -94,11 +101,12 @@ export function OnboardingView(props: {
   retry: () => void;
 }) {
   const { t } = portalCopy.useCopy();
+  const { t: c } = w3cCopy.useCopy();
   const { merchant, saved } = props;
   const kybStatus = props.kyb.status === 'ready' && props.kyb.data ? props.kyb.data.kybStatus : null;
   const steps = onboardingSteps(merchant, kybStatus, saved !== null);
   const [open, setOpen] = useState<0 | 1 | 2 | null>(null);
-  const shown = open ?? steps.current;
+  const shown = props.step ? (props.step === 'business' ? 0 : props.step === 'verification' ? 1 : 2) : (open ?? steps.current);
   const items: Array<[0 | 1 | 2, StepState, string, string]> = [
     [0, steps.business, t('step1Title'), t('step1Short')],
     [1, steps.verification, t('step2Title'), t('step2Short')],
@@ -106,11 +114,24 @@ export function OnboardingView(props: {
   ];
   return (
     <div className="stack">
+      <a className="text-link" href="/pay/merchant">
+        {c('backMerchant')}
+      </a>
+      <p className="pp-callout">{c('serverProgress')}</p>
       <nav aria-label={t('stepsLabel')}>
         <ol className="pp-steps">
           {items.map(([index, state, title, short]) => (
             <li key={index} className={`pp-step pp-step--${state}`} aria-current={shown === index ? 'step' : undefined}>
-              <button type="button" className="pp-step-button" onClick={() => setOpen(index)} disabled={state === 'todo'}>
+              <a
+                className="pp-step-button"
+                href={`/pay/onboarding/${index === 0 ? 'business' : index === 1 ? 'verification' : 'go-live'}`}
+                onClick={(event) => {
+                  if (!props.step) {
+                    event.preventDefault();
+                    setOpen(index);
+                  }
+                }}
+              >
                 <span className="pp-step-num" aria-hidden="true">
                   {state === 'done' ? '✓' : index + 1}
                 </span>
@@ -121,7 +142,7 @@ export function OnboardingView(props: {
                   <small>{short}</small>
                   <em className="pp-step-state">{t(`stepState_${state}` as 'stepState_done')}</em>
                 </span>
-              </button>
+              </a>
             </li>
           ))}
         </ol>
@@ -138,9 +159,14 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated }: Parameters
   const { t } = portalCopy.useCopy();
   const [form, setForm] = useState<BusinessForm>(emptyBusiness);
   const [tried, setTried] = useState(false);
+  const { t: c } = w3cCopy.useCopy();
+  useUnsavedForm(!merchant && Object.values(form).some(Boolean), c('unsaved'));
   const errors: BusinessErrors = tried ? validateBusiness(form) : {};
   const set = (field: keyof BusinessForm) => (event: { target: { value: string } }) => setForm({ ...form, [field]: event.target.value });
-  const errorText = (field: keyof BusinessForm) => (errors[field] ? t(`err_${errors[field]}` as 'err_required') : undefined);
+  const errorText = (field: keyof BusinessForm) => {
+    const problem = tried || form[field] ? validateBusiness(form)[field] : errors[field];
+    return problem ? t(`err_${problem}` as 'err_required') : undefined;
+  };
   if (merchant)
     return (
       <PaySection title={t('step1Title')} description={t('step1DoneBody')}>
@@ -240,6 +266,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated }: Parameters
           />
           <p className="pp-declared">{t('declaredNotVerified')}</p>
         </fieldset>
+        <ComingSoon title={c('nextBackend')}>{c('draftGap')}</ComingSoon>
         {starterFeeBps === null && <ComingSoon title={t('noStarterPricingTitle')}>{t('noStarterPricingBody')}</ComingSoon>}
         <ReviewedAction
           title={t('createAccount')}
@@ -266,6 +293,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated }: Parameters
           }}
           onConfirmed={onCreated}
           disabled={invalid || starterFeeBps === null}
+          disabledReason={t(starterFeeBps === null ? 'noStarterPricingBody' : 'fixFieldsFirst')}
         />
         {invalid && <p className="muted pp-note">{t('fixFieldsFirst')}</p>}
       </form>
@@ -284,6 +312,9 @@ function StepVerification({
 }: Parameters<typeof OnboardingView>[0]) {
   const { t } = portalCopy.useCopy();
   const [ref, setRef] = useState('');
+  const { t: c } = w3cCopy.useCopy();
+  const [submitted, setSubmitted] = useState(false);
+  useUnsavedForm(Boolean(ref) && !submitted, c('unsaved'));
   if (!merchant) return <ComingSoon title={t('needStep1Title')}>{t('needStep1Body')}</ComingSoon>;
   return (
     <PaySection title={t('step2Title')} description={t('step2Body')}>
@@ -325,8 +356,12 @@ function StepVerification({
                     description={t('submitVerificationBody')}
                     review={<PayDetails values={[[t('fKybRef'), ref.trim()]]} />}
                     perform={() => portal.submitKyb(merchant.id, ref.trim())}
-                    onConfirmed={onKybSubmitted}
+                    onConfirmed={() => {
+                      setSubmitted(true);
+                      onKybSubmitted();
+                    }}
                     disabled={ref.trim().length === 0}
+                    disabledReason={t('hKybRef')}
                   />
                 </div>
               )}
@@ -334,6 +369,10 @@ function StepVerification({
           );
         }}
       </Gate>
+      <ComingSoon title={c('nextBackend')}>{c('verificationGap')}</ComingSoon>
+      <a className="text-link" href="/pay/onboarding/go-live">
+        {c('continueDestination')}
+      </a>
       <h3 className="pp-sub">{t('historyTitle')}</h3>
       {history && (
         <ListShell state={history} retry={retry} empty={{ title: t('kybHistoryEmptyTitle'), body: t('kybHistoryEmptyBody') }}>
@@ -375,9 +414,20 @@ function StepPayout({ portal, merchant, rails, saved, onDestinationSaved, retry 
   const { t } = portalCopy.useCopy();
   const [railId, setRailId] = useState('');
   const [ref, setRef] = useState('');
+  const { t: c } = w3cCopy.useCopy();
+  useUnsavedForm(Boolean(ref) && ref.trim() !== saved?.ref, c('unsaved'));
   if (!merchant) return <ComingSoon title={t('needStep1Title')}>{t('needStep1Body')}</ComingSoon>;
   return (
     <PaySection title={t('step3Title')} description={t('step3Body')}>
+      <ComingSoon title={c('nextBackend')}>{c('goLiveGap')}</ComingSoon>
+      <div className="pp-actions">
+        <a className="text-link" href="/pay/pricing">
+          {c('reviewPricing')}
+        </a>
+        <a className="text-link" href="/pay/limits">
+          {c('reviewLimits')}
+        </a>
+      </div>
       <Gate resource={rails} retry={retry} rows={2}>
         {(all) => {
           const payoutRails = all.filter((rail) => rail.capabilities.includes('payout'));
@@ -422,6 +472,7 @@ function StepPayout({ portal, merchant, rails, saved, onDestinationSaved, retry 
                 perform={() => portal.setPayoutDestination(merchant.id, chosen.id, kind, ref.trim())}
                 onConfirmed={(data) => onDestinationSaved({ railId: data.railId, kind: data.kind, ref: data.ref })}
                 disabled={ref.trim() === '' || !shapeOk}
+                disabledReason={t(kind === 'crypto' ? 'hAddress' : 'hBankRef')}
               />
               {saved && (
                 <p className="pp-confirmed" role="status">
@@ -439,19 +490,14 @@ function StepPayout({ portal, merchant, rails, saved, onDestinationSaved, retry 
 
 function SandboxSummary({ merchant, saved, liveWaiting }: { merchant: MerchantRecord; saved: SavedDestination; liveWaiting: boolean }) {
   const { t } = portalCopy.useCopy();
+  const { t: c } = w3cCopy.useCopy();
   return (
-    <PaySection title={t('summaryTitle')} description={t('summaryBody')}>
+    <PaySection title={c('destinationVisit')} description={c('goLiveGap')}>
       <PayDetails
         values={[
           [t('factMerchantId'), <span className="pp-mono">{merchant.id}</span>],
-          [
-            t('factSandbox'),
-            <span className="pp-chip pp-chip--good">
-              <span className="pp-chip-dot" aria-hidden="true" />
-              {t('sandboxReady')}
-            </span>,
-          ],
-          [t('factLive'), liveWaiting ? t('liveWaiting') : t('liveReady')],
+          [t('factStatus'), <Chip kind="merchant" value={merchant.status} />],
+          [t('factLive'), liveWaiting ? t('liveWaiting') : c('activationUnknown')],
           [t('factDestination'), <span className="pp-mono">{saved.ref}</span>],
           [t('factLimits'), t('limitsArriveSoon')],
         ]}
