@@ -11,8 +11,8 @@ import { createFounderAuthority } from '../founder-authority.js';
 import { createPayNamespaces, FOUNDER_ONLY_PREFIXES, findUnguardedFounderProcedures, founderProcedure } from './index.js';
 
 const NAMESPACES = ['merchantControl', 'merchantMetrics', 'founderAdmin', 'conversion', 'payHalts'] as const;
-/** W15 owns these and tests them in merchant-ops/merchant-ops.test.ts; they are real, not W0 stubs. */
-const isW15 = (path: string) => path.startsWith('merchantOps.') || path.startsWith('founderAdmin.ops.');
+/** W15 and W10 own these and test them in their own suites; they are real, not W0 stubs. */
+const isW15 = (path: string) => path.startsWith('merchantOps.') || path.startsWith('founderAdmin.ops.') || path.startsWith('b2bRamp.');
 
 const id = () => randomUUID();
 const merchantId = id();
@@ -184,6 +184,12 @@ describe('payHalts.* without a halt store refuses closed', () => {
 describe('G7: static inventory of founder-only procedures', () => {
   it('no founderAdmin.* (or operator payHalts.*) procedure is outside founder authority', () => {
     expect(findUnguardedFounderProcedures(build(vi.fn()), FOUNDER_ONLY_PREFIXES)).toEqual([]);
+  });
+
+  it('mounts b2bRamp.founderStatus behind founder authority', () => {
+    const r = build(vi.fn());
+    expect(allProcedures(r)).toContain('b2bRamp.founderStatus');
+    expect(findUnguardedFounderProcedures(r, ['b2bRamp.founderStatus'])).toEqual([]);
   });
 
   it('founderAdmin.approvals.destination is a mutation, so a reveal is not a cacheable query', () => {
