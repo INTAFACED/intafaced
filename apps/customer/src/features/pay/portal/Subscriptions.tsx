@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Field } from '../../../shared/ui';
+import { Button, StateBlock } from '@intafaced/ui';
 import { PayDetails, PaySection, PayTime, ReviewedAction } from '../components';
 import { CreateMandate } from '../MerchantBilling';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../pay-api';
@@ -18,6 +18,24 @@ import type { PortalRoute } from './routes';
 import type { ApiResult } from '../../../shared/api';
 import { checkSubscriptionOriginal, createSubscriptionWithRecovery, replaySubscriptionCreate } from './subscription-recovery';
 
+function DataTable({ headers, children, label }: { headers: readonly ReactNode[]; children: ReactNode; label: string }) {
+  return (
+    <div className="table-scroll" tabIndex={0} role="region" aria-label={label}>
+      <table>
+        <thead>
+          <tr>
+            {headers.map((header, i) => (
+              <th scope="col" key={i}>
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
 type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
 type Execution = z.infer<typeof executionSchema>;
@@ -98,6 +116,7 @@ export function SubscriptionsView({
   setLimit: (v: string) => void;
 }) {
   const [search, setSearch] = useUrlParam('search');
+  const [mandateFilter] = useUrlParam('mandateId');
   const [status, setStatus] = useUrlParam('status');
   const [sort, setSort] = useUrlParam('sort', 'newest');
   const at = useReadAt(resource.status === 'ready', resource);
@@ -112,7 +131,10 @@ export function SubscriptionsView({
         }
       >
         <div className="pp-filter-row" role="search">
-          <Field label={c.t('subscriptionSearch')} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <label className="field">
+            <span>{c.t('subscriptionSearch')}</span>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} />
+          </label>
           <SelectField
             label={c.t('status')}
             value={status}
@@ -140,7 +162,12 @@ export function SubscriptionsView({
         <Gate resource={resource} retry={reload}>
           {(all) => {
             const rows = all
-              .filter((s) => (!status || s.status === status) && `${s.id} ${s.customerId}`.toLowerCase().includes(search.toLowerCase()))
+              .filter(
+                (s) =>
+                  (!mandateFilter || s.mandateId === mandateFilter) &&
+                  (!status || s.status === status) &&
+                  `${s.id} ${s.customerId}`.toLowerCase().includes(search.toLowerCase()),
+              )
               .sort((a, b) =>
                 sort === 'name'
                   ? a.customerId.localeCompare(b.customerId)
@@ -188,16 +215,12 @@ export function SubscriptionsView({
                     ))}
                   </DataTable>
                 ) : (
-                  <EmptyState
+                  <StateBlock
+                    kind="empty"
                     title={c.t('emptySubscriptions')}
-                    action={
-                      <a className="text-link" href="/pay/subscriptions/new">
-                        {c.t('createSubscription')}
-                      </a>
-                    }
-                  >
-                    {c.t('emptySubscriptionsBody')}
-                  </EmptyState>
+                    body={c.t('emptySubscriptionsBody')}
+                    action={{ label: c.t('createSubscription'), href: '/pay/subscriptions/new' }}
+                  />
                 )}
                 <WindowExport
                   name="subscriptions"
@@ -398,7 +421,7 @@ export function SubscriptionDetailView({
                 <p role="status">{c.t('shown', { count: data.cycles.length })}</p>
               </>
             ) : (
-              <EmptyState title={c.t('emptyCycles')}>{c.t('emptyCyclesBody')}</EmptyState>
+              <StateBlock kind="empty" title={c.t('emptyCycles')} body={c.t('emptyCyclesBody')} />
             )
           }
         </Gate>
@@ -435,7 +458,7 @@ export function SubscriptionDetailView({
                 ))}
               </DataTable>
             ) : (
-              <EmptyState title={c.t('emptyCycles')}>{c.t('emptyCyclesBody')}</EmptyState>
+              <StateBlock kind="empty" title={c.t('emptyCycles')} body={c.t('emptyCyclesBody')} />
             )
           }
         </Gate>
@@ -622,8 +645,11 @@ export function CreateSubscriptionView({
   const [revision, setRevision] = useState(0);
   // Refresh guard state without remounting an in-flight confirmation.
   const [, refreshLock] = useState(0);
-  const [mandateId, setMandateId] = useState('');
-  const [path, setPath] = useState('');
+  const [mandateId, setMandateId] = useUrlParam('mandateId');
+  const [draftPath, setPath] = useState('');
+  const recoveredPath =
+    pay && mandateId ? pay.guard.original(`${pay.authority!.userId}:subscription-create:${mandateId}`)?.value.path : undefined;
+  const path = recoveredPath ?? draftPath;
   const [created, setCreated] = useState('');
   const [createNotice, setCreateNotice] = useState('');
   useUnsavedForm(Boolean(mandateId || path), c.t('draftWarning'));
@@ -655,15 +681,18 @@ export function CreateSubscriptionView({
                 />
                 <SelectField
                   label={c.t('choosePath')}
+                  disabled={Boolean(recoveredPath)}
                   value={path}
                   onChange={setPath}
                   options={[
                     ['', c.t('selectPath')],
-                    ...(posture.status === 'ready'
-                      ? posture.data.paths
-                          .filter((p) => p.charge !== 'refuse')
-                          .map((p) => [p.path, p.path === 'crypto_invoice' ? c.t('cryptoInvoice') : p.path] as const)
-                      : []),
+                    ...(recoveredPath
+                      ? [[recoveredPath, recoveredPath === 'crypto_invoice' ? c.t('cryptoInvoice') : recoveredPath] as const]
+                      : posture.status === 'ready'
+                        ? posture.data.paths
+                            .filter((p) => p.charge !== 'refuse')
+                            .map((p) => [p.path, p.path === 'crypto_invoice' ? c.t('cryptoInvoice') : p.path] as const)
+                        : []),
                   ]}
                 />
                 {selected && <SubscriptionTerms mandate={selected} path={path} />}
@@ -679,14 +708,18 @@ export function CreateSubscriptionView({
                       setRevision((v) => v + 1);
                       reload();
                     }}
-                    onSettled={(result) => {
+                    onSettled={() => {
                       refreshLock((v) => v + 1);
-                      if (!result.ok && result.reason !== 'uncertain' && result.reason !== 'aborted') setCreateNotice(result.message);
-                      else setCreateNotice('');
+                      setCreateNotice('');
                     }}
                   />
                 )}
                 {createNotice && <p role="status">{createNotice}</p>}
+                {mandateId && (
+                  <a className="text-link" href={`/pay/subscriptions?mandateId=${encodeURIComponent(mandateId)}`}>
+                    {c.t('subscriptionsTitle')}
+                  </a>
+                )}
                 {pay ? (
                   <span
                     title={
@@ -707,7 +740,9 @@ export function CreateSubscriptionView({
                       disabled={!selected || !allowed || Boolean(pay.access('pay:write')) || locked}
                       perform={async () => {
                         try {
-                          return await createSubscriptionWithRecovery(pay, mandateId, path);
+                          const result = await createSubscriptionWithRecovery(pay, mandateId, path);
+                          if (!result.ok) setCreateNotice(result.message);
+                          return result;
                         } finally {
                           refreshLock((v) => v + 1);
                         }
@@ -728,7 +763,7 @@ export function CreateSubscriptionView({
                 )}
               </div>
             ) : (
-              <EmptyState title={c.t('chooseMandate')}>{c.t('noMandates')}</EmptyState>
+              <StateBlock kind="empty" title={c.t('chooseMandate')} body={c.t('noMandates')} />
             )
           }
         </Gate>

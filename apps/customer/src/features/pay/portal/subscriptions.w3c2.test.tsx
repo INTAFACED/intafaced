@@ -187,3 +187,66 @@ it('uses the same complete mandate summary for selection and confirmation, inclu
   expect(open).toContain('Open ended');
   expect(open).toContain('No ceiling returned');
 });
+
+it('prefills and locks the original charge path after reload and links to that mandate subscriptions', async () => {
+  const { createPayMutationGuard } = await import('../pay-api');
+  const values = new Map<string, string>();
+  const key = `TEST-user:subscription-create:${D}`;
+  values.set(`pay.unresolved:${key}`, JSON.stringify({ status: 'uncertain', reference: 'TEST-original-attempt', path: 'crypto_invoice' }));
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+  };
+  const pay = {
+    authority: { userId: 'TEST-user' },
+    guard: createPayMutationGuard(storage),
+    access: () => null,
+  } as unknown as import('../pay-api').BusinessPayApi;
+  vi.stubGlobal('location', { search: `?mandateId=${D}` });
+  try {
+    const out = renderToString(
+      <CreateSubscriptionView
+        mandates={ready([mandate])}
+        posture={ready({
+          paths: [{ path: 'crypto_invoice', charge: 'open_crypto_invoice', opensMoney: true, posture: 'invoice-and-watch' }],
+          preChargeNotify: { status: 'unwired', notified: false, merchantReadable: 'none' },
+          card: { status: 'refuse_closed', code: 'pay.mandate_rail_absent' },
+        })}
+        pay={pay}
+        reload={noop}
+      />,
+    );
+    expect(out).toMatch(/<select disabled=""><option[^>]*value=""[^>]*>[^<]*<\/option><option[^>]*value="crypto_invoice" selected=""/);
+    expect(out).toContain(`/pay/subscriptions?mandateId=${D}`);
+    expect(out).toContain('TEST-customer');
+    expect(pay.guard.reference(key)).toBe('TEST-original-attempt');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('filters the subscriptions link to its mandate', () => {
+  vi.stubGlobal('location', { search: `?mandateId=${D}` });
+  try {
+    const out = renderToString(
+      <SubscriptionsView
+        resource={ready([
+          subscription,
+          { ...subscription, id: 'TEST-other-subscription', mandateId: 'TEST-other-mandate', customerId: 'TEST-other-customer' },
+        ])}
+        reload={noop}
+        limit={50}
+        setLimit={noop}
+      />,
+    );
+    expect(out).toContain('TEST-customer');
+    expect(out).not.toContain('TEST-other-customer');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

@@ -74,7 +74,7 @@ it('does not replay a create when the path is blank or the view has left', async
   expect((await replaySubscriptionCreate(pay, mandateId, row.path, () => false)).ok).toBe(false);
   expect(mutate).not.toHaveBeenCalled();
 });
-it('replays the stored attempt id and leaves that id as the journal reference', async () => {
+it.each(['success', 'pay.idempotency_conflict', 'pay.subscription_mandate_open'])('recovers after reload: %s', async (outcome) => {
   const userId = '11111111-1111-4111-8111-111111111111';
   const merchantId = '33333333-3333-4333-8333-333333333333';
   const subscriptionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -126,10 +126,25 @@ it('replays the stored attempt id and leaves that id as the journal reference', 
         stored.set(key, created);
         throw new Error('socket hang up');
       }
+      if (outcome !== 'success')
+        return new Response(
+          JSON.stringify({ error: { message: 'Idempotency-Key was already used with a different request body', data: { code: outcome } } }),
+          { status: 409 },
+        );
       return new Response(JSON.stringify({ result: { data: prior } }));
     },
   });
-  const pay = createBusinessPayApi(
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+  };
+  let pay = createBusinessPayApi(
     api,
     userId,
     {
@@ -140,7 +155,7 @@ it('replays the stored attempt id and leaves that id as the journal reference', 
       userId,
       scopes: ['pay:read', 'pay:write'],
     },
-    createPayMutationGuard(),
+    createPayMutationGuard(storage),
   );
   const lockId = `${userId}:subscription-create:${mandateId}`;
   const lost = await createSubscriptionWithRecovery(pay, mandateId, row.path);
@@ -159,10 +174,70 @@ it('replays the stored attempt id and leaves that id as the journal reference', 
   expect(departed).toMatchObject({ ok: false, reason: 'aborted' });
   expect(creates).toHaveLength(1);
 
-  const replayed = await replaySubscriptionCreate(pay, mandateId, row.path, () => true);
+  pay = createBusinessPayApi(api, userId, pay.authority, createPayMutationGuard(storage));
+  expect(pay.guard.original(lockId)?.value).toMatchObject({ reference: attemptId, path: row.path });
+  const replayed = await replaySubscriptionCreate(pay, mandateId, 'card', () => true);
+  expect(creates[1]).toEqual(creates[0]);
+  if (outcome !== 'success') {
+    expect(replayed).toMatchObject({
+      ok: false,
+      code: outcome,
+      message: 'A subscription request for this mandate is already recorded. Open Subscriptions to check it.',
+    });
+    if (outcome === 'pay.idempotency_conflict') {
+      expect(pay.guard.status(lockId)).toBe('uncertain');
+      expect(pay.guard.reference(lockId)).toBe(attemptId);
+    }
+    return;
+  }
   expect(replayed).toEqual({ ok: true, data: created });
   expect(creates[1]?.idempotencyKey).toBe(`${lockId}:${attemptId}`);
   expect(stored.size).toBe(1);
   expect(pay.guard.status(lockId)).toBeNull();
   expect(pay.guard.reference(lockId)).toBeNull();
+});
+
+it.each(['legacy', 'new'])('keeps the %s journal on a definite create conflict without minting another key', async (kind) => {
+  const userId = 'TEST-user';
+  const merchantId = 'TEST-merchant';
+  const lockId = `${userId}:subscription-create:${mandateId}`;
+  const values = new Map<string, string>();
+  if (kind === 'legacy')
+    values.set(`pay.unresolved:${lockId}`, JSON.stringify({ status: 'uncertain', reference: 'TEST-original-attempt' }));
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+  };
+  const mutate = vi.fn().mockResolvedValue({
+    ok: false,
+    reason: 'error',
+    code: 'pay.idempotency_conflict',
+    message: 'Idempotency-Key was already used with a different request body',
+  });
+  const api = {
+    query: vi.fn().mockResolvedValue({ ok: true, data: { id: merchantId, userId, status: 'active', kybStatus: 'approved' } }),
+    mutate,
+  } as unknown as import('../../../shared/api').ApiClient;
+  const pay = createBusinessPayApi(
+    api,
+    userId,
+    { verified: true, companyId: 'TEST-company', companyName: 'TEST company', merchantId, userId, scopes: ['pay:read', 'pay:write'] },
+    createPayMutationGuard(storage),
+  );
+  const result = await createSubscriptionWithRecovery(pay, mandateId, 'crypto_invoice');
+  expect(result).toMatchObject({
+    ok: false,
+    message: 'A subscription request for this mandate is already recorded. Open Subscriptions to check it.',
+  });
+  const original = pay.guard.original(lockId);
+  expect(original).not.toBeNull();
+  if (kind === 'legacy') expect(original?.value.reference).toBe('TEST-original-attempt');
+  await createSubscriptionWithRecovery(pay, mandateId, 'crypto_invoice');
+  expect(mutate.mock.calls[1]?.[2]).toEqual(mutate.mock.calls[0]?.[2]);
+  expect(pay.guard.original(lockId)?.raw).toBe(original?.raw);
 });

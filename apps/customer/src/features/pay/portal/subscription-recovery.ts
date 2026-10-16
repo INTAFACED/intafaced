@@ -13,8 +13,8 @@ const unresolved = (): ApiResult<z.infer<typeof subscriptionSchema>> => ({
 });
 
 // Both creation surfaces share this admission. pay.mutate stores the attempt id
-// on `subscription-create:${mandateId}` and replays that attempt while the lock
-// is uncertain. A confirmed outcome or a definite refusal clears it.
+// and original charge path on `subscription-create:${mandateId}`. Replays use
+// that body; conflicts keep the journal so recovery cannot mint a new key.
 export async function createSubscriptionWithRecovery(pay: BusinessPayApi, mandateId: string, path: string) {
   const input = z.object({ mandateId: id, path: z.enum(['crypto_invoice', 'card', 'card_mandate']) }).safeParse({ mandateId, path });
   if (!input.success) return payRefusal('invalidInput', { reason: 'error' });
