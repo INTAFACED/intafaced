@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { PartialPayGuards, PaymentAdmitContext, PaymentCaptureBookedContext } from '../seams/guards.js';
-import { recordMerchantNotification } from '../merchant-ops/notifications.js';
+import { recordMerchantNotification, type NewNotification } from '../merchant-ops/notifications.js';
 import { writeAudit } from './audit.js';
 import { emitCapturedOverCap, type CapturedOverCapSignal } from './over-cap-signal.js';
 import { requirePayoutApproval } from './approval-gate.js';
@@ -57,6 +57,16 @@ export interface ControlGuardDeps {
   /** The pool. Used only for the idempotent void of a stale approval, which must survive a rollback. */
   readonly sql: Sql;
   readonly now?: () => Date;
+  /** Over-cap notice failures. Omitted: the boot logger set by `setOverCapNoticeLogger`. */
+  readonly warn?: (fields: Record<string, unknown>, message: string) => void;
+}
+
+type NoticeWarn = (fields: Record<string, unknown>, message: string) => void;
+let overCapNoticeWarn: NoticeWarn = () => undefined;
+
+/** Wired from the service log at boot. Read when a notice insert fails, not when the guards are built. */
+export function setOverCapNoticeLogger(warn: NoticeWarn): void {
+  overCapNoticeWarn = warn;
 }
 
 function requireTier(control: MerchantControl): TierConfig {
@@ -113,6 +123,41 @@ async function withCounterLockTimeout<T>(tx: Sql, fn: () => Promise<T>): Promise
   const result = await fn();
   await tx`SELECT set_config('lock_timeout', ${rows[0]!.prev}, true)`;
   return result;
+}
+
+/** The notice savepoint could not be rolled back. The capture transaction is unusable. */
+class NoticeSavepointLost extends Error {
+  constructor() {
+    super('over-cap notice savepoint could not be restored');
+    this.name = 'NoticeSavepointLost';
+  }
+}
+
+/**
+ * Insert the over-cap notice in a savepoint. A failure is thrown after the
+ * savepoint is gone, so the caller can log it and keep the capture.
+ */
+async function insertOverCapNotice(tx: Sql, notice: NewNotification): Promise<void> {
+  const beginTx = tx as Sql & { savepoint?: (fn: (sql: Sql) => Promise<void>) => Promise<void> };
+  if (typeof beginTx.savepoint === 'function') {
+    await beginTx.savepoint(async (sp) => {
+      await recordMerchantNotification(sp, notice);
+    });
+    return;
+  }
+  await tx`SAVEPOINT pay_over_cap_notice`;
+  try {
+    await recordMerchantNotification(tx, notice);
+    await tx`RELEASE SAVEPOINT pay_over_cap_notice`;
+  } catch (error) {
+    try {
+      await tx`ROLLBACK TO SAVEPOINT pay_over_cap_notice`;
+      await tx`RELEASE SAVEPOINT pay_over_cap_notice`;
+    } catch {
+      throw new NoticeSavepointLost();
+    }
+    throw error;
+  }
 }
 
 /** Event kind for "this payout attempt was admitted"; carries no amount (the amount is counted once per settlement). */
@@ -174,7 +219,7 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
       if (!(error instanceof ControlRefusal)) throw error;
     }
 
-    const at = now();
+    const at = ctx.at instanceof Date && Number.isFinite(ctx.at.getTime()) ? ctx.at : now();
     const [dailyResult, monthlyResult] = await withCounterLockTimeout(tx, async () => [
       await consumeMoney(tx, {
         merchantId: ctx.merchantId,
@@ -219,17 +264,39 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
         reason: `captured payment exceeded: ${over.join(', ')}`,
         after: { paymentId: ctx.paymentId, assetCode, amount: amountText, exceeded: over },
       });
-      // Same transaction as the audit row. A muted `limit_threshold` preference
-      // records nothing and does not stop the metric or the span event.
-      await recordMerchantNotification(tx, {
-        merchantId: ctx.merchantId,
-        kind: 'limit_threshold',
-        title: 'Capture exceeded a cap',
-        body: `${amountText} ${assetCode} exceeded ${over.join(', ')}`,
-        subjectType: 'payment',
-        subjectId: ctx.paymentId,
-        dedupeKey: `captured_over_cap:${ctx.paymentId.toLowerCase()}`,
-      });
+      // Same transaction as the audit row, but its own savepoint: a notice-table
+      // failure must not roll back a capture whose ledger post already landed.
+      // A muted `limit_threshold` preference records nothing and does not stop
+      // the metric or the span event.
+      //
+      // `sql.begin` remembers every rejected statement and rolls the transaction
+      // back at the end, even when the caller caught it. Its savepoint helper is
+      // the one that rolls back only the notice. The reconciler's reserved
+      // connection has no such tracker, so it uses a named savepoint directly.
+      try {
+        await insertOverCapNotice(tx, {
+          merchantId: ctx.merchantId,
+          kind: 'limit_threshold',
+          title: 'Capture exceeded a cap',
+          body: `${amountText} ${assetCode} exceeded ${over.join(', ')}`,
+          subjectType: 'payment',
+          subjectId: ctx.paymentId,
+          dedupeKey: `captured_over_cap:${ctx.paymentId.toLowerCase()}`,
+        });
+      } catch (error) {
+        if (error instanceof NoticeSavepointLost) throw error;
+        const fields = {
+          event: 'payment.captured_over_cap_notice_failed',
+          paymentId: ctx.paymentId,
+          merchantId: ctx.merchantId,
+          err: error instanceof Error ? error.message : 'notification failed',
+        };
+        try {
+          (deps.warn ?? overCapNoticeWarn)(fields, 'over-cap notification failed');
+        } catch {
+          // A broken logger must not roll back a capture whose ledger post landed.
+        }
+      }
       overCap = { paymentId: ctx.paymentId, merchantId: ctx.merchantId, assetCode, amount: amountText, exceeded: over };
     }
 

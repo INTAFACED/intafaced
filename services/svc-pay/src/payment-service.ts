@@ -3,6 +3,7 @@ import {
   CaptureReconcileError,
   runCaptureReconcile,
   type BookedCaptureCompletion,
+  type CaptureReconcileInput,
   type CaptureReconcileMode,
   type CaptureReconcileReport,
 } from './capture-reconcile.js';
@@ -2273,6 +2274,9 @@ export class PayService {
       merchantId: row.merchant_id,
       assetId: row.currency,
       amount: booked.amount,
+      // Live capture omits this: the guard clock is the booking time. The reconciler
+      // passes the ledger postedAt so the cap period is the booking, not the run.
+      ...(booked.postedAt ? { at: booked.postedAt } : {}),
     });
     await appendEvent(tx, row.id, 'captured', {
       amount: formatAmount(booked.amount),
@@ -2290,7 +2294,7 @@ export class PayService {
    * Finish `authorized` payments whose ledger capture key already exists.
    * Does not post. `mode: 'off'` throws and reads nothing.
    */
-  async reconcileAuthorizedCaptures(input: { limit?: number }, mode: CaptureReconcileMode): Promise<CaptureReconcileReport> {
+  async reconcileAuthorizedCaptures(input: CaptureReconcileInput, mode: CaptureReconcileMode): Promise<CaptureReconcileReport> {
     try {
       return await runCaptureReconcile(
         {
