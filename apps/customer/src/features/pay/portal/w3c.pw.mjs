@@ -36,8 +36,8 @@ async function snap(page, name) {
     const badge = document.createElement('p');
     badge.id = 'fixture-label';
     badge.textContent = 'TEST DATA · local screenshot fixture';
-    badge.style.cssText = 'position:fixed;bottom:0;right:0;z-index:9999;background:#c8f64a;color:#111;padding:6px;font:12px system-ui';
-    document.body.append(badge);
+    badge.style.cssText = 'margin:0;background:#c8f64a;color:#111;padding:6px 24px;font:12px system-ui';
+    document.body.prepend(badge);
   });
   await page.screenshot({ path: `${shots}/${name}.png`, fullPage: true });
 }
@@ -141,4 +141,79 @@ test('refunds: invalid input makes no payment request and a foreign payment reve
   await page.getByRole('button', { name: 'Look up payment', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
   await expect(page.getByText('pay.payment_not_found')).toHaveCount(0);
+});
+
+const LINK_ID = 'dd000001-0000-4000-8000-000000000001';
+function testLinks() {
+  const now = Date.now();
+  return [
+    {
+      id: LINK_ID,
+      prefix: 'TEST-ln-1',
+      label: 'TEST workshop',
+      amount: '123.000000000000000001',
+      currency: 'USDT',
+      active: true,
+      expiresAt: new Date(now + 86400_000).toISOString(),
+      maxUses: 10,
+      uses: 2,
+      createdAt: new Date(now - 86400_000).toISOString(),
+    },
+    {
+      id: 'dd000002-0000-4000-8000-000000000002',
+      prefix: 'TEST-ln-2',
+      label: 'TEST expired',
+      amount: null,
+      currency: null,
+      active: true,
+      expiresAt: new Date(now - 86400_000).toISOString(),
+      maxUses: null,
+      uses: 0,
+      createdAt: new Date(now - 2 * 86400_000).toISOString(),
+    },
+  ];
+}
+test('payment links: scoped records, URL search and availability, export and detail', async ({ page }) => {
+  await setup(page);
+  await page.route('**/api/pay/trpc/merchant.listLinks?*', (route) => reply(route, testLinks()));
+  await signIn(page, '/pay/links');
+  await expect(page.getByRole('link', { name: 'TEST workshop', exact: true })).toBeVisible();
+  await expect(page.getByText('2 shown from 2 loaded links.')).toBeVisible();
+  await snap(page, 'P13-payment-links');
+  await axe(page);
+  await phone(page, 'P13-payment-links');
+  await page.getByLabel('Search loaded links').fill('workshop');
+  await expect(page).toHaveURL(/q=workshop/);
+  await expect(page.getByText('1 shown from 2 loaded links.')).toBeVisible();
+  await page.getByRole('combobox', { name: 'Availability', exact: true }).selectOption('expired');
+  await expect(page.getByText('No links match these filters', { exact: true })).toBeVisible();
+  await page.getByRole('combobox', { name: 'Availability', exact: true }).selectOption('');
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download shown links (CSV)' }).click();
+  expect((await download).suggestedFilename()).toBe('payment-links.csv');
+  await page.getByRole('link', { name: 'TEST workshop', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Payment link', level: 1 })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Deactivate link' })).toBeDisabled();
+  await snap(page, 'P15-link-detail-phone');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await snap(page, 'P15-link-detail');
+  await axe(page);
+});
+
+test('payment-link creation: validates fields and does not bypass missing write authority', async ({ page }) => {
+  const mock = await setup(page);
+  await signIn(page, '/pay/links/new');
+  await expect(page.getByLabel('Link label *')).toBeVisible();
+  await page.getByLabel('Link label *').fill('TEST workshop');
+  await page.getByLabel('Fixed amount', { exact: true }).fill('12.000000000000000001');
+  await expect(page.getByText('Choose an asset when setting a fixed amount.')).toBeVisible();
+  await page.getByLabel('Asset code', { exact: true }).fill('USDT');
+  await page.getByLabel('Maximum completed payments', { exact: true }).fill('1.5');
+  await expect(page.getByText('Check this field before reviewing the link.')).toBeVisible();
+  await page.getByLabel('Maximum completed payments', { exact: true }).fill('10');
+  await expect(page.getByRole('button', { name: 'Review and create link' })).toBeDisabled();
+  await snap(page, 'P14-new-payment-link');
+  await axe(page);
+  await phone(page, 'P14-new-payment-link');
+  expect(mock.calls.filter((call) => call.procedure === 'merchant.createLink')).toEqual([]);
 });

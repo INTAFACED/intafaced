@@ -179,6 +179,7 @@ export const rooms: readonly Room[] = [
       ['merchant', 'Merchant home', 'Manage your business payments'],
       ['money', 'Merchant balance', 'Funds belonging to your merchant account'],
       ['links', 'Payment links', 'Share a payment link'],
+      ['links/new', 'Create a payment link', 'Review a new checkout link'],
       ['checkout', 'Checkout', 'Hosted payment checkout'],
       ['refunds', 'Refunds', 'Find refunds by their original payment'],
       ['refunds/new', 'Issue a refund', 'Review a full or partial refund'],
@@ -212,6 +213,15 @@ export const rooms: readonly Room[] = [
     area: 'pay' as const,
     business: true,
   })),
+  {
+    path: '/pay/links/:linkId',
+    title: 'Payment link',
+    description: 'One checkout link',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
   {
     path: '/pay/refunds/:refundId',
     title: 'Refund detail',

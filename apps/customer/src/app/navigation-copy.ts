@@ -2,6 +2,10 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  'Create a payment link': 'Create a payment link',
+  'Review a new checkout link': 'Review a new checkout link',
+  'Payment link': 'Payment link',
+  'One checkout link': 'One checkout link',
   Refunds: 'Refunds',
   'Find refunds by their original payment': 'Find refunds by their original payment',
   'Issue a refund': 'Issue a refund',

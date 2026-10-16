@@ -1,6 +1,9 @@
 import type { PlainKey } from './copy';
 
 export type PortalRoom =
+  | 'links'
+  | 'link-new'
+  | 'link'
   | 'refunds'
   | 'refund-new'
   | 'refund'
@@ -40,6 +43,10 @@ export function parsePortalRoute(path: string): PortalRoute | null {
       return v;
     }
   };
+  if (a === 'links') {
+    if (new URLSearchParams(query).get('view') === 'tools') return null;
+    return b === undefined ? { room: 'links' } : b === 'new' ? { room: 'link-new' } : { room: 'link', param: decode(b) };
+  }
   if (a === 'refunds')
     return b === undefined ? { room: 'refunds' } : b === 'new' ? { room: 'refund-new' } : { room: 'refund', param: decode(b) };
   if (a === 'merchant' && b === undefined) return { room: 'dashboard' };

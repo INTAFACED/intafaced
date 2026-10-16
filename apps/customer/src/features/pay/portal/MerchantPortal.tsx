@@ -24,6 +24,7 @@ import { Team } from './Team';
 import type { MemberRole, MerchantRecord } from './schemas';
 import './portal.css';
 import { Refunds } from './Refunds';
+import { Links } from './Links';
 import { w3cCopy } from './w3c-copy';
 import type { PayBusinessAuthority } from '../pay-api';
 
@@ -94,26 +95,58 @@ export function PortalFrame({ route, children }: { route: PortalRoute; children:
 }
 
 const hrefFor = (route: PortalRoute) =>
-  route.room === 'refund' || route.room === 'refund-new'
-    ? '/pay/refunds'
-    : route.room === 'dashboard'
-      ? '/pay/merchant'
-      : route.room === 'dispute'
-        ? '/pay/disputes'
-        : route.room === 'customer'
-          ? '/pay/customers'
-          : route.room === 'payment'
-            ? '/pay/payments'
-            : route.room === 'settlement'
-              ? '/pay/settlements'
-              : route.room === 'payout'
-                ? '/pay/payouts'
-                : `/pay/${route.room}`;
+  route.room === 'link' || route.room === 'link-new'
+    ? '/pay/links'
+    : route.room === 'refund' || route.room === 'refund-new'
+      ? '/pay/refunds'
+      : route.room === 'dashboard'
+        ? '/pay/merchant'
+        : route.room === 'dispute'
+          ? '/pay/disputes'
+          : route.room === 'customer'
+            ? '/pay/customers'
+            : route.room === 'payment'
+              ? '/pay/payments'
+              : route.room === 'settlement'
+                ? '/pay/settlements'
+                : route.room === 'payout'
+                  ? '/pay/payouts'
+                  : `/pay/${route.room}`;
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
   const c = w3cCopy.t;
   switch (route.room) {
+    case 'links':
+      return {
+        title: c('linksTitle'),
+        purpose: c('linksPurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/links/new">
+            {c('linkNew')}
+          </a>
+        ),
+      };
+    case 'link-new':
+      return {
+        title: c('linkNew'),
+        purpose: c('linkNewPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/links">
+            {c('backLinks')}
+          </a>
+        ),
+      };
+    case 'link':
+      return {
+        title: c('linkDetail'),
+        purpose: c('linkDetailPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/links/new">
+            {c('linkNew')}
+          </a>
+        ),
+      };
     case 'refunds':
       return {
         title: c('refundsTitle'),
@@ -271,6 +304,24 @@ function PortalRoom({
   const { t } = portalCopy.useCopy();
   const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
+    case 'links':
+    case 'link-new':
+    case 'link':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Links
+                portal={portal}
+                merchantId={merchantId}
+                create={route.room === 'link-new'}
+                linkId={route.param}
+                authority={authority}
+              />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
     case 'refunds':
     case 'refund-new':
     case 'refund':

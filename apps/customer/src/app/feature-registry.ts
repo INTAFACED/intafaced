@@ -35,6 +35,8 @@ const businessPaySlugs = [
   'merchant',
   'money',
   'links',
+  'links/new',
+  'links/:linkId',
   'payments',
   'customers',
   'payouts',
