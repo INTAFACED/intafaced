@@ -46,6 +46,7 @@ const businessPaySlugs = [
   'network',
   'permissions',
   'invoices',
+  'invoices/:invoiceId',
   'subscriptions',
   'reports',
   'reports/exports',
