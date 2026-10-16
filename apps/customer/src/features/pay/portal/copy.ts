@@ -669,6 +669,7 @@ const en = {
   haltOp_settlement: 'Settlements are paused.',
   haltGlobal: 'INTAFACED has paused this for every account',
   haltYours: 'INTAFACED has paused this on your account',
+  haltRail: 'INTAFACED has paused payouts on the {rail} rail',
   haltSince: 'since',
   haltEffect: 'Nothing you do here will move money until it is lifted.',
   stepItem_done: 'done',
