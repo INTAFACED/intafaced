@@ -2,13 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { actionApprovalSchema } from '@intafaced/contracts';
 import {
   ActionApprovalConsumeError,
+  consumeLedgerApproval,
   createIdentityApprovalClient,
   ledgerActionPayloadHash,
   readApprovalIds,
   unwrapTrpcData,
   unwiredApprovalConsumer,
+  type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -127,5 +130,108 @@ describe('ledger action-approval consume', () => {
     const service = readFileSync(join(HERE, '../service.ts'), 'utf8');
     expect(service).toMatch(/applyStartupPolicy/);
     expect(service).not.toMatch(/actionApproval/);
+  });
+});
+
+const approvalCmd = { approvalId: 'appr-1', operationId: 'op-1' };
+
+function echoingApproval(mutate: (row: Record<string, unknown>) => void = () => {}): ActionApprovalConsumer {
+  return {
+    async consume(input) {
+      const row: Record<string, unknown> = {
+        ...input,
+        actionType: input.targetId,
+        requesterId: 'founder-a',
+        approverId: 'founder-b',
+        policyVersion: 'v1',
+        createdAt: '2026-09-09T12:00:00.000Z',
+        expiresAt: '2026-09-09T12:10:00.000Z',
+        status: 'CONSUMED',
+        approverIsFounder: true,
+        requesterIsFounder: true,
+      };
+      mutate(row);
+      return actionApprovalSchema.parse(row);
+    },
+  };
+}
+
+describe('founder attestation at ledger consume', () => {
+  it('refuses a thaw when identity sends no attestation', async () => {
+    await expect(
+      consumeLedgerApproval(
+        echoingApproval((row) => {
+          delete row.approverIsFounder;
+          delete row.requesterIsFounder;
+        }),
+        approvalCmd,
+        'ledger.unfreeze',
+        'posting_unfreeze',
+        '1',
+        {},
+      ),
+    ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
+  });
+
+  it('refuses a forged or mismatched founder attestation', async () => {
+    const refuse = (mutate: (row: Record<string, unknown>) => void) =>
+      expect(
+        consumeLedgerApproval(echoingApproval(mutate), approvalCmd, 'ledger.reconcile', 'posting_reconcile', '1', {}),
+      ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
+    await refuse((row) => {
+      row.requesterIsFounder = false;
+    });
+    await refuse((row) => {
+      row.approverId = 'founder-a';
+    });
+    await refuse((row) => {
+      row.targetId = 'posting_freeze';
+    });
+    await refuse((row) => {
+      row.actionType = 'ledger.freeze';
+    });
+    await expect(
+      consumeLedgerApproval(
+        echoingApproval((row) => {
+          delete row.approverIsFounder;
+          delete row.requesterIsFounder;
+        }),
+        approvalCmd,
+        'ledger.freeze',
+        'posting_unfreeze',
+        '1',
+        {},
+      ),
+    ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
+  });
+
+  it('accepts a distinct founder pair for thaw and reconcile', async () => {
+    await expect(
+      consumeLedgerApproval(echoingApproval(), approvalCmd, 'ledger.unfreeze', 'posting_unfreeze', '1', {}),
+    ).resolves.toMatchObject({
+      approverId: 'founder-b',
+    });
+    await expect(
+      consumeLedgerApproval(echoingApproval(), approvalCmd, 'ledger.reconcile', 'posting_reconcile', '1', {}),
+    ).resolves.toMatchObject({
+      approverId: 'founder-b',
+    });
+  });
+
+  it('leaves ledger.freeze working without an attestation', async () => {
+    const frozen = await consumeLedgerApproval(
+      echoingApproval((row) => {
+        delete row.approverIsFounder;
+        delete row.requesterIsFounder;
+        row.approverId = 'ops-b';
+      }),
+      approvalCmd,
+      'ledger.freeze',
+      'posting_freeze',
+      '1',
+      { reason: 'suspected drift' },
+    );
+    expect(frozen.approverId).toBe('ops-b');
+    expect(frozen.approverIsFounder).toBeUndefined();
   });
 });
