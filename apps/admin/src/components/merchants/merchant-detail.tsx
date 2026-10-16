@@ -8,7 +8,7 @@ import { BarChart, type BarPoint } from './bar-chart';
 import { ApprovalsTable } from './approvals-queue';
 import { ControlsTab } from './controls-tab';
 import { CopyButton } from './copy-button';
-import { AutoTripCard, HaltHistoryTable, HaltStatesTable, PendingClearsGap } from './halts-panels';
+import { AutoTripCard, haltAppliesToMerchant, HaltHistoryTable, HaltStatesTable, PendingClearsGap } from './halts-panels';
 import { AsOf, Amounts, Card, FailureState, KpiTile, PageHead, shortId, StateBlock, UNNAMED_MERCHANT } from './ui';
 
 export const DETAIL_TABS = [
@@ -631,7 +631,7 @@ function HaltsTab({
           <>
             <AsOf freshness={fresh} label="Switches" />
             <HaltStatesTable
-              states={data.status.data.states.filter((s) => s.target.level === 'global' || s.target.merchantId === merchantId)}
+              states={data.status.data.states.filter((s) => haltAppliesToMerchant(s.target, merchantId))}
               caption="Halt switches that apply to this merchant"
             />
             <p className="mp-footnote mp-mt">

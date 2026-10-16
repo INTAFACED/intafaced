@@ -8,6 +8,8 @@ import { teamReadFromSql } from './merchant-team-read.js';
 import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
+import { retryAdoptConfig } from './halts/adopt-boot.js';
+import { setAutoTripAccountErrorSink } from './halts/autotrip-log.js';
 import { loadHaltAutoTripConfig } from './halts/config.js';
 import { PayHaltStore } from './halts/store.js';
 import { loadTreasuryLimits } from './treasury/config.js';
@@ -199,6 +201,8 @@ const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookS
 });
 
 const payoutDestinations = new MerchantPayoutDestinationStore(sql);
+/** One store: the router reads it, and both rail-send paths record into it. */
+const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env), rails);
 const identityAdmission = createIdentityOperationDecisionClient({
   owner: 'svc-pay',
   identityUrl: env.IDENTITY_URL,
@@ -217,6 +221,7 @@ const conversion = new ConversionService({
 });
 const pay = new PayService(sql, ledger, rails, {
   guards: payGuards,
+  haltStore,
   identityOperationAdmission: identityAdmission,
   identityAuthorityGuard: createPayfacAuthorityGuard(subMerchants),
   payoutDestinations,
@@ -326,6 +331,7 @@ for (const railId of env.PAY_OPERATOR_CREDIT_RAILS) {
 
 const userMoney = new UserMoneyService(sql, ledger, rails, {
   guards: payGuards,
+  haltStore,
   operatorCreditRails,
   valueMovement: railPosture.policy,
 });
@@ -413,7 +419,7 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
-    payHalts: { store: new PayHaltStore(sql, loadHaltAutoTripConfig(process.env)), merchants: pay, team: teamReadFromSql(sql) },
+    payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) },
     treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql, ledger) },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
     control: new ControlService(sql, teamAccessPorts(sql)),
@@ -442,6 +448,14 @@ setCaptureReconcileLogger({
     app.log.warn(fields, message);
   },
 });
+setAutoTripAccountErrorSink((event) => app.log.warn({ autotrip: event }, 'pay.halt_autotrip_account_failed'));
+// Not awaited: a down database retries a few times and then gives up. Boot does not wait.
+void retryAdoptConfig(
+  () => haltStore.adoptConfig(),
+  (err, attempt) => {
+    app.log.warn({ err, attempt }, 'pay.halt_autotrip_adopt_failed');
+  },
+);
 
 // Keep the exact request bytes so S2S verifiers can check the signed digest
 // (L2-6). Installed once here; internal registers pass `installRawBody: false`

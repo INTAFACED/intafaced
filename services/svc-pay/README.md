@@ -359,6 +359,12 @@ A found fill writes a `pay.conversion_late_fill` audit row and blocks new quotes
 
 `module.pay` in the admin console — the module kill-switch beats every other flag (`packages/config/src/flags.ts`). With it off, no procedure in this service serves. `pay.payfac` and `pay.laneA` gate features not built here.
 
+## Halts
+
+A halt stops one operation (intake, conversion, payout, or settlement) for everyone, one merchant, one user's withdrawal, or one rail. Auto-trip stays off until `PAY_HALT_AUTOTRIP_FAILURES` or `PAY_HALT_AUTOTRIP_RAIL_FAILURES` is a positive integer. There is no default count. With both unset, a payout, withdrawal, or refund does not take the auto-trip lock.
+
+Adapter throws count per occurrence: N retries of one stuck payout can trip the merchant. That is fail-closed and intended. A generic `rail.failed` without a rail-health code never counts.
+
 ---
 
 ## Running it

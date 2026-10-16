@@ -1507,7 +1507,7 @@ describe('W6 USD to USDT conversion', () => {
     };
     const beforeSweep = await svc.quote(who.caller, bodyOf(who, '1'));
     expect(beforeSweep.quoteId).toEqual(expect.any(String));
-    const store = new PayHaltStore(db.sql, { failures: null });
+    const store = new PayHaltStore(db.sql, { failures: null, railFailures: null });
     const beforeHalt = (await store.operatorStatus()).states.find(
       (state) => state.scope === 'conversion' && state.target.level === 'global',
     )!;

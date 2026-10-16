@@ -367,7 +367,11 @@ export const haltStatusSchema = z.object({
   states: z.array(
     z.object({
       scope: z.enum(haltScopes),
-      target: z.object({ level: z.enum(['global', 'merchant']), merchantId: z.string().optional() }),
+      target: z.discriminatedUnion('level', [
+        z.object({ level: z.literal('global') }),
+        z.object({ level: z.literal('merchant'), merchantId: z.string() }),
+        z.object({ level: z.literal('rail'), railId: z.string() }),
+      ]),
       halted: z.boolean(),
       changedAt: timestamp.nullable(),
     }),

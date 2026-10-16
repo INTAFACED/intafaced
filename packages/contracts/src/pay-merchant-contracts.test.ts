@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   PAY_CAP_KINDS,
+  PAY_HALT_ERROR_CODES,
   PAY_HALT_SCOPES,
   conversionLateFillProposeInputSchema,
   conversionQuoteInputSchema,
@@ -106,6 +107,16 @@ describe('pay contracts: halts', () => {
     expect(payHaltTargetSchema.safeParse({ level: 'global' }).success).toBe(true);
     expect(payHaltTargetSchema.safeParse({ level: 'merchant', merchantId }).success).toBe(true);
     expect(payHaltTargetSchema.safeParse({ level: 'merchant' }).success).toBe(false);
+    expect(payHaltTargetSchema.safeParse({ level: 'user', userId: merchantId }).success).toBe(true);
+    expect(payHaltTargetSchema.safeParse({ level: 'user' }).success).toBe(false);
+    expect(payHaltTargetSchema.safeParse({ level: 'rail', railId: 'crypto-native' }).success).toBe(true);
+    expect(payHaltTargetSchema.safeParse({ level: 'rail', railId: 'Bad Rail' }).success).toBe(false);
+    expect(PAY_HALT_ERROR_CODES).toEqual([
+      'pay.halt_store_unavailable',
+      'pay.halt_target_not_found',
+      'pay.halt_target_unsupported',
+      'pay.halt_target_unknown_rail',
+    ]);
   });
 
   it('a halt command takes no actor from the body', () => {
