@@ -1,3 +1,4 @@
+import type { PayoutApproval } from '@intafaced/contracts';
 import type { FounderScreen } from '@/lib/founder-ops/screens';
 import { DRILLDOWN } from '@/lib/founder-ops/screens';
 import type { OpsData, FraudRow } from '@/lib/founder-ops/loaders';
@@ -45,6 +46,7 @@ export function FounderScreenView({
   const isList = screen.type === 'LIST' || screen.type === 'QUEUE';
   const fraud = data.fraud?.kind === 'ok' ? data.fraud.data : null;
   const review = resourceId ? fraud?.find((r) => r.id === resourceId) : undefined;
+  const approval = data.approvals?.kind === 'ok' ? data.approvals.data.approvals.find((a) => a.approvalId === resourceId) : undefined;
   return (
     <div className="mp-page" data-screen={screen.id}>
       <PageHead
@@ -95,6 +97,10 @@ export function FounderScreenView({
       {fraud && !resourceId ? (
         <FraudQueue rows={fraud} readAt={data.readAt} merchantFilter={merchantFilter} testData={data.testData ?? false} />
       ) : null}
+      {data.approvals && data.approvals.kind !== 'ok' ? (
+        <FailureState failure={data.approvals} what="Approval context" retryHref={path} />
+      ) : null}
+      {approval ? <ApprovalFacts approval={approval} /> : null}
       {review ? <FraudDetail row={review} /> : null}
       {fraud && resourceId && !review ? (
         <StateBlock kind="empty" title="Review unavailable">
@@ -218,7 +224,7 @@ export function FounderScreenView({
           </Card>
         </>
       ) : null}
-      {!isList ? (
+      {!isList && !data.metrics && !data.treasury && !fraud && !data.approvals ? (
         <div className="fo-sections">
           {screen.sections.map((title) => (
             <Card key={title} title={title}>
@@ -437,5 +443,29 @@ function FounderAccess({ data, path }: { data: OpsData; path: string }) {
         </p>
       </Card>
     </>
+  );
+}
+
+function ApprovalFacts({ approval: a }: { approval: PayoutApproval }) {
+  return (
+    <Card title="Requested payout" sub="Read from the existing bounded pending approvals queue; no missing context is inferred.">
+      <div className="mp-facts">
+        <MoneyText amount={a.amount} assetCode={a.assetCode} />
+        <span>Status: {a.status}</span>
+        <a href={`/merchants/${a.merchantId}?tab=approvals`}>Open merchant approvals</a>
+      </div>
+      <p>
+        Maker: <code>{a.makerUserId}</code>. Checker: <code>{a.checkerUserId ?? 'Not recorded'}</code>.
+      </p>
+      <p>
+        Created <time dateTime={a.createdAt}>{a.createdAt}</time>. Expires <time dateTime={a.expiresAt}>{a.expiresAt}</time>.
+      </p>
+      <p>
+        Payload hash <code>{a.payloadHash}</code> <CopyButton value={a.payloadHash} label="Copy payload hash" />
+      </p>
+      <a className="mp-btn" href="/merchants/approvals">
+        Open existing decision flow
+      </a>
+    </Card>
   );
 }

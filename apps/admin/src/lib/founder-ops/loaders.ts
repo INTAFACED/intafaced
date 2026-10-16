@@ -1,7 +1,14 @@
 import 'server-only';
 import { isTestData } from '@/components/merchants/test-data-badge';
 import { payCall, type PayCallContext, type PayCallResult } from '@/lib/merchants/pay-call';
-import { loadDashboard, type DashboardData, loadTreasury, type TreasuryData } from '@/lib/merchants/loaders';
+import {
+  loadApprovalQueue,
+  type ApprovalQueueData,
+  loadDashboard,
+  type DashboardData,
+  loadTreasury,
+  type TreasuryData,
+} from '@/lib/merchants/loaders';
 import type { FounderScreen } from './screens';
 
 export interface FraudRow {
@@ -56,6 +63,7 @@ export interface OpsData {
   enrolment?: PayCallResult<{ open: boolean }>;
   treasury?: TreasuryData;
   metrics?: DashboardData;
+  approvals?: PayCallResult<ApprovalQueueData>;
 }
 export async function loadOps(ctx: PayCallContext, screen: FounderScreen, merchant?: string, days: 1 | 7 | 30 = 7): Promise<OpsData> {
   const data: OpsData = {
@@ -86,5 +94,6 @@ export async function loadOps(ctx: PayCallContext, screen: FounderScreen, mercha
     );
   if (screen.id === 'F02' || screen.id === 'F03' || screen.id === 'F51' || screen.id === 'F61') data.treasury = await loadTreasury(ctx);
   if (screen.id === 'F69' || screen.id === 'F70') data.metrics = await loadDashboard(ctx, new Date(), days);
+  if (screen.id === 'F25') data.approvals = await loadApprovalQueue(ctx);
   return data;
 }

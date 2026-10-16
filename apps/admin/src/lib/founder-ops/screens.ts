@@ -21,6 +21,16 @@ const screen = (
 ): FounderScreen => ({ id, route, title, type, purpose, sections, gap, action });
 export const SCREENS: readonly FounderScreen[] = [
   screen(
+    'F25',
+    '/approvals/:id',
+    'Approval detail',
+    'DETAIL',
+    'Inspect the requested payout and its approval context before opening the existing decision flow.',
+    ['Requested payout', 'Maker and checker', 'Screening and masked destination', 'Decision and audit history'],
+    'Masked destinations, the first founder signature and combined approval history await the next backend update. The existing queue retains its hash-bound two-founder decision flow.',
+    'Open approval queue',
+  ),
+  screen(
     'F02',
     '/merchants/live',
     'Live monitor',
