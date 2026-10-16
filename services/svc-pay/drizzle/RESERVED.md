@@ -21,7 +21,8 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0074      | W2c limit-increase requests                           | used                                            |
 | 0075-0077 | unassigned                                            | free; ask W0 before using                       |
 | 0078      | W10 B2B ramp (switched off)                           | used                                            |
-| 0079-0080 | unassigned                                            | free; ask W0 before using                       |
+| 0079      | unassigned                                            | free; ask W0 before using                       |
+| 0080      | merchant destination inventory page key               | used                                            |
 | 0081      | subscription.create idempotency, one open subscription per mandate | used                               |
 | 0082+     | unassigned                                            | free; ask W0 before using                       |
 

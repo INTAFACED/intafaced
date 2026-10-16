@@ -806,10 +806,15 @@ export const merchantPayoutDestinations = pay.table(
     railId: text('rail_id').notNull(),
     kind: text('kind').notNull(),
     ref: text('ref').notNull(),
+    /** Page key for the inventory cursor. Not a second destination. */
+    id: uuid('id').notNull().defaultRandom(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] })],
+  (t) => [
+    primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] }),
+    uniqueIndex('merchant_payout_destinations_id_idx').on(t.id),
+  ],
 );
 
 export const schema = {
