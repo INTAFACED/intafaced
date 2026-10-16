@@ -109,7 +109,7 @@ export function SubscriptionsView({
           </Button>
         }
       >
-        <div className="pp-filters" role="search">
+        <div className="pp-filter-row" role="search">
           <Field label={c.t('subscriptionSearch')} value={search} onChange={(e) => setSearch(e.target.value)} />
           <SelectField
             label={c.t('status')}
@@ -348,9 +348,10 @@ export function SubscriptionDetailView({
               values={[
                 [c.t('amount'), <Money value={m.amount} asset={m.assetId} />],
                 [c.t('status'), m.status],
-                [c.t('chargePath'), m.cadence],
-                [c.t('created'), <PayTime value={m.startsAt} />],
-                [c.t('projectedEnd'), m.endsAt ? <PayTime value={m.endsAt} /> : c.t('openEnded')],
+                [c.t('cadence'), m.cadence],
+                [c.t('mandateStart'), <PayTime value={m.startsAt} />],
+                [c.t('mandateEnd'), m.endsAt ? <PayTime value={m.endsAt} /> : c.t('openEnded')],
+                [c.t('authorizedCeiling'), m.ceiling !== null ? <Money value={m.ceiling} asset={m.assetId} /> : c.t('noCeiling')],
               ]}
             />
           )}

@@ -29,6 +29,7 @@ export function Notifications({ portal, preferencesOnly = false }: { portal: Por
   return (
     <NotificationsView
       portal={portal}
+      hideTabs={preferencesOnly}
       view={preferencesOnly || view === 'preferences' ? 'preferences' : 'feed'}
       setView={setView}
       feed={feed.state}
@@ -46,6 +47,7 @@ export function Notifications({ portal, preferencesOnly = false }: { portal: Por
 
 export function NotificationsView({
   portal,
+  hideTabs = false,
   view,
   setView,
   feed,
@@ -59,6 +61,7 @@ export function NotificationsView({
   reloadPrefs,
 }: {
   portal: PortalApi;
+  hideTabs?: boolean;
   view: View;
   setView: (view: View) => void;
   feed: ListState<Notification>;
@@ -76,13 +79,15 @@ export function NotificationsView({
   const unread = feed.status === 'ready' ? feed.items.filter((n) => n.readAt === null).length : 0;
   return (
     <div className="stack">
-      <Tabs
-        items={['feed', 'preferences']}
-        value={view}
-        onChange={(v) => setView(v as View)}
-        label={t('notifViews')}
-        labels={{ feed: t('tabFeed'), preferences: t('tabPreferences') }}
-      />
+      {!hideTabs && (
+        <Tabs
+          items={['feed', 'preferences']}
+          value={view}
+          onChange={(v) => setView(v as View)}
+          label={t('notifViews')}
+          labels={{ feed: t('tabFeed'), preferences: t('tabPreferences') }}
+        />
+      )}
       {view === 'feed' ? (
         <PaySection
           title={t('feedTitle')}

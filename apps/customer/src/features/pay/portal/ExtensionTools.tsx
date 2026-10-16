@@ -86,7 +86,7 @@ export function useWindowFilters() {
 }
 export function WindowFilters({ filters, statuses }: { filters: ReturnType<typeof useWindowFilters>; statuses: readonly RecordStatus[] }) {
   return (
-    <div className="pp-filters" role="search" aria-label={c.t('search')}>
+    <div className="pp-filter-row" role="search" aria-label={c.t('search')}>
       <Field label={c.t('search')} value={filters.search} onChange={(e) => filters.setSearch(e.target.value)} />
       <SelectField
         label={c.t('status')}

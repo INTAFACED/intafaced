@@ -55,7 +55,7 @@ export function developerHeader(route: PortalRoute) {
 }
 export function DeveloperNav({ room }: { room: string }) {
   return (
-    <nav className="pp-filters" aria-label={c.t('developerTitle')}>
+    <nav className="pp-filter-row" aria-label={c.t('developerTitle')}>
       {developerLinks.map(([href, key]) => (
         <a className="text-link" href={href} key={href} aria-current={room === `developer-${href.split('/').at(-1)}` ? 'page' : undefined}>
           {c.t(key)}

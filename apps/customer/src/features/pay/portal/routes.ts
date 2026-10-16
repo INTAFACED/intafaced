@@ -1,6 +1,9 @@
 import type { PlainKey } from './copy';
 
 export type PortalRoom =
+  | 'conversion'
+  | 'conversion-new'
+  | 'conversion-order'
   | 'subscriptions'
   | 'subscription'
   | 'subscription-new'
@@ -62,6 +65,12 @@ export function parsePortalRoute(path: string): PortalRoute | null {
       return v;
     }
   };
+  if (a === 'conversion')
+    return b === undefined
+      ? { room: 'conversion' }
+      : b === 'new'
+        ? { room: 'conversion-new' }
+        : { room: 'conversion-order', param: decode(b) };
   if (a === 'subscriptions')
     return b === undefined
       ? { room: 'subscriptions' }
@@ -120,6 +129,7 @@ export function parsePortalRoute(path: string): PortalRoute | null {
 
 /** Links added to the Business Pay menu, in the order they are shown. */
 export const portalLinks: ReadonlyArray<readonly [string, PlainKey]> = [
+  ['/pay/conversion', 'navConversion'],
   ['/pay/compliance', 'navCompliance'],
   ['/pay/settings', 'navSettings'],
   ['/pay/refunds', 'navRefunds'],
