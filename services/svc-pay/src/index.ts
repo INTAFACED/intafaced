@@ -414,7 +414,7 @@ export const appRouter = mergeRouters(
     registries: { sql, approvals: actionApprovals },
     sql,
     payHalts: { store: new PayHaltStore(sql, loadHaltAutoTripConfig(process.env)), merchants: pay, team: teamReadFromSql(sql) },
-    treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql) },
+    treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql, ledger) },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
     control: new ControlService(sql, teamAccessPorts(sql)),
     conversion,

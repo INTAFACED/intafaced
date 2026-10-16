@@ -9,6 +9,7 @@ import {
   retryAfterFrom,
   venueSymbolOf,
 } from './binance-spot.js';
+import { binanceSymbolFilters, binanceTakerSellCommissionRate, sumBinanceFillCommission } from './binance-spot-trade.js';
 import { AsyncFrameQueue, type HttpPort, type HttpResponse, type StreamHandle, type StreamPort } from '../transport.js';
 import { MaintainedBook } from '../book-feed.js';
 import { RateLimitGovernor } from '../rate-limit.js';
@@ -829,5 +830,144 @@ describe('MaintainedBook — subscribe, buffer, snapshot, join, resnapshot', () 
     await book.close();
     stream.socket().close();
     await running;
+  });
+});
+
+describe('Binance spot commission and filters', () => {
+  const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
+  const filled = {
+    symbol: 'BTCUSDT',
+    orderId: 28,
+    clientOrderId: 'abc',
+    transactTime: 1_507_725_176_595,
+    price: '100.00',
+    origQty: '1.00000000',
+    executedQty: '1.00000000',
+    cummulativeQuoteQty: '100.00000000',
+    status: 'FILLED',
+    type: 'LIMIT',
+    side: 'SELL',
+  };
+
+  it('sums FULL fills of one asset and leaves a missing or mixed commission unknown', () => {
+    const one = sumBinanceFillCommission([
+      { price: '100', qty: '0.4', commission: '0.10', commissionAsset: 'USDT', tradeId: 1 },
+      { price: '100', qty: '0.6', commission: '0.25', commissionAsset: 'USDT', tradeId: 2 },
+    ]);
+    expect(formatAmount(one.feePaid!)).toBe('0.35');
+    expect(one.feeAsset).toBe('USDT');
+    expect(sumBinanceFillCommission([])).toEqual({ feePaid: null, feeAsset: null });
+    expect(
+      sumBinanceFillCommission([
+        { commission: '0.1', commissionAsset: 'USDT' },
+        { commission: '0.01', commissionAsset: 'BNB' },
+      ]),
+    ).toEqual({ feePaid: null, feeAsset: null });
+    expect(sumBinanceFillCommission([{ price: '100', qty: '1' }])).toEqual({ feePaid: null, feeAsset: null });
+  });
+
+  it('sends newOrderRespType=FULL and books the commission on the order response', async () => {
+    const http = new FakeHttp().queue(depthSnapshot(1)).queue({
+      ...filled,
+      fills: [
+        { price: '100.00', qty: '0.4', commission: '0.10', commissionAsset: 'USDT', tradeId: 1 },
+        { price: '100.00', qty: '0.6', commission: '0.25', commissionAsset: 'USDT', tradeId: 2 },
+      ],
+    });
+    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1_700_000_000_000, snapshotLimit: 5 });
+    const placed = await trade.placeOrder({
+      symbol: 'BTC/USDT',
+      side: 'sell',
+      type: 'limit',
+      amount: 1n * 10n ** 18n,
+      price: 100n * 10n ** 18n,
+      timeInForce: 'IOC',
+      clientOrderId: 'abc',
+    });
+    expect(formatAmount(placed.feePaid!)).toBe('0.35');
+    expect(placed.feeAsset).toBe('USDT');
+    expect(http.requests[1]).toContain('newOrderRespType=FULL');
+    expect(http.requests.some((url) => url.includes('/api/v3/myTrades'))).toBe(false);
+  });
+
+  it('reads commission from myTrades when the order row has no fills', async () => {
+    const http = new FakeHttp().queue(filled).queue([
+      { commission: '0.10', commissionAsset: 'USDT', qty: '0.4', price: '100' },
+      { commission: '0.25', commissionAsset: 'USDT', qty: '0.6', price: '100' },
+    ]);
+    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1_700_000_000_000 });
+    const order = await trade.fetchOrder('BTC/USDT', 'abc');
+    expect(formatAmount(order.feePaid!)).toBe('0.35');
+    expect(order.feeAsset).toBe('USDT');
+    expect(http.requests[0]).toContain('/api/v3/order');
+    expect(http.requests[1]).toContain('/api/v3/myTrades');
+    expect(http.requests[1]).toContain('orderId=28');
+  });
+
+  it('names a definite rejection by its venue code', async () => {
+    const http = new FakeHttp().queue(depthSnapshot(1)).queue({ code: -2010, msg: 'insufficient balance' }, 400);
+    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1, snapshotLimit: 5 });
+    await expect(
+      trade.placeOrder({
+        symbol: 'BTC/USDT',
+        side: 'buy',
+        type: 'limit',
+        amount: 1n * 10n ** 18n,
+        price: 100n * 10n ** 18n,
+        clientOrderId: 'abc',
+      }),
+    ).rejects.toThrow(/code -2010 \(insufficient balance\)/);
+  });
+
+  it('reads the taker-sell rate and refuses a BNB discount or a missing leg', () => {
+    const leg = { maker: '0', taker: '0.001', buyer: '0', seller: '0' };
+    const zero = { maker: '0', taker: '0', buyer: '0', seller: '0' };
+    const body = {
+      standardCommission: leg,
+      specialCommission: zero,
+      taxCommission: zero,
+      discount: { enabledForAccount: false, enabledForSymbol: false },
+    };
+    expect(formatAmount(binanceTakerSellCommissionRate(body)!)).toBe('0.001');
+    expect(formatAmount(binanceTakerSellCommissionRate({ ...body, specialCommission: { ...zero, taker: '0.0004' } })!)).toBe('0.0004');
+    expect(binanceTakerSellCommissionRate({ ...body, discount: { enabledForAccount: true, enabledForSymbol: false } })).toBeNull();
+    expect(binanceTakerSellCommissionRate({ ...body, taxCommission: undefined })).toBeNull();
+  });
+
+  it('reads tick, step and min notional, and returns null when a filter is absent', async () => {
+    const symbol = {
+      symbol: 'BTCUSDT',
+      status: 'TRADING',
+      filters: [
+        { filterType: 'PRICE_FILTER', tickSize: '0.01' },
+        { filterType: 'LOT_SIZE', stepSize: '0.00001' },
+        { filterType: 'NOTIONAL', minNotional: '5' },
+      ],
+    };
+    expect(formatAmount(binanceSymbolFilters(symbol)!.tickSize)).toBe('0.01');
+    expect(formatAmount(binanceSymbolFilters(symbol)!.stepSize)).toBe('0.00001');
+    expect(formatAmount(binanceSymbolFilters(symbol)!.minNotional)).toBe('5');
+    expect(binanceSymbolFilters({ ...symbol, status: 'HALT' })).toBeNull();
+    expect(binanceSymbolFilters({ ...symbol, filters: symbol.filters.slice(0, 2) })).toBeNull();
+    const http = new FakeHttp().queue({ symbols: [symbol] });
+    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1 });
+    const filters = await trade.symbolFilters('BTC/USDT');
+    expect(formatAmount(filters!.minNotional)).toBe('5');
+    expect(http.requests[0]).toBe('https://rest.test/api/v3/exchangeInfo?symbol=BTCUSDT');
+    const empty = new FakeHttp().queue({ symbols: [] });
+    expect(await new BinanceSpotTrade(keys, { http: empty, restBase: 'https://rest.test' }).symbolFilters('BTC/USDT')).toBeNull();
+  });
+
+  it('reads the account commission endpoint', async () => {
+    const http = new FakeHttp().queue({
+      standardCommission: { maker: '0', taker: '0.001', buyer: '0', seller: '0' },
+      specialCommission: { maker: '0', taker: '0', buyer: '0', seller: '0' },
+      taxCommission: { maker: '0', taker: '0', buyer: '0', seller: '0' },
+      discount: { enabledForAccount: false, enabledForSymbol: false },
+    });
+    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1 });
+    expect(formatAmount((await trade.commissionRate('BTC/USDT'))!)).toBe('0.001');
+    expect(http.requests[0]).toContain('/api/v3/account/commission');
+    expect(http.requests[0]).toContain('symbol=BTCUSDT');
   });
 });

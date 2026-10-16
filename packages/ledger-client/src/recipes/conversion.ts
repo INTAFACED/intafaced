@@ -135,7 +135,11 @@ export function fxConversionReverse(input: FxConversionInput): PostRequest {
   };
 }
 
-/** Reserve clearing for one attempt. The intent transaction posts this before the venue is called. */
+/**
+ * Reserve clearing for one attempt.
+ * Posted after the intent row commits, keyed by that row id, and outside the
+ * treasury advisory lock. A retry of the same id is the same hold.
+ */
 export function fxConversionHold(input: FxConversionHoldInput): PostRequest {
   assertHold(input);
   return {

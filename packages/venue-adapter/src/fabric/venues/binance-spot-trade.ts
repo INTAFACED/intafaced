@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { div, formatAmount } from '@intafaced/ledger-client/money';
+import { div, formatAmount, SCALE, type Amount } from '@intafaced/ledger-client/money';
 import {
   readDecimal,
   readInteger,
@@ -58,6 +58,97 @@ const BINANCE_ORDER_STATUS: Record<string, VenueOrder['status']> = {
   EXPIRED: 'expired',
   EXPIRED_IN_MATCH: 'expired',
 };
+
+/**
+ * Sum fill commissions that share one asset.
+ * A missing field, or two assets, is unknown — never treated as zero.
+ */
+export function sumBinanceFillCommission(fills: unknown): { feePaid: Amount | null; feeAsset: string | null } {
+  if (!Array.isArray(fills) || fills.length === 0) return { feePaid: null, feeAsset: null };
+  const byAsset = new Map<string, Amount>();
+  for (const fill of fills) {
+    if (!fill || typeof fill !== 'object') return { feePaid: null, feeAsset: null };
+    const row = fill as Record<string, unknown>;
+    if (row.commission === undefined || row.commission === null) return { feePaid: null, feeAsset: null };
+    const assetRaw = row.commissionAsset;
+    if (typeof assetRaw !== 'string' || assetRaw.trim().length === 0) return { feePaid: null, feeAsset: null };
+    let commission: Amount;
+    try {
+      commission = readDecimal(row.commission, VENUE.id, 'commission');
+    } catch {
+      return { feePaid: null, feeAsset: null };
+    }
+    const asset = assetRaw.trim().toUpperCase();
+    byAsset.set(asset, (byAsset.get(asset) ?? 0n) + commission);
+  }
+  if (byAsset.size !== 1) return { feePaid: null, feeAsset: null };
+  const [feeAsset, feePaid] = [...byAsset.entries()][0]!;
+  return { feePaid, feeAsset: feePaid > 0n ? feeAsset : null };
+}
+
+/**
+ * Taker-sell commission as a fraction of quote notional.
+ *
+ * Binance applies a non-zero special rate in place of the standard rate, then
+ * adds tax. A BNB discount means the fee may not be taken in the quote asset,
+ * which this book cannot subtract from USDT, so that answer is unknown.
+ * A reported zero is a rate. A missing field is not.
+ */
+export function binanceTakerSellCommissionRate(body: unknown): Amount | null {
+  if (!body || typeof body !== 'object') return null;
+  const row = body as Record<string, unknown>;
+  const discount = row.discount;
+  if (discount && typeof discount === 'object') {
+    const flag = discount as Record<string, unknown>;
+    if (flag.enabledForAccount === true || flag.enabledForSymbol === true) return null;
+  }
+  const standard = commissionLeg(row.standardCommission);
+  const special = commissionLeg(row.specialCommission);
+  const tax = commissionLeg(row.taxCommission);
+  if (!standard || !special || !tax) return null;
+  const taker = special.taker > 0n ? special.taker : standard.taker;
+  const seller = special.seller > 0n ? special.seller : standard.seller;
+  const total = taker + seller + tax.taker + tax.seller;
+  if (total < 0n || total >= SCALE) return null;
+  return total;
+}
+
+function commissionLeg(raw: unknown): { taker: Amount; seller: Amount } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  try {
+    const taker = readDecimal(row.taker, VENUE.id, 'taker');
+    const seller = readDecimal(row.seller, VENUE.id, 'seller');
+    if (taker < 0n || seller < 0n) return null;
+    return { taker, seller };
+  } catch {
+    return null;
+  }
+}
+
+/** Tick, step and min notional. Any missing filter is unknown — no invented tick. */
+export function binanceSymbolFilters(raw: Record<string, unknown>): {
+  tickSize: Amount;
+  stepSize: Amount;
+  minNotional: Amount;
+} | null {
+  if (raw.status !== 'TRADING') return null;
+  const filters = Array.isArray(raw.filters) ? (raw.filters as Record<string, unknown>[]) : [];
+  const ofType = (type: string) => filters.find((filter) => filter.filterType === type);
+  const price = ofType('PRICE_FILTER');
+  const lot = ofType('LOT_SIZE');
+  const notional = ofType('NOTIONAL') ?? ofType('MIN_NOTIONAL');
+  if (!price || !lot || !notional) return null;
+  try {
+    const tickSize = readDecimal(price.tickSize, VENUE.id, 'tickSize');
+    const stepSize = readDecimal(lot.stepSize, VENUE.id, 'stepSize');
+    const minNotional = readDecimal(notional.minNotional, VENUE.id, 'minNotional');
+    if (tickSize <= 0n || stepSize <= 0n || minNotional < 0n) return null;
+    return { tickSize, stepSize, minNotional };
+  } catch {
+    return null;
+  }
+}
 
 export function mapBinanceSpotOrder(body: Record<string, unknown>, unified: string, now: Date): VenueOrder {
   const statusRaw = String(body.status ?? '');
@@ -118,6 +209,7 @@ export function mapBinanceSpotOrder(body: Record<string, unknown>, unified: stri
     throw new VenueUnavailableError(VENUE.id, 'malformed', 'clientOrderId is missing');
   }
   assertFillReportMatchesStatus(VENUE.id, status, executed, averagePrice);
+  const commission = Array.isArray(body.fills) ? sumBinanceFillCommission(body.fills) : { feePaid: null, feeAsset: null };
   return {
     venueId: VENUE.id,
     venueOrderId,
@@ -131,8 +223,8 @@ export function mapBinanceSpotOrder(body: Record<string, unknown>, unified: stri
     remaining,
     averagePrice,
     status,
-    feePaid: null,
-    feeAsset: null,
+    feePaid: commission.feePaid,
+    feeAsset: commission.feeAsset,
     createdAt,
     observedAt: now,
   };
@@ -194,6 +286,7 @@ export class BinanceSpotTrade implements TradeAdapter {
       type: request.type === 'market' ? 'MARKET' : request.postOnly ? 'LIMIT_MAKER' : 'LIMIT',
       quantity: formatAmount(request.amount),
       newClientOrderId: request.clientOrderId,
+      newOrderRespType: 'FULL',
       timestamp: String(this.#clock()),
       recvWindow: '5000',
     };
@@ -201,13 +294,13 @@ export class BinanceSpotTrade implements TradeAdapter {
       params.price = formatAmount(request.price!);
       if (!request.postOnly) params.timeInForce = request.timeInForce ?? 'GTC';
     }
-    const body = await this.#signed('POST', '/api/v3/order', params, keys, 'placeOrder');
-    return mapBinanceSpotOrder(body, request.symbol, new Date(this.#clock()));
+    const body = await this.#signedObject('POST', '/api/v3/order', params, keys, 'placeOrder');
+    return this.#withTrades(mapBinanceSpotOrder(body, request.symbol, new Date(this.#clock())), keys);
   }
 
   async cancelOrder(symbol: string, clientOrderId: string): Promise<VenueOrder> {
     const keys = requireCredentials(VENUE.id, 'cancelOrder', this.#credentials);
-    const body = await this.#signed(
+    const body = await this.#signedObject(
       'DELETE',
       '/api/v3/order',
       {
@@ -219,12 +312,12 @@ export class BinanceSpotTrade implements TradeAdapter {
       keys,
       'cancelOrder',
     );
-    return mapBinanceSpotOrder(body, symbol, new Date(this.#clock()));
+    return this.#withTrades(mapBinanceSpotOrder(body, symbol, new Date(this.#clock())), keys);
   }
 
   async fetchOrder(symbol: string, clientOrderId: string): Promise<VenueOrder> {
     const keys = requireCredentials(VENUE.id, 'fetchOrder', this.#credentials);
-    const body = await this.#signed(
+    const body = await this.#signedObject(
       'GET',
       '/api/v3/order',
       {
@@ -236,7 +329,40 @@ export class BinanceSpotTrade implements TradeAdapter {
       keys,
       'fetchOrder',
     );
-    return mapBinanceSpotOrder(body, symbol, new Date(this.#clock()));
+    return this.#withTrades(mapBinanceSpotOrder(body, symbol, new Date(this.#clock())), keys);
+  }
+
+  /** Quote-asset taker rate for a sell. Null when the venue does not say. */
+  async commissionRate(symbol: string): Promise<Amount | null> {
+    const keys = requireCredentials(VENUE.id, 'commissionRate', this.#credentials);
+    const body = await this.#signedObject(
+      'GET',
+      '/api/v3/account/commission',
+      { symbol: venueSymbolOf(symbol), timestamp: String(this.#clock()), recvWindow: '5000' },
+      keys,
+      'commissionRate',
+    );
+    return binanceTakerSellCommissionRate(body);
+  }
+
+  /** Exchange filters for one symbol. Null when the symbol or a filter is absent. */
+  async symbolFilters(symbol: string): Promise<{ tickSize: Amount; stepSize: Amount; minNotional: Amount } | null> {
+    const unified = venueSymbolOf(symbol);
+    const url = `${this.#restBase}/api/v3/exchangeInfo?symbol=${encodeURIComponent(unified)}`;
+    let response;
+    try {
+      response = await this.#http.get(url);
+    } catch (error) {
+      throwVenueTransportFailure(VENUE.id, 'GET', '/api/v3/exchangeInfo', error);
+    }
+    if (response.status < 200 || response.status >= 300 || response.body === null || typeof response.body !== 'object') {
+      throw new VenueUnavailableError(VENUE.id, 'unreachable', `exchangeInfo HTTP ${response.status}`);
+    }
+    const symbols = (response.body as { symbols?: unknown }).symbols;
+    if (!Array.isArray(symbols) || symbols.length === 0) return null;
+    const match = symbols.find((row) => row && typeof row === 'object' && String((row as { symbol?: unknown }).symbol) === unified);
+    if (!match || typeof match !== 'object') return null;
+    return binanceSymbolFilters(match as Record<string, unknown>);
   }
 
   async openOrders(symbol?: string): Promise<VenueOrder[]> {
@@ -266,13 +392,51 @@ export class BinanceSpotTrade implements TradeAdapter {
     });
   }
 
-  async #signed(
+  async #withTrades(order: VenueOrder, keys: VenueCredentials): Promise<VenueOrder> {
+    if (order.filled <= 0n || order.feePaid !== null) return order;
+    if (!order.venueOrderId) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'myTrades requires orderId');
+    }
+    const body = await this.#signed(
+      'GET',
+      '/api/v3/myTrades',
+      {
+        symbol: venueSymbolOf(order.symbol),
+        orderId: order.venueOrderId,
+        timestamp: String(this.#clock()),
+        recvWindow: '5000',
+      },
+      keys,
+      'myTrades',
+    );
+    if (!Array.isArray(body)) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'myTrades did not return an array');
+    }
+    const fee = sumBinanceFillCommission(body);
+    return { ...order, feePaid: fee.feePaid, feeAsset: fee.feeAsset };
+  }
+
+  async #signedObject(
     method: 'GET' | 'POST' | 'DELETE',
     path: string,
     params: Record<string, string>,
     keys: VenueCredentials,
     operation: string,
   ): Promise<Record<string, unknown>> {
+    const body = await this.#signed(method, path, params, keys, operation);
+    if (Array.isArray(body) || body === null || typeof body !== 'object') {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', `${operation} did not return an object`);
+    }
+    return body;
+  }
+
+  async #signed(
+    method: 'GET' | 'POST' | 'DELETE',
+    path: string,
+    params: Record<string, string>,
+    keys: VenueCredentials,
+    operation: string,
+  ): Promise<Record<string, unknown> | unknown[]> {
     const post = this.#http.post?.bind(this.#http);
     const del = this.#http.delete?.bind(this.#http);
     if ((method === 'POST' && !post) || (method === 'DELETE' && !del)) {
@@ -308,13 +472,14 @@ export class BinanceSpotTrade implements TradeAdapter {
     }
 
     if (response.status < 200 || response.status >= 300 || response.body === null || typeof response.body !== 'object') {
-      const msg =
-        response.body && typeof response.body === 'object' && 'msg' in response.body
-          ? String((response.body as { msg: unknown }).msg)
-          : `HTTP ${response.status}`;
-      throw new VenueUnavailableError(VENUE.id, 'unreachable', `${operation} ${msg}`);
+      const payload = response.body && typeof response.body === 'object' ? (response.body as { code?: unknown; msg?: unknown }) : null;
+      const code = typeof payload?.code === 'number' ? payload.code : null;
+      const msg = payload && 'msg' in payload ? String(payload.msg) : `HTTP ${response.status}`;
+      const detail = code === null ? msg : `code ${code} (${msg})`;
+      throw new VenueUnavailableError(VENUE.id, 'unreachable', `${operation} ${detail}`);
     }
 
+    if (Array.isArray(response.body)) return response.body;
     return response.body as Record<string, unknown>;
   }
 }

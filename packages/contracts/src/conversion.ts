@@ -92,6 +92,50 @@ export const conversionOrderSchema = z
   .strict();
 export type ConversionOrder = z.infer<typeof conversionOrderSchema>;
 
+const conversionChangeHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+
+/** First founder. The body names the row, not a fill. */
+export const conversionResolveProposeInputSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    conversionId: z.string().uuid(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export const conversionResolveProposeResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum(['pending', 'missing', 'not_placing', 'conflict']),
+    changeHash: conversionChangeHashSchema.nullable(),
+  })
+  .strict();
+
+/** Second founder. `expectedChangeHash` is the hash from the proposal. No amounts. */
+export const conversionResolveConfirmInputSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    decision: z.enum(['confirm', 'reject']),
+    reason: z.string().trim().min(1).max(500),
+    expectedChangeHash: conversionChangeHashSchema,
+  })
+  .strict();
+
+export const conversionResolveConfirmResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum(['confirmed', 'rejected', 'missing', 'hash_mismatch', 'same_founder', 'not_placing']),
+    changeHash: conversionChangeHashSchema.nullable(),
+    order: conversionOrderSchema.nullable(),
+  })
+  .strict();
+
+export const conversionHoldSweepResultSchema = z
+  .object({
+    released: z.number().int().nonnegative(),
+  })
+  .strict();
+
 export const conversionGetInputSchema = z.object({ conversionId: z.string().uuid() }).strict();
 export const conversionListInputSchema = z
   .object({ merchantId: payMerchantIdSchema, status: payConversionStatusSchema.optional(), limit: z.number().int().min(1).max(200) })

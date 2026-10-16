@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { formatAmount } from '@intafaced/ledger-client/money';
+import { formatAmount, SCALE, type Amount } from '@intafaced/ledger-client/money';
 import {
   readDecimal,
   readInteger,
@@ -31,6 +31,47 @@ const VENUE: VenueDescriptor = {
   kind: 'external-cex',
   sequencedDepth: true,
 };
+
+/** Taker fee as a fraction of notional. Null when the venue does not publish one rate. */
+export function bybitTakerCommissionRate(body: unknown): Amount | null {
+  if (!body || typeof body !== 'object') return null;
+  const list = (body as { result?: { list?: unknown } }).result?.list;
+  if (!Array.isArray(list) || list.length !== 1) return null;
+  const row = list[0];
+  if (!row || typeof row !== 'object') return null;
+  const raw = (row as { takerFeeRate?: unknown }).takerFeeRate;
+  if (raw === undefined || raw === null || raw === '') return null;
+  try {
+    const rate = readDecimal(raw, VENUE.id, 'takerFeeRate');
+    if (rate < 0n || rate >= SCALE) return null;
+    return rate;
+  } catch {
+    return null;
+  }
+}
+
+/** Tick, step and min notional. A missing filter is unknown. */
+export function bybitSymbolFilters(raw: Record<string, unknown>): {
+  tickSize: Amount;
+  stepSize: Amount;
+  minNotional: Amount;
+} | null {
+  if (String(raw.status ?? '') !== 'Trading') return null;
+  const lot = raw.lotSizeFilter;
+  const price = raw.priceFilter;
+  if (!lot || typeof lot !== 'object' || !price || typeof price !== 'object') return null;
+  const lotRow = lot as Record<string, unknown>;
+  const priceRow = price as Record<string, unknown>;
+  try {
+    const tickSize = readDecimal(priceRow.tickSize, VENUE.id, 'tickSize');
+    const stepSize = readDecimal(lotRow.basePrecision, VENUE.id, 'basePrecision');
+    const minNotional = readDecimal(lotRow.minOrderAmt, VENUE.id, 'minOrderAmt');
+    if (tickSize <= 0n || stepSize <= 0n || minNotional < 0n) return null;
+    return { tickSize, stepSize, minNotional };
+  } catch {
+    return null;
+  }
+}
 
 function venueSymbolOf(unified: string): string {
   if (parseUnifiedSymbol(unified) === null) {
@@ -306,6 +347,41 @@ export class BybitSpotTrade implements TradeAdapter {
       }
       return mapBybitSpotOrder(row as Record<string, unknown>, symbol, now);
     });
+  }
+
+  /** Taker fee fraction. Null when the account endpoint does not publish one rate. */
+  async commissionRate(symbol: string): Promise<Amount | null> {
+    const keys = requireCredentials(VENUE.id, 'commissionRate', this.#credentials);
+    const body = await this.#signed(
+      'GET',
+      '/v5/account/fee-rate',
+      { category: 'spot', symbol: venueSymbolOf(symbol) },
+      keys,
+      'commissionRate',
+    );
+    return bybitTakerCommissionRate(body);
+  }
+
+  /** Instrument filters. Null when the symbol is absent or a filter is missing. */
+  async symbolFilters(symbol: string): Promise<{ tickSize: Amount; stepSize: Amount; minNotional: Amount } | null> {
+    const native = venueSymbolOf(symbol);
+    const url = `${this.#restBase}/v5/market/instruments-info?category=spot&symbol=${encodeURIComponent(native)}`;
+    let response;
+    try {
+      response = await this.#http.get(url);
+    } catch (error) {
+      throwVenueTransportFailure(VENUE.id, 'GET', '/v5/market/instruments-info', error);
+    }
+    if (response.status < 200 || response.status >= 300 || response.body === null || typeof response.body !== 'object') {
+      throw new VenueUnavailableError(VENUE.id, 'unreachable', `instruments-info HTTP ${response.status}`);
+    }
+    const body = response.body as { retCode?: unknown; result?: { list?: unknown } };
+    if (body.retCode !== 0) return null;
+    const list = body.result?.list;
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const match = list.find((row) => row && typeof row === 'object' && String((row as { symbol?: unknown }).symbol) === native);
+    if (!match || typeof match !== 'object') return null;
+    return bybitSymbolFilters(match as Record<string, unknown>);
   }
 
   async #signed(

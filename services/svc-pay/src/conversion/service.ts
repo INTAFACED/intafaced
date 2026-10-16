@@ -3,6 +3,8 @@ import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import {
   InsufficientFundsError,
+  SCALE,
+  conversionInventory,
   div,
   formatAmount,
   mul,
@@ -12,6 +14,7 @@ import {
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
+import { changeHashesEqual, founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import type { PlaceOrderRequest, VenueOrder } from '@intafaced/venue-contracts';
 import type { ConversionOrder, ConversionQuote, ConversionQuoteInput } from '@intafaced/contracts';
 import { loadApplicableRules, loadMerchantControl, monthlyIntake } from '../control/store.js';
@@ -25,7 +28,8 @@ import { FRESH, PayGuardRefusal, type PayGuards } from '../seams/guards.js';
 import { GUARD_HALTED, GUARD_HALT_STORE_UNAVAILABLE } from '../halts/guards.js';
 import { assertOnMerchantTeam, type ConversionCaller } from './access.js';
 import { ConversionError, conversionNotFound } from './errors.js';
-import type { ConversionVenue } from './venue.js';
+import { classifyPlaceFailure } from './place-error.js';
+import type { ConversionSymbolFilters, ConversionVenue } from './venue.js';
 
 const PAIR = 'USD/USDT';
 const FROM = 'USD';
@@ -68,6 +72,7 @@ interface QuoteRow {
   minimum_output: string;
   expected_output: string;
   gross_output: string;
+  commission_rate: string;
   venue_id: string;
   symbol: string;
   expires_at: Date;
@@ -107,7 +112,7 @@ interface Inserted {
 
 const QUOTE_COLS = `id, merchant_id, settlement_id, from_asset, to_asset, from_amount::text, rate::text,
   fee_amount::text, spread_amount::text, minimum_output::text, expected_output::text, gross_output::text,
-  venue_id, symbol, expires_at, created_at`;
+  commission_rate::text, venue_id, symbol, expires_at, created_at`;
 
 const ORDER_COLS = `id, request_id, quote_id, merchant_id, settlement_id, attempt, client_order_id, venue_id, symbol,
   status, from_asset, to_asset, from_amount::text, filled_from_amount::text, filled_to_amount::text,
@@ -176,11 +181,33 @@ export function conversionWorstRate(rate: Amount, slippageBps: number): Amount {
   return worst;
 }
 
-/** Limit price is the gross floor divided by the from-amount, rounded up so a full fill cannot land under it. */
-export function conversionLimitPrice(minimum: Amount, fromAmount: Amount): Amount {
-  const price = div(minimum, fromAmount, 'ceil');
+/**
+ * Limit price so a full fill at that price still meets `minimum` after
+ * `commissionRate` (a fraction of quote notional). Rounded up.
+ * A rate at or above 1, or a negative rate, is not a usable rate.
+ */
+export function conversionLimitPrice(minimum: Amount, fromAmount: Amount, commissionRate: Amount): Amount {
+  if (commissionRate < 0n || commissionRate >= SCALE) {
+    throw new ConversionError('pay.conversion_commission_rate_unknown', 'PRECONDITION_FAILED');
+  }
+  const gross = div(minimum, SCALE - commissionRate, 'ceil');
+  if (gross <= 0n) throw new ConversionError('pay.conversion_quote_unconfigured', 'PRECONDITION_FAILED');
+  const price = div(gross, fromAmount, 'ceil');
   if (price <= 0n) throw new ConversionError('pay.conversion_quote_unconfigured', 'PRECONDITION_FAILED');
   return price;
+}
+
+/** Next tick at or above `price`. Both values are scaled amounts, so integer division is the tick grid. */
+export function roundUpToTick(price: Amount, tick: Amount): Amount {
+  if (tick <= 0n || price <= 0n) throw new ConversionError('pay.conversion_filters_unconfigured', 'PRECONDITION_FAILED');
+  return ((price + tick - 1n) / tick) * tick;
+}
+
+/** Whole steps at or below `quantity`. Zero is a quantity the venue will not accept. */
+export function roundDownToStep(quantity: Amount, step: Amount): Amount {
+  if (step <= 0n) throw new ConversionError('pay.conversion_filters_unconfigured', 'PRECONDITION_FAILED');
+  if (quantity <= 0n) return 0n;
+  return (quantity / step) * step;
 }
 
 function proRate(part: Amount, filled: Amount, ordered: Amount): Amount {
@@ -245,6 +272,8 @@ export class ConversionService {
     if (this.deps.slippageBps === null) {
       throw new ConversionError('pay.conversion_slippage_unconfigured', 'PRECONDITION_FAILED');
     }
+    await this.assertInventoryCovered(FROM);
+    const commissionRate = await this.readCommissionRate(PAIR);
     const fromAmount = parseAmount(input.fromAmount);
     if (fromAmount <= 0n) throw new ConversionError('pay.conversion_amount_invalid', 'BAD_REQUEST');
 
@@ -287,13 +316,15 @@ export class ConversionService {
     const rows = await this.deps.sql<QuoteRow[]>`
       INSERT INTO pay.conversion_quotes (
         id, merchant_id, settlement_id, from_asset, to_asset, from_amount, rate,
-        fee_amount, spread_amount, minimum_output, expected_output, gross_output, venue_id, symbol, expires_at
+        fee_amount, spread_amount, minimum_output, expected_output, gross_output, commission_rate,
+        venue_id, symbol, expires_at
       ) VALUES (
         ${id}, ${input.merchantId}, ${input.settlementId}, ${FROM}, ${TO},
         ${formatAmount(fromAmount)}::numeric, ${formatAmount(worst)}::numeric,
         ${formatAmount(feeTo)}::numeric, ${formatAmount(spreadTo)}::numeric,
         ${formatAmount(gross)}::numeric, ${formatAmount(expected)}::numeric,
-        ${formatAmount(gross)}::numeric, ${venue.venueId}, ${PAIR}, ${quoted.expiresAt}
+        ${formatAmount(gross)}::numeric, ${formatAmount(commissionRate)}::numeric,
+        ${venue.venueId}, ${PAIR}, ${quoted.expiresAt}
       ) RETURNING ${this.deps.sql.unsafe(QUOTE_COLS)}
     `;
     return quoteView(rows[0]!);
@@ -316,6 +347,7 @@ export class ConversionService {
       throw error;
     }
     await this.assertApprover(principal, quote.merchant_id);
+    await this.assertInventoryCovered(quote.from_asset);
     if (quote.expires_at.getTime() <= this.now().getTime()) {
       const expired = await this.insertOrder(quote, input.requestId, 'expired', 'pay.conversion_quote_expired');
       return orderView(expired.row);
@@ -350,6 +382,171 @@ export class ConversionService {
            LIMIT ${input.limit}
         `;
     return rows.map(orderView);
+  }
+
+  /**
+   * First founder proposes an exit for a `placing` row. The hash binds the row
+   * id and the instant it was last written. No amount is taken from the caller.
+   */
+  async proposeResolve(
+    founderUserId: string,
+    input: { requestId: string; conversionId: string; reason: string },
+  ): Promise<{ requestId: string; status: 'pending' | 'missing' | 'not_placing' | 'conflict'; changeHash: string | null }> {
+    const actor = founderUserId.trim().toLowerCase();
+    const existing = await this.resolveProposal(input.requestId);
+    if (existing) {
+      if (existing.conversion_id !== input.conversionId) {
+        return { requestId: input.requestId, status: 'conflict', changeHash: null };
+      }
+      return {
+        requestId: input.requestId,
+        status: existing.status === 'pending' ? 'pending' : 'conflict',
+        changeHash: existing.change_hash,
+      };
+    }
+    const row = await this.orderById(input.conversionId);
+    if (!row) return { requestId: input.requestId, status: 'missing', changeHash: null };
+    if (row.status !== 'placing') return { requestId: input.requestId, status: 'not_placing', changeHash: null };
+    const changeHash = this.resolveHash(row);
+    await this.deps.sql`
+      INSERT INTO pay.conversion_resolve_proposals (request_id, conversion_id, change_hash, reason, proposed_by, status)
+      VALUES (${input.requestId}, ${row.id}, ${changeHash}, ${input.reason}, ${actor}, 'pending')
+    `;
+    await this.audit(row.id, 'resolve_proposed', actor, null, { changeHash });
+    return { requestId: input.requestId, status: 'pending', changeHash };
+  }
+
+  /**
+   * Second founder confirms. The fill or the release comes from the venue
+   * lookup, never from a number on this call.
+   */
+  async confirmResolve(
+    founderUserId: string,
+    input: { requestId: string; decision: 'confirm' | 'reject'; reason: string; expectedChangeHash: string },
+  ): Promise<{
+    requestId: string;
+    status: 'confirmed' | 'rejected' | 'missing' | 'hash_mismatch' | 'same_founder' | 'not_placing';
+    changeHash: string | null;
+    order: ConversionOrder | null;
+  }> {
+    const actor = founderUserId.trim().toLowerCase();
+    const proposal = await this.resolveProposal(input.requestId);
+    if (!proposal) return { requestId: input.requestId, status: 'missing', changeHash: null, order: null };
+    if (proposal.status === 'confirmed') {
+      const row = await this.orderById(proposal.conversion_id);
+      return { requestId: input.requestId, status: 'confirmed', changeHash: proposal.change_hash, order: row ? orderView(row) : null };
+    }
+    if (proposal.status === 'rejected') {
+      return { requestId: input.requestId, status: 'rejected', changeHash: proposal.change_hash, order: null };
+    }
+    if (!changeHashesEqual(proposal.change_hash, input.expectedChangeHash)) {
+      return { requestId: input.requestId, status: 'hash_mismatch', changeHash: proposal.change_hash, order: null };
+    }
+    if (proposal.proposed_by === actor) {
+      return { requestId: input.requestId, status: 'same_founder', changeHash: proposal.change_hash, order: null };
+    }
+    const row = await this.orderById(proposal.conversion_id);
+    if (!row || row.status !== 'placing' || !changeHashesEqual(this.resolveHash(row), proposal.change_hash)) {
+      return { requestId: input.requestId, status: 'not_placing', changeHash: proposal.change_hash, order: null };
+    }
+    if (input.decision === 'reject') {
+      await this.deps.sql`
+        UPDATE pay.conversion_resolve_proposals
+           SET status = 'rejected', confirmed_by = ${actor}, decided_at = now()
+         WHERE request_id = ${input.requestId} AND status = 'pending'
+      `;
+      await this.audit(row.id, 'resolve_rejected', proposal.proposed_by, actor, { changeHash: proposal.change_hash });
+      return { requestId: input.requestId, status: 'rejected', changeHash: proposal.change_hash, order: null };
+    }
+    const evidence = await this.lookup(row);
+    let settled: OrderRow;
+    if (!evidence) {
+      await this.releaseHold(row, parseAmount(row.from_amount), 0);
+      settled = await this.mark(row.id, { status: 'failed', failureCode: 'pay.conversion_resolve_absent' });
+    } else {
+      settled = await this.book(row, evidence);
+    }
+    await this.deps.sql`
+      UPDATE pay.conversion_resolve_proposals
+         SET status = 'confirmed', confirmed_by = ${actor}, decided_at = now()
+       WHERE request_id = ${input.requestId} AND status = 'pending'
+    `;
+    await this.audit(row.id, 'resolve_confirmed', proposal.proposed_by, actor, {
+      changeHash: proposal.change_hash,
+      venueStatus: evidence?.status ?? 'absent',
+      venueOrderId: evidence?.venueOrderId ?? null,
+    });
+    return { requestId: input.requestId, status: 'confirmed', changeHash: proposal.change_hash, order: orderView(settled) };
+  }
+
+  /**
+   * Release holds whose conversion row is failed or gone. A live row is left
+   * alone. The amount released is the hold the ledger still has, not a figure
+   * supplied by the caller.
+   */
+  async sweepOrphanHolds(): Promise<{ released: number }> {
+    const merchants = await this.deps.sql<Array<{ id: string }>>`SELECT id FROM pay.merchants`;
+    let released = 0;
+    for (const merchant of merchants) {
+      const balances = await this.deps.ledger.balances('module', `pay:clearing:${merchant.id}`);
+      for (const balance of balances) {
+        const purpose = balance.account.purpose ?? '';
+        if (balance.account.kind !== 'hold' || !purpose.startsWith('conversion:') || balance.amount <= 0n) continue;
+        const conversionId = purpose.slice('conversion:'.length);
+        const row = await this.orderById(conversionId);
+        if (row && row.status !== 'failed' && row.status !== 'expired') continue;
+        await postPayLedger(
+          this.deps.ledger,
+          recipes.fxConversionRelease({
+            conversionId,
+            merchantId: merchant.id,
+            fromAsset: balance.account.assetId,
+            amount: balance.amount,
+            sequence: 0,
+          }),
+        );
+        await this.audit(row?.id ?? null, 'hold_swept', 'sweeper', null, { conversionId, amount: formatAmount(balance.amount) });
+        released += 1;
+      }
+    }
+    return { released };
+  }
+
+  private resolveHash(row: OrderRow): string {
+    return founderChangeHash(
+      { kind: 'conversion_resolve', conversionId: row.id, clientOrderId: row.client_order_id, status: row.status },
+      row.updated_at.toISOString(),
+    );
+  }
+
+  private async resolveProposal(requestId: string): Promise<{
+    request_id: string;
+    conversion_id: string;
+    change_hash: string;
+    proposed_by: string;
+    status: string;
+  } | null> {
+    const rows = await this.deps.sql<
+      Array<{ request_id: string; conversion_id: string; change_hash: string; proposed_by: string; status: string }>
+    >`
+      SELECT request_id, conversion_id, change_hash, proposed_by, status
+        FROM pay.conversion_resolve_proposals
+       WHERE request_id = ${requestId}
+    `;
+    return rows[0] ?? null;
+  }
+
+  private async audit(
+    conversionId: string | null,
+    action: string,
+    actorId: string,
+    approverId: string | null,
+    detail: Record<string, unknown>,
+  ): Promise<void> {
+    await this.deps.sql`
+      INSERT INTO pay.conversion_audit (id, conversion_id, action, actor_id, approver_id, detail)
+      VALUES (${randomUUID()}, ${conversionId}, ${action}, ${actorId}, ${approverId}, ${this.deps.sql.json(detail as never)})
+    `;
   }
 
   private assertWriteScope(principal: Principal | null): void {
@@ -389,7 +586,6 @@ export class ConversionService {
     status: 'intent_committed' | 'expired',
     failure: string | null,
   ): Promise<Inserted> {
-    let heldId: string | null = null;
     try {
       return await this.deps.sql.begin(async (raw) => {
         const tx = raw as unknown as Sql;
@@ -411,7 +607,13 @@ export class ConversionService {
         `;
         const net = locked[0]?.net;
         if (net === undefined) throw new ConversionError('pay.settlement_not_found', 'NOT_FOUND');
-        if (parseAmount(quote.from_amount) > parseAmount(net)) {
+        const requested = parseAmount(quote.from_amount);
+        const filledBefore = await tx<Array<{ filled: string }>>`
+          SELECT COALESCE(SUM(filled_from_amount), 0)::text AS filled
+            FROM pay.conversion_orders
+           WHERE settlement_id = ${quote.settlement_id}
+        `;
+        if (requested > parseAmount(net) || parseAmount(filledBefore[0]?.filled ?? '0') + requested > parseAmount(net)) {
           throw new ConversionError('pay.conversion_exceeds_settlement', 'PRECONDITION_FAILED');
         }
         const prior = await tx<Array<{ n: number }>>`
@@ -444,44 +646,9 @@ export class ConversionService {
           ) RETURNING ${tx.unsafe(ORDER_COLS)}
         `;
         const row = rows[0]!;
-        if (status !== 'intent_committed') return { row, raced: false };
-        try {
-          await postPayLedger(
-            this.deps.ledger,
-            recipes.fxConversionHold({
-              conversionId: id,
-              merchantId: quote.merchant_id,
-              fromAsset: quote.from_asset,
-              amount: parseAmount(quote.from_amount),
-            }),
-          );
-          heldId = id;
-        } catch (error) {
-          if (!(error instanceof InsufficientFundsError)) throw error;
-          const failed = await tx<OrderRow[]>`
-            UPDATE pay.conversion_orders
-               SET status = 'failed', failure_code = 'pay.conversion_unfunded', updated_at = now()
-             WHERE id = ${id}
-             RETURNING ${tx.unsafe(ORDER_COLS)}
-          `;
-          heldId = null;
-          return { row: failed[0]!, raced: false };
-        }
         return { row, raced: false };
       });
     } catch (error) {
-      if (heldId) {
-        await postPayLedger(
-          this.deps.ledger,
-          recipes.fxConversionRelease({
-            conversionId: heldId,
-            merchantId: quote.merchant_id,
-            fromAsset: quote.from_asset,
-            amount: parseAmount(quote.from_amount),
-            sequence: 0,
-          }),
-        );
-      }
       const pg = error as { code?: string; constraint_name?: string } | null;
       if (pg?.code === '23505') {
         const raced = await this.orderByRequest(requestId);
@@ -498,6 +665,11 @@ export class ConversionService {
   /**
    * `mayPlace` is false for the unique-violation loser: they return the row
    * and do not call the venue. A row that is already `placing` never places.
+   *
+   * The hold is posted here, after the intent row has committed, and outside
+   * the `pay.treasury:USD` lock that `beforeConversion` holds only for that
+   * transaction. The ledger key is the row id, so a timeout that actually
+   * posted is the same hold on the next attempt.
    */
   private async resume(row: OrderRow, mayPlace: boolean): Promise<ConversionOrder> {
     const fresh = (await this.orderById(row.id)) ?? row;
@@ -507,11 +679,17 @@ export class ConversionService {
 
     const found = await this.lookup(fresh);
     if (found) {
+      const unfunded = await this.ensureHold(fresh);
+      if (unfunded) return orderView(unfunded);
       const claimed = await this.claimPlacing(fresh.id);
       if (!claimed) return this.reconcile((await this.orderById(fresh.id)) ?? fresh);
       return orderView(await this.book(claimed, found));
     }
     await this.assertRunning(fresh.merchant_id);
+    const unfunded = await this.ensureHold(fresh);
+    if (unfunded) return orderView(unfunded);
+    const prepared = await this.prepareLimit(fresh);
+    if (prepared.kind === 'failed') return orderView(prepared.row);
     const claimed = await this.claimPlacing(fresh.id);
     if (!claimed) return this.reconcile((await this.orderById(fresh.id)) ?? fresh);
     try {
@@ -520,20 +698,101 @@ export class ConversionService {
       await this.releaseClaim(claimed.id);
       throw error;
     }
-    const placed = await this.deps.venue.placeOrder(this.limitRequest(claimed));
+    let placed: VenueOrder;
+    try {
+      placed = await this.deps.venue.placeOrder(prepared.request);
+    } catch (error) {
+      const kind = classifyPlaceFailure(error);
+      if (kind === 'pre_send') {
+        await this.releaseClaim(claimed.id);
+        throw new ConversionError('pay.conversion_not_sent', 'SERVICE_UNAVAILABLE');
+      }
+      if (kind === 'rejected') {
+        await this.releaseHold(claimed, parseAmount(claimed.from_amount), 0);
+        return orderView(
+          await this.mark(claimed.id, {
+            status: 'failed',
+            failureCode: 'pay.conversion_venue_rejected',
+          }),
+        );
+      }
+      throw error;
+    }
     if (this.deps.afterPlace) await this.deps.afterPlace(placed);
     return orderView(await this.book(claimed, placed));
   }
 
-  private limitRequest(row: OrderRow): PlaceOrderRequest {
-    return {
-      symbol: row.symbol,
-      side: 'sell',
-      type: 'limit',
+  /**
+   * Post the hold idempotently. Returns the failed row when clearing cannot
+   * cover it. A timeout that already posted is not a second hold.
+   */
+  private async ensureHold(row: OrderRow): Promise<OrderRow | null> {
+    const request = recipes.fxConversionHold({
+      conversionId: row.id,
+      merchantId: row.merchant_id,
+      fromAsset: row.from_asset,
       amount: parseAmount(row.from_amount),
-      price: conversionLimitPrice(parseAmount(row.minimum_output), parseAmount(row.from_amount)),
-      timeInForce: 'IOC',
-      clientOrderId: row.client_order_id,
+    });
+    try {
+      await postPayLedger(this.deps.ledger, request);
+      return null;
+    } catch (error) {
+      if (error instanceof InsufficientFundsError) {
+        return this.mark(row.id, { status: 'failed', failureCode: 'pay.conversion_unfunded' });
+      }
+      const posted = await this.deps.ledger.getTxByKey(request.idempotencyKey).catch(() => null);
+      if (posted?.reason === 'pay.conversion.held') return null;
+      throw error;
+    }
+  }
+
+  /**
+   * Round onto the venue grid before the row is claimed. Below the min
+   * notional the order can never be sent: it fails and the hold is released.
+   * An unknown filter or rate leaves the row at `intent_committed`.
+   */
+  private async prepareLimit(row: OrderRow): Promise<{ kind: 'ready'; request: PlaceOrderRequest } | { kind: 'failed'; row: OrderRow }> {
+    const quote = await this.quoteById(row.quote_id);
+    if (!quote) throw new ConversionError('pay.conversion_filters_unconfigured', 'SERVICE_UNAVAILABLE');
+    let filters: ConversionSymbolFilters | null;
+    let liveRate: Amount | null;
+    try {
+      filters = await this.deps.venue.symbolFilters(row.symbol);
+      liveRate = await this.deps.venue.commissionRate(row.symbol);
+    } catch (error) {
+      if (classifyPlaceFailure(error) === 'pre_send') {
+        throw new ConversionError('pay.conversion_not_sent', 'SERVICE_UNAVAILABLE');
+      }
+      throw new ConversionError('pay.conversion_filters_unconfigured', 'SERVICE_UNAVAILABLE');
+    }
+    if (!filters) throw new ConversionError('pay.conversion_symbol_unknown', 'PRECONDITION_FAILED');
+    if (liveRate === null) throw new ConversionError('pay.conversion_commission_rate_unknown', 'PRECONDITION_FAILED');
+    const quotedRate = parseAmount(quote.commission_rate);
+    const rate = liveRate > quotedRate ? liveRate : quotedRate;
+    const price = roundUpToTick(
+      conversionLimitPrice(parseAmount(row.minimum_output), parseAmount(row.from_amount), rate),
+      filters.tickSize,
+    );
+    const quantity = roundDownToStep(parseAmount(row.from_amount), filters.stepSize);
+    const notional = quantity > 0n && price > 0n ? mul(quantity, price) : 0n;
+    if (quantity <= 0n || notional < filters.minNotional) {
+      await this.releaseHold(row, parseAmount(row.from_amount), 0);
+      return {
+        kind: 'failed',
+        row: await this.mark(row.id, { status: 'failed', failureCode: 'pay.conversion_below_min_notional' }),
+      };
+    }
+    return {
+      kind: 'ready',
+      request: {
+        symbol: row.symbol,
+        side: 'sell',
+        type: 'limit',
+        amount: quantity,
+        price,
+        timeInForce: 'IOC',
+        clientOrderId: row.client_order_id,
+      },
     };
   }
 
@@ -644,6 +903,11 @@ export class ConversionService {
       feeAmount: split.fee,
       spreadAmount: split.spread,
     };
+    // Booking and the under-floor reversal stay two posts. The recipe gate
+    // allows a post only when its reason and leg signature match one sampled
+    // recipe. These two reasons (`pay.conversion.booked`, `pay.conversion.reversed`)
+    // are different signatures; one body cannot carry both, and a mashed body
+    // under either reason is refused. The venue legs stay on the first post.
     await postPayLedger(this.deps.ledger, recipes.fxConversion(ledgerInput));
     const remainder = ordered - filled;
     if (remainder > 0n) await this.releaseHold(row, remainder, 1);
@@ -678,6 +942,25 @@ export class ConversionService {
         sequence,
       }),
     );
+  }
+
+  private async assertInventoryCovered(asset: string): Promise<void> {
+    const balance = await this.deps.ledger.balance(conversionInventory(asset));
+    if (balance.amount < 0n) throw new ConversionError('pay.conversion_inventory_short', 'PRECONDITION_FAILED');
+  }
+
+  private async readCommissionRate(symbol: string): Promise<Amount> {
+    let rate: Amount | null;
+    try {
+      rate = await this.deps.venue.commissionRate(symbol);
+    } catch (error) {
+      if (error instanceof ConversionError) throw error;
+      throw new ConversionError('pay.conversion_commission_rate_unknown', 'PRECONDITION_FAILED');
+    }
+    if (rate === null || rate < 0n || rate >= SCALE) {
+      throw new ConversionError('pay.conversion_commission_rate_unknown', 'PRECONDITION_FAILED');
+    }
+    return rate;
   }
 
   private async merchantUser(merchantId: string): Promise<string> {

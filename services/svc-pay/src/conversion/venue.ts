@@ -14,6 +14,13 @@ import {
   type VenueOrder,
 } from '@intafaced/venue-contracts';
 import { mul, parseAmount, type Amount } from '@intafaced/ledger-client';
+
+/** Venue order filters. A missing filter is not replaced with a default tick. */
+export interface ConversionSymbolFilters {
+  readonly tickSize: Amount;
+  readonly stepSize: Amount;
+  readonly minNotional: Amount;
+}
 import { ConversionError } from './errors.js';
 
 /**
@@ -48,6 +55,13 @@ export interface ConversionVenue {
   /** Closed spot orders. `null` is a confirmed miss, not a transport failure. */
   fetchClosedOrder(symbol: string, clientOrderId: string): Promise<VenueOrder | null>;
   cancelOrder(symbol: string, clientOrderId: string): Promise<VenueOrder>;
+  /**
+   * Taker commission as a fraction of quote notional (`0.001` is 10 bps).
+   * Null means the venue did not say. A quote then refuses.
+   */
+  commissionRate(symbol: string): Promise<Amount | null>;
+  /** Tick, step and min notional. Null means the symbol or a filter is unknown. */
+  symbolFilters(symbol: string): Promise<ConversionSymbolFilters | null>;
 }
 
 type Env = Record<string, string | undefined>;
@@ -82,6 +96,8 @@ export function unconfiguredConversionVenue(venueId = 'unconfigured'): Conversio
     fetchOrder: refuse,
     fetchClosedOrder: refuse,
     cancelOrder: refuse,
+    commissionRate: refuse,
+    symbolFilters: refuse,
   };
 }
 
@@ -203,6 +219,18 @@ export function conversionVenueFromTrade(trade: TradeAdapter, quote: ConversionV
       }
     },
     cancelOrder: (symbol, clientOrderId) => trade.cancelOrder(symbol, clientOrderId),
+    async commissionRate(symbol) {
+      const read = (trade as TradeAdapter & { commissionRate?(symbol: string): Promise<Amount | null> }).commissionRate?.bind(trade);
+      if (!read) return null;
+      return read(symbol);
+    },
+    async symbolFilters(symbol) {
+      const read = (
+        trade as TradeAdapter & { symbolFilters?(symbol: string): Promise<ConversionSymbolFilters | null> }
+      ).symbolFilters?.bind(trade);
+      if (!read) return null;
+      return read(symbol);
+    },
   };
 }
 
@@ -253,6 +281,8 @@ export interface MemoryConversionVenue extends ConversionVenue {
    * `misses` realtime and history lookups report that the order does not exist.
    */
   armLag(misses: number): void;
+  /** The next place throws this and does not remember an order. */
+  refuseNext(error: Error): void;
 }
 
 export interface MemoryFill {
@@ -289,10 +319,24 @@ export function createMemoryConversionVenue(opts: {
   fill?: (request: PlaceOrderRequest) => MemoryFill;
   /** Charged on a fill when the script does not set `feePaid`. Known zero is `0n`, not null. */
   commission?: Amount;
+  /**
+   * Fraction of quote notional. `null` is unknown and a quote refuses.
+   * Omitted is a known zero, so existing fixtures keep pricing a limit.
+   */
+  commissionRate?: Amount | null;
+  /** Omitted uses a 1e-8 grid and no min notional. `null` is unknown. */
+  filters?: ConversionSymbolFilters | null;
+  /** Thrown from the next place, before the order is remembered. */
   now?: () => Date;
 }): MemoryConversionVenue {
   const venueId = opts.venueId ?? 'binance-spot';
   const commission = opts.commission ?? parseAmount('0.0001');
+  const commissionRate = opts.commissionRate === undefined ? 0n : opts.commissionRate;
+  const filters =
+    opts.filters === undefined
+      ? { tickSize: parseAmount('0.00000001'), stepSize: parseAmount('0.00000001'), minNotional: 0n }
+      : opts.filters;
+  let refuseNext: Error | null = null;
   const orders = new Map<string, VenueOrder>();
   const open = new Map<string, VenueOrder>();
   const history = new Map<string, VenueOrder>();
@@ -380,6 +424,10 @@ export function createMemoryConversionVenue(opts: {
       lagAfterTimeout = misses;
       timeoutNext = true;
     },
+    /** The next place throws this and does not remember an order. */
+    refuseNext(error: Error) {
+      refuseNext = error;
+    },
     async quote(input) {
       const targetAmount = mul(input.fromAmount, opts.bid);
       return {
@@ -392,6 +440,11 @@ export function createMemoryConversionVenue(opts: {
     async placeOrder(request) {
       places += 1;
       last = request;
+      if (refuseNext) {
+        const error = refuseNext;
+        refuseNext = null;
+        throw error;
+      }
       if (request.clientOrderId.length > 36) {
         throw new VenueUnavailableError(venueId, 'malformed', 'clientOrderId exceeds 36 characters');
       }
@@ -413,6 +466,12 @@ export function createMemoryConversionVenue(opts: {
     async fetchClosedOrder(_symbol, clientOrderId) {
       if (hidden()) return null;
       return history.get(clientOrderId) ?? null;
+    },
+    async commissionRate() {
+      return commissionRate;
+    },
+    async symbolFilters() {
+      return filters;
     },
     async cancelOrder(_symbol, clientOrderId) {
       const order = orders.get(clientOrderId);

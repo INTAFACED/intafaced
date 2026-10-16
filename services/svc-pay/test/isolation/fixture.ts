@@ -232,6 +232,7 @@ function composeRouter(parts: {
   founderAuthority: FounderAuthority;
   metrics: MetricsRuntime;
   conversion: ConversionService;
+  ledger: MemoryLedger;
 }) {
   // src/index.ts: `actionApprovals` is the identity client when IDENTITY_URL is set, else this refusing consumer.
   const actionApprovals = unwiredApprovalConsumer();
@@ -261,7 +262,7 @@ function composeRouter(parts: {
         merchants: parts.pay,
         team: teamReadFromSql(parts.sql),
       },
-      treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: createConversionInventory(parts.sql) },
+      treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: createConversionInventory(parts.sql, parts.ledger) },
       // W1: as src/index.ts, the approver is whoever holds payout.approve on the merchant team (W15 roles).
       control: new ControlService(parts.sql, teamAccessPorts(parts.sql)),
       conversion: parts.conversion,
@@ -315,7 +316,7 @@ export async function createWorld(): Promise<World> {
   const conversion = new ConversionService({
     sql,
     ledger,
-    guards: buildPayGuards({ sql }),
+    guards: buildPayGuards({ sql, ledger }),
     venue: unconfiguredConversionVenue(),
     registries: createRegistryReader(sql),
     slippageBps: null,
@@ -331,6 +332,7 @@ export async function createWorld(): Promise<World> {
     founderAuthority,
     metrics,
     conversion,
+    ledger,
   });
 
   const rest = Fastify();

@@ -16,7 +16,7 @@ import {
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import type { PlaceOrderRequest } from '@intafaced/venue-contracts';
+import { VenueUnavailableError, type PlaceOrderRequest } from '@intafaced/venue-contracts';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { composeGuards, FRESH } from '../seams/guards.js';
 import { createW5HaltsGuards } from '../seams/slots/w5-halts.js';
@@ -71,6 +71,8 @@ describe('W6 USD to USDT conversion', () => {
 
   afterEach(async () => {
     await db.sql`UPDATE pay.halts SET halted = false WHERE halted`;
+    await db.sql`DELETE FROM pay.conversion_resolve_proposals`;
+    await db.sql`DELETE FROM pay.conversion_audit`;
     await db.sql`DELETE FROM pay.conversion_orders`;
     await db.sql`DELETE FROM pay.conversion_quotes`;
   });
@@ -125,13 +127,19 @@ describe('W6 USD to USDT conversion', () => {
     });
   }
 
-  function memory(fill?: (request: PlaceOrderRequest) => MemoryFill, expiresInMs = 60_000, commission: Amount = 0n) {
+  function memory(
+    fill?: (request: PlaceOrderRequest) => MemoryFill,
+    expiresInMs = 60_000,
+    commission: Amount = 0n,
+    extra: Partial<Parameters<typeof createMemoryConversionVenue>[0]> = {},
+  ) {
     return createMemoryConversionVenue({
       bid: RATE,
       ask: RATE,
       commission,
       expiresAt: (now) => new Date(now.getTime() + expiresInMs),
       fill,
+      ...extra,
     });
   }
 
@@ -340,6 +348,8 @@ describe('W6 USD to USDT conversion', () => {
       placeOrder: (request) => inner.placeOrder(request),
       cancelOrder: (symbol, clientOrderId) => inner.cancelOrder(symbol, clientOrderId),
       fetchClosedOrder: (symbol, clientOrderId) => inner.fetchClosedOrder(symbol, clientOrderId),
+      commissionRate: (symbol) => inner.commissionRate(symbol),
+      symbolFilters: (symbol) => inner.symbolFilters(symbol),
       fetchOrder: async (symbol, clientOrderId) => {
         if (!armed) {
           armed = true;
@@ -456,6 +466,8 @@ describe('W6 USD to USDT conversion', () => {
         places += 1;
         throw new Error('must not place');
       },
+      commissionRate: async () => 0n,
+      symbolFilters: async () => ({ tickSize: parseAmount('0.00000001'), stepSize: parseAmount('0.00000001'), minNotional: 0n }),
       fetchOrder: async () => {
         throw new ConversionError('pay.conversion_venue_unknown', 'SERVICE_UNAVAILABLE');
       },
@@ -531,6 +543,12 @@ describe('W6 USD to USDT conversion', () => {
     const who = await merchant();
     const venue: ConversionVenue = {
       venueId: 'binance-spot',
+      commissionRate: async () => {
+        throw new ConversionError('pay.conversion_credentials_unconfigured', 'PRECONDITION_FAILED');
+      },
+      symbolFilters: async () => {
+        throw new ConversionError('pay.conversion_credentials_unconfigured', 'PRECONDITION_FAILED');
+      },
       quote: async () => {
         throw new ConversionError('pay.conversion_credentials_unconfigured', 'PRECONDITION_FAILED');
       },
@@ -774,5 +792,402 @@ describe('W6 USD to USDT conversion', () => {
     expect(booked.status).toBe('filled');
     expect((await ledger.balance(userAvailable(who.userId, 'USDT'))).amount).toBe(HUNDRED);
     expect((await ledger.balance(userAvailable(financeId, 'USDT'))).amount).toBe(0n);
+  });
+
+  const bodyOf = (who: { merchantId: string; settlementId: string }, fromAmount: string) => ({
+    merchantId: who.merchantId,
+    settlementId: who.settlementId,
+    fromAsset: 'USD' as const,
+    toAsset: 'USDT' as const,
+    fromAmount,
+  });
+
+  it('raises the limit to the next tick so a fill still clears the floor after a known commission', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(undefined, 60_000, 0n, {
+      commissionRate: parseAmount('0.01'),
+      filters: { tickSize: parseAmount('0.01'), stepSize: parseAmount('0.00000001'), minNotional: 0n },
+    });
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, bodyOf(who, '100'));
+    await svc.execute(who.caller, { requestId: randomUUID(), quoteId: quote.quoteId });
+    expect(venue.lastPlace()?.price).toBe(parseAmount('1.02'));
+  });
+
+  it('refuses a quote when the venue does not report a commission rate', async () => {
+    const who = await merchant();
+    const venue = memory(undefined, 60_000, 0n, { commissionRate: null });
+    const svc = service(venue, { ledger: new MemoryLedger() });
+    await expect(svc.quote(who.caller, bodyOf(who, '100'))).rejects.toMatchObject({
+      code: 'pay.conversion_commission_rate_unknown',
+    });
+  });
+
+  it('returns a pre-send failure to intent_committed and fails a definite rejection', async () => {
+    const cases: Array<{ error: Error; status: string; code: string }> = [
+      {
+        error: new VenueUnavailableError('binance-spot', 'rate_limited', 'local window full (retry in 1000ms)'),
+        status: 'intent_committed',
+        code: 'pay.conversion_not_sent',
+      },
+      {
+        error: new VenueUnavailableError('binance-spot', 'malformed', 'limit order requires price'),
+        status: 'intent_committed',
+        code: 'pay.conversion_not_sent',
+      },
+      {
+        error: new VenueUnavailableError('binance-spot', 'not_ready', 'HTTP POST port is not wired'),
+        status: 'intent_committed',
+        code: 'pay.conversion_not_sent',
+      },
+      {
+        error: new VenueUnavailableError('binance-spot', 'no_depth', 'book is not payout-grade'),
+        status: 'intent_committed',
+        code: 'pay.conversion_not_sent',
+      },
+      {
+        error: new VenueUnavailableError('binance-spot', 'unreachable', 'placeOrder code -1121 (Invalid symbol)'),
+        status: 'intent_committed',
+        code: 'pay.conversion_not_sent',
+      },
+      {
+        error: new VenueUnavailableError('binance-spot', 'unreachable', 'placeOrder code -2010 (insufficient balance)'),
+        status: 'failed',
+        code: 'pay.conversion_venue_rejected',
+      },
+      {
+        error: new VenueUnavailableError('binance-spot', 'unreachable', 'placeOrder code -1013 (Filter failure: MIN_NOTIONAL)'),
+        status: 'failed',
+        code: 'pay.conversion_venue_rejected',
+      },
+      {
+        error: new VenueUnavailableError('bybit-spot', 'unreachable', 'placeOrder retCode 170131 (Insufficient balance)'),
+        status: 'failed',
+        code: 'pay.conversion_venue_rejected',
+      },
+      {
+        error: new VenueUnavailableError('bybit-spot', 'unreachable', 'placeOrder retCode 170140 (Order value exceeded lower limit)'),
+        status: 'failed',
+        code: 'pay.conversion_venue_rejected',
+      },
+    ];
+    for (const item of cases) {
+      const who = await merchant();
+      const ledger = new MemoryLedger();
+      await fund(ledger, who.merchantId);
+      const venue = memory(() => full);
+      venue.refuseNext(item.error);
+      const svc = service(venue, { ledger });
+      const quote = await svc.quote(who.caller, bodyOf(who, '100'));
+      const requestId = randomUUID();
+      if (item.status === 'failed') {
+        const order = await svc.execute(who.caller, { requestId, quoteId: quote.quoteId });
+        expect(order.status, item.error.message).toBe('failed');
+        expect(order.failureCode).toBe(item.code);
+        expect((await ledger.balance(merchantClearing(who.merchantId, 'USD'))).amount).toBe(HUNDRED);
+      } else {
+        await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toMatchObject({ code: item.code });
+        const row = await db.sql<Array<{ status: string }>>`SELECT status FROM pay.conversion_orders WHERE request_id = ${requestId}`;
+        expect(row[0]!.status, item.error.message).toBe('intent_committed');
+        expect((await ledger.balance(merchantClearing(who.merchantId, 'USD'))).amount).toBe(0n);
+      }
+      expect(venue.placeCount()).toBe(1);
+    }
+  });
+
+  it('keeps a timed-out place in placing and does not send it again', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(() => full);
+    venue.refuseNext(new Error('venue timeout'));
+    const svc = service(venue, { ledger, placingMaxAgeMs: null });
+    const quote = await svc.quote(who.caller, bodyOf(who, '100'));
+    const requestId = randomUUID();
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toThrow(/venue timeout/);
+    const row = await db.sql<Array<{ status: string }>>`SELECT status FROM pay.conversion_orders WHERE request_id = ${requestId}`;
+    expect(row[0]!.status).toBe('placing');
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toMatchObject({
+      code: 'pay.conversion_placing_retry_unconfigured',
+    });
+    expect(venue.placeCount()).toBe(1);
+  });
+
+  it('fails an order the venue grid cannot accept and leaves an unknown symbol unsent', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const tooSmall = memory(undefined, 60_000, 0n, {
+      filters: { tickSize: parseAmount('0.01'), stepSize: parseAmount('0.01'), minNotional: parseAmount('1000') },
+    });
+    const svc = service(tooSmall, { ledger });
+    const quote = await svc.quote(who.caller, bodyOf(who, '100'));
+    const failed = await svc.execute(who.caller, { requestId: randomUUID(), quoteId: quote.quoteId });
+    expect(failed.status).toBe('failed');
+    expect(failed.failureCode).toBe('pay.conversion_below_min_notional');
+    expect(tooSmall.placeCount()).toBe(0);
+    expect((await ledger.balance(merchantClearing(who.merchantId, 'USD'))).amount).toBe(HUNDRED);
+
+    const unknown = memory(undefined, 60_000, 0n, { filters: null });
+    const again = service(unknown, { ledger });
+    const second = await again.quote(who.caller, bodyOf(who, '10'));
+    await expect(again.execute(who.caller, { requestId: randomUUID(), quoteId: second.quoteId })).rejects.toMatchObject({
+      code: 'pay.conversion_symbol_unknown',
+    });
+    expect(unknown.placeCount()).toBe(0);
+  });
+
+  it('sends a quantity rounded down to the step and releases the dust', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory((request) => ({ status: 'filled', filled: request.amount, averagePrice: RATE, feePaid: 0n }), 60_000, 0n, {
+      filters: { tickSize: parseAmount('0.01'), stepSize: parseAmount('30'), minNotional: 0n },
+    });
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, bodyOf(who, '100'));
+    const order = await svc.execute(who.caller, { requestId: randomUUID(), quoteId: quote.quoteId });
+    expect(venue.lastPlace()?.amount).toBe(parseAmount('90'));
+    expect(order.status).toBe('partially_filled');
+    expect(order.filledFromAmount).toBe('90');
+    expect((await ledger.balance(merchantClearing(who.merchantId, 'USD'))).amount).toBe(parseAmount('10'));
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('treats a ledger timeout that already posted as the same hold', async () => {
+    const who = await merchant();
+    const inner = new MemoryLedger();
+    await fund(inner, who.merchantId);
+    let thrown = false;
+    const ledger: LedgerClient = {
+      async post(request) {
+        const tx = await inner.post(request);
+        if (!thrown && request.idempotencyKey.startsWith('pay.conversion.hold:')) {
+          thrown = true;
+          throw new Error('ledger timeout');
+        }
+        return tx;
+      },
+      balance: (ref) => inner.balance(ref),
+      balances: (ownerType, ownerId) => inner.balances(ownerType, ownerId),
+      getTx: (txId) => inner.getTx(txId),
+      getTxByKey: (key) => inner.getTxByKey(key),
+    };
+    const venue = memory(() => full);
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, bodyOf(who, '100'));
+    const order = await svc.execute(who.caller, { requestId: randomUUID(), quoteId: quote.quoteId });
+    expect(order.status).toBe('filled');
+    expect(thrown).toBe(true);
+    const stored = await db.sql<Array<{ id: string }>>`
+      SELECT id FROM pay.conversion_orders WHERE filled_from_amount > 0 ORDER BY created_at DESC LIMIT 1
+    `;
+    expect(await inner.getTxByKey(`pay.conversion.hold:${stored[0]!.id}`)).toMatchObject({ reason: 'pay.conversion.held' });
+    expect(inner.reconcile()).toEqual({ ok: true });
+  });
+
+  it('leaves the row unplaced when the hold timeout did not post, then a retry places once', async () => {
+    const who = await merchant();
+    const inner = new MemoryLedger();
+    await fund(inner, who.merchantId);
+    let failNext = true;
+    const ledger: LedgerClient = {
+      async post(request) {
+        if (failNext && request.idempotencyKey.startsWith('pay.conversion.hold:')) {
+          failNext = false;
+          throw new Error('ledger timeout');
+        }
+        return inner.post(request);
+      },
+      balance: (ref) => inner.balance(ref),
+      balances: (ownerType, ownerId) => inner.balances(ownerType, ownerId),
+      getTx: (txId) => inner.getTx(txId),
+      getTxByKey: (key) => inner.getTxByKey(key),
+    };
+    const venue = memory(() => full);
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, bodyOf(who, '100'));
+    const requestId = randomUUID();
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toThrow(/ledger timeout/);
+    const waiting = await db.sql<Array<{ status: string }>>`SELECT status FROM pay.conversion_orders WHERE request_id = ${requestId}`;
+    expect(waiting[0]!.status).toBe('intent_committed');
+    expect(venue.placeCount()).toBe(0);
+    const booked = await svc.execute(who.caller, { requestId, quoteId: quote.quoteId });
+    expect(booked.status).toBe('filled');
+    expect(venue.placeCount()).toBe(1);
+  });
+
+  it('sweeps holds whose rows are failed or absent and leaves a placing hold', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId, parseAmount('200'));
+    const venue = memory(() => full);
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, bodyOf(who, '40'));
+    venue.refuseNext(new Error('venue timeout'));
+    const requestId = randomUUID();
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toThrow(/venue timeout/);
+    await db.sql`UPDATE pay.conversion_orders SET status = 'failed', failure_code = 'pay.conversion_venue_rejected' WHERE request_id = ${requestId}`;
+    const orphan = randomUUID();
+    await ledger.post(
+      recipes.fxConversionHold({ conversionId: orphan, merchantId: who.merchantId, fromAsset: 'USD', amount: parseAmount('15') }),
+    );
+    const live = await svc.quote(who.caller, bodyOf(who, '10'));
+    venue.refuseNext(new Error('venue timeout'));
+    await expect(svc.execute(who.caller, { requestId: randomUUID(), quoteId: live.quoteId })).rejects.toThrow(/venue timeout/);
+    expect(await svc.sweepOrphanHolds()).toEqual({ released: 2 });
+    expect(await svc.sweepOrphanHolds()).toEqual({ released: 0 });
+    const holds = await ledger.balances('module', `pay:clearing:${who.merchantId}`);
+    const open = holds.filter((row) => row.account.kind === 'hold' && row.amount > 0n);
+    expect(open).toHaveLength(1);
+    expect(open[0]!.amount).toBe(parseAmount('10'));
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('books or releases a placing row from venue evidence under two founders', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(() => full);
+    venue.armLag(0);
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, bodyOf(who, '100'));
+    const requestId = randomUUID();
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toThrow(/venue timeout/);
+    const row = await db.sql<Array<{ id: string; status: string }>>`
+      SELECT id, status FROM pay.conversion_orders WHERE request_id = ${requestId}
+    `;
+    expect(row[0]!.status).toBe('placing');
+    const founderA = randomUUID();
+    const founderB = randomUUID();
+    const proposed = await svc.proposeResolve(founderA, { requestId: randomUUID(), conversionId: row[0]!.id, reason: 'venue evidence' });
+    expect(proposed.status).toBe('pending');
+    expect(proposed.changeHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    const same = await svc.confirmResolve(founderA, {
+      requestId: proposed.requestId,
+      decision: 'confirm',
+      reason: 'same person',
+      expectedChangeHash: proposed.changeHash!,
+    });
+    expect(same.status).toBe('same_founder');
+    const wrong = await svc.confirmResolve(founderB, {
+      requestId: proposed.requestId,
+      decision: 'confirm',
+      reason: 'wrong hash',
+      expectedChangeHash: `sha256:${'b'.repeat(64)}`,
+    });
+    expect(wrong.status).toBe('hash_mismatch');
+    const confirmed = await svc.confirmResolve(founderB, {
+      requestId: proposed.requestId,
+      decision: 'confirm',
+      reason: 'second founder',
+      expectedChangeHash: proposed.changeHash!,
+    });
+    expect(confirmed.status).toBe('confirmed');
+    expect(confirmed.order?.status).toBe('filled');
+    expect(venue.placeCount()).toBe(1);
+    const audit = await db.sql<Array<{ action: string; approver_id: string | null }>>`
+      SELECT action, approver_id FROM pay.conversion_audit WHERE conversion_id = ${row[0]!.id}
+    `;
+    expect(audit.map((entry) => entry.action).sort()).toEqual(['resolve_confirmed', 'resolve_proposed']);
+    expect(audit.find((entry) => entry.action === 'resolve_confirmed')!.approver_id).toBe(founderB);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+
+    const absentWho = await merchant();
+    const absentLedger = new MemoryLedger();
+    await fund(absentLedger, absentWho.merchantId);
+    const absentVenue = memory(() => full);
+    const absent = service(absentVenue, { ledger: absentLedger });
+    const absentQuote = await absent.quote(absentWho.caller, bodyOf(absentWho, '100'));
+    absentVenue.refuseNext(new Error('socket hang up'));
+    const absentRequest = randomUUID();
+    await expect(absent.execute(absentWho.caller, { requestId: absentRequest, quoteId: absentQuote.quoteId })).rejects.toThrow(
+      /socket hang up/,
+    );
+    const stuck = await db.sql<Array<{ id: string }>>`SELECT id FROM pay.conversion_orders WHERE request_id = ${absentRequest}`;
+    const proposal = await absent.proposeResolve(founderA, { requestId: randomUUID(), conversionId: stuck[0]!.id, reason: 'no order' });
+    const released = await absent.confirmResolve(founderB, {
+      requestId: proposal.requestId,
+      decision: 'confirm',
+      reason: 'second founder',
+      expectedChangeHash: proposal.changeHash!,
+    });
+    expect(released.order?.status).toBe('failed');
+    expect(released.order?.failureCode).toBe('pay.conversion_resolve_absent');
+    expect((await absentLedger.balance(merchantClearing(absentWho.merchantId, 'USD'))).amount).toBe(HUNDRED);
+  });
+
+  it('refuses a new conversion while fx inventory is short and counts that short as exposure', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(() => ({
+      status: 'partially_filled',
+      filled: parseAmount('50'),
+      averagePrice: RATE,
+      feePaid: parseAmount('1'),
+      feeAsset: 'USDT',
+    }));
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, bodyOf(who, '100'));
+    const reversed = await svc.execute(who.caller, { requestId: randomUUID(), quoteId: quote.quoteId });
+    expect(reversed.status).toBe('reversed');
+    expect((await ledger.balance(conversionInventory('USD'))).amount).toBe(parseAmount('-50'));
+    await expect(svc.quote(who.caller, bodyOf(who, '1'))).rejects.toMatchObject({ code: 'pay.conversion_inventory_short' });
+    const inventory = createConversionInventory(db.sql, ledger);
+    expect(await inventory.openInventory(db.sql, 'USD')).toBe(parseAmount('50'));
+    const capped = composeGuards(
+      createW5HaltsGuards({
+        sql: db.sql,
+        env: { PAY_TREASURY_LIMITS: 'required', PAY_TREASURY_EXPOSURE_LIMITS: JSON.stringify({ USD: '60' }) },
+        conversionInventory: inventory,
+      }),
+    );
+    await expect(
+      capped.beforeConversion!({
+        sql: db.sql,
+        tx: db.sql,
+        merchantId: who.merchantId,
+        settlementId: who.settlementId,
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: parseAmount('10'),
+        replay: FRESH,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      capped.beforeConversion!({
+        sql: db.sql,
+        tx: db.sql,
+        merchantId: who.merchantId,
+        settlementId: who.settlementId,
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: parseAmount('10') + 1n,
+        replay: FRESH,
+      }),
+    ).rejects.toMatchObject({ code: 'pay.guard_treasury_exposure_exceeded' });
+  });
+
+  it('refuses a repeat conversion whose filled amount plus the new amount exceeds the settlement', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory((request) => ({ status: 'filled', filled: request.amount, averagePrice: RATE, feePaid: 0n }));
+    const svc = service(venue, { ledger });
+    const first = await svc.quote(who.caller, bodyOf(who, '60'));
+    const booked = await svc.execute(who.caller, { requestId: randomUUID(), quoteId: first.quoteId });
+    expect(booked.status).toBe('filled');
+    const over = await svc.quote(who.caller, bodyOf(who, '50'));
+    await expect(svc.execute(who.caller, { requestId: randomUUID(), quoteId: over.quoteId })).rejects.toMatchObject({
+      code: 'pay.conversion_exceeds_settlement',
+    });
+    const rest = await svc.quote(who.caller, bodyOf(who, '40'));
+    const second = await svc.execute(who.caller, { requestId: randomUUID(), quoteId: rest.quoteId });
+    expect(second.status).toBe('filled');
+    expect(second.filledFromAmount).toBe('40');
+    expect(venue.placeCount()).toBe(2);
   });
 });

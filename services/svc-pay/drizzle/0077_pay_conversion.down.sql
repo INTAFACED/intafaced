@@ -4,5 +4,7 @@
 -- tables; dropping the rows does not move a balance. A venue order that was
 -- already sent is no longer recorded here.
 
+DROP TABLE IF EXISTS "pay"."conversion_audit";
+DROP TABLE IF EXISTS "pay"."conversion_resolve_proposals";
 DROP TABLE IF EXISTS "pay"."conversion_orders";
 DROP TABLE IF EXISTS "pay"."conversion_quotes";

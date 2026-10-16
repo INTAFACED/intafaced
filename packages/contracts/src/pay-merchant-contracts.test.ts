@@ -4,6 +4,8 @@ import {
   PAY_CAP_KINDS,
   PAY_HALT_SCOPES,
   conversionQuoteInputSchema,
+  conversionResolveConfirmInputSchema,
+  conversionResolveProposeInputSchema,
   founderApprovalDestinationSchema,
   founderControlAuditEntrySchema,
   founderControlAuditListInputSchema,
@@ -46,6 +48,17 @@ describe('pay contracts: money and ids', () => {
     const quote = { merchantId, settlementId: randomUUID(), fromAsset: 'USD', toAsset: 'USDT' };
     expect(conversionQuoteInputSchema.safeParse({ ...quote, fromAmount: '10' }).success).toBe(true);
     expect(conversionQuoteInputSchema.safeParse({ ...quote, fromAmount: 10 }).success).toBe(false);
+    const resolve = { requestId: randomUUID(), conversionId: randomUUID(), reason: 'venue evidence' };
+    expect(conversionResolveProposeInputSchema.safeParse(resolve).success).toBe(true);
+    expect(conversionResolveProposeInputSchema.safeParse({ ...resolve, amount: '1' }).success).toBe(false);
+    const confirm = {
+      requestId: randomUUID(),
+      decision: 'confirm' as const,
+      reason: 'venue evidence',
+      expectedChangeHash: `sha256:${'ab'.repeat(32)}`,
+    };
+    expect(conversionResolveConfirmInputSchema.safeParse(confirm).success).toBe(true);
+    expect(conversionResolveConfirmInputSchema.safeParse({ ...confirm, filledFromAmount: '1' }).success).toBe(false);
     expect(payCapSchema.safeParse({ kind: 'daily_intake', assetCode: 'USD', limit: 1000 }).success).toBe(false);
     expect(payCapSchema.safeParse({ kind: 'beneficiaries_per_day', limit: 5 }).success).toBe(true);
   });

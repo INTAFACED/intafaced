@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS "pay"."conversion_quotes" (
   "minimum_output"   numeric(60, 18) NOT NULL,
   "expected_output"  numeric(60, 18) NOT NULL,
   "gross_output"     numeric(60, 18) NOT NULL,
+  "commission_rate"  numeric(60, 18) NOT NULL,
   "venue_id"         text NOT NULL,
   "symbol"           text NOT NULL,
   "expires_at"       timestamptz NOT NULL,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS "pay"."conversion_quotes" (
   CONSTRAINT "conversion_quotes_amounts" CHECK (
     "from_amount" > 0 AND "rate" > 0 AND "fee_amount" >= 0 AND "spread_amount" >= 0
     AND "minimum_output" > 0 AND "expected_output" > 0 AND "gross_output" > 0
+    AND "commission_rate" >= 0 AND "commission_rate" < 1
   )
 );
 
@@ -94,3 +96,38 @@ CREATE INDEX IF NOT EXISTS "conversion_orders_open_idx"
   ON "pay"."conversion_orders" ("from_asset", "status");
 CREATE INDEX IF NOT EXISTS "conversion_orders_merchant_idx"
   ON "pay"."conversion_orders" ("merchant_id", "created_at" DESC, "id" DESC);
+
+-- A founder proposes a resolve; a different founder confirms the same hash.
+-- The apply step reads the venue. The proposal stores no fill numbers.
+CREATE TABLE IF NOT EXISTS "pay"."conversion_resolve_proposals" (
+  "request_id"     uuid PRIMARY KEY,
+  "conversion_id"  uuid NOT NULL REFERENCES "pay"."conversion_orders"("id"),
+  "change_hash"    text NOT NULL,
+  "reason"         text NOT NULL,
+  "proposed_by"    text NOT NULL,
+  "status"         text NOT NULL,
+  "confirmed_by"   text,
+  "created_at"     timestamptz NOT NULL DEFAULT now(),
+  "decided_at"     timestamptz,
+  CONSTRAINT "conversion_resolve_status" CHECK ("status" IN ('pending', 'confirmed', 'rejected')),
+  CONSTRAINT "conversion_resolve_hash" CHECK ("change_hash" ~ '^sha256:[0-9a-f]{64}$'),
+  CONSTRAINT "conversion_resolve_reason" CHECK (length(btrim("reason")) > 0)
+);
+
+CREATE INDEX IF NOT EXISTS "conversion_resolve_order_idx"
+  ON "pay"."conversion_resolve_proposals" ("conversion_id", "created_at" DESC);
+
+CREATE TABLE IF NOT EXISTS "pay"."conversion_audit" (
+  "id"             uuid PRIMARY KEY,
+  "conversion_id"  uuid,
+  "action"         text NOT NULL,
+  "actor_id"       text NOT NULL,
+  "approver_id"    text,
+  "detail"         jsonb NOT NULL,
+  "created_at"     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "conversion_audit_action" CHECK (length(btrim("action")) > 0),
+  CONSTRAINT "conversion_audit_actor" CHECK (length(btrim("actor_id")) > 0)
+);
+
+CREATE INDEX IF NOT EXISTS "conversion_audit_order_idx"
+  ON "pay"."conversion_audit" ("conversion_id", "created_at" DESC);

@@ -73,6 +73,15 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
   'founderAdmin.approvals.list': { founder: true, input: { limit: 10 } },
   'founderAdmin.approvals.destination': { founder: true, input: { approvalId: id() } },
   'founderAdmin.treasury.exposure': { founder: true, input: {} },
+  'founderAdmin.conversion.resolve.propose': {
+    founder: true,
+    input: { requestId: id(), conversionId: id(), reason: 'drill' },
+  },
+  'founderAdmin.conversion.resolve.confirm': {
+    founder: true,
+    input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
+  },
+  'founderAdmin.conversion.holds.sweep': { founder: true, input: {} },
 };
 
 const userId = id();

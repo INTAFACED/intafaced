@@ -10,6 +10,7 @@ import {
   subscribeRefusal,
   takerSideOf,
 } from './bybit-spot.js';
+import { bybitSymbolFilters, bybitTakerCommissionRate } from './bybit-spot-trade.js';
 import { AsyncFrameQueue, type HttpPort, type HttpResponse, type StreamHandle, type StreamPort } from '../transport.js';
 import { MaintainedBook } from '../book-feed.js';
 import { RateLimitGovernor } from '../rate-limit.js';
@@ -1051,5 +1052,42 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(snapshot.venueId).toBe('bybit-spot');
     expect(snapshot.sequence).toBe(1);
     expect(snapshot.bids).not.toHaveLength(0);
+  });
+
+  it('reads one taker fee rate and refuses a list that is not exactly one row', async () => {
+    const row = { symbol: 'BTCUSDT', takerFeeRate: '0.001', makerFeeRate: '0.0005' };
+    expect(formatAmount(bybitTakerCommissionRate({ result: { list: [row] } })!)).toBe('0.001');
+    expect(bybitTakerCommissionRate({ result: { list: [row, row] } })).toBeNull();
+    expect(bybitTakerCommissionRate({ result: { list: [{}] } })).toBeNull();
+    const http = new FakeHttp().queue({ retCode: 0, retMsg: 'OK', result: { list: [row] } });
+    const trade = new BybitSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1 });
+    expect(formatAmount((await trade.commissionRate('BTC/USDT'))!)).toBe('0.001');
+    expect(http.requests[0]).toContain('/v5/account/fee-rate');
+    expect(http.requests[0]).toContain('category=spot');
+    expect(http.requests[0]).toContain('symbol=BTCUSDT');
+  });
+
+  it('reads tick, step and min notional from instruments-info', async () => {
+    const instrument = {
+      symbol: 'BTCUSDT',
+      status: 'Trading',
+      lotSizeFilter: { basePrecision: '0.000001', minOrderAmt: '5' },
+      priceFilter: { tickSize: '0.01' },
+    };
+    expect(formatAmount(bybitSymbolFilters(instrument)!.tickSize)).toBe('0.01');
+    expect(formatAmount(bybitSymbolFilters(instrument)!.stepSize)).toBe('0.000001');
+    expect(formatAmount(bybitSymbolFilters(instrument)!.minNotional)).toBe('5');
+    expect(bybitSymbolFilters({ ...instrument, status: 'PreLaunch' })).toBeNull();
+    const http = new FakeHttp().queue({ retCode: 0, retMsg: 'OK', result: { list: [instrument] } });
+    const trade = new BybitSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1 });
+    const filters = await trade.symbolFilters('BTC/USDT');
+    expect(formatAmount(filters!.minNotional)).toBe('5');
+    expect(http.requests[0]).toBe('https://rest.test/v5/market/instruments-info?category=spot&symbol=BTCUSDT');
+  });
+
+  it('names a definite rejection by its retCode', async () => {
+    const http = new FakeHttp().queue(orderbook(1)).queue({ retCode: 170131, retMsg: 'Insufficient balance', result: {} });
+    const trade = new BybitSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1, snapshotLimit: 5 });
+    await expect(trade.placeOrder(order)).rejects.toThrow(/retCode 170131 \(Insufficient balance\)/);
   });
 });

@@ -57,6 +57,7 @@ export function createPayNamespaces(deps: {
       treasury: deps.treasury,
       control: deps.control,
       halts: deps.payHalts?.store,
+      conversion: deps.conversion,
     }),
     createConversionRouter(deps.conversion),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),
