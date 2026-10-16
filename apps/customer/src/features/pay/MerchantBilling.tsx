@@ -97,17 +97,23 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                     ]}
                   />
                 }
-                perform={() =>
-                  validatedMutation(
+                perform={() => {
+                  // Journal lock for this mandate. pay.mutate keeps this id and
+                  // attaches a fresh attempt id on the procedure key.
+                  const operation = `subscription-create:${mandateId}`;
+                  return validatedMutation(
                     pay,
                     'subscription.create',
                     { mandateId, path },
-                    z.object({ mandateId: s.id, path: z.enum(['crypto_invoice', 'card', 'card_mandate']) }),
+                    z.object({
+                      mandateId: s.id,
+                      path: z.enum(['crypto_invoice', 'card', 'card_mandate']),
+                    }),
                     s.subscriptionSchema,
                     'pay:write',
-                    'subscription-create',
-                  )
-                }
+                    operation,
+                  );
+                }}
                 disabled={!mandateId || !path || Boolean(pay.access('pay:write'))}
                 onConfirmed={(data) => {
                   setSelected(data.id);
