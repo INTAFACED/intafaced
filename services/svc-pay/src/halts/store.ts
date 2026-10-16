@@ -295,8 +295,10 @@ export class PayHaltStore {
     return transaction(
       this.sql,
       async (tx) => {
-        // Auto-trip lock, then this target, then (on clear) the window row.
-        await tx`SELECT pg_advisory_xact_lock(hashtext('pay.halt:autotrip'))`;
+        // A clear shares the auto-trip lock with accounting and must take it
+        // before this target, then the window row. An emergency halt takes only
+        // this target, so a stop does not wait behind a count change.
+        if (!input.halted) await this.lockAutoTrip(tx);
         await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.halt:${input.scope}:${key}`}))`;
         const requestId = input.requestId.toLowerCase();
         const repeated = await tx<HaltRow[]>`
@@ -451,9 +453,11 @@ export class PayHaltStore {
    * also counts toward that rail across every merchant, when the rail count is
    * configured. Reaching a count halts that target (`source: auto_trip`).
    *
-   * An unset count records nothing and, if a window was previously armed, marks
-   * it disarmed. A global target does not count: one caller cannot aim the
-   * platform switch by passing `global`. The per-rail halt is a `rail:` target.
+   * Both counts unset: return before any query or lock. A window armed earlier
+   * is disarmed at boot (`adoptConfig`), not on the send. One count unset still
+   * disarms that side inside the accounting transaction. A global target does
+   * not count: one caller cannot aim the platform switch by passing `global`.
+   * The per-rail halt is a `rail:` target.
    *
    * Failures before the configured count's effective time do not add. The same
    * count keeps that time. A different count, or a re-arm after disarm, starts
@@ -474,7 +478,11 @@ export class PayHaltStore {
     eventKey?: string,
   ): Promise<{ tripped: boolean; consecutiveFailures: number }> {
     if (target.level === 'global') return { tripped: false, consecutiveFailures: 0 };
-    const run = (tx: Sql) => this.applyFailure(tx, scope, target, sourceKey, eventKey);
+    if (this.autoTripOff()) return { tripped: false, consecutiveFailures: 0 };
+    const run = async (tx: Sql) => {
+      await this.boundAccountingLock(tx);
+      return this.applyFailure(tx, scope, target, sourceKey, eventKey);
+    };
     if (!conn) return transaction(this.sql, run, { isolation: 'read committed' });
     await conn`BEGIN ISOLATION LEVEL READ COMMITTED`;
     try {
@@ -492,13 +500,18 @@ export class PayHaltStore {
   }
 
   /**
-   * A success ends the streak for that target and source. An unset count disarms
-   * its window instead of resetting a streak that must not come back.
-   * A global target writes nothing.
+   * A success ends the streak for that target and source. One unset count
+   * disarms that side instead of resetting a streak that must not come back.
+   * Both counts unset: return before any query or lock. A global target writes
+   * nothing.
    */
   async recordSuccess(scope: PayHaltScope, target: PayHaltTarget, sourceKey: string, conn?: Sql): Promise<void> {
     if (target.level !== 'merchant' && target.level !== 'user') return;
-    const run = (tx: Sql) => this.applySuccess(tx, scope, target, sourceKey);
+    if (this.autoTripOff()) return;
+    const run = async (tx: Sql) => {
+      await this.boundAccountingLock(tx);
+      return this.applySuccess(tx, scope, target, sourceKey);
+    };
     if (!conn) {
       await transaction(this.sql, run, { isolation: 'read committed' });
       return;
@@ -524,7 +537,19 @@ export class PayHaltStore {
    *   3. the window row
    *   4. streak rows
    * A count change that takes the window before the advisory lock deadlocks a clear.
+   * An emergency halt does not take step 1.
+   *
+   * Both configured counts null: a send must not touch the auto-trip lock or the window row.
    */
+  private autoTripOff(): boolean {
+    return this.autoTrip.failures === null && this.autoTrip.railFailures === null;
+  }
+
+  /** Accounting waits at most a second for the auto-trip lock, then the caller logs it and keeps the money result. */
+  private async boundAccountingLock(tx: Sql): Promise<void> {
+    await tx`SET LOCAL lock_timeout = '1s'`;
+  }
+
   private async lockAutoTrip(tx: Sql): Promise<void> {
     await tx`SELECT pg_advisory_xact_lock(hashtext('pay.halt:autotrip'))`;
   }
@@ -646,6 +671,7 @@ export class PayHaltStore {
     sourceKey: string,
     eventKey?: string,
   ): Promise<{ tripped: boolean; consecutiveFailures: number }> {
+    if (this.autoTripOff()) return { tripped: false, consecutiveFailures: 0 };
     const plan = this.countPlan(scope, target, sourceKey);
     await this.lockAutoTrip(tx);
     const keys = [plan.merchantKey, plan.railKey].filter((key): key is string => key !== null);
@@ -678,6 +704,7 @@ export class PayHaltStore {
   }
 
   private async applySuccess(tx: Sql, scope: PayHaltScope, target: PayHaltTarget, sourceKey: string): Promise<void> {
+    if (this.autoTripOff()) return;
     const plan = this.countPlan(scope, target, sourceKey);
     await this.lockAutoTrip(tx);
     const keys = [plan.merchantKey, plan.railKey].filter((key): key is string => key !== null);

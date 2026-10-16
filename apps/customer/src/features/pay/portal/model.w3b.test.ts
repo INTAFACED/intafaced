@@ -425,11 +425,20 @@ describe('pricing and pauses', () => {
         { scope: 'payout' as const, target: { level: 'global' as const }, halted: true, changedAt: '2026-10-15T00:00:00.000Z' },
         { scope: 'intake' as const, target: { level: 'merchant' as const, merchantId: 'm' }, halted: false, changedAt: null },
         { scope: 'conversion' as const, target: { level: 'global' as const }, halted: true, changedAt: null },
+        {
+          scope: 'payout' as const,
+          target: { level: 'rail' as const, railId: 'crypto-native' },
+          halted: true,
+          changedAt: '2026-10-15T01:00:00.000Z',
+        },
       ],
     };
     expect(activeHalts(status, ['payout', 'intake'])).toEqual({
       unreadable: false,
-      halts: [{ scope: 'payout', level: 'global', changedAt: '2026-10-15T00:00:00.000Z' }],
+      halts: [
+        { scope: 'payout', level: 'global', changedAt: '2026-10-15T00:00:00.000Z' },
+        { scope: 'payout', level: 'rail', railId: 'crypto-native', changedAt: '2026-10-15T01:00:00.000Z' },
+      ],
     });
     expect(activeHalts({ readable: false, states: [] }, ['payout'])).toEqual({ unreadable: true, halts: [] });
   });

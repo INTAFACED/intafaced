@@ -125,6 +125,26 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
   }, 30_000);
 
   const storeOn = (sql: postgres.Sql, env: Record<string, string> = {}) => new PayHaltStore(sql, loadHaltAutoTripConfig(env));
+  function openSpy() {
+    const queries: string[] = [];
+    const sql = postgres(db.url, {
+      max: 2,
+      connection: { search_path: 'pay,public' },
+      onnotice: () => undefined,
+      debug: (_connection, query, parameters) => {
+        queries.push(`${String(query)} ${JSON.stringify(parameters ?? [])}`);
+      },
+    });
+    return { sql, queries, end: () => sql.end({ timeout: 5 }) };
+  }
+  async function holdAutoTripLock(): Promise<() => Promise<void>> {
+    const holder = postgres(db.url, { max: 1, onnotice: () => undefined });
+    await holder`SELECT pg_advisory_lock(hashtext('pay.halt:autotrip'))`;
+    return async () => {
+      await holder`SELECT pg_advisory_unlock_all()`.catch(() => undefined);
+      await holder.end({ timeout: 5 });
+    };
+  }
   /** A replica: its own pool, its own store and guards. */
   const replica = (sql: postgres.Sql, env: Record<string, string> = {}) => ({
     store: storeOn(sql, env),
@@ -1222,9 +1242,126 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(amt('40'));
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
+
+    it('with both counts unset, recordSuccess and recordFailure issue no auto-trip lock or window query', async () => {
+      const spy = openSpy();
+      try {
+        const store = new PayHaltStore(spy.sql, loadHaltAutoTripConfig({}));
+        const venue = merchantTarget(MERCHANT);
+        const reserved = await spy.sql.reserve();
+        try {
+          await store.recordSuccess('payout', venue, 'rail:crypto-native');
+          await store.recordFailure('payout', venue, 'rail:crypto-native', undefined, 'payout:none');
+          await store.recordSuccess('payout', venue, 'rail:crypto-native', reserved);
+          await store.recordFailure('payout', { level: 'user', userId: USER }, 'rail:crypto-native', reserved);
+        } finally {
+          reserved.release();
+        }
+        expect(spy.queries.join('\n')).not.toMatch(/pg_advisory|halt_autotrip|lock_timeout/);
+      } finally {
+        await spy.end();
+      }
+    });
+
+    it('a held auto-trip lock does not delay a payout when both counts are unset', async () => {
+      const store = storeOn(poolA);
+      const pay = payService(composeGuards(createHaltGuards({ sql: poolA })), poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const baselineSettlement = await settle(pay, m.id, 'w-base');
+      const baselineStarted = Date.now();
+      expect((await pay.payoutSettlement({ settlementId: baselineSettlement.id, railId: 'crypto-native', destination: DEST })).status).toBe(
+        'paid_out',
+      );
+      const baseline = Date.now() - baselineStarted;
+
+      await capturedCryptoPayment(pay, m.id, '10');
+      const heldSettlement = await settle(pay, m.id, 'w-held');
+      const release = await holdAutoTripLock();
+      try {
+        const started = Date.now();
+        expect((await pay.payoutSettlement({ settlementId: heldSettlement.id, railId: 'crypto-native', destination: DEST })).status).toBe(
+          'paid_out',
+        );
+        expect(Date.now() - started - baseline).toBeLessThan(1000);
+      } finally {
+        await release();
+      }
+    });
+
+    it('a held auto-trip lock stops accounting within about a second, and the payout still completes', async () => {
+      resetAutoTripAccountErrors();
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
+      const pay = payService(composeGuards(createHaltGuards({ sql: poolA })), poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const settlement = await settle(pay, m.id, 'w-lock-timeout');
+      const release = await holdAutoTripLock();
+      try {
+        const started = Date.now();
+        expect((await pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST })).status).toBe(
+          'paid_out',
+        );
+        const elapsed = Date.now() - started;
+        expect(elapsed).toBeGreaterThanOrEqual(900);
+        expect(elapsed).toBeLessThan(4000);
+      } finally {
+        await release();
+      }
+      expect(autoTripAccountErrorCount()).toBe(1);
+      expect(await poolA`SELECT 1 FROM pay.halt_failure_streaks`).toHaveLength(0);
+    }, 15_000);
+
+    it('an armed count sets a one second lock timeout before the auto-trip lock', async () => {
+      const spy = openSpy();
+      try {
+        const store = new PayHaltStore(spy.sql, loadHaltAutoTripConfig({ PAY_HALT_AUTOTRIP_FAILURES: '4' }));
+        await store.recordFailure('payout', merchantTarget(MERCHANT), 'rail:crypto-native');
+        const text = spy.queries.join('\n');
+        const timeoutAt = text.indexOf('lock_timeout');
+        const lockAt = text.indexOf('pay.halt:autotrip');
+        expect(timeoutAt).toBeGreaterThanOrEqual(0);
+        expect(lockAt).toBeGreaterThan(timeoutAt);
+      } finally {
+        await spy.end();
+      }
+    });
   });
 
   describe('operator set and dual-controlled clear', () => {
+    it('an emergency halt does not take the auto-trip lock, and a clear takes it first', async () => {
+      const spy = openSpy();
+      try {
+        const store = new PayHaltStore(spy.sql, loadHaltAutoTripConfig({}));
+        await store.set(FOUNDER_A, setInput({ reason: 'stop now' }));
+        expect(spy.queries.join('\n')).not.toContain('pay.halt:autotrip');
+
+        spy.queries.length = 0;
+        expect((await store.set(FOUNDER_A, setInput({ halted: false, expectedVersion: '1', reason: 'lift' }))).outcome).toBe(
+          'pending_confirmation',
+        );
+        const text = spy.queries.join('\n');
+        const auto = text.indexOf('pay.halt:autotrip');
+        const target = text.indexOf('pay.halt:intake:global');
+        expect(auto).toBeGreaterThanOrEqual(0);
+        expect(target).toBeGreaterThan(auto);
+      } finally {
+        await spy.end();
+      }
+    });
+
+    it('an emergency halt does not wait while accounting holds the auto-trip lock', async () => {
+      const store = storeOn(poolA);
+      const release = await holdAutoTripLock();
+      try {
+        const started = Date.now();
+        expect((await store.set(FOUNDER_A, setInput({ reason: 'stop now' }))).outcome).toBe('changed');
+        expect(Date.now() - started).toBeLessThan(1000);
+      } finally {
+        await release();
+      }
+    });
+
     it('setting needs one founder and is immediate; a retry of the same request is a noop', async () => {
       const store = storeOn(poolA);
       const input = setInput({ scope: 'payout' });
@@ -1285,6 +1422,36 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       await expect(poolA`DELETE FROM pay.halts`).rejects.toThrow();
       await poolA`INSERT INTO pay.halt_autotrip_window (singleton, failures, effective_at) VALUES ('autotrip', 3, now())`;
       await expect(poolA`DELETE FROM pay.halt_autotrip_window`).rejects.toThrow();
+    });
+
+    it('downgrade writes a cleared-by-migration event for each user and rail halt it deletes', async () => {
+      const down = readFileSync(join(here, '..', '..', 'drizzle', '0079_pay_halt_autotrip_window.down.sql'), 'utf8');
+      const up = readFileSync(join(here, '..', '..', 'drizzle', '0079_pay_halt_autotrip_window.sql'), 'utf8');
+      await poolA`
+        INSERT INTO pay.halts (scope, target, halted, reason, source, actor_user_id, version) VALUES
+          ('payout', ${`user:${USER}`}, true, 'user stop', 'auto_trip', NULL, 1),
+          ('payout', 'rail:crypto-native', true, 'rail stop', 'auto_trip', NULL, 3),
+          ('intake', 'global', true, 'keep', 'operator', ${FOUNDER_A}, 1),
+          ('settlement', ${MERCHANT}, true, 'merchant stop', 'operator', ${FOUNDER_A}, 2)
+      `;
+      let dropped = false;
+      try {
+        await poolA.unsafe(down);
+        dropped = true;
+        const left = await poolA<{ target: string }[]>`SELECT target FROM pay.halts ORDER BY target`;
+        expect(left.map((row) => row.target).sort()).toEqual([MERCHANT, 'global'].sort());
+        const events = await poolA<{ target: string; halted: boolean; reason: string; source: string; version: string }[]>`
+          SELECT target, halted, reason, source, version::text AS version FROM pay.halt_events
+           WHERE reason = 'cleared by migration'
+           ORDER BY target
+        `;
+        expect(events).toEqual([
+          { target: 'rail:crypto-native', halted: false, reason: 'cleared by migration', source: 'auto_trip', version: '4' },
+          { target: `user:${USER}`, halted: false, reason: 'cleared by migration', source: 'auto_trip', version: '2' },
+        ]);
+      } finally {
+        if (dropped) await poolA.unsafe(up);
+      }
     });
   });
 });

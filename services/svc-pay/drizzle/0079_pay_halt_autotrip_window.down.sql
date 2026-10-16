@@ -7,6 +7,14 @@ DROP TABLE IF EXISTS pay.halt_autotrip_counted;
 DROP TRIGGER IF EXISTS pay_halt_autotrip_window_no_delete ON pay.halt_autotrip_window;
 DROP TABLE IF EXISTS pay.halt_autotrip_window;
 
+-- halt_events accepts an insert (its immutability trigger is update and delete
+-- only). source stays auto_trip: operator requires an actor, and a migration
+-- has none. The reason is the record that this downgrade cleared the row.
+INSERT INTO pay.halt_events (scope, target, halted, reason, source, actor_user_id, confirmed_by_user_id, request_id, version)
+SELECT scope, target, false, 'cleared by migration', 'auto_trip', NULL, NULL, NULL, version + 1
+  FROM pay.halts
+ WHERE target LIKE 'user:%' OR target LIKE 'rail:%';
+
 ALTER TABLE pay.halts DISABLE TRIGGER pay_halts_no_delete;
 DELETE FROM pay.halts WHERE target LIKE 'user:%' OR target LIKE 'rail:%';
 ALTER TABLE pay.halts ENABLE TRIGGER pay_halts_no_delete;

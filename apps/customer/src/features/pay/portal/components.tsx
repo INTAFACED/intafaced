@@ -455,17 +455,21 @@ export function HaltBanner({
   if (halts.length === 0) return null;
   return (
     <div className="pp-callout pp-callout--warn" role="alert">
-      {halts.map((h) => (
-        <p key={`${h.scope}:${h.level}:${h.railId ?? ''}`}>
-          <strong>{t(`haltOp_${h.scope}` as 'haltOp_intake')}</strong> {h.level === 'merchant' ? t('haltYours') : t('haltGlobal')}{' '}
-          {h.changedAt ? (
-            <>
-              {t('haltSince')} <PayTime value={h.changedAt} />.{' '}
-            </>
-          ) : null}
-          {t('haltEffect')}
-        </p>
-      ))}
+      {halts.map((h) => {
+        const where =
+          h.level === 'merchant' ? t('haltYours') : h.level === 'rail' ? t('haltRail', { rail: h.railId ?? '' }) : t('haltGlobal');
+        return (
+          <p key={`${h.scope}:${h.level}:${h.railId ?? ''}`}>
+            <strong>{t(`haltOp_${h.scope}` as 'haltOp_intake')}</strong> {where}{' '}
+            {h.changedAt ? (
+              <>
+                {t('haltSince')} <PayTime value={h.changedAt} />.{' '}
+              </>
+            ) : null}
+            {t('haltEffect')}
+          </p>
+        );
+      })}
     </div>
   );
 }
