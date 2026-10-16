@@ -3,10 +3,12 @@
 -- Legal name and display name already live on pay.merchants (0071). This adds the
 -- rest of the business identity the merchant portal edits, plus an append-only
 -- change log. Sensitive fields (legal name, address, statement descriptor,
--- industry) stay off the live row until INTAFACED compliance approves the
--- proposal. A merchant second approver is optional (`profile_second_approval`,
--- default off) and never applies those fields. Display name, website and
--- support contact apply on submit and are still logged.
+-- industry) apply on submit while KYB is not approved. The change log records
+-- that as `applied_pre_kyb`, because KYB review is what checks them. Once KYB
+-- is approved they stay off the live row until INTAFACED compliance approves
+-- the proposal. A merchant second approver is optional
+-- (`profile_second_approval`, default off) and never applies those fields.
+-- Display name, website and support contact apply on submit and are still logged.
 --
 -- No KYB vendor, no terms version, no fee and no limit is introduced here.
 -- Onboarding progress is derived from these columns, the existing KYB status,
@@ -92,7 +94,7 @@ CREATE TABLE IF NOT EXISTS "pay"."merchant_profile_changes" (
   "merchant_id"      uuid NOT NULL REFERENCES "pay"."merchants"("id"),
   "status"           text NOT NULL
     CONSTRAINT "merchant_profile_changes_status_known"
-    CHECK ("status" IN ('applied', 'pending', 'pending_review', 'rejected', 'conflict')),
+    CHECK ("status" IN ('applied', 'applied_pre_kyb', 'pending', 'pending_review', 'rejected', 'conflict')),
   "before_profile"   jsonb NOT NULL,
   "after_profile"    jsonb NOT NULL,
   "sensitive_keys"   jsonb NOT NULL,

@@ -6,10 +6,11 @@ import { PortalError } from './errors.js';
  * Business-profile fields.
  *
  * Sensitive fields (legal name, address, statement descriptor, industry) are
- * proposed by one owner or admin and applied only when INTAFACED compliance
- * approves that proposal. A merchant second approver is an optional extra
- * step, default off, and does not apply the identity. Immediate fields apply
- * on submit, including while a sensitive change is waiting, and are still logged.
+ * applied by the submitting owner or admin while KYB is not approved. Once KYB
+ * is approved they wait for INTAFACED compliance. A merchant second approver is
+ * an optional extra step after that, default off, and does not apply the
+ * identity. Immediate fields apply on submit, including while a sensitive
+ * change is waiting, and are still logged.
  */
 
 export const SENSITIVE_KEYS = ['legalName', 'address', 'statementDescriptor', 'industry'] as const;

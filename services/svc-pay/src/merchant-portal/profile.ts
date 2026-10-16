@@ -101,7 +101,7 @@ export class MerchantProfileService {
       Array<{
         request_id: string;
         seq: string;
-        status: 'applied' | 'pending' | 'pending_review' | 'rejected' | 'conflict';
+        status: 'applied' | 'applied_pre_kyb' | 'pending' | 'pending_review' | 'rejected' | 'conflict';
         before_profile: ProfileFields;
         after_profile: ProfileFields;
         sensitive_keys: SensitiveKey[];
@@ -187,17 +187,21 @@ export class MerchantProfileService {
          WHERE merchant_id = ${input.merchantId} AND status IN ('pending', 'pending_review') LIMIT 1`;
         if (pending[0] && sensitiveKeys.length > 0) throw new PortalError('pay.profile_change_pending', 'conflict');
         const before = fieldsOf(current);
+        const applySensitiveNow = sensitiveKeys.length > 0 && current.kyb_status !== 'approved';
+        const patch: Partial<ProfileFields> = { ...immediate };
+        if (applySensitiveNow) Object.assign(patch, sensitive);
         let version = current.profile_version;
         let live = before;
-        if (Object.keys(immediate).length > 0) {
-          live = applyPatch(before, immediate);
+        if (Object.keys(patch).length > 0) {
+          live = applyPatch(before, patch);
           version = await this.writeFields(tx, input.merchantId, live, expected);
         }
-        const after = applyPatch(live, sensitive);
+        const after = applySensitiveNow || sensitiveKeys.length === 0 ? live : applyPatch(live, sensitive);
         const hash = profileChangeHash(sensitive, version);
-        const appliedNow = sensitiveKeys.length === 0;
-        const secondApproval = !appliedNow && (await this.secondApprovalEnabled(tx, input.merchantId));
-        const status = appliedNow ? 'applied' : secondApproval ? 'pending' : 'pending_review';
+        const direct = sensitiveKeys.length === 0 || applySensitiveNow;
+        const secondApproval = !direct && (await this.secondApprovalEnabled(tx, input.merchantId));
+        const status =
+          sensitiveKeys.length === 0 ? 'applied' : applySensitiveNow ? 'applied_pre_kyb' : secondApproval ? 'pending' : 'pending_review';
         await tx`
         INSERT INTO pay.merchant_profile_changes (
           request_id, merchant_id, status, before_profile, after_profile, sensitive_keys,
@@ -206,14 +210,14 @@ export class MerchantProfileService {
           ${requestId}, ${input.merchantId}, ${status},
           ${tx.json(before as never)}, ${tx.json(after as never)}, ${tx.json(sensitiveKeys as never)},
           ${hash}, ${version}::bigint, ${userId}, ${input.reason},
-          ${appliedNow ? new Date() : null}
+          ${direct ? new Date() : null}
         )`;
         const stored = await this.load(tx, input.merchantId);
         return {
           requestId,
-          outcome: appliedNow ? ('applied' as const) : secondApproval ? ('pending_second_approval' as const) : ('pending_review' as const),
+          outcome: direct ? ('applied' as const) : secondApproval ? ('pending_second_approval' as const) : ('pending_review' as const),
           version: stored.profile_version,
-          changeHash: appliedNow ? null : hash,
+          changeHash: direct ? null : hash,
           profile: profileOf(stored),
         };
       },
@@ -343,6 +347,20 @@ export class MerchantProfileService {
     return { merchantId: input.merchantId, enabled: row.profile_second_approval };
   }
 
+  /**
+   * Compliance review must see a real `pending_review` row before it consumes
+   * a founder approval. A missing id and a closed or still-with-the-merchant
+   * row refuse here, so the approval is not spent.
+   */
+  async assertPendingReview(merchantId: string, requestId: string): Promise<void> {
+    const rows = await this.sql<Array<{ status: string }>>`
+      SELECT status FROM pay.merchant_profile_changes
+       WHERE request_id = ${requestId} AND merchant_id = ${merchantId}`;
+    const row = rows[0];
+    if (!row) throw new PortalError('pay.profile_change_not_found', 'not_found');
+    if (row.status !== 'pending_review') throw new PortalError('pay.profile_change_not_pending', 'conflict');
+  }
+
   private async lockChange(sql: Sql, merchantId: string, requestId: string) {
     const rows = await sql<
       Array<{
@@ -423,8 +441,10 @@ export class MerchantProfileService {
     return row;
   }
 
-  private async lock(sql: Sql, merchantId: string): Promise<StoredRow> {
-    const rows = await sql<StoredRow[]>`SELECT ${sql.unsafe(COLUMNS)} FROM pay.merchants WHERE id = ${merchantId} FOR UPDATE`;
+  private async lock(sql: Sql, merchantId: string): Promise<StoredRow & { kyb_status: 'none' | 'pending' | 'approved' | 'rejected' }> {
+    const rows = await sql<Array<StoredRow & { kyb_status: 'none' | 'pending' | 'approved' | 'rejected' }>>`
+      SELECT ${sql.unsafe(COLUMNS)}, kyb_status::text AS kyb_status
+        FROM pay.merchants WHERE id = ${merchantId} FOR UPDATE`;
     const row = rows[0];
     if (!row) throw merchantNotFound(merchantId);
     return row;

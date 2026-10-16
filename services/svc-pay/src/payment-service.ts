@@ -1289,18 +1289,33 @@ export class PayService {
     if (!ref || ref.length > 128) {
       throw new PayError('kybRef must be 1–128 characters', 'pay.kyb_invalid');
     }
-    const merchant = await this.getMerchant(input.merchantId);
-    if (merchant.kybStatus === 'pending' || merchant.kybStatus === 'approved') {
-      throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
-        kybStatus: merchant.kybStatus,
-      });
-    }
-    await this.sql`
-      UPDATE pay.merchants
-         SET kyb_status = 'pending', kyb_ref = ${ref}, updated_at = now()
-       WHERE id = ${input.merchantId}
-    `;
-    return this.getMerchant(input.merchantId);
+    return transaction(this.sql, async (tx) => {
+      const rows = await tx<MerchantRow[]>`
+        SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
+          FROM pay.merchants WHERE id = ${input.merchantId} FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row) throw new PayError(`Merchant ${input.merchantId} not found`, 'pay.merchant_not_found');
+      const merchant = toMerchant(row);
+      if (merchant.kybStatus === 'pending' || merchant.kybStatus === 'approved') {
+        throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
+          kybStatus: merchant.kybStatus,
+        });
+      }
+      const [updated] = await tx<MerchantRow[]>`
+        UPDATE pay.merchants
+           SET kyb_status = 'pending', kyb_ref = ${ref}, updated_at = now()
+         WHERE id = ${input.merchantId}
+           AND kyb_status IN ('none'::pay.kyb_status, 'rejected'::pay.kyb_status)
+         RETURNING id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
+      `;
+      if (!updated) {
+        throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
+          kybStatus: merchant.kybStatus,
+        });
+      }
+      return toMerchant(updated);
+    });
   }
 
   /**
@@ -1345,9 +1360,14 @@ export class PayService {
         UPDATE pay.merchants
            SET kyb_status = ${decision}, updated_at = now()
          WHERE id = ${merchantId}
+           AND kyb_status = 'pending'::pay.kyb_status
          RETURNING id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
       `;
-      if (!updated) throw new PayError(`Merchant ${merchantId} vanished during KYB decision`, 'pay.merchant_not_found');
+      if (!updated) {
+        throw new PayError(`Merchant KYB must be pending to decide (is ${merchant.kybStatus})`, 'pay.kyb_invalid', {
+          kybStatus: merchant.kybStatus,
+        });
+      }
       return toMerchant(updated);
     });
   }

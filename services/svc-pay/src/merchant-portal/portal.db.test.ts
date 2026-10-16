@@ -5,14 +5,19 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import type { Principal } from '@intafaced/auth';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Context } from '@intafaced/contracts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
-import { stubApprovalConsumer } from '../action-approval-consume.js';
+import { stubApprovalConsumer, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { createFounderAuthority } from '../founder-authority.js';
+import { KybService } from '../kyb-service.js';
+import { createKybPspRouter } from '../kyb-router.js';
 import { teamReadFromSql } from '../merchant-team-read.js';
 import { createMerchantOpsRouter } from '../merchant-ops/router.js';
-import { PayError, type MerchantRecord } from '../payment-service.js';
+import { PayError, PayService, type MerchantRecord } from '../payment-service.js';
+import type { PspModeService } from '../psp-mode.js';
+import { RailRegistry } from '../rails/registry.js';
 import { SubMerchantService } from '../submerchants.js';
 import { createSubMerchantRouter } from '../submerchant-router.js';
 import { createMerchantPortalRouter } from './router.js';
@@ -154,7 +159,7 @@ describe('merchant portal procedures', () => {
         )`;
     };
     await insert(merchantA, owner, { kyb: 'approved', name: 'Alpha' });
-    await insert(merchantB, stranger, { name: 'Beta' });
+    await insert(merchantB, stranger, { kyb: 'approved', name: 'Beta' });
     await insert(parentId, parentUser, { mode: 'payfac', kyb: 'approved', name: 'Parent' });
     await insert(childId, childUser, { parent: parentId, mode: 'payfac', name: 'Child' });
     await insert(grandId, grandUser, { parent: childId, mode: 'payfac', name: 'Grand' });
@@ -560,6 +565,252 @@ describe('merchant portal procedures', () => {
     expect(dropped.outcome).toBe('rejected');
     expect(dropped.profile.legalName).toBe('Beta Checked');
     await as(stranger).merchant.businessProfile.setSecondApproval({ merchantId: merchantB, enabled: false });
+  });
+
+  const kybOf = async (merchantId: string) => {
+    const rows = await sql<Array<{ kyb_status: string }>>`
+      SELECT kyb_status::text AS kyb_status FROM pay.merchants WHERE id = ${merchantId}`;
+    return rows[0]?.kyb_status;
+  };
+  const seedMerchant = async (merchantId: string, userId: string, kyb: 'none' | 'pending' | 'approved' | 'rejected') => {
+    await sql`
+      INSERT INTO pay.merchants (id, user_id, mode, status, kyb_status)
+      VALUES (
+        ${merchantId}, ${userId}, 'gateway'::pay.merchant_mode, 'active'::pay.merchant_status, ${kyb}::pay.kyb_status
+      )`;
+  };
+
+  it('applies sensitive identity before KYB approval and holds it once KYB is approved', async () => {
+    const user = id();
+    const merchantId = id();
+    await seedMerchant(merchantId, user, 'none');
+    await as(user).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true });
+    const entered = await as(user).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: '0',
+      reason: 'onboarding identity',
+      legalName: 'New Shop Ltd',
+      address: ADDRESS,
+      statementDescriptor: 'NEWSHOP',
+      industry: 'Retail',
+    });
+    expect(entered.outcome).toBe('applied');
+    expect(entered.changeHash).toBeNull();
+    expect(entered.profile).toMatchObject({
+      legalName: 'New Shop Ltd',
+      address: ADDRESS,
+      statementDescriptor: 'NEWSHOP',
+      industry: 'Retail',
+      version: '1',
+    });
+    const logged = (await as(user).merchant.businessProfile.history({ merchantId, limit: 5 })).items.find(
+      (item) => item.requestId === entered.requestId,
+    );
+    expect(logged).toMatchObject({
+      status: 'applied_pre_kyb',
+      sensitiveKeys: ['legalName', 'address', 'statementDescriptor', 'industry'],
+      checkerId: null,
+    });
+    expect(logged?.decidedAt).toEqual(expect.any(String));
+    expect((await as(user).merchant.myAccess({})).memberships[0]).toMatchObject({
+      verified: false,
+      identityChangePending: false,
+      legalName: 'New Shop Ltd',
+    });
+    expect(await kybOf(merchantId)).toBe('none');
+
+    await sql`UPDATE pay.merchants SET kyb_status = 'pending' WHERE id = ${merchantId}`;
+    const whilePending = await as(user).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: entered.version,
+      reason: 'still onboarding',
+      legalName: 'Pending Shop Ltd',
+    });
+    expect(whilePending.outcome).toBe('applied');
+    expect(whilePending.profile.legalName).toBe('Pending Shop Ltd');
+    expect(
+      (await as(user).merchant.businessProfile.history({ merchantId, limit: 5 })).items.find(
+        (item) => item.requestId === whilePending.requestId,
+      )?.status,
+    ).toBe('applied_pre_kyb');
+
+    await sql`UPDATE pay.merchants SET kyb_status = 'rejected' WHERE id = ${merchantId}`;
+    const whileRejected = await as(user).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: whilePending.version,
+      reason: 'after a rejection',
+      address: { ...ADDRESS, line1: '2 Market' },
+    });
+    expect(whileRejected.outcome).toBe('applied');
+    expect(whileRejected.profile.address?.line1).toBe('2 Market');
+
+    await sql`UPDATE pay.merchants SET kyb_status = 'approved' WHERE id = ${merchantId}`;
+    await as(user).merchant.businessProfile.setSecondApproval({ merchantId, enabled: false });
+    const held = await as(user).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: whileRejected.version,
+      reason: 'after approval',
+      legalName: 'Approved Bypass Ltd',
+    });
+    expect(held.outcome).toBe('pending_review');
+    expect(held.changeHash).toEqual(expect.any(String));
+    expect(held.profile.legalName).toBe('Pending Shop Ltd');
+    expect((await as(user).merchant.myAccess({})).memberships[0]).toMatchObject({
+      verified: true,
+      identityChangePending: true,
+      legalName: 'Pending Shop Ltd',
+    });
+  });
+
+  it('a merchant cannot clear an approved KYB status to skip identity review', async () => {
+    const user = id();
+    const merchantId = id();
+    await seedMerchant(merchantId, user, 'none');
+    const kyb = new KybService(sql);
+    let consumes = 0;
+    const approvals: ActionApprovalConsumer = {
+      async consume(input) {
+        consumes += 1;
+        return stubApprovalConsumer('approver-founder').consume(input);
+      },
+    };
+    const kybApi = createKybPspRouter(kyb, {} as PspModeService, approvals, payLookup(sql));
+    const merchant = kybApi.createCaller(ctxOf(principalOf(user)));
+    const complianceCaller = kybApi.createCaller(ctxOf(principalOf(complianceUser, { scopes: ['admin:compliance'] })));
+    const submitted = await merchant.kyb.submit({ merchantId, kybRef: 'dossier-1', reason: 'onboarding dossier' });
+    expect(submitted.kybStatus).toBe('pending');
+    expect(consumes).toBe(0);
+    const approved = await complianceCaller.kyb.decide({
+      merchantId,
+      decision: 'approved',
+      reason: 'dossier matches',
+      approvalId: 'appr-kyb',
+      operationId: 'op-kyb',
+    });
+    expect(approved.kybStatus).toBe('approved');
+    expect(consumes).toBe(1);
+
+    await expect(
+      merchant.kyb.decide({
+        merchantId,
+        decision: 'rejected',
+        reason: 'clear my own approval',
+        approvalId: 'appr-drop',
+        operationId: 'op-drop',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(consumes).toBe(1);
+    const sandbox = new PayService(sql, {} as LedgerClient, new RailRegistry([]), { valueMovement: 'allow-sandbox' });
+    await expect(sandbox.submitKyb({ merchantId, kybRef: 'dossier-2' })).rejects.toMatchObject({ code: 'pay.kyb_invalid' });
+    await expect(merchant.kyb.submit({ merchantId, kybRef: 'dossier-3', reason: 'try again' })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'pay.kyb_invalid' }),
+    });
+    await expect(sandbox.decideKybStub({ merchantId, decision: 'rejected' })).rejects.toMatchObject({ code: 'pay.kyb_invalid' });
+    const liveOnly = new PayService(sql, {} as LedgerClient, new RailRegistry([]), { valueMovement: 'live-only' });
+    await expect(liveOnly.decideKybStub({ merchantId, decision: 'rejected' })).rejects.toMatchObject({
+      code: 'pay.kyb_operator_required',
+    });
+    expect(await kybOf(merchantId)).toBe('approved');
+
+    const held = await as(user).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: '0',
+      reason: 'legal name after approval',
+      legalName: 'Should Wait Ltd',
+      address: ADDRESS,
+    });
+    expect(held.outcome).toBe('pending_review');
+    expect(held.profile.legalName).toBeNull();
+    expect(held.profile.address).toBeNull();
+    expect(await kybOf(merchantId)).toBe('approved');
+  });
+
+  it('does not consume a founder approval unless the profile change is pending review', async () => {
+    const user = id();
+    const checker = id();
+    const merchantId = id();
+    await seedMerchant(merchantId, user, 'none');
+    await sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+      VALUES (${merchantId}, ${checker}, 'admin', 'active', ${user}, now())`;
+    let consumes = 0;
+    const approvals: ActionApprovalConsumer = {
+      async consume(input) {
+        consumes += 1;
+        return stubApprovalConsumer('approver-founder').consume(input);
+      },
+    };
+    const complianceCaller = createMerchantPortalRouter({ ...portalDeps(false), approvals }).createCaller(
+      ctxOf(principalOf(complianceUser, { scopes: ['admin:compliance'] })),
+    );
+    const attempt = (requestId: string, hash = `sha256:${'a'.repeat(64)}`) =>
+      complianceCaller.merchant.businessProfile.review({
+        merchantId,
+        requestId,
+        decision: 'approved',
+        reason: 'dossier matches',
+        expectedChangeHash: hash,
+        ...APPROVAL,
+      });
+
+    const missing = await refusal(() => attempt(id()));
+    expect(missing).toMatchObject({ code: 'NOT_FOUND', cause: 'pay.profile_change_not_found' });
+    expect(consumes).toBe(0);
+
+    const entered = await as(user).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: '0',
+      reason: 'onboarding identity',
+      legalName: 'Early Shop Ltd',
+      address: ADDRESS,
+    });
+    expect(entered.outcome).toBe('applied');
+    const early = await refusal(() => attempt(entered.requestId));
+    expect(early).toMatchObject({ code: 'CONFLICT', cause: 'pay.profile_change_not_pending' });
+    expect(consumes).toBe(0);
+    expect((await as(user).merchant.businessProfile.get({ merchantId })).legalName).toBe('Early Shop Ltd');
+
+    await sql`UPDATE pay.merchants SET kyb_status = 'approved' WHERE id = ${merchantId}`;
+    await as(user).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true });
+    const current = await as(user).merchant.businessProfile.get({ merchantId });
+    const waiting = await as(user).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: current.version,
+      reason: 'legal name',
+      legalName: 'Later Shop Ltd',
+    });
+    expect(waiting.outcome).toBe('pending_second_approval');
+    const tooSoon = await refusal(() => attempt(waiting.requestId));
+    expect(tooSoon).toMatchObject({ code: 'CONFLICT', cause: 'pay.profile_change_not_pending' });
+    expect(consumes).toBe(0);
+
+    const advanced = await as(checker).merchant.businessProfile.confirm({
+      merchantId,
+      requestId: waiting.requestId,
+      decision: 'confirm',
+      expectedChangeHash: waiting.changeHash!,
+      reason: 'merchant check',
+    });
+    expect(advanced.outcome).toBe('pending_review');
+    const quiet = createMerchantPortalRouter({ ...portalDeps(false), approvals }).createCaller(
+      ctxOf(principalOf(complianceUser, { scopes: ['admin:compliance'], mfa: false })),
+    );
+    await expect(
+      quiet.merchant.businessProfile.review({
+        merchantId,
+        requestId: waiting.requestId,
+        decision: 'approved',
+        reason: 'no mfa',
+        expectedChangeHash: waiting.changeHash!,
+        ...APPROVAL,
+      }),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect(consumes).toBe(0);
+
+    const decided = await attempt(waiting.requestId, waiting.changeHash!);
+    expect(decided.outcome).toBe('applied');
+    expect(decided.profile.legalName).toBe('Later Shop Ltd');
+    expect(consumes).toBe(1);
   });
 
   it('reports onboarding blockers without a document vendor, a terms version, or a raw destination', async () => {

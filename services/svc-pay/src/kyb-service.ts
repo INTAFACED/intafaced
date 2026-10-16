@@ -157,11 +157,18 @@ export class KybService {
           });
         }
 
-        await tx`
+        const [updated] = await tx<Array<{ id: string }>>`
           UPDATE pay.merchants
              SET kyb_status = 'pending', kyb_ref = ${ref}, updated_at = now()
            WHERE id = ${input.merchantId}
+             AND kyb_status IN ('none'::pay.kyb_status, 'rejected'::pay.kyb_status)
+           RETURNING id
         `;
+        if (!updated) {
+          throw new KybError(`Merchant KYB is already ${merchant.kyb_status}`, 'pay.kyb_invalid', {
+            kybStatus: merchant.kyb_status,
+          });
+        }
 
         const [row] = await tx<KybEventRow[]>`
           INSERT INTO pay.merchant_kyb_events (
@@ -221,11 +228,18 @@ export class KybService {
           });
         }
 
-        await tx`
+        const [updated] = await tx<Array<{ id: string }>>`
           UPDATE pay.merchants
              SET kyb_status = ${input.decision}::pay.kyb_status, updated_at = now()
            WHERE id = ${input.merchantId}
+             AND kyb_status = 'pending'::pay.kyb_status
+           RETURNING id
         `;
+        if (!updated) {
+          throw new KybError(`Merchant KYB must be pending to decide (is ${merchant.kyb_status})`, 'pay.kyb_invalid', {
+            kybStatus: merchant.kyb_status,
+          });
+        }
 
         const [row] = await tx<KybEventRow[]>`
           INSERT INTO pay.merchant_kyb_events (
