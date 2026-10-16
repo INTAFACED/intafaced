@@ -12,11 +12,13 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0058-0059 | W5 halts and treasury exposure                        | used                                            |
 | 0060-0061 | W6 conversion                                         | reserved                                        |
 | 0062      | W9 screening                                          | reserved                                        |
-| 0063      | W10 B2B ramp (switched off)                           | reserved                                        |
+| 0063      | W10 B2B ramp (switched off)                           | left empty; shipped as 0078                     |
 | 0064-0068 | W15 merchant operations APIs                          | used                                            |
 | 0069-0070 | W16 venue, network and wallet-route registries        | reserved (0069 tables, 0070 audit events)       |
 | 0071      | W4b merchant names                                    | used                                            |
-| 0072+     | unassigned                                            | free; ask W0 before using                       |
+| 0072-0077 | unassigned                                            | free; ask W0 before using                       |
+| 0078      | W10 B2B ramp (switched off)                           | used                                            |
+| 0079+     | unassigned                                            | free; ask W0 before using                       |
 
 ## Why gaps are safe
 

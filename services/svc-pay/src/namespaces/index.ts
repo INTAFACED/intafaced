@@ -10,11 +10,17 @@ import { createFounderAdminRouter, type FounderTreasuryDeps } from './founder-ad
 import { createMerchantControlRouter } from './merchant-control.js';
 import { createMerchantMetricsRouter } from './merchant-metrics.js';
 import { createPayHaltsRouter, type PayHaltsDeps } from './pay-halts.js';
+import { createB2bRampRouter } from '../b2b-ramp/router.js';
 
 export { findUnguardedFounderProcedures, founderProcedure, isFounderGuarded } from './founder-procedure.js';
 export { notBuilt, PayNotBuiltError } from './errors.js';
 
-/** Path prefixes that must sit behind founder authority (checked by the static inventory test). */
+/**
+ * Path prefixes that must sit behind founder authority (checked by the static inventory test).
+ * `b2bRamp.founderStatus` is founder-only. It is not in the isolation suite's
+ * FOUNDER_PREFIXES list: that suite's positive control requires a founder call
+ * to succeed, and this route refuses while the ramp flag is off.
+ */
 export const FOUNDER_ONLY_PREFIXES = [
   'founderAdmin.',
   'founderAdmin.approvals.destination',
@@ -22,12 +28,14 @@ export const FOUNDER_ONLY_PREFIXES = [
   'payHalts.history',
   'payHalts.operatorStatus',
   'payHalts.pendingClears',
+  'b2bRamp.founderStatus',
 ] as const;
 
 /**
  * W0 namespaces, mounted as stubs. Each file below is owned by one stream, which
  * replaces the stub bodies there and nowhere else:
  *   merchantControl W1 · merchantMetrics W2 · founderAdmin W2/W4 · conversion W6 · payHalts W5
+ *   b2bRamp W10 (switched off; routes refuse until the flag is on)
  */
 export function createPayNamespaces(deps: {
   founderAuthority: FounderAuthority;
@@ -52,6 +60,8 @@ export function createPayNamespaces(deps: {
     createConversionRouter(),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),
     createMerchantOpsRouter(opsDeps), // W15: merchantOps.*  (founderAdmin.ops.* is mounted via createFounderAdminRouter above)
+    // W10: b2bRamp.* refuses while pay.b2b_ramp is off, including a direct caller.
+    createB2bRampRouter({ founderAuthority: deps.founderAuthority, sql: deps.sql }),
   );
 }
 export type PayNamespacesRouter = ReturnType<typeof createPayNamespaces>;

@@ -449,6 +449,34 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ memberId: i.inviteId }),
   },
   { path: 'merchantOps.team.declineInvite', scope: 'pay:write', own: 'ok', sessionOnly: true, input: (i) => ({ memberId: i.inviteId }) },
+  // W10: while pay.b2b_ramp is off, the owner and a stranger get the same refusal. The flag check runs before any merchant lookup.
+  {
+    path: 'b2bRamp.status',
+    scope: 'pay:read',
+    own: 'service',
+    ownCause: 'pay.b2b_ramp_off',
+    input: (i) => ({ merchantId: i.merchantId }),
+  },
+  {
+    path: 'b2bRamp.credit',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.b2b_ramp_off',
+    input: (i) => ({
+      merchantId: i.merchantId,
+      bankLineId: 'bank-line-1',
+      amount: '10.00',
+      asset: 'USD',
+      clientSettledAmount: '999999.00',
+    }),
+  },
+  {
+    path: 'b2bRamp.get',
+    scope: 'pay:read',
+    own: 'service',
+    ownCause: 'pay.b2b_ramp_off',
+    input: (i) => ({ creditId: i.paymentId }),
+  },
 ];
 
 export const keyCanCall = (p: MerchantProc): boolean => !p.sessionOnly && MERCHANT_KEY_SCOPES.includes(p.scope);
