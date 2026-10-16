@@ -110,6 +110,18 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'pay',
     note: 'Merchant settlement fee → houseFees(pay).',
   },
+  'pay.conversion_fee_spread': {
+    kind: 'recipe',
+    recipe: 'fxConversion',
+    feeModule: 'pay',
+    note: 'Sandbox USD→USDT conversion: locked fee and spread, in the to-asset, → houseFees(pay). Zero omits the leg.',
+  },
+  'pay.conversion_fee_spread_reverse': {
+    kind: 'recipe',
+    recipe: 'fxConversionReverse',
+    feeModule: 'pay',
+    note: 'Reverses a conversion fill under the quoted minimum. House fee and spread return to the venue boundary.',
+  },
   'token.fee_charge': {
     kind: 'recipe',
     recipe: 'feeCharge',
@@ -209,6 +221,8 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'futuresInsuranceTopup',
   'escrowRelease',
   'merchantSettlement',
+  'fxConversion',
+  'fxConversionReverse',
   'feeCharge',
   'sweepFeesToRewards',
   'loanRepay',

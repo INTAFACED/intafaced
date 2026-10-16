@@ -50,7 +50,11 @@ import { createSubMerchantRouter } from '../../src/submerchant-router.js';
 import { SubMerchantService } from '../../src/submerchants.js';
 import { unwiredApprovalConsumer } from '../../src/action-approval-consume.js';
 import { loadTreasuryLimits } from '../../src/treasury/config.js';
-import { UNWIRED_CONVERSION_INVENTORY } from '../../src/treasury/exposure.js';
+import { ConversionService } from '../../src/conversion/service.js';
+import { unconfiguredConversionVenue } from '../../src/conversion/venue.js';
+import { createConversionInventory } from '../../src/conversion/inventory.js';
+import { createRegistryReader } from '../../src/registries/read-api.js';
+import { buildPayGuards } from '../../src/seams/registry.js';
 import { UserMoneyService } from '../../src/user-money-service.js';
 import { seedControl, type ControlSeed } from './control-seed.js';
 
@@ -227,6 +231,7 @@ function composeRouter(parts: {
   sql: TestDatabase['sql'];
   founderAuthority: FounderAuthority;
   metrics: MetricsRuntime;
+  conversion: ConversionService;
 }) {
   // src/index.ts: `actionApprovals` is the identity client when IDENTITY_URL is set, else this refusing consumer.
   const actionApprovals = unwiredApprovalConsumer();
@@ -250,15 +255,16 @@ function composeRouter(parts: {
       registries: { sql: parts.sql, approvals: actionApprovals },
       sql: parts.sql, // W15: merchantOps.* and founderAdmin.ops.*
       // W5: the same Postgres halt store the guards read, and the treasury exposure read. Limits come from an
-      // EMPTY environment, as in an unconfigured deployment (no defaults); the conversion reader is the unwired one.
+      // EMPTY environment, as in an unconfigured deployment (no defaults). The conversion reader is the live inventory.
       payHalts: {
         store: new PayHaltStore(parts.sql, loadHaltAutoTripConfig({})),
         merchants: parts.pay,
         team: teamReadFromSql(parts.sql),
       },
-      treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: UNWIRED_CONVERSION_INVENTORY },
+      treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: createConversionInventory(parts.sql) },
       // W1: as src/index.ts, the approver is whoever holds payout.approve on the merchant team (W15 roles).
       control: new ControlService(parts.sql, teamAccessPorts(parts.sql)),
+      conversion: parts.conversion,
     }),
   );
 }
@@ -306,7 +312,24 @@ export async function createWorld(): Promise<World> {
     fetcher: identity.fetcher,
   });
   const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
-  const appRouter = composeRouter({ pay, rails, userMoney, subMerchants, destinations, sql, founderAuthority, metrics });
+  const conversion = new ConversionService({
+    sql,
+    ledger,
+    guards: buildPayGuards({ sql }),
+    venue: unconfiguredConversionVenue(),
+    registries: createRegistryReader(sql),
+  });
+  const appRouter = composeRouter({
+    pay,
+    rails,
+    userMoney,
+    subMerchants,
+    destinations,
+    sql,
+    founderAuthority,
+    metrics,
+    conversion,
+  });
 
   const rest = Fastify();
   await registerPublicPayRest(rest, {

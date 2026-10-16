@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import type { SettlementBookReader } from '../settlement-book.js';
+import { createConversionInventory } from '../conversion/inventory.js';
 import { composeGuards, type PayGuards } from './guards.js';
 import { createW1ControlGuards } from './slots/w1-control.js';
 import { createW5HaltsGuards } from './slots/w5-halts.js';
@@ -19,7 +20,7 @@ import { createW10B2bRampGuards } from './slots/w10-b2b-ramp.js';
  */
 export function buildPayGuards(deps: { sql: Sql; ledger?: SettlementBookReader }): PayGuards {
   return composeGuards(
-    createW5HaltsGuards(deps),
+    createW5HaltsGuards({ ...deps, conversionInventory: createConversionInventory(deps.sql) }),
     createW9ScreeningGuards(deps),
     createW1ControlGuards(deps),
     createW6ConversionGuards(deps),

@@ -241,6 +241,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       const merchant = randomUUID();
       const conversion = {
         sql: poolA as never,
+        tx: poolA as never,
         merchantId: merchant,
         settlementId: randomUUID(),
         fromAsset: 'USD',

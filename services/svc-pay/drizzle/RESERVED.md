@@ -19,7 +19,8 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0072      | unassigned                                            | free; ask W0 before using                       |
 | 0073      | W2c-B team reads and settlement detail                | used                                            |
 | 0074      | W2c limit-increase requests                           | used                                            |
-| 0075-0077 | unassigned                                            | free; ask W0 before using                       |
+| 0075-0076 | unassigned                                            | free; ask W0 before using                       |
+| 0077      | W6 conversion quotes and order intents                | used                                            |
 | 0078      | W10 B2B ramp (switched off)                           | used                                            |
 | 0079-0080 | unassigned                                            | free; ask W0 before using                       |
 | 0081      | subscription.create idempotency, one open subscription per mandate | used                               |

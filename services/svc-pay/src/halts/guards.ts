@@ -142,7 +142,8 @@ export function createHaltGuards(deps: {
     beforePayoutAdmit: (ctx) => payoutRailGuard(ctx.tx, ctx.merchantId, ctx.railId, ctx.replay),
     beforePayoutExecute: (ctx) => payoutRailGuard(ctx.sql, ctx.merchantId, ctx.railId, ctx.replay),
     beforeSettlementRun: (ctx) => assertNotHalted(ctx.sql, 'settlement', ctx.merchantId, ctx.replay),
-    beforeConversion: (ctx) => assertNotHalted(ctx.sql, 'conversion', ctx.merchantId, ctx.replay),
+    // Conversion runs inside the order-intent transaction. `tx` is that transaction; the pool is not a lock.
+    beforeConversion: (ctx) => assertNotHalted(ctx.tx, 'conversion', ctx.merchantId, ctx.replay),
     beforeUserMoneyWithdrawal: async (ctx) => {
       // Replay settles or reverses a receipt already on file and sends nothing.
       // A fresh withdrawal and a recovery both call the rail, so a payout halt pauses them.

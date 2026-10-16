@@ -11,7 +11,10 @@ import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js'
 import { loadHaltAutoTripConfig } from './halts/config.js';
 import { PayHaltStore } from './halts/store.js';
 import { loadTreasuryLimits } from './treasury/config.js';
-import { UNWIRED_CONVERSION_INVENTORY } from './treasury/exposure.js';
+import { createConversionInventory } from './conversion/inventory.js';
+import { ConversionService } from './conversion/service.js';
+import { assertConversionBoot, openConversionVenue } from './conversion/venue.js';
+import { createRegistryReader } from './registries/read-api.js';
 import { buildPayGuards } from './seams/registry.js';
 import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
@@ -165,6 +168,8 @@ const rails = new RailRegistry([
  * is handed to both services below, so the boot refusal and the per-call refusal
  * are one decision rather than two that can drift apart.
  */
+assertConversionBoot(process.env);
+const conversionVenue = openConversionVenue(process.env);
 const railPosture = assertRailPosture(rails, { ...process.env, PAY_ALLOW_SANDBOX_RAILS: env.PAY_ALLOW_SANDBOX_RAILS });
 const railStatus = railPostureStatus(rails, railPosture.policy);
 
@@ -200,6 +205,13 @@ const identityAdmission = createIdentityOperationDecisionClient({
 });
 const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPermissionIntents(tx, current, identityAdmission));
 const payGuards = buildPayGuards({ sql, ledger });
+const conversion = new ConversionService({
+  sql,
+  ledger,
+  guards: payGuards,
+  venue: conversionVenue,
+  registries: createRegistryReader(sql),
+});
 const pay = new PayService(sql, ledger, rails, {
   guards: payGuards,
   identityOperationAdmission: identityAdmission,
@@ -388,8 +400,8 @@ export const appRouter = mergeRouters(
   // other and the subtree fence would be measuring the wrong actor.
   createSubMerchantRouter(subMerchants, pay),
   createSubscriptionRouter(subscriptions, pay, subMerchants),
-  // W0 stubs: merchantControl, merchantMetrics, founderAdmin, conversion.
-  // Every procedure refuses `pay.not_built` until its workstream fills it in.
+  // merchantControl, merchantMetrics, founderAdmin, conversion, payHalts.
+  // A namespace with no service still refuses `pay.not_built`.
   // W16 registries (founderAdmin.registries.*) are mounted inside founderAdmin through `registries`.
   // W15 (merchantOps.*, founderAdmin.ops.*) needs the database handle.
   // payHalts is built (W5): the same Postgres halt store the guards read.
@@ -399,9 +411,10 @@ export const appRouter = mergeRouters(
     registries: { sql, approvals: actionApprovals },
     sql,
     payHalts: { store: new PayHaltStore(sql, loadHaltAutoTripConfig(process.env)), merchants: pay, team: teamReadFromSql(sql) },
-    treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: UNWIRED_CONVERSION_INVENTORY },
+    treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql) },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
     control: new ControlService(sql, teamAccessPorts(sql)),
+    conversion,
   }),
 );
 export type { PayRouter } from './router.js';

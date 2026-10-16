@@ -419,12 +419,11 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     path: 'conversion.quote',
     scope: 'pay:read',
     own: 'service',
-    stub: true,
     input: (i) => ({ merchantId: i.merchantId, settlementId: i.settlementId, fromAsset: 'USD', toAsset: 'USDT', fromAmount: '10' }),
   },
-  { path: 'conversion.execute', scope: 'pay:payout', own: 'service', stub: true, input: () => ({ requestId: ghost(), quoteId: ghost() }) },
-  { path: 'conversion.get', scope: 'pay:read', own: 'service', stub: true, input: () => ({ conversionId: ghost() }) },
-  { path: 'conversion.list', scope: 'pay:read', own: 'ok', stub: true, input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
+  { path: 'conversion.execute', scope: 'pay:payout', own: 'service', input: () => ({ requestId: ghost(), quoteId: ghost() }) },
+  { path: 'conversion.get', scope: 'pay:read', own: 'service', input: () => ({ conversionId: ghost() }) },
+  { path: 'conversion.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
   // W15 merchantOps.*: every procedure that takes a resource id. (The caller's merchant comes from the principal,
   // never the body, so there is no `mixed` case: the id is the only thing a caller can aim at someone else.)
   // Order matters for the positive controls: an action that consumes the row (remove, decline, respond) comes after its siblings.

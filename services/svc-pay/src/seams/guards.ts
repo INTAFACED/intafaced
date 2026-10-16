@@ -255,9 +255,15 @@ export interface SettlementRunContext {
   readonly replay: GuardReplay;
 }
 
-/** Context for `beforeConversion`. NOT CALLED YET: the conversion path (W6) does not exist. */
+/**
+ * Context for `beforeConversion`. Runs inside the order-intent transaction, before
+ * that transaction commits and before any venue call. A refusal rolls the intent
+ * back: no client order id is kept, so nothing is left to place on a retry.
+ * `tx` is that transaction. The pool (`sql`) is not a lock.
+ */
 export interface ConversionContext {
   readonly sql: Sql;
+  readonly tx: Sql;
   readonly merchantId: string;
   readonly settlementId: string;
   readonly fromAsset: string;

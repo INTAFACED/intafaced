@@ -129,8 +129,8 @@ describe('W0 namespaces are mounted', () => {
     expect(src).toContain('payHalts: { store: new PayHaltStore(sql,');
     expect(src).toContain('control: new ControlService(sql, teamAccessPorts(sql))');
     expect(src).toContain('const payGuards = buildPayGuards({ sql, ledger });');
-    // One registry instance serves both the payment service and the user-money service.
-    expect(src.match(/guards: payGuards,/g)).toHaveLength(2);
+    // One registry instance serves the payment service, the user-money service, and conversion.
+    expect(src.match(/guards: payGuards,/g)).toHaveLength(3);
   });
 
   it('merges with an existing router without a path collision', () => {
