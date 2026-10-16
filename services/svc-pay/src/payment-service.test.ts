@@ -90,6 +90,9 @@ const migrations = [
   // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
   '0071_pay_merchant_names.sql',
   '0073_pay_settlement_read.sql',
+  // dispute.opened records a rail due date. Evidence metadata is the parent of the byte table.
+  '0065_pay_merchant_dispute_responses.sql',
+  '0083_pay_dispute_deadlines_evidence.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-test-secret-at-least-32-characters';

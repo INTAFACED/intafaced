@@ -73,7 +73,49 @@ describe('postDisputeOpening — ledger-client only', () => {
     expect(event?.type).toBe('dispute.opened');
     expect(event?.disputeId).toBe('dsp-parse');
     expect(event?.reasonCode).toBe('4855');
+    expect(event?.evidenceDueBy).toBeUndefined();
     expect(formatAmount(event?.amount ?? 0n)).toBe('10');
+  });
+
+  it('card-sandbox keeps a rail evidence due date and rejects a malformed one', () => {
+    const rail = new CardSandboxAdapter({ secret: 'svc-pay-test-secret-at-least-32-characters', toleranceSeconds: 300 });
+    const due = '2026-11-01T15:04:05.000Z';
+    const event = rail.verifyWebhook(
+      rail.signWebhook({
+        id: 'evt_due',
+        type: 'dispute.opened',
+        ref: 'ch_1',
+        amount: '10',
+        assetId: 'USDT',
+        disputeId: 'dsp-due',
+        evidenceDueBy: due,
+      }),
+    );
+    expect(event?.evidenceDueBy?.toISOString()).toBe(due);
+    expect(
+      rail.verifyWebhook(
+        rail.signWebhook({
+          id: 'evt_bad_due',
+          type: 'dispute.opened',
+          ref: 'ch_1',
+          amount: '10',
+          disputeId: 'dsp-bad',
+          evidenceDueBy: 'not-a-date',
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      rail.verifyWebhook(
+        rail.signWebhook({
+          id: 'evt_num_due',
+          type: 'dispute.opened',
+          ref: 'ch_1',
+          amount: '10',
+          disputeId: 'dsp-num',
+          evidenceDueBy: 30,
+        }),
+      ),
+    ).toBeNull();
   });
 
   it('cover-fail refuse uses the uncovered code, not posted', () => {

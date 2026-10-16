@@ -69,6 +69,7 @@ import {
   type IdentityPayoutAdmissionPort,
 } from './payout-admission.js';
 import { disputeOpeningKey, postDisputeOpening } from './chargeback-ledger.js';
+import { recordRailDisputeDeadline } from './merchant-ops/dispute-deadlines.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
 import {
   defaultDisputeCaseStore,
@@ -3199,6 +3200,12 @@ export class PayService {
             ledgerPost: wire.ledgerPost,
             ledgerRefuse: wire.ledgerRefuse,
           });
+          await recordRailDisputeDeadline(this.sql, {
+            merchantId: payment.merchant_id,
+            disputeId,
+            evidenceDueBy: event.evidenceDueBy ?? null,
+            railEventId: deliveryKey,
+          });
           applied = true;
         }
         break;
@@ -3214,6 +3221,12 @@ export class PayService {
           if (event.type === 'dispute.won') defaultDisputeCaseStore.markWon(disputeId);
           else if (event.type === 'dispute.lost') defaultDisputeCaseStore.markLost(disputeId);
           else defaultDisputeCaseStore.accept(disputeId);
+          await recordRailDisputeDeadline(this.sql, {
+            merchantId: payment.merchant_id,
+            disputeId,
+            evidenceDueBy: event.evidenceDueBy ?? null,
+            railEventId: deliveryKey,
+          });
           applied = true;
         }
         break;

@@ -412,6 +412,13 @@ function toRailEvent(railId: string, body: unknown): RailEvent | null {
 
   const disputeId = typeof b.disputeId === 'string' && b.disputeId.trim() ? b.disputeId.trim() : undefined;
   const reasonCode = typeof b.reasonCode === 'string' && b.reasonCode.trim() ? b.reasonCode.trim() : undefined;
+  let evidenceDueBy: Date | undefined;
+  if (b.evidenceDueBy !== undefined && b.evidenceDueBy !== null) {
+    if (typeof b.evidenceDueBy !== 'string') return null;
+    const parsed = new Date(b.evidenceDueBy);
+    if (Number.isNaN(parsed.getTime())) return null;
+    evidenceDueBy = parsed;
+  }
 
   return {
     railId,
@@ -424,5 +431,6 @@ function toRailEvent(railId: string, body: unknown): RailEvent | null {
     failureCode: typeof b.failureCode === 'string' ? b.failureCode : undefined,
     disputeId,
     reasonCode,
+    evidenceDueBy,
   };
 }
