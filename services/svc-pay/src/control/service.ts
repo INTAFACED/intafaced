@@ -1,13 +1,22 @@
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import type { FounderControlAuditListInput, MerchantControlProfile, PayCap } from '@intafaced/contracts';
+import type {
+  FounderControlAuditListInput,
+  MerchantControlProfile,
+  MerchantLimitIncreaseResult,
+  MerchantLimitOpen,
+  MerchantPricingHistory,
+  MerchantTierList,
+  PayCap,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { ControlAccessPorts } from './access.js';
+import { listControlAudit, readMerchantAudit, type MerchantAuditEvent } from './audit.js';
 import { ApprovalService } from './approvals.js';
-import { listControlAudit } from './audit.js';
 import { ChangeService } from './changes.js';
 import { readUsage } from './counters.js';
 import { ControlError } from './errors.js';
+import { listPendingLimitRequests, readOpenLimitRequest, requestLimitIncrease } from './limit-requests.js';
 import { computePricing, PricingConfigError, resolvePricingRule, type PricingLayer, type PricingRule } from './pricing.js';
 import type { PricingQuoteView } from './schemas.js';
 import {
@@ -239,5 +248,115 @@ export class ControlService {
        ORDER BY layer, scope_id, asset_code
     `;
     return rows.map((row) => ruleToView(toRule(row), row.created_at));
+  }
+
+  /** Names, status and parent from the merchant row. Null when the id does not exist. */
+  async merchantRecord(merchantId: string): Promise<{
+    displayName: string | null;
+    legalName: string | null;
+    status: 'pending' | 'active' | 'suspended' | 'closed';
+    kybStatus: string;
+    parentMerchantId: string | null;
+  } | null> {
+    const rows = await this.sql<
+      Array<{
+        display_name: string | null;
+        legal_name: string | null;
+        status: string;
+        kyb_status: string;
+        parent_merchant_id: string | null;
+      }>
+    >`
+      SELECT display_name, legal_name, status::text AS status, kyb_status::text AS kyb_status, parent_merchant_id
+        FROM pay.merchants WHERE id = ${merchantId}
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    const statuses = ['pending', 'active', 'suspended', 'closed'] as const;
+    if (!(statuses as readonly string[]).includes(row.status))
+      throw new ControlError('pay.control_invalid', 'merchant status is unreadable');
+    return {
+      displayName: row.display_name,
+      legalName: row.legal_name,
+      status: row.status as (typeof statuses)[number],
+      kybStatus: row.kyb_status,
+      parentMerchantId: row.parent_merchant_id,
+    };
+  }
+
+  /**
+   * The merchant's own tier and every tier an operator has defined.
+   * An empty catalogue is `not_configured`: no names and no caps are invented.
+   */
+  async merchantTierList(merchantId: string): Promise<MerchantTierList> {
+    const control = await loadMerchantControl(this.sql, merchantId);
+    const rows = await this.sql<Array<Parameters<typeof toTier>[0]>>`SELECT * FROM pay.control_tiers ORDER BY id`;
+    if (rows.length === 0) return { status: 'not_configured', ownTierId: null };
+    const archetypes = ['psp', 'broker', 'gaming', 'standard'] as const;
+    return {
+      status: 'configured',
+      ownTierId: control.profile?.tierId ?? null,
+      tiers: rows.map((row) => {
+        const tier = toTier(row);
+        if (!(archetypes as readonly string[]).includes(tier.archetype)) {
+          throw new ControlError('pay.control_invalid', 'tier archetype is unreadable');
+        }
+        return {
+          id: tier.id,
+          name: tier.name,
+          archetype: tier.archetype as (typeof archetypes)[number],
+          caps: [...tier.caps],
+          reserve: tier.reserve ? { rollingReserveBps: tier.reserve.bps, holdDays: tier.reserve.holdDays } : null,
+          version: tier.version.toString(),
+        };
+      }),
+    };
+  }
+
+  /**
+   * Pricing rules that apply to this merchant (global, their current tier, their own layer),
+   * including superseded rows. Another merchant's layer is not included. No rows means
+   * `not_configured`, not a made-up schedule.
+   */
+  async pricingHistory(merchantId: string, limit: number): Promise<MerchantPricingHistory> {
+    const control = await loadMerchantControl(this.sql, merchantId);
+    const tierId = control.profile?.tierId ?? '';
+    const rows = await this.sql<Array<Parameters<typeof toRule>[0] & { created_at: Date; superseded_at: Date | null }>>`
+      SELECT * FROM pay.control_pricing_rules
+       WHERE (layer = 'global' AND scope_id = '')
+          OR (layer = 'tier' AND scope_id = ${tierId} AND ${tierId} <> '')
+          OR (layer = 'merchant' AND scope_id = ${merchantId})
+       ORDER BY created_at DESC, version DESC
+       LIMIT ${limit}
+    `;
+    if (rows.length === 0) return { status: 'not_configured', events: [] };
+    return {
+      status: 'configured',
+      events: rows.map((row) => ({
+        ...ruleToView(toRule(row), row.created_at),
+        supersededAt: row.superseded_at ? new Date(row.superseded_at).toISOString() : null,
+      })),
+    };
+  }
+
+  async recentAudit(merchantId: string, limit: number): Promise<{ events: MerchantAuditEvent[]; truncated: boolean }> {
+    return readMerchantAudit(this.sql, merchantId, limit);
+  }
+
+  async openLimitRequest(merchantId: string): Promise<MerchantLimitOpen> {
+    const request = await readOpenLimitRequest(this.sql, merchantId);
+    return request ? { status: 'pending', request } : { status: 'none' };
+  }
+
+  /** Stores the ask. Does not write caps onto the merchant profile. */
+  requestLimitIncrease(
+    principal: Principal,
+    input: { merchantId: string; requestId: string; caps: PayCap[]; reason: string },
+  ): Promise<MerchantLimitIncreaseResult> {
+    return requestLimitIncrease(this.sql, principal, input);
+  }
+
+  listPendingLimitRequests(input: { limit: number; cursor?: string }) {
+    return listPendingLimitRequests(this.sql, input);
   }
 }

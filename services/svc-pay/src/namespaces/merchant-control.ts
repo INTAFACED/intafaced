@@ -6,6 +6,14 @@ import {
   merchantControlProfileSchema,
   merchantControlApprovalListInputSchema,
   merchantControlApprovalDecideInputSchema,
+  merchantTierListInputSchema,
+  merchantTierListSchema,
+  merchantPricingHistoryInputSchema,
+  merchantPricingHistorySchema,
+  merchantLimitOpenInputSchema,
+  merchantLimitOpenSchema,
+  merchantLimitIncreaseInputSchema,
+  merchantLimitIncreaseResultSchema,
   payoutApprovalSchema,
 } from '@intafaced/contracts';
 import type { Principal } from '@intafaced/auth';
@@ -82,6 +90,17 @@ export function createMerchantControlRouter(control?: ControlService) {
             return control.usage(input.merchantId);
           }),
         ),
+      tiers: router({
+        list: read
+          .input(merchantTierListInputSchema)
+          .output(merchantTierListSchema)
+          .query(({ ctx, input }) =>
+            guarded(async () => {
+              await control.assertCanView(principalOf(ctx), input.merchantId);
+              return control.merchantTierList(input.merchantId);
+            }),
+          ),
+      }),
       pricing: router({
         preview: read
           .input(pricingPreviewInputSchema)
@@ -90,6 +109,36 @@ export function createMerchantControlRouter(control?: ControlService) {
             guarded(async () => {
               await control.assertCanView(principalOf(ctx), input.merchantId);
               return control.previewPricing(input);
+            }),
+          ),
+        history: read
+          .input(merchantPricingHistoryInputSchema)
+          .output(merchantPricingHistorySchema)
+          .query(({ ctx, input }) =>
+            guarded(async () => {
+              await control.assertCanView(principalOf(ctx), input.merchantId);
+              return control.pricingHistory(input.merchantId, input.limit);
+            }),
+          ),
+      }),
+      limits: router({
+        open: read
+          .input(merchantLimitOpenInputSchema)
+          .output(merchantLimitOpenSchema)
+          .query(({ ctx, input }) =>
+            guarded(async () => {
+              await control.assertCanView(principalOf(ctx), input.merchantId);
+              return control.openLimitRequest(input.merchantId);
+            }),
+          ),
+        requestIncrease: write
+          .input(merchantLimitIncreaseInputSchema)
+          .output(merchantLimitIncreaseResultSchema)
+          .mutation(({ ctx, input }) =>
+            guarded(async () => {
+              const principal = principalOf(ctx);
+              await control.assertCanView(principal, input.merchantId);
+              return control.requestLimitIncrease(principal, input);
             }),
           ),
       }),

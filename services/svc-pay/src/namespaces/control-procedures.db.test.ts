@@ -96,7 +96,7 @@ describe('control-room procedures', () => {
     const router = createPayNamespaces({ founderAuthority, control: new ControlService(sql, ownerAccessPorts(sql)) });
     expect(findUnguardedFounderProcedures(router, FOUNDER_ONLY_PREFIXES)).toEqual([]);
     const paths = Object.keys((router as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
-    expect(paths.filter((p) => p.startsWith('founderAdmin.control.')).length).toBe(8);
+    expect(paths.filter((p) => p.startsWith('founderAdmin.control.')).length).toBe(9);
   });
 
   describe('M1: merchant A cannot reach merchant B through any merchantControl procedure', () => {
@@ -107,6 +107,15 @@ describe('control-room procedures', () => {
       'merchantControl.pricing.preview': { merchantId: target, assetCode: 'USDT', amount: '10' },
       'merchantControl.approvals.list': { merchantId: target, limit: 10 },
       'merchantControl.approvals.request': { merchantId: target, settlementId: randomUUID(), railId: 'crypto-native' },
+      'merchantControl.tiers.list': { merchantId: target },
+      'merchantControl.pricing.history': { merchantId: target, limit: 10 },
+      'merchantControl.limits.open': { merchantId: target },
+      'merchantControl.limits.requestIncrease': {
+        merchantId: target,
+        requestId: randomUUID(),
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '1' }],
+        reason: 'isolation probe',
+      },
     });
     for (const path of Object.keys(calls(missing))) {
       it(`${path}: B's id and a non-existent id get the identical refusal`, async () => {
@@ -192,6 +201,7 @@ describe('control-room procedures', () => {
         expectedChangeHash: `sha256:${'a'.repeat(64)}`,
       },
       'founderAdmin.approvals.list': { limit: 10 },
+      'founderAdmin.control.limitRequests.list': { limit: 10 },
       'founderAdmin.approvals.destination': { approvalId: randomUUID() },
       'founderAdmin.changes.pending': { limit: 10 },
       'founderAdmin.control.audit.list': { limit: 10 },

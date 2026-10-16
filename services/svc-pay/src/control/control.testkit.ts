@@ -116,6 +116,6 @@ export async function resetControl(sql: postgres.Sql): Promise<void> {
   await truncatePayForTest(
     sql,
     'pay',
-    `TRUNCATE pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants, pay.control_tiers, pay.control_pricing_rules, pay.control_changes, pay.control_audit RESTART IDENTITY CASCADE`,
+    `TRUNCATE pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.control_limit_requests, pay.merchants, pay.control_tiers, pay.control_pricing_rules, pay.control_changes, pay.control_audit RESTART IDENTITY CASCADE`,
   );
 }

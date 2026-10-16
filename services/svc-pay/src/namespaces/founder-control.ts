@@ -14,6 +14,8 @@ import {
   founderControlAuditListSchema,
   founderPendingChangeListInputSchema,
   founderPendingChangeListSchema,
+  founderLimitRequestListInputSchema,
+  founderLimitRequestListSchema,
   payoutApprovalSchema,
 } from '@intafaced/contracts';
 import type { ChangeOutcome } from '../control/changes.js';
@@ -170,6 +172,13 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
         .mutation(({ ctx, input }) =>
           guarded(async () => toContractApproval(await control.approvals.founderDecide(founderIdOf(ctx), input))),
         ),
+    }),
+    /** Open limit-increase asks. Reading them does not change caps. */
+    limitRequests: router({
+      list: founder
+        .input(founderLimitRequestListInputSchema)
+        .output(founderLimitRequestListSchema)
+        .query(({ input }) => guarded(() => control.listPendingLimitRequests(input))),
     }),
     audit: router({
       list: founder
