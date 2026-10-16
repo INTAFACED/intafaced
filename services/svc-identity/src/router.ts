@@ -9,6 +9,7 @@ import {
 } from './controls/founder-controls-router.js';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
+import { requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import {
   AuthError,
@@ -245,6 +246,11 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.invalid_credentials':
     case 'auth.mfa_invalid':
     case 'auth.domain_not_allowed':
+    case 'auth.request_unsigned':
+    case 'auth.request_stale':
+    case 'auth.request_tampered':
+    case 'auth.request_replay':
+    case 'auth.ip_allowlist_required':
       // Deliberately the same shape as a wrong password: never confirm which
       // half of the credential was right (including "key ok, origin wrong").
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
@@ -1375,7 +1381,7 @@ export function createIdentityRouter(
        * This is what makes identity.apikeys real — create alone is not enough.
        */
       exchange: publicProcedure
-        .input(z.object({ key: z.string().min(8).max(200) }))
+        .input(z.object({ key: z.string().min(8).max(200), request: requestSignWireSchema.optional() }))
         .output(
           z.object({
             accessToken: z.string(),
@@ -1384,6 +1390,9 @@ export function createIdentityRouter(
             keyId: z.string().uuid(),
             scopes: z.array(z.string()),
             mode: z.enum(['live', 'sandbox']),
+            requireSignature: z.boolean().optional(),
+            requireNonEmptyIpAllowlist: z.boolean().optional(),
+            ipAllowlist: z.array(z.string()).optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -1391,7 +1400,7 @@ export function createIdentityRouter(
             // Origin is read from the trusted edge request, never from the body.
             // A non-empty domain_whitelist refuses foreign or missing origins.
             const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
-            const result = await auth.exchangeApiKey(input.key, clientOrigin);
+            const result = await requestSignAls.run(input.request, () => auth.exchangeApiKey(input.key, clientOrigin));
             return {
               accessToken: result.accessToken,
               expiresAt: result.expiresAt.toISOString(),
@@ -1399,6 +1408,9 @@ export function createIdentityRouter(
               keyId: result.keyId,
               scopes: result.scopes,
               mode: result.mode,
+              ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
+              ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
+              ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
             };
           } catch (err) {
             throw toTrpcError(err);

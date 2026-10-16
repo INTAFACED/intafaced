@@ -86,6 +86,8 @@ if (!available) {
         originAllowlist: [],
         domainWhitelist: [],
         ipAllowlist: [],
+        requireSignature: false,
+        requireNonEmptyIpAllowlist: false,
       });
       await expect(door.assertApiKeyLive(created.id)).rejects.toMatchObject({ code: 'auth.api_key_revoked' });
       const listed = await auth.listApiKeys(session.userId, 200);
@@ -117,8 +119,11 @@ if (!available) {
         originAllowlist: [],
         domainWhitelist: [],
         ipAllowlist: [],
+        requireSignature: false,
+        requireNonEmptyIpAllowlist: false,
       });
       expect(open && 'accountId' in open).toBe(false);
+      expect(open && 'requestSigningSecret' in open).toBe(false);
       expect(open && 'expiresAt' in open).toBe(false);
       expect(open && 'scopes' in open).toBe(false);
       expect(open?.productScopes).not.toContain('trade');

@@ -48,6 +48,8 @@ import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
+import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
+import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -115,6 +117,11 @@ await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
 await sql`SELECT hash FROM founder_invites_used LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: founder_invites_used is missing — apply drizzle/0028_founder_invites_used.sql before starting svc-identity',
+  );
+});
+await sql`SELECT require_signature FROM api_keys LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: api_keys.require_signature is missing — apply drizzle/0030_api_keys_request_sign.sql before starting svc-identity',
   );
 });
 
@@ -209,6 +216,7 @@ installDisabledMintRefuse(auth, sql);
 installPasskeyMintRefuse(auth, sql);
 installFourEyes();
 installApiKeyAttribution(auth);
+installApiKeyRequestSignExchange(auth, sql);
 
 const actionApprovals = new ActionApprovalService(new SqlActionApprovalStore(sql), {
   ttlSeconds: env.IDENTITY_ACTION_APPROVAL_TTL_SECONDS,
@@ -238,6 +246,7 @@ export const appRouter = mergeRouters(
     privilegedUserIds: founderPair ?? [],
   }),
   createApiKeyIpRouter(sql, auth),
+  createApiKeyRequestSignRouter(sql),
   createApiKeyOriginRouter(sql, auth),
   createApiKeyAccountRouter(sql, auth),
   createApiKeyRotateRouter(sql, auth),
