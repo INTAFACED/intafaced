@@ -123,3 +123,32 @@ for (const width of [1440, 390])
       expect(result.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
     }
   });
+
+test('payout controls share a baseline and the phone ribbon contains its text', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await setup(page);
+  await go(page, '/pay/payouts');
+  const filters = page.locator('.pp-payout-filters');
+  const controls = filters.locator('[data-slot="select-trigger"], input[type="search"], [data-slot="button"]');
+  await expect(controls).toHaveCount(4);
+  const bottoms = await controls.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom));
+  expect(Math.max(...bottoms) - Math.min(...bottoms)).toBeLessThanOrEqual(1);
+  const search = filters.getByRole('searchbox');
+  const hintId = await search.getAttribute('aria-describedby');
+  await expect(page.locator(`[id="${hintId}"]`)).toBeVisible();
+  await expect(filters.locator('small')).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'State', exact: true }).click();
+  await page.getByRole('option', { name: 'Paid out', exact: true }).click();
+  await expect(page).toHaveURL(/state=paid_out/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await go(page, '/pay/merchant');
+  const contained = await page.locator('.dev-ribbon').evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const text = range.getBoundingClientRect();
+    return text.left > box.left && text.right < box.right && text.top > box.top && text.bottom < box.bottom;
+  });
+  expect(contained).toBe(true);
+  await fits(page);
+});

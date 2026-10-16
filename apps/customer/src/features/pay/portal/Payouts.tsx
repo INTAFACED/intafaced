@@ -1,6 +1,7 @@
 import { formatAmount as fromScaled, parseAmount as toScaled } from '../../../shared/money';
 import { useResource, type Resource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Field } from '@intafaced/ui';
+import { useId } from 'react';
+import { Button, DataTable, EmptyState, Field, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@intafaced/ui';
 import { PayTime, PaySection } from '../components';
 import {
   AsOf,
@@ -18,7 +19,6 @@ import {
   PortalFailure,
   PortalLoading,
   ReadAt,
-  SelectField,
   TestTag,
   Timeline,
 } from './components';
@@ -103,6 +103,7 @@ export function PayoutsView({
   retry: () => void;
 }) {
   const { t } = portalCopy.useCopy();
+  const searchHintId = useId();
   // A payout's approval state comes from a second read. If that read fails the payouts still show, with a note, rather than being hidden.
   const all: PayoutRow[] =
     settlements.status === 'ready' ? payoutRows(settlements.data, approvals.status === 'ready' ? approvals.data : null) : [];
@@ -167,14 +168,14 @@ export function PayoutsView({
       </PaySection>
 
       <PaySection title={t('payoutsTitle')} description={t('payoutsBody')}>
-        <div className="pp-filter-row" role="search" aria-label={t('payoutsFilters')}>
-          <SelectField
+        <div className="pp-filter-row pp-payout-filters" role="search" aria-label={t('payoutsFilters')}>
+          <PayoutFilter
             label={t('filterState')}
             value={state}
             onChange={setState}
             options={[['', t('filterAll')], ...payoutStates.map((s) => [s, t(`chipPayout_${s}` as 'chipPayout_ready')] as const)]}
           />
-          <SelectField
+          <PayoutFilter
             label={t('filterAsset')}
             value={asset}
             onChange={setAsset}
@@ -186,12 +187,15 @@ export function PayoutsView({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             maxLength={200}
-            hint={t('searchPayoutsHint')}
+            aria-describedby={searchHintId}
           />
           <Button variant="secondary" onClick={exportCsv} disabled={rows.length === 0}>
             {t('downloadCsv')}
           </Button>
         </div>
+        <p id={searchHintId} className="muted pp-note">
+          {t('searchPayoutsHint')}
+        </p>
         <p className="muted pp-note">{t('payoutsDestinationSoon')}</p>
         {approvals.status === 'failed' && (
           <div className="pp-callout" role="status">
@@ -248,7 +252,9 @@ export function PayoutsView({
                       )}
                       {r.state === 'failed' && <small className="pay-cell-note">{t('failedNextStep')}</small>}
                     </td>
-                    <td className="pp-mono">{r.payoutRef ?? <span className="muted">{t('notPaidYet')}</span>}</td>
+                    <td>
+                      {r.payoutRef ? <span className="pp-mono">{r.payoutRef}</span> : <span className="muted">{t('notPaidYet')}</span>}
+                    </td>
                     <td>{r.payoutMethod ?? '—'}</td>
                   </tr>
                 ))}
@@ -268,6 +274,38 @@ export function PayoutsView({
             </>
           ))}
       </PaySection>
+    </div>
+  );
+}
+
+/** Match the redesign Field label, gap and 40px control height. */
+function PayoutFilter({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: ReadonlyArray<readonly [string, string]>;
+}) {
+  const labelId = useId();
+  return (
+    <div data-slot="field" className="flex min-w-0 flex-col gap-2 text-sm text-fg-2">
+      <span id={labelId}>{label}</span>
+      <Select items={Object.fromEntries(options)} value={value} onValueChange={(next) => onChange(next ?? '')}>
+        <SelectTrigger aria-labelledby={labelId} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map(([key, text]) => (
+            <SelectItem key={key} value={key}>
+              {text}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

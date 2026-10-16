@@ -461,7 +461,8 @@ describe('payouts list (P28)', () => {
     expect(out).toContain('Paid out');
     expect(out).toContain('Waiting for approval');
     expect(out).toContain('Waiting for approval from your owner, an admin or finance');
-    expect(out).toContain('TEST-tx-0xabc');
+    expect(out).toContain('<span class="pp-mono">TEST-tx-0xabc</span>');
+    expect(out).toContain('<td><span class="muted">Not paid out yet</span></td>');
     expect(out).not.toContain('TEST-2026-W42');
     expect(out).toContain('In transit');
     expect(out).toContain('Arrives with the payout confirmation read');

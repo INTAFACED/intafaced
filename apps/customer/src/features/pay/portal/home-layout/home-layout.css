@@ -384,6 +384,9 @@
   .if-business .plo .pp-filter-row > :nth-child(5) {
     grid-column: span 2;
   }
+  .if-business .plo .pp-payout-filters {
+    align-items: end;
+  }
   .if-business .plo [data-slot='table-container'] {
     border-radius: 12px;
   }
