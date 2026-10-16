@@ -88,23 +88,21 @@ const axe = async (page) => {
   expect(audit.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);
 };
 
-test('dashboard: KPI tiles, daily chart, status mix, balances, as-of; phone width', async ({ page }) => {
+test('dashboard: Home-style figures, daily chart, retained insights and phone width', async ({ page }) => {
   const { mock, seen } = await setup(page);
   await signIn(page, '/pay/merchant');
-  await expect(page.getByRole('heading', { name: 'Merchant dashboard', level: 1 })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Totals for Today' })).toBeVisible();
-  await expect(page.getByText('As of').first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Merchant portal', level: 1 })).toHaveCount(1);
+  await expect(page.locator('.plo-kpi-strip')).toBeVisible();
   await expect(page.getByText('4 s behind').first()).toBeVisible();
-  await expect(page.getByRole('img', { name: /Bar chart of daily volume in USDT/ })).toBeVisible();
-  await expect(page.getByRole('cell', { name: /8,123\.456789 USDT/ })).toBeVisible();
-  await expect(page.getByText('Limits, approvals and operator pauses')).toBeVisible();
-  await page.getByRole('button', { name: 'Last 30 days', exact: true }).first().click();
-  await expect(page.getByRole('group', { name: 'Totals for Last 30 days' })).toBeVisible();
-  await snap(page, '01-dashboard-desktop');
-  await page.getByRole('button', { name: 'Show as a table' }).click();
-  await expect(page.getByRole('region', { name: 'Daily volume in USDT' })).toBeVisible();
-  await axe(page);
+  await expect(page.locator('.plo-number')).toHaveText('8,123.46');
+  await page.getByRole('button', { name: '30 days', exact: true }).click();
   expect(mock.calls.some((c) => c.procedure === 'merchantMetrics.snapshot' && c.input.window.preset === 'rolling_30d')).toBe(true);
+  await page.getByRole('button', { name: 'Payment volume', exact: true }).click();
+  await expect(page.getByRole('img', { name: /Payment volume · USDT/ })).toBeVisible();
+  await page.getByRole('button', { name: 'View data table', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Payment volume USDT', exact: true })).toBeVisible();
+  await snap(page, '01-dashboard-desktop');
+  await axe(page);
   expect(seen.filter((u) => /founderAdmin/i.test(u))).toEqual([]);
   await page.setViewportSize({ width: 390, height: 844 });
   await noSideScroll(page);
@@ -114,7 +112,9 @@ test('dashboard: KPI tiles, daily chart, status mix, balances, as-of; phone widt
 test('dashboard: a new merchant sees how the first payment appears, not a wall of zeros', async ({ page }) => {
   await setup(page, 'quiet');
   await signIn(page, '/pay/merchant');
-  await expect(page.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
+  await expect(page.getByText('No balance to show yet')).toBeVisible();
+  await page.getByRole('button', { name: 'More payment insights', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Continue setup' })).toHaveAttribute('href', '/pay/onboarding');
   await expect(page.getByText('Not published')).toBeVisible();
   await snap(page, '03-dashboard-empty');
@@ -336,7 +336,7 @@ test('notifications: mark read, preferences with a threshold that has no default
   await expect(page.getByText('Use digits only')).toBeVisible();
   await threshold.fill('250.5');
   await page.getByRole('listitem').filter({ hasText: 'Limit nearly reached' }).getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('Saved')).toBeVisible();
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantOps.notifications.preferences.set').input).toMatchObject({
     kind: 'limit_threshold',
     threshold: '250.5',
@@ -612,7 +612,7 @@ test('pricing: the fee table, the calculator uses the live engine, and an unconf
   await page.getByLabel('Asset').selectOption('USDT');
   await page.getByLabel('Payment amount *').fill('100');
   await page.getByRole('button', { name: 'Work out the fee' }).click();
-  await expect(page.getByRole('heading', { name: 'Result for 100 USDT' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Result for 100.00 USDT' })).toBeVisible();
   // 1.20% of 100 plus a flat 0.25, in the band that starts at 10,000 (the mock's month so far is 12,500)
   await expect(page.getByText('1.45').first()).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantControl.pricing.preview').input).toEqual({
