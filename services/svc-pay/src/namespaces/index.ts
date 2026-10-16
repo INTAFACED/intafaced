@@ -5,6 +5,8 @@ import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
+import type { DisputeEvidenceGate } from '../merchant-ops/dispute-evidence-policy.js';
+import type { InvoiceLinkPort } from '../merchant-ops/invoices.js';
 import { createFounderOpsRouter, createMerchantOpsRouter } from '../merchant-ops/index.js';
 import { createConversionRouter } from './conversion.js';
 import { createFounderAdminRouter, type FounderTreasuryDeps } from './founder-admin.js';
@@ -45,8 +47,15 @@ export function createPayNamespaces(deps: {
   treasury?: FounderTreasuryDeps;
   control?: ControlService;
   conversion?: ConversionService;
+  evidence?: DisputeEvidenceGate;
+  invoiceLinks?: InvoiceLinkPort;
 }) {
-  const opsDeps = { founderAuthority: deps.founderAuthority, sql: deps.sql };
+  const opsDeps = {
+    founderAuthority: deps.founderAuthority,
+    sql: deps.sql,
+    evidence: deps.evidence,
+    invoiceLinks: deps.invoiceLinks,
+  };
   return mergeRouters(
     createMerchantControlRouter(deps.control),
     createMerchantMetricsRouter(deps.metrics),

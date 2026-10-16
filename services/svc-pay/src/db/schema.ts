@@ -1,5 +1,18 @@
 import { desc, sql } from 'drizzle-orm';
-import { bigint, bigserial, boolean, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  bigserial,
+  boolean,
+  customType,
+  index,
+  integer,
+  jsonb,
+  pgSchema,
+  primaryKey,
+  text,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -812,6 +825,69 @@ export const merchantPayoutDestinations = pay.table(
   (t) => [primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] })],
 );
 
+const evidenceBytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
+
+/** Rail-provided dispute response deadline. A null due date means the rail sent none. */
+export const disputeResponseDeadlines = pay.table(
+  'dispute_response_deadlines',
+  {
+    merchantId: uuid('merchant_id').notNull(),
+    disputeId: text('dispute_id').notNull(),
+    responseDueAt: tstz('response_due_at'),
+    railEventId: text('rail_event_id').notNull(),
+    recordedAt: tstz('recorded_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: 'dispute_response_deadlines_pkey', columns: [t.merchantId, t.disputeId] })],
+);
+
+/** Evidence file bytes. Metadata stays on merchant_dispute_evidence. */
+export const merchantDisputeEvidenceContent = pay.table('merchant_dispute_evidence_content', {
+  evidenceId: uuid('evidence_id').primaryKey(),
+  merchantId: uuid('merchant_id').notNull(),
+  content: evidenceBytea('content').notNull(),
+  storedAt: tstz('stored_at').notNull().defaultNow(),
+});
+
+/** Standalone merchant invoices. Payment still goes through the existing payment flow. */
+export const merchantInvoices = pay.table(
+  'merchant_invoices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    merchantId: uuid('merchant_id').notNull(),
+    status: text('status').notNull(),
+    assetId: text('asset_id').notNull(),
+    amount: amount('amount').notNull(),
+    customerRef: text('customer_ref'),
+    description: text('description'),
+    paymentLinkId: uuid('payment_link_id'),
+    paymentId: uuid('payment_id'),
+    sentAt: tstz('sent_at'),
+    voidedAt: tstz('voided_at'),
+    paidAt: tstz('paid_at'),
+    createdBy: text('created_by').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('merchant_invoices_list_idx').on(t.merchantId, t.createdAt, t.id)],
+);
+
+export const merchantInvoiceActions = pay.table(
+  'merchant_invoice_actions',
+  {
+    merchantId: uuid('merchant_id').notNull(),
+    requestId: uuid('request_id').notNull(),
+    invoiceId: uuid('invoice_id').notNull(),
+    action: text('action').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: 'merchant_invoice_actions_pkey', columns: [t.merchantId, t.requestId] })],
+);
+
 export const schema = {
   merchants,
   merchantPayoutDestinations,
@@ -832,4 +908,8 @@ export const schema = {
   subscriptions,
   subscriptionCreateIdempotency,
   subscriptionExecutions,
+  disputeResponseDeadlines,
+  merchantDisputeEvidenceContent,
+  merchantInvoices,
+  merchantInvoiceActions,
 };

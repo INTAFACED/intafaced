@@ -6,6 +6,7 @@ import { createFounderAuthority } from './founder-authority.js';
 import { ControlService, teamAccessPorts } from './control/index.js';
 import { teamReadFromSql } from './merchant-team-read.js';
 import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
+import { disputeEvidenceScanEnabled, disputeEvidenceUploadEnabled } from './merchant-ops/dispute-evidence-policy.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
 import { retryAdoptConfig } from './halts/adopt-boot.js';
@@ -419,6 +420,11 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    evidence: {
+      uploadEnabled: disputeEvidenceUploadEnabled(process.env),
+      scanEnabled: disputeEvidenceScanEnabled(process.env),
+    },
+    invoiceLinks: pay,
     payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) },
     treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql, ledger) },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.

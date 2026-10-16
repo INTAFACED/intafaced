@@ -13,7 +13,7 @@
  * Later workstreams (W1 control room, W3/W4, W6) add their procedures
  * to the TABLES in `procedures.ts`. They never touch this file's seeding.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -103,6 +103,10 @@ export interface Entity {
   readonly inviteId: string;
   /** W1: the pending payout approval this merchant's owner (the maker) requested on `settlementId`. */
   readonly approvalId: string;
+  /** Draft standalone invoice for `paymentId`'s amount and asset. */
+  readonly invoiceId: string;
+  /** Evidence bytes stored for `disputeId`. */
+  readonly evidenceId: string;
 }
 
 export type Entitlement = 'enabled' | 'revoked' | 'unconfigured' | 'not_operator';
@@ -255,6 +259,7 @@ function composeRouter(parts: {
       metrics: parts.metrics,
       registries: { sql: parts.sql, approvals: actionApprovals },
       sql: parts.sql, // W15: merchantOps.* and founderAdmin.ops.*
+      invoiceLinks: parts.pay,
       // W5: the same Postgres halt store the guards read, and the treasury exposure read. Limits come from an
       // EMPTY environment, as in an unconfigured deployment (no defaults). The conversion reader is the live inventory.
       payHalts: {
@@ -377,6 +382,20 @@ export async function createWorld(): Promise<World> {
     // (export, invitations), so seeding starts no background work.
     const disputeId = `dp-${tag}-${randomUUID()}`;
     defaultDisputeCaseStore.open({ disputeId, paymentId: first.id, merchantId, amount: '100', assetId: 'USDT', reasonCode: '4853' });
+    const evidenceBytes = Buffer.from('%PDF');
+    const evidenceSha = createHash('sha256').update(evidenceBytes).digest('hex');
+    const evidenceRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchant_dispute_evidence (merchant_id, dispute_id, kind, file_name, content_type, size_bytes, sha256, added_by)
+      VALUES (${merchantId}, ${disputeId}, 'receipt', 'receipt.pdf', 'application/pdf', ${evidenceBytes.length}, ${evidenceSha}, ${userId})
+      RETURNING id`;
+    const evidenceId = evidenceRows[0]!.id;
+    await sql`
+      INSERT INTO pay.merchant_dispute_evidence_content (evidence_id, merchant_id, content)
+      VALUES (${evidenceId}, ${merchantId}, ${evidenceBytes})`;
+    const invoiceRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchant_invoices (merchant_id, status, asset_id, amount, customer_ref, description, created_by)
+      VALUES (${merchantId}, 'draft', 'USDT', 100, ${customerRef}, 'isolation invoice', ${userId})
+      RETURNING id`;
     const exportRows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, status, file_name, content_type, content, size_bytes, row_count, as_of)
       VALUES (${merchantId}, ${randomUUID()}, ${userId}, 'payments', 'ready', ${`payments-${tag}.csv`}, 'text/csv; charset=utf-8', 'id\n', 3, 0, now())
@@ -404,6 +423,8 @@ export async function createWorld(): Promise<World> {
       memberId: memberRows[0]!.id,
       inviteId: inviteRows[0]!.id,
       approvalId: '', // set by seedControl below, once every merchant has a tier
+      invoiceId: invoiceRows[0]!.id,
+      evidenceId,
     };
   }
 
@@ -502,6 +523,8 @@ export async function createWorld(): Promise<World> {
         x.memberId,
         x.inviteId,
         x.approvalId,
+        x.invoiceId,
+        x.evidenceId,
       ];
     },
     async stop() {
@@ -610,7 +633,11 @@ export async function snapshotMerchant(w: World, merchantId: string): Promise<st
     notifications: await q('merchant_notifications', 'merchant_id'),
     exportJobs: await q('merchant_export_jobs', 'merchant_id'),
     disputeEvidence: await q('merchant_dispute_evidence', 'merchant_id'),
+    disputeEvidenceContent: await q('merchant_dispute_evidence_content', 'merchant_id'),
+    disputeDeadlines: await q('dispute_response_deadlines', 'merchant_id'),
     disputeResponses: await q('merchant_dispute_responses', 'merchant_id'),
+    invoices: await q('merchant_invoices', 'merchant_id'),
+    invoiceActions: await q('merchant_invoice_actions', 'merchant_id'),
     // W1
     controlProfile: await q('control_merchant_profiles', 'merchant_id'),
     controlApprovals: await q('control_payout_approvals', 'merchant_id'),

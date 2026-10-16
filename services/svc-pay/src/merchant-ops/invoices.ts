@@ -1,0 +1,464 @@
+import { createHash } from 'node:crypto';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import type { Sql } from 'postgres';
+import { ListQueryError, encodeListCursor, parseListFilters } from '../list-page.js';
+import { MerchantOpsError } from './errors.js';
+import { iso, money } from './money.js';
+import { requireLimit, toPage } from './pagination.js';
+import { assertPermission, type MerchantCaller } from './roles.js';
+
+/**
+ * Standalone invoices. A subscription execution is a different row and is not
+ * written here. Sending mints a hosted payment link through the existing link
+ * port and marks the invoice sent. It does not post to the ledger. Paying the
+ * link is the existing payment flow; mark-paid only records that a captured or
+ * settled payment of the same asset and amount already belongs to this merchant.
+ */
+
+export const INVOICE_STATUSES = ['draft', 'sent', 'void', 'paid'] as const;
+export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
+
+const PAID_PAYMENT = new Set(['captured', 'settled']);
+
+export interface InvoiceLinkPort {
+  createPaymentLink(input: {
+    merchantId: string;
+    label: string;
+    amount?: bigint;
+    currency?: string;
+    maxUses?: number;
+  }): Promise<{ id: string; token: string; prefix: string; label: string; expiresAt: Date; maxUses: number | null }>;
+  deactivatePaymentLink?(merchantId: string, linkId: string): Promise<{ deactivated: boolean }>;
+}
+
+export interface InvoiceView {
+  readonly id: string;
+  readonly status: InvoiceStatus;
+  readonly assetId: string;
+  readonly amount: string;
+  readonly customerRef: string | null;
+  readonly description: string | null;
+  readonly paymentLinkId: string | null;
+  readonly paymentId: string | null;
+  readonly sentAt: string | null;
+  readonly voidedAt: string | null;
+  readonly paidAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface InvoicePaymentLinkView {
+  readonly id: string;
+  readonly prefix: string;
+  readonly expiresAt: string | null;
+  readonly maxUses: number | null;
+  /** Present on the send that minted the link. A retry cannot show it again. */
+  readonly token: string | null;
+  readonly alreadyIssued: boolean;
+}
+
+interface InvoiceRow {
+  id: string;
+  status: string;
+  asset_id: string;
+  amount: string;
+  customer_ref: string | null;
+  description: string | null;
+  payment_link_id: string | null;
+  payment_id: string | null;
+  sent_at: Date | null;
+  voided_at: Date | null;
+  paid_at: Date | null;
+  created_at: Date;
+  created_at_cursor: string;
+  updated_at: Date;
+}
+
+interface ActionRow {
+  invoice_id: string;
+  action: string;
+  fingerprint: string;
+}
+
+const notFound = () => new MerchantOpsError('pay.invoice_not_found', 'not_found');
+
+export function parseInvoiceAmount(raw: string): bigint {
+  if (typeof raw !== 'string' || raw !== raw.trim() || raw.startsWith('+') || raw.startsWith('-') || raw.length === 0) {
+    throw new MerchantOpsError('pay.invoice_amount_invalid', 'bad_request');
+  }
+  let amount: bigint;
+  try {
+    amount = parseAmount(raw);
+  } catch {
+    throw new MerchantOpsError('pay.invoice_amount_invalid', 'bad_request');
+  }
+  if (amount <= 0n) throw new MerchantOpsError('pay.invoice_amount_invalid', 'bad_request');
+  return amount;
+}
+
+function fingerprint(action: string, parts: readonly string[]): string {
+  return createHash('sha256')
+    .update(JSON.stringify([action, ...parts]))
+    .digest('hex');
+}
+
+function view(row: InvoiceRow): InvoiceView {
+  return {
+    id: row.id,
+    status: row.status as InvoiceStatus,
+    assetId: row.asset_id,
+    amount: money(row.amount),
+    customerRef: row.customer_ref,
+    description: row.description,
+    paymentLinkId: row.payment_link_id,
+    paymentId: row.payment_id,
+    sentAt: row.sent_at ? iso(row.sent_at) : null,
+    voidedAt: row.voided_at ? iso(row.voided_at) : null,
+    paidAt: row.paid_at ? iso(row.paid_at) : null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+function statusError(status: string): MerchantOpsError {
+  if (status === 'paid') return new MerchantOpsError('pay.invoice_paid', 'conflict');
+  if (status === 'void') return new MerchantOpsError('pay.invoice_void', 'conflict');
+  if (status === 'sent') return new MerchantOpsError('pay.invoice_already_sent', 'conflict');
+  return new MerchantOpsError('pay.invoice_not_draft', 'conflict');
+}
+
+function linkLabel(description: string | null): string {
+  const base = description?.replace(/[\u0000-\u001f\u007f]/g, ' ').trim() || 'Invoice';
+  return base.slice(0, 120);
+}
+
+function payRefusal(error: unknown): never {
+  if (error instanceof Error && error.name === 'PayError' && 'code' in error) {
+    const code = (error as { code: unknown }).code;
+    if (typeof code === 'string' && code.startsWith('pay.')) {
+      throw new MerchantOpsError(code as `pay.${string}`, 'precondition');
+    }
+  }
+  throw error;
+}
+
+const uniqueViolation = (error: unknown): boolean => (error as { code?: string } | null)?.code === '23505';
+
+export class InvoiceService {
+  constructor(
+    private readonly sql: Sql,
+    private readonly links?: InvoiceLinkPort,
+  ) {}
+
+  async create(
+    caller: MerchantCaller,
+    input: { requestId: string; assetId: string; amount: string; customerRef?: string; description?: string },
+  ): Promise<InvoiceView> {
+    assertPermission(caller, 'invoices.write');
+    if (!/^[A-Za-z0-9._-]{1,16}$/.test(input.assetId)) throw new MerchantOpsError('pay.invoice_asset_invalid', 'bad_request');
+    const amount = formatAmount(parseInvoiceAmount(input.amount));
+    const customerRef = blankToNull(input.customerRef, 200);
+    const description = blankToNull(input.description, 2000);
+    const fp = fingerprint('create', [input.assetId, amount, customerRef ?? '', description ?? '']);
+    const prior = await this.action(caller, input.requestId);
+    if (prior) {
+      this.sameAction(prior, 'create', fp);
+      return this.get(caller, prior.invoice_id);
+    }
+    try {
+      const rows = await this.sql<InvoiceRow[]>`
+        INSERT INTO pay.merchant_invoices (merchant_id, status, asset_id, amount, customer_ref, description, created_by)
+        VALUES (${caller.merchantId}, 'draft', ${input.assetId}, ${amount}::numeric, ${customerRef}, ${description}, ${caller.userId})
+        RETURNING ${this.returning()}`;
+      const row = rows[0];
+      if (!row) throw new MerchantOpsError('pay.invoice_not_found', 'unavailable');
+      await this.recordAction(caller, input.requestId, 'create', fp, row.id);
+      return view(row);
+    } catch (error) {
+      if (!uniqueViolation(error)) throw error;
+      const raced = await this.action(caller, input.requestId);
+      if (!raced) throw error;
+      this.sameAction(raced, 'create', fp);
+      return this.get(caller, raced.invoice_id);
+    }
+  }
+
+  async list(
+    caller: MerchantCaller,
+    input: {
+      limit?: number | undefined;
+      cursor?: string;
+      status?: InvoiceStatus;
+      assetId?: string;
+      search?: string;
+      from?: string;
+      to?: string;
+    },
+  ) {
+    assertPermission(caller, 'invoices.read');
+    const limit = requireLimit(input.limit);
+    let filters;
+    try {
+      filters = parseListFilters({
+        cursor: input.cursor,
+        search: input.search,
+        assetId: input.assetId,
+        from: input.from,
+        to: input.to,
+      });
+    } catch (error) {
+      if (error instanceof ListQueryError) throw new MerchantOpsError(error.code, 'bad_request');
+      throw error;
+    }
+    if (input.status !== undefined && !INVOICE_STATUSES.includes(input.status)) {
+      throw new MerchantOpsError('pay.invoice_status_invalid', 'bad_request');
+    }
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
+    const rows = await this.sql<InvoiceRow[]>`
+      SELECT ${this.cols()}
+        FROM pay.merchant_invoices
+       WHERE merchant_id = ${caller.merchantId}
+         AND (${input.status ?? null}::text IS NULL OR status = ${input.status ?? null})
+         AND (${filters.assetId}::text IS NULL OR asset_id = ${filters.assetId})
+         AND (${filters.from}::timestamptz IS NULL OR created_at >= ${filters.from})
+         AND (${filters.to}::timestamptz IS NULL OR created_at < ${filters.to})
+         AND (
+           ${filters.search}::text IS NULL
+           OR id::text = lower(${filters.search})
+           OR customer_ref = ${filters.search}
+         )
+         AND (
+           ${cursorAt}::text IS NULL
+           OR (created_at, id) < ((${cursorAt}::text)::timestamptz, ${cursorId}::uuid)
+         )
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${limit + 1}
+    `;
+    return toPage(rows, limit, view, (row) => encodeListCursor(row.created_at_cursor, row.id));
+  }
+
+  async get(caller: MerchantCaller, invoiceId: string): Promise<InvoiceView> {
+    assertPermission(caller, 'invoices.read');
+    const row = await this.owned(caller, invoiceId);
+    if (!row) throw notFound();
+    return view(row);
+  }
+
+  async send(caller: MerchantCaller, input: { requestId: string; invoiceId: string }) {
+    assertPermission(caller, 'invoices.write');
+    const fp = fingerprint('send', [input.invoiceId]);
+    const prior = await this.action(caller, input.requestId);
+    if (prior) {
+      this.sameAction(prior, 'send', fp);
+      return { invoice: await this.get(caller, prior.invoice_id), paymentLink: await this.linkView(caller, prior.invoice_id, null) };
+    }
+    const invoice = await this.owned(caller, input.invoiceId);
+    if (!invoice) throw notFound();
+    if (invoice.status !== 'draft') throw statusError(invoice.status);
+    if (!this.links) throw new MerchantOpsError('pay.invoice_payment_link_unwired', 'unavailable');
+    await this.assertActive(caller);
+    const amount = parseInvoiceAmount(money(invoice.amount));
+    let link: Awaited<ReturnType<InvoiceLinkPort['createPaymentLink']>>;
+    try {
+      link = await this.links.createPaymentLink({
+        merchantId: caller.merchantId,
+        label: linkLabel(invoice.description),
+        amount,
+        currency: invoice.asset_id,
+        maxUses: 1,
+      });
+    } catch (error) {
+      payRefusal(error);
+    }
+    const saved = await this.sql<InvoiceRow[]>`
+      UPDATE pay.merchant_invoices
+         SET status = 'sent', payment_link_id = ${link.id}, sent_at = now(), updated_at = now()
+       WHERE id = ${invoice.id} AND merchant_id = ${caller.merchantId} AND status = 'draft'
+       RETURNING ${this.returning()}`;
+    if (!saved[0]) {
+      await this.links.deactivatePaymentLink?.(caller.merchantId, link.id);
+      const current = await this.owned(caller, invoice.id);
+      throw statusError(current?.status ?? 'draft');
+    }
+    try {
+      await this.recordAction(caller, input.requestId, 'send', fp, invoice.id);
+    } catch (error) {
+      if (!uniqueViolation(error)) throw error;
+      const raced = await this.action(caller, input.requestId);
+      if (!raced) throw error;
+      this.sameAction(raced, 'send', fp);
+    }
+    return {
+      invoice: view(saved[0]),
+      paymentLink: {
+        id: link.id,
+        prefix: link.prefix,
+        expiresAt: link.expiresAt.toISOString(),
+        maxUses: link.maxUses,
+        token: link.token,
+        alreadyIssued: false,
+      } satisfies InvoicePaymentLinkView,
+    };
+  }
+
+  async void(caller: MerchantCaller, input: { requestId: string; invoiceId: string }): Promise<InvoiceView> {
+    assertPermission(caller, 'invoices.write');
+    const fp = fingerprint('void', [input.invoiceId]);
+    const prior = await this.action(caller, input.requestId);
+    if (prior) {
+      this.sameAction(prior, 'void', fp);
+      return this.get(caller, prior.invoice_id);
+    }
+    const invoice = await this.owned(caller, input.invoiceId);
+    if (!invoice) throw notFound();
+    if (invoice.status !== 'draft' && invoice.status !== 'sent') throw statusError(invoice.status);
+    const saved = await this.sql<InvoiceRow[]>`
+      UPDATE pay.merchant_invoices
+         SET status = 'void', voided_at = now(), updated_at = now()
+       WHERE id = ${invoice.id} AND merchant_id = ${caller.merchantId} AND status IN ('draft', 'sent')
+       RETURNING ${this.returning()}`;
+    if (!saved[0]) {
+      const current = await this.owned(caller, invoice.id);
+      throw statusError(current?.status ?? invoice.status);
+    }
+    await this.recordAction(caller, input.requestId, 'void', fp, invoice.id);
+    return view(saved[0]);
+  }
+
+  /**
+   * Associate an existing payment and mark the invoice paid. The payment must
+   * already be captured or settled for the same asset and amount. This does
+   * not capture, settle, or post.
+   */
+  async markPaidByPayment(
+    caller: MerchantCaller,
+    input: { requestId: string; invoiceId: string; paymentId: string },
+  ): Promise<InvoiceView> {
+    assertPermission(caller, 'invoices.write');
+    const fp = fingerprint('mark_paid', [input.invoiceId, input.paymentId]);
+    const prior = await this.action(caller, input.requestId);
+    if (prior) {
+      this.sameAction(prior, 'mark_paid', fp);
+      return this.get(caller, prior.invoice_id);
+    }
+    const invoice = await this.owned(caller, input.invoiceId);
+    if (!invoice) throw notFound();
+    if (invoice.status !== 'draft' && invoice.status !== 'sent') throw statusError(invoice.status);
+    const payments = await this.sql<Array<{ id: string; currency: string; amount: string; status: string }>>`
+      SELECT id, currency, amount::text, status::text
+        FROM pay.payments
+       WHERE id = ${input.paymentId}::uuid AND merchant_id = ${caller.merchantId}`;
+    const payment = payments[0];
+    if (!payment) throw new MerchantOpsError('pay.invoice_payment_not_found', 'not_found');
+    if (!PAID_PAYMENT.has(payment.status)) throw new MerchantOpsError('pay.invoice_payment_not_paid', 'precondition');
+    if (payment.currency !== invoice.asset_id || parseAmount(payment.amount) !== parseInvoiceAmount(money(invoice.amount))) {
+      throw new MerchantOpsError('pay.invoice_payment_mismatch', 'precondition');
+    }
+    let saved: InvoiceRow[];
+    try {
+      saved = await this.sql<InvoiceRow[]>`
+        UPDATE pay.merchant_invoices
+           SET status = 'paid', payment_id = ${payment.id}, paid_at = now(), updated_at = now()
+         WHERE id = ${invoice.id}
+           AND merchant_id = ${caller.merchantId}
+           AND status IN ('draft', 'sent')
+           AND NOT EXISTS (
+             SELECT 1 FROM pay.merchant_invoices other
+              WHERE other.payment_id = ${payment.id} AND other.id <> ${invoice.id}
+           )
+         RETURNING ${this.returning()}`;
+    } catch (error) {
+      if (uniqueViolation(error)) throw new MerchantOpsError('pay.invoice_payment_already_applied', 'conflict');
+      throw error;
+    }
+    if (!saved[0]) {
+      const taken = await this.sql<Array<{ id: string }>>`
+        SELECT id FROM pay.merchant_invoices
+         WHERE merchant_id = ${caller.merchantId} AND payment_id = ${payment.id} AND id <> ${invoice.id}`;
+      if (taken[0]) throw new MerchantOpsError('pay.invoice_payment_already_applied', 'conflict');
+      const current = await this.owned(caller, invoice.id);
+      throw statusError(current?.status ?? invoice.status);
+    }
+    await this.recordAction(caller, input.requestId, 'mark_paid', fp, invoice.id);
+    return view(saved[0]);
+  }
+
+  private cols() {
+    return this.sql`id, status, asset_id, amount::text, customer_ref, description, payment_link_id, payment_id,
+      sent_at, voided_at, paid_at, created_at,
+      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
+      updated_at`;
+  }
+
+  private returning() {
+    return this.sql`id, status, asset_id, amount::text, customer_ref, description, payment_link_id, payment_id,
+      sent_at, voided_at, paid_at, created_at,
+      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
+      updated_at`;
+  }
+
+  private async owned(caller: MerchantCaller, invoiceId: string): Promise<InvoiceRow | null> {
+    const rows = await this.sql<InvoiceRow[]>`
+      SELECT ${this.cols()}
+        FROM pay.merchant_invoices
+       WHERE id = ${invoiceId}::uuid AND merchant_id = ${caller.merchantId}`;
+    return rows[0] ?? null;
+  }
+
+  private async assertActive(caller: MerchantCaller): Promise<void> {
+    const rows = await this.sql<Array<{ status: string }>>`
+      SELECT status::text FROM pay.merchants WHERE id = ${caller.merchantId}`;
+    if (rows[0]?.status !== 'active') throw new MerchantOpsError('pay.merchant_inactive', 'precondition');
+  }
+
+  private async action(caller: MerchantCaller, requestId: string): Promise<ActionRow | null> {
+    const rows = await this.sql<ActionRow[]>`
+      SELECT invoice_id, action, fingerprint
+        FROM pay.merchant_invoice_actions
+       WHERE merchant_id = ${caller.merchantId} AND request_id = ${requestId}::uuid`;
+    return rows[0] ?? null;
+  }
+
+  private sameAction(prior: ActionRow, action: string, fp: string): void {
+    if (prior.action !== action || prior.fingerprint !== fp) throw new MerchantOpsError('pay.request_id_reused', 'conflict');
+  }
+
+  private async recordAction(caller: MerchantCaller, requestId: string, action: string, fp: string, invoiceId: string): Promise<void> {
+    await this.sql`
+      INSERT INTO pay.merchant_invoice_actions (merchant_id, request_id, invoice_id, action, fingerprint)
+      VALUES (${caller.merchantId}, ${requestId}::uuid, ${invoiceId}, ${action}, ${fp})`;
+  }
+
+  private async linkView(caller: MerchantCaller, invoiceId: string, token: string | null): Promise<InvoicePaymentLinkView | null> {
+    const rows = await this.sql<Array<{ payment_link_id: string | null }>>`
+      SELECT payment_link_id FROM pay.merchant_invoices
+       WHERE id = ${invoiceId} AND merchant_id = ${caller.merchantId}`;
+    const linkId = rows[0]?.payment_link_id;
+    if (!linkId) return null;
+    const links = await this.sql<Array<{ id: string; token_prefix: string; expires_at: Date | null; max_uses: number | null }>>`
+      SELECT id, token_prefix, expires_at, max_uses
+        FROM pay.payment_links
+       WHERE id = ${linkId} AND merchant_id = ${caller.merchantId}`;
+    const link = links[0];
+    if (!link) return null;
+    return {
+      id: link.id,
+      prefix: link.token_prefix,
+      expiresAt: link.expires_at ? iso(link.expires_at) : null,
+      maxUses: link.max_uses,
+      token,
+      alreadyIssued: token === null,
+    };
+  }
+}
+
+function blankToNull(value: string | undefined, max: number): string | null {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > max || /[\u0000-\u001f\u007f]/.test(trimmed)) {
+    throw new MerchantOpsError('pay.invoice_text_invalid', 'bad_request');
+  }
+  return trimmed;
+}

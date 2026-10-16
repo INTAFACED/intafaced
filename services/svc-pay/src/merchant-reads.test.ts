@@ -64,6 +64,17 @@ describe('team read permissions', () => {
     expect(roleHasPermission('developer', 'payout.approve')).toBe(false);
     expect(roleHasPermission('finance', 'payout.approve')).toBe(true);
   });
+
+  it('lets every role read invoices and keeps invoice writes off viewer and developer', () => {
+    for (const role of ['owner', 'admin', 'finance', 'developer', 'viewer'] as const) {
+      expect(roleHasPermission(role, 'invoices.read')).toBe(true);
+    }
+    expect(roleHasPermission('finance', 'invoices.write')).toBe(true);
+    expect(roleHasPermission('viewer', 'invoices.write')).toBe(false);
+    expect(roleHasPermission('developer', 'invoices.write')).toBe(false);
+    expect(roleHasPermission('viewer', 'disputes.respond')).toBe(false);
+    expect(roleHasPermission('developer', 'disputes.respond')).toBe(false);
+  });
 });
 
 describe('pricing snapshot read', () => {
