@@ -6,7 +6,7 @@ import type { MerchantRecord } from './schemas';
 
 export function SettingsNav() {
   return (
-    <nav className="pp-filters" aria-label={c.t('settingsNav')}>
+    <nav className="pp-filter-row" aria-label={c.t('settingsNav')}>
       <a className="text-link" href="/pay/settings">
         {c.t('settingsTitle')}
       </a>

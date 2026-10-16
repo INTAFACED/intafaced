@@ -155,7 +155,7 @@ export function TeamView(props: {
           />
         }
       >
-        <div className="pp-filters" role="search">
+        <div className="pp-filter-row" role="search">
           <Field label={c.t('search')} value={search} onChange={(e) => setSearch(e.target.value)} />
           <SelectField
             label={c.t('sort')}
@@ -201,7 +201,9 @@ export function TeamView(props: {
         </ListShell>
       </PaySection>
 
-      <InviteForm portal={portal} role={role} refresh={refresh} />
+      <div id="invite">
+        <InviteForm portal={portal} role={role} refresh={refresh} />
+      </div>
 
       <PaySection title={t('rolesTitle')} description={t('rolesBody')}>
         <div className="pp-left">

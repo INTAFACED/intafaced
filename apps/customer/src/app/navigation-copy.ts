@@ -2,6 +2,20 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  'Invoice detail': 'Invoice detail',
+  'One invoice reference': 'One invoice reference',
+  'Endpoint detail': 'Endpoint detail',
+  'One merchant webhook endpoint': 'One merchant webhook endpoint',
+  'Subscription detail': 'Subscription detail',
+  'One recurring schedule': 'One recurring schedule',
+  'Conversion order': 'Conversion order',
+  'One conversion order': 'One conversion order',
+
+  Conversion: 'Conversion',
+  'USD to USDT availability and orders': 'USD to USDT availability and orders',
+  'Convert USD to USDT': 'Convert USD to USDT',
+  'Review a conversion quote': 'Review a conversion quote',
+
   'Create subscription': 'Create subscription',
   'Start a schedule from an existing mandate': 'Start a schedule from an existing mandate',
 

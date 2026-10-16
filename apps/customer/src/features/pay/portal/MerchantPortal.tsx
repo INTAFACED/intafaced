@@ -26,6 +26,7 @@ import './portal.css';
 import { Refunds } from './Refunds';
 import { Links } from './Links';
 import { MerchantMoney, BalanceActivity } from './Money';
+import { Conversion, conversionHeader } from './Conversion';
 import { Subscriptions, subscriptionHeader } from './Subscriptions';
 import { Compliance } from './Compliance';
 import { Settings, SettingsNav } from './Settings';
@@ -102,8 +103,13 @@ export function PortalFrame({ route, children }: { route: PortalRoute; children:
   );
 }
 
-const hrefFor = (route: PortalRoute) =>
-  route.room === 'money-activity'
+const hrefFor = (route: PortalRoute) => {
+  if (route.room.startsWith('developer')) return '/pay/developer';
+  if (route.room === 'invoice') return '/pay/invoices';
+  if (route.room === 'subscription' || route.room === 'subscription-new') return '/pay/subscriptions';
+  if (route.room.startsWith('settings')) return '/pay/settings';
+  if (route.room.startsWith('conversion')) return '/pay/conversion';
+  return route.room === 'money-activity'
     ? '/pay/money'
     : route.room === 'report-exports'
       ? '/pay/reports'
@@ -124,11 +130,16 @@ const hrefFor = (route: PortalRoute) =>
                     : route.room === 'payout'
                       ? '/pay/payouts'
                       : `/pay/${route.room}`;
+};
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
   const c = w3cCopy.t;
   switch (route.room) {
+    case 'conversion':
+    case 'conversion-new':
+    case 'conversion-order':
+      return conversionHeader(route);
     case 'subscriptions':
     case 'subscription':
     case 'subscription-new':
@@ -402,6 +413,12 @@ function PortalRoom({
   const { t } = portalCopy.useCopy();
   const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
+    case 'conversion':
+    case 'conversion-new':
+    case 'conversion-order':
+      return (
+        <WithAccount {...acct}>{({ merchantId }) => <Conversion portal={portal} merchantId={merchantId} route={route} />}</WithAccount>
+      );
     case 'subscriptions':
     case 'subscription':
     case 'subscription-new':
