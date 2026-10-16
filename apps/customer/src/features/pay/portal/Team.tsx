@@ -1,10 +1,13 @@
+import { Arrives, ReadStamp, WindowExport } from './ExtensionTools';
+import { extensionCopy as c } from './extension-copy';
+import { useUnsavedForm } from './useUnsavedForm';
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
 import { DataTable, Field } from '../../../shared/ui';
 import { PayTime, PaySection, ReviewedAction } from '../components';
-import { Chip, Gate, ListShell, MoreFooter, SelectField, Timeline } from './components';
+import { Kpi, KpiGrid, Chip, Gate, ListShell, MoreFooter, SelectField, Timeline } from './components';
 import { portalCopy } from './copy';
-import { useCursorList, useUrlParam, type ListState } from './hooks';
+import { useCursorList, useUrlParam, useReadAt, type ListState } from './hooks';
 import { grantableRoles, memberActions } from './model';
 import type { PortalApi } from './api';
 import { teamRoles, type Invitation, type Member, type MemberRole, type TeamEvent, type TeamRole } from './schemas';
@@ -60,11 +63,41 @@ export function TeamView(props: {
 }) {
   const { t } = portalCopy.useCopy();
   const { portal, refresh } = props;
+  const [search, setSearch] = useUrlParam('search');
+  const [sort, setSort] = useUrlParam('sort', 'newest');
+  const at = useReadAt(props.members.status === 'ready', props.members);
+  const loaded = props.members.status === 'ready' ? props.members.items : null;
+  const visible = loaded
+    ?.filter((m) => `${m.userId} ${m.label ?? ''} ${m.role}`.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) =>
+      sort === 'name'
+        ? (a.label ?? a.userId).localeCompare(b.label ?? b.userId)
+        : sort === 'oldest'
+          ? a.createdAt.localeCompare(b.createdAt)
+          : b.createdAt.localeCompare(a.createdAt),
+    );
   const role = props.me.status === 'ready' ? props.me.data.role : null;
   const myUserId = props.me.status === 'ready' ? props.me.data.userId : null;
   const roleName = (r: string) => t(`role_${r}` as 'role_owner');
   return (
     <div className="stack">
+      {loaded && (
+        <>
+          <KpiGrid label={c.t('loadedMetrics')}>
+            {(['teamLoaded', 'teamActive', 'teamInvited', 'teamRemoved'] as const).map((key, i) => (
+              <Kpi
+                key={key}
+                label={c.t(key)}
+                period={c.t('loadedMetrics')}
+                value={i === 0 ? loaded.length : loaded.filter((m) => m.status === ['', 'active', 'invited', 'removed'][i]).length}
+                href={`/pay/team${i ? `?status=${['', 'active', 'invited', 'removed'][i]}` : ''}`}
+              />
+            ))}
+          </KpiGrid>
+          <ReadStamp at={at} />
+        </>
+      )}
+      <Arrives>{c.t('teamGap')}</Arrives>
       <p className="pp-callout" role="note">
         <strong>{t('mfaTitle')}</strong> {t('mfaBody')}
       </p>
@@ -122,7 +155,25 @@ export function TeamView(props: {
           />
         }
       >
-        <ListShell state={props.members} retry={refresh} empty={{ title: t('membersEmptyTitle'), body: t('membersEmptyBody') }}>
+        <div className="pp-filters" role="search">
+          <Field label={c.t('search')} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <SelectField
+            label={c.t('sort')}
+            value={sort}
+            onChange={setSort}
+            options={[
+              ['newest', c.t('newest')],
+              ['oldest', c.t('oldest')],
+              ['name', c.t('nameSort')],
+            ]}
+          />
+        </div>
+        <p className="muted">{c.t('teamSeparation')}</p>
+        <ListShell
+          state={props.members.status === 'ready' ? { ...props.members, items: visible ?? props.members.items } : props.members}
+          retry={refresh}
+          empty={{ title: t('membersEmptyTitle'), body: t('membersEmptyBody') }}
+        >
           {(rows) => (
             <>
               <DataTable label={t('membersTitle')} headers={[t('colMember'), t('colRole'), t('colStatus'), t('colSince'), t('colActions')]}>
@@ -137,6 +188,13 @@ export function TeamView(props: {
                   />
                 ))}
               </DataTable>
+              <p role="status">{c.t('shown', { count: rows.length })}</p>
+              <WindowExport
+                name="team-members"
+                at={at}
+                headers={['user_id', 'label', 'role', 'status', 'created_at', 'activated_at']}
+                rows={rows.map((m) => [m.userId, m.label, m.role, m.status, m.createdAt, m.activatedAt])}
+              />
               {props.members.status === 'ready' && <MoreFooter state={props.members} onMore={props.loadMoreMembers} />}
             </>
           )}
@@ -290,6 +348,7 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
   const [label, setLabel] = useState('');
   const chosen: TeamRole = allowed.includes(pick) ? pick : (allowed[allowed.length - 1] ?? 'viewer');
   const blocked = allowed.length === 0;
+  useUnsavedForm(Boolean(userId || label), c.t('draftWarning'));
   return (
     <PaySection title={t('inviteTitle')} description={t('inviteBody')}>
       <div className="form-stack pp-form">
