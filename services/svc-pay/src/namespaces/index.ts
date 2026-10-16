@@ -1,6 +1,8 @@
 import { mergeRouters } from '@intafaced/contracts';
+import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { ConversionService } from '../conversion/service.js';
+import type { WebhookRetryLimit } from '../merchant-ops/webhooks.js';
 import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
@@ -41,12 +43,21 @@ export function createPayNamespaces(deps: {
   metrics?: MetricsRuntime;
   registries?: RegistriesMountDeps;
   sql?: Sql;
+  ledger?: Pick<LedgerClient, 'balances'>;
+  webhooksAllowLocalHttp?: boolean;
+  webhookRetry?: WebhookRetryLimit;
   payHalts?: PayHaltsDeps;
   treasury?: FounderTreasuryDeps;
   control?: ControlService;
   conversion?: ConversionService;
 }) {
-  const opsDeps = { founderAuthority: deps.founderAuthority, sql: deps.sql };
+  const opsDeps = {
+    founderAuthority: deps.founderAuthority,
+    sql: deps.sql,
+    ledger: deps.ledger,
+    webhooksAllowLocalHttp: deps.webhooksAllowLocalHttp,
+    webhookRetry: deps.webhookRetry,
+  };
   return mergeRouters(
     createMerchantControlRouter(deps.control),
     createMerchantMetricsRouter(deps.metrics),

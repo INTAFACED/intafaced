@@ -76,15 +76,31 @@ export class DisputeOpsService {
     return c;
   }
 
-  list(caller: MerchantCaller, input: { limit?: number | undefined; cursor?: string; status?: DisputeCaseStatus; paymentId?: string }) {
+  list(
+    caller: MerchantCaller,
+    input: {
+      limit?: number | undefined;
+      cursor?: string;
+      status?: DisputeCaseStatus;
+      paymentId?: string;
+      search?: string;
+      from?: string;
+      to?: string;
+    },
+  ) {
     assertPermission(caller, 'disputes.read');
     const limit = requireLimit(input.limit);
     const after = decodeCursor(input.cursor);
+    if (input.from && input.to && Date.parse(input.from) > Date.parse(input.to))
+      throw new MerchantOpsError('pay.cursor_invalid', 'bad_request');
     // Newest first. The in-memory store keys by ISO millisecond timestamps, so the cursor does too.
     const all = this.store
       .listForMerchant(caller.merchantId)
       .filter((c) => (input.status ? c.status === input.status : true))
       .filter((c) => (input.paymentId ? c.paymentId === input.paymentId : true))
+      .filter((c) => (input.search ? c.disputeId === input.search || c.paymentId === input.search : true))
+      .filter((c) => (input.from ? c.openedAt >= input.from : true))
+      .filter((c) => (input.to ? c.openedAt < input.to : true))
       .slice()
       .reverse();
     const startAt = after ? all.findIndex((c) => MICRO(c.openedAt) === after.ts && c.disputeId === after.key) + 1 : 0;

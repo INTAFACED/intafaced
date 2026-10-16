@@ -419,6 +419,8 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    ledger,
+    webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) },
     treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql, ledger) },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
@@ -434,6 +436,9 @@ export type { SubscriptionRouter } from './subscription-router.js';
 export type { PayNamespacesRouter } from './namespaces/index.js';
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+app.addHook('onRequest', async (req, reply) => {
+  reply.header('x-request-id', req.id);
+});
 // Callers get a uniform not-found; operators get the real reason (log only).
 setIsolationDenialSink((denial) => app.log.warn({ isolation: denial }, 'pay.isolation_denied'));
 setPaymentFactsReadFailureSink((event) => app.log.warn(event, 'payment facts unread after commit'));
@@ -670,7 +675,8 @@ await app.register(async (webhookScope) => {
       return reply.code(200).send({ received: true, duplicate: outcome.duplicate });
     } catch (err) {
       if (err instanceof PayError && err.code === 'pay.webhook_invalid') {
-        return reply.code(401).send({ error: 'invalid signature' });
+        reply.header('x-request-id', request.id);
+        return reply.code(401).send({ error: 'invalid signature', requestId: request.id });
       }
       if (err instanceof PayError && err.code === 'pay.webhook_unmatched') {
         // 202: the delivery is genuine but about something we do not know. Not
@@ -698,6 +704,11 @@ await app.register(fastifyTRPCPlugin, {
   trpcOptions: {
     router: appRouter,
     createContext: ({ req }) => edgeContext(req),
+    responseMeta({ ctx }) {
+      const requestId = ctx?.requestId;
+      if (!requestId) return {};
+      return { headers: { 'x-request-id': requestId } };
+    },
   } satisfies FastifyTRPCPluginOptions<typeof appRouter>['trpcOptions'],
 });
 
