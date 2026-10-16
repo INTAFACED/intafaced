@@ -243,6 +243,8 @@ export interface ProbeIds {
   inviteId: string;
   /** W1: a pending payout approval (the owner of that merchant is its maker). */
   approvalId: string;
+  invoiceId: string;
+  evidenceId: string;
 }
 
 export const idsOfEntity = (e: Entity): ProbeIds => ({
@@ -258,6 +260,8 @@ export const idsOfEntity = (e: Entity): ProbeIds => ({
   memberId: e.memberId,
   inviteId: e.inviteId,
   approvalId: e.approvalId,
+  invoiceId: e.invoiceId,
+  evidenceId: e.evidenceId,
 });
 export const ghostIds = (): ProbeIds => ({
   merchantId: ghost(),
@@ -272,6 +276,8 @@ export const ghostIds = (): ProbeIds => ({
   memberId: ghost(),
   inviteId: ghost(),
   approvalId: ghost(),
+  invoiceId: ghost(),
+  evidenceId: ghost(),
 });
 
 export interface MerchantProc {
@@ -459,6 +465,58 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ disputeId: i.disputeId }),
   },
   {
+    path: 'merchantOps.disputes.getEvidence',
+    scope: 'pay:read',
+    own: 'ok',
+    // Evidence bytes are an interactive respond action. An API key is refused even for the owner.
+    sessionOnly: true,
+    input: (i) => ({ evidenceId: i.evidenceId }),
+  },
+  {
+    path: 'merchantOps.disputes.uploadEvidence',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.dispute_evidence_upload_off',
+    input: (i) => ({
+      disputeId: i.disputeId,
+      kind: 'receipt',
+      fileName: 'receipt.pdf',
+      contentType: 'application/pdf',
+      contentBase64: Buffer.from('%PDF').toString('base64'),
+    }),
+  },
+  {
+    path: 'merchantOps.invoices.get',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ invoiceId: i.invoiceId }),
+  },
+  {
+    path: 'merchantOps.invoices.send',
+    scope: 'pay:write',
+    own: 'service',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
+  },
+  {
+    path: 'merchantOps.invoices.markPaidByPayment',
+    scope: 'pay:write',
+    own: 'service',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId, paymentId: i.paymentId }),
+  },
+  {
+    path: 'merchantOps.invoices.void',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.invoice_paid',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
+  },
+  {
+    path: 'merchantOps.invoices.reissueLink',
+    scope: 'pay:write',
+    own: 'service',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
+  },
+  {
     path: 'merchantOps.disputes.addEvidence',
     scope: 'pay:write',
     own: 'ok',
@@ -580,6 +638,12 @@ export const LIST_PROCS: ListProc[] = [
     call: { via: 'trpc', path: 'settlement.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
     rows: pageRows,
     expectedIds: (e) => [e.settlementId],
+  },
+  {
+    name: 'trpc merchantOps.invoices.list',
+    call: { via: 'trpc', path: 'merchantOps.invoices.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.invoiceId],
   },
   {
     name: 'trpc merchant.listLinks',
