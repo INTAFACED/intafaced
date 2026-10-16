@@ -6,6 +6,7 @@ import { createFounderAuthority } from './founder-authority.js';
 import { ControlService, teamAccessPorts } from './control/index.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
+import { retryAdoptConfig } from './halts/adopt-boot.js';
 import { setAutoTripAccountErrorSink } from './halts/autotrip-log.js';
 import { loadHaltAutoTripConfig } from './halts/config.js';
 import { PayHaltStore } from './halts/store.js';
@@ -193,7 +194,7 @@ const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookS
 
 const payoutDestinations = new MerchantPayoutDestinationStore(sql);
 /** One store: the router reads it, and both rail-send paths record into it. */
-const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env));
+const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env), rails);
 const identityAdmission = createIdentityOperationDecisionClient({
   owner: 'svc-pay',
   identityUrl: env.IDENTITY_URL,
@@ -429,9 +430,13 @@ setCaptureReconcileLogger({
   },
 });
 setAutoTripAccountErrorSink((event) => app.log.warn({ autotrip: event }, 'pay.halt_autotrip_account_failed'));
-void haltStore.adoptConfig().catch((err) => {
-  app.log.warn({ err }, 'pay.halt_autotrip_adopt_failed');
-});
+// Not awaited: a down database retries a few times and then gives up. Boot does not wait.
+void retryAdoptConfig(
+  () => haltStore.adoptConfig(),
+  (err, attempt) => {
+    app.log.warn({ err, attempt }, 'pay.halt_autotrip_adopt_failed');
+  },
+);
 
 // Keep the exact request bytes so S2S verifiers can check the signed digest
 // (L2-6). Installed once here; internal registers pass `installRawBody: false`

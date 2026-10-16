@@ -22,7 +22,7 @@ import { createW5HaltsGuards } from '../seams/slots/w5-halts.js';
 import { autoTripAccountErrorCount, resetAutoTripAccountErrors } from './autotrip-log.js';
 import { loadHaltAutoTripConfig } from './config.js';
 import { createHaltGuards } from './guards.js';
-import { PayHaltStore, userHaltKey } from './store.js';
+import { PayHaltStore, railHaltKey, userHaltKey } from './store.js';
 
 /**
  * W5 halts against a real Postgres. Two SEPARATE pools stand in for two replicas:
@@ -124,7 +124,8 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
     await adminStop();
   }, 30_000);
 
-  const storeOn = (sql: postgres.Sql, env: Record<string, string> = {}) => new PayHaltStore(sql, loadHaltAutoTripConfig(env));
+  const storeOn = (sql: postgres.Sql, env: Record<string, string> = {}, knownRails: { has(railId: string): boolean } = rails) =>
+    new PayHaltStore(sql, loadHaltAutoTripConfig(env), knownRails);
   function openSpy() {
     const queries: string[] = [];
     const sql = postgres(db.url, {
@@ -309,6 +310,86 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       ).rejects.toMatchObject({
         code: 'pay.halt_target_not_found',
       });
+    });
+
+    it('refuses a user or rail halt unless the scope is payout, and refuses an unknown rail', async () => {
+      const store = storeOn(poolA);
+      const user = { level: 'user' as const, userId: USER };
+      const rail = { level: 'rail' as const, railId: 'crypto-native' };
+      for (const scope of ['intake', 'settlement', 'conversion'] as const) {
+        await expect(store.set(FOUNDER_A, setInput({ scope, target: user }))).rejects.toMatchObject({
+          code: 'pay.halt_target_unsupported',
+        });
+        await expect(store.set(FOUNDER_A, setInput({ scope, target: rail }))).rejects.toMatchObject({
+          code: 'pay.halt_target_unsupported',
+        });
+      }
+      await expect(
+        store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'rail', railId: 'missing-rail' } })),
+      ).rejects.toMatchObject({ code: 'pay.halt_target_unknown_rail' });
+      await expect(
+        store.set(FOUNDER_A, setInput({ scope: 'intake', target: { level: 'rail', railId: 'missing-rail' } })),
+      ).rejects.toMatchObject({ code: 'pay.halt_target_unsupported' });
+      // svc-pay has no user table. A non-uuid is refused; a uuid with no merchant row is not looked up.
+      await expect(
+        store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'user', userId: 'not-a-uuid' } as never })),
+      ).rejects.toMatchObject({ code: 'pay.halt_target_unsupported' });
+      expect(await poolA`SELECT 1 FROM pay.halts`).toHaveLength(0);
+    });
+
+    it('accepts a payout halt for a registered rail and for a uuid, and enforces both', async () => {
+      const g = replica(poolA);
+      const rail = { level: 'rail' as const, railId: 'crypto-native' };
+      const setRail = await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: rail, reason: 'rail outage' }));
+      expect(setRail.outcome).toBe('changed');
+      expect(setRail.state).toMatchObject({ halted: true, source: 'operator', target: rail });
+      const exec = (railId: string) => ({
+        sql: poolA as never,
+        settlementId: randomUUID(),
+        merchantId: randomUUID(),
+        assetId: 'USDT',
+        amount: 1n,
+        railId,
+        destination: DEST,
+        attempt: 0,
+        replay: FRESH,
+      });
+      await expect(g.guards.beforePayoutExecute(exec('crypto-native'))).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(g.guards.beforePayoutExecute(exec('card-sandbox'))).resolves.toBeUndefined();
+      await expect(g.guards.beforePaymentAdmit(paymentCtx(poolA, randomUUID()))).resolves.toBeUndefined();
+      const clear = setInput({ scope: 'payout', target: rail, halted: false, expectedVersion: '1', reason: 'rail repaired' });
+      expect((await g.store.set(FOUNDER_A, clear)).outcome).toBe('pending_confirmation');
+
+      const stranger = randomUUID();
+      const setUser = await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'user', userId: stranger } }));
+      expect(setUser.outcome).toBe('changed');
+      const withdraw = (userId: string) => ({
+        tx: poolA as never,
+        userId,
+        assetId: 'USDT',
+        amount: 1n,
+        rail: 'card-sandbox',
+        destination: DEST,
+        clientRef: 'c',
+        replay: FRESH,
+      });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdraw(stranger))).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdraw(USER))).resolves.toBeUndefined();
+    });
+
+    it('auto-trip still writes a rail halt when a founder set of that rail is refused', async () => {
+      const blind = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '1', PAY_HALT_AUTOTRIP_RAIL_FAILURES: '1' }, { has: () => false });
+      await expect(
+        blind.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'rail', railId: 'crypto-native' } })),
+      ).rejects.toMatchObject({ code: 'pay.halt_target_unknown_rail' });
+      expect(await blind.recordFailure('payout', { level: 'user', userId: USER }, 'rail:crypto-native')).toMatchObject({
+        tripped: true,
+        consecutiveFailures: 1,
+      });
+      const rows = await poolA<{ target: string; source: string }[]>`SELECT target, source FROM pay.halts WHERE halted`;
+      expect(rows.map((row) => `${row.target} ${row.source}`).sort()).toEqual(
+        [`${railHaltKey('crypto-native')} auto_trip`, `${userHaltKey(USER)} auto_trip`].sort(),
+      );
     });
   });
 

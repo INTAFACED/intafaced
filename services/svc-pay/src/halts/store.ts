@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import type { PayHaltPendingClear, PayHaltPendingClearListInput } from '@intafaced/contracts';
+import {
+  payMerchantIdSchema,
+  type PayHaltErrorCode,
+  type PayHaltPendingClear,
+  type PayHaltPendingClearListInput,
+} from '@intafaced/contracts';
 import type {
   PayHaltEvent,
   PayHaltMerchantState,
@@ -27,7 +32,7 @@ import type { PayHaltAutoTripConfig } from './config.js';
 
 export class PayHaltError extends Error {
   constructor(
-    readonly code: 'pay.halt_target_not_found' | 'pay.halt_store_unavailable',
+    readonly code: PayHaltErrorCode,
     options?: { cause?: unknown },
   ) {
     super(code, options);
@@ -133,10 +138,20 @@ export async function findBlockingHaltForTargets(conn: Sql, scope: PayHaltScope,
   return rows[0] ?? null;
 }
 
+/** Enough of a rail registry for a founder halt to name a rail this process can send on. */
+export interface PayHaltRailLookup {
+  has(railId: string): boolean;
+}
+
 export class PayHaltStore {
   constructor(
     private readonly sql: Sql,
     private readonly autoTrip: PayHaltAutoTripConfig,
+    /**
+     * Registered rails. Omitted means every rail target is unknown: a founder
+     * halt must not name a rail this process cannot match on a send.
+     */
+    private readonly rails: PayHaltRailLookup = { has: () => false },
   ) {}
 
   autoTripPosture() {
@@ -288,6 +303,10 @@ export class PayHaltStore {
   async set(actorUserId: string, input: PayHaltSetInput): Promise<PayHaltSetResult> {
     const actor = actorUserId.toLowerCase();
     const key = targetKey(input.target);
+    // Before any write, including a clear. Guards enforce a user or rail halt on
+    // payout only, so another scope is refused here. Auto-trip writes through
+    // recordFailure, not set().
+    this.assertOperatorTarget(input);
     if (input.target.level === 'merchant') {
       const found = await this.sql`SELECT 1 FROM pay.merchants WHERE id = ${key}`;
       if (found.length === 0) throw new PayHaltError('pay.halt_target_not_found');
@@ -337,6 +356,25 @@ export class PayHaltStore {
       },
       { isolation: 'read committed' },
     );
+  }
+
+  /**
+   * Founder targets only. A user or rail halt is enforced on payout alone, so any
+   * other scope is refused rather than stored. svc-pay does not own the user
+   * table, so a user id is checked for uuid shape and not for a row. A rail id
+   * must be one this process has registered.
+   */
+  private assertOperatorTarget(input: PayHaltSetInput): void {
+    const target = input.target;
+    if ((target.level === 'user' || target.level === 'rail') && input.scope !== 'payout') {
+      throw new PayHaltError('pay.halt_target_unsupported');
+    }
+    if (target.level === 'user' && !payMerchantIdSchema.safeParse(target.userId).success) {
+      throw new PayHaltError('pay.halt_target_unsupported');
+    }
+    if (target.level === 'rail' && !this.rails.has(target.railId)) {
+      throw new PayHaltError('pay.halt_target_unknown_rail');
+    }
   }
 
   private async clear(

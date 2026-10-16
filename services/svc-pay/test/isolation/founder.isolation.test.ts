@@ -394,10 +394,10 @@ describe('G: founder-only procedures', () => {
       for (const piece of ['founderAuthority', 'metrics', 'registries: { sql, approvals: actionApprovals }']) {
         expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
       }
-      // W5: one halt store, built from the database and the configured count, so payHalts.* answer
-      // for real instead of refusing closed. The same object is what rail-send paths record into.
+      // W5: one halt store, built from the database, the configured count, and the rail registry,
+      // so payHalts.* answer for real instead of refusing closed. The same object is what rail-send paths record into.
       expect(src, 'halt store is no longer the live PayHaltStore').toContain(
-        'const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env));',
+        'const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env), rails);',
       );
       for (const piece of [
         'payHalts: { store: haltStore, merchants: pay }',

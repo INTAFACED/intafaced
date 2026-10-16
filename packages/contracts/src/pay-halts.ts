@@ -9,6 +9,10 @@ import { payMerchantIdSchema, payReasonSchema, payRequestIdSchema, payTimestampS
  * withdrawal exit, or one rail for every merchant). Halting one scope leaves
  * the others running. The store is shared by every replica and an unreadable
  * store means HALTED, so `readable: false` is a refusal, never "not halted".
+ *
+ * A user target and a rail target are enforced only on payout (one person's
+ * withdrawal exit, or one rail's sends). `payHalts.set` refuses them on intake,
+ * settlement, or conversion.
  */
 
 export const PAY_HALT_SCOPES = ['intake', 'conversion', 'payout', 'settlement'] as const;
@@ -16,6 +20,20 @@ export type PayHaltScope = (typeof PAY_HALT_SCOPES)[number];
 export const payHaltScopeSchema = z.enum(PAY_HALT_SCOPES);
 
 export const payHaltRailIdSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+
+/**
+ * Typed refusals from the halt store and `payHalts.*`.
+ * `pay.halt_target_unsupported`: a user or rail target on a scope other than payout,
+ * or a user id that is not a uuid.
+ * `pay.halt_target_unknown_rail`: a rail id this deployment has not registered.
+ */
+export const PAY_HALT_ERROR_CODES = [
+  'pay.halt_store_unavailable',
+  'pay.halt_target_not_found',
+  'pay.halt_target_unsupported',
+  'pay.halt_target_unknown_rail',
+] as const;
+export type PayHaltErrorCode = (typeof PAY_HALT_ERROR_CODES)[number];
 
 export const payHaltTargetSchema = z.discriminatedUnion('level', [
   z.object({ level: z.literal('global') }).strict(),

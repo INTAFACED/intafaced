@@ -49,8 +49,20 @@ function unavailable(): never {
 
 function mapError(error: unknown): never {
   if (error instanceof TRPCError) throw error;
-  if (error instanceof PayHaltError && error.code === 'pay.halt_target_not_found') {
-    throw new TRPCError({ code: 'NOT_FOUND', message: error.code, cause: error });
+  if (error instanceof PayHaltError) {
+    switch (error.code) {
+      case 'pay.halt_target_not_found':
+      case 'pay.halt_target_unknown_rail':
+        throw new TRPCError({ code: 'NOT_FOUND', message: error.code, cause: error });
+      case 'pay.halt_target_unsupported':
+        throw new TRPCError({ code: 'BAD_REQUEST', message: error.code, cause: error });
+      case 'pay.halt_store_unavailable':
+        break;
+      default: {
+        const unreachable: never = error.code;
+        void unreachable;
+      }
+    }
   }
   const cause = new PayHaltsRouterError('pay.halt_store_unavailable');
   throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: cause.code, cause });
