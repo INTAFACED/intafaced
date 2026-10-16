@@ -132,7 +132,7 @@ test('dashboard: no merchant yet leads to setup; operations not switched on says
   await snap(soon, '05-dashboard-arrives-soon');
 });
 
-test('onboarding: verification then payout destination, ending in a live-in-sandbox summary', async ({ page }) => {
+test('onboarding: verification then payout destination, with activation explicitly unconfirmed', async ({ page }) => {
   const { mock } = await setup(page, 'quiet');
   await signIn(page, '/pay/onboarding');
   await expect(page.getByText('Step 2 of 3: Verification').first()).toBeVisible();
@@ -145,7 +145,7 @@ test('onboarding: verification then payout destination, ending in a live-in-sand
   await dialog.getByRole('button', { name: /^Confirm/ }).click();
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
   expect(mock.calls.filter((c) => c.procedure === 'merchant.submitKyb')).toHaveLength(1);
-  await page.getByRole('button', { name: /Step 3 of 3/ }).click();
+  await page.getByRole('link', { name: /Step 3 of 3/ }).click();
   const address = page.getByLabel('Wallet address *');
   await address.fill('0x123');
   await expect(page.getByText('This is not a valid address')).toBeVisible();
@@ -157,8 +157,9 @@ test('onboarding: verification then payout destination, ending in a live-in-sand
     .getByRole('dialog')
     .getByRole('button', { name: /^Confirm/ })
     .click();
-  await expect(page.getByRole('heading', { name: 'You are live in sandbox' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Destination saved for this visit' })).toBeVisible();
   await expect(page.getByText('Waiting for verification to be approved')).toBeVisible();
+  await expect(page.getByText(/Saving a destination below does not complete go-live/).first()).toBeVisible();
   await snap(page, '08-onboarding-sandbox-summary');
 });
 

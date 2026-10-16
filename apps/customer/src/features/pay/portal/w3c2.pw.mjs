@@ -281,7 +281,7 @@ async function developerFixture(page, kind, uncertainAction = false) {
       document.getElementById('root').style.display = 'none';
       const host = document.createElement('div');
       host.id = 'isolated-fixture';
-      host.className = 'legacy-room';
+      host.className = 'if-app if-business';
       document.body.append(host);
       document.documentElement.dataset.theme = 'dark';
       const endpoint = {
