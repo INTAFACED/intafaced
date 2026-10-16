@@ -1,5 +1,11 @@
 import { AuthError, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
-import { encodePrincipal, signPrincipalHeader, EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER } from '@intafaced/contracts';
+import {
+  encodePrincipal,
+  serviceAuthHeadersForBody,
+  signPrincipalHeader,
+  EDGE_PRINCIPAL_HEADER,
+  EDGE_SIGNATURE_HEADER,
+} from '@intafaced/contracts';
 import { normalizeIp } from './request-client-ip.js';
 import { assertKeyNotExpired, optionalExpiresAtFromExchange, KeyExpiresError } from './api-key-expires.js';
 import { assertApiKeyAccount, optionalAccountIdFromExchange, requestAccountId, KeyAccountError } from './api-key-account.js';
@@ -188,6 +194,7 @@ export async function exchangeApiKeyForAccessToken(
   accountId?: string | null,
   product?: string | null,
   requestSign?: RequestSignMaterial,
+  identityOwnershipSecret?: string,
 ): Promise<{
   accessToken: string;
   expiresAt?: Date;
@@ -203,12 +210,16 @@ export async function exchangeApiKeyForAccessToken(
   const presented = typeof accountId === 'string' && accountId.trim().length > 0 ? accountId.trim() : undefined;
   const namedProduct = typeof product === 'string' && product.trim().length > 0 ? product.trim() : undefined;
   const path = presented ? '/trpc/exchangeApiKeyForAccount' : namedProduct ? '/trpc/exchangeApiKeyForProduct' : '/trpc/apiKeys.exchange';
-  const request = requestSign ? { request: requestSign } : {};
+  // Identity accepts the signed request field only from an S2S-authenticated edge.
+  // Without the dedicated key, omit the field so a public body cannot carry it.
+  const attest = Boolean(requestSign && identityOwnershipSecret);
+  const request = attest ? { request: requestSign } : {};
   const payload = presented
     ? { json: { key, accountId: presented, ...request } }
     : namedProduct
       ? { json: { key, product: namedProduct, ...request } }
       : { json: { key, ...request } };
+  const payloadText = JSON.stringify(payload);
   let response: Response;
   try {
     response = await fetchFn(`${base}${path}`, {
@@ -218,8 +229,9 @@ export async function exchangeApiKeyForAccessToken(
         ...(origin ? { origin } : {}),
         ...(clientIp ? { 'x-forwarded-for': clientIp, 'x-real-ip': clientIp } : {}),
         ...(namedProduct ? { 'x-product': namedProduct } : {}),
+        ...(attest ? serviceAuthHeadersForBody('svc-edge', identityOwnershipSecret!, payloadText) : {}),
       },
-      body: JSON.stringify(payload),
+      body: payloadText,
       signal: AbortSignal.timeout(5_000),
     });
   } catch {
@@ -321,6 +333,7 @@ export async function exchangePrincipal(
       presentedAccountId,
       presentedProduct,
       requestSign,
+      options.identityOwnershipSecret,
     );
     if (!exchanged) {
       return { headers: forward, principal: null, rejected: 'invalid' };

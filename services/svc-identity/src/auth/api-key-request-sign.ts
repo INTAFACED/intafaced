@@ -5,7 +5,10 @@
  * Default off. Empty IP allowlist stays open until the key opts into
  * "require non-empty IP allowlist". The signing secret is returned once.
  * A missing secret on a key that requires a signature refuses.
- * Nonces older than the 5-minute window are deleted on the next consume.
+ * A nonce is kept until the signed timestamp plus the acceptance window, so a
+ * skewed client clock cannot forget it while that signature is still acceptable.
+ * The signing secret is stored as enc:v1 ciphertext. A catch-all allowlist
+ * (0.0.0.0/0 or ::/0) does not satisfy "require non-empty IP allowlist".
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -13,6 +16,7 @@ import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { AuthError, type AuthService } from './auth-service.js';
 import { hashToken } from './passwords.js';
+import { decryptAtRest, encryptAtRest, TOTP_SECRET_ENC_PREFIX } from './totp-crypto.js';
 
 export const REQUEST_SIGN_VERSION = 'INTAFACED-REQ-V1';
 export const REQUEST_SIGN_WINDOW_SECONDS = 300;
@@ -42,7 +46,7 @@ export const requestSignAls = new AsyncLocalStorage<RequestSignMaterial | undefi
 export class ApiKeyRequestSignError extends Error {
   constructor(
     message: string,
-    readonly reason: RequestSignReason | 'auth.not_found',
+    readonly reason: RequestSignReason | 'auth.not_found' | 'auth.not_configured' | 'auth.signature_not_required',
   ) {
     super(message);
     this.name = 'ApiKeyRequestSignError';
@@ -84,9 +88,23 @@ export function signaturesEqual(provided: string, expected: string): boolean {
   return timingSafeEqual(left, right);
 }
 
+const CATCH_ALL_ALLOWLIST = new Set(['0.0.0.0/0', '::/0']);
+
+/** A catch-all route counts as empty: it does not restrict the caller. */
+export function ipAllowlistEntryCounts(entry: string): boolean {
+  const trimmed = entry.trim().toLowerCase();
+  if (!trimmed) return false;
+  return !CATCH_ALL_ALLOWLIST.has(trimmed);
+}
+
 export function ipAllowlistSatisfied(requireNonEmpty: boolean, allowlist: readonly string[] | null | undefined): boolean {
   if (!requireNonEmpty) return true;
-  return (allowlist ?? []).some((entry) => entry.trim().length > 0);
+  return (allowlist ?? []).some(ipAllowlistEntryCounts);
+}
+
+/** Retain through the last second the signature is still acceptable (age === window). */
+export function nonceRetainUntil(signedAtSeconds: number): Date {
+  return new Date((signedAtSeconds + REQUEST_SIGN_WINDOW_SECONDS + 1) * 1000);
 }
 
 function validPath(path: string): boolean {
@@ -105,7 +123,8 @@ function timestampSeconds(timestamp: string): number | null {
 }
 
 export interface NonceStore {
-  consume(keyId: string, nonce: string, now: Date): boolean | Promise<boolean>;
+  /** `signedAt` is the client timestamp. Retention runs from that instant, not from server `now`. */
+  consume(keyId: string, nonce: string, now: Date, signedAt?: Date): boolean | Promise<boolean>;
 }
 
 export async function assessRequestSignature(input: {
@@ -145,19 +164,19 @@ export async function assessRequestSignature(input: {
   }
   const age = Math.abs(Math.floor(input.now.getTime() / 1000) - signedAt);
   if (age > REQUEST_SIGN_WINDOW_SECONDS) return { ok: false, reason: 'stale' };
-  const fresh = await input.nonceStore.consume(input.keyId, material.nonce, input.now);
+  const fresh = await input.nonceStore.consume(input.keyId, material.nonce, input.now, new Date(signedAt * 1000));
   if (!fresh) return { ok: false, reason: 'replay' };
   return { ok: true };
 }
 
 export function postgresNonceStore(sql: Sql): NonceStore {
   return {
-    async consume(keyId, nonce, now) {
-      const cutoff = new Date(now.getTime() - REQUEST_SIGN_WINDOW_SECONDS * 1000);
-      await sql`DELETE FROM api_key_request_nonces WHERE seen_at < ${cutoff}`;
+    async consume(keyId, nonce, now, signedAt = now) {
+      const expiresAt = nonceRetainUntil(Math.floor(signedAt.getTime() / 1000));
+      await sql`DELETE FROM api_key_request_nonces WHERE expires_at <= ${now}`;
       const inserted = await sql<Array<{ nonce: string }>>`
-        INSERT INTO api_key_request_nonces (key_id, nonce, seen_at)
-        VALUES (${keyId}, ${nonce}, ${now})
+        INSERT INTO api_key_request_nonces (key_id, nonce, seen_at, expires_at)
+        VALUES (${keyId}, ${nonce}, ${now}, ${expiresAt})
         ON CONFLICT (key_id, nonce) DO NOTHING
         RETURNING nonce
       `;
@@ -170,11 +189,37 @@ export function issueSigningSecret(): string {
   return `ifs_${randomBytes(32).toString('base64url')}`;
 }
 
+function sealSigningSecret(encKey: Buffer | null, plaintext: string): string {
+  if (!encKey) {
+    throw new ApiKeyRequestSignError('API key signing is not configured', 'auth.not_configured');
+  }
+  return encryptAtRest(encKey, plaintext);
+}
+
+/** Ciphertext only. Plaintext at rest, a missing key, or a bad seal is treated as no secret. */
+export function openSigningSecret(encKey: Buffer | null, stored: string | null | undefined): string | null {
+  if (!stored || !stored.startsWith(TOTP_SECRET_ENC_PREFIX) || !encKey) return null;
+  try {
+    return decryptAtRest(encKey, stored);
+  } catch {
+    return null;
+  }
+}
+
+/** The signed `request` body is the edge's observation. A public caller cannot supply it. */
+export function assertEdgeSignedRequest(service: string | null, request: unknown): void {
+  if (request == null) return;
+  if (service !== 'svc-edge') {
+    throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+  }
+}
+
 export async function setApiKeyRequestSigning(
   sql: Sql,
   userId: string,
   keyId: string,
   input: { requireSignature: boolean; requireNonEmptyIpAllowlist: boolean },
+  encKey: Buffer | null,
 ): Promise<{
   id: string;
   requireSignature: boolean;
@@ -192,9 +237,9 @@ export async function setApiKeyRequestSigning(
     let secret = row.request_signing_secret;
     let issued: string | null = null;
     if (input.requireSignature) {
-      if (!secret) {
-        secret = issueSigningSecret();
-        issued = secret;
+      if (!openSigningSecret(encKey, secret)) {
+        issued = issueSigningSecret();
+        secret = sealSigningSecret(encKey, issued);
       }
     } else {
       secret = null;
@@ -218,6 +263,43 @@ export async function setApiKeyRequestSigning(
   });
 }
 
+/**
+ * Replace the signing secret in one transaction. require_signature stays true,
+ * so there is no moment where the key accepts an unsigned call.
+ * The new secret is returned once. The caller must own the key.
+ */
+export async function rotateSigningSecret(
+  sql: Sql,
+  userId: string,
+  keyId: string,
+  encKey: Buffer | null,
+): Promise<{ id: string; signingSecret: string }> {
+  return sql.begin(async (tx) => {
+    const current = await tx<Array<{ id: string; require_signature: boolean }>>`
+      SELECT id, require_signature FROM api_keys
+      WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
+      FOR UPDATE
+    `;
+    const row = current[0];
+    if (!row) throw new ApiKeyRequestSignError('API key not found', 'auth.not_found');
+    if (!row.require_signature) {
+      throw new ApiKeyRequestSignError('API key does not require a signature', 'auth.signature_not_required');
+    }
+    const issued = issueSigningSecret();
+    const stored = sealSigningSecret(encKey, issued);
+    const updated = await tx<Array<{ id: string }>>`
+      UPDATE api_keys
+      SET request_signing_secret = ${stored},
+          require_signature = true
+      WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false AND require_signature = true
+      RETURNING id
+    `;
+    const out = updated[0];
+    if (!out) throw new ApiKeyRequestSignError('API key not found', 'auth.not_found');
+    return { id: out.id, signingSecret: issued };
+  });
+}
+
 async function loadKey(sql: Sql, key: string): Promise<KeySignRow | null> {
   const rows = await sql<KeySignRow[]>`
     SELECT id, require_signature, require_non_empty_ip_allowlist, request_signing_secret, ip_allowlist
@@ -232,6 +314,7 @@ export async function decideApiKeyExchange(
   key: string,
   material: RequestSignMaterial | null | undefined,
   now: Date,
+  encKey: Buffer | null = null,
 ): Promise<{ ok: true; row: KeySignRow } | { ok: false; reason: RequestSignReason } | { ok: true; row: null }> {
   const row = await loadKey(sql, key);
   if (!row) return { ok: true, row: null };
@@ -240,7 +323,7 @@ export async function decideApiKeyExchange(
   }
   const verdict = await assessRequestSignature({
     requireSignature: row.require_signature,
-    secret: row.request_signing_secret,
+    secret: openSigningSecret(encKey, row.request_signing_secret),
     material,
     now,
     keyId: row.id,
@@ -255,10 +338,10 @@ export async function decideApiKeyExchange(
  * without a fresh valid signature. The wire error stays invalid credentials
  * so a refusal does not confirm that the key exists.
  */
-export function installApiKeyRequestSignExchange(auth: AuthService, sql: Sql): void {
+export function installApiKeyRequestSignExchange(auth: AuthService, sql: Sql, encKey: Buffer | null): void {
   const orig = auth.exchangeApiKey.bind(auth);
   auth.exchangeApiKey = async (key: string, requestOrigin?: string | null) => {
-    const verdict = await decideApiKeyExchange(sql, key, requestSignAls.getStore(), new Date());
+    const verdict = await decideApiKeyExchange(sql, key, requestSignAls.getStore(), new Date(), encKey);
     if (!verdict.ok) {
       throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     }

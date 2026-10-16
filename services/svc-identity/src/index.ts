@@ -8,7 +8,7 @@ import { AuthService } from './auth/auth-service.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
-import { assertProdTotpKey } from './auth/totp-crypto.js';
+import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
 import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
@@ -95,6 +95,9 @@ if (env.APP_ENV === 'prod') {
   // TOTP secrets must not sit base32-plaintext in prod; refuse boot without key.
   assertProdTotpKey(env);
 }
+// Request-signing secrets must not sit plaintext in prod or staging.
+assertSigningEncKey(env);
+const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -216,7 +219,7 @@ installDisabledMintRefuse(auth, sql);
 installPasskeyMintRefuse(auth, sql);
 installFourEyes();
 installApiKeyAttribution(auth);
-installApiKeyRequestSignExchange(auth, sql);
+installApiKeyRequestSignExchange(auth, sql, signingEncKey);
 
 const actionApprovals = new ActionApprovalService(new SqlActionApprovalStore(sql), {
   ttlSeconds: env.IDENTITY_ACTION_APPROVAL_TTL_SECONDS,
@@ -246,10 +249,10 @@ export const appRouter = mergeRouters(
     privilegedUserIds: founderPair ?? [],
   }),
   createApiKeyIpRouter(sql, auth),
-  createApiKeyRequestSignRouter(sql),
+  createApiKeyRequestSignRouter(sql, signingEncKey),
   createApiKeyOriginRouter(sql, auth),
   createApiKeyAccountRouter(sql, auth),
-  createApiKeyRotateRouter(sql, auth),
+  createApiKeyRotateRouter(sql, auth, signingEncKey),
   createApiKeyExpireRouter(sql),
   createApiKeyRevokeAllRouter(sql),
   createSessionRevokeAllRouter(sql),

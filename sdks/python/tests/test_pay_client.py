@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from intafaced_pay import create_pay_client, sign_pay_request, signatures_equal
-from intafaced_pay.client import PayClient
+from intafaced_pay.client import PayClient, retry_delay_seconds
 from intafaced_pay.sign import canonical_request, sign_request
 
 SECRET = "ifs_vector-lock"
@@ -106,6 +106,7 @@ class PayClientTest(unittest.TestCase):
             now=lambda: 1_700_000_000_000,
             nonce=lambda: next(nonces),
             transport=transport,
+            sleep=lambda _seconds: None,
         )
         result = client.call(
             "POST",
@@ -193,6 +194,7 @@ class PayClientTest(unittest.TestCase):
                 api_key="ifc_test_sandbox",
                 signing_secret=SECRET,
                 max_retries=1,
+                sleep=lambda _seconds: None,
             )
             del client
             result = api.post_payments(body={"amount": "1.10", "assetId": "USD"})
@@ -216,6 +218,84 @@ class PayClientTest(unittest.TestCase):
             server.shutdown()
             thread.join(timeout=5)
             server.server_close()
+
+    def test_retry_is_limited_to_safe_methods_or_an_idempotency_key(self) -> None:
+        posts = {"n": 0}
+
+        def post_transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+            posts["n"] += 1
+            return 500, "{}"
+
+        unsafe = PayClient(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=2,
+            transport=post_transport,
+            sleep=lambda _seconds: (_ for _ in ()).throw(AssertionError("unsafe POST must not wait")),
+        )
+        result = unsafe.call("POST", "/payments", body={}, idempotency=False)
+        self.assertEqual(result["status"], 500)
+        self.assertEqual(posts["n"], 1)
+
+        delays: list[float] = []
+        gets = {"n": 0}
+
+        def get_transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str, str | None]:
+            gets["n"] += 1
+            if gets["n"] == 1:
+                return 503, "{}", "2"
+            return 200, "{}", None
+
+        reader = PayClient(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=1,
+            transport=get_transport,
+            now=lambda: 1_700_000_000_000,
+            random_fn=lambda: 0.0,
+            sleep=delays.append,
+        )
+        got = reader.call("GET", "/payments")
+        self.assertEqual(got["status"], 200)
+        self.assertEqual(gets["n"], 2)
+        self.assertEqual(delays, [2.0])
+
+        heads = {"n": 0}
+        head_delays: list[float] = []
+
+        def head_transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+            heads["n"] += 1
+            return (429, "") if heads["n"] == 1 else (200, "")
+
+        head = PayClient(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=1,
+            transport=head_transport,
+            now=lambda: 1_700_000_000_000,
+            random_fn=lambda: 0.0,
+            sleep=head_delays.append,
+        )
+        head.call("HEAD", "/payments")
+        self.assertEqual(heads["n"], 2)
+        self.assertEqual(head_delays, [retry_delay_seconds(0, None, 1_700_000_000, lambda: 0.0)])
+
+        keyed_posts = {"n": 0}
+
+        def keyed_transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+            keyed_posts["n"] += 1
+            return (500, "{}") if keyed_posts["n"] == 1 else (200, "{}")
+
+        keyed = PayClient(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=1,
+            transport=keyed_transport,
+            sleep=lambda _seconds: None,
+        )
+        posted = keyed.call("POST", "/payments", body={}, idempotency_key="business-1")
+        self.assertEqual(posted["status"], 200)
+        self.assertEqual(keyed_posts["n"], 2)
 
     def test_generated_surface_has_no_founder_or_operator_paths(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -77,6 +77,19 @@ describe('inbound API key request signature', () => {
     expect(store.consume(KEY, 'nonce-old-01', later)).toBe(true);
   });
 
+  it('keeps a nonce signed 240s ahead until the signature itself is stale', () => {
+    const store = new MemoryNonceStore();
+    const signedAt = new Date(NOW.getTime() + 240_000);
+    expect(store.consume(KEY, 'nonce-skew-01', NOW, signedAt)).toBe(true);
+    for (const delta of [301, 400, 540]) {
+      const later = new Date(NOW.getTime() + delta * 1000);
+      expect(store.consume(KEY, 'nonce-skew-01', later, signedAt)).toBe(false);
+    }
+    const after = new Date(NOW.getTime() + 541_000);
+    expect(store.size(after)).toBe(0);
+    expect(store.consume(KEY, 'nonce-skew-01', after, signedAt)).toBe(true);
+  });
+
   it('compares signatures in constant time and does not throw on a short signature', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'api-key-request-sign.ts'), 'utf8');
     expect(src).toContain('timingSafeEqual');
@@ -91,6 +104,10 @@ describe('inbound API key request signature', () => {
     expect(ipAllowlistSatisfied(false, undefined)).toBe(true);
     expect(ipAllowlistSatisfied(true, [])).toBe(false);
     expect(ipAllowlistSatisfied(true, ['   '])).toBe(false);
+    expect(ipAllowlistSatisfied(true, ['0.0.0.0/0'])).toBe(false);
+    expect(ipAllowlistSatisfied(true, ['::/0'])).toBe(false);
+    expect(ipAllowlistSatisfied(true, ['0.0.0.0/0', '::/0'])).toBe(false);
     expect(ipAllowlistSatisfied(true, ['203.0.113.10'])).toBe(true);
+    expect(ipAllowlistSatisfied(true, ['0.0.0.0/0', '203.0.113.10'])).toBe(true);
   });
 });

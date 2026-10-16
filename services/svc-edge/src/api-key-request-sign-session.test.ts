@@ -95,6 +95,34 @@ describe('API key request signature at the session door', () => {
     expect(body.json.request.bodyHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('attests the signed request as svc-edge when the ownership key is configured', async () => {
+    let service = '';
+    await exchangePrincipal(
+      {
+        authorization: 'Bearer ifc_signed',
+        [REQUEST_TIMESTAMP_HEADER]: '1700000000',
+        [REQUEST_NONCE_HEADER]: 'nonce-fresh-1',
+        [REQUEST_SIGNATURE_HEADER]: 'ab'.repeat(32),
+      },
+      {
+        ...options,
+        request: { method: 'POST', path: '/api/pay/v1/payments', body: '{"amount":"1.10"}' },
+        fetch: async (input, init) => {
+          const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
+          if (authority) return authority;
+          const headers = new Headers(init?.headers);
+          service = headers.get('x-intafaced-service') ?? '';
+          const token = await accessToken();
+          return new Response(JSON.stringify({ result: { data: { json: { accessToken: token, requireSignature: true } } } }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        },
+      },
+    );
+    expect(service).toBe('svc-edge');
+  });
+
   it('refuses a key that requires a non-empty IP allowlist when the list is empty', async () => {
     const result = await exchangePrincipal(
       { authorization: 'Bearer ifc_open' },

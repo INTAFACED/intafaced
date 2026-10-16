@@ -356,6 +356,9 @@ services:
       # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
       # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
       IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # API-key HMAC secret at rest. Pass-through only — no compose default, no invented key.
+      # Host sets API_KEY_SIGNING_ENC_KEY. Blank stays refuse-closed. Prod and staging boot refuse if missing.
+      API_KEY_SIGNING_ENC_KEY: ${API_KEY_SIGNING_ENC_KEY:-}
       # Live-partition cap — pass-through, no compose default. Blank stays refuse-closed.
       # Host must set IDENTITY_MAX_SUB_ACCOUNTS (explicit 25 allowed). Never invent 25.
       IDENTITY_MAX_SUB_ACCOUNTS: ${IDENTITY_MAX_SUB_ACCOUNTS:-}

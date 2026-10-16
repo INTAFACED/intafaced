@@ -1,13 +1,17 @@
 """Merchant Payments client.
 
 A mutating POST sends one Idempotency-Key for the whole call, including retries.
+Retries are only for GET, HEAD, DELETE, or a call that carries an Idempotency-Key.
+Delay is exponential with jitter, unless the response carries Retry-After.
 Each signed attempt uses a new nonce and timestamp. Amount fields must be decimal
 strings. A blank base URL or API key refuses. There is no default host.
 """
 
 from __future__ import annotations
 
+import calendar
 import json
+import random
 import re
 import time
 import uuid
@@ -15,6 +19,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from email.message import Message
 from typing import Any
 
 from intafaced_pay.sign import (
@@ -27,7 +32,11 @@ from intafaced_pay.sign import (
 
 DEFAULT_MAX_RETRIES = 2
 
-Transport = Callable[[str, str, dict[str, str], bytes | None], tuple[int, str]]
+Transport = Callable[[str, str, dict[str, str], bytes | None], tuple[int, str] | tuple[int, str, str | None]]
+
+# Client transport ceiling so a Retry-After cannot stall the process. Not a server business TTL.
+_MAX_RETRY_DELAY_S = 60.0
+_SAFE_RETRY_METHODS = {"GET", "HEAD", "DELETE"}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -35,18 +44,67 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _urllib_transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+def _retry_after_header(headers: Message | None) -> str | None:
+    if headers is None:
+        return None
+    value = headers.get("Retry-After")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _urllib_transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str, str | None]:
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     opener = urllib.request.build_opener(_NoRedirect)
     try:
         with opener.open(request, timeout=30) as response:
-            return response.status, response.read().decode("utf-8")
+            return response.status, response.read().decode("utf-8"), _retry_after_header(response.headers)
     except urllib.error.HTTPError as err:
         try:
             raw = err.read().decode("utf-8")
-            return err.code, raw
+            return err.code, raw, _retry_after_header(err.headers)
         finally:
             err.close()
+
+
+def _split_transport(result: tuple[int, str] | tuple[int, str, str | None]) -> tuple[int, str, str | None]:
+    if len(result) >= 3:
+        return result[0], result[1], result[2]
+    return result[0], result[1], None
+
+
+def _retry_after_seconds(raw: str | None, now_s: float) -> float | None:
+    if raw is None:
+        return None
+    trimmed = raw.strip()
+    if not trimmed:
+        return None
+    if trimmed.isdigit():
+        return min(float(int(trimmed)), _MAX_RETRY_DELAY_S)
+    parsed = _http_date(trimmed)
+    if parsed is None:
+        return None
+    return min(max(0.0, parsed - now_s), _MAX_RETRY_DELAY_S)
+
+
+def _http_date(value: str) -> float | None:
+    try:
+        return float(calendar.timegm(time.strptime(value, "%a, %d %b %Y %H:%M:%S GMT")))
+    except ValueError:
+        return None
+
+
+def retry_delay_seconds(attempt: int, retry_after: str | None, now_s: float, random_fn: Callable[[], float]) -> float:
+    header = _retry_after_seconds(retry_after, now_s)
+    if header is not None:
+        return header
+    ceiling = 0.1 * (2**attempt)
+    jitter = max(0.0, min(0.999999, random_fn())) * ceiling
+    return (ceiling / 2) + jitter
+
+
+def _may_retry(method: str, idempotency_key: str | None) -> bool:
+    if method.upper() in _SAFE_RETRY_METHODS:
+        return True
+    return bool(idempotency_key and idempotency_key.strip())
 
 
 def _retry_budget(value: int | None, fallback: int) -> int:
@@ -106,6 +164,8 @@ class PayClient:
         now: Callable[[], float] | None = None,
         nonce: Callable[[], str] | None = None,
         new_idempotency_key: Callable[[], str] | None = None,
+        sleep: Callable[[float], None] | None = None,
+        random_fn: Callable[[], float] | None = None,
     ) -> None:
         if not base_url or not base_url.strip():
             raise ValueError("Payments API base URL is not configured")
@@ -119,6 +179,8 @@ class PayClient:
         self._now = now or _time_ms
         self._nonce = nonce or new_request_nonce
         self._new_idempotency_key = new_idempotency_key or (lambda: str(uuid.uuid4()))
+        self._sleep = sleep or time.sleep
+        self._random = random_fn or random.random
 
     def call(
         self,
@@ -162,11 +224,10 @@ class PayClient:
                 headers[REQUEST_TIMESTAMP_HEADER] = signed["timestamp"]
                 headers[REQUEST_NONCE_HEADER] = signed["nonce"]
                 headers[REQUEST_SIGNATURE_HEADER] = signed["signature"]
-            last_status, last_body = self._transport(method.upper(), url, headers, raw)
-            if last_status != 429 and last_status < 500:
+            last_status, last_body, retry_after = _split_transport(self._transport(method.upper(), url, headers, raw))
+            if (last_status != 429 and last_status < 500) or not _may_retry(method, key) or attempt == attempts - 1:
                 break
-            if attempt == attempts - 1:
-                break
+            self._sleep(retry_delay_seconds(attempt, retry_after, self._now() / 1000, self._random))
         parsed: Any
         if not last_body:
             parsed = None

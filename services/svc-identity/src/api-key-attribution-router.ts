@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError, assertDelegateCannotGrant, type AuthService } from './auth/auth-service.js';
 import { ATTRIBUTION_MISSING, AttributionError, attributedSurfaces, requireAttribution } from './auth/four-eyes.js';
-import { requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
+import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { userCopy } from './user-copy.js';
 
 const stampView = z.object({
@@ -135,6 +135,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
         )
         .mutation(async ({ input, ctx }) => {
           try {
+            assertEdgeSignedRequest(ctx.service, input.request);
             const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
             const result = await requestSignAls.run(input.request, () => auth.exchangeApiKey(input.key, clientOrigin));
             const stamp = requireAttribution({ apiKeyId: result.keyId });

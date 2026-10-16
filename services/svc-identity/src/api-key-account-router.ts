@@ -4,7 +4,7 @@ import type { Sql } from 'postgres';
 import { ApiKeyAccountError } from './auth/api-key-account.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { assertApiKeyAccount, bindApiKeyAccount, requestAccountAls } from './auth/bind-api-key-account.js';
-import { requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
+import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyBoundToAccount } from './auth/mint-api-key-account.js';
 import type { ApiKeyMinter } from './auth/mint-api-key-ip.js';
 import { userCopy } from './user-copy.js';
@@ -20,6 +20,9 @@ type AccountExchanger = ApiKeyMinter & {
     keyId: string;
     scopes: string[];
     mode: 'live' | 'sandbox';
+    requireSignature?: boolean;
+    requireNonEmptyIpAllowlist?: boolean;
+    ipAllowlist?: string[];
   }>;
 };
 
@@ -139,10 +142,14 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
           scopes: z.array(z.string()),
           mode: z.enum(['live', 'sandbox']),
           accountId: z.string().uuid(),
+          requireSignature: z.boolean().optional(),
+          requireNonEmptyIpAllowlist: z.boolean().optional(),
+          ipAllowlist: z.array(z.string()).optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         try {
+          assertEdgeSignedRequest(ctx.service, input.request);
           const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
           const result = await requestAccountAls.run(input.accountId, () =>
             requestSignAls.run(input.request, () => minter.exchangeApiKey(input.key, clientOrigin)),
@@ -155,6 +162,9 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
             scopes: result.scopes,
             mode: result.mode,
             accountId: input.accountId,
+            ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
+            ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
+            ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
           };
         } catch (err) {
           toAccountTrpc(err);

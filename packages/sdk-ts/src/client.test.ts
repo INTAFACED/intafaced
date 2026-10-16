@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createPayClient, PayClient, signPayRequest, signaturesEqual } from './index.js';
-import type { PayTransportRequest } from './client.js';
+import { retryDelayMs, type PayTransportRequest } from './client.js';
 
 const SECRET = 'ifs_vector-lock';
 const GOLDEN = 'd61e9fa131b74a34ffdf69dbeee3fe8b82b68168d54a230d9d7ed12f042b4283';
@@ -123,6 +123,7 @@ describe('PayClient', () => {
       apiKey: 'ifc_test_x',
       signingSecret: SECRET,
       maxRetries: 1,
+      sleep: async () => undefined,
       now: () => 1_700_000_000_000,
       nonce: () => nonces[cursor++] ?? 'nonce-unused',
       transport: async (input) => {
@@ -191,6 +192,7 @@ describe('PayClient', () => {
       baseUrl: 'https://pay.example/api/pay/v1',
       apiKey: 'ifc_test_x',
       maxRetries: 1,
+      sleep: async () => undefined,
       newIdempotencyKey: () => {
         const key = `idem-${keys.length}`;
         keys.push(key);
@@ -204,6 +206,80 @@ describe('PayClient', () => {
     await client.call({ method: 'POST', path: '/payments', idempotency: true, body: {} });
     await client.call({ method: 'POST', path: '/payments', idempotency: true, body: {} });
     expect(seen).toEqual(['idem-0', 'idem-0', 'idem-1']);
+  });
+
+  it('retries only safe methods or a call that carries an Idempotency-Key, with backoff and Retry-After', async () => {
+    let posts = 0;
+    const unsafe = new PayClient({
+      baseUrl: 'https://pay.example/api/pay/v1',
+      apiKey: 'ifc_test_x',
+      maxRetries: 2,
+      sleep: async () => {
+        throw new Error('unsafe POST must not wait to retry');
+      },
+      transport: async () => {
+        posts += 1;
+        return { status: 500, body: '{}' };
+      },
+    });
+    await expect(unsafe.call({ method: 'POST', path: '/payments', idempotency: false, body: {} })).resolves.toMatchObject({ status: 500 });
+    expect(posts).toBe(1);
+
+    const delays: number[] = [];
+    let gets = 0;
+    const reader = new PayClient({
+      baseUrl: 'https://pay.example/api/pay/v1',
+      apiKey: 'ifc_test_x',
+      maxRetries: 1,
+      random: () => 0,
+      now: () => 1_700_000_000_000,
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+      transport: async () => {
+        gets += 1;
+        return gets === 1 ? { status: 503, body: '{}', headers: { 'Retry-After': '2' } } : { status: 200, body: '{}' };
+      },
+    });
+    await expect(reader.call({ method: 'GET', path: '/payments', idempotency: false })).resolves.toMatchObject({ status: 200 });
+    expect(gets).toBe(2);
+    expect(delays).toEqual([2_000]);
+
+    const headDelays: number[] = [];
+    let heads = 0;
+    const head = new PayClient({
+      baseUrl: 'https://pay.example/api/pay/v1',
+      apiKey: 'ifc_test_x',
+      maxRetries: 1,
+      random: () => 0,
+      now: () => 1_700_000_000_000,
+      sleep: async (ms) => {
+        headDelays.push(ms);
+      },
+      transport: async () => {
+        heads += 1;
+        return { status: heads === 1 ? 429 : 200, body: '' };
+      },
+    });
+    await head.call({ method: 'HEAD', path: '/payments', idempotency: false });
+    expect(heads).toBe(2);
+    expect(headDelays).toEqual([retryDelayMs(0, '', 1_700_000_000_000, () => 0)]);
+
+    let keyedPosts = 0;
+    const keyed = new PayClient({
+      baseUrl: 'https://pay.example/api/pay/v1',
+      apiKey: 'ifc_test_x',
+      maxRetries: 1,
+      sleep: async () => undefined,
+      transport: async () => {
+        keyedPosts += 1;
+        return { status: keyedPosts === 1 ? 500 : 200, body: '{}' };
+      },
+    });
+    await expect(
+      keyed.call({ method: 'POST', path: '/payments', idempotency: false, idempotencyKey: 'business-1', body: {} }),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(keyedPosts).toBe(2);
   });
 });
 
@@ -239,6 +315,7 @@ describe('sandbox contract', () => {
         apiKey: 'ifc_test_sandbox',
         signingSecret: SECRET,
         maxRetries: 1,
+        sleep: async () => undefined,
       });
       const result = await api.postPayments({ body: { amount: '1.10', assetId: 'USD' } });
       expect(result.status).toBe(200);

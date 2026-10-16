@@ -2,6 +2,8 @@
  * Merchant Payments client.
  *
  * A mutating POST sends one Idempotency-Key for the whole call, including retries.
+ * Retries are only for GET, HEAD, DELETE, or a call that carries an Idempotency-Key.
+ * Delay is exponential with jitter, unless the response carries Retry-After.
  * Each attempt that is signed uses a new nonce and timestamp. The idempotency key
  * is not a nonce.
  *
@@ -38,6 +40,7 @@ export interface PayTransportRequest {
 export interface PayTransportResponse {
   readonly status: number;
   readonly body: string;
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 export type PayTransport = (input: PayTransportRequest) => Promise<PayTransportResponse>;
@@ -52,6 +55,10 @@ export interface PayClientOptions {
   readonly now?: () => number;
   readonly nonce?: () => string;
   readonly newIdempotencyKey?: () => string;
+  /** Test seam. Defaults to a real timer. */
+  readonly sleep?: (ms: number) => Promise<void>;
+  /** Test seam. Defaults to Math.random. */
+  readonly random?: () => number;
 }
 
 export interface PayResponse {
@@ -116,11 +123,57 @@ async function fetchTransport(input: PayTransportRequest): Promise<PayTransportR
     body: input.body ? Buffer.from(input.body) : undefined,
     redirect: 'manual',
   });
-  return { status: response.status, body: await response.text() };
+  const retryAfter = response.headers.get('retry-after');
+  return {
+    status: response.status,
+    body: await response.text(),
+    ...(retryAfter ? { headers: { 'retry-after': retryAfter } } : {}),
+  };
 }
 
 function retryable(status: number): boolean {
   return status === 429 || status >= 500;
+}
+
+const SAFE_RETRY_METHODS = new Set(['GET', 'HEAD', 'DELETE']);
+
+/** Client transport ceiling so a Retry-After cannot stall the process. Not a server business TTL. */
+const MAX_RETRY_DELAY_MS = 60_000;
+
+function headerOf(headers: Readonly<Record<string, string>> | undefined, name: string): string {
+  if (!headers) return '';
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === wanted) return value;
+  }
+  return '';
+}
+
+function retryAfterMs(raw: string, nowMs: number): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    if (!Number.isSafeInteger(seconds)) return null;
+    return Math.min(seconds * 1000, MAX_RETRY_DELAY_MS);
+  }
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return null;
+  return Math.min(Math.max(0, at - nowMs), MAX_RETRY_DELAY_MS);
+}
+
+/** Half the exponential window plus a random half, so the wait grows and is not a fixed cadence. */
+export function retryDelayMs(attempt: number, retryAfter: string, nowMs: number, random: () => number): number {
+  const header = retryAfterMs(retryAfter, nowMs);
+  if (header !== null) return header;
+  const ceiling = 100 * 2 ** attempt;
+  const jitter = Math.floor(Math.max(0, Math.min(0.999999, random())) * ceiling);
+  return Math.floor(ceiling / 2) + jitter;
+}
+
+function mayRetry(method: string, idempotencyKey: string | undefined): boolean {
+  if (SAFE_RETRY_METHODS.has(method.toUpperCase())) return true;
+  return Boolean(idempotencyKey && idempotencyKey.trim());
 }
 
 export class PayClient {
@@ -132,6 +185,8 @@ export class PayClient {
   private readonly now: () => number;
   private readonly nonce: () => string;
   private readonly newIdempotencyKey: () => string;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly random: () => number;
 
   constructor(options: PayClientOptions) {
     if (!options.baseUrl?.trim()) throw new Error('Payments API base URL is not configured');
@@ -144,6 +199,8 @@ export class PayClient {
     this.now = options.now ?? Date.now;
     this.nonce = options.nonce ?? newRequestNonce;
     this.newIdempotencyKey = options.newIdempotencyKey ?? randomUUID;
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.random = options.random ?? Math.random;
   }
 
   async call(input: PayCall): Promise<PayResponse> {
@@ -180,7 +237,8 @@ export class PayClient {
         headers,
         ...(raw ? { body: raw } : {}),
       });
-      if (!retryable(last.status) || attempt === attempts - 1) break;
+      if (!retryable(last.status) || !mayRetry(input.method, idempotencyKey) || attempt === attempts - 1) break;
+      await this.sleep(retryDelayMs(attempt, headerOf(last.headers, 'retry-after'), this.now(), this.random));
     }
     if (!last) throw new Error('Payments API call did not run');
     return { status: last.status, body: parseBody(last.body), rawBody: last.body };

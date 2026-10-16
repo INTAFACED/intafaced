@@ -4,7 +4,7 @@ import type { Sql } from 'postgres';
 import { ApiKeyProductError } from './auth/api-key-product.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { bindApiKeyProductScope, requestProductAls } from './auth/auth-service-product.js';
-import { requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
+import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyWithProductScope } from './auth/mint-api-key-product.js';
 import { unbindApiKeyProductScope } from './auth/unbind-api-key-product.js';
 import type { ApiKeyMinter } from './auth/mint-api-key-ip.js';
@@ -21,6 +21,9 @@ type ProductExchanger = ApiKeyMinter & {
     keyId: string;
     scopes: string[];
     mode: 'live' | 'sandbox';
+    requireSignature?: boolean;
+    requireNonEmptyIpAllowlist?: boolean;
+    ipAllowlist?: string[];
   }>;
 };
 
@@ -138,10 +141,14 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
           scopes: z.array(z.string()),
           mode: z.enum(['live', 'sandbox']),
           product: z.string(),
+          requireSignature: z.boolean().optional(),
+          requireNonEmptyIpAllowlist: z.boolean().optional(),
+          ipAllowlist: z.array(z.string()).optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         try {
+          assertEdgeSignedRequest(ctx.service, input.request);
           const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
           const result = await requestProductAls.run(input.product, () =>
             requestSignAls.run(input.request, () => minter.exchangeApiKey(input.key, clientOrigin)),
@@ -154,6 +161,9 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
             scopes: result.scopes,
             mode: result.mode,
             product: input.product,
+            ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
+            ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
+            ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
           };
         } catch (err) {
           toProductTrpc(err);

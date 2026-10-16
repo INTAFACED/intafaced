@@ -15,8 +15,10 @@
  * body (empty body hashes as empty bytes).
  *
  * HMAC-SHA256(secret, canonical) as lowercase hex. Compare with
- * timingSafeEqual after a length check. A 5-minute window. A nonce store
- * forgets entries once they fall outside that window.
+ * timingSafeEqual after a length check. A 5-minute window. A nonce is kept
+ * until the signed timestamp plus that window, so a skewed client clock
+ * cannot forget it while the signature is still acceptable. A catch-all
+ * allowlist (0.0.0.0/0 or ::/0) does not satisfy a required IP allowlist.
  *
  * Unsigned is accepted only when the key has not opted in. A key that
  * requires a signature and has no secret refuses (fail closed).
@@ -43,21 +45,27 @@ export interface RequestSignMaterial {
 }
 
 export interface NonceStore {
-  /** True when this key+nonce was not already inside the retention window. */
-  consume(keyId: string, nonce: string, now: Date): boolean | Promise<boolean>;
+  /** True when this key+nonce was not already inside the retention window. `signedAt` is the client timestamp. */
+  consume(keyId: string, nonce: string, now: Date, signedAt?: Date): boolean | Promise<boolean>;
+}
+
+/** Retain through the last second the signature is still acceptable (age === window). */
+export function nonceRetainUntil(signedAtSeconds: number): Date {
+  return new Date((signedAtSeconds + REQUEST_SIGN_WINDOW_SECONDS + 1) * 1000);
 }
 
 export class MemoryNonceStore implements NonceStore {
   private readonly seen = new Map<string, number>();
 
-  consume(keyId: string, nonce: string, now: Date): boolean {
+  consume(keyId: string, nonce: string, now: Date, signedAt: Date = now): boolean {
     const cutoff = now.getTime();
     for (const [id, expiresAt] of this.seen) {
       if (expiresAt <= cutoff) this.seen.delete(id);
     }
     const id = `${keyId}\0${nonce}`;
     if (this.seen.has(id)) return false;
-    this.seen.set(id, cutoff + REQUEST_SIGN_WINDOW_SECONDS * 1000);
+    const retainUntil = nonceRetainUntil(Math.floor(signedAt.getTime() / 1000)).getTime();
+    this.seen.set(id, retainUntil);
     return true;
   }
 
@@ -99,9 +107,18 @@ export function signaturesEqual(provided: string, expected: string): boolean {
   return timingSafeEqual(left, right);
 }
 
+const CATCH_ALL_ALLOWLIST = new Set(['0.0.0.0/0', '::/0']);
+
+/** A catch-all route counts as empty: it does not restrict the caller. */
+export function ipAllowlistEntryCounts(entry: string): boolean {
+  const trimmed = entry.trim().toLowerCase();
+  if (!trimmed) return false;
+  return !CATCH_ALL_ALLOWLIST.has(trimmed);
+}
+
 export function ipAllowlistSatisfied(requireNonEmpty: boolean, allowlist: readonly string[] | null | undefined): boolean {
   if (!requireNonEmpty) return true;
-  return (allowlist ?? []).some((entry) => entry.trim().length > 0);
+  return (allowlist ?? []).some(ipAllowlistEntryCounts);
 }
 
 function headerValue(headers: Record<string, string | string[] | undefined>, name: string): string {
@@ -174,7 +191,7 @@ export async function assessRequestSignature(input: {
   }
   const age = Math.abs(Math.floor(input.now.getTime() / 1000) - signedAt);
   if (age > REQUEST_SIGN_WINDOW_SECONDS) return { ok: false, reason: 'stale' };
-  const fresh = await input.nonceStore.consume(input.keyId, material.nonce, input.now);
+  const fresh = await input.nonceStore.consume(input.keyId, material.nonce, input.now, new Date(signedAt * 1000));
   if (!fresh) return { ok: false, reason: 'replay' };
   return { ok: true };
 }
