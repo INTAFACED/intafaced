@@ -50,8 +50,8 @@ export function Refunds({
       <BackLink href={refundId || create ? '/pay/refunds' : '/pay/merchant'}>
         {t(refundId || create ? 'backRefunds' : 'backMerchant')}
       </BackLink>
-      {!create && !refundId && <ComingSoon title={t('nextBackend')}>{t('refundListGap')}</ComingSoon>}
-      {refundId && !paymentId && <ComingSoon title={t('nextBackend')}>{t('refundIdGap')}</ComingSoon>}
+      {!create && !refundId && <ComingSoon>{t('refundListGap')}</ComingSoon>}
+      {refundId && !paymentId && <ComingSoon>{t('refundIdGap')}</ComingSoon>}
       <PaySection title={t('choosePayment')}>
         <form
           className="form-stack pp-form"
@@ -121,7 +121,7 @@ function RefundResults({
                 [t('amount'), <Money value={data.payment.capturedAmount} asset={data.payment.assetId} />],
               ]}
             />
-            <ComingSoon title={t('nextBackend')}>{t('refundAuditGap')}</ComingSoon>
+            <ComingSoon>{t('refundAuditGap')}</ComingSoon>
             {authority ? (
               <MerchantRefund
                 pay={pay}
@@ -132,7 +132,7 @@ function RefundResults({
                 }}
               />
             ) : (
-              <ComingSoon title={t('nextBackend')}>{t('refundAuthorityGap')}</ComingSoon>
+              <ComingSoon>{t('refundAuthorityGap')}</ComingSoon>
             )}
           </div>
         )}
@@ -212,7 +212,7 @@ export function RefundHistoryView({
                       }))}
                   />
                 </PaySection>
-                <ComingSoon title={t('nextBackend')}>{t('refundAuditGap')}</ComingSoon>
+                <ComingSoon>{t('refundAuditGap')}</ComingSoon>
               </>
             ) : (
               <>

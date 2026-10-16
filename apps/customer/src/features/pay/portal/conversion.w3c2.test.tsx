@@ -16,14 +16,14 @@ it('labels all routes TEST and never fabricates a rate or quote confirmation', (
   for (const room of ['conversion', 'conversion-new', 'conversion-order']) {
     const out = renderToString(<ConversionView {...props} room={room} orderId="TEST-order" />);
     expect(out).toContain('TEST · Sandbox / testnet only');
-    expect(out).toContain('Arrives with the next backend update');
+    expect(out).toContain('Coming soon');
     expect(out).not.toMatch(/1\.00|0\.00|>Confirm/);
   }
 });
 it('keeps quote requests disabled even if the halt read is clear', () => {
   const out = renderToString(<ConversionView {...props} room="conversion-new" />);
   expect(out).toMatch(/<button[^>]*disabled[^>]*>Get quote/);
-  expect(out).toContain('minimum received');
+  expect(out).toContain('review the exchange rate and fees');
 });
 it('does not leak the existence of an unreadable conversion order', () => {
   expect(renderToString(<ConversionView {...props} room="conversion-order" orderId="TEST-foreign" />)).toContain(
@@ -33,7 +33,7 @@ it('does not leak the existence of an unreadable conversion order', () => {
 
 it('shows unavailable source and target assets until quote configuration exists', () => {
   const out = renderToString(<ConversionView {...props} room="conversion-new" />);
-  expect(out).toMatch(/Source asset<\/dt><dd[^>]*>Unavailable<\/dd>/);
-  expect(out).toMatch(/Target asset<\/dt><dd[^>]*>Unavailable<\/dd>/);
+  expect(out).toMatch(/Source asset<\/dt><dd[^>]*>Coming soon<\/dd>/);
+  expect(out).toMatch(/Target asset<\/dt><dd[^>]*>Coming soon<\/dd>/);
   expect(out).not.toMatch(/<dd[^>]*>(USD|USDT)<\/dd>/);
 });

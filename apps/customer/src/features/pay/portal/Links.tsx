@@ -161,8 +161,8 @@ export function LinksView({
                     ]}
                   />
                 </PaySection>
-                <ComingSoon title={t('nextBackend')}>{t('linkHistoryGap')}</ComingSoon>
-                {noWrite && <ComingSoon title={t('nextBackend')}>{t('linkAuthorityGap')}</ComingSoon>}
+                <ComingSoon>{t('linkHistoryGap')}</ComingSoon>
+                {noWrite && <ComingSoon>{t('linkAuthorityGap')}</ComingSoon>}
                 <div title={noWrite ? t('linkAuthorityGap') : !selected.active ? t('inactiveTip') : undefined}>
                   <ReviewedAction
                     title={t('deactivateLink')}
@@ -196,7 +196,7 @@ export function LinksView({
               </>
             ) : (
               <>
-                <ComingSoon title={t('nextBackend')}>{t('linksGap')}</ComingSoon>
+                <ComingSoon>{t('linksGap')}</ComingSoon>
                 <KpiGrid label={t('linksTitle')}>
                   <Kpi label={t('loadedLinks')} period={t('linksPeriod')} value={links.length} href={`?limit=${limit}`} />
                   {(['active', 'expired', 'inactive'] as const).map((state) => (
@@ -353,8 +353,8 @@ export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merc
   );
   return (
     <PaySection title={t('linkNew')}>
-      <ComingSoon title={t('nextBackend')}>{t('linkFormGap')}</ComingSoon>
-      {noWrite && <ComingSoon title={t('nextBackend')}>{t('linkAuthorityGap')}</ComingSoon>}
+      <ComingSoon>{t('linkFormGap')}</ComingSoon>
+      {noWrite && <ComingSoon>{t('linkAuthorityGap')}</ComingSoon>}
       <div className="form-stack pp-form">
         <fieldset className="pp-group">
           <legend>{t('groupCheckout')}</legend>

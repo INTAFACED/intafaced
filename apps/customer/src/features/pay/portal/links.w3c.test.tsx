@@ -42,14 +42,13 @@ it('shows exact amounts, scoped loaded counts and the missing backend capabiliti
   const out = renderToString(<LinksView {...props} resource={{ status: 'ready', data: [link] }} />);
   expect(out).toContain('9,007,199,254,740,993.00');
   expect(out).toContain('1 shown from 1 loaded links.');
-  expect(out).toContain('Filters below apply only');
+  expect(out).toContain('search your links by date');
   expect(out).not.toContain('token=');
 });
 it('does not offer a real deactivate action without verified company authority', () => {
   const out = renderToString(<LinksView {...props} linkId={link.id} resource={{ status: 'ready', data: [link] }} />);
   expect(out).toMatch(/disabled=""[^>]*>Deactivate link/);
-  expect(out).toContain('No change has been sent');
-  expect(out).toContain('does not identify the creator');
+  expect(out).toContain('create and turn off payment links');
 });
 it('renders grouped creation fields and keeps the review disabled without authority', () => {
   const out = renderToString(<PaymentLinkForm pay={pay} merchantId={link.id} />);

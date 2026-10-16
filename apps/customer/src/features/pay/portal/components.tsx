@@ -6,6 +6,7 @@ import { PayTime } from '../components';
 import type { ListState } from './hooks';
 import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
 import { portalCopy, type PlainKey } from './copy';
+import { ComingSoonCard } from './frame-options/ComingSoonCard';
 import { isComingSoon, refusalText, refusalTitle } from './refusal';
 import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
 
@@ -17,17 +18,8 @@ export function PortalLoading({ rows = 3, label }: { rows?: number; label?: stri
   return <StateBlock kind="loading" rows={rows} label={label ?? t('loading')} />;
 }
 
-/** A procedure that is not built or not mounted yet is not an error: say when it arrives, and show nothing made up. */
-export function ComingSoon({ title, children }: { title?: string; children?: ReactNode }) {
-  const { t } = portalCopy.useCopy();
-  return (
-    <section className="pp-soon">
-      <span className="pp-soon-tag">{t('comingSoonTag')}</span>
-      <h3>{title ?? t('comingSoonTitle')}</h3>
-      <p>{children ?? t('comingSoonBody')}</p>
-    </section>
-  );
-}
+/** A feature that is not live yet. One calm card; see ComingSoonCard. */
+export const ComingSoon = ComingSoonCard;
 
 export function PortalFailure({ result, retry }: { result: Failed; retry?: () => void }) {
   const { t } = portalCopy.useCopy();

@@ -44,7 +44,7 @@ it('routes developer pages and rejects extra segments', () => {
 });
 it('retains the company authority refusal without exposing forms or invented records', () => {
   const out = renderToString(<DeveloperUnavailable room="developer-keys" />);
-  expect(out).toContain('Verified company membership is required');
+  expect(out).toContain('see your API keys and webhook settings');
   expect(out).not.toContain('<input');
 });
 it('excludes live and non-Pay keys from metadata tables', () => {
@@ -87,7 +87,7 @@ it('excludes live and non-Pay keys from metadata tables', () => {
   expect(out).not.toContain('LIVE KEY DO NOT DISPLAY');
   expect(out).not.toContain('UNRELATED KEY');
   expect(out).toContain('1 records shown');
-  expect(out).toContain('IP allowlists');
+  expect(out).toContain('manage how your business connects');
 });
 it('redacts URL credentials and never renders raw delivery errors', () => {
   expect(safeEndpointUrl('https://user:secret@receiver.invalid/hook?token=secret#secret')).toBe('https://receiver.invalid/hook?…');
@@ -112,7 +112,7 @@ it('shows endpoint facts and returned times without fabricating success or laten
   expect(out).toContain('2026-10-16');
   expect(out).not.toContain('TOP-SECRET');
   expect(out).not.toContain('SECRET internal');
-  expect(out).toContain('health charts need');
+  expect(out).toContain('choose where payment updates are sent');
 });
 it('renders the same unavailable window for any unreturned endpoint id', () => {
   const render = (id: string) =>

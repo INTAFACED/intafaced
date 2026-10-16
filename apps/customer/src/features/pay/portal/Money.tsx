@@ -120,7 +120,7 @@ export function MoneyView({
                   {t('balanceEmptyBody')}
                 </EmptyState>
               )}
-              <ComingSoon title={t('nextBackend')}>{t('balanceHistoryGap')}</ComingSoon>
+              <ComingSoon>{t('balanceHistoryGap')}</ComingSoon>
             </div>
           );
         }}
@@ -143,7 +143,7 @@ export function MoneyView({
             )
           }
         </Gate>
-        <ComingSoon title={t('nextBackend')}>{t('reserveGap')}</ComingSoon>
+        <ComingSoon>{t('reserveGap')}</ComingSoon>
       </PaySection>
     </div>
   );
@@ -153,7 +153,7 @@ export function BalanceActivity() {
   return (
     <div className="stack">
       <BackLink href="/pay/money">{t('moneyTitle')}</BackLink>
-      <ComingSoon title={t('nextBackend')}>{t('activityGap')}</ComingSoon>
+      <ComingSoon>{t('activityGap')}</ComingSoon>
       <div className="pp-actions">
         <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/payments" />}>
           {t('openPayments')}

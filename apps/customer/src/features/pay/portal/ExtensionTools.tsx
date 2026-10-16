@@ -7,7 +7,7 @@ import { ComingSoon, SelectField } from './components';
 import { extensionCopy as c } from './extension-copy';
 
 export function Arrives({ children }: { children: ReactNode }) {
-  return <ComingSoon title={c.t('arrives')}>{children}</ComingSoon>;
+  return <ComingSoon>{children}</ComingSoon>;
 }
 export function PortalBack({ href = '/pay/merchant', children }: { href?: string; children?: ReactNode }) {
   return (
@@ -47,7 +47,7 @@ export function ReadStamp({ at }: { at: string | null }) {
   return (
     <div className="pp-asof" role="status">
       <span>
-        {c.t('readAt')} <PayTime value={at} /> · {c.t('readLag')}
+        {c.t('readAt')} <PayTime value={at} />
       </span>
       {now - Date.parse(at) > 300_000 && <p className="pp-callout pp-callout--warn">{c.t('staleRead')}</p>}
     </div>

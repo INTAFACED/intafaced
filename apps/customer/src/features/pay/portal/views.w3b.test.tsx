@@ -208,7 +208,7 @@ describe('payments list (P06)', () => {
     const refused = view({ list: forbidden, snapshot: forbidden });
     expect(refused).toContain('Your account does not have access to this.');
     expectPlain(refused);
-    expect(view({ snapshot: soon })).toContain('Arrives soon');
+    expect(view({ snapshot: soon })).toContain('Coming soon');
   });
   it('says it could not check when the pause read fails, is refused, or is unavailable, and never reads that as "nothing paused"', () => {
     for (const halts of [down, forbidden, soon, failed('pay.merchant_ops_unavailable', 503, 'unreachable')]) {
@@ -281,7 +281,7 @@ describe('payment detail (P07)', () => {
   it('says what is not built: fee, net and the pricing rule that applied', () => {
     const out = view();
     expect(out).toContain('Fee, net and the price that applied');
-    expect(out).toContain('Arrives soon');
+    expect(out).toContain('Coming soon');
     expect(out).toContain('href="/pay/pricing"');
   });
   it('shows a dispute card with a link, and says when a disputed payment has no linked dispute', () => {
@@ -362,7 +362,7 @@ describe('settlements list (P26)', () => {
     expectPlain(out);
   });
   it('is honest that there is no date filter yet', () => {
-    expect(view()).toContain('there is no date filter yet');
+    expect(view()).toContain('filter settlements by date');
   });
   it('explains empty, filtered-empty, loading, unreachable and refused', () => {
     expect(view({ list: ready<p.Settlement[]>([]) })).toContain('No settlements yet');
@@ -394,7 +394,7 @@ describe('settlement statement (P27)', () => {
     expect(out).toContain('Checked: gross minus fees equals net, to the last decimal.');
     expect(out).toContain('Your account holds back a rolling reserve of 5.00%.');
     expect(out).toContain('It is held for 7 days.');
-    expect(out).toContain('How much was held on this particular statement is not shown yet');
+    expect(out).toContain('how much of this settlement is held in reserve');
     expect(out).toContain('Fees by line and the price that applied');
     expect(out).toContain('Payments in this settlement');
     expect(out).toContain('Download statement (CSV)');
@@ -465,8 +465,8 @@ describe('payouts list (P28)', () => {
     expect(out).toContain('<td><span class="muted">Not paid out yet</span></td>');
     expect(out).not.toContain('TEST-2026-W42');
     expect(out).toContain('In transit');
-    expect(out).toContain('Arrives with the payout confirmation read');
-    expect(out).toContain('Filtering by destination arrives with the payout destination read (W9).');
+    expect(out).toContain('Coming soon');
+    expect(out).toContain('filter payouts by destination');
     expect(out).toContain('href="/pay/payouts/bb000001-0000-4000-8000-000000000001"');
     expectPlain(out);
   });
@@ -589,7 +589,7 @@ describe('payout detail (P30)', () => {
     );
     expect(view({ settlement: down })).toContain('Try again');
     expect(view({ settlement: forbidden })).toContain('Your account does not have access to this.');
-    expect(view({ usage: soon })).toContain('Arrives soon');
+    expect(view({ usage: soon })).toContain('Coming soon');
   });
 });
 
@@ -710,7 +710,7 @@ describe('pricing and fees (P36)', () => {
     expect(out).toContain('same engine as live payments');
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Work out the fee<\/button>/);
     expect(out).toContain('History of price changes');
-    expect(out).toContain('Arrives soon');
+    expect(out).toContain('Coming soon');
   });
   it('shows "not configured" and no fee at all when pricing was never published', () => {
     const out = view({ control: ready(unconfigured) });
@@ -730,7 +730,7 @@ describe('pricing and fees (P36)', () => {
     expect(view({ control: loading })).toContain('aria-busy="true"');
     expect(view({ control: down })).toContain('Try again');
     expect(view({ control: forbidden })).toContain('Your account does not have access to this.');
-    expect(view({ control: soon })).toContain('Arrives soon');
+    expect(view({ control: soon })).toContain('Coming soon');
   });
 });
 
@@ -781,7 +781,7 @@ describe('limits and tier (P37)', () => {
     const out = view();
     expect(out).toContain('Tiers and what unlocks next');
     expect(out).toContain('Ask for a higher limit');
-    expect(out).toContain('Arrives soon');
+    expect(out).toContain('Coming soon');
   });
   it('shows the limits it knows when usage cannot be read, with a retry', () => {
     const out = view({ usage: down });
@@ -792,6 +792,6 @@ describe('limits and tier (P37)', () => {
     expect(view({ control: loading })).toContain('aria-busy="true"');
     expect(view({ control: down, usage: down })).toContain('Try again');
     expect(view({ control: forbidden, usage: forbidden })).toContain('Your account does not have access to this.');
-    expect(view({ control: soon, usage: soon })).toContain('Arrives soon');
+    expect(view({ control: soon, usage: soon })).toContain('Coming soon');
   });
 });

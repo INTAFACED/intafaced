@@ -1,4 +1,3 @@
-import { Button } from '@intafaced/ui';
 import { PaySection } from '../components';
 import { Arrives, CopyReference, PortalBack } from './ExtensionTools';
 import { extensionCopy as c } from './extension-copy';
@@ -18,11 +17,6 @@ export function Invoices({ invoiceId }: { invoiceId?: string }) {
         <a className="text-link" href="/pay/subscriptions">
           {c.t('openSubscriptions')}
         </a>
-      </PaySection>
-      <PaySection title={c.t('invoiceActions')} description={c.t('invoiceActionsGap')}>
-        <span title={c.t('invoiceReason')}>
-          <Button disabled>{c.t('createInvoice')}</Button>
-        </span>
       </PaySection>
     </div>
   );

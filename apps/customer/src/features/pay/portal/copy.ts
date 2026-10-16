@@ -66,9 +66,9 @@ const en = {
   lagMinutes: '{n} min behind',
   lagHours: '{n} h behind',
   staleWarning: 'older than expected, so recent payments may be missing',
-  comingSoonTag: 'Arrives soon',
-  comingSoonTitle: 'Not available yet',
-  comingSoonBody: 'This part of the portal is built but INTAFACED has not switched it on. Nothing is shown here rather than a guess.',
+  comingSoonTag: 'Coming soon',
+  comingSoonTitle: 'More for your business',
+  comingSoonBody: 'You’ll be able to manage this part of your business here.',
   noPaymentsInPeriod: 'No payments in this period',
 
   // columns
@@ -117,7 +117,7 @@ const en = {
   stripTier: 'Tier and limits',
   stripFee: 'Fee',
   teamAccount: 'Team member',
-  tierArrivesSoon: 'Arrives soon',
+  tierArrivesSoon: 'Coming soon',
   feeNotPublished: 'Not published',
   feeBps: '{bps} basis points',
   modeGateway: 'Gateway',
@@ -125,9 +125,8 @@ const en = {
   modePayfac: 'Payment facilitator',
   finishSetupPrompt: 'Your account is not fully set up, so some features stay off.',
   continueSetup: 'Continue setup',
-  controlSoonTitle: 'Limits, approvals and operator pauses',
-  controlSoonBody:
-    'Your tier, spending limits, payout approvals and any pause INTAFACED applies will appear here once they are switched on.',
+  controlSoonTitle: 'Limits and approvals',
+  controlSoonBody: 'You’ll be able to see your limits, payout approvals and any pauses on your account here.',
   dashEmptyTitle: 'No payments yet',
   dashEmptyBody:
     'Create a payment link and share it. When someone pays, the payment appears here within a minute or so, and your totals, charts and balances fill in.',
@@ -224,9 +223,8 @@ const en = {
   err_range: 'The end date must be after the start date.',
   err_threshold: 'Use digits only, with an optional decimal part. No signs or letters.',
   fixFieldsFirst: 'Fix the fields marked above, then continue.',
-  noStarterPricingTitle: 'Accounts cannot be opened yet',
-  noStarterPricingBody:
-    'INTAFACED has not published the fee for new accounts, so an account cannot be created from here. Your details are not lost; come back when pricing is published.',
+  noStarterPricingTitle: 'Opening an account',
+  noStarterPricingBody: 'You’ll be able to open your business account here soon. Nothing you entered is lost.',
   createAccount: 'Create my account',
   createAccountBody:
     'This creates your merchant account in sandbox mode with the fee shown. The business details cannot be edited afterwards.',
@@ -256,8 +254,8 @@ const en = {
   kybFromTo: '{from} to {to}',
   bySubmitter: 'Sent by you',
   byIntafaced: 'Decided by INTAFACED',
-  noPayoutRailTitle: 'No payout method is connected',
-  noPayoutRailBody: 'There is nowhere to send a payout yet. This step opens when INTAFACED connects one.',
+  noPayoutRailTitle: 'Payout destinations',
+  noPayoutRailBody: 'You’ll be able to choose where your payouts go once a payout method is available.',
   fRail: 'Payout method',
   hRail: 'How money reaches you.',
   railLive: 'live',
@@ -278,7 +276,7 @@ const en = {
   sandboxReady: 'Ready',
   liveWaiting: 'Waiting for verification to be approved',
   liveReady: 'Verification approved; INTAFACED switches live on',
-  limitsArriveSoon: 'Your tier and limits arrive soon',
+  limitsArriveSoon: 'Coming soon',
   openDashboard: 'Open the dashboard',
   createFirstLink: 'Create your first payment link',
 
@@ -432,7 +430,7 @@ const en = {
   lifetimeBody: 'Everything paid and refunded under this reference, per asset.',
   kpiCaptured: 'Paid',
   kpiRecurring: 'Recurring',
-  customerSeriesSoon: 'Daily charts for a single customer are not available yet.',
+  customerSeriesSoon: 'Daily charts for a single customer are coming soon.',
   recentPayments: 'Recent payments',
   recentPaymentsBody: 'The latest {count} payments with this reference.',
   noRecentPayments: 'No payments carry this reference. It appears only on a subscription.',
@@ -575,13 +573,13 @@ const en = {
   signInRequired: 'Sign in to see this.',
   tSignIn: 'Sign in to continue',
   rSignIn: 'Your session ended. Sign in again to continue.',
-  tNotAllowed: 'That was not allowed',
+  tNotAllowed: 'You don’t have access',
   rForbidden: 'Your account does not have access to this. Ask the account owner to change your role if you need it.',
   rGeneric: 'That did not go through. Check what you entered and try again.',
-  tNotConnected: 'Not available yet',
-  rNotConnected: 'This part of the portal is not switched on yet.',
-  tNotAvailable: 'Not available yet',
-  rNotAvailable: 'This is not available yet. Nothing was changed.',
+  tNotConnected: 'Coming soon',
+  rNotConnected: 'You’ll be able to use this part of your account soon.',
+  tNotAvailable: 'Not available right now',
+  rNotAvailable: 'This isn’t available right now. Nothing was changed.',
   tUnreachable: 'We could not connect',
   rUnreachable: 'We could not reach the service. Check your connection and try again.',
   tUnverified: 'We could not check this',
@@ -746,8 +744,7 @@ const en = {
   amountsBody: 'What was asked for, what was taken and what has gone back.',
   amountRequested: 'Amount asked for',
   feeSoonTitle: 'Fee, net and the price that applied',
-  feeSoonBody:
-    'The fee taken on this payment, what you keep and the pricing rule behind it arrive with the per-payment pricing record (W1). Nothing is estimated here. Your current prices are on the pricing page and may differ from what applied on this day.',
+  feeSoonBody: 'You’ll be able to see the fee for this payment and the amount you keep.',
   seePricing: 'See your current pricing',
   paymentTimelineBody: 'What happened to this payment, in order. Times are UTC.',
   timelineEmpty: 'No history has been recorded for this payment yet.',
@@ -784,8 +781,7 @@ const en = {
   idLedger: 'Ledger entry',
   idRefund: 'Refund',
   ledgerSoonTitle: 'Ledger lines and webhook deliveries',
-  ledgerSoonBody:
-    'The ledger lines this payment created and the messages sent to your server about it arrive with the account activity read (W2). Nothing is guessed here.',
+  ledgerSoonBody: 'You’ll be able to follow the account activity and payment updates for this payment.',
 
   // settlements
   settlementsKpiTitle: 'Settlements at a glance',
@@ -799,7 +795,7 @@ const en = {
   settlementsFilters: 'Settlement filters',
   searchSettlements: 'Search',
   searchSettlementsHint: 'Looks through the settlements loaded below: id, window, payout reference.',
-  settlementsNoDates: 'Dates for each settlement arrive with the statement history read (W2), so there is no date filter yet.',
+  settlementsNoDates: 'You’ll be able to filter settlements by date.',
   settlementsNarrowed: '{shown} of the {loaded} loaded settlements match.',
   settlementsEmptyTitle: 'No settlements yet',
   settlementsEmptyBody:
@@ -836,10 +832,9 @@ const en = {
   reserveSet: 'Your account holds back a rolling reserve of {pct}.',
   reserveDays: 'It is held for {days} days.',
   reserveDaysNone: 'The holding period is not configured.',
-  reserveHeldSoon: 'How much was held on this particular statement is not shown yet. It arrives with the reserve ledger (W1).',
+  reserveHeldSoon: 'You’ll be able to see how much of this settlement is held in reserve.',
   feeLinesSoonTitle: 'Fees by line and the price that applied',
-  feeLinesSoonBody:
-    'A breakdown of the fees by line, with the pricing rule behind each, arrives with the pricing record kept on each settlement (W1). The total above is exact.',
+  feeLinesSoonBody: 'You’ll be able to review each fee in this settlement.',
   stlTimelineTitle: 'Where this settlement is',
   stlTimelineBody: 'The steps a settlement goes through. The service does not record a time for each step yet, so none is shown.',
   stlWindow: 'Window {window} gathered',
@@ -850,8 +845,7 @@ const en = {
   stlPaidOutWaiting: 'Ready. A payout has not been completed yet.',
   stlFailed: 'Did not complete',
   stlPaymentsSoonTitle: 'Payments in this settlement',
-  stlPaymentsSoonBody:
-    'The list of payments gathered into this statement arrives with the statement lines read (W2). Until then, open your payments list.',
+  stlPaymentsSoonBody: 'You’ll be able to see the payments included in this settlement.',
   stlLinksTitle: 'Related',
   linkPayout: 'The payout for this settlement',
   linkPayments: 'All payments',
@@ -867,13 +861,13 @@ const en = {
   kpiApprovalUnknown: 'Approvals could not be read',
   kpiFailedPayouts: 'Failed',
   kpiInTransit: 'In transit',
-  kpiInTransitSoon: 'Arrives with the payout confirmation read',
+  kpiInTransitSoon: 'Coming soon',
   payoutsTitle: 'All payouts',
   payoutsBody: 'Each payout is the second half of a settlement. Open one for its approval trail.',
   payoutsFilters: 'Payout filters',
   searchPayouts: 'Search',
   searchPayoutsHint: 'Looks through the payouts loaded below: id, window, transaction reference.',
-  payoutsDestinationSoon: 'Filtering by destination arrives with the payout destination read (W9).',
+  payoutsDestinationSoon: 'You’ll be able to filter payouts by destination.',
   payoutsApprovalsUnavailable:
     'Approval states could not be read, so a payout that could be waiting shows as “Approval unknown” instead of ready. Try again before you act.',
   payoutsEmptyTitle: 'No payouts yet',
@@ -932,8 +926,7 @@ const en = {
   capResets: 'Resets',
   capNoUsage: 'Not counted against a running total',
   screeningSoonTitle: 'Destination screening and conversion',
-  screeningSoonBody:
-    'The result of checking the destination wallet and any currency conversion linked to this payout arrive with wallet screening (W9) and conversion (W6).',
+  screeningSoonBody: 'You’ll be able to review destination checks and any conversion linked to this payout.',
 
   // approvals
   approvalsKpiTitle: 'Waiting on your team',
@@ -1035,7 +1028,7 @@ const en = {
   roundingMerchant: 'stay with you',
   bandsNote: 'Each band applies from its amount up. Which band you are in depends on your volume so far this month.',
   pricingHistorySoonTitle: 'History of price changes',
-  pricingHistorySoonBody: 'When prices changed, from what and to what, arrives with a merchant view of the pricing history (W1).',
+  pricingHistorySoonBody: 'You’ll be able to follow changes to your prices over time.',
   calcTitle: 'Fee calculator',
   calcBody: 'Work out what a payment would cost. This uses the same engine as live payments and charges nothing.',
   calcAmount: 'Payment amount',
@@ -1081,10 +1074,9 @@ const en = {
   limitKindBody_daily_payout: 'How much you can pay out during one UTC day.',
   limitKindBody_beneficiaries_per_day: 'How many new payout destinations you can add in one UTC day.',
   tierLadderSoonTitle: 'Tiers and what unlocks next',
-  tierLadderSoonBody: 'The ladder of tiers and what moving up would change arrives with a merchant view of tiers (W1).',
+  tierLadderSoonBody: 'You’ll be able to compare tiers and see what each one offers.',
   increaseSoonTitle: 'Ask for a higher limit',
-  increaseSoonBody:
-    'Requesting an increase, and following its status, arrives with limit increase requests (W1). Until then, contact INTAFACED.',
+  increaseSoonBody: 'You’ll be able to request a higher limit and follow its progress.',
 
   // refusals (W3b)
   rPaymentNotFound: 'We could not find that payment.',

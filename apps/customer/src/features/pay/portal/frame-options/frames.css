@@ -1,0 +1,397 @@
+/* Portal frame options (dev switch ?frame=tabs|side) and the shared "coming soon" card. Delete the losing frame's rules with its files. */
+.pfo-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Top bar (both frames) */
+.pfo-top {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 56px;
+  padding: 0 24px;
+  background: var(--if-bg);
+  border-bottom: 1px solid var(--if-line);
+  color: var(--if-fg);
+  font-family: var(--if-font-ui);
+}
+.pfo-top a {
+  color: inherit;
+  text-decoration: none;
+}
+.pfo-brand {
+  flex-shrink: 0;
+  width: 120px;
+}
+.pfo-top-end {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+.pfo-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 240px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--if-r-pill);
+  background: var(--if-field);
+  color: var(--if-fg-2);
+}
+.pfo-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--if-fg);
+  font: 13px var(--if-font-ui);
+}
+.pfo-search:focus-within {
+  outline: 2px solid var(--if-lime);
+  outline-offset: 2px;
+}
+.pfo-personal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--if-fg-2);
+}
+.pfo-personal:hover {
+  color: var(--if-fg);
+}
+.pfo-phone,
+.pfo-phone-title {
+  display: none;
+}
+.pfo-menu-button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-left: -10px;
+  border: 0;
+  background: transparent;
+  color: var(--if-fg);
+  cursor: pointer;
+}
+
+/* Business name with status pill */
+.pfo-business {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--if-fg);
+  font: 500 14px var(--if-font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.pfo-business-tile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--if-r-sm);
+  background: var(--if-field);
+  color: var(--if-fg-2);
+}
+.pfo-business-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pfo-business-chevron {
+  color: var(--if-fg-3);
+}
+.pfo-accounts {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+.pfo-accounts a {
+  padding: 16px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-md);
+  color: var(--if-fg);
+  font-size: 14px;
+  text-decoration: none;
+}
+.pfo-accounts a:hover {
+  background: var(--if-hover);
+}
+.pfo-accounts span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--if-fg-2);
+}
+
+/* Menu (side frame and phone drawer). Lime marks only the current page. */
+.pfo-menu section + section {
+  margin-top: 20px;
+}
+.pfo-menu h2 {
+  margin: 0 0 4px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--if-fg-3);
+}
+.pfo-menu a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: var(--if-r-sm);
+  color: var(--if-fg-2);
+  font-size: 13px;
+  text-decoration: none;
+}
+.pfo-menu a:hover {
+  background: var(--if-hover);
+  color: var(--if-fg);
+}
+.pfo-menu a[aria-current] {
+  background: var(--if-hover);
+  color: var(--if-fg);
+}
+.pfo-menu a[aria-current]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--if-lime);
+}
+.pfo-app :where(a, button, input):focus-visible {
+  outline: 2px solid var(--if-lime);
+  outline-offset: 2px;
+}
+
+/* Frame "tabs": the current top tabs, with one slim sub-tab row */
+.pfo-tabs.plo {
+  padding-top: 0;
+}
+.pfo-tabs .plo-tabs a {
+  min-height: 44px;
+}
+.pfo-tabs .plo-subtabs {
+  gap: 20px;
+  padding: 12px 0 0;
+}
+.pfo-tabs .plo-subtabs a {
+  min-height: 28px;
+  font-size: 12px;
+}
+.pfo-tabs .plo-heading {
+  margin: 28px 0 24px;
+}
+.pfo-tabs .plo-heading h1,
+.pfo-side .plo-heading h1 {
+  margin-top: 0;
+}
+
+/* Frame "side": left menu with business at the top, slim top bar beside it */
+.pfo-top--side {
+  margin-left: var(--pfo-side-w, 248px);
+}
+.pfo-top--side .pfo-top-end {
+  flex: 1;
+  margin-left: 0;
+}
+.pfo-top--side .pfo-search {
+  margin-right: auto;
+}
+.pfo-side.plo {
+  width: auto;
+  max-width: none;
+  margin: 0 0 0 var(--pfo-side-w, 248px);
+  padding: 0;
+}
+.pfo-side > .plo-content {
+  width: min(var(--if-container-max), calc(100% - 64px));
+  margin: 0 auto;
+  padding: 32px 0 100px;
+}
+.pfo-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 40;
+  width: var(--pfo-side-w, 248px);
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--if-bg);
+  border-right: 1px solid var(--if-line);
+  font-family: var(--if-font-ui);
+}
+.pfo-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.pfo-sidebar[data-collapsed] .pfo-sidebar-head {
+  flex-direction: column;
+  gap: 12px;
+}
+.pfo-sidebar .pfo-business-text {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.pfo-sidebar .pfo-business-chevron {
+  margin-left: auto;
+}
+
+/* Phone drawer */
+.pfo-drawer[data-slot='dialog-content'] {
+  top: 0;
+  left: 0;
+  translate: none;
+  transform: none;
+  width: min(320px, calc(100vw - 48px));
+  max-width: none;
+  height: 100dvh;
+  padding: 20px 12px 24px;
+  overflow-y: auto;
+  border-radius: 0 var(--if-r-lg) var(--if-r-lg) 0;
+}
+.pfo-drawer-title {
+  margin: 4px 12px 20px;
+  font-size: 16px;
+}
+.pfo-menu a {
+  min-height: 34px;
+}
+.pfo-drawer .pfo-menu a {
+  min-height: 44px;
+}
+.pfo-drawer-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0 0 16px;
+  padding: 0 12px;
+  color: var(--if-fg-2);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+/* Coming soon: one calm card for a feature that is not live yet */
+.pfo-soon {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 24px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-lg);
+  background: var(--if-panel);
+  color: var(--if-fg);
+}
+.pfo-soon h3 {
+  margin: 8px 0 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+.pfo-soon p {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--if-fg-2);
+}
+
+/* Portal navigation replaces redundant links back to its own overview. Detail back links stay. */
+.pfo-app .plo-content .stack > a[href='/pay/merchant'] {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .pfo-top {
+    gap: 16px;
+  }
+  .pfo-brand {
+    width: 100px;
+  }
+  .pfo-search {
+    width: 180px;
+  }
+}
+@media (max-width: 760px) {
+  .pfo-top {
+    gap: 8px;
+    padding: 0 16px;
+  }
+  .pfo-phone {
+    display: block;
+  }
+  .pfo-top--side .pfo-top-end {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+  .pfo-phone-title {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .pfo-brand,
+  .pfo-search,
+  .pfo-personal,
+  .pfo-top-end > [data-slot='button'] {
+    display: none;
+  }
+  .pfo-top--side,
+  .pfo-side.plo {
+    margin-left: 0;
+  }
+  .pfo-sidebar {
+    display: none;
+  }
+  .pfo-side > .plo-content {
+    width: calc(100% - 32px);
+    padding: 24px 0 80px;
+  }
+  .pfo-tabs.plo {
+    width: calc(100% - 32px);
+  }
+  .pfo-tabs .plo-tabs {
+    display: none;
+  }
+  .pfo-tabs .plo-subtabs {
+    gap: 20px;
+    padding-top: 4px;
+  }
+  .pfo-tabs .plo-subtabs a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .pfo-soon {
+    padding: 20px;
+  }
+}

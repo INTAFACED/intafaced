@@ -56,7 +56,7 @@ it('shows only recorded schedule metrics without estimating recurring revenue', 
   const out = renderToString(<SubscriptionsView resource={ready([subscription])} reload={noop} limit={50} setLimit={noop} />);
   expect(out).toContain(`/pay/subscriptions/${S}`);
   expect(out).toContain('TEST-customer');
-  expect(out).toContain('No monthly recurring revenue');
+  expect(out).toContain('recurring revenue and subscription trends');
   expect(out).toContain('1 records shown');
 });
 it('renders an empty state and a loading skeleton', () => {

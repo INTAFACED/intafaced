@@ -145,15 +145,15 @@ describe('dashboard', () => {
     const soon = render(
       data({ today: failed('pay.not_built', 501, 'not_supported'), rolling_30d: failed('pay.not_built', 501, 'not_supported') }),
     );
-    expect(soon).toContain('Arrives soon');
+    expect(soon).toContain('Coming soon');
     const down = render(data({ today: failed('', 503, 'unreachable') }));
     expect(down).toContain('Try again');
     expectPlain(down);
   });
   it('labels what is not built yet: tier, limits and operator pauses', () => {
     const out = render(data());
-    expect(out).toContain('Limits, approvals and operator pauses');
-    expect(out).toContain('Arrives soon');
+    expect(out).toContain('Limits and approvals');
+    expect(out).toContain('Coming soon');
   });
   it('points a not-yet-verified merchant at setup, and a team member sees their role not an account record', () => {
     expect(render(data(), { ...merchantRecord, status: 'pending', kybStatus: 'none' })).toContain('Continue setup');
@@ -193,7 +193,7 @@ describe('onboarding', () => {
   });
   it('refuses to open an account while no starting fee is published, and says why', () => {
     const out = html(<OnboardingView {...base} merchant={null} starterFeeBps={null} />);
-    expect(out).toContain('Accounts cannot be opened yet');
+    expect(out).toContain('open your business account here soon');
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Create my account<\/button>/);
   });
   it('moves to verification once the account exists, with the reference form and history', () => {
@@ -245,7 +245,7 @@ describe('onboarding', () => {
         starterFeeBps={null}
       />,
     );
-    expect(out).toContain('No payout method is connected');
+    expect(out).toContain('choose where your payouts go');
   });
   it('ends in a "live in sandbox" summary that keeps live waiting for approval', () => {
     const out = html(
@@ -261,7 +261,7 @@ describe('onboarding', () => {
     expect(out).toContain('Destination saved for this visit');
     expect(out).not.toContain('You are live in sandbox');
     expect(out).toContain('Waiting for verification to be approved');
-    expect(out).toContain('Your tier and limits arrive soon');
+    expect(out).toContain('Coming soon');
   });
 });
 
@@ -360,7 +360,7 @@ describe('team and roles', () => {
           })}
         />,
       ),
-    ).toContain('Arrives soon');
+    ).toContain('Coming soon');
   });
   it('says how many rows are shown and whether more exist', () => {
     expect(html(<TeamView {...props('owner', { members: list([owner, member({})], true) })} />)).toMatch(
@@ -422,7 +422,7 @@ describe('disputes', () => {
         retry={noop}
       />,
     );
-    expect(out).toContain('Arrives soon');
+    expect(out).toContain('Coming soon');
     expect(out).toContain('href="/pay/disputes?view=payments"');
   });
   const detail = (patch: Partial<p.DisputeDetail> = {}): p.DisputeDetail => ({
@@ -552,7 +552,7 @@ describe('customers', () => {
     expect(out).toContain('300.5');
     expect(out).toContain('Recent payments');
     expect(out).toContain('Paid');
-    expect(out).toContain('Daily charts for a single customer are not available yet.');
+    expect(out).toContain('Daily charts for a single customer are coming soon.');
   });
 });
 
@@ -600,7 +600,7 @@ describe('exports', () => {
   it('has empty, loading, error and coming-soon states', () => {
     expect(render(list<p.ExportJob>([]))).toContain('No exports yet');
     expect(render({ status: 'loading' })).toContain('aria-busy="true"');
-    expect(render({ status: 'failed', failure: refusal('pay.not_built', 501, 'not_supported') })).toContain('Arrives soon');
+    expect(render({ status: 'failed', failure: refusal('pay.not_built', 501, 'not_supported') })).toContain('Coming soon');
     expect(render({ status: 'failed', failure: refusal('pay.merchant_ops_unavailable', 503, 'unreachable') })).toContain('Try again');
   });
 });

@@ -108,7 +108,6 @@ export function LayoutDashboardView({
             ) : (
               <EmptyState title={t('noBalance')}>{t('noBalanceBody')}</EmptyState>
             )}
-            <p className="plo-change">{t('changeUnavailable')}</p>
             <AsOf freshness={snap.freshness} />
           </>
         )}

@@ -51,7 +51,7 @@ it('shows only one exact refund timeline and discloses missing actor and ledger 
   const out = render([event('refunded', 'TEST-r1', '1'), event('refund.reversed', 'TEST-r2', '2')], 'TEST-r1');
   expect(out).toContain('Refund confirmed');
   expect(out).not.toContain('Refund reversed');
-  expect(out).toContain('requesting actor');
+  expect(out).toContain('who asked for a refund');
   expect(out).not.toContain('TEST-r2');
 });
 it('uses the same unavailable result for unknown refunds', () => {

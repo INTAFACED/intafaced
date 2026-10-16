@@ -1,4 +1,4 @@
-import { Button } from '@intafaced/ui';
+import { Button, EmptyState } from '@intafaced/ui';
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Field } from '@intafaced/ui';
@@ -267,7 +267,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated }: Parameters
           />
           <p className="pp-declared">{t('declaredNotVerified')}</p>
         </fieldset>
-        <ComingSoon title={c('nextBackend')}>{c('draftGap')}</ComingSoon>
+        <ComingSoon>{c('draftGap')}</ComingSoon>
         {starterFeeBps === null && <ComingSoon title={t('noStarterPricingTitle')}>{t('noStarterPricingBody')}</ComingSoon>}
         <ReviewedAction
           title={t('createAccount')}
@@ -316,7 +316,7 @@ function StepVerification({
   const { t: c } = w3cCopy.useCopy();
   const [submitted, setSubmitted] = useState(false);
   useUnsavedForm(Boolean(ref) && !submitted, c('unsaved'));
-  if (!merchant) return <ComingSoon title={t('needStep1Title')}>{t('needStep1Body')}</ComingSoon>;
+  if (!merchant) return <EmptyState title={t('needStep1Title')}>{t('needStep1Body')}</EmptyState>;
   return (
     <PaySection title={t('step2Title')} description={t('step2Body')}>
       <Gate resource={kyb} retry={retry} rows={2}>
@@ -370,7 +370,7 @@ function StepVerification({
           );
         }}
       </Gate>
-      <ComingSoon title={c('nextBackend')}>{c('verificationGap')}</ComingSoon>
+      <ComingSoon>{c('verificationGap')}</ComingSoon>
       <a className="text-link" href="/pay/onboarding/go-live">
         {c('continueDestination')}
       </a>
@@ -417,10 +417,10 @@ function StepPayout({ portal, merchant, rails, saved, onDestinationSaved, retry 
   const [ref, setRef] = useState('');
   const { t: c } = w3cCopy.useCopy();
   useUnsavedForm(Boolean(ref) && ref.trim() !== saved?.ref, c('unsaved'));
-  if (!merchant) return <ComingSoon title={t('needStep1Title')}>{t('needStep1Body')}</ComingSoon>;
+  if (!merchant) return <EmptyState title={t('needStep1Title')}>{t('needStep1Body')}</EmptyState>;
   return (
     <PaySection title={t('step3Title')} description={t('step3Body')}>
-      <ComingSoon title={c('nextBackend')}>{c('goLiveGap')}</ComingSoon>
+      <ComingSoon>{c('goLiveGap')}</ComingSoon>
       <div className="pp-actions">
         <a className="text-link" href="/pay/pricing">
           {c('reviewPricing')}

@@ -126,11 +126,6 @@
     font-size: 16px;
     color: var(--if-fg-2);
   }
-  .plo-change {
-    color: var(--if-fg-2);
-    font-size: 12px;
-    margin: 8px 0 !important;
-  }
   .plo .pp-asof {
     font-size: 11px;
     margin: 8px 0 0;

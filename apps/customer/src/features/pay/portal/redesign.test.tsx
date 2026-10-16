@@ -71,7 +71,7 @@ describe('Pay redesign boundary', () => {
   it('announces loading and keeps unbuilt backend copy honest', () => {
     expect(renderToString(<PortalLoading label="Loading TEST payments" />)).toContain('aria-busy="true"');
     const out = renderToString(<Arrives>TEST dependency is unavailable</Arrives>);
-    expect(out).toContain('next backend update');
+    expect(out).toContain('Coming soon');
     expect(out).not.toContain('0.00');
   });
 });

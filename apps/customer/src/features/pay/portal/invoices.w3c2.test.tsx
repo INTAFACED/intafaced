@@ -13,9 +13,9 @@ it('routes invoice references separately from the list', () => {
 });
 it('does not invent balances or an invoice write path', () => {
   const out = renderToString(<Invoices />);
-  expect(out).toContain('Arrives with the next backend update');
+  expect(out).toContain('Coming soon');
   expect(out).toContain('href="/pay/subscriptions"');
-  expect(out).toMatch(/<button[^>]*disabled/);
+  expect(out).not.toContain('<button');
   expect(out).not.toMatch(/\$0|0\.00|<input/);
 });
 it('does not confirm the existence of an unreadable invoice', () => {

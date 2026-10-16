@@ -9,14 +9,10 @@ export const w3cCopy = defineCopy('pay.portal.w3c', {
   issuePurpose: 'Return all or part of a captured payment after reviewing its effect.',
   refundTitle: 'Refund detail',
   refundPurpose: 'The recorded outcome and history of one refund.',
-  refundListGap:
-    'The account-wide refund list, refund rate and date filters are not connected yet. Look up an original payment below to inspect its recorded refunds. No account totals are estimated.',
-  refundAuditGap:
-    'Refund reason, requesting actor, fee treatment and ledger lines are not available in this read. The timeline shows only events returned for the original payment.',
-  refundAuthorityGap:
-    'Refund submission needs verified company membership and the refund permission. That membership read is not connected to this app yet. No refund has been sent. You can still inspect the original payment.',
-  refundIdGap:
-    'A refund cannot be looked up by its ID alone yet. Open it from its original payment so the account-scoped history can be checked.',
+  refundListGap: 'You’ll be able to see all your refunds in one list. For now, look up a payment below to see its refunds.',
+  refundAuditGap: 'You’ll be able to see who asked for a refund, why, and how fees were handled.',
+  refundAuthorityGap: 'You’ll be able to issue refunds from here.',
+  refundIdGap: 'You’ll be able to find a refund by its reference. For now, open it from the payment it belongs to.',
   paymentId: 'Original payment ID',
   paymentHint: 'Use the ID from your payments list. This only reads a payment belonging to your account.',
   paymentInvalid: 'Enter a complete payment ID from your payments list.',
@@ -65,15 +61,12 @@ export const w3cCopy = defineCopy('pay.portal.w3c', {
   linksTitle: 'Payment links',
   linksPurpose: 'Create checkout links and inspect the links belonging to your account.',
   linkNew: 'Create a payment link',
-  linkFormGap:
-    'Success and cancel redirects and a hosted-checkout preview before creation are not supported by the current link API. The checkout URL is returned only after the service creates the link.',
+  linkFormGap: 'You’ll be able to choose where customers go after paying and preview the checkout.',
   linkNewPurpose: 'Set what the customer can pay, then review the checkout link before creating it.',
   linkDetail: 'Payment link',
   linkDetailPurpose: 'The effective amount, usage and expiry of one checkout link.',
-  linksGap:
-    'Server-side search, date filters and pagination cursors arrive with the next backend update. Filters below apply only to the newest links loaded here. Link-level payment metrics and change history are not available yet. Checkout URLs are shown only at creation, so the list cannot retrieve them for copying or QR codes.',
-  linkAuthorityGap:
-    'Creating or deactivating a link needs verified company membership and the payment-write permission. That membership read is not connected to this app yet. No change has been sent.',
+  linksGap: 'You’ll be able to search your links by date and see how each one performs.',
+  linkAuthorityGap: 'You’ll be able to create and turn off payment links from here.',
   backLinks: 'Back to payment links',
   linkNotFound: 'Link not in the loaded records',
   linkNotFoundBody:
@@ -130,8 +123,7 @@ export const w3cCopy = defineCopy('pay.portal.w3c', {
   exportLinks: 'Download shown links (CSV)',
   deactivateLink: 'Deactivate link',
   deactivateBody: 'Customers will no longer be able to start a new checkout with this link. Existing payment records are retained.',
-  linkHistoryGap:
-    'Link-level payments, usage charts, duplication and change history are not available in the current link read. Creation time above is a recorded fact; it does not identify the creator.',
+  linkHistoryGap: 'You’ll be able to see the payments and activity for each link.',
   staleLinks: 'These links were read more than five minutes ago. Refresh to check current use counts and availability.',
   refresh: 'Refresh records',
   invalidForm: 'Complete the required fields and correct the highlighted values before reviewing.',
@@ -156,12 +148,9 @@ export const w3cCopy = defineCopy('pay.portal.w3c', {
   reserveNone: 'No reserve policy configured',
   reserveRate: 'Rolling reserve rate',
   reserveDays: 'Hold days',
-  reserveGap:
-    'A configured reserve policy does not prove funds have been held. Reserved balances, conversion-eligible amounts and daily balance history are not available in the current read.',
-  activityGap:
-    'A merchant balance statement with every credit, debit and running balance is not connected yet. Payments and settlements are available separately, but they are not a complete ledger statement. No running balance is estimated here.',
-  balanceHistoryGap:
-    'Daily balance history and daily event counts arrive with the next backend update. Payment volume is not used as a substitute for a balance chart.',
+  reserveGap: 'You’ll be able to see how much of your balance is held back and how much is ready to convert.',
+  activityGap: 'You’ll be able to see every credit and debit on your balance, with a running total.',
+  balanceHistoryGap: 'You’ll be able to see how your balance changed day by day.',
   allBalances: 'Balances by asset',
   openSettlements: 'Open settlements',
   requestPayout: 'Open payout requests',
@@ -179,20 +168,16 @@ export const w3cCopy = defineCopy('pay.portal.w3c', {
   payoutsContents: 'Payout records supplied by the export service, with status and settlement references.',
   reportScope:
     'Set date, status and asset filters in the export request. Export jobs show completion and as-of times when supplied by the service. Inspect the file before using it for reconciliation.',
-  reportGaps:
-    'Refund, balance statement, fee, dispute and customer export jobs, custom columns, timestamps embedded in the CSV and scheduled reports are not available in the current export API. No unsupported report is generated locally.',
+  reportGaps: 'You’ll be able to export refunds, balances, fees, disputes and customers, and schedule reports.',
   exportJobs: 'Export jobs',
   exportJobsPurpose: 'Request reports, follow their recorded status and download files belonging to your account.',
   backMerchant: 'Back to merchant dashboard',
   serverProgress:
     'Business and verification progress comes from your account. Saving a destination does not activate payments or live mode.',
-  nextBackend: 'Arrives with the next backend update',
-  draftGap:
-    'Saving a business draft is not connected yet. Keep this page open until you can create the account. No draft is saved on this device.',
-  verificationGap:
-    'Document uploads, withdrawal of a submission and a separate screening result are not connected yet. Verification status above is the account status; it is not a screening clearance.',
-  goLiveGap:
-    'Saved destinations, terms acceptance and activation checks are not readable here yet. Saving a destination below does not complete go-live. Review your published pricing and limits; live activation waits for INTAFACED.',
+  nextBackend: 'Coming soon',
+  draftGap: 'You’ll be able to save your business details and finish setting up later.',
+  verificationGap: 'You’ll be able to upload documents and follow your verification here.',
+  goLiveGap: 'You’ll be able to review your setup and turn on live payments from here.',
   reviewPricing: 'Review pricing',
   reviewLimits: 'Review limits',
   continueDestination: 'Continue to payout destination',

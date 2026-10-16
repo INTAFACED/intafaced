@@ -29,8 +29,8 @@ it.each(['business', 'verification', 'go-live'] as const)('routes the %s step di
 });
 it('refuses account creation without a published starting fee and discloses draft persistence', () => {
   const out = renderToString(<OnboardingView {...base} step="business" />);
-  expect(out).toContain('Accounts cannot be opened yet');
-  expect(out).toContain('No draft is saved on this device');
+  expect(out).toContain('open your business account here soon');
+  expect(out).toContain('save your business details and finish setting up later');
   expect(out).toMatch(/disabled=""[^>]*>Create my account/);
 });
 it.each(['verification', 'go-live'] as const)('does not allow %s to bypass business creation', (step) => {
@@ -47,6 +47,6 @@ it('does not claim activation from an in-memory saved destination', () => {
       saved={{ railId: 'TEST', ref: 'TEST', kind: 'bank' }}
     />,
   );
-  expect(out).toContain('Saving a destination below does not complete go-live');
+  expect(out).toContain('turn on live payments');
   expect(out).not.toContain('Ready for test payments');
 });

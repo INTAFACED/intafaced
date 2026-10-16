@@ -15,8 +15,8 @@ it('registers profile, team and notification settings routes', () => {
 });
 it('does not substitute checkout configuration for a business identity update', () => {
   const out = renderToString(<Settings merchant={null} />);
-  expect(out).toContain('does not save business identity');
-  expect(out).toContain('Arrives with the next backend update');
+  expect(out).toContain('update your business name');
+  expect(out).toContain('Coming soon');
   expect(out).toMatch(/<button[^>]*disabled/);
   expect(out).not.toContain('<input');
 });

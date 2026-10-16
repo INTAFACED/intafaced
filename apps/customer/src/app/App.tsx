@@ -15,6 +15,7 @@ import { matchPath } from './path-match';
 import { screens } from './screens';
 import { DevFeatures } from './DevFeatures';
 import { shellCopy } from './shell-copy';
+import { isMerchantArea } from '../features/pay/portal/frame-options/model';
 
 function configuredTeamHref(path: string): string | undefined {
   const configured: string | undefined = import.meta.env.VITE_TEAM_URL;
@@ -143,7 +144,7 @@ export function App() {
     navigate(url.pathname + url.search + url.hash);
   }
   const needsSession = room && ['home', 'money', 'pay', 'more', 'person'].includes(room.area) && path !== '/pay/checkout';
-  const ribbon = dev && hidden && !devFeatures ? <DevRibbon feature={hidden} /> : null;
+  const ribbon = dev && hidden && !devFeatures && !isMerchantArea(path) ? <DevRibbon feature={hidden} /> : null;
   const fallback = (
     <div className="legacy-room">
       <div className="page">

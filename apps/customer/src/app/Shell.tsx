@@ -5,6 +5,7 @@ import { usePreferences } from '../shared/preferences';
 import type { Door } from './navigation';
 import { shellCopy } from './shell-copy';
 import { MobileTabs, TopBar } from './TopBar';
+import { isMerchantArea } from '../features/pay/portal/frame-options/model';
 
 /** The signed-in frame (UI-SPEC 3.1): sticky top bar, content, phone tab bar. New screens render straight into `main`; old views are wrapped in `.legacy-room` by their caller. */
 export function Shell({ door, path, children }: { door?: Door; path: string; children: ReactNode }) {
@@ -17,7 +18,7 @@ export function Shell({ door, path, children }: { door?: Door; path: string; chi
       <TooltipProvider>
         {/* The one toast host for the whole app: screens call useToast() and never mount their own. */}
         <ToastProvider>
-          <div className="if-app">
+          <div className={isMerchantArea(path) ? 'if-app pfo-app' : 'if-app'}>
             <a href="#main" className="skip-link">
               {t('Skip to content')}
             </a>
@@ -38,7 +39,7 @@ export function Shell({ door, path, children }: { door?: Door; path: string; chi
               )}
               {children}
             </main>
-            <MobileTabs door={door} language={language} />
+            {!isMerchantArea(path) && <MobileTabs door={door} language={language} />}
           </div>
         </ToastProvider>
       </TooltipProvider>

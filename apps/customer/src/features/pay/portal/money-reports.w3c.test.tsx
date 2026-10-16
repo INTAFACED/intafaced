@@ -41,13 +41,13 @@ it('keeps every balance decimal exact and never invents a reserve amount', () =>
   const out = render();
   expect(out).toContain('9,007,199,254,740,993.00');
   expect(out).toContain('No reserve policy configured');
-  expect(out).toContain('Reserved balances');
+  expect(out).toContain('how much of your balance is held back');
   expect(out).not.toContain('Reserved balance</span>');
 });
 it('shows missing history explicitly rather than substituting a payment-volume chart', () => {
-  expect(render()).toContain('Payment volume is not used as a substitute for a balance chart');
+  expect(render()).toContain('how your balance changed day by day');
   const out = renderToString(<BalanceActivity />);
-  expect(out).toContain('No running balance is estimated here');
+  expect(out).toContain('every credit and debit on your balance');
   expect(out).toContain('/pay/settlements');
 });
 it('shows an empty account without zero-valued balance tiles', () => {
@@ -77,8 +77,7 @@ it('offers exactly the three supported export-job kinds and names the missing re
   const out = renderToString(<Reports />);
   for (const kind of ['payments', 'settlements', 'payouts']) expect(out).toContain(`/pay/reports/exports?report=${kind}`);
   expect(out).not.toContain('?report=refunds');
-  expect(out).toContain('custom columns');
-  expect(out).toContain('timestamps embedded in the CSV');
+  expect(out).toContain('schedule reports');
 });
 it('routes the report-job alias and balance activity without swallowing unknown children', () => {
   expect(parsePortalRoute('/pay/money')).toEqual({ room: 'money' });

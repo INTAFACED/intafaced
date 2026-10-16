@@ -24,7 +24,7 @@ export function Reports() {
           ))}
         </DataTable>
       </PaySection>
-      <ComingSoon title={t('nextBackend')}>{t('reportGaps')}</ComingSoon>
+      <ComingSoon>{t('reportGaps')}</ComingSoon>
     </div>
   );
 }

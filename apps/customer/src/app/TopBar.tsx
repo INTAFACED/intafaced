@@ -12,6 +12,8 @@ import { ShellIcon } from './icons';
 import { accountMenu, tabSpecs, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
 import { TopSearch } from './TopSearch';
+import { MerchantTopBar } from '../features/pay/portal/frame-options/Chrome';
+import { isMerchantArea } from '../features/pay/portal/frame-options/model';
 import { GroupedMenu, groups } from '../features/pay/portal/home-layout/Navigation';
 
 /** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
@@ -250,6 +252,7 @@ export function TopBar({
   const notificationsLive = isFeatureLive('notifications');
   const tabs = tabSpecs(layoutMode, Boolean(session));
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
+  if (isMerchantArea(path)) return <MerchantTopBar path={path} account={<AccountButton onSignOut={onSignOut} />} />;
   return (
     <>
       <header className="tb">

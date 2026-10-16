@@ -99,8 +99,8 @@ describe('permanent Home-style portal', () => {
     expect(out).not.toContain('123456789123456789');
   });
   it('preserves backend gaps, loading and empty activity states', () => {
-    expect(view()).toContain('Balance change arrives with the next backend update.');
-    expect(view()).toContain('Tier, limit usage');
+    expect(view()).not.toContain('backend update');
+    expect(view()).toContain('limit usage');
     expect(view({ data: { ...data, today: { status: 'loading' } } })).toContain('aria-busy="true"');
     const out = renderToString(<RecentPaymentsView resource={{ status: 'ready', data: [] }} retry={noop} at={null} />);
     expect(out).toContain('Your first payment starts here');

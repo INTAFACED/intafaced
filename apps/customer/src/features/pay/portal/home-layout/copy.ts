@@ -39,7 +39,6 @@ export const layoutCopy = defineCopy('pay.portal.layouts', {
   exports: 'Exports',
   setup: 'Set up your account',
   available: 'Available to pay out',
-  changeUnavailable: 'Balance change arrives with the next backend update.',
   createLink: 'Create payment link',
   payOut: 'Pay out',
   refund: 'Refund',
@@ -67,5 +66,5 @@ export const layoutCopy = defineCopy('pay.portal.layouts', {
   noBalanceBody: 'Your available and pending funds appear here after your first payment.',
   pending: 'Pending settlement',
   account: 'Account',
-  tierSoon: 'Tier, limit usage and the next payout schedule arrive with the next backend update.',
+  tierSoon: 'You’ll be able to see your tier, limit usage and next payout here.',
 } as const);
