@@ -1,5 +1,11 @@
 import { z } from 'zod';
+import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
+
+/** A list procedure now returns `{ items, nextCursor }`. Callers that still render an array keep the items. */
+export function listed<T>(result: ApiResult<{ items: T[] }>): ApiResult<T[]> {
+  return result.ok ? { ok: true, data: result.data.items } : result;
+}
 
 // Browser projections of the mounted service outputs. No service/server roots are imported.
 // Authorities: svc-bank/router.ts, svc-p2p/router.ts, svc-pay/{router,subscription-router,submerchant-router}.ts.

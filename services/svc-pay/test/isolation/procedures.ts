@@ -455,18 +455,24 @@ export interface ListProc {
 }
 
 const arr = (v: unknown) => v as Array<Record<string, unknown>>;
+const pageRows = (v: unknown) => {
+  if (v && typeof v === 'object' && Array.isArray((v as { items?: unknown }).items)) {
+    return (v as { items: Array<Record<string, unknown>> }).items;
+  }
+  return [];
+};
 
 export const LIST_PROCS: ListProc[] = [
   {
     name: 'trpc payment.list',
     call: { via: 'trpc', path: 'payment.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.paymentId, e.paymentId2],
   },
   {
     name: 'trpc settlement.list',
     call: { via: 'trpc', path: 'settlement.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.settlementId],
   },
   {
@@ -478,7 +484,7 @@ export const LIST_PROCS: ListProc[] = [
   {
     name: 'rest GET /v1/payments',
     call: { via: 'rest', req: (e) => ({ method: 'GET', url: `/v1/payments?merchantId=${e.merchantId}&limit=200` }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.paymentId, e.paymentId2],
   },
   {

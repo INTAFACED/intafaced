@@ -168,7 +168,10 @@ function stubService(): Stub {
     submitKyb: record('submitKyb', () => ({ ...merchant(), kybStatus: 'pending' as const, kybRef: 'dossier-1' })),
     decideKyb: record('decideKyb', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
     decideKybStub: record('decideKybStub', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
-    listPayments: record('listPayments', () => [paymentView({ status: 'captured', capturedAmount: amt('100') })]),
+    listPayments: record('listPayments', () => ({
+      items: [{ ...paymentView({ status: 'captured', capturedAmount: amt('100') }), pricingSnapshot: null, failure: null }],
+      nextCursor: null,
+    })),
     createProfile: record('createProfile', () => ({ id: SETTLEMENT, merchantId: MERCHANT })),
     clearingBalance: record('clearingBalance', () => amt('100.5')),
     merchantBalance: record('merchantBalance', () => amt('97.5')),
@@ -187,7 +190,20 @@ function stubService(): Stub {
       settlementRecord({ status: 'paid_out', payoutMethod: 'card-sandbox', payoutRef: 'po_1' }),
     ),
     getSettlement: record('getSettlement', () => settlementRecord()),
-    listSettlements: record('listSettlements', () => [settlementRecord()]),
+    listSettlements: record('listSettlements', () => ({
+      items: [
+        {
+          ...settlementRecord(),
+          createdAt: new Date('2026-07-27T00:00:00.000Z'),
+          sentAt: null,
+          settledAt: new Date('2026-07-27T01:00:00.000Z'),
+          failedAt: null,
+          failure: null,
+          pricingSnapshot: null,
+        },
+      ],
+      nextCursor: null,
+    })),
     createPaymentLink: record('createPaymentLink', () => ({
       id: LINK,
       token: 'pl_generated_token',
@@ -746,9 +762,10 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
   it('owner can list settlements for a merchant', async () => {
     const api = await caller(['pay:read']);
     const rows = await api.settlement.list({ merchantId: MERCHANT, status: 'posted', limit: 50 });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.gross).toBe('100');
-    expect(rows[0]!.net).toBe('97.5');
+    expect(rows.items).toHaveLength(1);
+    expect(rows.items[0]!.gross).toBe('100');
+    expect(rows.items[0]!.net).toBe('97.5');
+    expect(rows.nextCursor).toBeNull();
     expect(stub.calls.filter((c) => c.method === 'listSettlements')).toHaveLength(1);
   });
 

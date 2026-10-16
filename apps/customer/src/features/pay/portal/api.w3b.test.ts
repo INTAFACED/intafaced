@@ -75,7 +75,7 @@ describe('portal api (W3b reads)', () => {
     expect(result.ok).toBe(false);
   });
   it('accepts a well-formed payment list', async () => {
-    const { portal } = harness(() => ok([PAYMENT]));
+    const { portal } = harness(() => ok({ items: [PAYMENT], nextCursor: null }));
     const result = await portal.payments(M, '', 25);
     expect(result.ok && result.data[0]?.amount).toBe('10.5');
   });

@@ -87,7 +87,7 @@ function stubPay(over: Partial<Record<string, unknown>> = {}): PayService & { ca
       if (id !== PAYMENT) throw new PayError(`payment ${id} not found`, 'pay.payment_not_found');
       return paymentRow as never;
     }),
-    listPayments: record('listPayments', async () => [paymentRow] as never),
+    listPayments: record('listPayments', async () => ({ items: [paymentRow], nextCursor: null }) as never),
     clearingBalance: record('clearingBalance', async () => parseAmount('2.5')),
     merchantBalance: record('merchantBalance', async () => parseAmount('7.25')),
     createPayment: record('createPayment', async (input: { railAdapter?: string }) => ({
@@ -875,7 +875,7 @@ describe('step 4 — sandbox keys route to sandbox rail (ADR §2.5)', () => {
     const pay = stubPay({
       listPayments: async (input: { limit?: number }) => {
         assertPaymentListLimit(input.limit);
-        return [paymentRow] as never;
+        return { items: [paymentRow], nextCursor: null } as never;
       },
     });
     app = await build(pay);
@@ -894,16 +894,19 @@ describe('step 4 — sandbox keys route to sandbox rail (ADR §2.5)', () => {
       headers: signed(),
     });
     expect(explicit.statusCode).toBe(200);
-    expect(explicit.json()).toHaveLength(1);
+    expect(explicit.json().items).toHaveLength(1);
   });
 
   it('sandbox list omits live-rail rows rather than painting them live', async () => {
     const pay = stubPay({
       listPayments: async () =>
-        [
-          { ...paymentRow, id: PAYMENT, railAdapter: 'card-sandbox' },
-          { ...paymentRow, id: '55555555-5555-4555-8555-555555555555', railAdapter: 'crypto-native' },
-        ] as never,
+        ({
+          items: [
+            { ...paymentRow, id: PAYMENT, railAdapter: 'card-sandbox' },
+            { ...paymentRow, id: '55555555-5555-4555-8555-555555555555', railAdapter: 'crypto-native' },
+          ],
+          nextCursor: null,
+        }) as never,
     });
     app = await build(pay);
 
@@ -914,7 +917,7 @@ describe('step 4 — sandbox keys route to sandbox rail (ADR §2.5)', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    const rows = res.json() as Array<{ railAdapter: string; mode: string }>;
+    const rows = res.json().items as Array<{ railAdapter: string; mode: string }>;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.railAdapter).toBe('card-sandbox');
     expect(rows[0]!.mode).toBe('sandbox');

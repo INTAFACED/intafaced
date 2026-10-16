@@ -75,8 +75,12 @@ const MIGRATIONS = [
   '0002_pay_payment_links.sql',
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',
+  // GET /v1/payments reads the stored pricing row. The table is empty here.
+  '0050_pay_control_tiers.sql',
+  '0051_pay_control_pricing.sql',
   // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
   '0071_pay_merchant_names.sql',
+  '0073_pay_settlement_read.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const EDGE_SECRET = 'a-pay-public-rest-money-edge-secret-long-enough';

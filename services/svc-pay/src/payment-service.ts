@@ -41,6 +41,9 @@ import {
   type MerchantPayoutDestinations,
 } from './merchant-payout-destination.js';
 import { settlementLedgerPlan } from './settlement-ledger.js';
+import { encodeListCursor, ListQueryError, parseListFilters, type ListFilters } from './list-page.js';
+import { safeFailure, type MerchantFailure } from './merchant-failure.js';
+import { readPricingSnapshots, type StoredPricingSnapshot } from './control/snapshots.js';
 import {
   finalizePayoutIdentity,
   PayoutAdmissionError,
@@ -241,6 +244,10 @@ export type PayErrorCode =
   | 'pay.settlement_not_found'
   /** settlement.list page size unpublished. Blank is not 50. */
   | 'pay.settlement_list_limit_unset'
+  | 'pay.list_cursor_invalid'
+  | 'pay.list_search_invalid'
+  | 'pay.list_asset_invalid'
+  | 'pay.list_range_invalid'
   // ── User money in and out (`user-money-service.ts`) ──
   | 'pay.rail_unknown'
   /** The rail exists but does not accept hand-typed operator credits. */
@@ -619,6 +626,17 @@ export interface PaymentView extends PaymentRecord {
   refundedAmount: Amount;
 }
 
+/** A payment read: the row, plus the fee snapshot and failure stored for it. Both are null when nothing was stored. */
+export interface PaymentRead extends PaymentView {
+  pricingSnapshot: StoredPricingSnapshot | null;
+  failure: MerchantFailure | null;
+}
+
+export interface PaymentPage {
+  items: PaymentRead[];
+  nextCursor: string | null;
+}
+
 export interface PaymentEventRecord {
   id: string;
   event: string;
@@ -640,6 +658,37 @@ export interface SettlementRecord {
   /** Rail refusals so far. Part of the payout hold's idempotency key. */
   payoutAttempts: number;
   status: SettlementStatus;
+}
+
+/**
+ * Settlement read. Timestamps and the failure code are whatever was written at
+ * the transition. Older rows leave them null. The pricing snapshot is the stored
+ * control row, or null. Nothing here is recomputed from today's pricing.
+ */
+export interface SettlementRead extends SettlementRecord {
+  createdAt: Date;
+  sentAt: Date | null;
+  settledAt: Date | null;
+  failedAt: Date | null;
+  failure: MerchantFailure | null;
+  pricingSnapshot: StoredPricingSnapshot | null;
+}
+
+export interface SettlementPage {
+  items: SettlementRead[];
+  nextCursor: string | null;
+}
+
+export interface SettlementLine {
+  paymentId: string;
+  amount: Amount;
+  assetId: string;
+  createdAt: Date;
+}
+
+export interface SettlementLinePage {
+  items: SettlementLine[];
+  nextCursor: string | null;
 }
 
 export interface WebhookOutcome {
@@ -893,6 +942,24 @@ interface SettlementRow {
   payout_ref: string | null;
   payout_attempts: number;
   status: SettlementStatus;
+}
+
+interface SettlementDetailRow extends SettlementRow {
+  created_at: Date;
+  sent_at: Date | null;
+  settled_at: Date | null;
+  failed_at: Date | null;
+  failure_code: string | null;
+  created_at_cursor: string;
+}
+
+function listFilters(input: { search?: string; assetId?: string; from?: string; to?: string; cursor?: string }): ListFilters {
+  try {
+    return parseListFilters(input);
+  } catch (err) {
+    if (err instanceof ListQueryError) throw new PayError(err.message, err.code);
+    throw err;
+  }
 }
 
 /** Which statuses may legally follow which. Anything else is a bug, not an edge case. */
@@ -1199,30 +1266,102 @@ export class PayService {
   /**
    * Merchant payment list — durable status projection for the acquiring surface.
    * Status is whatever `payments.status` currently projects from `payment_events`.
+   *
+   * Pages are keyset-ordered by `(created_at, id)` descending. Search matches the
+   * payment id, the rail reference, or the customer reference stored on the
+   * created event. The fee snapshot and failure are the stored rows, or null.
    */
-  async listPayments(input: { merchantId: string; status?: PaymentStatus; limit?: number }): Promise<PaymentView[]> {
+  async listPayments(input: {
+    merchantId: string;
+    status?: PaymentStatus;
+    limit?: number;
+    cursor?: string;
+    search?: string;
+    assetId?: string;
+    from?: string;
+    to?: string;
+  }): Promise<PaymentPage> {
     await this.getMerchant(input.merchantId);
     const limit = assertPaymentListLimit(input.limit);
-    const rows = input.status
-      ? await this.sql<PaymentRow[]>`
-          SELECT id, merchant_id, profile_id, amount::text, currency, method, rail_adapter, rail_ref, status, created_at
-            FROM pay.payments
-           WHERE merchant_id = ${input.merchantId} AND status = ${input.status}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `
-      : await this.sql<PaymentRow[]>`
-          SELECT id, merchant_id, profile_id, amount::text, currency, method, rail_adapter, rail_ref, status, created_at
-            FROM pay.payments
-           WHERE merchant_id = ${input.merchantId}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `;
-    const out: PaymentView[] = [];
-    for (const row of rows) {
-      out.push(await this.view(this.sql, row));
+    const filters = listFilters(input);
+    this.assertListStatus(input.status, ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
+    const rows = await this.sql<Array<PaymentRow & { created_at_cursor: string }>>`
+      SELECT p.id, p.merchant_id, p.profile_id, p.amount::text, p.currency, p.method, p.rail_adapter, p.rail_ref, p.status, p.created_at,
+             to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM pay.payments p
+       WHERE p.merchant_id = ${input.merchantId}
+         AND (${input.status ?? null}::text IS NULL OR p.status::text = ${input.status ?? null})
+         AND (${filters.assetId}::text IS NULL OR p.currency = ${filters.assetId})
+         AND (${filters.from}::timestamptz IS NULL OR p.created_at >= ${filters.from})
+         AND (${filters.to}::timestamptz IS NULL OR p.created_at < ${filters.to})
+         AND (
+           ${filters.search}::text IS NULL
+           OR p.id::text = lower(${filters.search})
+           OR p.rail_ref = ${filters.search}
+           OR EXISTS (
+             SELECT 1 FROM pay.payment_events e
+              WHERE e.payment_id = p.id AND e.event = 'created' AND e.payload->>'customerRef' = ${filters.search}
+           )
+         )
+         AND (
+           ${cursorAt}::timestamptz IS NULL
+           OR (p.created_at, p.id) < (${cursorAt}::timestamptz, ${cursorId}::uuid)
+         )
+       ORDER BY p.created_at DESC, p.id DESC
+       LIMIT ${limit + 1}
+    `;
+    const pageRows = rows.slice(0, limit);
+    const items: PaymentRead[] = [];
+    const views: PaymentView[] = [];
+    for (const row of pageRows) views.push(await this.view(this.sql, row));
+    const facts = await this.paymentFactsFor(views.map((v) => v.id));
+    for (const view of views) {
+      const fact = facts.get(view.id);
+      items.push({ ...view, pricingSnapshot: fact?.pricingSnapshot ?? null, failure: fact?.failure ?? null });
+    }
+    const last = pageRows[pageRows.length - 1];
+    const nextCursor = rows.length > limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null;
+    return { items, nextCursor };
+  }
+
+  /** Stored snapshot and safe failure for one payment. Null when nothing was recorded. */
+  async paymentFacts(paymentId: string): Promise<{ pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }> {
+    const facts = await this.paymentFactsFor([paymentId]);
+    return facts.get(paymentId) ?? { pricingSnapshot: null, failure: null };
+  }
+
+  private async paymentFactsFor(
+    ids: string[],
+  ): Promise<Map<string, { pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }>> {
+    const out = new Map<string, { pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }>();
+    if (ids.length === 0) return out;
+    const [snapshots, failures] = await Promise.all([
+      readPricingSnapshots(this.sql, 'payment', ids),
+      this.sql<Array<{ payment_id: string; payload: Record<string, unknown> }>>`
+        SELECT DISTINCT ON (payment_id) payment_id, payload
+          FROM pay.payment_events
+         WHERE payment_id = ANY(${this.sql.array(ids)}::uuid[]) AND event = 'failed'
+         ORDER BY payment_id, seq DESC
+      `,
+    ]);
+    const failureById = new Map<string, MerchantFailure>();
+    for (const row of failures) {
+      const code = typeof row.payload?.failureCode === 'string' ? row.payload.failureCode : null;
+      const failure = safeFailure(code);
+      if (failure) failureById.set(row.payment_id, failure);
+    }
+    for (const id of ids) {
+      out.set(id, { pricingSnapshot: snapshots.get(id) ?? null, failure: failureById.get(id) ?? null });
     }
     return out;
+  }
+
+  private assertListStatus(status: string | undefined, allowed: readonly string[]): void {
+    if (status !== undefined && !allowed.includes(status)) {
+      throw new PayError('List status filter is not a known status', 'pay.validation_failed');
+    }
   }
 
   async createProfile(input: {
@@ -3054,7 +3193,8 @@ export class PayService {
         );
 
         await tx`
-          UPDATE pay.settlements SET status = 'posted', payout_method = 'ledger', updated_at = now()
+          UPDATE pay.settlements
+             SET status = 'posted', payout_method = 'ledger', settled_at = COALESCE(settled_at, now()), updated_at = now()
            WHERE id = ${row.id}
         `;
 
@@ -3354,7 +3494,11 @@ export class PayService {
         }
 
         await tx`
-          UPDATE pay.settlements SET status = 'failed', updated_at = now()
+          UPDATE pay.settlements
+             SET status = 'failed',
+                 failed_at = COALESCE(failed_at, now()),
+                 failure_code = COALESCE(failure_code, 'pay.settlement_released'),
+                 updated_at = now()
            WHERE id = ${row.id}
         `;
 
@@ -3536,14 +3680,14 @@ export class PayService {
             await postPayLedger(this.ledger, plan.reverse);
             await payoutTransaction(connection, async (tx) => {
               await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'reversed','{}') ON CONFLICT DO NOTHING`;
-              await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission!.attempt + 1},updated_at=now() WHERE id=${settlement.id}`;
+              await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission!.attempt + 1},failed_at=COALESCE(failed_at, now()),failure_code=COALESCE(failure_code, ${(safeFailure(refused?.failureCode ?? 'rail.failed') ?? { code: 'pay.failed' }).code}),updated_at=now() WHERE id=${settlement.id}`;
             });
             throw new PayError(refused?.failureReason ?? 'Rail refused payout', 'pay.rail_failed', { failureCode: refused?.failureCode });
           }
           await postPayLedger(this.ledger, plan.settle);
           await payoutTransaction(connection, async (tx) => {
             await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'settled','{}') ON CONFLICT DO NOTHING`;
-            await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission!.rail_id},payout_ref=${accepted!.railRef},updated_at=now() WHERE id=${settlement.id}`;
+            await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission!.rail_id},payout_ref=${accepted!.railRef},sent_at=COALESCE(sent_at, now()),updated_at=now() WHERE id=${settlement.id}`;
           });
           return { ...settlement, status: 'paid_out' as const, payoutMethod: admission.rail_id, payoutRef: accepted.railRef };
         });
@@ -3618,27 +3762,123 @@ export class PayService {
    * Merchant fleet list — settlements already stored; this only reads them.
    * No freeze, no post, no payout. Caller fences merchant ownership / area.
    */
-  async listSettlements(input: { merchantId: string; status?: SettlementStatus; limit?: number }): Promise<SettlementRecord[]> {
+  async listSettlements(input: {
+    merchantId: string;
+    status?: SettlementStatus;
+    limit?: number;
+    cursor?: string;
+    search?: string;
+    assetId?: string;
+    from?: string;
+    to?: string;
+  }): Promise<SettlementPage> {
     await this.getMerchant(input.merchantId);
     const limit = assertSettlementListLimit(input.limit);
-    const rows = input.status
-      ? await this.sql<SettlementRow[]>`
-          SELECT id, merchant_id, "window", asset_id, gross, fees, net,
-                 payout_method, payout_ref, payout_attempts, status
-            FROM pay.settlements
-           WHERE merchant_id = ${input.merchantId} AND status = ${input.status}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `
-      : await this.sql<SettlementRow[]>`
-          SELECT id, merchant_id, "window", asset_id, gross, fees, net,
-                 payout_method, payout_ref, payout_attempts, status
-            FROM pay.settlements
-           WHERE merchant_id = ${input.merchantId}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `;
-    return rows.map(toSettlement);
+    const filters = listFilters(input);
+    this.assertListStatus(input.status, ['pending', 'posted', 'paid_out', 'failed']);
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
+    const rows = await this.sql<Array<SettlementDetailRow>>`
+      SELECT id, merchant_id, "window", asset_id, gross, fees, net,
+             payout_method, payout_ref, payout_attempts, status,
+             created_at, sent_at, settled_at, failed_at, failure_code,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM pay.settlements
+       WHERE merchant_id = ${input.merchantId}
+         AND (${input.status ?? null}::text IS NULL OR status::text = ${input.status ?? null})
+         AND (${filters.assetId}::text IS NULL OR asset_id = ${filters.assetId})
+         AND (${filters.from}::timestamptz IS NULL OR created_at >= ${filters.from})
+         AND (${filters.to}::timestamptz IS NULL OR created_at < ${filters.to})
+         AND (
+           ${filters.search}::text IS NULL
+           OR id::text = lower(${filters.search})
+           OR "window" = ${filters.search}
+           OR payout_ref = ${filters.search}
+         )
+         AND (
+           ${cursorAt}::timestamptz IS NULL
+           OR (created_at, id) < (${cursorAt}::timestamptz, ${cursorId}::uuid)
+         )
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${limit + 1}
+    `;
+    return this.settlementPage(rows, limit);
+  }
+
+  /** One settlement with the timestamps, failure and pricing snapshot stored for it. */
+  async readSettlement(settlementId: string): Promise<SettlementRead> {
+    const rows = await this.sql<SettlementDetailRow[]>`
+      SELECT id, merchant_id, "window", asset_id, gross, fees, net,
+             payout_method, payout_ref, payout_attempts, status,
+             created_at, sent_at, settled_at, failed_at, failure_code,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM pay.settlements WHERE id = ${settlementId}
+    `;
+    const row = rows[0];
+    if (!row) throw new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found');
+    const page = await this.settlementPage([row], 1);
+    return page.items[0]!;
+  }
+
+  /**
+   * Payments frozen into this settlement, oldest first, paged by `(created_at, id)`.
+   * Amounts are the payment rows, not a fee recomputed today.
+   */
+  async listSettlementLines(input: { settlementId: string; limit?: number; cursor?: string }): Promise<SettlementLinePage> {
+    const limit = assertSettlementListLimit(input.limit);
+    const filters = listFilters({ cursor: input.cursor });
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
+    const rows = await this.sql<Array<{ id: string; amount: string; currency: string; created_at: Date; created_at_cursor: string }>>`
+      SELECT id, amount, currency, created_at, created_at_cursor FROM (
+        SELECT DISTINCT ON (p.id) p.id, p.amount::text AS amount, p.currency, p.created_at,
+               to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+          FROM pay.payment_events e
+          JOIN pay.payments p ON p.id = e.payment_id
+         WHERE e.event = 'settlement.included' AND e.payload->>'settlementId' = ${input.settlementId}
+         ORDER BY p.id, e.seq
+      ) lines
+       WHERE (
+         ${cursorAt}::timestamptz IS NULL
+         OR (created_at, id) > (${cursorAt}::timestamptz, ${cursorId}::uuid)
+       )
+       ORDER BY created_at ASC, id ASC
+       LIMIT ${limit + 1}
+    `;
+    const pageRows = rows.slice(0, limit);
+    const last = pageRows[pageRows.length - 1];
+    return {
+      items: pageRows.map((row) => ({
+        paymentId: row.id,
+        amount: parseAmount(row.amount),
+        assetId: row.currency,
+        createdAt: row.created_at,
+      })),
+      nextCursor: rows.length > limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
+    };
+  }
+
+  private async settlementPage(rows: SettlementDetailRow[], limit: number): Promise<SettlementPage> {
+    const pageRows = rows.slice(0, limit);
+    const snapshots = await readPricingSnapshots(
+      this.sql,
+      'settlement',
+      pageRows.map((row) => row.id),
+    );
+    const items = pageRows.map((row) => ({
+      ...toSettlement(row),
+      createdAt: row.created_at,
+      sentAt: row.sent_at,
+      settledAt: row.settled_at,
+      failedAt: row.failed_at,
+      failure: safeFailure(row.failure_code),
+      pricingSnapshot: snapshots.get(row.id) ?? null,
+    }));
+    const last = pageRows[pageRows.length - 1];
+    return {
+      items,
+      nextCursor: rows.length > limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
+    };
   }
 
   // ── Reads ──────────────────────────────────────────────────────────────────

@@ -79,8 +79,12 @@ const migrations = [
   '0006_pay_merchant_status_history.sql',
   '0014_pay_merchant_payout_destinations.sql',
   '0018_pay_founder_controls_admission.sql',
+  // Payment and settlement reads select the stored pricing row. The table is empty here.
+  '0050_pay_control_tiers.sql',
+  '0051_pay_control_pricing.sql',
   // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
   '0071_pay_merchant_names.sql',
+  '0073_pay_settlement_read.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-test-secret-at-least-32-characters';
@@ -3807,10 +3811,11 @@ describe('svc-pay money PG-hard', () => {
       await pay.capture(payment.id);
 
       const listed = await pay.listPayments({ merchantId: m.id, status: 'captured', limit: 50 });
-      expect(listed).toHaveLength(1);
-      expect(listed[0]!.id).toBe(payment.id);
-      expect(listed[0]!.status).toBe('captured');
-      expect(formatAmount(listed[0]!.capturedAmount)).toBe('25');
+      expect(listed.items).toHaveLength(1);
+      expect(listed.items[0]!.id).toBe(payment.id);
+      expect(listed.items[0]!.status).toBe('captured');
+      expect(formatAmount(listed.items[0]!.capturedAmount)).toBe('25');
+      expect(listed.items[0]!.pricingSnapshot).toBeNull();
     });
 
     it('card path still refunds after capture (acquiring E2E on sandbox)', async () => {
