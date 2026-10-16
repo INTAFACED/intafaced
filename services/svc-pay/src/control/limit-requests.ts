@@ -23,8 +23,10 @@ import { ControlError } from './errors.js';
  * once. Confirming a cap change or a tier change for that merchant closes the
  * pending ask in the same transaction. That close writes the row and an audit
  * of the caps as stored. It does not parse them again: an ask whose caps no
- * longer match the cap schema must not block the change. Founders still change
- * caps through the dual-control flow.
+ * longer match the cap schema must not block the change. A read or a withdraw
+ * of that row returns `{ raw, capsReadable: false }` and does not throw, so one
+ * bad row cannot hide the others. Founders still change caps through the
+ * dual-control flow.
  */
 
 interface PendingRow {
@@ -44,14 +46,23 @@ interface TerminalRow extends PendingRow {
   close_reason: string | null;
 }
 
+const readableCaps = payCapSchema.array().min(1).max(32);
+
+/**
+ * One view of stored caps. A parse failure is the row, flagged, not an error:
+ * list, open, already-open and withdraw all use this.
+ */
+function viewStoredCaps(raw: unknown): MerchantLimitRequest['caps'] {
+  const caps = readableCaps.safeParse(raw);
+  return caps.success ? caps.data : { raw, capsReadable: false };
+}
+
 function toPending(row: PendingRow): MerchantLimitRequest {
   if (row.status !== 'pending') throw new ControlError('pay.control_invalid', 'stored limit request is unreadable');
-  const caps = payCapSchema.array().min(1).max(32).safeParse(row.caps);
-  if (!caps.success) throw new ControlError('pay.control_invalid', 'stored limit request is unreadable');
   return {
     requestId: row.request_id,
     merchantId: row.merchant_id,
-    caps: caps.data,
+    caps: viewStoredCaps(row.caps),
     reason: row.reason,
     status: 'pending',
     requestedBy: row.requested_by,
@@ -64,12 +75,10 @@ function toTerminal(row: TerminalRow): MerchantLimitTerminal {
     throw new ControlError('pay.control_invalid', 'stored limit request is unreadable');
   if (!row.closed_at || !row.closed_by || !row.close_reason)
     throw new ControlError('pay.control_invalid', 'stored limit request is unreadable');
-  const caps = payCapSchema.array().min(1).max(32).safeParse(row.caps);
-  if (!caps.success) throw new ControlError('pay.control_invalid', 'stored limit request is unreadable');
   return {
     requestId: row.request_id,
     merchantId: row.merchant_id,
-    caps: caps.data,
+    caps: viewStoredCaps(row.caps),
     reason: row.reason,
     requestedBy: row.requested_by,
     createdAt: new Date(row.created_at).toISOString(),
@@ -239,7 +248,7 @@ function toClosed(row: TerminalRow): FounderLimitRequestCloseResult {
   if (row.status !== 'closed' || !row.closed_at || !row.closed_by || !row.close_reason) {
     throw new ControlError('pay.control_invalid', 'stored limit request is unreadable');
   }
-  const parsed = payCapSchema.array().min(1).max(32).safeParse(row.caps);
+  const parsed = readableCaps.safeParse(row.caps);
   return {
     requestId: row.request_id,
     merchantId: row.merchant_id,

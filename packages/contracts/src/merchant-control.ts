@@ -293,6 +293,19 @@ export const merchantPricingHistorySchema = z.discriminatedUnion('status', [
 export type MerchantPricingHistory = z.infer<typeof merchantPricingHistorySchema>;
 
 /**
+ * Caps on a limit ask, as a reader may return them.
+ * A stored row that still matches a cap is the parsed list.
+ * A stored row that does not is `{ raw, capsReadable: false }`: the JSON that
+ * was stored, flagged so a client can say "caps unreadable" and a bad row
+ * cannot fail the read of every other ask. `raw` is not a cap.
+ */
+export const merchantLimitCapsSchema = z.union([
+  z.array(payCapSchema).min(1).max(32),
+  z.object({ raw: z.unknown(), capsReadable: z.literal(false) }).strict(),
+]);
+export type MerchantLimitCaps = z.infer<typeof merchantLimitCapsSchema>;
+
+/**
  * A merchant's ask for higher caps. Storing it does not change the caps the
  * money path reads. Those still change only through the founder dual-control flow.
  */
@@ -300,7 +313,7 @@ export const merchantLimitRequestSchema = z
   .object({
     requestId: payRequestIdSchema,
     merchantId: payMerchantIdSchema,
-    caps: z.array(payCapSchema).min(1).max(32),
+    caps: merchantLimitCapsSchema,
     reason: payReasonSchema,
     status: z.literal('pending'),
     requestedBy: z.string().min(1).max(128),
@@ -358,7 +371,7 @@ export const merchantLimitTerminalSchema = z
   .object({
     requestId: payRequestIdSchema,
     merchantId: payMerchantIdSchema,
-    caps: z.array(payCapSchema).min(1).max(32),
+    caps: merchantLimitCapsSchema,
     reason: payReasonSchema,
     requestedBy: z.string().min(1).max(128),
     createdAt: payTimestampSchema,

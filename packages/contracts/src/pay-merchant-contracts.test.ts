@@ -15,6 +15,8 @@ import {
   founderLimitRequestCloseResultSchema,
   founderPendingChangeListInputSchema,
   merchantLimitIncreaseInputSchema,
+  merchantLimitRequestSchema,
+  merchantLimitWithdrawResultSchema,
   merchantPricingHistorySchema,
   merchantTierListSchema,
   payoutApprovalSchema,
@@ -196,6 +198,22 @@ describe('founder merchant names', () => {
     expect(founderMerchantDrilldownSchema.safeParse(noDisplay).success).toBe(false);
     expect(founderMerchantDrilldownSchema.safeParse({ ...drilldown, tradingName: 'x' }).success).toBe(false);
     expect(founderMerchantDrilldownSchema.safeParse({ ...drilldown, status: 'live' }).success).toBe(false);
+    const flagged = {
+      requestId: randomUUID(),
+      merchantId,
+      caps: { raw: [{ kind: 'per_payment', assetCode: 'USDT', limit: 10 }], capsReadable: false as const },
+      reason: 'stored ask',
+      status: 'pending' as const,
+      requestedBy: 'owner',
+      createdAt: '2026-10-16T00:00:00.000Z',
+    };
+    expect(merchantLimitRequestSchema.parse(flagged).caps).toEqual(flagged.caps);
+    expect(founderMerchantDrilldownSchema.safeParse({ ...drilldown, pendingLimitRequests: [flagged] }).success).toBe(true);
+    expect(
+      merchantLimitRequestSchema.safeParse({ ...flagged, caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: 10 }] }).success,
+    ).toBe(false);
+    const readable = [{ kind: 'per_payment' as const, assetCode: 'USDT', limit: '10' }];
+    expect(merchantLimitRequestSchema.parse({ ...flagged, caps: readable }).caps).toEqual(readable);
   });
 
   it('a tier list with nothing configured carries no tier and no caps', () => {
@@ -395,6 +413,14 @@ describe('founder merchant names', () => {
     const parsed = founderLimitRequestCloseResultSchema.safeParse({ ...closed, caps: unreadable });
     expect(parsed.success).toBe(true);
     if (parsed.success) expect(parsed.data.caps).toEqual(unreadable);
+    const withdrawn = { ...closed, status: 'withdrawn' as const, closeReason: 'taking it back' };
+    expect(
+      merchantLimitWithdrawResultSchema.safeParse({
+        ...withdrawn,
+        caps: { raw: unreadable, capsReadable: false },
+      }).success,
+    ).toBe(true);
+    expect(merchantLimitWithdrawResultSchema.safeParse({ ...withdrawn, caps: readable }).success).toBe(true);
   });
 });
 
