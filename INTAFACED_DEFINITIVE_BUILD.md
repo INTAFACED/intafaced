@@ -269,7 +269,7 @@ Superseded 2026-10-16. The served customer screen is `apps/customer`, built by c
 - One React app, one shell frame, same-origin `/api/` and `/ws/`.
 - Pro terminal: multi-book layout, depth, hotkeys, the chart already in the product, sub-account switcher.
 - Convert: the retail swap path.
-- Copy: leader boards and mirror follow stay inside the same app.
+- Copy, inside this same app: leader boards with audited badges, and a mirror-follow flow whose guardrail defaults come from Blueprint (Phase 4 hook). This is a requirement. It does not claim the screen is already built.
 - Live depth and trades come from `svc-ws`, not from a separate `ws-gateway` app.
 
 ### 5.4 Phase 2 exit criteria

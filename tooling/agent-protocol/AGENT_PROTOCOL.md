@@ -4,6 +4,14 @@
 
 Cold start, full access: ship without a human permission gate. Coordination map: [`docs/COORDINATION-TRUTH-LAYERS.md`](../../docs/COORDINATION-TRUTH-LAYERS.md). Internet leverage law: [`docs/INTERNET-LEVERAGE-LAW.md`](../../docs/INTERNET-LEVERAGE-LAW.md). A second money book is out.
 
+## 0 · Before you edit
+
+Before the first edit, read `INTAFACED_DEFINITIVE_BUILD.md`, the target service README, [`docs/COORDINATION-TRUTH-LAYERS.md`](../../docs/COORDINATION-TRUTH-LAYERS.md), and [`docs/INTERNET-LEVERAGE-LAW.md`](../../docs/INTERNET-LEVERAGE-LAW.md). Locate code with `rg`, `rg --files`, and focused Git history. Graphify stays retired.
+
+The live external market-data smoke runs manually. Actions must serve this repository's development, testing, deployment, or publication. Operational market-data polling belongs on our own infrastructure. Respect third-party access rules.
+
+The canonical text is `AGENTS.md` under Before you edit.
+
 ## 3 · GitHub refusals and gates
 
 A 403 or 429 from GitHub means stop GitHub requests and report the response, without a retry loop or a change of account or token. Share the refusal with other active agents; independent local work can continue. Resume a rate-limited request only after `Retry-After` or the exhausted limit's `X-RateLimit-Reset` time; if neither header is supplied, wait at least 60 seconds before explicitly resuming. Resolve an account or permission restriction before resuming. Keep code work parallel, pace GitHub API requests, and avoid repeated status polling.

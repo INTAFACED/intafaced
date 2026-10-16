@@ -57,7 +57,7 @@ Before a user-facing operation, call `checkAccess` (`packages/config/src/jurisdi
 2. Services do not import each other's database schemas. Cross-service calls go through `packages/contracts` or `packages/events` (July law §2, the rule under the layout).
 3. Do not publish an undeclared NATS subject. Add it to `packages/events`. Subject shape: `intafaced.<service>.<entity>.<verb>`, past tense. Money amounts in payloads are decimal strings. Consumers are idempotent: wrap the handler with `idempotent(handler, store, scope)` (`packages/events/src/bus.ts:351`). A breaking payload is a new version, and both versions stay until consumers migrate.
 4. Run the checks that exercise the change. `pnpm gates` is the list in `tooling/ci/gates.mjs`. Do not hardcode that count. `pnpm verify` is informational. Never weaken a correctness gate. Report unrelated baseline failures and checks that could not run. Do not claim unverified behavior works.
-5. **Merge when done. Merge only after the merge gate passes.** Run `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` from an up-to-date `origin/main` checkout, not from the PR branch. The gate never merges. Run the merge command it prints. A red main is not your blocker. A new red is. A pull request that changes a gate file needs a title that starts with `ci:`, `gate:`, or `chore(ci):`, or that includes `[gate-change]` (`tooling/scripts/gate-file-guard.mjs`). Agent-rule files are never docs-only (`tooling/scripts/merge-gate.mjs`).
+5. **Merge when done. Merge only after the merge gate passes.** Run `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` from an up-to-date `origin/main` checkout, not from the PR branch. The gate never merges. Run the merge command it prints. A red main is not your blocker. A new red is. A pull request that changes a gate file needs a title that starts with `ci:`, `gate:`, or `chore(ci):`, or that includes `[gate-change]` (`tooling/scripts/gate-file-guard.mjs`). Agent-rule files, including `.cursor/rules/inta.mdc`, and the July law `INTAFACED_DEFINITIVE_BUILD.md` are never docs-only (`tooling/scripts/merge-gate.mjs` `CI_PR_PATHS`). They need full CI.
 6. Money, security, or auth work also needs an exact-head Claude Opus PASS before merge, until main's "Tests (full)" check has three consecutive green push runs (decision D-121, 2026-10-15). A self-audit does not replace that PASS. A red in code the PR touches blocks. `tasks/CI-flakes.md` is not in this tree (checked 2026-10-16), so a red cannot be excused by naming that file until the file exists.
 7. Routine code does not wait for Nitro. An owner hold already set on a preview stays held until that owner clicks it. Do not turn that hold into a wait on every other pull request (decision D-125, 2026-10-16, is one such hold).
 8. Never push `main`. `.githooks/pre-push` refuses a direct push. Trunk CI does not cancel an in-progress run on `main` (`.github/workflows/ci.yml:64`).
@@ -78,7 +78,7 @@ Work in a worktree. Create one with `pnpm wt <branch>`. The directory is a sibli
 
 If an open pull request already touches that service, or the same files, leave it and take a different part. Several agents may work at once on different parts. Path-intersecting open pull requests are the check (`docs/COORDINATION-TRUTH-LAYERS.md`).
 
-When you stop, remove the folder with `git worktree remove <path>` and no `--force` (decision D-119, 2026-10-15). Keep the branch. `git worktree remove` without `--force` refuses uncommitted edits.
+Remove only your own worktree, and only when that task is merged or handed off. Stop any services you started from that task first, then run `git worktree remove <path>` with no `--force` (decision D-119, 2026-10-15, is the command; the 2026-10-15 standing permission limits the trigger to your own merged or handed-off task). Keep the branch. Ordinary removal refuses uncommitted edits. A pause, including a clean checkout whose preview is still running, is not a reason to remove the worktree.
 
 Do not run `pnpm wt:rm` (it deletes a merged branch, `tooling/scripts/worktree.mjs:489`), `pnpm wt:gc:apply` (it runs `git worktree remove --force`, `tooling/scripts/worktree-gc.mjs:487`), `orca worktree rm`, or `git branch -D`. Branches are not deleted.
 
@@ -90,7 +90,7 @@ Spend the session on the product. Do not write status boards, LIVE-LANES, or tra
 
 User-facing copy names Identity Blueprint, Sovereign Intelligence, or Neural Engine. It does not name a partner or a model vendor (July law §0 rule 7).
 
-Graphify is retired. Do not install, query, or update it. No lockfile entry for it (searched 2026-10-16).
+Locate code with `rg`, `rg --files`, and focused Git history. Graphify is retired. Do not install, query, or update it. No lockfile entry for it (searched 2026-10-16).
 
 ## Skills
 
@@ -103,6 +103,16 @@ New product services are TypeScript. These already exist and stay: `services/svc
 External rails sit behind internal interfaces. The platform does not depend on a named partner to boot (July law §0 rule 4).
 
 Three shared systems only: Identity (`svc-identity`), Balance (`svc-ledger`), Token (`svc-token`). A feature that needs a fourth shared system gets redesigned (July law §0 rule 3).
+
+## Before you edit
+
+Read these before the first edit. A link in the section below is not a substitute for this reading.
+
+1. `INTAFACED_DEFINITIVE_BUILD.md`, and the README of the service you are about to change (July law §15 item 1). Where the July law disagrees with this file, this file wins.
+2. `docs/COORDINATION-TRUTH-LAYERS.md`.
+3. `docs/INTERNET-LEVERAGE-LAW.md`, before product code.
+
+The live external market-data smoke runs manually. Actions must serve this repository's development, testing, deployment, or publication. Operational market-data polling belongs on our own infrastructure. Respect third-party access rules. The same rule is stated in `docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md`. This paragraph is the requirement; that file is not optional background.
 
 ## Links that stay
 

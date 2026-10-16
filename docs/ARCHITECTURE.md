@@ -106,7 +106,8 @@ Extend the path in this table. Each path was confirmed to exist on this commit o
 | `p2p-escrow`             | `services/svc-p2p`                                                  | exists         |
 | `p2p-merchant-programme` | `services/svc-p2p/src/merchant-service.ts`                          | exists         |
 | `auth-sessions`          | `services/svc-identity/src/auth`                                    | exists         |
-| `passkeys-login`         | `services/svc-identity/src/enroll-passkey-router.ts`                | exists         |
+| `passkeys-login`         | `services/svc-identity/src/router.ts`                               | exists         |
+| `passkeys-enroll`        | `services/svc-identity/src/enroll-passkey-router.ts`                | exists         |
 | `api-keys`               | `services/svc-identity/src`                                         | exists         |
 | `kyc`                    | `services/svc-identity/src/kyc`                                     | exists         |
 | `affiliates`             | `services/svc-identity/src`                                         | exists         |
@@ -142,6 +143,8 @@ Extend the path in this table. Each path was confirmed to exist on this commit o
 | `shared-auth-lib`        | `packages/auth`                                                     | exists         |
 | `chain-bridge`           | `(none on main)`                                                    | absent         |
 | `intacore-matcher`       | `(none on main)`                                                    | absent         |
+
+`passkeys-login` is the public procedures `webauthn.authOptions` and `webauthn.authVerify` (`services/svc-identity/src/router.ts:887`, `:896`). They call `startWebauthnAuthentication` and `confirmWebauthnAuthentication` (`services/svc-identity/src/auth/auth-service.ts:955`, `:966`), and confirm issues a session (`services/svc-identity/src/auth/auth-service.ts:987`). `passkeys-enroll` is a different module: `beginEnrollPasskey` and `enrollPasskey` add a factor for a principal who is already signed in (`services/svc-identity/src/enroll-passkey-router.ts:33`, `:49`). Login work uses the login row.
 
 ## Services
 
