@@ -191,6 +191,7 @@ export const rooms: readonly Room[] = [
       ['disputes', 'Disputes', 'Manage payment disputes'],
       ['network', 'Sub-merchants', 'Your merchant network'],
       ['permissions', 'Permissions', 'Merchant access controls'],
+      ['compliance', 'Compliance', 'Business verification and requirements'],
       ['settings', 'Business profile', 'Merchant account details and preferences'],
       ['settings/team', 'Team settings', 'Manage merchant team access'],
       ['settings/notifications', 'Notification preferences', 'Choose business alerts'],

@@ -45,6 +45,7 @@ const businessPaySlugs = [
   'disputes',
   'network',
   'permissions',
+  'compliance',
   'settings',
   'settings/profile',
   'settings/team',

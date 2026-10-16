@@ -2,6 +2,9 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  Compliance: 'Compliance',
+  'Business verification and requirements': 'Business verification and requirements',
+
   'Business profile': 'Business profile',
   'Merchant account details and preferences': 'Merchant account details and preferences',
   'Team settings': 'Team settings',

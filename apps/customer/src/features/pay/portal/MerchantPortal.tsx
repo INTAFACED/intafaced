@@ -26,6 +26,7 @@ import './portal.css';
 import { Refunds } from './Refunds';
 import { Links } from './Links';
 import { MerchantMoney, BalanceActivity } from './Money';
+import { Compliance } from './Compliance';
 import { Settings, SettingsNav } from './Settings';
 import { Developers, developerHeader } from './Developers';
 import { Invoices } from './Invoices';
@@ -127,6 +128,16 @@ type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
   const c = w3cCopy.t;
   switch (route.room) {
+    case 'compliance':
+      return {
+        title: extensionCopy.t('complianceTitle'),
+        purpose: extensionCopy.t('compliancePurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/onboarding/verification">
+            {extensionCopy.t('verificationAction')}
+          </a>
+        ),
+      };
     case 'settings':
     case 'settings-team':
     case 'settings-notifications':
@@ -386,6 +397,8 @@ function PortalRoom({
   const { t } = portalCopy.useCopy();
   const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
+    case 'compliance':
+      return <WithAccount {...acct}>{() => <Compliance portal={portal} />}</WithAccount>;
     case 'settings':
       return <WithAccount {...acct}>{({ record }) => <Settings merchant={record} />}</WithAccount>;
     case 'settings-team':
