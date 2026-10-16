@@ -10,6 +10,7 @@ import {
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { withPaymentAdmission, preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
 import { FRESH, NOOP_GUARDS, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
+import { payoutRailSourceKey, type PayHaltStore } from './halts/store.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -701,6 +702,13 @@ export interface PayServiceOptions {
   readonly guards?: PayGuards;
 
   /**
+   * Auto-trip streak writer. A confirmed payout rail acceptance or refusal is
+   * reported here, for this merchant and this rail. Omitted, or constructed
+   * with no failure count, records nothing: auto-trip stays off.
+   */
+  readonly haltStore?: PayHaltStore;
+
+  /**
    * Fee rate used when a merchant's pricing does not state one.
    *
    * There is no silent default of zero: a merchant settled at 0 bps by accident
@@ -1024,6 +1032,7 @@ export class PayService {
   private readonly identityAuthorityGuard: OwnerIdentityAuthorityPort | undefined;
   private readonly afterPayoutAdmission: (() => void | Promise<void>) | undefined;
   private readonly guards: PayGuards;
+  private readonly haltStore: PayHaltStore | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -1052,6 +1061,7 @@ export class PayService {
     this.identityAuthorityGuard = options.identityAuthorityGuard;
     this.afterPayoutAdmission = options.afterPayoutAdmission;
     this.guards = options.guards ?? NOOP_GUARDS;
+    this.haltStore = options.haltStore;
   }
 
   /**
@@ -3780,6 +3790,9 @@ export class PayService {
           let accepted = outcomes.find((outcome) => outcome.kind === 'rail_accepted')?.payload as { railRef: string } | undefined;
           let refused = outcomes.find((outcome) => outcome.kind === 'rail_refused')?.payload as
             { failureReason: string; failureCode: string } | undefined;
+          // Only a rail call made on this attempt feeds auto-trip. A stored
+          // outcome is bookkeeping for a call that already counted, or didn't.
+          let freshRail: 'accepted' | 'refused' | null = null;
           if (!refused && !accepted) {
             // Seam: before any hold is posted or rail asked, including crash
             // recovery. Recovery means the hold is already on the ledger (value in
@@ -3809,9 +3822,11 @@ export class PayService {
               }),
             );
             if (!result.ok) {
+              freshRail = 'refused';
               refused = { failureReason: result.failureReason ?? 'Rail refused', failureCode: result.failureCode ?? 'rail.failed' };
               await connection`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_refused',${connection.json(refused)})`;
             } else {
+              freshRail = 'accepted';
               if (result.amount !== parseAmount(admission.net) || result.assetId !== admission.asset_id)
                 throw new PayError('Payout rail amount or asset differs', 'pay.rail_amount_mismatch');
               accepted = { railRef: result.railRef };
@@ -3824,6 +3839,16 @@ export class PayService {
               await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'reversed','{}') ON CONFLICT DO NOTHING`;
               await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission!.attempt + 1},updated_at=now() WHERE id=${settlement.id}`;
             });
+            // After the refusal is durable. A throw here does not unwind the
+            // reverse: the book already shows the payout failed.
+            if (freshRail === 'refused') {
+              await this.haltStore?.recordFailure(
+                'payout',
+                { level: 'merchant', merchantId: admission.merchant_id },
+                payoutRailSourceKey(admission.rail_id),
+                connection,
+              );
+            }
             throw new PayError(refused?.failureReason ?? 'Rail refused payout', 'pay.rail_failed', { failureCode: refused?.failureCode });
           }
           await postPayLedger(this.ledger, plan.settle);
@@ -3831,6 +3856,14 @@ export class PayService {
             await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'settled','{}') ON CONFLICT DO NOTHING`;
             await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission!.rail_id},payout_ref=${accepted!.railRef},updated_at=now() WHERE id=${settlement.id}`;
           });
+          if (freshRail === 'accepted') {
+            await this.haltStore?.recordSuccess(
+              'payout',
+              { level: 'merchant', merchantId: admission.merchant_id },
+              payoutRailSourceKey(admission.rail_id),
+              connection,
+            );
+          }
           return { ...settlement, status: 'paid_out' as const, payoutMethod: admission.rail_id, payoutRef: accepted.railRef };
         });
       },

@@ -85,6 +85,9 @@ export const merchantSafe = (state: PayHaltState): PayHaltMerchantState => ({
   changedAt: state.changedAt,
 });
 
+/** Stable streak key for one payout rail. Two rails do not share a count. */
+export const payoutRailSourceKey = (railId: string): string => `rail:${railId}`;
+
 /** The scope+target of a halt that is ON and covers this work. */
 export interface BlockingHalt {
   readonly scope: PayHaltScope;
@@ -400,66 +403,117 @@ export class PayHaltStore {
   }
 
   /**
-   * AUTO-TRIP, failure side. Called by every path that talks to a rail or venue
-   * for `scope`/`target` after a failed attempt, with a stable `sourceKey` such
-   * as `venue:binance` or `rail:crypto-native`. Counts consecutive failures in
-   * Postgres (so replicas share the count) and, on reaching the configured count,
-   * sets the halt itself (`source: auto_trip`). With no count configured it
-   * records nothing and trips nothing: auto-trip is OFF, and status says so.
+   * AUTO-TRIP, failure side. Called after a confirmed rail or venue refusal,
+   * with a merchant target and a stable `sourceKey` such as `rail:crypto-native`
+   * or `venue:binance`. The count is per merchant and per source key. Reaching
+   * the configured count halts that merchant's scope (`source: auto_trip`).
+   *
+   * Unconfigured count: records nothing and trips nothing. A global target is
+   * the same: one merchant's rail cannot arm a platform-wide halt.
+   *
+   * Failures before the configured count's effective time do not add. That time
+   * is the row in `pay.halt_autotrip_window`, written when a count is first
+   * observed and kept when a later process has the same count. It is not the
+   * start of this process.
+   *
+   * `conn`, when passed, must be idle (not already in a transaction). The write
+   * then uses that connection so a caller holding the pool's only connection
+   * does not wait on itself. Omit it to take a connection from the pool.
    */
   async recordFailure(
     scope: PayHaltScope,
     target: PayHaltTarget,
     sourceKey: string,
+    conn?: Sql,
   ): Promise<{ tripped: boolean; consecutiveFailures: number }> {
     const limit = this.autoTrip.failures;
-    if (limit === null) return { tripped: false, consecutiveFailures: 0 };
-    const key = targetKey(target);
-    return transaction(
-      this.sql,
-      async (tx) => {
-        await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.halt:${scope}:${key}`}))`;
-        const rows = await tx<Array<{ consecutive_failures: string | number }>>`
-          INSERT INTO pay.halt_failure_streaks (scope, target, source_key, consecutive_failures, last_failure_at)
-          VALUES (${scope}, ${key}, ${sourceKey}, 1, now())
-          ON CONFLICT (scope, target, source_key) DO UPDATE
-             SET consecutive_failures = pay.halt_failure_streaks.consecutive_failures + 1, last_failure_at = now(), updated_at = now()
-          RETURNING consecutive_failures
-        `;
-        const count = Number(rows[0]!.consecutive_failures);
-        if (count < limit) return { tripped: false, consecutiveFailures: count };
-        return {
-          tripped: await this.tripLocked(tx, scope, key, `auto_trip: ${count} consecutive failures of ${sourceKey}`),
-          consecutiveFailures: count,
-        };
-      },
-      { isolation: 'read committed' },
-    );
+    if (limit === null || target.level !== 'merchant') return { tripped: false, consecutiveFailures: 0 };
+    if (!conn) {
+      return transaction(this.sql, (tx) => this.applyFailure(tx, scope, target, sourceKey, limit), { isolation: 'read committed' });
+    }
+    await conn`BEGIN ISOLATION LEVEL READ COMMITTED`;
+    try {
+      const result = await this.applyFailure(conn, scope, target, sourceKey, limit);
+      await conn`COMMIT`;
+      return result;
+    } catch (error) {
+      await conn`ROLLBACK`;
+      throw error;
+    }
   }
 
-  /** A success ends the streak for that source. */
-  async recordSuccess(scope: PayHaltScope, target: PayHaltTarget, sourceKey: string): Promise<void> {
-    await this.sql`
+  /** A success ends the streak for that merchant and source. Off, or a global target, writes nothing. */
+  async recordSuccess(scope: PayHaltScope, target: PayHaltTarget, sourceKey: string, conn?: Sql): Promise<void> {
+    if (this.autoTrip.failures === null || target.level !== 'merchant') return;
+    const db = conn ?? this.sql;
+    await db`
       UPDATE pay.halt_failure_streaks SET consecutive_failures = 0, updated_at = now()
        WHERE scope = ${scope} AND target = ${targetKey(target)} AND source_key = ${sourceKey} AND consecutive_failures <> 0
     `;
   }
 
   /**
-   * Trip from a streak derived elsewhere (the payout guard counts rail refusals
-   * from the payout book). Runs on the pool, never on the caller's money
-   * transaction, so the halt survives that transaction's rollback.
+   * The configured count's effective time. Same count keeps the stored time.
+   * A different count starts a new window and zeroes streaks, so a same-millisecond
+   * change cannot carry the previous run.
    */
-  async trip(scope: PayHaltScope, target: PayHaltTarget, reason: string): Promise<boolean> {
+  private async armWindow(tx: Sql, limit: number): Promise<Date> {
+    const rows = await tx<Array<{ failures: string | number; effective_at: Date }>>`
+      INSERT INTO pay.halt_autotrip_window (singleton, failures, effective_at)
+      VALUES ('autotrip', ${limit}, now())
+      ON CONFLICT (singleton) DO UPDATE
+        SET singleton = pay.halt_autotrip_window.singleton
+      RETURNING failures, effective_at
+    `;
+    const row = rows[0]!;
+    if (Number(row.failures) === limit) return new Date(row.effective_at);
+    const updated = await tx<Array<{ effective_at: Date }>>`
+      UPDATE pay.halt_autotrip_window
+         SET failures = ${limit}, effective_at = now()
+       WHERE singleton = 'autotrip'
+      RETURNING effective_at
+    `;
+    await tx`
+      UPDATE pay.halt_failure_streaks
+         SET consecutive_failures = 0, last_failure_at = NULL, updated_at = now()
+    `;
+    return new Date(updated[0]!.effective_at);
+  }
+
+  private async applyFailure(
+    tx: Sql,
+    scope: PayHaltScope,
+    target: PayHaltTarget,
+    sourceKey: string,
+    limit: number,
+  ): Promise<{ tripped: boolean; consecutiveFailures: number }> {
     const key = targetKey(target);
-    return transaction(
-      this.sql,
-      async (tx) => {
-        await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.halt:${scope}:${key}`}))`;
-        return this.tripLocked(tx, scope, key, reason);
-      },
-      { isolation: 'read committed' },
-    );
+    // Compare against the stored timestamp in SQL. A JS Date would drop
+    // microseconds and could count a failure that is still before the window.
+    await this.armWindow(tx, limit);
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.halt:${scope}:${key}`}))`;
+    const rows = await tx<Array<{ consecutive_failures: string | number }>>`
+      INSERT INTO pay.halt_failure_streaks (scope, target, source_key, consecutive_failures, last_failure_at)
+      VALUES (${scope}, ${key}, ${sourceKey}, 1, now())
+      ON CONFLICT (scope, target, source_key) DO UPDATE
+         SET consecutive_failures = CASE
+               WHEN pay.halt_failure_streaks.last_failure_at IS NULL
+                 OR pay.halt_failure_streaks.last_failure_at < (
+                   SELECT effective_at FROM pay.halt_autotrip_window WHERE singleton = 'autotrip'
+                 )
+               THEN 1
+               ELSE pay.halt_failure_streaks.consecutive_failures + 1
+             END,
+             last_failure_at = now(),
+             updated_at = now()
+      RETURNING consecutive_failures
+    `;
+    const count = Number(rows[0]!.consecutive_failures);
+    if (count < limit) return { tripped: false, consecutiveFailures: count };
+    return {
+      tripped: await this.tripLocked(tx, scope, key, `auto_trip: ${count} consecutive failures of ${sourceKey}`),
+      consecutiveFailures: count,
+    };
   }
 
   private async tripLocked(tx: Sql, scope: PayHaltScope, key: string, reason: string): Promise<boolean> {
@@ -467,13 +521,5 @@ export class PayHaltStore {
     if (rows[0]?.halted) return false;
     await this.write(tx, { scope, key, halted: true, reason, source: 'auto_trip', actor: null, confirmedBy: null, requestId: null });
     return true;
-  }
-
-  /** When the (scope, target) switch last changed: the line before which old failures no longer count. */
-  async lastChangeAt(conn: Sql, scope: PayHaltScope, target: PayHaltTarget): Promise<Date | null> {
-    const rows = await conn<Array<{ changed_at: Date }>>`
-      SELECT changed_at FROM pay.halts WHERE scope = ${scope} AND target = ${targetKey(target)}
-    `;
-    return rows[0] ? new Date(rows[0].changed_at) : null;
   }
 }

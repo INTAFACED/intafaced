@@ -155,7 +155,12 @@ describe('svc-pay public REST money (source)', () => {
   });
 });
 
-describe('svc-pay public REST money paths PG-hard', () => {
+/**
+ * 30s per test, not vitest's 5s default. This file shares one Postgres with the
+ * rest of the pay suite on CI. The metrics PG-hard suite uses the same ceiling:
+ * a body that times out keeps running into the next test's TRUNCATE.
+ */
+describe('svc-pay public REST money paths PG-hard', { timeout: 30_000 }, () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
   let ledger: MemoryLedger;

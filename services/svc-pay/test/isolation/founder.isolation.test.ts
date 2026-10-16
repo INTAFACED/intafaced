@@ -394,11 +394,13 @@ describe('G: founder-only procedures', () => {
       for (const piece of ['founderAuthority', 'metrics', 'registries: { sql, approvals: actionApprovals }']) {
         expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
       }
-      // W5: the halt store the guards read (so payHalts.* answer for real instead of refusing closed) and the
-      // treasury exposure read behind founderAdmin.treasury.exposure.
+      // W5: one halt store, built from the database and the configured count, so payHalts.* answer
+      // for real instead of refusing closed. The same object is what rail-send paths record into.
+      expect(src, 'halt store is no longer the live PayHaltStore').toContain(
+        'const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env));',
+      );
       for (const piece of [
-        'payHalts: { store: new PayHaltStore(sql,',
-        'merchants: pay',
+        'payHalts: { store: haltStore, merchants: pay }',
         'treasury: { sql,',
         'control: new ControlService(sql, teamAccessPorts(sql))',
       ]) {

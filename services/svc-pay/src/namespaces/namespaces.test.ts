@@ -126,7 +126,8 @@ describe('W0 namespaces are mounted', () => {
       /createPayNamespaces\(\{\s*founderAuthority,\s*metrics,\s*registries: \{ sql, approvals: actionApprovals \},\s*sql,/,
     );
     expect(src).toContain('startMetricsRefresher(metrics.projector');
-    expect(src).toContain('payHalts: { store: new PayHaltStore(sql,');
+    expect(src).toContain('const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env));');
+    expect(src).toContain('payHalts: { store: haltStore, merchants: pay }');
     expect(src).toContain('control: new ControlService(sql, teamAccessPorts(sql))');
     expect(src).toContain('const payGuards = buildPayGuards({ sql, ledger });');
     // One registry instance serves both the payment service and the user-money service.

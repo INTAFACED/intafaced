@@ -191,6 +191,8 @@ const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookS
 });
 
 const payoutDestinations = new MerchantPayoutDestinationStore(sql);
+/** One store: the router reads it, and both rail-send paths record into it. */
+const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env));
 const identityAdmission = createIdentityOperationDecisionClient({
   owner: 'svc-pay',
   identityUrl: env.IDENTITY_URL,
@@ -200,6 +202,7 @@ const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPer
 const payGuards = buildPayGuards({ sql, ledger });
 const pay = new PayService(sql, ledger, rails, {
   guards: payGuards,
+  haltStore,
   identityOperationAdmission: identityAdmission,
   identityAuthorityGuard: createPayfacAuthorityGuard(subMerchants),
   payoutDestinations,
@@ -309,6 +312,7 @@ for (const railId of env.PAY_OPERATOR_CREDIT_RAILS) {
 
 const userMoney = new UserMoneyService(sql, ledger, rails, {
   guards: payGuards,
+  haltStore,
   operatorCreditRails,
   valueMovement: railPosture.policy,
 });
@@ -396,7 +400,7 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
-    payHalts: { store: new PayHaltStore(sql, loadHaltAutoTripConfig(process.env)), merchants: pay },
+    payHalts: { store: haltStore, merchants: pay },
     treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: UNWIRED_CONVERSION_INVENTORY },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
     control: new ControlService(sql, teamAccessPorts(sql)),

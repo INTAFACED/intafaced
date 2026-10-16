@@ -41,6 +41,7 @@ const migrations = [
   '0058_pay_halts.sql',
   '0059_pay_treasury_exposure_indexes.sql',
   '0071_pay_merchant_names.sql',
+  '0079_pay_halt_autotrip_window.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-halts-test-secret-at-least-32-characters';
@@ -50,6 +51,9 @@ const FOUNDER_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const DEST = { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' };
 const BANK = { kind: 'bank', ref: 'DE89370400440532013000' };
 const GLOBAL = { level: 'global' } as const;
+const MERCHANT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const MERCHANT_B = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const merchantTarget = (merchantId: string) => ({ level: 'merchant' as const, merchantId });
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -95,7 +99,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
     await truncatePayForTest(
       poolA,
       'pay',
-      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants, pay.withdrawals, pay.deposits RESTART IDENTITY CASCADE`,
+      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.halt_autotrip_window, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants, pay.withdrawals, pay.deposits RESTART IDENTITY CASCADE`,
     );
     ledger = new MemoryLedger();
     chain = new MemoryChain();
@@ -123,10 +127,10 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
   /** A replica: its own pool, its own store and guards. */
   const replica = (sql: postgres.Sql, env: Record<string, string> = {}) => ({
     store: storeOn(sql, env),
-    guards: composeGuards(createHaltGuards({ sql, store: storeOn(sql, env), ledger })),
+    guards: composeGuards(createHaltGuards({ sql, ledger })),
   });
-  const payService = (guards: ReturnType<typeof composeGuards>, sql: postgres.Sql = poolA) =>
-    new PayService(sql, ledger, rails, { payoutDestinations: memoryPayoutDestinations(), guards });
+  const payService = (guards: ReturnType<typeof composeGuards>, sql: postgres.Sql = poolA, haltStore?: PayHaltStore) =>
+    new PayService(sql, ledger, rails, { payoutDestinations: memoryPayoutDestinations(), guards, haltStore });
 
   async function capturedCryptoPayment(pay: PayService, merchantId: string, amount: string) {
     const created = await pay.createPayment({
@@ -659,29 +663,121 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
   });
 
   describe('auto-trip', () => {
-    it('is OFF with no count configured: nothing trips and status says so', async () => {
+    const venue = merchantTarget(MERCHANT);
+
+    it('is OFF with no count configured: nothing trips, nothing is armed, and status says so', async () => {
       const store = storeOn(poolA);
       expect(store.autoTripPosture()).toEqual({ enabled: false, consecutiveFailures: null });
-      for (let i = 0; i < 25; i++) expect(await store.recordFailure('conversion', GLOBAL, 'venue:x')).toMatchObject({ tripped: false });
+      for (let i = 0; i < 25; i++) expect(await store.recordFailure('conversion', venue, 'venue:x')).toMatchObject({ tripped: false });
       expect((await store.operatorStatus()).autoTrip).toEqual({ enabled: false, consecutiveFailures: null });
       expect(await poolA`SELECT 1 FROM pay.halts`).toHaveLength(0);
+      expect(await poolA`SELECT 1 FROM pay.halt_failure_streaks`).toHaveLength(0);
+      expect(await poolA`SELECT 1 FROM pay.halt_autotrip_window`).toHaveLength(0);
       for (const bad of ['', '0', '-3', 'three', '2.5'])
         expect(loadHaltAutoTripConfig({ PAY_HALT_AUTOTRIP_FAILURES: bad }).failures).toBeNull();
     });
 
-    it('consecutive failures trip the scope at N, a success in between resets, and replicas share the count', async () => {
+    it('a global target does not count and does not arm, even when a count is configured', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '2' });
+      expect(await store.recordFailure('payout', GLOBAL, 'rail:crypto-native')).toMatchObject({ tripped: false, consecutiveFailures: 0 });
+      expect(await store.recordFailure('payout', GLOBAL, 'rail:crypto-native')).toMatchObject({ tripped: false, consecutiveFailures: 0 });
+      expect(await poolA`SELECT 1 FROM pay.halts`).toHaveLength(0);
+      expect(await poolA`SELECT 1 FROM pay.halt_failure_streaks`).toHaveLength(0);
+      expect(await poolA`SELECT 1 FROM pay.halt_autotrip_window`).toHaveLength(0);
+    });
+
+    it('counts per merchant and per rail, and only the merchant that reached N is halted', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '2' });
+      const a = merchantTarget(MERCHANT);
+      const b = merchantTarget(MERCHANT_B);
+      expect(await store.recordFailure('payout', a, 'rail:crypto-native')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
+      expect(await store.recordFailure('payout', b, 'rail:crypto-native')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
+      expect(await store.recordFailure('payout', a, 'rail:card-sandbox')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
+      expect(await store.recordFailure('payout', a, 'rail:crypto-native')).toMatchObject({ tripped: true, consecutiveFailures: 2 });
+      const op = await store.operatorStatus();
+      expect(
+        op.states.find((s) => s.scope === 'payout' && s.target.level === 'merchant' && s.target.merchantId === MERCHANT),
+      ).toMatchObject({
+        halted: true,
+        source: 'auto_trip',
+      });
+      expect(
+        op.states.find((s) => s.scope === 'payout' && s.target.level === 'merchant' && s.target.merchantId === MERCHANT_B),
+      ).toBeUndefined();
+      expect(op.states.find((s) => s.scope === 'payout' && s.target.level === 'global')).toMatchObject({ halted: false });
+      const streaks = await poolA<{ source_key: string; consecutive_failures: string }[]>`
+        SELECT source_key, consecutive_failures::text FROM pay.halt_failure_streaks WHERE target = ${MERCHANT} ORDER BY source_key
+      `;
+      expect(streaks).toEqual([
+        { source_key: 'rail:card-sandbox', consecutive_failures: '1' },
+        { source_key: 'rail:crypto-native', consecutive_failures: '2' },
+      ]);
+    });
+
+    it('counts from the stored config time: a new process with the same count keeps it, and older failures do not add', async () => {
+      const first = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '4' });
+      await first.recordFailure('payout', venue, 'rail:crypto-native');
+      await poolA`UPDATE pay.halt_autotrip_window SET effective_at = now() - interval '2 days'`;
+      await poolA`
+        UPDATE pay.halt_failure_streaks
+           SET consecutive_failures = 9, last_failure_at = now() - interval '3 days'
+         WHERE target = ${MERCHANT} AND source_key = 'rail:crypto-native'
+      `;
+      const beforeRows = await poolA<{ epoch: string }[]>`
+        SELECT extract(epoch FROM effective_at)::text AS epoch FROM pay.halt_autotrip_window
+      `;
+      const before = beforeRows[0]?.epoch;
+      const restarted = storeOn(poolB, { PAY_HALT_AUTOTRIP_FAILURES: '4' });
+      expect(await restarted.recordFailure('payout', venue, 'rail:crypto-native')).toMatchObject({
+        tripped: false,
+        consecutiveFailures: 1,
+      });
+      const afterRows = await poolA<{ epoch: string }[]>`
+        SELECT extract(epoch FROM effective_at)::text AS epoch FROM pay.halt_autotrip_window
+      `;
+      expect(afterRows[0]?.epoch).toBe(before);
+      expect(before).toBeTruthy();
+      expect(await poolA`SELECT 1 FROM pay.halts WHERE halted`).toHaveLength(0);
+    });
+
+    it('a different configured count starts a new window and does not keep the old streak', async () => {
+      const first = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
+      await first.recordFailure('payout', venue, 'rail:crypto-native');
+      await first.recordFailure('payout', venue, 'rail:crypto-native');
+      const next = storeOn(poolB, { PAY_HALT_AUTOTRIP_FAILURES: '5' });
+      expect(await next.recordFailure('payout', venue, 'rail:crypto-native')).toMatchObject({
+        tripped: false,
+        consecutiveFailures: 1,
+      });
+      const [window] = await poolA<{ failures: string }[]>`SELECT failures::text FROM pay.halt_autotrip_window`;
+      expect(window?.failures).toBe('5');
+    });
+
+    it('consecutive failures trip that merchant at N, a success in between resets, and replicas share the count', async () => {
       const a = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
       const b = storeOn(poolB, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
-      expect(await a.recordFailure('conversion', GLOBAL, 'venue:binance')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
-      await b.recordSuccess('conversion', GLOBAL, 'venue:binance');
-      expect(await a.recordFailure('conversion', GLOBAL, 'venue:binance')).toMatchObject({ consecutiveFailures: 1 });
-      expect(await b.recordFailure('conversion', GLOBAL, 'venue:binance')).toMatchObject({ tripped: false, consecutiveFailures: 2 });
-      expect(await a.recordFailure('conversion', GLOBAL, 'venue:binance')).toMatchObject({ tripped: true, consecutiveFailures: 3 });
+      expect(await a.recordFailure('conversion', venue, 'venue:binance')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
+      await b.recordSuccess('conversion', venue, 'venue:binance');
+      expect(await a.recordFailure('conversion', venue, 'venue:binance')).toMatchObject({ consecutiveFailures: 1 });
+      expect(await b.recordFailure('conversion', venue, 'venue:binance')).toMatchObject({ tripped: false, consecutiveFailures: 2 });
+      expect(await a.recordFailure('conversion', venue, 'venue:binance')).toMatchObject({ tripped: true, consecutiveFailures: 3 });
       const op = await b.operatorStatus();
-      expect(op.states.find((s) => s.scope === 'conversion')).toMatchObject({ halted: true, source: 'auto_trip', actorUserId: null });
+      expect(op.states.find((s) => s.scope === 'conversion' && s.target.level === 'merchant')).toMatchObject({
+        halted: true,
+        source: 'auto_trip',
+        actorUserId: null,
+        target: { level: 'merchant', merchantId: MERCHANT },
+      });
+      expect(op.states.find((s) => s.scope === 'conversion' && s.target.level === 'global')).toMatchObject({ halted: false });
       expect(op.autoTrip).toEqual({ enabled: true, consecutiveFailures: 3 });
       const history = await a.history({ limit: 10 });
-      expect(history[0]).toMatchObject({ scope: 'conversion', halted: true, source: 'auto_trip', actorUserId: null });
+      expect(history[0]).toMatchObject({
+        scope: 'conversion',
+        halted: true,
+        source: 'auto_trip',
+        actorUserId: null,
+        target: { level: 'merchant', merchantId: MERCHANT },
+      });
     });
 
     it('a failure storm trips within N and the loop stops (no runaway), then a dual-controlled clear starts the count again', async () => {
@@ -689,7 +785,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       const env = { PAY_HALT_AUTOTRIP_FAILURES: String(N), PAY_TREASURY_EXPOSURE_LIMITS: JSON.stringify({ USDT: '1000000' }) };
       const guards = createW5HaltsGuards({ sql: poolA, env });
       const store = storeOn(poolA, env);
-      const pay = payService(composeGuards(guards));
+      const pay = payService(composeGuards(guards), poolA, store);
       const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
       await capturedCryptoPayment(pay, m.id, '10');
       const settlement = await settle(pay, m.id, 'w-storm');
@@ -724,17 +820,23 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       expect(iterations).toBe(N + 1);
       expect(stoppedBy).toMatchObject({ code: 'pay.guard_halted' });
       const op = await store.operatorStatus();
-      expect(op.states.find((s) => s.scope === 'payout' && s.target.level === 'global')).toMatchObject({
-        halted: true,
-        source: 'auto_trip',
-        actorUserId: null,
-      });
+      const halted = op.states.find(
+        (s) => s.scope === 'payout' && s.target.level === 'merchant' && s.target.merchantId === m.id.toLowerCase(),
+      );
+      expect(halted).toMatchObject({ halted: true, source: 'auto_trip', actorUserId: null });
+      expect(op.states.find((s) => s.scope === 'payout' && s.target.level === 'global')).toMatchObject({ halted: false });
       expect(ledger.reconcile()).toEqual({ ok: true });
 
       // One founder cannot clear it; two can. Old failures do not re-trip it.
-      const version = op.states.find((s) => s.scope === 'payout')!.version;
       const clearId = randomUUID();
-      const clear = setInput({ requestId: clearId, scope: 'payout', halted: false, expectedVersion: version, reason: 'rail repaired' });
+      const clear = setInput({
+        requestId: clearId,
+        scope: 'payout',
+        target: { level: 'merchant', merchantId: m.id },
+        halted: false,
+        expectedVersion: halted!.version,
+        reason: 'rail repaired',
+      });
       expect((await store.set(FOUNDER_A, clear)).outcome).toBe('pending_confirmation');
       expect((await store.set(FOUNDER_B, clear)).outcome).toBe('changed');
       await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject(
@@ -743,6 +845,123 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
         },
       );
       expect(railCalls).toBe(N + 1);
+    });
+
+    it('a refused payout feeds that merchant and rail, and a later acceptance resets the streak', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '5' });
+      const pay = payService(composeGuards(createHaltGuards({ sql: poolA })), poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      const other = await pay.createMerchant({ userId: '22222222-2222-4222-8222-222222222222', pricing: { feeBps: 0 } });
+      const wrapped = crypto.payout.bind(crypto);
+      crypto.payout = async (request) =>
+        railFailure({
+          railRef: '',
+          amount: request.amount,
+          assetId: request.assetId,
+          failureCode: 'rail.down',
+          failureReason: 'rail down',
+        });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const failed = await settle(pay, m.id, 'w-fail');
+      await expect(pay.payoutSettlement({ settlementId: failed.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+      });
+      const streak = (merchantId: string) =>
+        poolA<{ consecutive_failures: string }[]>`
+          SELECT consecutive_failures::text FROM pay.halt_failure_streaks
+           WHERE target = ${merchantId.toLowerCase()} AND source_key = 'rail:crypto-native'
+        `;
+      expect(await streak(m.id)).toEqual([{ consecutive_failures: '1' }]);
+      expect(await streak(other.id)).toEqual([]);
+
+      crypto.payout = wrapped;
+      await capturedCryptoPayment(pay, m.id, '10');
+      const paid = await settle(pay, m.id, 'w-ok');
+      expect((await pay.payoutSettlement({ settlementId: paid.id, railId: 'crypto-native', destination: DEST })).status).toBe('paid_out');
+      expect(await streak(m.id)).toEqual([{ consecutive_failures: '0' }]);
+      expect(await poolA`SELECT 1 FROM pay.halts WHERE halted`).toHaveLength(0);
+    });
+
+    it('a rail throw is not a confirmed refusal, so it does not arm the window', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '1' });
+      const pay = payService(composeGuards(createHaltGuards({ sql: poolA })), poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      crypto.payout = async () => {
+        throw new Error('process died');
+      };
+      await capturedCryptoPayment(pay, m.id, '10');
+      const settlement = await settle(pay, m.id, 'w-died');
+      await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST })).rejects.toThrow(
+        'process died',
+      );
+      expect(await poolA`SELECT 1 FROM pay.halt_failure_streaks`).toHaveLength(0);
+      expect(await poolA`SELECT 1 FROM pay.halt_autotrip_window`).toHaveLength(0);
+    });
+
+    it('a user withdrawal refusal counts for each merchant that user owns, and the halt stops the next send', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '2' });
+      const guards = composeGuards(createHaltGuards({ sql: poolA }));
+      const pay = payService(guards);
+      const owned = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      const otherUser = '22222222-2222-4222-8222-222222222222';
+      const other = await pay.createMerchant({ userId: otherUser, pricing: { feeBps: 0 } });
+      const card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+      const realPayout = card.payout.bind(card);
+      let calls = 0;
+      let fail = true;
+      card.payout = async (instruction) => {
+        calls++;
+        if (fail) {
+          return railFailure({
+            railRef: 'refused',
+            amount: instruction.amount,
+            assetId: instruction.assetId,
+            failureCode: 'card.declined',
+            failureReason: 'declined',
+          });
+        }
+        return realPayout(instruction);
+      };
+      const money = new UserMoneyService(poolA, ledger, new RailRegistry([card]), {
+        operatorCreditRails: ['card-sandbox'],
+        guards,
+        haltStore: store,
+      });
+      await money.credit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('50'),
+        rail: 'card-sandbox',
+        railRef: 'seed_trip',
+        creditedBy: FOUNDER_A,
+      });
+      const withdraw = (clientRef: string) =>
+        money.withdraw({
+          userId: USER,
+          assetId: 'USDT',
+          amount: amt('10'),
+          rail: 'card-sandbox',
+          destination: BANK,
+          clientRef,
+        });
+      await expect(withdraw('w1')).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      fail = false;
+      expect((await withdraw('w2')).status).toBe('sent');
+      fail = true;
+      await expect(withdraw('w3')).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      await expect(withdraw('w4')).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(calls).toBe(4);
+      await expect(withdraw('w5')).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      expect(calls).toBe(4);
+      const op = await store.operatorStatus();
+      expect(
+        op.states.find((s) => s.scope === 'payout' && s.target.level === 'merchant' && s.target.merchantId === owned.id.toLowerCase()),
+      ).toMatchObject({ halted: true, source: 'auto_trip' });
+      expect(
+        op.states.find((s) => s.scope === 'payout' && s.target.level === 'merchant' && s.target.merchantId === other.id.toLowerCase()),
+      ).toBeUndefined();
+      expect(op.states.find((s) => s.scope === 'payout' && s.target.level === 'global')).toMatchObject({ halted: false });
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
   });
 
@@ -805,6 +1024,8 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       await expect(poolA`UPDATE pay.halt_events SET reason = 'edited'`).rejects.toThrow();
       await expect(poolA`DELETE FROM pay.halt_events`).rejects.toThrow();
       await expect(poolA`DELETE FROM pay.halts`).rejects.toThrow();
+      await poolA`INSERT INTO pay.halt_autotrip_window (singleton, failures, effective_at) VALUES ('autotrip', 3, now())`;
+      await expect(poolA`DELETE FROM pay.halt_autotrip_window`).rejects.toThrow();
     });
   });
 });

@@ -13,6 +13,7 @@ import {
 } from '@intafaced/ledger-client';
 import { PayError, assertWithdrawalListLimit } from './payment-service.js';
 import { FRESH, NOOP_GUARDS, type GuardReplay, type PayGuards } from './seams/guards.js';
+import { payoutRailSourceKey, type PayHaltStore } from './halts/store.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
 import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, type ValueMovementPolicy } from './rails/posture.js';
@@ -142,12 +143,20 @@ export interface UserMoneyOptions {
    * here. Omitted = no-ops, i.e. behaviour before the seams.
    */
   readonly guards?: PayGuards;
+
+  /**
+   * Auto-trip streak writer. A confirmed withdrawal rail acceptance or refusal
+   * is recorded against every merchant this user owns, on that rail. Omitted,
+   * or constructed with no failure count, records nothing.
+   */
+  readonly haltStore?: PayHaltStore;
 }
 
 export class UserMoneyService {
   private readonly creditableRails: ReadonlySet<string>;
   private readonly valueMovement: ValueMovementPolicy;
   private readonly guards: PayGuards;
+  private readonly haltStore: PayHaltStore | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -158,6 +167,7 @@ export class UserMoneyService {
     this.creditableRails = new Set(options.operatorCreditRails);
     this.valueMovement = options.valueMovement ?? 'allow-sandbox';
     this.guards = options.guards ?? NOOP_GUARDS;
+    this.haltStore = options.haltStore;
   }
 
   // ── Deposit ────────────────────────────────────────────────────────────────
@@ -487,6 +497,9 @@ export class UserMoneyService {
              WHERE id = ${claimed.id} AND status = 'held'
           `;
           await this.finalizeRailRefusal({ ...claimed, failureCode: code }, code, connection);
+          // The reverse is already committed. Counting uses this connection so a
+          // one-slot pool is not asked for a second one while the lock is held.
+          await this.noteOwnedMerchantRail(connection, claimed.userId, claimed.rail, 'refused');
           throw new PayError(
             ('failureReason' in result ? result.failureReason : undefined) ?? 'Rail refused the withdrawal',
             'pay.rail_failed',
@@ -520,6 +533,9 @@ export class UserMoneyService {
              SET status = 'sent', rail_ref = ${result.railRef}, failure_code = NULL, updated_at = now()
            WHERE id = ${claimed.id}
         `;
+        // A replay of a stored acceptance (`accepted` was already set) did not
+        // call the rail again, so it must not reset a streak earned since.
+        if (!accepted) await this.noteOwnedMerchantRail(connection, claimed.userId, claimed.rail, 'accepted');
 
         span.setAttribute('intafaced.amount', formatAmount(claimed.amount));
         return { ...claimed, status: 'sent' as const, railRef: result.railRef };
@@ -600,6 +616,23 @@ export class UserMoneyService {
 
       return existing;
     });
+  }
+
+  /**
+   * One owner's withdrawal is the exit for every merchant they own: settlement
+   * credits that same user account. A confirmed rail outcome counts once per
+   * owned merchant, on this rail only. No owned merchant means there is nothing
+   * to halt, and it does not arm a global halt.
+   */
+  private async noteOwnedMerchantRail(connection: Sql, userId: string, railId: string, outcome: 'accepted' | 'refused'): Promise<void> {
+    if (!this.haltStore) return;
+    const owned = await connection<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE user_id = ${userId}`;
+    for (const merchant of owned) {
+      const target = { level: 'merchant' as const, merchantId: merchant.id };
+      const source = payoutRailSourceKey(railId);
+      if (outcome === 'refused') await this.haltStore.recordFailure('payout', target, source, connection);
+      else await this.haltStore.recordSuccess('payout', target, source, connection);
+    }
   }
 
   /**

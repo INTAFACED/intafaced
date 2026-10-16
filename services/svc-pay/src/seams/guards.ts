@@ -81,7 +81,7 @@ import type { Amount } from '@intafaced/ledger-client';
  *     the ledger, by business key). Where state cannot prove value moved it is
  *     `fresh`: a rail capture whose ledger post rolled back leaves no trace, and
  *     neither does a refund whose ledger post committed but whose reply was lost.
- * *     INTAKE CAPS COUNT CAPTURED VOLUME, never created payments: public checkout
+ *     INTAKE CAPS COUNT CAPTURED VOLUME, never created payments: public checkout
  *     lets anyone create a payment, so counting at create would let a stranger fill a
  *     merchant's caps. Create only refuses read-only when the headroom is already
  *     gone. The count itself happens in `afterPaymentCaptureBooked`. A capture is
