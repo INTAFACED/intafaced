@@ -322,6 +322,9 @@ describe('0081 preflight refuses a mandate that already has two open subscriptio
     expect(message).toContain(firstMandate);
     expect(message).toContain(secondMandate);
     expect(message).toMatch(/does not cancel or rewrite/);
+    const listed = [firstMandate, secondMandate].sort().join(', ');
+    expect(message).toContain(`${listed}. The merchant must cancel`);
+    expect(message).not.toContain(`${listed}s.`);
 
     const open = await sql<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM pay.subscriptions WHERE status IN ('active', 'paused')

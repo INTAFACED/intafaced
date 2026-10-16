@@ -697,8 +697,9 @@ export function createBusinessPayApi(
    * The journal lock stays `${userId}:subscription-create:${mandateId}`.
    * A new create stores a fresh attempt id on that lock and sends
    * `${lockId}:${attemptId}`. A retry of the same uncertain attempt reuses
-   * the stored id. A confirmed or cleared attempt drops it, so the next
-   * create on that mandate is a new subscription, not a replay of the last one.
+   * the stored id. A confirmed outcome or a definite refusal drops it, so the
+   * next create on that mandate is a new subscription. An uncertain or aborted
+   * replay keeps the stored id.
    */
   async function mutate<T>(
     procedure: string,
@@ -731,7 +732,11 @@ export function createBusinessPayApi(
           return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
         }
         const replayed = await sendAttempt(attemptId);
-        if (replayed.ok) await guard.resolve(lockId, held.raw);
+        // Match the first attempt: a known outcome, including a definite
+        // refusal, drops the journal. Uncertain and aborted stay held so the
+        // same attempt can be retried.
+        const heldOpen = !replayed.ok && (replayed.reason === 'uncertain' || replayed.reason === 'aborted');
+        if (!heldOpen) await guard.resolve(lockId, held.raw);
         return replayed;
       }
     }

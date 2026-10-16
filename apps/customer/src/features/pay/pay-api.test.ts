@@ -433,6 +433,64 @@ describe('subscription.create attempt ids', () => {
     expect(pay.guard.reference(lockId)).toBeNull();
   });
 
+  it('clears the journal when a replay is a definite refusal so the next click uses a new attempt id', async () => {
+    const creates: Array<{ idempotencyKey?: string }> = [];
+    let createsSeen = 0;
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        const href = String(url);
+        if (href.includes('merchant.me')) return merchantResponse();
+        if (!href.includes('subscription.create')) throw new Error(href);
+        const body = JSON.parse(String(options?.body)) as { idempotencyKey?: string };
+        creates.push(body);
+        createsSeen += 1;
+        if (createsSeen === 1) throw new Error('socket hang up');
+        if (createsSeen === 2) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message: 'pay.mandate_inactive: Mandate is inactive',
+                data: { code: 'CONFLICT', cause: { code: 'pay.mandate_inactive' } },
+              },
+            }),
+            { status: 409 },
+          );
+        }
+        return response(subscriptionRow(secondId));
+      },
+    });
+    const pay = createBusinessPayApi(api, userId, authority, createPayMutationGuard());
+    const lost = await pay.mutate('subscription.create', { mandateId, path: 'crypto_invoice' }, subscriptionSchema, 'pay:write', operation);
+    expect(lost).toMatchObject({ ok: false, reason: 'uncertain' });
+    const attemptId = attemptOf(creates[0]?.idempotencyKey);
+    expect(pay.guard.status(lockId)).toBe('uncertain');
+    expect(pay.guard.reference(lockId)).toBe(attemptId);
+
+    const refused = await pay.mutate(
+      'subscription.create',
+      { mandateId, path: 'crypto_invoice' },
+      subscriptionSchema,
+      'pay:write',
+      operation,
+    );
+    expect(refused).toMatchObject({ ok: false, reason: 'error', code: 'pay.mandate_inactive' });
+    expect(creates[1]?.idempotencyKey).toBe(`${lockId}:${attemptId}`);
+    expect(pay.guard.status(lockId)).toBeNull();
+    expect(pay.guard.reference(lockId)).toBeNull();
+
+    const again = await pay.mutate(
+      'subscription.create',
+      { mandateId, path: 'crypto_invoice' },
+      subscriptionSchema,
+      'pay:write',
+      operation,
+    );
+    expect(again).toEqual({ ok: true, data: subscriptionRow(secondId) });
+    const nextAttempt = attemptOf(creates[2]?.idempotencyKey);
+    expect(nextAttempt).not.toBe(attemptId);
+    expect(pay.guard.status(lockId)).toBeNull();
+  });
+
   it('mints a new attempt after cancel so the same mandate can subscribe again', async () => {
     const creates: Array<{ idempotencyKey?: string }> = [];
     const byKey = new Map<string, ReturnType<typeof subscriptionRow>>();

@@ -40,7 +40,7 @@ BEGIN
 
   IF open_mandate_ids IS NOT NULL THEN
     RAISE EXCEPTION
-      'subscriptions_one_open_per_mandate: these mandates already have more than one open subscription (active or paused): %s. The merchant must cancel one open subscription on each of those mandates, then apply this migration again. This migration does not cancel or rewrite those rows.',
+      'subscriptions_one_open_per_mandate: these mandates already have more than one open subscription (active or paused): %. The merchant must cancel one open subscription on each of those mandates, then apply this migration again. This migration does not cancel or rewrite those rows.',
       open_mandate_ids;
   END IF;
 END $$;
