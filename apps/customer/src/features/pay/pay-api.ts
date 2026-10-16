@@ -694,9 +694,11 @@ export function createBusinessPayApi(
   /**
    * `subscription.create` takes `idempotencyKey` on the procedure input.
    * `api.mutate` has no header slot, so this is not an Idempotency-Key header.
-   * The key is this call's lock id. A retry after a lost response sends that
-   * same key and the server replays the subscription. Callers, including
-   * merchant billing and the portal subscriptions page, pass the same lock id.
+   * The journal lock stays `${userId}:subscription-create:${mandateId}`.
+   * A new create stores a fresh attempt id on that lock and sends
+   * `${lockId}:${attemptId}`. A retry of the same uncertain attempt reuses
+   * the stored id. A confirmed or cleared attempt drops it, so the next
+   * create on that mandate is a new subscription, not a replay of the last one.
    */
   async function mutate<T>(
     procedure: string,
@@ -710,35 +712,47 @@ export function createBusinessPayApi(
     const checked = await merchant();
     if (!checked.ok) return checked;
     const lockId = `${userId}:${operation}`;
-    const requestInput =
-      procedure === 'subscription.create'
-        ? {
-            ...(input && typeof input === 'object' && !Array.isArray(input) ? input : {}),
-            idempotencyKey: lockId,
-          }
-        : input;
-    const send = () =>
-      api.mutate(
-        'pay',
-        procedure,
-        requestInput,
-        schema.refine(
-          (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
-          'The mutation outcome belongs to another merchant.',
-        ),
-      );
-    // The journal stays after a lost response and would otherwise refuse a
-    // second post. subscription.create is safe to send again: the lock id is
-    // the key, so a committed create comes back as the same subscription.
-    if (procedure === 'subscription.create' && guard.status(lockId) === 'uncertain') {
+    const outcome = schema.refine(
+      (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
+      'The mutation outcome belongs to another merchant.',
+    );
+    if (procedure !== 'subscription.create') return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome));
+    const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+    const sendAttempt = (attemptId: string) =>
+      api.mutate('pay', procedure, { ...fields, idempotencyKey: `${lockId}:${attemptId}` }, outcome);
+    // A lost response leaves the attempt id on the lock. Reuse it. Do not mint
+    // a second id for that same uncertain create: the first request may have
+    // committed, and a new key would not replay it.
+    if (guard.status(lockId) === 'uncertain') {
       const held = guard.original(lockId);
       if (held?.status === 'present') {
-        const replayed = await send();
+        const attemptId = held.value.reference;
+        if (!attemptId) {
+          return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+        }
+        const replayed = await sendAttempt(attemptId);
         if (replayed.ok) await guard.resolve(lockId, held.raw);
         return replayed;
       }
     }
-    return guard.run(lockId, send);
+    let attemptId: string;
+    try {
+      attemptId = globalThis.crypto.randomUUID();
+    } catch {
+      return payRefusal('deviceRecoveryStorageIsUnavailableEnableSession', {
+        code: 'pay.recovery_journal_unavailable',
+        reason: 'not_supported',
+      });
+    }
+    // The journal codec rejects a reference longer than 200. Refuse before
+    // writing an attempt the next read could not recover.
+    if (!attemptId || attemptId.length > 200) {
+      return payRefusal('deviceRecoveryStorageIsUnavailableEnableSession', {
+        code: 'pay.recovery_journal_unavailable',
+        reason: 'not_supported',
+      });
+    }
+    return guard.run(lockId, () => sendAttempt(attemptId), attemptId);
   }
   return {
     merchant,

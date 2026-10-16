@@ -98,17 +98,16 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                   />
                 }
                 perform={() => {
-                  // Lock id for this mandate. It is the procedure's idempotencyKey,
-                  // not an Idempotency-Key header. A lost response retries this same id.
+                  // Journal lock for this mandate. pay.mutate keeps this id and
+                  // attaches a fresh attempt id on the procedure key.
                   const operation = `subscription-create:${mandateId}`;
                   return validatedMutation(
                     pay,
                     'subscription.create',
-                    { mandateId, path, idempotencyKey: `${pay.authority!.userId}:${operation}` },
+                    { mandateId, path },
                     z.object({
                       mandateId: s.id,
                       path: z.enum(['crypto_invoice', 'card', 'card_mandate']),
-                      idempotencyKey: z.string().trim().min(1).max(255),
                     }),
                     s.subscriptionSchema,
                     'pay:write',

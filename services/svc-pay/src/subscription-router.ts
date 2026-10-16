@@ -457,7 +457,9 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * subscription on the mandate refuses `pay.subscription_mandate_open`
        * even with a new key. A blank or oversized key is
        * `pay.idempotency_required` before a subscription is created. The
-       * customer mutate puts the lock id on this field. It is not an HTTP
+       * customer mutate sends `${lockId}:${attemptId}` on this field. The lock
+       * id stays `${userId}:subscription-create:${mandateId}`. A retry of the
+       * same uncertain attempt reuses the stored attempt id. It is not an HTTP
        * header — see `createBusinessPayApi`.
        */
       create: scopedProcedure('pay:write', { module: 'pay' })
