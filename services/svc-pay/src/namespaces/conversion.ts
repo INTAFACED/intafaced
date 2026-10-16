@@ -16,16 +16,18 @@ import { notBuilt } from './errors.js';
 
 /**
  * `conversion.*` — USD to USDT, sandbox only.
- * `execute` moves value, so it carries the payout scope, not the take-a-payment one.
+ * `quote` is a write. `execute` moves value, so it carries the payout scope.
+ * The service also requires the `payout.approve` team role on execute.
  * With no service wired, every procedure stays `pay.not_built`.
  */
 export function createConversionRouter(conversion?: ConversionService) {
   const read = scopedProcedure('pay:read', { module: 'pay' });
+  const write = scopedProcedure('pay:write', { module: 'pay' });
   const execute = scopedProcedure('pay:payout', { module: 'pay' });
   if (!conversion) {
     return router({
       conversion: router({
-        quote: read
+        quote: write
           .input(conversionQuoteInputSchema)
           .output(conversionQuoteSchema)
           .mutation(() => notBuilt('conversion.quote')),
@@ -56,7 +58,7 @@ export function createConversionRouter(conversion?: ConversionService) {
 
   return router({
     conversion: router({
-      quote: read
+      quote: write
         .input(conversionQuoteInputSchema)
         .output(conversionQuoteSchema)
         .mutation(({ ctx, input }) => run(() => conversion.quote(principalOf(ctx), input))),

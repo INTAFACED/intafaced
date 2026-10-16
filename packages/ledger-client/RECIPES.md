@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**62 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**64 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -36,6 +36,8 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `merchantProceedsPayoutSettle`  | `pay`      | `pay.proceeds.payout.settled`                                    |
 | `merchantProceedsPayoutReverse` | `pay`      | `pay.proceeds.payout.reversed`                                   |
 | `fxConversion`                  | `pay`      | `pay.conversion.booked`                                          |
+| `fxConversionHold`              | `pay`      | `pay.conversion.held`                                            |
+| `fxConversionRelease`           | `pay`      | `pay.conversion.released`                                        |
 | `fxConversionReverse`           | `pay`      | `pay.conversion.reversed`                                        |
 | `chargebackOpen`                | `pay`      | `pay.chargeback.opened`                                          |
 | `chargebackShortfall`           | `pay`      | `pay.chargeback.shortfall.covered`                               |
@@ -67,8 +69,7 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `subAccountTransfer`            | `identity` | `identity.sub_account.transfer`                                  |
 | `marketPurchase`                | `market`   | `market.purchase`                                                |
 | `marketListingFee`              | `market`   | `market.listing_fee`                                             |
-| `marketPremiumPlacement`        | `market`   | `market.premium_placement`                                       |
-## Source files
+| `marketPremiumPlacement`        | `market`   | `market.premium_placement`                                       |## Source files
 
 | File                              | Owns                                                                                                                          |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -79,7 +80,7 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `src/recipes/chargeback.ts`       | chargeback open / shortfall / won / recovered (explicit §13 sockets; chargebackOpen posted from svc-pay chargeback-ledger.ts) |
 | `src/recipes/sub-accounts.ts`     | only legal cross-partition transfer                                                                                           |
 | `src/recipes/market.ts`           | purchase + house commission (live); listing fee + premium placement (§13 unwired)                                             |
-| `src/recipes/conversion.ts`       | sandbox USD→USDT fill and its reverse (fee and spread to house revenue)                                                       |
+| `src/recipes/conversion.ts`       | sandbox USD→USDT hold, fill, release, and a reverse that leaves the venue legs in place                                       |
 
 ## Sealed notes
 

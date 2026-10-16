@@ -56,6 +56,7 @@ const BINANCE_ORDER_STATUS: Record<string, VenueOrder['status']> = {
   PENDING_CANCEL: 'open',
   REJECTED: 'rejected',
   EXPIRED: 'expired',
+  EXPIRED_IN_MATCH: 'expired',
 };
 
 export function mapBinanceSpotOrder(body: Record<string, unknown>, unified: string, now: Date): VenueOrder {
@@ -170,6 +171,9 @@ export class BinanceSpotTrade implements TradeAdapter {
 
   async placeOrder(request: PlaceOrderRequest): Promise<VenueOrder> {
     const keys = requireCredentials(VENUE.id, 'placeOrder', this.#credentials);
+    if (request.clientOrderId.length > 36) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'clientOrderId exceeds 36 characters');
+    }
     await assertTradeBookPayoutGradeBeforePlace(VENUE.id, request.symbol, {
       http: this.#http,
       clock: this.#clock,
@@ -195,7 +199,7 @@ export class BinanceSpotTrade implements TradeAdapter {
     };
     if (request.type === 'limit') {
       params.price = formatAmount(request.price!);
-      if (!request.postOnly) params.timeInForce = 'GTC';
+      if (!request.postOnly) params.timeInForce = request.timeInForce ?? 'GTC';
     }
     const body = await this.#signed('POST', '/api/v3/order', params, keys, 'placeOrder');
     return mapBinanceSpotOrder(body, request.symbol, new Date(this.#clock()));

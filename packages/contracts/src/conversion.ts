@@ -21,6 +21,7 @@ export const payConversionModeSchema = z.literal('sandbox');
 export const PAY_CONVERSION_STATUSES = [
   'quoted',
   'intent_committed',
+  'placing',
   'placed',
   'partially_filled',
   'filled',
@@ -55,7 +56,7 @@ export const conversionQuoteSchema = z
     rate: payAmountStringSchema,
     feeAmount: payAmountStringSchema,
     spreadAmount: payAmountStringSchema,
-    /** The least the merchant accepts; a fill below this is refused and reversed. */
+    /** Gross to-asset the limit price protects. A fill still under this is inventory, not erased. */
     minimumOutput: payAmountStringSchema,
     expectedOutput: payAmountStringSchema,
     expiresAt: payTimestampSchema,

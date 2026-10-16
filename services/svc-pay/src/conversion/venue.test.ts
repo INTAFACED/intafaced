@@ -99,16 +99,111 @@ describe('venue order lookup', () => {
     await expect(unknown.fetchOrder('USD/USDT', 'settlement:1')).rejects.toMatchObject({ code: 'pay.conversion_venue_unknown' });
   });
 
-  it('a repeated place for the same client id does not create a second order', async () => {
-    const venue = createMemoryConversionVenue({
-      rateScaled: parseAmount('1'),
+  it('treats a Bybit empty realtime list as a miss and still fails closed on a timeout', async () => {
+    const quote = async () => {
+      throw new Error('quote not used');
+    };
+    const empty = conversionVenueFromTrade(
+      {
+        venue: { id: 'bybit-spot' },
+        fetchOrder: async () => {
+          throw new VenueUnavailableError('bybit-spot', 'unreachable', 'fetchOrder: realtime list is empty');
+        },
+        placeOrder: async () => undefined,
+        cancelOrder: async () => undefined,
+      } as unknown as TradeAdapter,
+      quote,
+    );
+    await expect(empty.fetchOrder('USD/USDT', 'id')).resolves.toBeNull();
+    const timeout = conversionVenueFromTrade(
+      {
+        venue: { id: 'bybit-spot' },
+        fetchOrder: async () => {
+          throw new VenueUnavailableError('bybit-spot', 'unreachable', 'fetchOrder timeout');
+        },
+        placeOrder: async () => undefined,
+        cancelOrder: async () => undefined,
+      } as unknown as TradeAdapter,
+      quote,
+    );
+    await expect(timeout.fetchOrder('USD/USDT', 'id')).rejects.toMatchObject({ code: 'pay.conversion_venue_unknown' });
+  });
+});
+
+describe('memory conversion venue', () => {
+  const request = {
+    symbol: 'USD/USDT',
+    side: 'sell' as const,
+    type: 'limit' as const,
+    timeInForce: 'IOC' as const,
+    amount: parseAmount('1'),
+    price: parseAmount('1'),
+    clientOrderId: 'same',
+  };
+
+  function venue(fill?: Parameters<typeof createMemoryConversionVenue>[0]['fill']) {
+    return createMemoryConversionVenue({
+      bid: parseAmount('1'),
+      ask: parseAmount('1.01'),
       expiresAt: (now) => new Date(now.getTime() + 60_000),
-      fill: (request) => ({ status: 'filled', filled: request.amount, averagePrice: parseAmount('1') }),
+      fill,
     });
-    const request = { symbol: 'USD/USDT', side: 'sell' as const, type: 'market' as const, amount: parseAmount('1'), clientOrderId: 'same' };
-    await venue.placeOrder(request);
-    await venue.placeOrder(request);
-    expect(venue.placeCount()).toBe(2);
-    expect(venue.orders.size).toBe(1);
+  }
+
+  it('accepts a reused client order id once the first order has filled', async () => {
+    const book = venue((order) => ({ status: 'filled', filled: order.amount, averagePrice: parseAmount('1'), feePaid: 0n }));
+    await book.placeOrder(request);
+    await book.placeOrder(request);
+    expect(book.placeCount()).toBe(2);
+    expect(book.orders.size).toBe(1);
+    expect(book.orders.get('same')?.venueOrderId).toBe('mem-2');
+  });
+
+  it('does not open a second order while the first client id is still open', async () => {
+    const book = venue(() => ({ status: 'open', filled: 0n, averagePrice: null, feePaid: 0n }));
+    const first = await book.placeOrder(request);
+    const second = await book.placeOrder(request);
+    expect(second.venueOrderId).toBe(first.venueOrderId);
+    expect(book.orders.size).toBe(1);
+  });
+
+  it('hides a timed-out place behind a lagging miss, then shows it only in history when it is closed', async () => {
+    const book = venue((order) => ({ status: 'filled', filled: order.amount, averagePrice: parseAmount('1'), feePaid: 0n }));
+    book.armLag(2);
+    await expect(book.placeOrder(request)).rejects.toThrow(/venue timeout/);
+    expect(book.placeCount()).toBe(1);
+    await expect(book.fetchOrder(request.symbol, request.clientOrderId)).resolves.toBeNull();
+    await expect(book.fetchClosedOrder(request.symbol, request.clientOrderId)).resolves.toBeNull();
+    const closed = await book.fetchClosedOrder(request.symbol, request.clientOrderId);
+    expect(closed?.status).toBe('filled');
+    await expect(book.fetchOrder(request.symbol, request.clientOrderId)).resolves.toBeNull();
+  });
+
+  it('fills a sell at the bid and a buy at the ask, never the mid', async () => {
+    const book = venue();
+    const sold = await book.placeOrder({ ...request, type: 'market', price: undefined, clientOrderId: 'sell' });
+    const bought = await book.placeOrder({
+      ...request,
+      side: 'buy',
+      type: 'market',
+      price: undefined,
+      clientOrderId: 'buy',
+    });
+    expect(sold.averagePrice).toBe(parseAmount('1'));
+    expect(bought.averagePrice).toBe(parseAmount('1.01'));
+  });
+
+  it('keeps an expired partial only on the closed-order query and charges commission', async () => {
+    const book = venue(() => ({ status: 'expired', filled: parseAmount('0.4'), averagePrice: parseAmount('1'), feePaid: undefined }));
+    const placed = await book.placeOrder(request);
+    expect(placed.feePaid).not.toBeNull();
+    expect(placed.feePaid! > 0n).toBe(true);
+    await expect(book.fetchOrder(request.symbol, request.clientOrderId)).resolves.toBeNull();
+    expect((await book.fetchClosedOrder(request.symbol, request.clientOrderId))?.filled).toBe(parseAmount('0.4'));
+  });
+
+  it('rejects a client order id longer than 36 characters', async () => {
+    const book = venue();
+    await expect(book.placeOrder({ ...request, clientOrderId: 'x'.repeat(37) })).rejects.toThrow(/clientOrderId/);
   });
 });

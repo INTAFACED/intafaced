@@ -191,6 +191,11 @@ export interface PlaceOrderRequest {
   /** True to refuse the order rather than take liquidity. */
   readonly postOnly?: boolean;
   readonly reduceOnly?: boolean;
+  /**
+   * Limit time in force. Absent means the venue adapter's resting default
+   * (GTC). Conversion sends IOC so a price under the floor cannot rest.
+   */
+  readonly timeInForce?: 'GTC' | 'IOC' | 'FOK';
 }
 
 export interface TradeAdapter {
@@ -199,6 +204,12 @@ export interface TradeAdapter {
   /** By client id, not venue id — a `pending` order has no venue id to cancel by. */
   cancelOrder(symbol: string, clientOrderId: string): Promise<VenueOrder>;
   fetchOrder(symbol: string, clientOrderId: string): Promise<VenueOrder>;
+  /**
+   * A closed spot order, which some venues drop from the realtime list.
+   * Absent on venues whose `fetchOrder` already returns closed orders.
+   * `null` is a confirmed miss. Any other failure throws.
+   */
+  fetchClosedOrder?(symbol: string, clientOrderId: string): Promise<VenueOrder | null>;
   openOrders(symbol?: string): Promise<VenueOrder[]>;
 }
 

@@ -943,6 +943,41 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(http.posts[0]!.headers?.['X-BAPI-SIGN']).toMatch(/^[a-f0-9]{64}$/);
     expect(http.requests[0]).toContain('/v5/market/orderbook');
     expect(http.requests[1]).toContain('POST https://api.bybit.com/v5/order/create');
+    expect(http.posts[0]!.jsonBody).toMatchObject({ timeInForce: 'GTC' });
+  });
+
+  it('sends IOC, and a closed order that has left the realtime list is read from history', async () => {
+    const filled = {
+      ...openRow,
+      orderStatus: 'Filled',
+      cumExecQty: '1',
+      avgPrice: '1',
+      cumExecFee: '0.1',
+      cumFeeDetail: { USDT: '0.1' },
+    };
+    const http = new FakeHttp()
+      .queue(orderbook(1))
+      .queue({ retCode: 0, retMsg: 'OK', result: { orderId: '9', orderLinkId: 'abc' } })
+      .queue(envelope([]))
+      .queue(envelope([filled]));
+    const trade = new BybitSpotTrade(keys, { http, clock: () => 1_700_000_000_000, snapshotLimit: 5 });
+    const placed = await trade.placeOrder({ ...order, timeInForce: 'IOC' });
+    expect(http.posts[0]!.jsonBody).toMatchObject({ timeInForce: 'IOC' });
+    expect(http.requests.some((url) => url.includes('/v5/order/history'))).toBe(true);
+    expect(placed.status).toBe('filled');
+    expect(formatAmount(placed.feePaid!)).toBe('0.1');
+    expect(placed.feeAsset).toBe('USDT');
+  });
+
+  it('an empty history list is a miss, and a long client id never reaches HTTP', async () => {
+    const http = new FakeHttp().queue(envelope([]));
+    const trade = new BybitSpotTrade(keys, { http, clock: () => 1 });
+    await expect(trade.fetchClosedOrder('BTC/USDT', 'abc')).resolves.toBeNull();
+    expect(http.requests[0]).toContain('/v5/order/history');
+    const blocked = new FakeHttp();
+    const refused = new BybitSpotTrade(keys, { http: blocked, clock: () => 1, snapshotLimit: 5 });
+    await expect(refused.placeOrder({ ...order, clientOrderId: 'x'.repeat(37) })).rejects.toThrow(/clientOrderId/);
+    expect(blocked.requests).toHaveLength(0);
   });
 
   it('retCode 10001 throws and does not return a rejected order', async () => {

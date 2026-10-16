@@ -417,7 +417,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   },
   {
     path: 'conversion.quote',
-    scope: 'pay:read',
+    scope: 'pay:write',
     own: 'service',
     input: (i) => ({ merchantId: i.merchantId, settlementId: i.settlementId, fromAsset: 'USD', toAsset: 'USDT', fromAmount: '10' }),
   },

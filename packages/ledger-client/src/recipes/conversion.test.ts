@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { houseFees, merchantClearing, userAvailable, venueBoundary } from '../accounts.js';
+import { conversionInventory, houseFees, merchantClearing, merchantClearingHold, userAvailable, venueBoundary } from '../accounts.js';
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
-import { fxConversion, fxConversionReverse } from './conversion.js';
+import { fxConversion, fxConversionHold, fxConversionReverse } from './conversion.js';
 
 const MERCHANT = '22222222-2222-4222-8222-222222222222';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -21,7 +21,7 @@ const input = {
 };
 
 describe('fx conversion recipe', () => {
-  it('posts a balanced fill and a reverse that puts every pot back', async () => {
+  it('posts a balanced fill and a reverse that keeps the venue exposure', async () => {
     const ledger = new MemoryLedger();
     const { recipes } = await import('./index.js');
     await ledger.post(
@@ -34,8 +34,13 @@ describe('fx conversion recipe', () => {
         railRef: 'cap-1',
       }),
     );
+    await ledger.post(recipes.fxConversionHold({ conversionId: 'cv-1', merchantId: MERCHANT, fromAsset: 'USD', amount: amt('100') }));
+    expect(formatAmount((await ledger.balance(merchantClearing(MERCHANT, 'USD'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(merchantClearingHold(MERCHANT, 'USD', 'cv-1'))).amount)).toBe('100');
+
     await ledger.post(recipes.fxConversion(input));
     expect(formatAmount((await ledger.balance(merchantClearing(MERCHANT, 'USD'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(merchantClearingHold(MERCHANT, 'USD', 'cv-1'))).amount)).toBe('0');
     expect(formatAmount((await ledger.balance(venueBoundary('binance-spot', 'USD'))).amount)).toBe('100');
     expect(formatAmount((await ledger.balance(venueBoundary('binance-spot', 'USDT'))).amount)).toBe('-100');
     expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('97');
@@ -44,11 +49,14 @@ describe('fx conversion recipe', () => {
 
     await ledger.post(recipes.fxConversionReverse(input));
     expect(formatAmount((await ledger.balance(merchantClearing(MERCHANT, 'USD'))).amount)).toBe('100');
-    expect(formatAmount((await ledger.balance(venueBoundary('binance-spot', 'USD'))).amount)).toBe('0');
-    expect(formatAmount((await ledger.balance(venueBoundary('binance-spot', 'USDT'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(venueBoundary('binance-spot', 'USD'))).amount)).toBe('100');
+    expect(formatAmount((await ledger.balance(venueBoundary('binance-spot', 'USDT'))).amount)).toBe('-100');
     expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('0');
     expect(formatAmount((await ledger.balance(houseFees('pay', 'USDT'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(conversionInventory('USD'))).amount)).toBe('-100');
+    expect(formatAmount((await ledger.balance(conversionInventory('USDT'))).amount)).toBe('100');
     expect(ledger.reconcile()).toEqual({ ok: true });
+    expect(recipes.fxConversionReverse(input).entries.some((entry) => entry.account.ownerId?.startsWith('venue:'))).toBe(false);
   });
 
   it('omits a zero fee and still balances', async () => {
@@ -64,6 +72,7 @@ describe('fx conversion recipe', () => {
         railRef: 'cap-2',
       }),
     );
+    await ledger.post(recipes.fxConversionHold({ conversionId: 'cv-2', merchantId: MERCHANT, fromAsset: 'USD', amount: amt('10') }));
     const post = recipes.fxConversion({
       ...input,
       conversionId: 'cv-2',
@@ -83,5 +92,6 @@ describe('fx conversion recipe', () => {
     expect(() => fxConversion({ ...input, toAmount: -1n })).toThrow(/to amount/);
     expect(() => fxConversion({ ...input, feeAmount: -1n })).toThrow(/fee/);
     expect(() => fxConversion({ ...input, toAsset: 'USD' })).toThrow(/assets must differ/);
+    expect(() => fxConversionHold({ conversionId: 'cv-1', merchantId: MERCHANT, fromAsset: 'USD', amount: 0n })).toThrow(/hold/);
   });
 });

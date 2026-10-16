@@ -13,7 +13,7 @@ import { PayHaltStore } from './halts/store.js';
 import { loadTreasuryLimits } from './treasury/config.js';
 import { createConversionInventory } from './conversion/inventory.js';
 import { ConversionService } from './conversion/service.js';
-import { assertConversionBoot, openConversionVenue } from './conversion/venue.js';
+import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
 import { buildPayGuards } from './seams/registry.js';
 import { isExplicitDevOrTestEnv } from '@intafaced/config';
@@ -169,6 +169,7 @@ const rails = new RailRegistry([
  * are one decision rather than two that can drift apart.
  */
 assertConversionBoot(process.env);
+const conversionConfig = readConversionConfig(process.env);
 const conversionVenue = openConversionVenue(process.env);
 const railPosture = assertRailPosture(rails, { ...process.env, PAY_ALLOW_SANDBOX_RAILS: env.PAY_ALLOW_SANDBOX_RAILS });
 const railStatus = railPostureStatus(rails, railPosture.policy);
@@ -211,6 +212,8 @@ const conversion = new ConversionService({
   guards: payGuards,
   venue: conversionVenue,
   registries: createRegistryReader(sql),
+  slippageBps: conversionConfig.slippageBps,
+  placingMaxAgeMs: conversionConfig.placingMaxAgeMs,
 });
 const pay = new PayService(sql, ledger, rails, {
   guards: payGuards,

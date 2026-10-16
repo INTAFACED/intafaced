@@ -1,12 +1,11 @@
 -- W6 USD → USDT conversion, sandbox only.
 -- Reversal: 0077_pay_conversion.down.sql
 --
--- A quote is the venue price plus the fee and spread a pricing rule locked, in
--- the to-asset. An order row is written and committed BEFORE the venue is
--- called. `client_order_id` is the settlement id plus the attempt, so a process
--- that dies after the venue accepts can find that same order and must not mint
--- another. The id is not shortened: a venue that rejects a long id fails the
--- attempt closed.
+-- A quote is the bid, minus the configured slippage, plus the fee and spread a
+-- pricing rule locked. An order row is committed BEFORE the venue is called,
+-- then compare-and-set to `placing` so only one caller places. `client_order_id`
+-- is the settlement uuid without dashes plus the attempt in base 36, at most
+-- 36 characters. One settlement has at most one live order.
 --
 -- No rate, fee, spread, minimum or TTL is stored as a default. A missing input
 -- is a missing row, and the service refuses.
@@ -63,9 +62,11 @@ CREATE TABLE IF NOT EXISTS "pay"."conversion_orders" (
   "updated_at"          timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "conversion_orders_pair" CHECK ("from_asset" = 'USD' AND "to_asset" = 'USDT'),
   CONSTRAINT "conversion_orders_attempt" CHECK ("attempt" >= 1),
-  CONSTRAINT "conversion_orders_client_id" CHECK (length(btrim("client_order_id")) > 0),
+  CONSTRAINT "conversion_orders_client_id" CHECK (
+    length(btrim("client_order_id")) > 0 AND length("client_order_id") <= 36
+  ),
   CONSTRAINT "conversion_orders_status" CHECK ("status" IN (
-    'intent_committed', 'placed', 'partially_filled', 'filled', 'failed', 'reversed', 'expired'
+    'intent_committed', 'placing', 'placed', 'partially_filled', 'filled', 'failed', 'reversed', 'expired'
   )),
   CONSTRAINT "conversion_orders_amounts" CHECK (
     "from_amount" > 0 AND "filled_from_amount" >= 0 AND "filled_to_amount" >= 0
@@ -84,6 +85,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS "conversion_orders_client_idx"
   ON "pay"."conversion_orders" ("client_order_id");
 CREATE UNIQUE INDEX IF NOT EXISTS "conversion_orders_attempt_idx"
   ON "pay"."conversion_orders" ("settlement_id", "attempt");
+-- One live attempt per settlement. A filled, failed, reversed or expired row
+-- does not hold the slot. `placing` is live: a miss must not start another.
+CREATE UNIQUE INDEX IF NOT EXISTS "conversion_orders_one_live_idx"
+  ON "pay"."conversion_orders" ("settlement_id")
+  WHERE "status" IN ('intent_committed', 'placing', 'placed');
 CREATE INDEX IF NOT EXISTS "conversion_orders_open_idx"
   ON "pay"."conversion_orders" ("from_asset", "status");
 CREATE INDEX IF NOT EXISTS "conversion_orders_merchant_idx"

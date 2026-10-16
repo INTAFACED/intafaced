@@ -39,6 +39,26 @@ function venueSymbolOf(unified: string): string {
   return unified.replace(/[/:]/g, '').toUpperCase();
 }
 
+/**
+ * Bybit reports `cumExecFee` on the order row. A missing fee on a fill stays
+ * unknown (null) so the book refuses it. A single `cumFeeDetail` key names the
+ * asset; more than one key leaves the asset unknown rather than summing them.
+ */
+function bybitReportedFee(row: Record<string, unknown>, executed: bigint): { feePaid: VenueOrder['feePaid']; feeAsset: string | null } {
+  if (executed === 0n) return { feePaid: 0n, feeAsset: null };
+  const raw = row.cumExecFee;
+  if (raw === undefined || raw === null || raw === '') return { feePaid: null, feeAsset: null };
+  const feePaid = readDecimal(raw, VENUE.id, 'cumExecFee');
+  if (feePaid < 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', 'cumExecFee must not be negative');
+  if (feePaid === 0n) return { feePaid: 0n, feeAsset: null };
+  const detail = row.cumFeeDetail;
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    const keys = Object.keys(detail as Record<string, unknown>);
+    if (keys.length === 1 && keys[0]) return { feePaid, feeAsset: keys[0] };
+  }
+  return { feePaid, feeAsset: null };
+}
+
 export function signBybitV5(timestamp: string, apiKey: string, recvWindow: string, secret: string, payload: string): string {
   return createHmac('sha256', secret)
     .update(timestamp + apiKey + recvWindow + payload)
@@ -105,6 +125,7 @@ export function mapBybitSpotOrder(row: Record<string, unknown>, unified: string,
   if (!venueOrderId) throw new VenueUnavailableError(VENUE.id, 'malformed', 'orderId is missing');
   if (!clientOrderId) throw new VenueUnavailableError(VENUE.id, 'malformed', 'orderLinkId is missing');
   assertFillReportMatchesStatus(VENUE.id, status, executed, averagePrice);
+  const fee = bybitReportedFee(row, executed);
   return {
     venueId: VENUE.id,
     venueOrderId,
@@ -118,8 +139,8 @@ export function mapBybitSpotOrder(row: Record<string, unknown>, unified: string,
     remaining,
     averagePrice,
     status,
-    feePaid: null,
-    feeAsset: null,
+    feePaid: fee.feePaid,
+    feeAsset: fee.feeAsset,
     createdAt,
     observedAt: now,
   };
@@ -158,6 +179,9 @@ export class BybitSpotTrade implements TradeAdapter {
 
   async placeOrder(request: PlaceOrderRequest): Promise<VenueOrder> {
     const keys = requireCredentials(VENUE.id, 'placeOrder', this.#credentials);
+    if (request.clientOrderId.length > 36) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'clientOrderId exceeds 36 characters');
+    }
     if (request.amount <= 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', 'order amount must be positive');
     if (!request.clientOrderId.trim()) throw new VenueUnavailableError(VENUE.id, 'malformed', 'clientOrderId is required');
     if (request.type === 'limit' && request.price !== undefined && request.price !== null && request.price <= 0n) {
@@ -188,10 +212,17 @@ export class BybitSpotTrade implements TradeAdapter {
     };
     if (request.type === 'limit') {
       payload.price = formatAmount(request.price!);
-      payload.timeInForce = request.postOnly ? 'PostOnly' : 'GTC';
+      payload.timeInForce = request.postOnly ? 'PostOnly' : (request.timeInForce ?? 'GTC');
     }
     await this.#signed('POST', '/v5/order/create', payload, keys, 'placeOrder');
-    return this.fetchOrder(request.symbol, request.clientOrderId);
+    try {
+      return await this.fetchOrder(request.symbol, request.clientOrderId);
+    } catch (error) {
+      if (!(error instanceof VenueUnavailableError) || !/realtime list is empty/i.test(error.message)) throw error;
+      const closed = await this.fetchClosedOrder(request.symbol, request.clientOrderId);
+      if (closed) return closed;
+      throw error;
+    }
   }
 
   async cancelOrder(symbol: string, clientOrderId: string): Promise<VenueOrder> {
@@ -222,6 +253,28 @@ export class BybitSpotTrade implements TradeAdapter {
     const row = list[0];
     if (!row || typeof row !== 'object') {
       throw new VenueUnavailableError(VENUE.id, 'malformed', 'fetchOrder row is not an object');
+    }
+    return mapBybitSpotOrder(row as Record<string, unknown>, symbol, new Date(this.#clock()));
+  }
+
+  /**
+   * Closed spot orders leave the realtime list. An empty history is a confirmed
+   * miss (`null`). An empty realtime list is not — the caller has to ask here.
+   */
+  async fetchClosedOrder(symbol: string, clientOrderId: string): Promise<VenueOrder | null> {
+    const keys = requireCredentials(VENUE.id, 'fetchClosedOrder', this.#credentials);
+    const body = await this.#signed(
+      'GET',
+      '/v5/order/history',
+      { category: 'spot', symbol: venueSymbolOf(symbol), orderLinkId: clientOrderId },
+      keys,
+      'fetchClosedOrder',
+    );
+    const list = (body.result as { list?: unknown })?.list;
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const row = list[0];
+    if (!row || typeof row !== 'object') {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'fetchClosedOrder row is not an object');
     }
     return mapBybitSpotOrder(row as Record<string, unknown>, symbol, new Date(this.#clock()));
   }

@@ -6,6 +6,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
 import {
   MemoryLedger,
+  conversionInventory,
   houseFees,
   merchantClearing,
   parseAmount,
@@ -21,7 +22,7 @@ import { composeGuards, FRESH } from '../seams/guards.js';
 import { createW5HaltsGuards } from '../seams/slots/w5-halts.js';
 import { createRegistryReader } from '../registries/read-api.js';
 import { createConversionInventory } from './inventory.js';
-import { ConversionService, type ConversionServiceDeps } from './service.js';
+import { ConversionService, conversionClientOrderId, type ConversionServiceDeps } from './service.js';
 import { ConversionError } from './errors.js';
 import { createMemoryConversionVenue, type ConversionVenue, type MemoryFill } from './venue.js';
 
@@ -40,7 +41,7 @@ function asUser(userId: string): Principal {
     userId,
     sub: userId,
     sid: randomUUID(),
-    scopes: ['pay:read', 'pay:payout'],
+    scopes: ['pay:read', 'pay:write', 'pay:payout'],
     mfa: true,
     tier: 'full',
     expiresAt: new Date(Date.now() + 60_000),
@@ -117,14 +118,18 @@ describe('W6 USD to USDT conversion', () => {
       guards: extra.guards ?? guards(),
       venue,
       registries: createRegistryReader(db.sql),
+      slippageBps: extra.slippageBps === undefined ? 0 : extra.slippageBps,
+      placingMaxAgeMs: extra.placingMaxAgeMs === undefined ? null : extra.placingMaxAgeMs,
       now: extra.now,
       afterPlace: extra.afterPlace,
     });
   }
 
-  function memory(fill: (request: PlaceOrderRequest) => MemoryFill, expiresInMs = 60_000) {
+  function memory(fill?: (request: PlaceOrderRequest) => MemoryFill, expiresInMs = 60_000, commission: Amount = 0n) {
     return createMemoryConversionVenue({
-      rateScaled: RATE,
+      bid: RATE,
+      ask: RATE,
+      commission,
       expiresAt: (now) => new Date(now.getTime() + expiresInMs),
       fill,
     });
@@ -154,7 +159,10 @@ describe('W6 USD to USDT conversion', () => {
     const stored = await db.sql<Array<{ client_order_id: string }>>`
       SELECT client_order_id FROM pay.conversion_orders WHERE request_id = ${requestId}
     `;
-    expect(stored[0]!.client_order_id).toBe(`${who.settlementId}:1`);
+    const clientId = conversionClientOrderId(who.settlementId, 1);
+    expect(stored[0]!.client_order_id).toBe(clientId);
+    expect(clientId.length).toBeLessThanOrEqual(36);
+    expect(venue.lastPlace()).toMatchObject({ type: 'limit', timeInForce: 'IOC', price: RATE, clientOrderId: clientId });
     expect(await svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).toMatchObject({ status: 'filled' });
     expect(venue.placeCount()).toBe(1);
     expect(ledger.reconcile()).toEqual({ ok: true });
@@ -187,7 +195,7 @@ describe('W6 USD to USDT conversion', () => {
     await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toThrow(/crash between order and db write/);
     expect(venue.placeCount()).toBe(1);
     const stuck = await db.sql<Array<{ status: string }>>`SELECT status FROM pay.conversion_orders WHERE request_id = ${requestId}`;
-    expect(stuck[0]!.status).toBe('intent_committed');
+    expect(stuck[0]!.status).toBe('placing');
     crash = false;
     const booked = await svc.execute(who.caller, { requestId, quoteId: quote.quoteId });
     expect(booked.status).toBe('filled');
@@ -214,11 +222,39 @@ describe('W6 USD to USDT conversion', () => {
     expect(venue.placeCount()).toBe(0);
   });
 
-  it('reverses a fill below the quoted minimum and leaves the ledger where the capture put it', async () => {
+  it('pro-rates the minimum so a half fill at the same price is kept', async () => {
     const who = await merchant();
     const ledger = new MemoryLedger();
     await fund(ledger, who.merchantId);
-    const venue = memory(() => ({ status: 'partially_filled', filled: parseAmount('50'), averagePrice: RATE }));
+    const venue = memory(() => ({ status: 'partially_filled', filled: parseAmount('50'), averagePrice: RATE, feePaid: 0n }));
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, {
+      merchantId: who.merchantId,
+      settlementId: who.settlementId,
+      fromAsset: 'USD',
+      toAsset: 'USDT',
+      fromAmount: '100',
+    });
+    const order = await svc.execute(who.caller, { requestId: randomUUID(), quoteId: quote.quoteId });
+    expect(order.status).toBe('partially_filled');
+    expect(order.filledFromAmount).toBe('50');
+    expect(order.filledToAmount).toBe('50');
+    expect((await ledger.balance(merchantClearing(who.merchantId, 'USD'))).amount).toBe(parseAmount('50'));
+    expect((await ledger.balance(userAvailable(who.userId, 'USDT'))).amount).toBe(parseAmount('50'));
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('books a fill under the pro-rated minimum to house inventory and leaves the venue legs', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(() => ({
+      status: 'partially_filled',
+      filled: parseAmount('50'),
+      averagePrice: RATE,
+      feePaid: parseAmount('1'),
+      feeAsset: 'USDT',
+    }));
     const svc = service(venue, { ledger });
     const quote = await svc.quote(who.caller, {
       merchantId: who.merchantId,
@@ -234,6 +270,10 @@ describe('W6 USD to USDT conversion', () => {
     expect((await ledger.balance(merchantClearing(who.merchantId, 'USD'))).amount).toBe(HUNDRED);
     expect((await ledger.balance(userAvailable(who.userId, 'USDT'))).amount).toBe(0n);
     expect((await ledger.balance(houseFees('pay', 'USDT'))).amount).toBe(0n);
+    expect((await ledger.balance(venueBoundary('binance-spot', 'USD'))).amount).toBe(parseAmount('50'));
+    expect((await ledger.balance(venueBoundary('binance-spot', 'USDT'))).amount).toBe(parseAmount('-49'));
+    expect((await ledger.balance(conversionInventory('USD'))).amount).toBe(parseAmount('-50'));
+    expect((await ledger.balance(conversionInventory('USDT'))).amount).toBe(parseAmount('49'));
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
@@ -255,7 +295,7 @@ describe('W6 USD to USDT conversion', () => {
     expect(order.status).toBe('partially_filled');
     expect(order.filledFromAmount).toBe('50');
     expect(order.filledToAmount).toBe('100');
-    expect(venue.orders.get(`${who.settlementId}:1`)?.status).toBe('canceled');
+    expect(venue.orders.get(conversionClientOrderId(who.settlementId, 1))?.status).toBe('canceled');
     expect(venue.placeCount()).toBe(1);
     await svc.execute(who.caller, { requestId, quoteId: quote.quoteId });
     expect(venue.placeCount()).toBe(1);
@@ -299,6 +339,7 @@ describe('W6 USD to USDT conversion', () => {
       quote: (input) => inner.quote(input),
       placeOrder: (request) => inner.placeOrder(request),
       cancelOrder: (symbol, clientOrderId) => inner.cancelOrder(symbol, clientOrderId),
+      fetchClosedOrder: (symbol, clientOrderId) => inner.fetchClosedOrder(symbol, clientOrderId),
       fetchOrder: async (symbol, clientOrderId) => {
         if (!armed) {
           armed = true;
@@ -362,9 +403,13 @@ describe('W6 USD to USDT conversion', () => {
     expect(resting.status).toBe('placed');
     expect(venue.placeCount()).toBe(1);
 
+    const extra = await db.sql<Array<{ id: string }>>`
+      INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status)
+      VALUES (${who.merchantId}, ${randomUUID()}, 'USD', 1, 0, 1, 'posted') RETURNING id
+    `;
     const second = await svc.quote(who.caller, {
       merchantId: who.merchantId,
-      settlementId: who.settlementId,
+      settlementId: extra[0]!.id,
       fromAsset: 'USD',
       toAsset: 'USDT',
       fromAmount: '0.01',
@@ -413,6 +458,9 @@ describe('W6 USD to USDT conversion', () => {
       },
       fetchOrder: async () => {
         throw new ConversionError('pay.conversion_venue_unknown', 'SERVICE_UNAVAILABLE');
+      },
+      fetchClosedOrder: async () => {
+        throw new Error('must not read history');
       },
       cancelOrder: async () => {
         throw new Error('must not cancel');
@@ -490,6 +538,7 @@ describe('W6 USD to USDT conversion', () => {
         throw new Error('must not place');
       },
       fetchOrder: async () => null,
+      fetchClosedOrder: async () => null,
       cancelOrder: async () => {
         throw new Error('must not cancel');
       },
@@ -504,5 +553,226 @@ describe('W6 USD to USDT conversion', () => {
         fromAmount: '100',
       }),
     ).rejects.toMatchObject({ code: 'pay.conversion_credentials_unconfigured' });
+  });
+
+  it('two executes of one request place one order', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(() => full);
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, {
+      merchantId: who.merchantId,
+      settlementId: who.settlementId,
+      fromAsset: 'USD',
+      toAsset: 'USDT',
+      fromAmount: '100',
+    });
+    const requestId = randomUUID();
+    const [first, second] = await Promise.all([
+      svc.execute(who.caller, { requestId, quoteId: quote.quoteId }),
+      svc.execute(who.caller, { requestId, quoteId: quote.quoteId }),
+    ]);
+    expect(venue.placeCount()).toBe(1);
+    expect([first.status, second.status].filter((status) => status === 'filled').length).toBeGreaterThan(0);
+    expect(await db.sql`SELECT id FROM pay.conversion_orders WHERE settlement_id = ${who.settlementId}`).toHaveLength(1);
+  });
+
+  it('a timed-out place is not sent again while the venue still reports a miss', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    let now = new Date();
+    const venue = memory(() => full);
+    venue.armLag(2);
+    const svc = service(venue, { ledger, now: () => now, placingMaxAgeMs: null });
+    const quote = await svc.quote(who.caller, {
+      merchantId: who.merchantId,
+      settlementId: who.settlementId,
+      fromAsset: 'USD',
+      toAsset: 'USDT',
+      fromAmount: '100',
+    });
+    const requestId = randomUUID();
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toThrow(/venue timeout/);
+    expect(venue.placeCount()).toBe(1);
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toMatchObject({
+      code: 'pay.conversion_placing_retry_unconfigured',
+    });
+    expect(venue.placeCount()).toBe(1);
+    const row = await db.sql<Array<{ status: string }>>`SELECT status FROM pay.conversion_orders WHERE request_id = ${requestId}`;
+    expect(row[0]!.status).toBe('placing');
+  });
+
+  it('after the configured age a miss is reconciled from history and still not placed again', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    let now = new Date();
+    const venue = memory(() => full);
+    venue.armLag(2);
+    const svc = service(venue, { ledger, now: () => now, placingMaxAgeMs: 60_000 });
+    const quote = await svc.quote(who.caller, {
+      merchantId: who.merchantId,
+      settlementId: who.settlementId,
+      fromAsset: 'USD',
+      toAsset: 'USDT',
+      fromAmount: '100',
+    });
+    const requestId = randomUUID();
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toThrow(/venue timeout/);
+    const waiting = await svc.execute(who.caller, { requestId, quoteId: quote.quoteId });
+    expect(waiting.status).toBe('placing');
+    expect(venue.placeCount()).toBe(1);
+    now = new Date(now.getTime() + 120_000);
+    const booked = await svc.execute(who.caller, { requestId, quoteId: quote.quoteId });
+    expect(booked.status).toBe('filled');
+    expect(venue.placeCount()).toBe(1);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('books an expired order that still has a fill, which realtime does not list', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(() => ({ status: 'expired', filled: parseAmount('40'), averagePrice: RATE, feePaid: 0n }));
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, {
+      merchantId: who.merchantId,
+      settlementId: who.settlementId,
+      fromAsset: 'USD',
+      toAsset: 'USDT',
+      fromAmount: '100',
+    });
+    const order = await svc.execute(who.caller, { requestId: randomUUID(), quoteId: quote.quoteId });
+    expect(order.status).toBe('partially_filled');
+    expect(order.filledFromAmount).toBe('40');
+    expect(order.filledToAmount).toBe('40');
+    const clientId = conversionClientOrderId(who.settlementId, 1);
+    expect(await venue.fetchOrder('USD/USDT', clientId)).toBeNull();
+    expect((await venue.fetchClosedOrder('USD/USDT', clientId))?.filled).toBe(parseAmount('40'));
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('subtracts a known venue commission from the booked USDT', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(() => ({ status: 'filled', filled: HUNDRED, averagePrice: RATE, feePaid: parseAmount('0.5'), feeAsset: 'USDT' }));
+    const svc = service(venue, { ledger, slippageBps: 100 });
+    const quote = await svc.quote(who.caller, {
+      merchantId: who.merchantId,
+      settlementId: who.settlementId,
+      fromAsset: 'USD',
+      toAsset: 'USDT',
+      fromAmount: '100',
+    });
+    expect(quote.minimumOutput).toBe('99');
+    const order = await svc.execute(who.caller, { requestId: randomUUID(), quoteId: quote.quoteId });
+    expect(order.status).toBe('filled');
+    expect(order.filledToAmount).toBe('99.5');
+    expect((await ledger.balance(userAvailable(who.userId, 'USDT'))).amount).toBe(parseAmount('99.5'));
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('refuses to book when the venue does not report a commission', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(() => ({ status: 'filled', filled: HUNDRED, averagePrice: RATE, feePaid: null }));
+    const svc = service(venue, { ledger });
+    const quote = await svc.quote(who.caller, {
+      merchantId: who.merchantId,
+      settlementId: who.settlementId,
+      fromAsset: 'USD',
+      toAsset: 'USDT',
+      fromAmount: '100',
+    });
+    const requestId = randomUUID();
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toMatchObject({
+      code: 'pay.conversion_commission_unknown',
+    });
+    expect(venue.placeCount()).toBe(1);
+    const row = await db.sql<Array<{ status: string }>>`SELECT status FROM pay.conversion_orders WHERE request_id = ${requestId}`;
+    expect(row[0]!.status).toBe('placing');
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toMatchObject({
+      code: 'pay.conversion_commission_unknown',
+    });
+    expect(venue.placeCount()).toBe(1);
+  });
+
+  it('refuses a quote when slippage is not configured and when the amount exceeds settlement net', async () => {
+    const who = await merchant();
+    const venue = memory(() => full);
+    const unset = service(venue, { slippageBps: null });
+    const body = {
+      merchantId: who.merchantId,
+      settlementId: who.settlementId,
+      fromAsset: 'USD' as const,
+      toAsset: 'USDT' as const,
+      fromAmount: '100',
+    };
+    await expect(unset.quote(who.caller, body)).rejects.toMatchObject({ code: 'pay.conversion_slippage_unconfigured' });
+    const svc = service(venue);
+    await expect(svc.quote(who.caller, { ...body, fromAmount: '100.01' })).rejects.toMatchObject({
+      code: 'pay.conversion_exceeds_settlement',
+    });
+    expect(venue.placeCount()).toBe(0);
+  });
+
+  it('refuses a second live conversion on the same settlement', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId, parseAmount('200'));
+    const venue = memory(() => ({ status: 'open', filled: 0n, averagePrice: null, feePaid: 0n }));
+    const svc = service(venue, { ledger });
+    const body = {
+      merchantId: who.merchantId,
+      settlementId: who.settlementId,
+      fromAsset: 'USD' as const,
+      toAsset: 'USDT' as const,
+      fromAmount: '100',
+    };
+    const first = await svc.quote(who.caller, body);
+    expect((await svc.execute(who.caller, { requestId: randomUUID(), quoteId: first.quoteId })).status).toBe('placed');
+    const second = await svc.quote(who.caller, body);
+    await expect(svc.execute(who.caller, { requestId: randomUUID(), quoteId: second.quoteId })).rejects.toMatchObject({
+      code: 'pay.conversion_settlement_live',
+    });
+    expect(venue.placeCount()).toBe(1);
+  });
+
+  it('quote requires a write scope; execute requires the payout approver role', async () => {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(() => full);
+    const svc = service(venue, { ledger });
+    const body = {
+      merchantId: who.merchantId,
+      settlementId: who.settlementId,
+      fromAsset: 'USD' as const,
+      toAsset: 'USDT' as const,
+      fromAmount: '100',
+    };
+    const reader = { ...who.caller, scopes: ['pay:read'] } as Principal;
+    await expect(svc.quote(reader, body)).rejects.toMatchObject({ code: 'pay.conversion_forbidden' });
+    const quote = await svc.quote(who.caller, body);
+    const viewerId = randomUUID();
+    const financeId = randomUUID();
+    await db.sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by)
+      VALUES
+        (${who.merchantId}, ${viewerId}, 'viewer', 'active', ${who.userId}),
+        (${who.merchantId}, ${financeId}, 'finance', 'active', ${who.userId})
+    `;
+    await expect(svc.execute(asUser(viewerId), { requestId: randomUUID(), quoteId: quote.quoteId })).rejects.toMatchObject({
+      code: 'pay.team_role_forbidden',
+    });
+    expect(venue.placeCount()).toBe(0);
+    const booked = await svc.execute(asUser(financeId), { requestId: randomUUID(), quoteId: quote.quoteId });
+    expect(booked.status).toBe('filled');
+    expect((await ledger.balance(userAvailable(who.userId, 'USDT'))).amount).toBe(HUNDRED);
+    expect((await ledger.balance(userAvailable(financeId, 'USDT'))).amount).toBe(0n);
   });
 });

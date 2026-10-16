@@ -7,13 +7,13 @@ import {
 import {
   VenueCredentialsMissingError,
   VenueUnavailableError,
-  midFromSnapshot,
+  topOfBook,
   type PlaceOrderRequest,
   type TradeAdapter,
   type VenueCredentials,
   type VenueOrder,
 } from '@intafaced/venue-contracts';
-import { mul, type Amount } from '@intafaced/ledger-client';
+import { mul, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { ConversionError } from './errors.js';
 
 /**
@@ -40,8 +40,13 @@ export interface ConversionVenue {
   readonly venueId: string;
   quote(input: { symbol: string; fromAmount: Amount; now: Date }): Promise<ConversionVenueQuote>;
   placeOrder(request: PlaceOrderRequest): Promise<VenueOrder>;
-  /** `null` only when the venue has confirmed there is no such client order. */
+  /**
+   * Realtime / open lookup. `null` only when the venue has confirmed the id is
+   * not on the open list. A closed spot order is not here — see `fetchClosedOrder`.
+   */
   fetchOrder(symbol: string, clientOrderId: string): Promise<VenueOrder | null>;
+  /** Closed spot orders. `null` is a confirmed miss, not a transport failure. */
+  fetchClosedOrder(symbol: string, clientOrderId: string): Promise<VenueOrder | null>;
   cancelOrder(symbol: string, clientOrderId: string): Promise<VenueOrder>;
 }
 
@@ -54,6 +59,13 @@ export interface ConversionBootConfig {
   readonly credentials: VenueCredentials | null;
   /** Null = not configured. Quote then refuses. Never a default. */
   readonly quoteTtlMs: number | null;
+  /** Null = not configured. A quote refuses. Never a default tolerance. */
+  readonly slippageBps: number | null;
+  /**
+   * How long a `placing` row must sit before a miss is reconciliation rather
+   * than a wait. Null = not configured, and a miss refuses instead of placing again.
+   */
+  readonly placingMaxAgeMs: number | null;
 }
 
 function credentialsUnconfigured(): ConversionError {
@@ -68,6 +80,7 @@ export function unconfiguredConversionVenue(venueId = 'unconfigured'): Conversio
     quote: refuse,
     placeOrder: refuse,
     fetchOrder: refuse,
+    fetchClosedOrder: refuse,
     cancelOrder: refuse,
   };
 }
@@ -129,12 +142,40 @@ export function readConversionConfig(env: Env): ConversionBootConfig {
     }
     quoteTtlMs = Number(ttlRaw);
   }
-  return { mode: modeRaw, venueId, restBase, credentials, quoteTtlMs };
+  const slippageBps = readNonNegativeInt(env.PAY_CONVERSION_SLIPPAGE_BPS, 'pay.conversion_slippage_invalid: PAY_CONVERSION_SLIPPAGE_BPS');
+  const placingMaxAgeMs = readNonNegativeInt(
+    env.PAY_CONVERSION_PLACING_MAX_AGE_MS,
+    'pay.conversion_placing_max_age_invalid: PAY_CONVERSION_PLACING_MAX_AGE_MS',
+  );
+  return { mode: modeRaw, venueId, restBase, credentials, quoteTtlMs, slippageBps, placingMaxAgeMs };
 }
 
-/** Binance says this, and only this, when the client id was never accepted. Any other failure is not a miss. */
+/** Unset is null. Zero is a configured value. Anything else refuses to boot. */
+function readNonNegativeInt(raw: string | undefined, name: string): number | null {
+  const trimmed = raw?.trim() ?? '';
+  if (trimmed.length === 0) return null;
+  if (!/^(0|[1-9][0-9]*)$/.test(trimmed)) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return Number(trimmed);
+}
+
+/**
+ * A confirmed miss, and nothing else.
+ * Binance says "order does not exist". Bybit's realtime list comes back empty
+ * for an id that is not open — that is not proof the order was never accepted.
+ * A timeout is neither of these.
+ */
+export function isBybitRealtimeMiss(error: unknown): boolean {
+  return error instanceof VenueUnavailableError && error.reason === 'unreachable' && /realtime list is empty/i.test(error.message);
+}
+
 export function isDefiniteOrderMiss(error: unknown): boolean {
-  return error instanceof VenueUnavailableError && error.reason === 'unreachable' && /order does not exist/i.test(error.message);
+  return (
+    error instanceof VenueUnavailableError &&
+    error.reason === 'unreachable' &&
+    (/order does not exist/i.test(error.message) || isBybitRealtimeMiss(error))
+  );
 }
 
 export function conversionVenueFromTrade(trade: TradeAdapter, quote: ConversionVenue['quote']): ConversionVenue {
@@ -147,6 +188,16 @@ export function conversionVenueFromTrade(trade: TradeAdapter, quote: ConversionV
         return await trade.fetchOrder(symbol, clientOrderId);
       } catch (error) {
         if (isDefiniteOrderMiss(error)) return null;
+        if (error instanceof VenueCredentialsMissingError) throw credentialsUnconfigured();
+        throw new ConversionError('pay.conversion_venue_unknown', 'SERVICE_UNAVAILABLE');
+      }
+    },
+    async fetchClosedOrder(symbol, clientOrderId) {
+      const fetchClosed = trade.fetchClosedOrder?.bind(trade);
+      if (!fetchClosed) return null;
+      try {
+        return await fetchClosed(symbol, clientOrderId);
+      } catch (error) {
         if (error instanceof VenueCredentialsMissingError) throw credentialsUnconfigured();
         throw new ConversionError('pay.conversion_venue_unknown', 'SERVICE_UNAVAILABLE');
       }
@@ -177,12 +228,14 @@ export function openConversionVenue(
     }
     if (!market) throw new ConversionError('pay.conversion_quote_unconfigured', 'PRECONDITION_FAILED');
     const snapshot = await market.snapshotBook(input.symbol);
-    const mid = midFromSnapshot(snapshot);
-    if (mid === null || mid <= 0n) throw new ConversionError('pay.conversion_quote_unconfigured', 'PRECONDITION_FAILED');
-    const targetAmount = mul(input.fromAmount, mid);
+    // A conversion sells the from-asset, so the quote is the bid. Mid would
+    // promise a price the book will not pay.
+    const bid = topOfBook(snapshot.bids, snapshot.asks).bestBid;
+    if (bid === null || bid <= 0n) throw new ConversionError('pay.conversion_quote_unconfigured', 'PRECONDITION_FAILED');
+    const targetAmount = mul(input.fromAmount, bid);
     if (targetAmount <= 0n) throw new ConversionError('pay.conversion_quote_unconfigured', 'PRECONDITION_FAILED');
     return {
-      rateScaled: mid,
+      rateScaled: bid,
       targetAmount,
       quotedAt: input.now,
       expiresAt: new Date(input.now.getTime() + config.quoteTtlMs),
@@ -192,37 +245,115 @@ export function openConversionVenue(
 
 export interface MemoryConversionVenue extends ConversionVenue {
   readonly placeCount: () => number;
+  /** Latest order for a client id, open or closed. Assertions read this. Lookups do not. */
   readonly orders: Map<string, VenueOrder>;
+  readonly lastPlace: () => PlaceOrderRequest | null;
+  /**
+   * The next place accepts the order, then throws a timeout. The following
+   * `misses` realtime and history lookups report that the order does not exist.
+   */
+  armLag(misses: number): void;
 }
 
 export interface MemoryFill {
   readonly status: VenueOrder['status'];
   readonly filled: Amount;
-  /** Quote per base. Required once `filled` is positive. */
+  /** Quote per base. Required once `filled` is positive, unless the book touch supplies it. */
   readonly averagePrice: Amount | null;
+  /** `null` means the venue did not say. Omit to charge the venue commission. */
+  readonly feePaid?: Amount | null;
+  readonly feeAsset?: string | null;
 }
 
+const CLOSED = new Set<VenueOrder['status']>(['filled', 'canceled', 'rejected', 'expired']);
+
 /**
- * In-memory venue for tests. `fetchOrder` returns null until `placeOrder`.
- * A second place increments the counter and does not create a second order.
+ * In-memory venue whose awkward cases match Binance and Bybit.
+ *
+ * A filled client id can be reused and creates a second order. A timed-out
+ * place is followed by "order does not exist" until the lag passes. A sell
+ * fills at the bid and a buy at the ask, never at the mid. An IOC that cannot
+ * trade expires, including with `executedQty > 0` when the scripted fill says
+ * so. Client ids longer than 36 characters are rejected. Commission is charged
+ * unless the caller sets a known fee. Closed orders are absent from the
+ * realtime lookup and present only in history.
  */
 export function createMemoryConversionVenue(opts: {
   venueId?: string;
-  rateScaled: Amount;
+  /** Sell-side touch. Quote and marketable sells use this, not the mid. */
+  bid: Amount;
+  /** Buy-side touch. */
+  ask: Amount;
   expiresAt: (now: Date) => Date;
-  fill: (request: PlaceOrderRequest) => MemoryFill;
+  /** Scripted outcome. Absent uses the book: marketable IOC fills at the touch. */
+  fill?: (request: PlaceOrderRequest) => MemoryFill;
+  /** Charged on a fill when the script does not set `feePaid`. Known zero is `0n`, not null. */
+  commission?: Amount;
   now?: () => Date;
 }): MemoryConversionVenue {
   const venueId = opts.venueId ?? 'binance-spot';
+  const commission = opts.commission ?? parseAmount('0.0001');
   const orders = new Map<string, VenueOrder>();
+  const open = new Map<string, VenueOrder>();
+  const history = new Map<string, VenueOrder>();
   let places = 0;
+  let seq = 0;
+  let lagRemaining = 0;
+  let lagAfterTimeout = 0;
+  let timeoutNext = false;
+  let last: PlaceOrderRequest | null = null;
   const clock = opts.now ?? (() => new Date());
+
+  function hidden(): boolean {
+    if (lagRemaining <= 0) return false;
+    lagRemaining -= 1;
+    return true;
+  }
+
+  function remember(order: VenueOrder): void {
+    orders.set(order.clientOrderId, order);
+    if (CLOSED.has(order.status)) {
+      open.delete(order.clientOrderId);
+      history.set(order.clientOrderId, order);
+    } else {
+      history.delete(order.clientOrderId);
+      open.set(order.clientOrderId, order);
+    }
+  }
+
+  function match(request: PlaceOrderRequest): MemoryFill {
+    if (opts.fill) return opts.fill(request);
+    const sell = request.side === 'sell';
+    const touch = sell ? opts.bid : opts.ask;
+    const price = request.price ?? null;
+    const marketable = request.type === 'market' || (price !== null && (sell ? price <= touch : price >= touch));
+    if (!marketable) return { status: 'expired', filled: 0n, averagePrice: null, feePaid: 0n };
+    return { status: 'filled', filled: request.amount, averagePrice: touch };
+  }
 
   function toOrder(request: PlaceOrderRequest, fill: MemoryFill): VenueOrder {
     const remaining = request.amount - fill.filled;
+    const touch = request.side === 'sell' ? opts.bid : opts.ask;
+    const averagePrice = fill.filled > 0n ? (fill.averagePrice ?? touch) : fill.averagePrice;
+    let feePaid: Amount | null;
+    let feeAsset: string | null;
+    if (fill.feePaid === null) {
+      feePaid = null;
+      feeAsset = null;
+    } else if (fill.feePaid !== undefined) {
+      feePaid = fill.feePaid;
+      feeAsset = fill.feeAsset ?? (fill.feePaid > 0n ? 'USDT' : null);
+    } else if (fill.filled > 0n) {
+      feePaid = commission;
+      feeAsset = commission > 0n ? 'USDT' : null;
+    } else {
+      feePaid = 0n;
+      feeAsset = null;
+    }
+    seq += 1;
     return {
       venueId,
-      venueOrderId: `mem-${request.clientOrderId}`,
+      venueOrderId: `mem-${seq}`,
       clientOrderId: request.clientOrderId,
       symbol: request.symbol,
       side: request.side,
@@ -231,10 +362,10 @@ export function createMemoryConversionVenue(opts: {
       amount: request.amount,
       filled: fill.filled,
       remaining: remaining < 0n ? 0n : remaining,
-      averagePrice: fill.averagePrice,
+      averagePrice,
       status: fill.status,
-      feePaid: null,
-      feeAsset: null,
+      feePaid,
+      feeAsset,
       createdAt: clock(),
       observedAt: clock(),
     };
@@ -244,10 +375,15 @@ export function createMemoryConversionVenue(opts: {
     venueId,
     orders,
     placeCount: () => places,
+    lastPlace: () => last,
+    armLag(misses: number) {
+      lagAfterTimeout = misses;
+      timeoutNext = true;
+    },
     async quote(input) {
-      const targetAmount = mul(input.fromAmount, opts.rateScaled);
+      const targetAmount = mul(input.fromAmount, opts.bid);
       return {
-        rateScaled: opts.rateScaled,
+        rateScaled: opts.bid,
         targetAmount,
         quotedAt: input.now,
         expiresAt: opts.expiresAt(input.now),
@@ -255,20 +391,34 @@ export function createMemoryConversionVenue(opts: {
     },
     async placeOrder(request) {
       places += 1;
-      const existing = orders.get(request.clientOrderId);
-      if (existing) return existing;
-      const order = toOrder(request, opts.fill(request));
-      orders.set(request.clientOrderId, order);
+      last = request;
+      if (request.clientOrderId.length > 36) {
+        throw new VenueUnavailableError(venueId, 'malformed', 'clientOrderId exceeds 36 characters');
+      }
+      const live = open.get(request.clientOrderId);
+      if (live) return live;
+      const order = toOrder(request, match(request));
+      remember(order);
+      if (timeoutNext) {
+        timeoutNext = false;
+        lagRemaining = lagAfterTimeout;
+        throw new Error('venue timeout');
+      }
       return order;
     },
     async fetchOrder(_symbol, clientOrderId) {
-      return orders.get(clientOrderId) ?? null;
+      if (hidden()) return null;
+      return open.get(clientOrderId) ?? null;
+    },
+    async fetchClosedOrder(_symbol, clientOrderId) {
+      if (hidden()) return null;
+      return history.get(clientOrderId) ?? null;
     },
     async cancelOrder(_symbol, clientOrderId) {
       const order = orders.get(clientOrderId);
       if (!order) throw new ConversionError('pay.conversion_venue_unknown', 'SERVICE_UNAVAILABLE');
       const canceled: VenueOrder = { ...order, status: 'canceled', remaining: 0n, observedAt: clock() };
-      orders.set(clientOrderId, canceled);
+      remember(canceled);
       return canceled;
     },
   };

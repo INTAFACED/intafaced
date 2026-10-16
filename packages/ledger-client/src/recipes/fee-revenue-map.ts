@@ -120,7 +120,7 @@ export const FEE_REVENUE_PATHS = {
     kind: 'recipe',
     recipe: 'fxConversionReverse',
     feeModule: 'pay',
-    note: 'Reverses a conversion fill under the quoted minimum. House fee and spread return to the venue boundary.',
+    note: 'Reverses a below-minimum conversion fill onto house inventory. Venue-boundary legs stay on the original booking.',
   },
   'token.fee_charge': {
     kind: 'recipe',

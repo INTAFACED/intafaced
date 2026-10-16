@@ -318,6 +318,8 @@ export async function createWorld(): Promise<World> {
     guards: buildPayGuards({ sql }),
     venue: unconfiguredConversionVenue(),
     registries: createRegistryReader(sql),
+    slippageBps: null,
+    placingMaxAgeMs: null,
   });
   const appRouter = composeRouter({
     pay,

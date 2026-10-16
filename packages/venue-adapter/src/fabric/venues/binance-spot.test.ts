@@ -450,6 +450,53 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
     expect(http.requests[1]).toMatch(/^POST https:\/\/rest\.test\/api\/v3\/order\?/);
     expect(http.requests[1]).toContain('signature=');
     expect(http.requests[1]).toContain('newClientOrderId=abc');
+    expect(http.requests[1]).toContain('timeInForce=GTC');
+  });
+
+  it('sends IOC when asked and refuses a client id over 36 characters before any HTTP call', async () => {
+    const http = new FakeHttp().queue(depthSnapshot(1)).queue({
+      symbol: 'BTCUSDT',
+      orderId: 43,
+      clientOrderId: 'ioc',
+      transactTime: 1_500_000_000_000,
+      price: '100.00',
+      origQty: '1',
+      executedQty: '0',
+      cummulativeQuoteQty: '0',
+      status: 'EXPIRED',
+      type: 'LIMIT',
+      side: 'SELL',
+    });
+    const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
+    const trade = new BinanceSpotTrade(keys, {
+      http,
+      restBase: 'https://rest.test',
+      clock: () => 1_700_000_000_000,
+      snapshotLimit: 5,
+    });
+    await trade.placeOrder({
+      symbol: 'BTC/USDT',
+      side: 'sell',
+      type: 'limit',
+      timeInForce: 'IOC',
+      amount: 1n * 10n ** 18n,
+      price: 100n * 10n ** 18n,
+      clientOrderId: 'ioc',
+    });
+    expect(http.requests[1]).toContain('timeInForce=IOC');
+    const blocked = new FakeHttp();
+    const refused = new BinanceSpotTrade(keys, { http: blocked, restBase: 'https://rest.test', clock: () => 1, snapshotLimit: 5 });
+    await expect(
+      refused.placeOrder({
+        symbol: 'BTC/USDT',
+        side: 'sell',
+        type: 'limit',
+        amount: 1n,
+        price: 1n,
+        clientOrderId: 'x'.repeat(37),
+      }),
+    ).rejects.toThrow(/clientOrderId/);
+    expect(blocked.requests).toHaveLength(0);
   });
 
   it('keeps average fill price in the shared 18-decimal scale', () => {
@@ -471,6 +518,28 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
     );
 
     expect(formatAmount(mapped.averagePrice!)).toBe('100');
+  });
+
+  it('maps EXPIRED_IN_MATCH with a partial fill instead of dropping the quantity', () => {
+    const mapped = mapBinanceSpotOrder(
+      {
+        orderId: 42,
+        clientOrderId: 'abc',
+        transactTime: 1_500_000_000_000,
+        price: '1',
+        origQty: '1',
+        executedQty: '0.4',
+        cummulativeQuoteQty: '0.4',
+        status: 'EXPIRED_IN_MATCH',
+        type: 'LIMIT',
+        side: 'SELL',
+      },
+      'USD/USDT',
+      new Date(1_700_000_000_000),
+    );
+    expect(mapped.status).toBe('expired');
+    expect(formatAmount(mapped.filled)).toBe('0.4');
+    expect(mapped.feePaid).toBeNull();
   });
 
   it('refuses unknown venue side and type instead of silently mapping them to buy/limit', () => {

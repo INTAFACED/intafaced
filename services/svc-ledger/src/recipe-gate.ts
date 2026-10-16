@@ -448,6 +448,18 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         spreadAmount: 0n,
       }),
     },
+    {
+      name: 'fxConversionHold',
+      post: recipes.fxConversionHold({ conversionId: 'cv-hold', merchantId: 'm1', fromAsset: 'USD', amount: AMT }),
+    },
+    {
+      name: 'fxConversionRelease',
+      post: recipes.fxConversionRelease({ conversionId: 'cv-hold', merchantId: 'm1', fromAsset: 'USD', amount: AMT }),
+    },
+    {
+      name: 'fxConversionRelease',
+      post: recipes.fxConversionRelease({ conversionId: 'cv-rem', merchantId: 'm1', fromAsset: 'USD', amount: AMT, sequence: 1 }),
+    },
     { name: 'chargebackOpen', post: recipes.chargebackOpen(chargeback) },
     {
       name: 'chargebackOpen',
