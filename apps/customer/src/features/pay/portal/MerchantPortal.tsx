@@ -26,6 +26,7 @@ import './portal.css';
 import { Refunds } from './Refunds';
 import { Links } from './Links';
 import { MerchantMoney, BalanceActivity } from './Money';
+import { Subscriptions, subscriptionHeader } from './Subscriptions';
 import { Compliance } from './Compliance';
 import { Settings, SettingsNav } from './Settings';
 import { Developers, developerHeader } from './Developers';
@@ -128,6 +129,10 @@ type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
   const c = w3cCopy.t;
   switch (route.room) {
+    case 'subscriptions':
+    case 'subscription':
+    case 'subscription-new':
+      return subscriptionHeader(route);
     case 'compliance':
       return {
         title: extensionCopy.t('complianceTitle'),
@@ -397,6 +402,18 @@ function PortalRoom({
   const { t } = portalCopy.useCopy();
   const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
+    case 'subscriptions':
+    case 'subscription':
+    case 'subscription-new':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Subscriptions portal={portal} merchantId={merchantId} route={route} authority={authority} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
     case 'compliance':
       return <WithAccount {...acct}>{() => <Compliance portal={portal} />}</WithAccount>;
     case 'settings':

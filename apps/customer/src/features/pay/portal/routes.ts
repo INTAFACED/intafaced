@@ -1,6 +1,9 @@
 import type { PlainKey } from './copy';
 
 export type PortalRoom =
+  | 'subscriptions'
+  | 'subscription'
+  | 'subscription-new'
   | 'compliance'
   | 'settings'
   | 'settings-team'
@@ -59,6 +62,12 @@ export function parsePortalRoute(path: string): PortalRoute | null {
       return v;
     }
   };
+  if (a === 'subscriptions')
+    return b === undefined
+      ? { room: 'subscriptions' }
+      : b === 'new'
+        ? { room: 'subscription-new' }
+        : { room: 'subscription', param: decode(b) };
   if (a === 'compliance' && b === undefined) return { room: 'compliance' };
   if (a === 'settings') {
     if (b === undefined || b === 'profile') return { room: 'settings' };

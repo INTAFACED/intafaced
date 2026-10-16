@@ -1,6 +1,8 @@
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 import * as p from './schemas';
+import { cycleSchema } from './billing-schemas';
+import { subscriptionSchema, mandateSchema, executionSchema, subscriptionPostureSchema } from '../schemas';
 import { linkSchema } from '../schemas';
 import { portalRefusal, refusalText } from './refusal';
 
@@ -29,6 +31,40 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
     query(procedure, { limit: PAGE_SIZE, ...input }, p.page(item), signal);
   return {
     userId,
+    subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
+      query('subscription.list', { merchantId, limit }, z.array(subscriptionSchema.refine((row) => row.merchantId === merchantId)), signal),
+    subscription: (merchantId: string, subscriptionId: string, signal?: AbortSignal) =>
+      query(
+        'subscription.get',
+        { subscriptionId },
+        subscriptionSchema.refine((row) => row.merchantId === merchantId && row.id === subscriptionId),
+        signal,
+      ),
+    mandates: (merchantId: string, signal?: AbortSignal) =>
+      query('mandate.list', { merchantId, limit: 200 }, z.array(mandateSchema.refine((row) => row.merchantId === merchantId)), signal),
+    mandate: (merchantId: string, mandateId: string, signal?: AbortSignal) =>
+      query(
+        'mandate.get',
+        { mandateId },
+        mandateSchema.refine((row) => row.merchantId === merchantId && row.id === mandateId),
+        signal,
+      ),
+    subscriptionPosture: (signal?: AbortSignal) => query('subscription.productReady', undefined, subscriptionPostureSchema, signal),
+    subscriptionExecutions: (subscriptionId: string, signal?: AbortSignal) =>
+      query(
+        'subscription.listExecutions',
+        { subscriptionId, limit: 200 },
+        z.array(executionSchema.refine((row) => row.subscriptionId === subscriptionId)),
+        signal,
+      ),
+    subscriptionCycles: (subscriptionId: string, signal?: AbortSignal) =>
+      query(
+        'subscription.cycles',
+        { subscriptionId, limit: 200 },
+        z.object({ subscriptionId: z.literal(subscriptionId), cycles: z.array(cycleSchema) }),
+        signal,
+      ),
+
     links: (merchantId: string, limit: number, signal?: AbortSignal) =>
       query('merchant.listLinks', { merchantId, limit }, z.array(linkSchema), signal),
     merchant: (signal?: AbortSignal) => query('merchant.me', undefined, p.merchantRecordSchema, signal),
