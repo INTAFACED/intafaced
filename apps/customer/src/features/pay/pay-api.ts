@@ -720,8 +720,7 @@ export function createBusinessPayApi(
     );
     // Pause, resume, and cancel store the expected status in the journal.
     // subscription.create ignores that argument: its reference is the attempt id below.
-    if (procedure !== 'subscription.create')
-      return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
+    if (procedure !== 'subscription.create') return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
     const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
     const sendAttempt = (attemptId: string) =>
       api.mutate('pay', procedure, { ...fields, idempotencyKey: `${lockId}:${attemptId}` }, outcome);
