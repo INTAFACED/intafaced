@@ -224,6 +224,12 @@ describe('W15 merchant operations (Postgres)', () => {
         ],
         ['disputes.respond', (v) => ({ requestId: id(), disputeId: v, action: 'accept_liability' }), 'dp-b1', 'dp-nonexistent'],
         ['customers.get', (v) => ({ customerRef: v, recentPaymentsLimit: 5 }), 'cust-b1', 'cust-nonexistent'],
+        [
+          'customers.series',
+          (v) => ({ customerRef: v, from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day', limit: 5 }),
+          'cust-b1',
+          'cust-nonexistent',
+        ],
         ['exports.get', (v) => ({ jobId: v }), bExport.jobId, id()],
         ['exports.download', (v) => ({ jobId: v }), bExport.jobId, id()],
         ['notifications.markRead', (v) => ({ notificationIds: [v] }), bNote, id()],
@@ -249,6 +255,7 @@ describe('W15 merchant operations (Postgres)', () => {
       const paths: Array<[string, unknown]> = [
         ['disputes.list', { limit: 5 }],
         ['customers.list', { limit: 5 }],
+        ['customers.series', { customerRef: 'cust-a1', from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day', limit: 5 }],
         ['team.list', { limit: 5 }],
         ['kyb.current', {}],
         ['exports.list', { limit: 5 }],

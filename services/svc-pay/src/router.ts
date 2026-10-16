@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Sql } from 'postgres';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import {
   payMerchantFailureSchema,
@@ -13,6 +14,7 @@ import {
   publicProcedure,
   TRPCError,
 } from '@intafaced/contracts';
+import { merchantPortalExtensions } from './merchant-portal/router.js';
 import { credentialAuthority } from './payment-authority.js';
 import { formatAmount, LedgerError, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -199,6 +201,8 @@ export function createPayRouter(
   destinations: MerchantPayoutDestinations = assertOnlyPayoutDestinations(),
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   teamReads: MerchantTeamRead | null = null,
+  /** Portal profile, onboarding, and analytics. Absent in unit stubs that do not pass a database. */
+  portalSql: Sql | null = null,
 ) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -279,6 +283,8 @@ export function createPayRouter(
     const detail = toSettlementDetail(row);
     return { ...detail, pricingSnapshot: projectPricingSnapshot(detail.pricingSnapshot, audience) };
   };
+
+  const portal = portalSql && teamReads ? merchantPortalExtensions({ sql: portalSql, pay, trees, team: teamReads }) : null;
 
   return router({
     health: publicProcedure
@@ -416,6 +422,7 @@ export function createPayRouter(
       ),
 
     merchant: router({
+      ...(portal?.merchant ?? {}),
       /**
        * Ownership: userId is always the authenticated principal. Body userId
        * was dropped so a caller with pay:write cannot create a merchant under
@@ -706,6 +713,8 @@ export function createPayRouter(
           }),
         ),
     }),
+
+    ...(portal ? { merchantAnalytics: portal.merchantAnalytics } : {}),
 
     payment: router({
       create: scopedProcedure('pay:write', { module: 'pay' })

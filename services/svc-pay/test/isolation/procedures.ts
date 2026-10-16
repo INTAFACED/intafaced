@@ -336,6 +336,42 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, linkId: i.linkId }),
   },
   { path: 'merchant.balances', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, assetId: 'USDT' }) },
+  { path: 'merchant.businessProfile.get', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchant.businessProfile.history', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 20 }) },
+  {
+    path: 'merchant.businessProfile.submit',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ merchantId: i.merchantId, reason: 'isolation drill', displayName: 'Isolation Name', expectedVersion: '0' }),
+  },
+  {
+    path: 'merchant.businessProfile.confirm',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.profile_change_not_found',
+    sessionOnly: true,
+    input: (i) => ({
+      merchantId: i.merchantId,
+      requestId: ghost(),
+      decision: 'confirm',
+      expectedChangeHash: hash,
+      reason: 'isolation drill',
+    }),
+  },
+  { path: 'merchant.onboarding.progress', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  {
+    path: 'merchantAnalytics.volume',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
+  },
+  {
+    path: 'merchantAnalytics.fees',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
+  },
   // W5: the merchant-readable halt status for a named merchant (merchant-safe shape; an unnamed read is the global switch only).
   { path: 'payHalts.status', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   // payment.*
@@ -482,6 +518,12 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     scope: 'pay:read',
     own: 'ok',
     input: (i) => ({ customerRef: i.customerRef, recentPaymentsLimit: 5 }),
+  },
+  {
+    path: 'merchantOps.customers.series',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ customerRef: i.customerRef, ...series, limit: 20 }),
   },
   { path: 'merchantOps.exports.get', scope: 'pay:read', own: 'ok', input: (i) => ({ jobId: i.exportJobId }) },
   { path: 'merchantOps.exports.download', scope: 'pay:read', own: 'ok', input: (i) => ({ jobId: i.exportJobId }) },
@@ -760,6 +802,24 @@ export const TREE_PROCS: TreeProc[] = [
   // The merchant metrics need BOTH `payment` and `settlement` over the subject; neither is a default grant, so one name stands for the pair.
   { path: 'merchantMetrics.snapshot', area: 'payment', input: (i) => ({ merchantId: i.merchantId, window }) },
   { path: 'merchantMetrics.series', area: 'payment', input: (i) => ({ merchantId: i.merchantId, ...series }) },
+  {
+    path: 'submerchant.summary',
+    area: 'merchant.profile',
+    input: (i) => ({ merchantId: i.merchantId, recentPaymentsLimit: 5, grantsLimit: 20 }),
+  },
+  {
+    path: 'merchantAnalytics.volume',
+    area: 'payment',
+    input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
+  },
+  {
+    path: 'merchantAnalytics.fees',
+    area: 'settlement',
+    input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
+  },
+  { path: 'merchant.businessProfile.get', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchant.businessProfile.history', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId, limit: 20 }) },
+  { path: 'merchant.onboarding.progress', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId }) },
 ];
 
 /** Default grants every sub-merchant gets from its parent (submerchants.ts DEFAULT_GRANTED_AREAS). */

@@ -387,7 +387,7 @@ describe('G: founder-only procedures', () => {
         'createPayRouter(pay, rails, userMoney, subMerchants',
         'createMerchantStateRouter(',
         'createKybPspRouter(',
-        'createSubMerchantRouter(subMerchants, pay)',
+        'createSubMerchantRouter(subMerchants, pay, sql)',
         'new MerchantAccountControls(sql, founderAuthority',
         'createMetricsRuntime({ sql, pay, trees: subMerchants, rails })',
         'registerPublicPayRest(app',

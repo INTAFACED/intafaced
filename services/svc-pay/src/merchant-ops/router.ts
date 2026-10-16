@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema, router, scopedProcedure } from '@intafaced/contracts';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import { founderProcedure } from '../namespaces/founder-procedure.js';
@@ -140,6 +140,10 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         get: read
           .input(z.object({ customerRef: z.string().trim().min(1).max(200), recentPaymentsLimit: limitInput }))
           .query(({ ctx, input }) => wrapOps(async () => need().customers.get(await callerOf(ctx), input))),
+        series: read
+          .input(merchantCustomerSeriesInputSchema)
+          .output(merchantCustomerSeriesSchema)
+          .query(({ ctx, input }) => wrapOps(async () => need().customers.series(await callerOf(ctx), input))),
       }),
 
       team: router({

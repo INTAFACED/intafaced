@@ -394,7 +394,7 @@ const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql)),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), sql),
   createMerchantStateRouter(
     merchantState,
     new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {
@@ -407,7 +407,7 @@ export const appRouter = mergeRouters(
   // own merchant node from the authenticated principal, because a merchant node
   // taken from a request body would let any merchant claim to be acting as any
   // other and the subtree fence would be measuring the wrong actor.
-  createSubMerchantRouter(subMerchants, pay),
+  createSubMerchantRouter(subMerchants, pay, sql),
   createSubscriptionRouter(subscriptions, pay, subMerchants),
   // merchantControl, merchantMetrics, founderAdmin, conversion, payHalts.
   // A namespace with no service still refuses `pay.not_built`.
