@@ -1,6 +1,24 @@
 import type { PlainKey } from './copy';
 
 export type PortalRoom =
+  | 'conversion'
+  | 'conversion-new'
+  | 'conversion-order'
+  | 'subscriptions'
+  | 'subscription'
+  | 'subscription-new'
+  | 'compliance'
+  | 'settings'
+  | 'settings-team'
+  | 'settings-notifications'
+  | 'developer'
+  | 'developer-keys'
+  | 'developer-signing'
+  | 'developer-webhooks'
+  | 'developer-endpoint'
+  | 'developer-deliveries'
+  | 'invoices'
+  | 'invoice'
   | 'money'
   | 'money-activity'
   | 'reports'
@@ -39,7 +57,7 @@ export function parsePortalRoute(path: string): PortalRoute | null {
   const segments = clean.split('/').filter(Boolean);
   if (segments[0] !== 'pay') return null;
   const [, a, b, extra] = segments;
-  if (extra !== undefined) return null;
+  if (extra !== undefined && !(a === 'developer' && b === 'webhooks' && segments.length === 4)) return null;
   const decode = (v: string) => {
     try {
       return decodeURIComponent(v);
@@ -47,6 +65,32 @@ export function parsePortalRoute(path: string): PortalRoute | null {
       return v;
     }
   };
+  if (a === 'conversion')
+    return b === undefined
+      ? { room: 'conversion' }
+      : b === 'new'
+        ? { room: 'conversion-new' }
+        : { room: 'conversion-order', param: decode(b) };
+  if (a === 'subscriptions')
+    return b === undefined
+      ? { room: 'subscriptions' }
+      : b === 'new'
+        ? { room: 'subscription-new' }
+        : { room: 'subscription', param: decode(b) };
+  if (a === 'compliance' && b === undefined) return { room: 'compliance' };
+  if (a === 'settings') {
+    if (b === undefined || b === 'profile') return { room: 'settings' };
+    if (b === 'team') return { room: 'settings-team' };
+    if (b === 'notifications') return { room: 'settings-notifications' };
+    return null;
+  }
+  if (a === 'developer') {
+    if (b === undefined) return { room: 'developer' };
+    if (b === 'webhooks') return extra ? { room: 'developer-endpoint', param: decode(extra) } : { room: 'developer-webhooks' };
+    if (b === 'keys' || b === 'signing' || b === 'deliveries') return { room: `developer-${b}` };
+    return null;
+  }
+  if (a === 'invoices') return b === undefined ? { room: 'invoices' } : { room: 'invoice', param: decode(b) };
   if (a === 'money') return b === undefined ? { room: 'money' } : b === 'activity' ? { room: 'money-activity' } : null;
   if (a === 'reports') return b === undefined ? { room: 'reports' } : b === 'exports' ? { room: 'report-exports' } : null;
   if (a === 'links') {
@@ -85,6 +129,9 @@ export function parsePortalRoute(path: string): PortalRoute | null {
 
 /** Links added to the Business Pay menu, in the order they are shown. */
 export const portalLinks: ReadonlyArray<readonly [string, PlainKey]> = [
+  ['/pay/conversion', 'navConversion'],
+  ['/pay/compliance', 'navCompliance'],
+  ['/pay/settings', 'navSettings'],
   ['/pay/refunds', 'navRefunds'],
   ['/pay/onboarding', 'navOnboarding'],
   ['/pay/team', 'navTeam'],
