@@ -12,6 +12,7 @@ import {
   founderMerchantListInputSchema,
   founderMerchantListSchema,
   founderMerchantRowSchema,
+  founderLimitRequestCloseResultSchema,
   founderPendingChangeListInputSchema,
   merchantLimitIncreaseInputSchema,
   merchantPricingHistorySchema,
@@ -374,6 +375,26 @@ describe('founder merchant names', () => {
         reason: 'the count cap twice',
       }).success,
     ).toBe(false);
+  });
+
+  it('a founder close still succeeds when the stored caps are not a cap', () => {
+    const closed = {
+      requestId: randomUUID(),
+      merchantId,
+      reason: 'need more room',
+      requestedBy: 'owner',
+      createdAt: '2026-10-16T00:00:00.000Z',
+      status: 'closed' as const,
+      closedAt: '2026-10-16T01:00:00.000Z',
+      closedBy: 'founder',
+      closeReason: 'not this quarter',
+    };
+    const readable = [{ kind: 'per_payment' as const, assetCode: 'USDT', limit: '10' }];
+    expect(founderLimitRequestCloseResultSchema.safeParse({ ...closed, caps: readable }).success).toBe(true);
+    const unreadable = [{ kind: 'per_payment', assetCode: 'USDT', limit: 10 }];
+    const parsed = founderLimitRequestCloseResultSchema.safeParse({ ...closed, caps: unreadable });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.caps).toEqual(unreadable);
   });
 });
 

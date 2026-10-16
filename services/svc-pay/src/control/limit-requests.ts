@@ -20,8 +20,11 @@ import { ControlError } from './errors.js';
  * applied to `control_merchant_profiles`, and the money path never reads this
  * table. One pending row per merchant: a repeat returns that row and does not
  * rewrite its caps. The merchant may withdraw it once. A founder may close it
- * once. Confirming a cap change for that merchant closes the pending ask in
- * the same transaction. Founders still change caps through the dual-control flow.
+ * once. Confirming a cap change or a tier change for that merchant closes the
+ * pending ask in the same transaction. That close writes the row and an audit
+ * of the caps as stored. It does not parse them again: an ask whose caps no
+ * longer match the cap schema must not block the change. Founders still change
+ * caps through the dual-control flow.
  */
 
 interface PendingRow {
@@ -195,8 +198,8 @@ async function moveOnce(
   tx: Sql,
   row: TerminalRow,
   next: { status: 'withdrawn' | 'closed'; actorId: string; closeReason: string; auditKind: string; after?: unknown },
-): Promise<MerchantLimitTerminal> {
-  if (row.status === next.status) return toTerminal(row);
+): Promise<TerminalRow> {
+  if (row.status === next.status) return row;
   if (row.status !== 'pending') throw new ControlError('pay.limit_request_not_pending');
   const updated = await tx<TerminalRow[]>`
     UPDATE pay.control_limit_requests
@@ -220,7 +223,7 @@ async function moveOnce(
     reason: next.closeReason,
     after: next.after ?? { status: next.status, closeReason: next.closeReason },
   });
-  return toTerminal(stored);
+  return stored;
 }
 
 function asWithdrawn(row: MerchantLimitTerminal): MerchantLimitWithdrawResult {
@@ -228,9 +231,27 @@ function asWithdrawn(row: MerchantLimitTerminal): MerchantLimitWithdrawResult {
   return { ...row, status: 'withdrawn' };
 }
 
-function asClosed(row: MerchantLimitTerminal): FounderLimitRequestCloseResult {
-  if (row.status !== 'closed') throw new ControlError('pay.control_invalid', 'stored limit request is unreadable');
-  return { ...row, status: 'closed' };
+/**
+ * A close result. Caps are whatever was stored. A parse failure is not a
+ * refusal: the row is already closed, and the caller still gets the JSON.
+ */
+function toClosed(row: TerminalRow): FounderLimitRequestCloseResult {
+  if (row.status !== 'closed' || !row.closed_at || !row.closed_by || !row.close_reason) {
+    throw new ControlError('pay.control_invalid', 'stored limit request is unreadable');
+  }
+  const parsed = payCapSchema.array().min(1).max(32).safeParse(row.caps);
+  return {
+    requestId: row.request_id,
+    merchantId: row.merchant_id,
+    caps: parsed.success ? parsed.data : row.caps,
+    reason: row.reason,
+    requestedBy: row.requested_by,
+    createdAt: new Date(row.created_at).toISOString(),
+    status: 'closed',
+    closedAt: new Date(row.closed_at).toISOString(),
+    closedBy: row.closed_by,
+    closeReason: row.close_reason,
+  };
 }
 
 /** The merchant takes their own pending ask back. A repeat of the same withdrawn row returns it. */
@@ -249,12 +270,14 @@ export async function withdrawLimitRequest(
       const row = await lockRequest(tx, requestId);
       if (!row || row.merchant_id !== merchantId) throw new ControlError('pay.limit_request_not_found');
       return asWithdrawn(
-        await moveOnce(tx, row, {
-          status: 'withdrawn',
-          actorId,
-          closeReason: input.reason,
-          auditKind: 'limit.increase_withdrawn',
-        }),
+        toTerminal(
+          await moveOnce(tx, row, {
+            status: 'withdrawn',
+            actorId,
+            closeReason: input.reason,
+            auditKind: 'limit.increase_withdrawn',
+          }),
+        ),
       );
     },
     { isolation: 'read committed', maxAttempts: 5 },
@@ -273,12 +296,13 @@ export async function closeLimitRequest(
     async (tx) => {
       const row = await lockRequest(tx, requestId);
       if (!row) throw new ControlError('pay.limit_request_not_found');
-      return asClosed(
+      return toClosed(
         await moveOnce(tx, row, {
           status: 'closed',
           actorId: founderUserId,
           closeReason: input.reason,
           auditKind: 'limit.increase_closed',
+          after: { status: 'closed', closeReason: input.reason, caps: row.caps },
         }),
       );
     },
@@ -287,14 +311,17 @@ export async function closeLimitRequest(
 }
 
 /**
- * Called from the cap-change confirm transaction. No pending ask is a no-op.
- * The reason is the fixed token `cap_change_confirmed`, not a business magnitude.
+ * Called from a confirm transaction after the profile write. No pending ask is
+ * a no-op. The reason is a fixed token, not a business magnitude. The stored
+ * caps are copied into the audit as JSON and are not parsed: a failure to read
+ * them must not roll back the change that closed the ask.
  */
-export async function closePendingForCapChange(
+async function closePending(
   tx: Sql,
   merchantId: string,
   founderUserId: string,
-  capChangeRequestId: string,
+  closeReason: 'cap_change_confirmed' | 'tier_change_confirmed',
+  link: { capChangeRequestId: string } | { tierChangeRequestId: string },
 ): Promise<void> {
   const open = await tx<TerminalRow[]>`
     SELECT request_id, seq, merchant_id, caps, reason, status, requested_by, created_at, closed_at, closed_by, close_reason
@@ -307,8 +334,28 @@ export async function closePendingForCapChange(
   await moveOnce(tx, row, {
     status: 'closed',
     actorId: founderUserId,
-    closeReason: 'cap_change_confirmed',
+    closeReason,
     auditKind: 'limit.increase_closed',
-    after: { status: 'closed', closeReason: 'cap_change_confirmed', capChangeRequestId },
+    after: { status: 'closed', closeReason, caps: row.caps, ...link },
   });
+}
+
+/** Auto-close inside a confirmed `set_caps`. */
+export async function closePendingForCapChange(
+  tx: Sql,
+  merchantId: string,
+  founderUserId: string,
+  capChangeRequestId: string,
+): Promise<void> {
+  await closePending(tx, merchantId, founderUserId, 'cap_change_confirmed', { capChangeRequestId });
+}
+
+/** Auto-close inside a confirmed `set_tier`. */
+export async function closePendingForTierChange(
+  tx: Sql,
+  merchantId: string,
+  founderUserId: string,
+  tierChangeRequestId: string,
+): Promise<void> {
+  await closePending(tx, merchantId, founderUserId, 'tier_change_confirmed', { tierChangeRequestId });
 }
