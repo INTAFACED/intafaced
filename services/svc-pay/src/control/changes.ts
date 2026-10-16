@@ -7,6 +7,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError, requireDualControl } from '../dual-control.js';
 import { writeAudit } from './audit.js';
 import { ControlError } from './errors.js';
+import { closePendingForCapChange } from './limit-requests.js';
 import { assertValidRule, PricingConfigError, type PricingBand, type PricingRule } from './pricing.js';
 import { pricingRuleBodySchema, tierDefinitionSchema, type PricingRuleBody, type TierDefinitionInput } from './schemas.js';
 import { toRule } from './store.js';
@@ -611,6 +612,9 @@ export class ChangeService {
           return this.result(row, 'conflict', founderUserId, plan?.version ?? expected, at);
         }
         await plan.apply(tx);
+        if (target.scope === 'merchant' && target.change.kind === 'set_caps') {
+          await closePendingForCapChange(tx, target.merchantId, founderUserId, row.request_id);
+        }
         await tx`UPDATE pay.control_changes SET status = 'applied', checker_id = ${founderUserId}, checker_reason = ${input.reason}, decided_at = now() WHERE request_id = ${row.request_id}`;
         await writeAudit(tx, {
           scope: row.scope,

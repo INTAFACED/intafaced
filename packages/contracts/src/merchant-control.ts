@@ -236,21 +236,28 @@ export type MerchantTierSummary = z.infer<typeof merchantTierSummarySchema>;
 
 export const merchantTierListInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
 /**
- * `not_configured` means nobody has defined a tier. The response then carries no
- * tier names and no caps. An assigned merchant with an empty catalogue is the
- * same answer: there is nothing to list.
+ * `not_configured` means this merchant has no tier to show. That is also the
+ * answer when other tiers exist: there is no public flag, so another tier's
+ * name and caps are not in this response. `configured` is exactly this
+ * merchant's own tier, one row.
  */
-export const merchantTierListSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('not_configured'), ownTierId: z.null() }).strict(),
-  z
-    .object({
-      status: z.literal('configured'),
-      /** Null when this merchant has not been assigned a tier. The catalogue is still real. */
-      ownTierId: payRiskTierIdSchema.nullable(),
-      tiers: z.array(merchantTierSummarySchema).min(1).max(200),
-    })
-    .strict(),
-]);
+const merchantTierConfiguredSchema = z
+  .object({
+    status: z.literal('configured'),
+    ownTierId: payRiskTierIdSchema,
+    tiers: z.array(merchantTierSummarySchema).length(1),
+  })
+  .strict();
+export const merchantTierListSchema = z
+  .discriminatedUnion('status', [
+    z.object({ status: z.literal('not_configured'), ownTierId: z.null() }).strict(),
+    merchantTierConfiguredSchema,
+  ])
+  .superRefine((value, ctx) => {
+    if (value.status === 'configured' && value.tiers[0]?.id !== value.ownTierId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only this merchant’s own tier is listed' });
+    }
+  });
 export type MerchantTierList = z.infer<typeof merchantTierListSchema>;
 
 /** One pricing rule as it was written, including a superseded row, so a later edit cannot hide the old price. */
@@ -302,11 +309,42 @@ export const merchantLimitRequestSchema = z
   .strict();
 export type MerchantLimitRequest = z.infer<typeof merchantLimitRequestSchema>;
 
+/**
+ * Money the merchant is asking for. Above zero, at most 30 integer digits.
+ * The general cap schema still allows a stored zero; this ask does not.
+ */
+const merchantLimitAskAmountSchema = z
+  .string()
+  .regex(/^(?:0|[1-9]\d{0,29})(?:\.\d{1,18})?$/)
+  .refine((value) => !/^0+(?:\.0+)?$/.test(value), 'limit must be greater than zero');
+
+const merchantLimitAskCapSchema = z.union([
+  payMoneyCapSchema.extend({ limit: merchantLimitAskAmountSchema }).strict(),
+  z.object({ kind: z.literal('beneficiaries_per_day'), limit: z.number().int().min(1).max(1_000_000) }).strict(),
+]);
+
+/** One ask: each kind+asset once. A count cap has no asset, so it may appear once. */
+export const merchantLimitAskCapsSchema = z
+  .array(merchantLimitAskCapSchema)
+  .min(1)
+  .max(32)
+  .superRefine((caps, ctx) => {
+    const seen = new Set<string>();
+    for (const cap of caps) {
+      const key = cap.kind === 'beneficiaries_per_day' ? cap.kind : `${cap.kind}:${cap.assetCode}`;
+      if (seen.has(key)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'duplicate cap kind and asset' });
+        return;
+      }
+      seen.add(key);
+    }
+  });
+
 export const merchantLimitIncreaseInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
     requestId: payRequestIdSchema,
-    caps: z.array(payCapSchema).min(1).max(32),
+    caps: merchantLimitAskCapsSchema,
     reason: payReasonSchema,
   })
   .strict();
@@ -314,6 +352,43 @@ export const merchantLimitIncreaseResultSchema = merchantLimitRequestSchema
   .extend({ outcome: z.enum(['stored', 'already_open']) })
   .strict();
 export type MerchantLimitIncreaseResult = z.infer<typeof merchantLimitIncreaseResultSchema>;
+
+/** The ask after it has left pending. Caps and the original reason are unchanged. */
+export const merchantLimitTerminalSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    merchantId: payMerchantIdSchema,
+    caps: z.array(payCapSchema).min(1).max(32),
+    reason: payReasonSchema,
+    requestedBy: z.string().min(1).max(128),
+    createdAt: payTimestampSchema,
+    status: z.enum(['withdrawn', 'closed']),
+    closedAt: payTimestampSchema,
+    closedBy: z.string().min(1).max(128),
+    closeReason: payReasonSchema,
+  })
+  .strict();
+export type MerchantLimitTerminal = z.infer<typeof merchantLimitTerminalSchema>;
+
+export const merchantLimitWithdrawInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    requestId: payRequestIdSchema,
+    reason: payReasonSchema,
+  })
+  .strict();
+export const merchantLimitWithdrawResultSchema = merchantLimitTerminalSchema.extend({ status: z.literal('withdrawn') }).strict();
+export type MerchantLimitWithdrawResult = z.infer<typeof merchantLimitWithdrawResultSchema>;
+
+/** Founder closes one ask. The actor is the session, never this body. */
+export const founderLimitRequestCloseInputSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    reason: payReasonSchema,
+  })
+  .strict();
+export const founderLimitRequestCloseResultSchema = merchantLimitTerminalSchema.extend({ status: z.literal('closed') }).strict();
+export type FounderLimitRequestCloseResult = z.infer<typeof founderLimitRequestCloseResultSchema>;
 
 /** The caller's open request, or `none` when they have not asked. `none` is not a cap. */
 export const merchantLimitOpenInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();

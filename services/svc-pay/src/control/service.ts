@@ -2,21 +2,29 @@ import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import type {
   FounderControlAuditListInput,
+  FounderLimitRequestCloseResult,
   MerchantControlProfile,
   MerchantLimitIncreaseResult,
   MerchantLimitOpen,
+  MerchantLimitWithdrawResult,
   MerchantPricingHistory,
   MerchantTierList,
   PayCap,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type { ControlAccessPorts } from './access.js';
+import { roleOnMerchant as lookupRoleOnMerchant, type ControlAccessPorts } from './access.js';
 import { listControlAudit, readMerchantAudit, type MerchantAuditEvent } from './audit.js';
 import { ApprovalService } from './approvals.js';
 import { ChangeService } from './changes.js';
 import { readUsage } from './counters.js';
 import { ControlError } from './errors.js';
-import { listPendingLimitRequests, readOpenLimitRequest, requestLimitIncrease } from './limit-requests.js';
+import {
+  closeLimitRequest,
+  listPendingLimitRequests,
+  readOpenLimitRequest,
+  requestLimitIncrease,
+  withdrawLimitRequest,
+} from './limit-requests.js';
 import { computePricing, PricingConfigError, resolvePricingRule, type PricingLayer, type PricingRule } from './pricing.js';
 import type { PricingQuoteView } from './schemas.js';
 import {
@@ -32,6 +40,7 @@ import {
   toRule,
   toTier,
 } from './store.js';
+import type { MerchantRole } from '../merchant-ops/roles.js';
 
 const fmt = formatAmount;
 
@@ -87,6 +96,11 @@ export class ControlService {
   /** Merchant-facing access: another merchant's id and a missing id are the same answer. */
   async assertCanView(principal: Principal, merchantId: string): Promise<void> {
     if (!principal?.userId || !(await this.access.canViewMerchant(principal, merchantId))) throw new ControlError('pay.merchant_not_found');
+  }
+
+  /** Owner, else an active team role, else null. Does not grant anything by itself. */
+  roleOnMerchant(principal: Principal, merchantId: string): Promise<MerchantRole | null> {
+    return lookupRoleOnMerchant(this.sql, principal, merchantId);
   }
 
   /** The contract profile: tier, effective caps, effective pricing, reserve. Null sections are unconfigured. */
@@ -285,31 +299,37 @@ export class ControlService {
   }
 
   /**
-   * The merchant's own tier and every tier an operator has defined.
-   * An empty catalogue is `not_configured`: no names and no caps are invented.
+   * This merchant's own tier only. Other tiers are not listed: nothing marks a tier public.
+   * No assigned tier, or a tier id with no row, is `not_configured`. The query is limited
+   * even though a tier id matches at most one row.
    */
   async merchantTierList(merchantId: string): Promise<MerchantTierList> {
     const control = await loadMerchantControl(this.sql, merchantId);
-    const rows = await this.sql<Array<Parameters<typeof toTier>[0]>>`SELECT * FROM pay.control_tiers ORDER BY id`;
-    if (rows.length === 0) return { status: 'not_configured', ownTierId: null };
+    const tierId = control.profile?.tierId ?? null;
+    if (!tierId) return { status: 'not_configured', ownTierId: null };
+    const rows = await this.sql<Array<Parameters<typeof toTier>[0]>>`
+      SELECT * FROM pay.control_tiers WHERE id = ${tierId} ORDER BY id LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return { status: 'not_configured', ownTierId: null };
     const archetypes = ['psp', 'broker', 'gaming', 'standard'] as const;
+    const tier = toTier(row);
+    if (!(archetypes as readonly string[]).includes(tier.archetype)) {
+      throw new ControlError('pay.control_invalid', 'tier archetype is unreadable');
+    }
     return {
       status: 'configured',
-      ownTierId: control.profile?.tierId ?? null,
-      tiers: rows.map((row) => {
-        const tier = toTier(row);
-        if (!(archetypes as readonly string[]).includes(tier.archetype)) {
-          throw new ControlError('pay.control_invalid', 'tier archetype is unreadable');
-        }
-        return {
+      ownTierId: tier.id,
+      tiers: [
+        {
           id: tier.id,
           name: tier.name,
           archetype: tier.archetype as (typeof archetypes)[number],
           caps: [...tier.caps],
           reserve: tier.reserve ? { rollingReserveBps: tier.reserve.bps, holdDays: tier.reserve.holdDays } : null,
           version: tier.version.toString(),
-        };
-      }),
+        },
+      ],
     };
   }
 
@@ -348,12 +368,25 @@ export class ControlService {
     return request ? { status: 'pending', request } : { status: 'none' };
   }
 
-  /** Stores the ask. Does not write caps onto the merchant profile. */
+  /** Stores the ask. Does not write caps onto the merchant profile. Refuses a suspended or closed merchant. */
   requestLimitIncrease(
     principal: Principal,
     input: { merchantId: string; requestId: string; caps: PayCap[]; reason: string },
   ): Promise<MerchantLimitIncreaseResult> {
     return requestLimitIncrease(this.sql, principal, input);
+  }
+
+  /** The merchant takes the ask back. Does not change caps. */
+  withdrawLimitRequest(
+    principal: Principal,
+    input: { merchantId: string; requestId: string; reason: string },
+  ): Promise<MerchantLimitWithdrawResult> {
+    return withdrawLimitRequest(this.sql, principal, input);
+  }
+
+  /** Founder closes one ask. Does not change caps. */
+  closeLimitRequest(founderUserId: string, input: { requestId: string; reason: string }): Promise<FounderLimitRequestCloseResult> {
+    return closeLimitRequest(this.sql, founderUserId, input);
   }
 
   listPendingLimitRequests(input: { limit: number; cursor?: string }) {
