@@ -564,7 +564,7 @@ test('subscription review fixes: uncertain pause checks recorded status and rele
   expect(await page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
 });
 
-test('subscription recovery: reload locks the stored path and conflict preserves the original key', async ({ page }) => {
+test('subscription recovery: reload locks the stored path and conflict clears the journal', async ({ page }) => {
   async function mount() {
     await page.evaluate(
       async ({ mandate, D }) => {
@@ -667,9 +667,13 @@ test('subscription recovery: reload locks the stored path and conflict preserves
   ).toBeVisible();
   await expect(page.getByRole('link', { name: 'Subscriptions', exact: true })).toHaveAttribute('href', `/pay/subscriptions?mandateId=${D}`);
   expect(await page.evaluate(() => window.__fixtureCalls[0])).toEqual(firstBody);
-  expect(await page.evaluate((D) => window.__fixtureGuard.status(`22222222-2222-4222-8222-222222222222:subscription-create:${D}`), D)).toBe(
-    'uncertain',
-  );
+  expect(
+    await page.evaluate((D) => window.__fixtureGuard.status(`22222222-2222-4222-8222-222222222222:subscription-create:${D}`), D),
+  ).toBeNull();
+  expect(
+    await page.evaluate((D) => localStorage.getItem(`pay.unresolved:22222222-2222-4222-8222-222222222222:subscription-create:${D}`), D),
+  ).toBeNull();
+  await expect(page.getByRole('button', { name: 'Create subscription', exact: true })).toBeEnabled();
   await expect(page.locator('body')).not.toContainText('Idempotency-Key was already used');
   if (shots) await page.screenshot({ path: `${shots}/P19-recovery-conflict-TEST.png`, fullPage: true });
 });

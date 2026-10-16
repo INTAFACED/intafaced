@@ -708,9 +708,12 @@ export function CreateSubscriptionView({
                       setRevision((v) => v + 1);
                       reload();
                     }}
-                    onSettled={() => {
+                    onSettled={(result) => {
+                      if (!result.ok) {
+                        setPath(path);
+                        setCreateNotice(result.message);
+                      }
                       refreshLock((v) => v + 1);
-                      setCreateNotice('');
                     }}
                   />
                 )}

@@ -184,10 +184,9 @@ it.each(['success', 'pay.idempotency_conflict', 'pay.subscription_mandate_open']
       code: outcome,
       message: 'A subscription request for this mandate is already recorded. Open Subscriptions to check it.',
     });
-    if (outcome === 'pay.idempotency_conflict') {
-      expect(pay.guard.status(lockId)).toBe('uncertain');
-      expect(pay.guard.reference(lockId)).toBe(attemptId);
-    }
+    expect(pay.guard.status(lockId)).toBeNull();
+    expect(pay.guard.reference(lockId)).toBeNull();
+    expect(values.size).toBe(0);
     return;
   }
   expect(replayed).toEqual({ ok: true, data: created });
@@ -197,7 +196,7 @@ it.each(['success', 'pay.idempotency_conflict', 'pay.subscription_mandate_open']
   expect(pay.guard.reference(lockId)).toBeNull();
 });
 
-it.each(['legacy', 'new'])('keeps the %s journal on a definite create conflict without minting another key', async (kind) => {
+it.each(['legacy', 'new'])('clears the %s journal on a definite create conflict and admits a fresh attempt', async (kind) => {
   const userId = 'TEST-user';
   const merchantId = 'TEST-merchant';
   const lockId = `${userId}:subscription-create:${mandateId}`;
@@ -234,10 +233,13 @@ it.each(['legacy', 'new'])('keeps the %s journal on a definite create conflict w
     ok: false,
     message: 'A subscription request for this mandate is already recorded. Open Subscriptions to check it.',
   });
-  const original = pay.guard.original(lockId);
-  expect(original).not.toBeNull();
-  if (kind === 'legacy') expect(original?.value.reference).toBe('TEST-original-attempt');
+  expect(pay.guard.original(lockId)).toBeNull();
+  expect(pay.guard.status(lockId)).toBeNull();
+  expect(values.size).toBe(0);
+  if (kind === 'legacy') expect(mutate.mock.calls[0]?.[2].idempotencyKey).toBe(`${lockId}:TEST-original-attempt`);
   await createSubscriptionWithRecovery(pay, mandateId, 'crypto_invoice');
-  expect(mutate.mock.calls[1]?.[2]).toEqual(mutate.mock.calls[0]?.[2]);
-  expect(pay.guard.original(lockId)?.raw).toBe(original?.raw);
+  expect(mutate).toHaveBeenCalledTimes(2);
+  expect(mutate.mock.calls[1]?.[2].idempotencyKey).not.toBe(mutate.mock.calls[0]?.[2].idempotencyKey);
+  expect(pay.guard.original(lockId)).toBeNull();
+  expect(values.size).toBe(0);
 });

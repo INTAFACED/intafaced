@@ -169,7 +169,7 @@ export function createPayMutationGuard(storage?: JournalStorage, requirePersiste
     reference?: string,
     isCurrent?: () => boolean,
     recoveryCurrent = isCurrent ?? (() => true),
-    recovery?: { path?: string; keep: (result: ApiResult<T>) => boolean },
+    recovery?: { path?: string },
   ): Promise<ApiResult<T>> {
     if (isCurrent && !isCurrent()) return sendContextChanged();
     const coordinated = await journal(key).coordinate(async (lease): Promise<ApiResult<T>> => {
@@ -203,7 +203,7 @@ export function createPayMutationGuard(storage?: JournalStorage, requirePersiste
       if (states.get(key)?.run !== run) return sendContextChanged();
       states.set(key, { raw: record, status: 'uncertain', run });
       if (isCurrent && !isCurrent()) return sendContextChanged();
-      if ((!result.ok && (result.reason === 'uncertain' || result.reason === 'aborted')) || recovery?.keep(result)) return result;
+      if (!result.ok && (result.reason === 'uncertain' || result.reason === 'aborted')) return result;
       // A known original reply stays known even when local cleanup fails. Its RAM
       // proof is bound to the originating owner/context and never replays the POST.
       known.set(key, { raw: record, current: recoveryCurrent, confirmed: result.ok });
@@ -703,9 +703,9 @@ export function createBusinessPayApi(
    * The journal lock stays `${userId}:subscription-create:${mandateId}`.
    * A new create stores a fresh attempt id on that lock and sends
    * `${lockId}:${attemptId}`. A retry of the same uncertain attempt reuses
-   * the stored id. A confirmed outcome or a definite refusal other than an idempotency conflict drops it, so the
-   * next create on that mandate is a new subscription. An uncertain or aborted
-   * replay or idempotency conflict keeps the stored id and original path.
+   * the stored id. A confirmed outcome or a definite refusal drops it, so the next create
+   * on that mandate uses a fresh attempt id. An uncertain or aborted replay
+   * keeps the stored id and original path.
    */
   async function mutate<T>(
     procedure: string,
@@ -728,7 +728,6 @@ export function createBusinessPayApi(
     // subscription.create ignores that argument: its reference is the attempt id below.
     if (procedure !== 'subscription.create') return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
     const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
-    const keepConflict = (result: ApiResult<T>) => !result.ok && result.code === 'pay.idempotency_conflict';
     const sendAttempt = async (attemptId: string, path?: string): Promise<ApiResult<T>> => {
       const result = await api.mutate(
         'pay',
@@ -752,10 +751,9 @@ export function createBusinessPayApi(
         }
         const replayed = await sendAttempt(attemptId, held.value.path);
         // Match the first attempt: a known outcome, including a definite
-        // refusal other than a key conflict, drops the journal. Uncertain, aborted,
-        // and conflicting replies stay held so the
-        // same attempt can be retried.
-        const heldOpen = !replayed.ok && (replayed.reason === 'uncertain' || replayed.reason === 'aborted' || keepConflict(replayed));
+        // refusal, drops the journal. Uncertain and aborted replies stay held
+        // so the same attempt can be retried.
+        const heldOpen = !replayed.ok && (replayed.reason === 'uncertain' || replayed.reason === 'aborted');
         if (!heldOpen) await guard.resolve(lockId, held.raw);
         return replayed;
       }
@@ -778,7 +776,7 @@ export function createBusinessPayApi(
       });
     }
     const path = 'path' in fields && typeof fields.path === 'string' ? fields.path : undefined;
-    return guard.run(lockId, () => sendAttempt(attemptId), attemptId, undefined, undefined, { path, keep: keepConflict });
+    return guard.run(lockId, () => sendAttempt(attemptId), attemptId, undefined, undefined, { path });
   }
   return {
     merchant,
