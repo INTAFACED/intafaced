@@ -18,10 +18,16 @@ export async function createSubscriptionWithRecovery(pay: BusinessPayApi, mandat
   if (!input.success) return payRefusal('invalidInput', { reason: 'error' });
   const existing = await pay.query('subscription.list', { merchantId: pay.authority!.merchantId, limit: 200 }, z.array(subscriptionSchema));
   if (!existing.ok) return existing;
+  const newest = existing.data
+    .filter((s) => s.mandateId === mandateId)
+    .reduce<z.infer<typeof subscriptionSchema> | null>(
+      (latest, s) => (!latest || Date.parse(s.createdAt) > Date.parse(latest.createdAt) ? s : latest),
+      null,
+    );
   const reference = JSON.stringify({
     path,
-    after: new Date().toISOString(),
-    existingIds: existing.data.filter((s) => s.mandateId === mandateId).map((s) => s.id),
+    cutoff: newest?.createdAt ?? null,
+    cutoffId: newest?.id ?? null,
   });
   return pay.mutate('subscription.create', input.data, subscriptionSchema, 'pay:write', `subscription-create:${mandateId}`, reference);
 }
@@ -50,22 +56,30 @@ export function checkSubscriptionCreateOriginal(pay: BusinessPayApi, mandateId: 
       );
       if (!result.ok) return result;
       // An older schedule on the same mandate cannot prove this create succeeded.
-      const proof = z.object({ path: z.string(), after: z.string().datetime(), existingIds: z.array(z.string()) }).safeParse(
-        (() => {
-          try {
-            return JSON.parse(original.reference ?? 'null');
-          } catch {
-            return null;
-          }
-        })(),
-      );
+      const proof = z
+        .object({
+          path: z.enum(['crypto_invoice', 'card', 'card_mandate']),
+          cutoff: z.string().datetime().nullable(),
+          cutoffId: z.string().min(1).nullable(),
+        })
+        .refine((value) => (value.cutoff === null) === (value.cutoffId === null))
+        .safeParse(
+          (() => {
+            try {
+              return JSON.parse(original.reference ?? 'null');
+            } catch {
+              return null;
+            }
+          })(),
+        );
       if (!proof.success) return unresolved();
       const matches = result.data.filter(
         (s) =>
           s.mandateId === mandateId &&
           s.path === proof.data.path &&
-          !proof.data.existingIds.includes(s.id) &&
-          Date.parse(s.createdAt) >= Date.parse(proof.data.after),
+          (proof.data.cutoff === null ||
+            Date.parse(s.createdAt) > Date.parse(proof.data.cutoff) ||
+            (Date.parse(s.createdAt) === Date.parse(proof.data.cutoff) && s.id !== proof.data.cutoffId)),
       );
       return matches.length === 1 ? { ok: true as const, data: matches[0]! } : unresolved();
     },

@@ -31,7 +31,10 @@ it.each(['paused', 'active', 'cancelled'])('clears a subscription lock only afte
   expect(f.guard.status(f.key)).toBeNull();
 });
 it('checks the bounded list for the original mandate and leaves other mandate locks alone', async () => {
-  const f = await fixture(`subscription-create:${row.mandateId}`, JSON.stringify({ path: row.path, after, existingIds: [] }));
+  const f = await fixture(
+    `subscription-create:${row.mandateId}`,
+    JSON.stringify({ path: row.path, cutoff: '2026-10-15T23:55:00.000Z', cutoffId: 'EXISTING' }),
+  );
   const otherKey = 'TEST-user:subscription-create:other';
   await f.guard.run(otherKey, async () => uncertain);
   f.query.mockResolvedValue({ ok: true, data: [row, { ...row, id: 'OTHER', mandateId: 'other' }] });
@@ -50,7 +53,10 @@ it.each(
     [row, { ...row, id: 'AMBIGUOUS' }],
   ].map((rows) => ({ rows })),
 )('retains the create lock without a unique matching new schedule: $rows', async ({ rows }) => {
-  const f = await fixture(`subscription-create:${row.mandateId}`, JSON.stringify({ path: row.path, after, existingIds: [] }));
+  const f = await fixture(
+    `subscription-create:${row.mandateId}`,
+    JSON.stringify({ path: row.path, cutoff: '2026-10-15T23:55:00.000Z', cutoffId: 'EXISTING' }),
+  );
   f.query.mockResolvedValue({ ok: true, data: rows });
   expect((await checkSubscriptionCreateOriginal(f.pay, row.mandateId, () => true)).ok).toBe(false);
   expect(f.guard.status(f.key)).toBe('uncertain');
@@ -72,50 +78,70 @@ it('keeps locks on failed reads, missing original proof, mismatched ids, or a de
 it('keeps the lock when a browser ten minutes slow sees an existing schedule on the same mandate and path', async () => {
   const f = await fixture(
     `subscription-create:${row.mandateId}`,
-    JSON.stringify({ path: row.path, after: '2026-10-15T23:50:00.000Z', existingIds: [row.id] }),
+    JSON.stringify({ path: row.path, cutoff: '2026-10-15T23:55:00.000Z', cutoffId: row.id }),
   );
   f.query.mockResolvedValue({ ok: true, data: [{ ...row, createdAt: '2026-10-15T23:55:00.000Z' }] });
   expect((await checkSubscriptionCreateOriginal(f.pay, row.mandateId, () => true)).ok).toBe(false);
   expect(f.guard.status(f.key)).toBe('uncertain');
 });
-it('captures existing mandate ids before sending and recovers only a unique new id despite clock skew', async () => {
-  vi.useFakeTimers();
-  vi.setSystemTime('2026-10-15T23:50:00.000Z');
-  try {
-    const mandateId = '77777777-7777-4777-8777-777777777777';
-    const guard = createPayMutationGuard();
-    const existing = { ...row, mandateId, createdAt: '2026-10-15T23:55:00.000Z' };
-    const query = vi.fn().mockResolvedValue({ ok: true, data: [existing, { ...row, id: 'OTHER', mandateId: 'other' }] });
-    const send = vi.fn(async () => uncertain);
-    const mutate = vi.fn((_procedure, _input, _schema, _scope, operation, reference) =>
-      guard.run(`TEST-user:${operation}`, send, reference),
-    );
-    const pay = { authority: { userId: 'TEST-user', merchantId: row.merchantId }, guard, query, mutate } as unknown as BusinessPayApi;
-    expect((await createSubscriptionWithRecovery(pay, mandateId, row.path)).ok).toBe(false);
-    expect(query).toHaveBeenCalledWith('subscription.list', { merchantId: row.merchantId, limit: 200 }, expect.anything());
-    expect(query.mock.invocationCallOrder[0]).toBeLessThan(mutate.mock.invocationCallOrder[0]!);
-    expect(mutate).toHaveBeenCalledWith(
-      'subscription.create',
-      { mandateId, path: row.path },
-      expect.anything(),
-      'pay:write',
-      `subscription-create:${mandateId}`,
-      JSON.stringify({ path: row.path, after: '2026-10-15T23:50:00.000Z', existingIds: [row.id] }),
-    );
-    const key = `TEST-user:subscription-create:${mandateId}`;
-    expect(guard.status(key)).toBe('uncertain');
-    expect((await createSubscriptionWithRecovery(pay, mandateId, row.path)).ok).toBe(false);
-    expect(send).toHaveBeenCalledTimes(1);
-    expect((await checkSubscriptionCreateOriginal(pay, mandateId, () => true)).ok).toBe(false);
-    expect(guard.status(key)).toBe('uncertain');
-    const newRow = { ...existing, id: 'NEW', createdAt: after };
-    query.mockResolvedValue({ ok: true, data: [existing, newRow] });
-    expect(await checkSubscriptionCreateOriginal(pay, mandateId, () => true)).toEqual({ ok: true, data: newRow });
-    expect(guard.status(key)).toBeNull();
-  } finally {
-    vi.useRealTimers();
-  }
-});
+it.each(['2026-10-15T23:50:00.000Z', '2026-10-16T00:10:00.000Z'])(
+  'admits create with five UUID subscriptions and recovers using server time with browser clock %s',
+  async (browserTime) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(browserTime);
+    try {
+      const mandateId = '77777777-7777-4777-8777-777777777777';
+      const guard = createPayMutationGuard();
+      // Labelled test data: real UUID shapes exercise the journal's 200-character bound.
+      const existingRows = [1, 2, 3, 4, 5].map((n) => ({
+        ...row,
+        id: `11111111-1111-4111-8111-11111111111${n}`,
+        mandateId,
+        createdAt: `2026-10-15T23:5${n}:00.000Z`,
+      }));
+      const existing = existingRows[4]!;
+      const snapshot = [
+        existingRows[2]!,
+        existing,
+        existingRows[0]!,
+        existingRows[3]!,
+        existingRows[1]!,
+        { ...row, id: 'OTHER', mandateId: 'other', createdAt: after },
+      ];
+      const query = vi.fn().mockResolvedValue({ ok: true, data: snapshot });
+      const send = vi.fn(async () => uncertain);
+      const mutate = vi.fn((_procedure, _input, _schema, _scope, operation, reference) =>
+        guard.run(`TEST-user:${operation}`, send, reference),
+      );
+      const pay = { authority: { userId: 'TEST-user', merchantId: row.merchantId }, guard, query, mutate } as unknown as BusinessPayApi;
+      expect((await createSubscriptionWithRecovery(pay, mandateId, row.path)).ok).toBe(false);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(mutate.mock.calls[0]![5].length).toBeLessThanOrEqual(200);
+      expect(query).toHaveBeenCalledWith('subscription.list', { merchantId: row.merchantId, limit: 200 }, expect.anything());
+      expect(query.mock.invocationCallOrder[0]).toBeLessThan(mutate.mock.invocationCallOrder[0]!);
+      expect(mutate).toHaveBeenCalledWith(
+        'subscription.create',
+        { mandateId, path: row.path },
+        expect.anything(),
+        'pay:write',
+        `subscription-create:${mandateId}`,
+        JSON.stringify({ path: row.path, cutoff: existing.createdAt, cutoffId: existing.id }),
+      );
+      const key = `TEST-user:subscription-create:${mandateId}`;
+      expect(guard.status(key)).toBe('uncertain');
+      expect((await createSubscriptionWithRecovery(pay, mandateId, row.path)).ok).toBe(false);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect((await checkSubscriptionCreateOriginal(pay, mandateId, () => true)).ok).toBe(false);
+      expect(guard.status(key)).toBe('uncertain');
+      const newRow = { ...existing, id: '22222222-2222-4222-8222-222222222222', createdAt: after };
+      query.mockResolvedValue({ ok: true, data: [...snapshot, newRow] });
+      expect(await checkSubscriptionCreateOriginal(pay, mandateId, () => true)).toEqual({ ok: true, data: newRow });
+      expect(guard.status(key)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
 it('never sends a create when the attempt-time snapshot fails or input is invalid', async () => {
   const f = await fixture('unused');
   const mutate = vi.fn();
@@ -132,4 +158,31 @@ it('keeps a legacy timestamp-only proof locked', async () => {
   f.query.mockResolvedValue({ ok: true, data: [row] });
   expect((await checkSubscriptionCreateOriginal(f.pay, row.mandateId, () => true)).ok).toBe(false);
   expect(f.guard.status(f.key)).toBe('uncertain');
+});
+
+it.each([null, after])('recovers a unique match with cutoff %s, including a distinct id at the same timestamp', async (cutoff) => {
+  const f = await fixture(
+    `subscription-create:${row.mandateId}`,
+    JSON.stringify({ path: row.path, cutoff, cutoffId: cutoff === null ? null : 'EXISTING' }),
+  );
+  f.query.mockResolvedValue({ ok: true, data: [row, { ...row, id: 'EXISTING' }] });
+  if (cutoff === null) f.query.mockResolvedValue({ ok: true, data: [row] });
+  expect(await checkSubscriptionCreateOriginal(f.pay, row.mandateId, () => true)).toEqual({ ok: true, data: row });
+  expect(f.guard.status(f.key)).toBeNull();
+});
+it('records null cutoff and cutoffId when this mandate has no subscriptions', async () => {
+  const f = await fixture('unused');
+  f.query.mockResolvedValue({ ok: true, data: [{ ...row, mandateId: 'other' }] });
+  const mutate = vi.fn().mockResolvedValue(uncertain);
+  const pay = { ...f.pay, mutate } as BusinessPayApi;
+  const mandateId = '77777777-7777-4777-8777-777777777777';
+  await createSubscriptionWithRecovery(pay, mandateId, row.path);
+  expect(mutate).toHaveBeenCalledWith(
+    'subscription.create',
+    { mandateId, path: row.path },
+    expect.anything(),
+    'pay:write',
+    `subscription-create:${mandateId}`,
+    JSON.stringify({ path: row.path, cutoff: null, cutoffId: null }),
+  );
 });
