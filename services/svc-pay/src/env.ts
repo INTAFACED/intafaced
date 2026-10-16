@@ -27,6 +27,15 @@ const schema = serviceEnvSchema
        */
       PAY_CAPTURE_RECONCILE: z.enum(['off', 'required']).default('off'),
 
+      /**
+       * B2B ramp (`pay.b2b_ramp`). Default off: every b2b-ramp route refuses.
+       * `on` in staging/prod also requires PAY_B2B_RAMP_LICENCE_ATTESTATION,
+       * checked against the raw APP_ENV at boot (b2b-ramp/config.ts). The
+       * attestation value is not a default and is never echoed.
+       */
+      PAY_B2B_RAMP: z.enum(['off', 'on']).default('off'),
+      PAY_B2B_RAMP_LICENCE_ATTESTATION: z.string().optional(),
+
       /** svc-ledger's internal address. All value movement goes through it. */
       LEDGER_URL: z.string().url().default('http://localhost:4001'),
 
