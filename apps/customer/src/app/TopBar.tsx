@@ -12,6 +12,8 @@ import { ShellIcon } from './icons';
 import { accountMenu, tabSpecs, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
 import { TopSearch } from './TopSearch';
+import { currentLayout, layoutHref } from '../features/pay/portal/layout-options/layout';
+import { GroupedMenu } from '../features/pay/portal/layout-options/Navigation';
 
 /** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
 export function useBannerOffset() {
@@ -52,7 +54,9 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
   const link = useRef<HTMLAnchorElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const menuId = useId();
-  const hasMenu = tab.items.length > 0;
+  const layout = currentLayout();
+  const groupedPay = tab.door === 'Pay' && layout;
+  const hasMenu = Boolean(groupedPay) || tab.items.length > 0;
   const show = () => {
     clearTimeout(timer.current);
     if (hasMenu) setOpen(true);
@@ -84,7 +88,7 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
       <a
         ref={link}
         className="tb-tab"
-        href={tab.href}
+        href={groupedPay ? layoutHref(tab.href, groupedPay) : tab.href}
         aria-current={current === tab.door ? 'page' : undefined}
         aria-expanded={hasMenu ? open : undefined}
         aria-controls={hasMenu && open ? menuId : undefined}
@@ -96,19 +100,23 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
       {hasMenu && open && (
         // TODO(B1): swap to the Base UI NavigationMenu in @intafaced/ui (same rows, same copy).
         <div className="tb-popover tb-menu" id={menuId}>
-          <ul>
-            {tab.items.map((item) => (
-              <li key={item.id}>
-                <a className="tb-menu-item" href={item.href} onClick={() => setOpen(false)}>
-                  <ShellIcon name={item.icon} />
-                  <span>
-                    <strong>{t(item.title)}</strong>
-                    <small>{t(item.description)}</small>
-                  </span>
-                </a>
-              </li>
-            ))}
-          </ul>
+          {groupedPay ? (
+            <GroupedMenu layout={groupedPay} here={location.pathname} close={() => setOpen(false)} />
+          ) : (
+            <ul>
+              {tab.items.map((item) => (
+                <li key={item.id}>
+                  <a className="tb-menu-item" href={item.href} onClick={() => setOpen(false)}>
+                    <ShellIcon name={item.icon} />
+                    <span>
+                      <strong>{t(item.title)}</strong>
+                      <small>{t(item.description)}</small>
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </li>

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { currentLayout } from './layout-options/layout';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, Field, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { PayTime, PaySection } from '../components';
@@ -76,6 +77,7 @@ export function Payments({ portal, merchantId }: { portal: PortalApi; merchantId
   const set = { q: setQ, asset: setAsset, from: setFrom, to: setTo } as const;
   return (
     <PaymentsView
+      compact={Boolean(currentLayout())}
       snapshot={snapshot.resource}
       period={period}
       setPeriod={setPeriod}
@@ -100,6 +102,7 @@ export function Payments({ portal, merchantId }: { portal: PortalApi; merchantId
 }
 
 export function PaymentsView({
+  compact = false,
   snapshot,
   period,
   setPeriod,
@@ -116,6 +119,7 @@ export function PaymentsView({
   setLimit,
   retry,
 }: {
+  compact?: boolean;
   snapshot: Resource<Snapshot>;
   period: MetricPreset;
   setPeriod: (value: MetricPreset) => void;
@@ -176,19 +180,23 @@ export function PaymentsView({
                     value={rate.pct === null ? '—' : `${rate.pct}%`}
                     note={rate.pct === null ? t('kpiSuccessNone') : t('kpiSuccessNote', { failed: rate.failed, total: rate.total })}
                   />
-                  <Kpi
-                    label={t('kpiFailed')}
-                    period={labels[period]}
-                    value={countOf(snap.statusMix, 'failed')}
-                    tone={countOf(snap.statusMix, 'failed') > 0 ? 'attention' : undefined}
-                    href="/pay/payments?status=failed"
-                  />
-                  <Kpi
-                    label={t('kpiDisputed')}
-                    period={labels[period]}
-                    value={countOf(snap.statusMix, 'disputed')}
-                    href="/pay/payments?status=disputed"
-                  />
+                  {!compact && (
+                    <>
+                      <Kpi
+                        label={t('kpiFailed')}
+                        period={labels[period]}
+                        value={countOf(snap.statusMix, 'failed')}
+                        tone={countOf(snap.statusMix, 'failed') > 0 ? 'attention' : undefined}
+                        href="/pay/payments?status=failed"
+                      />
+                      <Kpi
+                        label={t('kpiDisputed')}
+                        period={labels[period]}
+                        value={countOf(snap.statusMix, 'disputed')}
+                        href="/pay/payments?status=disputed"
+                      />
+                    </>
+                  )}
                 </KpiGrid>
               </>
             );

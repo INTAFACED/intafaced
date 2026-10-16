@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { currentLayout } from './layout-options/layout';
+import { LayoutDashboard } from './layout-options/Dashboard';
 import { displayAmount } from '../../../shared/money';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, ChoiceGroup as Tabs } from '@intafaced/ui';
@@ -41,6 +43,20 @@ export function Dashboard({
     d30.reload();
     series.reload();
   };
+  const layout = currentLayout();
+  if (layout)
+    return (
+      <LayoutDashboard
+        layout={layout}
+        portal={portal}
+        merchantId={merchantId}
+        merchant={merchant}
+        role={role}
+        data={{ today: today.resource, rolling_7d: d7.resource, rolling_30d: d30.resource, series: series.resource }}
+        retry={retry}
+        todayDay={utcDay(now)}
+      />
+    );
   return (
     <DashboardView
       merchant={merchant}

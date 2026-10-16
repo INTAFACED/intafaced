@@ -24,6 +24,8 @@ import { parsePortalRoute, portalLinks, type PortalRoute } from './routes';
 import { Team } from './Team';
 import type { MemberRole, MerchantRecord } from './schemas';
 import './portal.css';
+import { currentLayout } from './layout-options/layout';
+import { LayoutFrame } from './layout-options/Frame';
 import { Refunds } from './Refunds';
 import { Links } from './Links';
 import { MerchantMoney, BalanceActivity } from './Money';
@@ -73,7 +75,7 @@ export function MerchantPortal({
         reloadMerchant={merchant.reload}
         team={team.resource}
         starterFeeBps={starterFeeBps}
-        legacyHome={legacyHome}
+        legacyHome={!currentLayout() && legacyHome}
       />
     </PortalFrame>
   );
@@ -83,6 +85,13 @@ export function PortalFrame({ route, children }: { route: PortalRoute; children:
   const { t } = portalCopy.useCopy();
   const copy = roomCopy(route, t);
   const here = hrefFor(route);
+  const layout = currentLayout();
+  if (layout)
+    return (
+      <LayoutFrame layout={layout} here={here} title={copy.title} purpose={copy.purpose} action={copy.action}>
+        {children}
+      </LayoutFrame>
+    );
   return (
     <Page eyebrow={payCopy.t('businessPay')} title={copy.title} description={copy.purpose} actions={copy.action}>
       <div className="pay-business">
@@ -540,7 +549,7 @@ function PortalRoom({
             return (
               <div className="stack">
                 <Dashboard portal={portal} merchantId={account.merchantId} merchant={account.record} role={account.role} />
-                {legacyHome}
+                {!currentLayout() && legacyHome}
               </div>
             );
           }}
