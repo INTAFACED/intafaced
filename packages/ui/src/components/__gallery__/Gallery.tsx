@@ -29,6 +29,11 @@ import {
   AutocompleteItem,
   AutocompleteList,
   Button,
+  Field,
+  Page,
+  DataTable,
+  EmptyState,
+  ChoiceGroup,
   ChangeText,
   Checkbox,
   CoinIcon,
@@ -332,6 +337,37 @@ export function Gallery() {
               </Section>
             </HideBalancesProvider>
 
+            <Section title="Business page, fields and tables (TEST DATA)">
+              <Page
+                title="Test payments"
+                description="Labelled sample business records"
+                eyebrow="Business"
+                actions={<Button>New payment</Button>}
+              >
+                <div className="flex flex-col gap-4 rounded-md bg-panel p-6">
+                  <Field label="Reference" placeholder="Search test payments" hint="Only your merchant's records" />
+                  <ChoiceGroup
+                    items={['all', 'captured']}
+                    labels={{ all: 'All', captured: 'Captured' }}
+                    value="all"
+                    onChange={() => undefined}
+                    label="Test payment status"
+                  />
+                  <DataTable label="Test payments" headers={['Reference', 'Amount', 'Status']}>
+                    <tr>
+                      <td>TEST-001</td>
+                      <td>
+                        <Amount value="10.000001" sensitive={false} /> USDT
+                      </td>
+                      <td>
+                        <StatusTag status="filled" label="Captured" />
+                      </td>
+                    </tr>
+                  </DataTable>
+                  <EmptyState title="No test refunds">Refunds appear after a payment is refunded.</EmptyState>
+                </div>
+              </Page>
+            </Section>
             <Section title="Buttons">
               {(['primary', 'secondary', 'ghost', 'buy', 'sell'] as const).map((v) => (
                 <Row key={v} className="mb-3">
