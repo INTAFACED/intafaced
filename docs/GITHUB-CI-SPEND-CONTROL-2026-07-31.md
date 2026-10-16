@@ -1,6 +1,6 @@
 # GitHub CI spend control — RETIRED 2026-08-07
 
-**Clarification 2026-10-09:** standard GitHub-hosted runner minutes have a zero bill on this public repo. Service limits and acceptable-use rules still apply. A 403 or 429 from GitHub is a stop; follow [`AGENT_PROTOCOL.md`](../tooling/agent-protocol/AGENT_PROTOCOL.md) §3 for cooldowns and access restrictions. Parallel pull requests and merge-when-done stay. The live external market-data smoke runs manually; operational third-party polling belongs on our own infrastructure. Do not restore `thrift-preflight`.
+**Clarification 2026-10-09:** standard GitHub-hosted runner minutes have a zero bill on this public repo. Service limits and acceptable-use rules still apply. A 403 or 429 from GitHub is a stop; cooldowns and access restrictions are in [`AGENTS.md`](../AGENTS.md) (GitHub refusals). The same text is in [`AGENT_PROTOCOL.md`](../tooling/agent-protocol/AGENT_PROTOCOL.md) §3. Parallel pull requests and merge-when-done stay. The live external market-data smoke runs manually; operational third-party polling belongs on our own infrastructure. Do not restore `thrift-preflight`.
 
 **Status:** **VOID. Not law. Do not follow, do not restore, do not reinvent.**  
 **Was:** active operating law from 2026-07-31 to 2026-08-07.  

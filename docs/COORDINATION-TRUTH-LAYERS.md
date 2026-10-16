@@ -32,7 +32,7 @@
 
 If a future change breaks a row above, **reject the change**.
 
-Keep code work parallel. Pace GitHub API requests across agents; a 403 or 429 stops GitHub activity while independent local work continues. Follow the refusal and cooldown handling in [`AGENT_PROTOCOL.md`](../tooling/agent-protocol/AGENT_PROTOCOL.md) §3.
+Keep code work parallel. Pace GitHub API requests across agents; a 403 or 429 stops GitHub activity while independent local work continues. Follow the refusal and cooldown handling in [`AGENTS.md`](../AGENTS.md) (GitHub refusals). The same text is in [`AGENT_PROTOCOL.md`](../tooling/agent-protocol/AGENT_PROTOCOL.md) §3.
 
 ---
 

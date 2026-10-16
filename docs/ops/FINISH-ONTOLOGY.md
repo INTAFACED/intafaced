@@ -2,7 +2,7 @@
 
 **Status:** BINDING · in-repo home · 2026-08-07
 **Scope:** what "finished" means for a **session or a run**. Per-module Done is a different
-question, owned by [`AGENT_PROTOCOL.md`](../../tooling/agent-protocol/AGENT_PROTOCOL.md) §8.
+question, owned by [`AGENTS.md`](../../AGENTS.md) (Module done). The same bar is in [`AGENT_PROTOCOL.md`](../../tooling/agent-protocol/AGENT_PROTOCOL.md) §8.
 **Cited by:** [`SWARM-MANDATE.md`](./SWARM-MANDATE.md) · [`COORDINATION-TRUTH-LAYERS.md`](../COORDINATION-TRUTH-LAYERS.md)
 
 ---
@@ -15,7 +15,7 @@ machine could not read the definition of "done" that the repo's own law depended
 deliberately not repeated here: a location no teammate can open is not a citation, and the
 `agent-autoload` gate now fails any binding law that names one.
 
-**The cost of that gap, measured:** `AGENT_PROTOCOL` §8 defines when a _module_ is done — tests,
+**The cost of that gap, measured:** `AGENTS.md` (Module done) defines when a _module_ is done — tests,
 gates, typecheck, CI. That bar is satisfiable **infinitely**. Between 2026-08-05 and 2026-08-07 the
 swarm merged 64 PRs and 21,268 lines of catalog copies; every one passed its module Done bar, and
 nothing anywhere said the _session_ was finished or that the work had to reach something. Given a
@@ -133,11 +133,11 @@ Money and ledger doctrine in [`AGENTS.md`](../../AGENTS.md) always wins.
 
 ## 8 · Relationship to module Done
 
-| Question                           | Owner                                                             |
-| ---------------------------------- | ----------------------------------------------------------------- |
-| Is this **module** shippable?      | `AGENT_PROTOCOL.md` §8 — tests, gates, typecheck, CI              |
-| Is this **run** finished?          | This file                                                         |
-| Does this code **reach** anything? | `tooling/ci/reachability-scan.mjs` (doctrine gate `reachability`) |
+| Question                           | Owner                                                                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Is this **module** shippable?      | `AGENTS.md` (Module done) — `pnpm gate <service>` and the signed checklist. `AGENT_PROTOCOL.md` §8 repeats it |
+| Is this **run** finished?          | This file                                                                                                     |
+| Does this code **reach** anything? | `tooling/ci/reachability-scan.mjs` (doctrine gate `reachability`)                                             |
 
 Passing §8 for the Nth time is not progress toward finishing. That distinction is the whole
 purpose of this document.

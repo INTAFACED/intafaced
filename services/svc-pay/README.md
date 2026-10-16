@@ -217,7 +217,7 @@ This is the state history §6.1 requires, and it is the truth this service reaso
 
 ### NATS
 
-**svc-pay publishes no NATS subjects yet.** Not an oversight: the bus is a contract, and §15.2 / AGENT_PROTOCOL §2 require a `packages/events` catalog PR — reviewed on its own — before a producer emits anything. `intafaced.pay.payment.captured` and `intafaced.pay.settlement.completed` are the two consumers will want; they land in the catalog first.
+**svc-pay publishes no NATS subjects yet.** Not an oversight: the bus is a contract, and §15.2 / `AGENTS.md` Ship require a `packages/events` catalog PR — reviewed on its own — before a producer emits anything. `intafaced.pay.payment.captured` and `intafaced.pay.settlement.completed` are the two consumers will want; they land in the catalog first.
 
 **Consumes:** nothing.
 

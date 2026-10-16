@@ -109,13 +109,13 @@ We are not going to maintain a project board. **Product** coordination (what cha
 
 **Review is asymmetric (on purpose).** Nitro is not a code reviewer; forcing him to Approve anyone’s PRs is theater and slows shipping.
 
-| Who opened the PR                      | Before merge                                                                                                                                                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Denon**                              | Relevant verification + doctrine/money self-audit + required protection checks. Squash-merge. No Nitro Approve.                                                                                               |
-| **Shehzad** (protocol/INTACHAIN paths) | Relevant verification + self-audit + required protection checks. Squash-merge. No Nitro Approve.                                                                                                              |
-| **Nitro agent**                        | Class N/P/M: relevant verification + self-audit + required protection checks (Class M = money self-audit + second-pass). Squash-merge. Denon may review asynchronously. Class X decisions remain human-owned. |
+| Who opened the PR                      | Before merge                                                                                                                                                                                                                                                                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Denon**                              | Relevant verification + required protection checks. Money, security, or auth also needs an exact-head Opus PASS until main's "Tests (full)" check has three consecutive green push runs (`AGENTS.md` Ship rule 6). A self-audit does not replace that PASS. Squash-merge. No Nitro Approve. |
+| **Shehzad** (protocol/INTACHAIN paths) | Relevant verification + required protection checks. Money, security, or auth also needs the same exact-head Opus PASS. A self-audit does not replace that PASS. Squash-merge. No Nitro Approve.                                                                                             |
+| **Nitro agent**                        | Class N/P/M: relevant verification + required protection checks. Money, security, or auth (including Class M) needs the same exact-head Opus PASS. A self-audit or a second pass does not replace it. Squash-merge. Denon may review asynchronously. Class X decisions remain human-owned.  |
 
-**Optional, not blocking:** Nitro’s agent may post an audit comment on Denon’s PR. That is signal, not a gate.
+An audit comment on a pull request that is not money, security, or auth is signal, not a gate. It does not replace the Opus PASS on money, security, or auth.
 
 **What to actually look at when reviewing Nitro’s PR / self-auditing Denon’s** (priority order):
 
@@ -129,7 +129,7 @@ Approving something you have not read (when you _are_ the technical reviewer) is
 
 **Merge:** squash. One commit per PR on `main`, so history reads as a list of changes rather than a list of keystrokes.
 
-After merging, preserve any remaining local work, then remove the worktree from home with `git worktree remove --force <worktree-path>`. Keep the local branch. Never use `pnpm wt:rm`, `orca worktree rm`, or `git branch -D` for agent close-out.
+After merging, preserve any remaining local work, then remove the worktree from home with `git worktree remove <worktree-path>`. No `--force`. Keep the local branch. Never use `pnpm wt:rm`, `orca worktree rm`, or `git branch -D` for agent close-out.
 
 ---
 
@@ -176,7 +176,7 @@ Do **not** file an issue for everything. A tracker nobody reads is worse than no
 
 ## 5 · CI
 
-**Merge only after the merge gate passes** (AGENTS.md rule 2; `node tooling/scripts/merge-gate.mjs <pr> --head <sha>`, run from an up-to-date `origin/main` checkout). The gate compares your PR's failing checks, and the failing gate ids and test tasks inside them, with main's latest finished CI run, so it blocks only on what your PR adds. The **job name** locates a failure for the agent to investigate.
+**Merge only after the merge gate passes** (`AGENTS.md` Ship rule 5; `node tooling/scripts/merge-gate.mjs <pr> --head <sha>`, run from an up-to-date `origin/main` checkout). The gate compares your PR's failing checks, and the failing gate ids and test tasks inside them, with main's latest finished CI run, so it blocks only on what your PR adds. The **job name** locates a failure for the agent to investigate.
 
 | Check                                                                       | What it protects                                                                       |
 | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -195,7 +195,7 @@ Run local checks that exercise the changed behavior: affected tests, relevant ty
 pnpm verify    # build · typecheck · test · DoD gate
 ```
 
-**No CI spend budget, no spend throttle.** Standard GitHub-hosted runner minutes have a zero bill on this public repo; service limits and acceptable-use rules still apply. Open the PR when the unit is done; parallel pull requests stay. There is no PR cap and no review gate on how many you open. A 403 or 429 from GitHub is a stop: report the response and keep independent local work moving. Follow [`AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md) §3 for cooldowns and access restrictions. Honor required branch-protection checks. The old throttle stays deleted — [`docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md). Coordination-only PRs stay banned for noise, not cost.
+**No CI spend budget, no spend throttle.** Standard GitHub-hosted runner minutes have a zero bill on this public repo; service limits and acceptable-use rules still apply. Open the PR when the unit is done; parallel pull requests stay. There is no PR cap and no review gate on how many you open. A 403 or 429 from GitHub is a stop: report the response and keep independent local work moving. Cooldowns and access restrictions are in [`AGENTS.md`](AGENTS.md) (GitHub refusals). The same text is in [`AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md) §3. Honor required branch-protection checks. The old throttle stays deleted — [`docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md). Coordination-only PRs stay banned for noise, not cost.
 
 Agents establish merge readiness from the change, relevant checks, and actual behavior. Honor required protection checks; a green result alone does not establish that the requested behavior works. Do not ask Nitro for routine code review.
 
