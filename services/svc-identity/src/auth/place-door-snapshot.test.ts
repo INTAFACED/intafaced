@@ -38,6 +38,8 @@ describe('PlaceDoor.getApiKeyOwnership bind snapshot', () => {
       originAllowlist: [],
       domainWhitelist: [],
       ipAllowlist: [],
+      requireSignature: false,
+      requireNonEmptyIpAllowlist: false,
     });
     expect(snap && 'accountId' in snap).toBe(false);
     expect(snap && 'expiresAt' in snap).toBe(false);
@@ -69,6 +71,8 @@ describe('PlaceDoor.getApiKeyOwnership bind snapshot', () => {
       originAllowlist: ['app.example.com'],
       domainWhitelist: ['app.example.com'],
       ipAllowlist: ['203.0.113.10'],
+      requireSignature: false,
+      requireNonEmptyIpAllowlist: false,
       accountId: ACC,
       expiresAt: FUTURE,
     });

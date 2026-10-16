@@ -35,6 +35,8 @@ describe('prod boot refuses a missing IDENTITY_TOTP_SECRET_KEY', () => {
     expect(indexSrc).toMatch(/import\s*\{[^}]*assertProdTotpKey[^}]*\}\s*from\s*['"]\.\/auth\/totp-crypto\.js['"]/);
     expect(indexSrc).toMatch(/APP_ENV === ['"]prod['"]/);
     expect(indexSrc).toMatch(/assertProdTotpKey\(\s*env\s*\)/);
+    expect(indexSrc).toMatch(/assertSigningEncKey\(\s*env\s*\)/);
+    expect(indexSrc).toMatch(/parseTotpSecretKey\(\s*env\.API_KEY_SIGNING_ENC_KEY\s*\)/);
   });
 });
 

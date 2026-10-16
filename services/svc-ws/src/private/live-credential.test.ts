@@ -89,6 +89,74 @@ describe('assertLiveCredential — API key (kid present)', () => {
     ).rejects.toMatchObject({ code: 'auth.api_key_denied' });
   });
 
+  it('refuses a key-minted JWT when a signature or a real IP allowlist is required', async () => {
+    await expect(
+      assertLiveCredential(port({ key: { ...LIVE_KEY, requireSignature: true } }), {
+        userId: USER,
+        sessionId: SESSION,
+        apiKeyId: KEY,
+      }),
+    ).rejects.toMatchObject({ code: 'auth.signature_required' });
+    await expect(
+      assertLiveCredential(port({ key: { ...LIVE_KEY, requireNonEmptyIpAllowlist: true, ipAllowlist: [] } }), {
+        userId: USER,
+        sessionId: SESSION,
+        apiKeyId: KEY,
+        callerIp: '203.0.113.10',
+      }),
+    ).rejects.toMatchObject({ code: 'auth.ip_allowlist_required' });
+    await expect(
+      assertLiveCredential(port({ key: { ...LIVE_KEY, requireNonEmptyIpAllowlist: true, ipAllowlist: ['0.0.0.0/0'] } }), {
+        userId: USER,
+        sessionId: SESSION,
+        apiKeyId: KEY,
+        callerIp: '203.0.113.10',
+      }),
+    ).rejects.toMatchObject({ code: 'auth.ip_allowlist_required' });
+    await expect(
+      assertLiveCredential(port({ key: { ...LIVE_KEY, requireNonEmptyIpAllowlist: true, ipAllowlist: ['::/0'] } }), {
+        userId: USER,
+        sessionId: SESSION,
+        apiKeyId: KEY,
+      }),
+    ).rejects.toMatchObject({ code: 'auth.ip_allowlist_required' });
+    await expect(
+      assertLiveCredential(port({ key: { ...LIVE_KEY, requireNonEmptyIpAllowlist: true, ipAllowlist: ['203.0.113.10'] } }), {
+        userId: USER,
+        sessionId: SESSION,
+        apiKeyId: KEY,
+        callerIp: '203.0.113.10',
+      }),
+    ).resolves.toMatchObject({ id: KEY });
+    await expect(assertLiveCredential(port({ session: LIVE }), { userId: USER, sessionId: SESSION })).resolves.toMatchObject({
+      id: SESSION,
+    });
+  });
+
+  it('reads the signing flags off the ownership body', async () => {
+    const client = createIdentityOwnershipClient({
+      baseUrl: 'http://identity.test',
+      headers: {},
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            id: KEY,
+            userId: USER,
+            revoked: false,
+            requireSignature: true,
+            requireNonEmptyIpAllowlist: true,
+            ipAllowlist: ['203.0.113.10'],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    });
+    await expect(client.getApiKey(KEY)).resolves.toMatchObject({
+      requireSignature: true,
+      requireNonEmptyIpAllowlist: true,
+      ipAllowlist: ['203.0.113.10'],
+    });
+  });
+
   it('revoked is auth.api_key_revoked, not denied', async () => {
     await expect(
       assertLiveCredential(port({ key: { ...LIVE_KEY, revoked: true } }), { userId: USER, sessionId: SESSION, apiKeyId: KEY }),
