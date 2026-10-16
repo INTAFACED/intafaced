@@ -130,6 +130,52 @@ export const conversionResolveConfirmResultSchema = z
   })
   .strict();
 
+/** First founder. The body names the late-fill audit and how it was settled. No amounts. */
+export const conversionLateFillProposeInputSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    auditId: z.string().uuid(),
+    /** How the late fill was settled. A sentence, not a quantity. */
+    settlement: z.string().trim().min(1).max(500),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export const conversionLateFillProposeResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum(['pending', 'missing', 'conflict', 'already_acked']),
+    changeHash: conversionChangeHashSchema.nullable(),
+  })
+  .strict();
+
+/** Second founder. Same body as a resolve confirm. `settlement` is what was recorded. */
+export const conversionLateFillConfirmResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum(['confirmed', 'rejected', 'missing', 'hash_mismatch', 'same_founder', 'not_pending']),
+    changeHash: conversionChangeHashSchema.nullable(),
+    settlement: z.string().nullable(),
+  })
+  .strict();
+
+export const conversionLateFillSweepResultSchema = z
+  .object({
+    checked: z.number().int().nonnegative(),
+    found: z.number().int().nonnegative(),
+    errors: z
+      .array(
+        z
+          .object({
+            conversionId: z.string().uuid(),
+            code: z.string().min(1),
+          })
+          .strict(),
+      )
+      .max(500),
+  })
+  .strict();
+
 export const conversionHoldSweepResultSchema = z
   .object({
     released: z.number().int().nonnegative(),

@@ -20,6 +20,10 @@ import {
   conversionResolveProposeResultSchema,
   conversionResolveConfirmInputSchema,
   conversionResolveConfirmResultSchema,
+  conversionLateFillProposeInputSchema,
+  conversionLateFillProposeResultSchema,
+  conversionLateFillConfirmResultSchema,
+  conversionLateFillSweepResultSchema,
   conversionHoldSweepResultSchema,
   merchantMetricsInputSchema,
   merchantMetricsSnapshotSchema,
@@ -206,6 +210,41 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
               if (!conversion) return notBuilt('founderAdmin.conversion.holds.sweep');
               try {
                 return await conversion.sweepOrphanHolds((ctx as FounderContext).founderUserId);
+              } catch (error) {
+                throw mapConversionError(error);
+              }
+            }),
+        }),
+        lateFill: router({
+          propose: founder
+            .input(conversionLateFillProposeInputSchema)
+            .output(conversionLateFillProposeResultSchema)
+            .mutation(async ({ ctx, input }) => {
+              if (!conversion) return notBuilt('founderAdmin.conversion.lateFill.propose');
+              try {
+                return await conversion.proposeLateFillAck((ctx as FounderContext).founderUserId, input);
+              } catch (error) {
+                throw mapConversionError(error);
+              }
+            }),
+          confirm: founder
+            .input(conversionResolveConfirmInputSchema)
+            .output(conversionLateFillConfirmResultSchema)
+            .mutation(async ({ ctx, input }) => {
+              if (!conversion) return notBuilt('founderAdmin.conversion.lateFill.confirm');
+              try {
+                return await conversion.confirmLateFillAck((ctx as FounderContext).founderUserId, input);
+              } catch (error) {
+                throw mapConversionError(error);
+              }
+            }),
+          sweep: founder
+            .input(z.object({}).strict())
+            .output(conversionLateFillSweepResultSchema)
+            .mutation(async ({ ctx }) => {
+              if (!conversion) return notBuilt('founderAdmin.conversion.lateFill.sweep');
+              try {
+                return await conversion.sweepLateFills((ctx as FounderContext).founderUserId, { force: true });
               } catch (error) {
                 throw mapConversionError(error);
               }

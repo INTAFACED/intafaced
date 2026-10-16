@@ -201,6 +201,19 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     expectedChangeHash: hash,
   }),
   'founderAdmin.conversion.holds.sweep': () => ({}),
+  'founderAdmin.conversion.lateFill.propose': () => ({
+    requestId: randomUUID(),
+    auditId: ghost(),
+    settlement: 'reviewed outside the book',
+    reason: 'isolation drill',
+  }),
+  'founderAdmin.conversion.lateFill.confirm': () => ({
+    requestId: randomUUID(),
+    decision: 'reject' as const,
+    reason: 'isolation drill',
+    expectedChangeHash: hash,
+  }),
+  'founderAdmin.conversion.lateFill.sweep': () => ({}),
   // W15 operator notes: A is a real merchant, and the seeded note is live exactly until the positive control retracts it.
   'founderAdmin.ops.notes.add': (w) => ({ merchantId: w.e.A.merchantId, body: 'isolation drill', tags: ['drill'], flagged: false }),
   'founderAdmin.ops.notes.list': (w) => ({ merchantId: w.e.A.merchantId, limit: 10 }),

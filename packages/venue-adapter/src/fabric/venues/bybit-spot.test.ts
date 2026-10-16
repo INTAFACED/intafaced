@@ -970,6 +970,43 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(placed.feeAsset).toBe('USDT');
   });
 
+  it('finds a closed order older than 7 days when the history window is given', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const placedAt = 1_700_000_000_000 - 8 * day;
+    const now = placedAt + 8 * day;
+    const window = { startTimeMs: placedAt - 60_000, endTimeMs: placedAt + 10 * 60 * 1000 };
+    const old = {
+      ...openRow,
+      orderStatus: 'Filled',
+      cumExecQty: '1',
+      avgPrice: '1',
+      cumExecFee: '0',
+      createdTime: String(placedAt),
+    };
+    const http: HttpPort & { requests: string[] } = {
+      requests: [],
+      async get(url: string) {
+        this.requests.push(url);
+        const query = new URL(url).searchParams;
+        const hit = query.get('startTime') === String(window.startTimeMs) && query.get('endTime') === String(window.endTimeMs);
+        return { status: 200, body: envelope(hit ? [old] : []), header: () => null };
+      },
+      async post() {
+        throw new Error('history lookup is a GET');
+      },
+    };
+    const trade = new BybitSpotTrade(keys, { http, clock: () => now });
+    await expect(trade.fetchClosedOrder('BTC/USDT', 'abc')).resolves.toBeNull();
+    expect(http.requests[0]).toContain('/v5/order/history');
+    expect(http.requests[0]).not.toContain('startTime=');
+    const found = await trade.fetchClosedOrder('BTC/USDT', 'abc', window);
+    expect(found?.status).toBe('filled');
+    expect(found?.clientOrderId).toBe('abc');
+    expect(http.requests[1]).toContain(`startTime=${window.startTimeMs}`);
+    expect(http.requests[1]).toContain(`endTime=${window.endTimeMs}`);
+    expect(window.endTimeMs).toBeLessThan(now - 7 * day);
+  });
+
   it('an empty history list is a miss, and a long client id never reaches HTTP', async () => {
     const http = new FakeHttp().queue(envelope([]));
     const trade = new BybitSpotTrade(keys, { http, clock: () => 1 });

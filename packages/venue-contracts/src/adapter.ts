@@ -216,7 +216,8 @@ export interface TradeAdapter {
    * Absent on venues whose `fetchOrder` already returns closed orders.
    * `null` is a confirmed miss. Any other failure throws.
    * `window` is the claim interval a history search must cover before a miss
-   * is real. Binance uses it for allOrders and myTrades.
+   * is real. Binance uses it for allOrders and myTrades. Bybit passes it as
+   * startTime/endTime on order history, which otherwise returns only 7 days.
    */
   fetchClosedOrder?(symbol: string, clientOrderId: string, window?: ClosedOrderWindow): Promise<VenueOrder | null>;
   openOrders(symbol?: string): Promise<VenueOrder[]>;

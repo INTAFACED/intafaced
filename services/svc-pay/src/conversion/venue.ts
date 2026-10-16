@@ -278,6 +278,8 @@ export interface MemoryConversionVenue extends ConversionVenue {
   /** Latest order for a client id, open or closed. Assertions read this. Lookups do not. */
   readonly orders: Map<string, VenueOrder>;
   readonly lastPlace: () => PlaceOrderRequest | null;
+  /** Windows passed to closed-order lookups, in order. */
+  readonly closedWindows: () => ReadonlyArray<ClosedOrderWindow | undefined>;
   /**
    * The next place accepts the order, then throws a timeout. The following
    * `misses` realtime and history lookups report that the order does not exist.
@@ -348,6 +350,7 @@ export function createMemoryConversionVenue(opts: {
   let lagAfterTimeout = 0;
   let timeoutNext = false;
   let last: PlaceOrderRequest | null = null;
+  const closedLookups: Array<ClosedOrderWindow | undefined> = [];
   const clock = opts.now ?? (() => new Date());
 
   function hidden(): boolean {
@@ -422,6 +425,7 @@ export function createMemoryConversionVenue(opts: {
     orders,
     placeCount: () => places,
     lastPlace: () => last,
+    closedWindows: () => closedLookups,
     armLag(misses: number) {
       lagAfterTimeout = misses;
       timeoutNext = true;
@@ -465,7 +469,8 @@ export function createMemoryConversionVenue(opts: {
       if (hidden()) return null;
       return open.get(clientOrderId) ?? null;
     },
-    async fetchClosedOrder(_symbol, clientOrderId) {
+    async fetchClosedOrder(_symbol, clientOrderId, window) {
+      closedLookups.push(window);
       if (hidden()) return null;
       return history.get(clientOrderId) ?? null;
     },

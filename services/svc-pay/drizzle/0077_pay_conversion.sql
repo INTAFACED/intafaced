@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS "pay"."conversion_orders" (
   -- Set when the row becomes `placing`. The absent-resolve age uses this instant.
   -- A failure-code stamp must not move it, or the founder hash and the floor drift.
   "placing_at"          timestamptz,
+  -- Last successful late-fill history check. A venue error leaves it null so
+  -- the next sweep retries. It is not `updated_at`: stamping it must not move
+  -- a founder hash.
+  "last_checked_at"     timestamptz,
   "created_at"          timestamptz NOT NULL DEFAULT now(),
   "updated_at"          timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "conversion_orders_pair" CHECK ("from_asset" = 'USD' AND "to_asset" = 'USDT'),
@@ -99,9 +103,9 @@ CREATE INDEX IF NOT EXISTS "conversion_orders_open_idx"
   ON "pay"."conversion_orders" ("from_asset", "status");
 CREATE INDEX IF NOT EXISTS "conversion_orders_merchant_idx"
   ON "pay"."conversion_orders" ("merchant_id", "created_at" DESC, "id" DESC);
--- Late-fill scan: rows closed as an absent resolve, newest first.
+-- Late-fill scan: rows closed as an absent resolve, unchecked first.
 CREATE INDEX IF NOT EXISTS "conversion_orders_resolve_absent_idx"
-  ON "pay"."conversion_orders" ("updated_at" DESC)
+  ON "pay"."conversion_orders" ("last_checked_at" NULLS FIRST, "id")
   WHERE "failure_code" = 'pay.conversion_resolve_absent';
 
 -- A founder proposes a resolve; a different founder confirms the same hash.
@@ -143,3 +147,32 @@ CREATE TABLE IF NOT EXISTS "pay"."conversion_audit" (
 
 CREATE INDEX IF NOT EXISTS "conversion_audit_order_idx"
   ON "pay"."conversion_audit" ("conversion_id", "created_at" DESC);
+CREATE INDEX IF NOT EXISTS "conversion_audit_late_fill_idx"
+  ON "pay"."conversion_audit" ("id")
+  WHERE "action" = 'pay.conversion_late_fill';
+
+-- A late fill stays closed until a different founder confirms this row.
+-- The hash binds the audit row and the settlement sentence. No fill numbers.
+CREATE TABLE IF NOT EXISTS "pay"."conversion_late_fill_acks" (
+  "request_id"     uuid PRIMARY KEY,
+  "audit_id"       uuid NOT NULL REFERENCES "pay"."conversion_audit"("id"),
+  "conversion_id"  uuid NOT NULL REFERENCES "pay"."conversion_orders"("id"),
+  "change_hash"    text NOT NULL,
+  "settlement"     text NOT NULL,
+  "reason"         text NOT NULL,
+  "proposed_by"    text NOT NULL,
+  "status"         text NOT NULL,
+  "confirmed_by"   text,
+  "created_at"     timestamptz NOT NULL DEFAULT now(),
+  "decided_at"     timestamptz,
+  CONSTRAINT "conversion_late_fill_ack_status" CHECK ("status" IN ('pending', 'confirmed', 'rejected')),
+  CONSTRAINT "conversion_late_fill_ack_hash" CHECK ("change_hash" ~ '^sha256:[0-9a-f]{64}$'),
+  CONSTRAINT "conversion_late_fill_ack_settlement" CHECK (length(btrim("settlement")) > 0 AND length("settlement") <= 500),
+  CONSTRAINT "conversion_late_fill_ack_reason" CHECK (length(btrim("reason")) > 0 AND length("reason") <= 500),
+  CONSTRAINT "conversion_late_fill_ack_actor" CHECK (length(btrim("proposed_by")) > 0)
+);
+
+-- One open or confirmed acknowledgement per audit. A rejection can be replaced.
+CREATE UNIQUE INDEX IF NOT EXISTS "conversion_late_fill_acks_open_idx"
+  ON "pay"."conversion_late_fill_acks" ("audit_id")
+  WHERE "status" IN ('pending', 'confirmed');

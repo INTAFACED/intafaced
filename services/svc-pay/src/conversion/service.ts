@@ -19,7 +19,7 @@ import type { PlaceOrderRequest, VenueOrder } from '@intafaced/venue-contracts';
 import type { ConversionOrder, ConversionQuote, ConversionQuoteInput } from '@intafaced/contracts';
 import { loadApplicableRules, loadMerchantControl, monthlyIntake } from '../control/store.js';
 import { computePricing, resolvePricingRule } from '../control/pricing.js';
-import { findBlockingHalt, PayHaltStore } from '../halts/store.js';
+import { findBlockingHalt } from '../halts/store.js';
 import { postPayLedger } from '../ledger-receipt.js';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { requireMerchantPermission } from '../merchant-ops/roles.js';
@@ -45,9 +45,20 @@ const OPEN_AT_VENUE = new Set<VenueOrder['status']>(['pending', 'open', 'partial
 export const CONVERSION_ABSENT_FLOOR_MS = 15 * 60 * 1000;
 /** Second miss must be at least this long after the miss stored on the proposal. */
 const ABSENT_LOOK_GAP_MS = 5 * 60 * 1000;
-const LATE_FILL_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
-const VENUE_WINDOW_LEAD_MS = 60 * 1000;
-const LATE_FILL_HALT_REASON = 'pay.conversion_late_fill';
+/**
+ * History search around `placing_at`. Binance accepts an order only inside
+ * recvWindow of the request, so a wider scan is not where a late fill can be.
+ */
+export const CONVERSION_VENUE_WINDOW_LEAD_MS = 60 * 1000;
+export const CONVERSION_VENUE_WINDOW_TAIL_MS = 10 * 60 * 1000;
+/**
+ * How often the in-process sweep retries a row it already checked. Technical
+ * poll, not a quote TTL. A venue error does not stamp the row, so the next
+ * tick retries it without waiting out this gap.
+ */
+export const CONVERSION_LATE_FILL_RECHECK_MS = 60 * 1000;
+/** One sweep pass. The next tick continues. Not a business cap. */
+const LATE_FILL_SWEEP_BATCH = 500;
 const LATE_FILL_AUDIT = 'pay.conversion_late_fill';
 
 export interface ConversionServiceDeps {
@@ -113,6 +124,8 @@ interface OrderRow {
   failure_code: string | null;
   venue_order_id: string | null;
   placing_at: Date | null;
+  /** Last successful late-fill history check. Null after a venue error, so the next tick retries. */
+  last_checked_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -129,7 +142,8 @@ const QUOTE_COLS = `id, merchant_id, settlement_id, from_asset, to_asset, from_a
 
 const ORDER_COLS = `id, request_id, quote_id, merchant_id, settlement_id, attempt, client_order_id, venue_id, symbol,
   status, from_asset, to_asset, from_amount::text, filled_from_amount::text, filled_to_amount::text,
-  fee_amount::text, spread_amount::text, minimum_output::text, failure_code, venue_order_id, placing_at, created_at, updated_at`;
+  fee_amount::text, spread_amount::text, minimum_output::text, failure_code, venue_order_id, placing_at,
+  last_checked_at, created_at, updated_at`;
 
 function callerOf(principal: Principal | null): ConversionCaller {
   if (!principal?.userId) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
@@ -566,6 +580,164 @@ export class ConversionService {
     return { released, failures };
   }
 
+  /**
+   * First founder names how a late fill was settled. The hash binds the audit
+   * row and that sentence. No amount is taken from the caller, and nothing is booked.
+   */
+  async proposeLateFillAck(
+    founderUserId: string,
+    input: { requestId: string; auditId: string; settlement: string; reason: string },
+  ): Promise<{ requestId: string; status: 'pending' | 'missing' | 'conflict' | 'already_acked'; changeHash: string | null }> {
+    const actor = founderUserId.trim().toLowerCase();
+    if (!actor) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
+    const settlement = input.settlement.trim();
+    const reason = input.reason.trim();
+    if (!settlement || !reason) throw new ConversionError('pay.conversion_late_fill_ack_invalid', 'BAD_REQUEST');
+    const existing = await this.lateFillAckByRequest(input.requestId);
+    if (existing) {
+      if (existing.audit_id !== input.auditId || existing.settlement !== settlement) {
+        return { requestId: input.requestId, status: 'conflict', changeHash: null };
+      }
+      return {
+        requestId: input.requestId,
+        status: existing.status === 'confirmed' ? 'already_acked' : existing.status === 'pending' ? 'pending' : 'conflict',
+        changeHash: existing.change_hash,
+      };
+    }
+    const audit = await this.lateFillAudit(input.auditId);
+    if (!audit) return { requestId: input.requestId, status: 'missing', changeHash: null };
+    const confirmed = await this.lateFillAckForAudit(audit.id, 'confirmed');
+    if (confirmed) return { requestId: input.requestId, status: 'already_acked', changeHash: confirmed.change_hash };
+    const pending = await this.lateFillAckForAudit(audit.id, 'pending');
+    if (pending) return { requestId: input.requestId, status: 'conflict', changeHash: null };
+    const changeHash = this.lateFillHash(audit, settlement);
+    try {
+      await this.deps.sql`
+        INSERT INTO pay.conversion_late_fill_acks (
+          request_id, audit_id, conversion_id, change_hash, settlement, reason, proposed_by, status
+        ) VALUES (
+          ${input.requestId}, ${audit.id}, ${audit.conversion_id}, ${changeHash}, ${settlement}, ${reason}, ${actor}, 'pending'
+        )
+      `;
+    } catch (error) {
+      const pg = error as { code?: string } | null;
+      if (pg?.code === '23505') return { requestId: input.requestId, status: 'conflict', changeHash: null };
+      throw error;
+    }
+    await this.audit(audit.conversion_id, 'late_fill_ack_proposed', actor, null, { changeHash, auditId: audit.id });
+    return { requestId: input.requestId, status: 'pending', changeHash };
+  }
+
+  /**
+   * Second founder confirms the same hash. Confirming records the settlement
+   * sentence. It does not book the fill and it does not clear a halt.
+   */
+  async confirmLateFillAck(
+    founderUserId: string,
+    input: { requestId: string; decision: 'confirm' | 'reject'; reason: string; expectedChangeHash: string },
+  ): Promise<{
+    requestId: string;
+    status: 'confirmed' | 'rejected' | 'missing' | 'hash_mismatch' | 'same_founder' | 'not_pending';
+    changeHash: string | null;
+    settlement: string | null;
+  }> {
+    const actor = founderUserId.trim().toLowerCase();
+    if (!actor) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
+    const proposal = await this.lateFillAckByRequest(input.requestId);
+    if (!proposal) return { requestId: input.requestId, status: 'missing', changeHash: null, settlement: null };
+    if (proposal.status === 'confirmed') {
+      return { requestId: input.requestId, status: 'confirmed', changeHash: proposal.change_hash, settlement: proposal.settlement };
+    }
+    if (proposal.status === 'rejected') {
+      return { requestId: input.requestId, status: 'rejected', changeHash: proposal.change_hash, settlement: proposal.settlement };
+    }
+    if (!changeHashesEqual(proposal.change_hash, input.expectedChangeHash)) {
+      return { requestId: input.requestId, status: 'hash_mismatch', changeHash: proposal.change_hash, settlement: null };
+    }
+    if (proposal.proposed_by === actor) {
+      return { requestId: input.requestId, status: 'same_founder', changeHash: proposal.change_hash, settlement: proposal.settlement };
+    }
+    const audit = await this.lateFillAudit(proposal.audit_id);
+    if (!audit || !changeHashesEqual(this.lateFillHash(audit, proposal.settlement), proposal.change_hash)) {
+      return { requestId: input.requestId, status: 'not_pending', changeHash: proposal.change_hash, settlement: proposal.settlement };
+    }
+    if (input.decision === 'reject') {
+      const rejected = await this.deps.sql<Array<{ request_id: string }>>`
+        UPDATE pay.conversion_late_fill_acks
+           SET status = 'rejected', confirmed_by = ${actor}, decided_at = now()
+         WHERE request_id = ${input.requestId} AND status = 'pending'
+         RETURNING request_id
+      `;
+      if (!rejected[0]) {
+        return { requestId: input.requestId, status: 'not_pending', changeHash: proposal.change_hash, settlement: proposal.settlement };
+      }
+      await this.audit(audit.conversion_id, 'late_fill_ack_rejected', proposal.proposed_by, actor, { changeHash: proposal.change_hash });
+      return { requestId: input.requestId, status: 'rejected', changeHash: proposal.change_hash, settlement: proposal.settlement };
+    }
+    const updated = await this.deps.sql<Array<{ request_id: string }>>`
+      UPDATE pay.conversion_late_fill_acks
+         SET status = 'confirmed', confirmed_by = ${actor}, decided_at = now()
+       WHERE request_id = ${input.requestId} AND status = 'pending'
+       RETURNING request_id
+    `;
+    if (!updated[0]) {
+      return { requestId: input.requestId, status: 'not_pending', changeHash: proposal.change_hash, settlement: proposal.settlement };
+    }
+    await this.audit(audit.conversion_id, 'pay.conversion_late_fill_acknowledged', proposal.proposed_by, actor, {
+      changeHash: proposal.change_hash,
+      auditId: audit.id,
+      settlement: proposal.settlement,
+    });
+    return { requestId: input.requestId, status: 'confirmed', changeHash: proposal.change_hash, settlement: proposal.settlement };
+  }
+
+  /**
+   * Re-query resolve-absent rows for a fill the earlier miss did not see.
+   * Founder calls pass `force` so a recent stamp does not skip the row.
+   * A venue or rate error is counted and left unstamped. It does not throw.
+   */
+  async sweepLateFills(
+    actorId: string,
+    opts?: { force?: boolean },
+  ): Promise<{ checked: number; found: number; errors: Array<{ conversionId: string; code: string }> }> {
+    const actor = actorId.trim().toLowerCase();
+    if (!actor) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
+    const force = opts?.force === true;
+    const due = new Date(this.now().getTime() - CONVERSION_LATE_FILL_RECHECK_MS);
+    const rows = await this.deps.sql<OrderRow[]>`
+      SELECT ${this.deps.sql.unsafe(ORDER_COLS)} FROM pay.conversion_orders o
+       WHERE o.status = 'failed'
+         AND o.failure_code = 'pay.conversion_resolve_absent'
+         AND NOT EXISTS (
+           SELECT 1 FROM pay.conversion_audit a
+            WHERE a.conversion_id = o.id AND a.action = ${LATE_FILL_AUDIT}
+         )
+         AND (${force} OR o.last_checked_at IS NULL OR o.last_checked_at <= ${due})
+       ORDER BY o.last_checked_at NULLS FIRST, o.id
+       LIMIT ${LATE_FILL_SWEEP_BATCH}
+    `;
+    let checked = 0;
+    let found = 0;
+    const errors: Array<{ conversionId: string; code: string }> = [];
+    for (const row of rows) {
+      let evidence: VenueOrder | null;
+      try {
+        evidence = await this.lookup(row);
+      } catch (error) {
+        errors.push({ conversionId: row.id, code: sweepFailureCode(error) });
+        continue;
+      }
+      checked += 1;
+      await this.deps.sql`
+        UPDATE pay.conversion_orders SET last_checked_at = ${this.now()} WHERE id = ${row.id}
+      `;
+      if (!evidence || evidence.filled <= 0n) continue;
+      const inserted = await this.recordLateFill(row, evidence, actor);
+      if (inserted) found += 1;
+    }
+    return { checked, found, errors };
+  }
+
   private resolveHash(row: OrderRow): string {
     return founderChangeHash(
       { kind: 'conversion_resolve', conversionId: row.id, clientOrderId: row.client_order_id, status: row.status },
@@ -871,28 +1043,40 @@ export class ConversionService {
     };
   }
 
-  /** Realtime first, then closed-order history over the claim window. A miss is null only when both say so. */
+  /**
+   * Realtime first, then closed-order history inside the claim window
+   * (`placing_at` minus one minute through `placing_at` plus ten minutes).
+   * A miss is null only when both say so.
+   */
+  private historyWindow(row: OrderRow): { startTimeMs: number; endTimeMs: number; orderId: string | null } {
+    const claim = (row.placing_at ?? row.created_at).getTime();
+    return {
+      startTimeMs: claim - CONVERSION_VENUE_WINDOW_LEAD_MS,
+      endTimeMs: claim + CONVERSION_VENUE_WINDOW_TAIL_MS,
+      orderId: row.venue_order_id,
+    };
+  }
+
   private async lookup(row: OrderRow): Promise<VenueOrder | null> {
     const live = await this.deps.venue.fetchOrder(row.symbol, row.client_order_id);
     if (live) return live;
-    const claim = row.placing_at ?? row.created_at;
-    return this.deps.venue.fetchClosedOrder(row.symbol, row.client_order_id, {
-      startTimeMs: claim.getTime() - VENUE_WINDOW_LEAD_MS,
-      endTimeMs: this.now().getTime(),
-      orderId: row.venue_order_id,
-    });
+    return this.deps.venue.fetchClosedOrder(row.symbol, row.client_order_id, this.historyWindow(row));
   }
 
   private async reconcile(row: OrderRow): Promise<ConversionOrder> {
     const found = await this.lookup(row);
     if (found) return orderView(await this.book(row, found));
     if (row.status !== 'placing') return orderView(row);
+    const claim = row.placing_at ?? row.created_at;
+    const age = this.now().getTime() - claim.getTime();
+    // Younger than the technical floor: the place is still in progress.
+    // PAY_CONVERSION_PLACING_MAX_AGE_MS is not read, so an unset knob cannot
+    // fail the loser of a live race.
+    if (age < CONVERSION_ABSENT_FLOOR_MS) return orderView(row);
     if (this.deps.placingMaxAgeMs === null) {
       throw new ConversionError('pay.conversion_placing_retry_unconfigured', 'PRECONDITION_FAILED');
     }
-    const claim = row.placing_at ?? row.created_at;
-    const age = this.now().getTime() - claim.getTime();
-    if (age < this.deps.placingMaxAgeMs) return orderView(row);
+    if (age < Math.max(this.deps.placingMaxAgeMs, CONVERSION_ABSENT_FLOOR_MS)) return orderView(row);
     return orderView(await this.noteReconcile(row));
   }
 
@@ -1171,52 +1355,106 @@ export class ConversionService {
     }
   }
 
-  /** New quotes and executes stop while a late fill is unresolved. */
+  /**
+   * New quotes and executes stop while any late-fill audit lacks a confirmed
+   * acknowledgement. The halt switch is not this gate: clearing it does not
+   * resume conversion. Detection does not run here.
+   */
   private async refuseIfLateFill(): Promise<void> {
-    const newly = await this.detectLateFills();
-    if (newly || (await this.lateFillHalted())) {
-      throw new ConversionError('pay.conversion_late_fill_halt', 'SERVICE_UNAVAILABLE');
-    }
-  }
-
-  private async lateFillHalted(): Promise<boolean> {
-    const rows = await this.deps.sql<Array<{ reason: string | null }>>`
-      SELECT reason FROM pay.halts
-       WHERE scope = 'conversion' AND target = 'global' AND halted AND reason = ${LATE_FILL_HALT_REASON}
+    const rows = await this.deps.sql<Array<{ id: string }>>`
+      SELECT a.id FROM pay.conversion_audit a
+       WHERE a.action = ${LATE_FILL_AUDIT}
+         AND NOT EXISTS (
+           SELECT 1 FROM pay.conversion_late_fill_acks k
+            WHERE k.audit_id = a.id AND k.status = 'confirmed'
+         )
        LIMIT 1
     `;
-    return rows.length > 0;
+    if (rows[0]) throw new ConversionError('pay.conversion_late_fill_halt', 'SERVICE_UNAVAILABLE');
   }
 
-  /** Re-query absent resolves from the last 7 days. A fill is audited and halts conversion. Nothing is booked. */
-  private async detectLateFills(): Promise<boolean> {
-    const since = new Date(this.now().getTime() - LATE_FILL_LOOKBACK_MS);
-    const rows = await this.deps.sql<OrderRow[]>`
-      SELECT ${this.deps.sql.unsafe(ORDER_COLS)} FROM pay.conversion_orders
-       WHERE status = 'failed'
-         AND failure_code = 'pay.conversion_resolve_absent'
-         AND updated_at >= ${since}
+  private lateFillHash(audit: { id: string; conversion_id: string; detail: unknown; created_at: Date }, settlement: string): string {
+    return founderChangeHash(
+      {
+        kind: 'conversion_late_fill_ack',
+        auditId: audit.id,
+        conversionId: audit.conversion_id,
+        settlement,
+        detail: audit.detail,
+      },
+      new Date(audit.created_at).toISOString(),
+    );
+  }
+
+  private async lateFillAudit(auditId: string): Promise<{
+    id: string;
+    conversion_id: string;
+    detail: unknown;
+    created_at: Date;
+  } | null> {
+    const rows = await this.deps.sql<Array<{ id: string; conversion_id: string; detail: unknown; created_at: Date }>>`
+      SELECT id, conversion_id, detail, created_at FROM pay.conversion_audit
+       WHERE id = ${auditId} AND action = ${LATE_FILL_AUDIT}
     `;
-    let newly = false;
-    for (const row of rows) {
-      const evidence = await this.lookup(row);
-      if (!evidence || evidence.filled <= 0n) continue;
-      const seen = await this.deps.sql<Array<{ id: string }>>`
+    return rows[0] ?? null;
+  }
+
+  private async lateFillAckByRequest(requestId: string): Promise<{
+    request_id: string;
+    audit_id: string;
+    conversion_id: string;
+    change_hash: string;
+    settlement: string;
+    proposed_by: string;
+    status: string;
+  } | null> {
+    const rows = await this.deps.sql<
+      Array<{
+        request_id: string;
+        audit_id: string;
+        conversion_id: string;
+        change_hash: string;
+        settlement: string;
+        proposed_by: string;
+        status: string;
+      }>
+    >`
+      SELECT request_id, audit_id, conversion_id, change_hash, settlement, proposed_by, status
+        FROM pay.conversion_late_fill_acks
+       WHERE request_id = ${requestId}
+    `;
+    return rows[0] ?? null;
+  }
+
+  private async lateFillAckForAudit(auditId: string, status: 'pending' | 'confirmed'): Promise<{ change_hash: string } | null> {
+    const rows = await this.deps.sql<Array<{ change_hash: string }>>`
+      SELECT change_hash FROM pay.conversion_late_fill_acks
+       WHERE audit_id = ${auditId} AND status = ${status}
+       LIMIT 1
+    `;
+    return rows[0] ?? null;
+  }
+
+  /** Insert the late-fill audit once. A second sweeper sees the row and does not insert again. */
+  private async recordLateFill(row: OrderRow, evidence: VenueOrder, actor: string): Promise<boolean> {
+    return this.deps.sql.begin(async (raw) => {
+      const tx = raw as unknown as Sql;
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.conversion.late:${row.id}`}))`;
+      const seen = await tx<Array<{ id: string }>>`
         SELECT id FROM pay.conversion_audit
          WHERE conversion_id = ${row.id} AND action = ${LATE_FILL_AUDIT}
          LIMIT 1
       `;
-      if (seen[0]) continue;
-      await this.audit(row.id, LATE_FILL_AUDIT, 'late-fill', null, {
-        venueOrderId: evidence.venueOrderId,
-        filled: formatAmount(evidence.filled),
-      });
-      newly = true;
-    }
-    if (newly) {
-      await new PayHaltStore(this.deps.sql, { failures: null }).trip('conversion', { level: 'global' }, LATE_FILL_HALT_REASON);
-    }
-    return newly;
+      if (seen[0]) return false;
+      await tx`
+        INSERT INTO pay.conversion_audit (id, conversion_id, action, actor_id, approver_id, detail)
+        VALUES (
+          ${randomUUID()}, ${row.id}, ${LATE_FILL_AUDIT}, ${actor}, ${null},
+          ${this.deps.sql.json({ venueOrderId: evidence.venueOrderId, filled: formatAmount(evidence.filled) } as never)}
+        )
+      `;
+      return true;
+    });
   }
 
   private async quoteById(id: string): Promise<QuoteRow | null> {

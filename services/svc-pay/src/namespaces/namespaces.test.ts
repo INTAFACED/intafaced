@@ -82,6 +82,15 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
     input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
   },
   'founderAdmin.conversion.holds.sweep': { founder: true, input: {} },
+  'founderAdmin.conversion.lateFill.propose': {
+    founder: true,
+    input: { requestId: id(), auditId: id(), settlement: 'reviewed outside the book', reason: 'drill' },
+  },
+  'founderAdmin.conversion.lateFill.confirm': {
+    founder: true,
+    input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
+  },
+  'founderAdmin.conversion.lateFill.sweep': { founder: true, input: {} },
 };
 
 const userId = id();

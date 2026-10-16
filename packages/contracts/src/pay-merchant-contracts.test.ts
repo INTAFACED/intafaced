@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PAY_CAP_KINDS,
   PAY_HALT_SCOPES,
+  conversionLateFillProposeInputSchema,
   conversionQuoteInputSchema,
   conversionResolveConfirmInputSchema,
   conversionResolveProposeInputSchema,
@@ -59,6 +60,15 @@ describe('pay contracts: money and ids', () => {
     };
     expect(conversionResolveConfirmInputSchema.safeParse(confirm).success).toBe(true);
     expect(conversionResolveConfirmInputSchema.safeParse({ ...confirm, filledFromAmount: '1' }).success).toBe(false);
+    const lateFill = {
+      requestId: randomUUID(),
+      auditId: randomUUID(),
+      settlement: 'customer made whole outside the book',
+      reason: 'reviewed',
+    };
+    expect(conversionLateFillProposeInputSchema.safeParse(lateFill).success).toBe(true);
+    expect(conversionLateFillProposeInputSchema.safeParse({ ...lateFill, filled: '1' }).success).toBe(false);
+    expect(conversionLateFillProposeInputSchema.safeParse({ ...lateFill, settlement: '   ' }).success).toBe(false);
     expect(payCapSchema.safeParse({ kind: 'daily_intake', assetCode: 'USD', limit: 1000 }).success).toBe(false);
     expect(payCapSchema.safeParse({ kind: 'beneficiaries_per_day', limit: 5 }).success).toBe(true);
   });

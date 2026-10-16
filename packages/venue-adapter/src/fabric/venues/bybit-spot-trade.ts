@@ -6,6 +6,7 @@ import {
   parseUnifiedSymbol,
   requireCredentials,
   VenueUnavailableError,
+  type ClosedOrderWindow,
   type PlaceOrderRequest,
   type TradeAdapter,
   type VenueCredentials,
@@ -91,12 +92,13 @@ function venueSymbolOf(unified: string): string {
 }
 
 /**
- * Bybit reports `cumExecFee` on the order row. A missing fee on a fill stays
+ * Bybit reports `cumExecFee` on the order row. Nothing filled is not a fee:
+ * `feePaid` stays null so a zero is not invented. A missing fee on a fill stays
  * unknown (null) so the book refuses it. A single `cumFeeDetail` key names the
  * asset; more than one key leaves the asset unknown rather than summing them.
  */
 function bybitReportedFee(row: Record<string, unknown>, executed: bigint): { feePaid: VenueOrder['feePaid']; feeAsset: string | null } {
-  if (executed === 0n) return { feePaid: 0n, feeAsset: null };
+  if (executed === 0n) return { feePaid: null, feeAsset: null };
   const raw = row.cumExecFee;
   if (raw === undefined || raw === null || raw === '') return { feePaid: null, feeAsset: null };
   const feePaid = readDecimal(raw, VENUE.id, 'cumExecFee');
@@ -312,16 +314,24 @@ export class BybitSpotTrade implements TradeAdapter {
   /**
    * Closed spot orders leave the realtime list. An empty history is a confirmed
    * miss (`null`). An empty realtime list is not — the caller has to ask here.
+   * Without `window`, Bybit returns the last 7 days only. `startTime`/`endTime`
+   * are the claim window, so an order older than that default is still found.
    */
-  async fetchClosedOrder(symbol: string, clientOrderId: string): Promise<VenueOrder | null> {
+  async fetchClosedOrder(symbol: string, clientOrderId: string, window?: ClosedOrderWindow): Promise<VenueOrder | null> {
     const keys = requireCredentials(VENUE.id, 'fetchClosedOrder', this.#credentials);
-    const body = await this.#signed(
-      'GET',
-      '/v5/order/history',
-      { category: 'spot', symbol: venueSymbolOf(symbol), orderLinkId: clientOrderId },
-      keys,
-      'fetchClosedOrder',
-    );
+    const params: Record<string, string> = {
+      category: 'spot',
+      symbol: venueSymbolOf(symbol),
+      orderLinkId: clientOrderId,
+    };
+    if (window) {
+      if (window.endTimeMs < window.startTimeMs) {
+        unavailable('unreachable', 'fetchClosedOrder has no claim window — outcome unknown, not a miss', false);
+      }
+      params.startTime = String(Math.trunc(window.startTimeMs));
+      params.endTime = String(Math.trunc(window.endTimeMs));
+    }
+    const body = await this.#signed('GET', '/v5/order/history', params, keys, 'fetchClosedOrder');
     const list = (body.result as { list?: unknown })?.list;
     if (!Array.isArray(list) || list.length === 0) return null;
     const row = list[0];
