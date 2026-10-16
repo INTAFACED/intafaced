@@ -5,9 +5,11 @@
  * replica cannot call the venue forever, and so two replicas cannot call it
  * for the same tick.
  *
- * Horizon: a resolve-absent row is rechecked only until 7 days after
- * `placing_at` (or `created_at` when the claim instant is missing). The venue
- * search window stays `placing_at` minus 1 minute through plus 10 minutes.
+ * Horizon: a resolve-absent row is rechecked only until 7 days after the
+ * absent-resolve confirmation (`conversion_resolve_proposals.decided_at`).
+ * When that confirmation is missing, the anchor is `placing_at`, then
+ * `created_at`. The venue search window stays `placing_at` minus 1 minute
+ * through plus 10 minutes.
  * After the horizon the row is marked `late_fill_check_final_at` and the
  * sweep does not call the venue for it again, including a founder force.
  * A fill that shows up later is not auto-detected.

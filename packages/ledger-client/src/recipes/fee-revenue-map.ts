@@ -126,7 +126,7 @@ export const FEE_REVENUE_PATHS = {
     kind: 'recipe',
     recipe: 'fxConversionLateFill',
     feeModule: 'pay',
-    note: 'Late-fill booking: the original order fee and spread, in the to-asset, → houseFees(pay). Zero omits the leg. USD comes from merchant clearing or treasury fx-inventory.',
+    note: 'Late-fill booking from merchant clearing: the original order fee and spread, in the to-asset, → houseFees(pay). Zero omits the leg. Inventory funding books the venue position to fx-inventory and posts no fee.',
   },
   'token.fee_charge': {
     kind: 'recipe',

@@ -1923,7 +1923,33 @@ describe('W6 USD to USDT conversion', () => {
     `;
     expect(unchecked[0]!.n).toBeGreaterThan(0);
 
-    absent.setNow(absent.claimMs + CONVERSION_LATE_FILL_HORIZON_MS + 1_000);
+    const resolved = await db.sql<Array<{ decided_at: Date }>>`
+      SELECT decided_at FROM pay.conversion_resolve_proposals
+       WHERE conversion_id = ${absent.orderId} AND status = 'confirmed' AND venue_lookup = 'absent'
+    `;
+    const resolvedAt = new Date(resolved[0]!.decided_at).getTime();
+    const staleClaim = new Date(resolvedAt - 8 * 24 * 60 * 60 * 1000);
+    const copy = await db.sql<Array<{ id: string }>>`
+      SELECT id FROM pay.conversion_orders
+       WHERE failure_code = 'pay.conversion_resolve_absent' AND id <> ${absent.orderId}
+       LIMIT 1
+    `;
+    await db.sql`
+      UPDATE pay.conversion_orders SET placing_at = ${staleClaim}
+       WHERE id IN (${absent.orderId}, ${copy[0]!.id})
+    `;
+    absent.setNow(resolvedAt + 60_000);
+    await absent.svc.sweepLateFills('late-fill-sweep', { force: true });
+    const openOriginal = await db.sql<Array<{ late_fill_check_final_at: Date | null }>>`
+      SELECT late_fill_check_final_at FROM pay.conversion_orders WHERE id = ${absent.orderId}
+    `;
+    const closedCopy = await db.sql<Array<{ late_fill_check_final_at: Date | null }>>`
+      SELECT late_fill_check_final_at FROM pay.conversion_orders WHERE id = ${copy[0]!.id}
+    `;
+    expect(openOriginal[0]!.late_fill_check_final_at).toBeNull();
+    expect(closedCopy[0]!.late_fill_check_final_at).not.toBeNull();
+
+    absent.setNow(Math.max(absent.claimMs, resolvedAt) + CONVERSION_LATE_FILL_HORIZON_MS + 1_000);
     const closed = await absent.svc.sweepLateFills('late-fill-sweep', { force: true });
     expect(closed.checked).toBe(0);
     expect(closed.finalized).toBeGreaterThan(0);
@@ -1953,19 +1979,8 @@ describe('W6 USD to USDT conversion', () => {
     const audit = await db.sql<Array<{ id: string }>>`
       SELECT id FROM pay.conversion_audit WHERE conversion_id = ${absent.orderId} AND action = 'pay.conversion_late_fill'
     `;
-    await db.sql`
-      UPDATE pay.conversion_orders
-         SET minimum_output = 1000
-       WHERE id = ${absent.orderId}
-    `;
     const founderA = randomUUID();
     const founderB = randomUUID();
-    const tooSmall = await absent.svc.proposeLateFillBook(founderA, {
-      requestId: randomUUID(),
-      auditId: audit[0]!.id,
-      reason: 'fill is under the floor',
-    });
-    expect(tooSmall.status).toBe('below_minimum');
     await db.sql`UPDATE pay.conversion_orders SET fee_amount = 2, spread_amount = 1, minimum_output = 90 WHERE id = ${absent.orderId}`;
     const proposed = await absent.svc.proposeLateFillBook(founderA, {
       requestId: randomUUID(),
@@ -2026,26 +2041,27 @@ describe('W6 USD to USDT conversion', () => {
     expect(
       await absent.svc.proposeLateFillBook(founderA, { requestId: randomUUID(), auditId: audit[0]!.id, reason: 'again' }),
     ).toMatchObject({ status: 'already_booked' });
-    await expect(absent.svc.quote(absent.who.caller, bodyOf(absent.who, '1'))).rejects.toMatchObject({
-      code: 'pay.conversion_late_fill_halt',
-    });
-    // Booking does not lift the quote halt. The sentence ack does, so the next merchant can quote.
-    const ack = await absent.svc.proposeLateFillAck(founderA, {
-      requestId: randomUUID(),
-      auditId: audit[0]!.id,
-      settlement: 'booked on the ledger; this sentence only lifts the quote halt',
-      reason: 'acknowledge the recorded fill',
-    });
+    const bookedSentence = `booked via late-fill book ${proposed.requestId}`;
+    const acked = await db.sql<Array<{ settlement: string; status: string; proposed_by: string; confirmed_by: string }>>`
+      SELECT settlement, status, proposed_by, confirmed_by
+        FROM pay.conversion_late_fill_acks
+       WHERE audit_id = ${audit[0]!.id}
+    `;
+    expect(acked).toEqual([{ settlement: bookedSentence, status: 'confirmed', proposed_by: founderA, confirmed_by: founderB }]);
+    const noted = await db.sql<Array<{ detail: { settlement?: string } }>>`
+      SELECT detail FROM pay.conversion_audit
+       WHERE conversion_id = ${absent.orderId} AND action = 'pay.conversion_late_fill_acknowledged'
+    `;
+    expect(noted[0]?.detail.settlement).toBe(bookedSentence);
+    expect(await absent.svc.quote(absent.who.caller, bodyOf(absent.who, '1'))).toMatchObject({ quoteId: expect.any(String) });
     expect(
-      (
-        await absent.svc.confirmLateFillAck(founderB, {
-          requestId: ack.requestId,
-          decision: 'confirm',
-          reason: 'second founder',
-          expectedChangeHash: ack.changeHash!,
-        })
-      ).status,
-    ).toBe('confirmed');
+      await absent.svc.proposeLateFillAck(founderA, {
+        requestId: randomUUID(),
+        auditId: audit[0]!.id,
+        settlement: bookedSentence,
+        reason: 'already booked',
+      }),
+    ).toMatchObject({ status: 'already_acked' });
 
     const short = await absentResolved();
     short.plant(plantedFill(short.clientOrderId, short.claimMs));
@@ -2075,8 +2091,10 @@ describe('W6 USD to USDT conversion', () => {
     });
     expect(covered).toMatchObject({ status: 'confirmed', funding: 'inventory' });
     expect((await short.ledger.balance(merchantClearing(short.who.merchantId, 'USD'))).amount).toBe(parseAmount('40'));
+    expect((await short.ledger.balance(userAvailable(short.who.userId, 'USDT'))).amount).toBe(0n);
+    expect((await short.ledger.balance(houseFees('pay', 'USDT'))).amount).toBe(0n);
     expect((await short.ledger.balance(conversionInventory('USD'))).amount).toBe(-HUNDRED);
-    expect((await short.ledger.balance(userAvailable(short.who.userId, 'USDT'))).amount).toBe(HUNDRED);
+    expect((await short.ledger.balance(conversionInventory('USDT'))).amount).toBe(HUNDRED);
     const shortfall = await db.sql<Array<{ detail: { fromAmount?: string; clearingAmount?: string } }>>`
       SELECT detail FROM pay.conversion_audit
        WHERE conversion_id = ${short.orderId} AND action = 'pay.conversion_late_fill_shortfall'
@@ -2091,6 +2109,60 @@ describe('W6 USD to USDT conversion', () => {
       expectedChangeHash: shortProposal.changeHash!,
     });
     expect((await short.ledger.balance(conversionInventory('USD'))).amount).toBe(-HUNDRED);
+    expect((await short.ledger.balance(conversionInventory('USDT'))).amount).toBe(HUNDRED);
+    expect((await short.ledger.balance(userAvailable(short.who.userId, 'USDT'))).amount).toBe(0n);
     expect(short.ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('books a below-minimum late fill onto inventory and leaves the merchant USD', async () => {
+    const under = await absentResolved();
+    under.plant(plantedFill(under.clientOrderId, under.claimMs));
+    expect(await under.svc.sweepLateFills('late-fill-sweep')).toMatchObject({ found: 1 });
+    await db.sql`
+      UPDATE pay.conversion_orders
+         SET fee_amount = 2, spread_amount = 1, minimum_output = 1000
+       WHERE id = ${under.orderId}
+    `;
+    const founderA = randomUUID();
+    const founderB = randomUUID();
+    const audit = await db.sql<Array<{ id: string }>>`
+      SELECT id FROM pay.conversion_audit WHERE conversion_id = ${under.orderId} AND action = 'pay.conversion_late_fill'
+    `;
+    const prior = await under.svc.proposeLateFillAck(founderA, {
+      requestId: randomUUID(),
+      auditId: audit[0]!.id,
+      settlement: 'sentence before the book',
+      reason: 'started an acknowledgement',
+    });
+    expect(prior.status).toBe('pending');
+    const proposed = await under.svc.proposeLateFillBook(founderA, {
+      requestId: randomUUID(),
+      auditId: audit[0]!.id,
+      reason: 'fill is under the floor',
+    });
+    expect(proposed.status).toBe('pending');
+    const booked = await under.svc.confirmLateFillBook(founderB, {
+      requestId: proposed.requestId,
+      decision: 'confirm',
+      reason: 'inventory takes the venue position',
+      expectedChangeHash: proposed.changeHash!,
+    });
+    expect(booked).toMatchObject({ status: 'confirmed', funding: 'inventory' });
+    expect((await under.ledger.balance(merchantClearing(under.who.merchantId, 'USD'))).amount).toBe(HUNDRED);
+    expect((await under.ledger.balance(userAvailable(under.who.userId, 'USDT'))).amount).toBe(0n);
+    expect((await under.ledger.balance(houseFees('pay', 'USDT'))).amount).toBe(0n);
+    expect((await under.ledger.balance(conversionInventory('USD'))).amount).toBe(-HUNDRED);
+    expect((await under.ledger.balance(conversionInventory('USDT'))).amount).toBe(HUNDRED);
+    expect(under.ledger.reconcile()).toEqual({ ok: true });
+    const sentence = `booked via late-fill book ${proposed.requestId}`;
+    const acks = await db.sql<Array<{ request_id: string; settlement: string; status: string }>>`
+      SELECT request_id, settlement, status FROM pay.conversion_late_fill_acks
+       WHERE audit_id = ${audit[0]!.id}
+       ORDER BY status
+    `;
+    expect(acks).toEqual([
+      { request_id: expect.any(String), settlement: sentence, status: 'confirmed' },
+      { request_id: prior.requestId, settlement: 'sentence before the book', status: 'rejected' },
+    ]);
   });
 });

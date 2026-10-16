@@ -528,6 +528,9 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         funding: 'merchant',
       }),
     },
+    // Inventory funding is four legs: fx-inventory USD, both venue boundaries,
+    // fx-inventory USDT for the gross. Fee and spread change the gross, not the
+    // accounts. A merchant credit or a fee leg under late_shortfall is not sampled.
     {
       name: 'fxConversionLateFill',
       post: recipes.fxConversionLateFill({

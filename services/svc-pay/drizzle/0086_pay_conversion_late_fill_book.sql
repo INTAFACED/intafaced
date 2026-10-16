@@ -2,7 +2,8 @@
 -- two-founder booking of a late fill. Reversal: 0086_pay_conversion_late_fill_book.down.sql
 --
 -- late_fill_check_final_at is set when the technical horizon has passed
--- (7 days after placing_at). The sweep does not call the venue after that.
+-- (7 days after the absent-resolve confirmation, or placing_at when that
+-- confirmation is missing). The sweep does not call the venue after that.
 -- late_fill_next_check_at is the jittered backoff. A venue error leaves both
 -- untouched. Neither column is a quote TTL.
 --

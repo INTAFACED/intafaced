@@ -1261,7 +1261,8 @@ export const recipes = {
   fxConversionHold,
   fxConversionRelease,
   fxConversionReverse,
-  // Late fill after the hold was released. Clearing, or treasury inventory when clearing cannot cover.
+  // Late fill after the hold was released. Clearing pays the merchant when it can cover.
+  // Inventory takes the venue position only: no second credit to the merchant.
   fxConversionLateFill,
 } as const;
 

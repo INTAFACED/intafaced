@@ -119,11 +119,24 @@ describe('fx conversion recipe', () => {
       funding: 'inventory',
     });
     expect(inventoryPost.reason).toBe('pay.conversion.late_shortfall');
-    expect(inventoryPost.entries[0]?.account).toEqual(conversionInventory('USD'));
+    expect(inventoryPost.entries.map((entry) => entry.account)).toEqual([
+      conversionInventory('USD'),
+      venueBoundary('binance-spot', 'USD'),
+      venueBoundary('binance-spot', 'USDT'),
+      conversionInventory('USDT'),
+    ]);
+    expect(inventoryPost.entries.map((entry) => entry.direction)).toEqual(['credit', 'debit', 'credit', 'debit']);
+    expect(inventoryPost.entries.some((entry) => entry.account.ownerType === 'user' || entry.account.ownerId?.startsWith('fees:'))).toBe(
+      false,
+    );
     await ledger.post(inventoryPost);
     expect(formatAmount((await ledger.balance(merchantClearing(MERCHANT, 'USD'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('97');
+    expect(formatAmount((await ledger.balance(houseFees('pay', 'USDT'))).amount)).toBe('3');
     expect(formatAmount((await ledger.balance(conversionInventory('USD'))).amount)).toBe('-100');
-    expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('194');
+    expect(formatAmount((await ledger.balance(conversionInventory('USDT'))).amount)).toBe('100');
+    expect(formatAmount((await ledger.balance(venueBoundary('binance-spot', 'USD'))).amount)).toBe('200');
+    expect(formatAmount((await ledger.balance(venueBoundary('binance-spot', 'USDT'))).amount)).toBe('-200');
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
