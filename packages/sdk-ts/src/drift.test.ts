@@ -13,6 +13,13 @@ describe('SDK spec drift', () => {
     });
   }, 60_000);
 
+  it('runs the python payments client tests', () => {
+    execFileSync('python3', ['-m', 'unittest', 'discover', '-s', 'sdks/python/tests'], {
+      cwd: repoRoot,
+      stdio: 'pipe',
+    });
+  });
+
   it('refuses a founder or operator path', async () => {
     const mod = (await import(generatorHref)) as {
       assertMerchantSurface: (spec: { paths: Record<string, unknown> }) => void;
