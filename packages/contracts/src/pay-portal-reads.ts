@@ -106,6 +106,14 @@ export const payStatementKindSchema = z.enum(['payment_captured', 'fee', 'refund
 
 export const payStatementAccountSchema = z.enum(['clearing', 'proceeds', 'userAvailable', 'houseFees', 'payoutHold']);
 
+/**
+ * A window net may be negative. It is the signed sum of movements, not a
+ * balance, so the unsigned amount rule does not apply.
+ */
+const paySignedAmountStringSchema = z
+  .string()
+  .regex(/^-?\d+(\.\d{1,18})?$/, 'window nets are signed decimal strings with at most 18 decimal places');
+
 export const payStatementLineSchema = z
   .object({
     id: z.string().uuid(),
@@ -117,21 +125,36 @@ export const payStatementLineSchema = z
     account: payStatementAccountSchema,
     direction: z.enum(['debit', 'credit']),
     /**
-     * Clearing movement inside the statement window, after this line.
-     * Null when `runningOrder` is `order_ambiguous`.
+     * Clearing balance after this line, starting from the opening at `from`.
+     * Null when `runningReason` is set.
      */
     runningClearing: payAmountStringSchema.nullable(),
     /**
-     * Proceeds movement inside the statement window, after this line.
-     * Null when `runningOrder` is `order_ambiguous`.
+     * Proceeds balance after this line, starting from the opening at `from`.
+     * Null when `runningReason` is set.
      */
     runningProceeds: payAmountStringSchema.nullable(),
     /**
+     * Signed net of this line's account inside the window, after this line.
+     * A debit is positive. Set when `runningBalances` is `within_range` and
+     * the line is ordered. Null when an opening was used, or when
+     * `runningReason` is `order_ambiguous`. Not a balance.
+     */
+    windowNet: paySignedAmountStringSchema.nullable(),
+    /**
      * `clear` when this line followed ledger order. `order_ambiguous` when
-     * same-timestamp lines could not be ordered and the reconstruction would
-     * have gone negative. The page still returns.
+     * same-timestamp lines from different transactions could not be ordered,
+     * or a from-opening reconstruction would have gone negative. The page
+     * still returns.
      */
     runningOrder: z.enum(['clear', 'order_ambiguous']),
+    /**
+     * Why the running balances on this line are absent.
+     * `no_opening` when the ledger has no balance at `from`.
+     * `order_ambiguous` when order or a from-opening reconstruction failed.
+     * Null when the running balances are present.
+     */
+    runningReason: z.enum(['no_opening', 'order_ambiguous']).nullable(),
     paymentId: z.string().uuid().nullable(),
     settlementId: z.string().uuid().nullable(),
     ledgerTxId: z.string().uuid(),

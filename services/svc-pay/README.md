@@ -62,7 +62,13 @@ Refunds and payouts carry their own scopes. Taking a payment and sending money b
 
 The page is one window, not the merchant's whole history. `from` and `to` are required (`pay.statement_range_required`). The span is at most 92 days (`pay.statement_range_too_wide`). One request resolves at most 2000 candidate ledger keys (`pay.statement_too_large`). Those two numbers are technical safety bounds so a read cannot walk every capture, settlement, refund, dispute, and payout the merchant has ever had. They are not a retention policy and not a fee.
 
-Running balances sum movements inside that window. A true opening balance at `from` needs a ledger balance-as-of. `LedgerClient` does not expose one, so the response says `runningBalances: "within_range"` and `opening: null`. Same-timestamp lines follow the ledger sequence when a client exposes `seq` or `sequence`, otherwise the hash chain (`previousHash`). A line whose reconstructed balance would go negative is flagged (`runningOrder: "order_ambiguous"`) and the page still returns.
+Running balances need a ledger balance at `from`. `LedgerClient` does not expose one, so the response says `runningBalances: "within_range"` and `opening: null`. In that mode each line carries `windowNet`, the signed net of that line's account inside the window after the line (a debit is positive). `runningClearing` and `runningProceeds` are null and `runningReason` is `no_opening`. A negative window net is an outflow recorded without an opening balance, and the line stays `runningOrder: "clear"`.
+
+When the client exposes `balanceAsOf`, `runningBalances` is `from_opening`, lines start from that opening, and `windowNet` is null. A reconstructed balance that would go negative is `runningOrder: "order_ambiguous"` and `runningReason: "order_ambiguous"`. Later lines for that asset drop their balances. The page still returns.
+
+Same-timestamp lines from different ledger transactions follow `seq` or `sequence` when every line at that instant has one, otherwise the hash chain (`previousHash`). When neither a sequence nor a distinct chain position orders those transactions, the line is `order_ambiguous` in either mode.
+
+One `merchant.statement.list` runs per merchant at a time. A second call while the first is still in progress is `pay.statement_busy`. That slot is a concurrency bound. It is not a quota and it is not a fee.
 
 TODO: svc-ledger should grow a cursor that pages entries by account. This procedure should read that cursor instead of guessing ledger keys from pay rows.
 

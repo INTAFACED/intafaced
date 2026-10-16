@@ -129,10 +129,19 @@ describe('statement same-millisecond order', () => {
     const page = await listMerchantStatement(scriptSql(), reader(txs), RANGE, fail);
     expect(page.runningBalances).toBe('within_range');
     expect(page.opening).toBeNull();
+    expect(page.items.find((line) => line.amount === '10')).toMatchObject({
+      runningOrder: 'clear',
+      runningReason: 'no_opening',
+      runningClearing: null,
+      runningProceeds: null,
+      windowNet: '10',
+    });
     expect(page.items.find((line) => line.amount === '4')).toMatchObject({
       runningOrder: 'clear',
-      runningClearing: '6',
-      runningProceeds: '0',
+      runningReason: 'no_opening',
+      runningClearing: null,
+      runningProceeds: null,
+      windowNet: '6',
     });
     expect(page.items.every((line) => line.runningOrder === 'clear')).toBe(true);
   });
@@ -159,7 +168,69 @@ describe('statement same-millisecond order', () => {
       }),
     ];
     const page = await listMerchantStatement(scriptSql(), reader(txs), RANGE, fail);
-    expect(page.items.some((line) => line.runningOrder === 'order_ambiguous' && line.runningClearing === null)).toBe(true);
+    expect(page.items.every((line) => line.runningOrder === 'order_ambiguous' && line.runningReason === 'order_ambiguous')).toBe(true);
+    expect(page.items.every((line) => line.runningClearing === null && line.windowNet === null)).toBe(true);
+  });
+
+  it('flags a same-millisecond tie even when both movements would stay non-negative', async () => {
+    const txs = [
+      posted({
+        id: DEBIT_TX,
+        key: `payment.capture:${PAY_DEBIT}`,
+        hash: 'hash-debit',
+        previousHash: null,
+        entryId: LINES.debit,
+        direction: 'debit',
+        amount: '10',
+      }),
+      posted({
+        id: CREDIT_TX,
+        key: `payment.capture:${PAY_CREDIT}`,
+        hash: 'hash-credit',
+        previousHash: null,
+        entryId: LINES.credit,
+        direction: 'debit',
+        amount: '4',
+      }),
+    ];
+    const page = await listMerchantStatement(scriptSql(), reader(txs), RANGE, fail);
+    expect(page.runningBalances).toBe('within_range');
+    expect(page.items.every((line) => line.runningReason === 'order_ambiguous' && line.windowNet === null)).toBe(true);
+  });
+
+  it('keeps a lone credit as a negative window net when there is no opening balance', async () => {
+    const txs = [
+      posted({
+        id: CREDIT_TX,
+        key: `payment.capture:${PAY_CREDIT}`,
+        hash: 'hash-credit',
+        previousHash: null,
+        entryId: LINES.credit,
+        direction: 'credit',
+        amount: '4',
+      }),
+    ];
+    const sql = (async (strings: TemplateStringsArray) => {
+      const text = strings.join(' ');
+      if (text.includes('FROM pay.merchants')) return [{ user_id: USER }];
+      if (text.includes("e.event = 'captured'")) return [{ id: PAY_CREDIT, currency: 'USDT' }];
+      if (text.includes('FROM pay.settlements')) return [];
+      if (text.includes("e.event = 'refund.posted'")) return [];
+      if (text.includes('chargeback.opening_planned')) return [];
+      if (text.includes('pay.payout_admissions')) return [];
+      throw new Error(text);
+    }) as unknown as Sql;
+    const page = await listMerchantStatement(sql, reader(txs), RANGE, fail);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      direction: 'credit',
+      amount: '4',
+      runningOrder: 'clear',
+      runningReason: 'no_opening',
+      runningClearing: null,
+      runningProceeds: null,
+      windowNet: '-4',
+    });
   });
 
   it('orders two posts in one millisecond by the ledger sequence when the client exposes it', async () => {
@@ -186,7 +257,12 @@ describe('statement same-millisecond order', () => {
       }),
     ];
     const page = await listMerchantStatement(scriptSql(), reader(txs), RANGE, fail);
-    expect(page.items.find((line) => line.amount === '4')).toMatchObject({ runningOrder: 'clear', runningClearing: '6' });
+    expect(page.items.find((line) => line.amount === '4')).toMatchObject({
+      runningOrder: 'clear',
+      runningReason: 'no_opening',
+      windowNet: '6',
+      runningClearing: null,
+    });
   });
 
   it('starts running balances from balance-as-of when the ledger exposes it', async () => {
@@ -223,7 +299,46 @@ describe('statement same-millisecond order', () => {
     const page = await listMerchantStatement(sql, ledger, RANGE, fail);
     expect(page.runningBalances).toBe('from_opening');
     expect(page.opening).toEqual([{ assetId: 'USDT', clearing: '5', proceeds: '0' }]);
-    expect(page.items[0]).toMatchObject({ runningOrder: 'clear', runningClearing: '6' });
+    expect(page.items[0]).toMatchObject({
+      runningOrder: 'clear',
+      runningReason: null,
+      runningClearing: '6',
+      runningProceeds: '0',
+      windowNet: null,
+    });
     expect(seen.every((at) => at.toISOString() === RANGE.from)).toBe(true);
+  });
+
+  it('flags a from-opening reconstruction that would go negative', async () => {
+    const txs = [
+      posted({
+        id: CREDIT_TX,
+        key: `payment.capture:${PAY_CREDIT}`,
+        hash: 'hash-credit',
+        previousHash: null,
+        entryId: LINES.credit,
+        direction: 'credit',
+        amount: '4',
+      }),
+    ];
+    const ledger = reader(txs, async (ref) => ({ account: ref, accountId: accountId(ref), amount: 0n }));
+    const sql = (async (strings: TemplateStringsArray) => {
+      const text = strings.join(' ');
+      if (text.includes('FROM pay.merchants')) return [{ user_id: USER }];
+      if (text.includes("e.event = 'captured'")) return [{ id: PAY_CREDIT, currency: 'USDT' }];
+      if (text.includes('FROM pay.settlements')) return [];
+      if (text.includes("e.event = 'refund.posted'")) return [];
+      if (text.includes('chargeback.opening_planned')) return [];
+      if (text.includes('pay.payout_admissions')) return [];
+      throw new Error(text);
+    }) as unknown as Sql;
+    const page = await listMerchantStatement(sql, ledger, RANGE, fail);
+    expect(page.runningBalances).toBe('from_opening');
+    expect(page.items[0]).toMatchObject({
+      runningOrder: 'order_ambiguous',
+      runningReason: 'order_ambiguous',
+      runningClearing: null,
+      windowNet: null,
+    });
   });
 });

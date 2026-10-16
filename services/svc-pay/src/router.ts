@@ -2032,6 +2032,8 @@ function toTrpcError(err: unknown): unknown {
         return 'CONFLICT' as const;
       /** The caller is anonymous and opening rows in our database. */
       case 'pay.checkout_busy':
+      /** One statement scan per merchant. A second call waits outside, it does not pile on. */
+      case 'pay.statement_busy':
         return 'TOO_MANY_REQUESTS' as const;
       case 'pay.routing_input_missing':
         return 'BAD_REQUEST' as const;

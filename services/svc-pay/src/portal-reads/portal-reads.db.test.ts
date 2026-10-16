@@ -67,6 +67,10 @@ function coveringRange(): { from: string; to: string } {
   };
 }
 
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function refused(run: Promise<unknown>) {
   try {
     await run;
@@ -210,12 +214,18 @@ describe('merchant portal reads', () => {
       accounts: [
         {
           assetId: 'USDT',
-          clearing: { statement: '0', ledger: '0', matches: null },
-          proceeds: { statement: '8.75', ledger: '8.75', matches: null },
+          clearing: { statement: null, ledger: '0', matches: null },
+          proceeds: { statement: null, ledger: '8.75', matches: null },
         },
       ],
     });
-    expect(statement.items.every((line) => line.runningOrder === 'clear')).toBe(true);
+    expect(statement.items.every((line) => line.runningOrder === 'clear' && line.runningReason === 'no_opening')).toBe(true);
+    expect(statement.items.every((line) => line.runningClearing === null && line.runningProceeds === null)).toBe(true);
+    expect(statement.items.find((line) => line.kind === 'payment_captured')).toMatchObject({ windowNet: '10' });
+    expect(statement.items.find((line) => line.kind === 'settlement' && line.account === 'clearing')).toMatchObject({ windowNet: '0' });
+    expect(statement.items.find((line) => line.kind === 'settlement' && line.account === 'proceeds')).toMatchObject({ windowNet: '9.75' });
+    expect(statement.items.find((line) => line.kind === 'fee')).toMatchObject({ windowNet: '0.25' });
+    expect(statement.items.find((line) => line.kind === 'refund' && line.account === 'proceeds')).toMatchObject({ windowNet: '8.75' });
     expect(statement.items.some((line) => line.kind === 'payment_captured')).toBe(true);
     expect(statement.items.some((line) => line.kind === 'fee' && line.amount === '0.25')).toBe(true);
     expect(statement.items.some((line) => line.kind === 'settlement' && line.account === 'proceeds')).toBe(true);
@@ -544,5 +554,106 @@ describe('merchant portal reads', () => {
         }),
       ),
     ).toMatchObject({ pay: 'pay.statement_too_large' });
+  });
+
+  it('reports window nets when the window starts on a payout or on a settlement whose captures are earlier', async () => {
+    const mine = await merchant(OWNER);
+    const owner = router.createCaller(await ctx(OWNER));
+    const payment = await captured(mine.id);
+    await pause(30);
+    const settlement = await pay.settleWindow({
+      merchantId: mine.id,
+      window: '2026-08-01',
+      assetId: 'USDT',
+      from: new Date('2020-01-01T00:00:00.000Z'),
+      to: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    await pause(30);
+    await pay.payoutSettlement({
+      settlementId: settlement.id,
+      railId: 'card-sandbox',
+      destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+    });
+
+    const captureTx = await ledger.getTxByKey(`payment.capture:${payment.id}`);
+    const settleTx = await ledger.getTxByKey(`settlement:${mine.id}:2026-08-01:USDT`);
+    const holdTx = await ledger.getTxByKey(`pay.proceeds.payout.hold:${settlement.id}:0`);
+    expect(captureTx).not.toBeNull();
+    expect(settleTx).not.toBeNull();
+    expect(holdTx).not.toBeNull();
+    expect(captureTx!.postedAt.getTime()).toBeLessThan(settleTx!.postedAt.getTime());
+    expect(settleTx!.postedAt.getTime()).toBeLessThan(holdTx!.postedAt.getTime());
+
+    const settledOnly = await owner.merchant.statement.list({
+      merchantId: mine.id,
+      limit: 20,
+      from: new Date(captureTx!.postedAt.getTime() + 1).toISOString(),
+      to: holdTx!.postedAt.toISOString(),
+    });
+    expect(settledOnly.runningBalances).toBe('within_range');
+    expect(settledOnly.opening).toBeNull();
+    expect(settledOnly.items.some((line) => line.kind === 'payment_captured' || line.kind === 'payout')).toBe(false);
+    expect(settledOnly.items.some((line) => line.runningOrder === 'order_ambiguous')).toBe(false);
+    expect(settledOnly.items.find((line) => line.account === 'clearing')).toMatchObject({
+      kind: 'settlement',
+      direction: 'credit',
+      amount: '10',
+      windowNet: '-10',
+      runningReason: 'no_opening',
+      runningClearing: null,
+      runningProceeds: null,
+    });
+    expect(settledOnly.items.find((line) => line.account === 'proceeds')).toMatchObject({
+      kind: 'settlement',
+      direction: 'debit',
+      amount: '9.75',
+      windowNet: '9.75',
+      runningReason: 'no_opening',
+    });
+    expect(settledOnly.items.find((line) => line.kind === 'fee')).toMatchObject({ windowNet: '0.25', runningReason: 'no_opening' });
+
+    const payoutOnly = await owner.merchant.statement.list({
+      merchantId: mine.id,
+      limit: 20,
+      from: new Date(settleTx!.postedAt.getTime() + 1).toISOString(),
+      to: new Date(holdTx!.postedAt.getTime() + 60_000).toISOString(),
+    });
+    expect(payoutOnly.runningBalances).toBe('within_range');
+    expect(payoutOnly.items.some((line) => line.kind === 'payment_captured' || line.kind === 'settlement')).toBe(false);
+    expect(payoutOnly.items.some((line) => line.runningOrder === 'order_ambiguous')).toBe(false);
+    expect(payoutOnly.items.find((line) => line.account === 'proceeds')).toMatchObject({
+      kind: 'payout',
+      direction: 'credit',
+      amount: '9.75',
+      windowNet: '-9.75',
+      runningReason: 'no_opening',
+      runningClearing: null,
+      runningProceeds: null,
+    });
+  });
+
+  it('refuses a second statement list while one is in flight for that merchant', async () => {
+    const mine = await merchant(OWNER);
+    const other = await merchant(OTHER);
+    const owner = router.createCaller(await ctx(OWNER));
+    const otherCaller = router.createCaller(await ctx(OTHER));
+    const holder = await sql.reserve();
+    const key = `pay.statement:${mine.id}`;
+    try {
+      await holder`SELECT pg_advisory_lock(hashtext(${key}))`;
+      expect(await refused(owner.merchant.statement.list({ merchantId: mine.id, limit: 20, ...coveringRange() }))).toMatchObject({
+        trpc: 'TOO_MANY_REQUESTS',
+        pay: 'pay.statement_busy',
+      });
+      const free = await otherCaller.merchant.statement.list({ merchantId: other.id, limit: 20, ...coveringRange() });
+      expect(free.runningBalances).toBe('within_range');
+      expect(free.items).toEqual([]);
+    } finally {
+      await holder`SELECT pg_advisory_unlock_all()`.catch(() => undefined);
+      holder.release();
+    }
+    const again = await owner.merchant.statement.list({ merchantId: mine.id, limit: 20, ...coveringRange() });
+    expect(again.items).toEqual([]);
+    expect(again.runningBalances).toBe('within_range');
   });
 });

@@ -292,6 +292,8 @@ export type PayErrorCode =
   | 'pay.statement_range_too_wide'
   /** More than 2000 candidate ledger keys in one statement request. */
   | 'pay.statement_too_large'
+  /** Another `merchant.statement.list` for this merchant is still running. */
+  | 'pay.statement_busy'
   | 'pay.list_cursor_invalid'
   | 'pay.list_search_invalid'
   | 'pay.list_asset_invalid'

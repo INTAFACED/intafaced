@@ -36,7 +36,10 @@ export interface StatementLine {
   direction: 'debit' | 'credit';
   runningClearing: string | null;
   runningProceeds: string | null;
+  /** Signed net of this line's account inside the window. Null when an opening was used or the line is unordered. */
+  windowNet: string | null;
   runningOrder: 'clear' | 'order_ambiguous';
+  runningReason: 'no_opening' | 'order_ambiguous' | null;
   paymentId: string | null;
   settlementId: string | null;
   ledgerTxId: string;
@@ -85,7 +88,9 @@ interface Lined {
   draft: Draft;
   runningClearing: string | null;
   runningProceeds: string | null;
+  windowNet: string | null;
   runningOrder: 'clear' | 'order_ambiguous';
+  runningReason: 'no_opening' | 'order_ambiguous' | null;
 }
 
 type BalanceAsOf = (ref: AccountRef, at: Date) => Promise<Balance>;
@@ -261,6 +266,89 @@ function apply(balance: Amount, direction: 'debit' | 'credit', amount: Amount): 
 }
 
 /**
+ * Two ledger transactions at one timestamp are ordered when every line has a
+ * sequence and those sequences differ, or when their hash-chain ranks differ.
+ * Lines of one transaction are ordered by entry index and are not a tie.
+ */
+function unorderedAcrossTxs(lines: readonly Draft[]): boolean {
+  const txIds = new Set(lines.map((line) => line.ledgerTxId));
+  if (txIds.size < 2) return false;
+  if (lines.every((line) => line.sequence !== null)) {
+    const seqByTx = new Map<string, number>();
+    for (const line of lines) seqByTx.set(line.ledgerTxId, line.sequence!);
+    return new Set(seqByTx.values()).size !== seqByTx.size;
+  }
+  const rankByTx = new Map<string, number>();
+  for (const line of lines) rankByTx.set(line.ledgerTxId, line.chainRank);
+  return new Set(rankByTx.values()).size !== rankByTx.size;
+}
+
+function tiedStamps(drafts: readonly Draft[]): Set<string> {
+  const byTime = new Map<number, Draft[]>();
+  for (const draft of drafts) {
+    const time = draft.at.getTime();
+    const group = byTime.get(time);
+    if (group) group.push(draft);
+    else byTime.set(time, [draft]);
+  }
+  const tied = new Set<string>();
+  for (const group of byTime.values()) {
+    const byAsset = new Map<string, Draft[]>();
+    for (const draft of group) {
+      const rows = byAsset.get(draft.assetId);
+      if (rows) rows.push(draft);
+      else byAsset.set(draft.assetId, [draft]);
+    }
+    for (const [assetId, lines] of byAsset) {
+      if (!unorderedAcrossTxs(lines)) continue;
+      for (const line of lines) tied.add(`${assetId}\0${line.at.getTime()}`);
+    }
+  }
+  return tied;
+}
+
+type HeldSql = Sql & { release: () => void };
+
+/**
+ * One statement scan per merchant. The lock is session-scoped on a reserved
+ * connection so it covers the whole read, and `pg_try_advisory_lock` refuses
+ * instead of queueing. A sql double without `reserve` (unit tests) skips the
+ * slot; Postgres always has it.
+ */
+async function withStatementInFlight<T>(sql: Sql, merchantId: string, fail: PayFail, run: () => Promise<T>): Promise<T> {
+  const reserve = (sql as Sql & { reserve?: () => Promise<HeldSql> }).reserve;
+  if (typeof reserve !== 'function') return run();
+  const hold = await reserve.call(sql);
+  const key = `pay.statement:${merchantId.toLowerCase()}`;
+  let locked = false;
+  try {
+    const [row] = await hold<Array<{ locked: boolean }>>`SELECT pg_try_advisory_lock(hashtext(${key})) AS locked`;
+    if (row?.locked !== true) {
+      fail('A statement for this merchant is already in progress.', 'pay.statement_busy');
+    }
+    locked = true;
+    return await run();
+  } finally {
+    try {
+      if (locked) await hold`SELECT pg_advisory_unlock(hashtext(${key}))`;
+    } finally {
+      hold.release();
+    }
+  }
+}
+
+function ambiguousLine(draft: Draft): Lined {
+  return {
+    draft,
+    runningClearing: null,
+    runningProceeds: null,
+    windowNet: null,
+    runningOrder: 'order_ambiguous',
+    runningReason: 'order_ambiguous',
+  };
+}
+
+/**
  * One merchant's ledger statement.
  *
  * `from` and `to` are required (`pay.statement_range_required`). The window
@@ -270,17 +358,25 @@ function apply(balance: Amount, direction: 'debit' | 'credit', amount: Amount): 
  * refund, dispute, and payout the merchant has ever had. They are not a
  * retention rule and not a fee.
  *
- * Running balances sum the lines inside `[from, to)`. The opening balance at
- * `from` is `balanceAsOf` when the ledger client exposes it. svc-ledger does
- * not, so `runningBalances` is `within_range` and `opening` is null.
+ * Running balances sum the lines inside `[from, to)` from an opening at
+ * `from`. That opening is `balanceAsOf` when the ledger client exposes it.
+ * svc-ledger does not, so `runningBalances` is `within_range`, `opening` is
+ * null, and each ordered line carries `windowNet` (signed; a debit is
+ * positive) with `runningReason: no_opening`. Running balances stay null.
+ * A negative window net is an outflow with no opening. It stays `clear`.
  *
  * TODO(svc-ledger): replace this candidate-key scan with a cursor endpoint
  * that pages entries by account. See services/svc-pay/README.md.
  *
- * Same-timestamp lines follow the ledger sequence when the client exposes
- * one (`seq` / `sequence`), otherwise hash-chain position (`previousHash`).
- * A reconstructed balance that would go negative flags that line
- * (`runningOrder: order_ambiguous`) and does not fail the page.
+ * Same-timestamp lines from different transactions follow the ledger sequence
+ * when every line at that instant exposes one (`seq` / `sequence`), otherwise
+ * hash-chain position (`previousHash`). A real tie, or a from-opening
+ * reconstruction that would go negative, flags that asset
+ * (`runningOrder: order_ambiguous`, `runningReason: order_ambiguous`) and
+ * does not fail the page.
+ *
+ * One list runs per merchant. A second call while the first holds the
+ * statement slot is `pay.statement_busy`. The slot is a concurrency bound.
  */
 export async function listMerchantStatement(
   sql: Sql,
@@ -311,6 +407,28 @@ export async function listMerchantStatement(
   const userId = merchants[0]?.user_id;
   if (!userId) return fail(`Merchant ${input.merchantId} not found`, 'pay.merchant_not_found');
 
+  return withStatementInFlight(sql, input.merchantId, fail, () =>
+    readStatementWindow(sql, ledger, input, fail, userId, from, to, limit, filters),
+  );
+}
+
+async function readStatementWindow(
+  sql: Sql,
+  ledger: Reader,
+  input: { merchantId: string; limit?: number; cursor?: string; assetId?: string; from?: string; to?: string },
+  fail: PayFail,
+  userId: string,
+  from: Date,
+  to: Date,
+  limit: number,
+  filters: ReturnType<typeof portalFilters>,
+): Promise<{
+  items: StatementLine[];
+  nextCursor: string | null;
+  runningBalances: 'within_range' | 'from_opening';
+  opening: StatementOpening[] | null;
+  tieOut: StatementTie;
+}> {
   const captures = await sql<Array<{ id: string; currency: string }>>`
     SELECT DISTINCT p.id, p.currency
       FROM pay.payment_events e
@@ -435,12 +553,30 @@ export async function listMerchantStatement(
     }
   }
 
+  const withinRange = asOf === null;
+  const tied = tiedStamps(drafts);
+  const nets = new Map<string, Amount>();
   const running = new Map<string, { clearing: Amount; proceeds: Amount }>();
   const ambiguous = new Set<string>();
   const lined: Lined[] = [];
   for (const draft of drafts) {
+    if (tied.has(`${draft.assetId}\0${draft.at.getTime()}`)) ambiguous.add(draft.assetId);
     if (ambiguous.has(draft.assetId)) {
-      lined.push({ draft, runningClearing: null, runningProceeds: null, runningOrder: 'order_ambiguous' });
+      lined.push(ambiguousLine(draft));
+      continue;
+    }
+    if (withinRange) {
+      const key = `${draft.assetId}\0${draft.account}`;
+      const next = apply(nets.get(key) ?? 0n, draft.direction, draft.amount);
+      nets.set(key, next);
+      lined.push({
+        draft,
+        runningClearing: null,
+        runningProceeds: null,
+        windowNet: formatAmount(next),
+        runningOrder: 'clear',
+        runningReason: 'no_opening',
+      });
       continue;
     }
     const state = running.get(draft.assetId) ?? start.get(draft.assetId) ?? { clearing: 0n, proceeds: 0n };
@@ -449,7 +585,7 @@ export async function listMerchantStatement(
     if (draft.account === 'proceeds') next.proceeds = apply(next.proceeds, draft.direction, draft.amount);
     if (next.clearing < 0n || next.proceeds < 0n) {
       ambiguous.add(draft.assetId);
-      lined.push({ draft, runningClearing: null, runningProceeds: null, runningOrder: 'order_ambiguous' });
+      lined.push(ambiguousLine(draft));
       continue;
     }
     running.set(draft.assetId, next);
@@ -457,20 +593,23 @@ export async function listMerchantStatement(
       draft,
       runningClearing: formatAmount(next.clearing),
       runningProceeds: formatAmount(next.proceeds),
+      windowNet: null,
       runningOrder: 'clear',
+      runningReason: null,
     });
   }
 
-  const runningBalances = asOf ? 'from_opening' : 'within_range';
+  const runningBalances = withinRange ? 'within_range' : 'from_opening';
   const tieAccounts: StatementTie['accounts'] = [];
   for (const assetId of [...assetIds].sort()) {
     if (filters.assetId && assetId !== filters.assetId) continue;
     const state = running.get(assetId) ?? start.get(assetId) ?? { clearing: 0n, proceeds: 0n };
     const clearingLedger = (await ledger.balance(merchantClearing(input.merchantId, assetId))).amount;
     const proceedsLedger = (await ledger.balance(merchantProceeds(input.merchantId, assetId))).amount;
-    const statementClearing = ambiguous.has(assetId) ? null : formatAmount(state.clearing);
-    const statementProceeds = ambiguous.has(assetId) ? null : formatAmount(state.proceeds);
-    const comparable = runningBalances === 'from_opening' && !ambiguous.has(assetId);
+    const publish = runningBalances === 'from_opening' && !ambiguous.has(assetId);
+    const statementClearing = publish ? formatAmount(state.clearing) : null;
+    const statementProceeds = publish ? formatAmount(state.proceeds) : null;
+    const comparable = publish;
     tieAccounts.push({
       assetId,
       clearing: {
@@ -515,7 +654,9 @@ export async function listMerchantStatement(
       direction: line.draft.direction,
       runningClearing: line.runningClearing,
       runningProceeds: line.runningProceeds,
+      windowNet: line.windowNet,
       runningOrder: line.runningOrder,
+      runningReason: line.runningReason,
       paymentId: line.draft.paymentId,
       settlementId: line.draft.settlementId,
       ledgerTxId: line.draft.ledgerTxId,
