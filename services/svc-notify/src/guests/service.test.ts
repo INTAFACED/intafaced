@@ -287,12 +287,32 @@ describe('Guest notification durable boundary (isolated PostgreSQL)', () => {
       CREATE TRIGGER inject_guest_crash BEFORE UPDATE ON notify.guest_notifications FOR EACH ROW EXECUTE FUNCTION notify.inject_guest_crash();`);
     try {
       const input = request();
-      const options = { timeoutMs: 100, leaseMs: 120 };
-      await expect(new GuestNotificationService(db.sql, wire.email, options).send(input)).rejects.toMatchObject({
+      // Delivery deadline stays 100ms. The old lease was only 20ms longer, so a
+      // claim that has already committed and then returns after that slack
+      // stores acceptance_unknown and never reaches the gateway. Hold that
+      // return for 50ms and give the lease room the hold cannot consume.
+      // Lease expiry is moved in SQL; the test does not sleep the lease out.
+      const options = { timeoutMs: 100, leaseMs: 30_000 };
+      const slowSql = new Proxy(db.sql, {
+        get(target, property, receiver) {
+          if (property !== 'begin') return Reflect.get(target, property, receiver);
+          const begin = Reflect.get(target, property, receiver) as (...args: unknown[]) => Promise<unknown>;
+          return async (...args: unknown[]) => {
+            const result = await begin.apply(target, args);
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            return result;
+          };
+        },
+      });
+      await expect(new GuestNotificationService(slowSql as typeof db.sql, wire.email, options).send(input)).rejects.toMatchObject({
         code: 'guest.storage_unavailable',
       });
+      expect(wire.messages).toHaveLength(1);
+      const [held] =
+        await db.sql`SELECT status, code FROM notify.guest_notifications WHERE business_key = ${input.businessKey}`;
+      expect(held).toMatchObject({ status: 'attempting', code: null });
       expect(await new GuestNotificationService(db.sql, wire.email, options).send(input)).toMatchObject({ status: 'attempting' });
-      await new Promise((resolve) => setTimeout(resolve, 130));
+      await db.sql`UPDATE notify.guest_notifications SET lease_until = clock_timestamp() - interval '1 millisecond' WHERE business_key = ${input.businessKey}`;
       expect(await new GuestNotificationService(db.sql, wire.email, options).send(input)).toMatchObject({
         status: 'unresolved',
         code: 'guest.acceptance_unknown',
