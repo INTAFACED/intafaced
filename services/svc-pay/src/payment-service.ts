@@ -681,9 +681,12 @@ export interface SettlementPage {
 
 export interface SettlementLine {
   paymentId: string;
-  amount: Amount;
+  /** Net frozen into the window. Null when the included event has no amount. */
+  amount: Amount | null;
   assetId: string;
   createdAt: Date;
+  /** False for a freeze event written before the included amount was stored. */
+  includedAmountKnown: boolean;
 }
 
 export interface SettlementLinePage {
@@ -1280,6 +1283,12 @@ export class PayService {
     assetId?: string;
     from?: string;
     to?: string;
+    /**
+     * Sandbox keys pass `sandbox` so the page and its cursor are chosen from
+     * sandbox rails only. Filtering after the page would let `nextCursor`
+     * name a live payment the caller must not see.
+     */
+    railMode?: 'sandbox';
   }): Promise<PaymentPage> {
     await this.getMerchant(input.merchantId);
     const limit = assertPaymentListLimit(input.limit);
@@ -1287,11 +1296,13 @@ export class PayService {
     this.assertListStatus(input.status, ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
     const cursorAt = filters.cursor?.createdAtCursor ?? null;
     const cursorId = filters.cursor?.id ?? null;
+    const sandboxOnly = input.railMode === 'sandbox';
     const rows = await this.sql<Array<PaymentRow & { created_at_cursor: string }>>`
       SELECT p.id, p.merchant_id, p.profile_id, p.amount::text, p.currency, p.method, p.rail_adapter, p.rail_ref, p.status, p.created_at,
              to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
         FROM pay.payments p
        WHERE p.merchant_id = ${input.merchantId}
+         AND (${sandboxOnly}::boolean = false OR right(p.rail_adapter, 8) = '-sandbox')
          AND (${input.status ?? null}::text IS NULL OR p.status::text = ${input.status ?? null})
          AND (${filters.assetId}::text IS NULL OR p.currency = ${filters.assetId})
          AND (${filters.from}::timestamptz IS NULL OR p.created_at >= ${filters.from})
@@ -3338,6 +3349,7 @@ export class PayService {
 
         let gross = 0n;
         const included: string[] = [];
+        const includedNet = new Map<string, Amount>();
         for (const { id: paymentId } of candidateIds) {
           // Skip payments with an open refund.posted — their clearing is already
           // leaving (or about to leave). Including them freezes a gross the
@@ -3361,6 +3373,7 @@ export class PayService {
           if (net <= 0n) continue; // Fully refunded inside the window — nothing to settle.
           gross += net;
           included.push(paymentId);
+          includedNet.set(paymentId, net);
         }
 
         if (gross <= 0n) {
@@ -3398,6 +3411,9 @@ export class PayService {
             settlementId: row.id,
             window: input.window,
             assetId: input.assetId,
+            // Captured minus refunded at freeze. The line read uses this, not the
+            // payment's face amount, so the lines sum to the frozen gross.
+            amount: formatAmount(includedNet.get(paymentId)!),
           });
         }
 
@@ -3496,8 +3512,8 @@ export class PayService {
         await tx`
           UPDATE pay.settlements
              SET status = 'failed',
-                 failed_at = COALESCE(failed_at, now()),
-                 failure_code = COALESCE(failure_code, 'pay.settlement_released'),
+                 failed_at = now(),
+                 failure_code = 'pay.settlement_released',
                  updated_at = now()
            WHERE id = ${row.id}
         `;
@@ -3680,14 +3696,14 @@ export class PayService {
             await postPayLedger(this.ledger, plan.reverse);
             await payoutTransaction(connection, async (tx) => {
               await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'reversed','{}') ON CONFLICT DO NOTHING`;
-              await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission!.attempt + 1},failed_at=COALESCE(failed_at, now()),failure_code=COALESCE(failure_code, ${(safeFailure(refused?.failureCode ?? 'rail.failed') ?? { code: 'pay.failed' }).code}),updated_at=now() WHERE id=${settlement.id}`;
+              await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission!.attempt + 1},failed_at=now(),failure_code=${(safeFailure(refused?.failureCode ?? 'rail.failed') ?? { code: 'pay.failed' }).code},updated_at=now() WHERE id=${settlement.id}`;
             });
             throw new PayError(refused?.failureReason ?? 'Rail refused payout', 'pay.rail_failed', { failureCode: refused?.failureCode });
           }
           await postPayLedger(this.ledger, plan.settle);
           await payoutTransaction(connection, async (tx) => {
             await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'settled','{}') ON CONFLICT DO NOTHING`;
-            await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission!.rail_id},payout_ref=${accepted!.railRef},sent_at=COALESCE(sent_at, now()),updated_at=now() WHERE id=${settlement.id}`;
+            await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission!.rail_id},payout_ref=${accepted!.railRef},sent_at=COALESCE(sent_at, now()),failed_at=NULL,failure_code=NULL,updated_at=now() WHERE id=${settlement.id}`;
           });
           return { ...settlement, status: 'paid_out' as const, payoutMethod: admission.rail_id, payoutRef: accepted.railRef };
         });
@@ -3822,20 +3838,27 @@ export class PayService {
 
   /**
    * Payments frozen into this settlement, oldest first, paged by `(created_at, id)`.
-   * Amounts are the payment rows, not a fee recomputed today.
+   * The amount is the net written on `settlement.included` at freeze. A payment's
+   * face amount does not sum to the gross once a capture or refund was partial.
+   * An included event from before that field returns a null amount and a flag.
    */
   async listSettlementLines(input: { settlementId: string; limit?: number; cursor?: string }): Promise<SettlementLinePage> {
     const limit = assertSettlementListLimit(input.limit);
     const filters = listFilters({ cursor: input.cursor });
     const cursorAt = filters.cursor?.createdAtCursor ?? null;
     const cursorId = filters.cursor?.id ?? null;
-    const rows = await this.sql<Array<{ id: string; amount: string; currency: string; created_at: Date; created_at_cursor: string }>>`
-      SELECT id, amount, currency, created_at, created_at_cursor FROM (
-        SELECT DISTINCT ON (p.id) p.id, p.amount::text AS amount, p.currency, p.created_at,
+    const rows = await this.sql<
+      Array<{ id: string; included_amount: string | null; currency: string; created_at: Date; created_at_cursor: string }>
+    >`
+      SELECT id, included_amount, currency, created_at, created_at_cursor FROM (
+        SELECT DISTINCT ON (p.id) p.id, e.payload->>'amount' AS included_amount, p.currency, p.created_at,
                to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
           FROM pay.payment_events e
           JOIN pay.payments p ON p.id = e.payment_id
-         WHERE e.event = 'settlement.included' AND e.payload->>'settlementId' = ${input.settlementId}
+          JOIN pay.settlements s ON s.id = ${input.settlementId}::uuid
+         WHERE e.event = 'settlement.included'
+           AND e.payload->>'settlementId' = s.id::text
+           AND p.merchant_id = s.merchant_id
          ORDER BY p.id, e.seq
       ) lines
        WHERE (
@@ -3848,12 +3871,16 @@ export class PayService {
     const pageRows = rows.slice(0, limit);
     const last = pageRows[pageRows.length - 1];
     return {
-      items: pageRows.map((row) => ({
-        paymentId: row.id,
-        amount: parseAmount(row.amount),
-        assetId: row.currency,
-        createdAt: row.created_at,
-      })),
+      items: pageRows.map((row) => {
+        const included = readIncludedAmount(row.included_amount);
+        return {
+          paymentId: row.id,
+          amount: included.amount,
+          assetId: row.currency,
+          createdAt: row.created_at,
+          includedAmountKnown: included.includedAmountKnown,
+        };
+      }),
       nextCursor: rows.length > limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
     };
   }
@@ -3865,15 +3892,18 @@ export class PayService {
       'settlement',
       pageRows.map((row) => row.id),
     );
-    const items = pageRows.map((row) => ({
-      ...toSettlement(row),
-      createdAt: row.created_at,
-      sentAt: row.sent_at,
-      settledAt: row.settled_at,
-      failedAt: row.failed_at,
-      failure: safeFailure(row.failure_code),
-      pricingSnapshot: snapshots.get(row.id) ?? null,
-    }));
+    const items = pageRows.map((row) => {
+      const failed = row.status === 'failed';
+      return {
+        ...toSettlement(row),
+        createdAt: row.created_at,
+        sentAt: row.sent_at,
+        settledAt: row.settled_at,
+        failedAt: failed ? row.failed_at : null,
+        failure: failed ? safeFailure(row.failure_code) : null,
+        pricingSnapshot: snapshots.get(row.id) ?? null,
+      };
+    });
     const last = pageRows[pageRows.length - 1];
     return {
       items,
@@ -4301,6 +4331,15 @@ function assertTransition(row: PaymentRow, next: PaymentStatus): void {
  * second source of truth for money, and the day it disagrees with the event log
  * is the day nobody can say which one was right.
  */
+function readIncludedAmount(raw: string | null): { amount: Amount | null; includedAmountKnown: boolean } {
+  if (raw == null || raw.trim() === '') return { amount: null, includedAmountKnown: false };
+  try {
+    return { amount: parseAmount(raw), includedAmountKnown: true };
+  } catch {
+    return { amount: null, includedAmountKnown: false };
+  }
+}
+
 async function totalsFor(sql: Sql, paymentId: string): Promise<{ captured: Amount; refunded: Amount }> {
   const rows = await sql<Array<{ captured: string; refunded: string }>>`
     SELECT

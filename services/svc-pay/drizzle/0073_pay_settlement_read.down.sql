@@ -4,6 +4,7 @@
 -- are copies of transitions already recorded as status changes; dropping them
 -- does not move ledger value.
 
+DROP INDEX IF EXISTS "pay"."payment_events_settlement_included_idx";
 DROP INDEX IF EXISTS "pay"."payments_merchant_list_idx";
 DROP INDEX IF EXISTS "pay"."settlements_merchant_list_idx";
 ALTER TABLE "pay"."settlements" DROP CONSTRAINT IF EXISTS "settlements_failure_code_ck";

@@ -16,7 +16,11 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0064-0068 | W15 merchant operations APIs                          | used                                            |
 | 0069-0070 | W16 venue, network and wallet-route registries        | reserved (0069 tables, 0070 audit events)       |
 | 0071      | W4b merchant names                                    | used                                            |
-| 0072+     | unassigned                                            | free; ask W0 before using                       |
+| 0072      | W2c-A approvals audit                                 | reserved                                        |
+| 0073      | W2c-B team reads and settlement detail                | used                                            |
+| 0074      | W2c-C merchant tiers                                  | reserved                                        |
+| 0075      | W2c-D over-cap recon                                  | reserved                                        |
+| 0076+     | unassigned                                            | free; ask W0 before using                       |
 
 ## Why gaps are safe
 

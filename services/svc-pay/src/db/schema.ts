@@ -1,4 +1,4 @@
-import { desc } from 'drizzle-orm';
+import { desc, sql } from 'drizzle-orm';
 import { bigint, bigserial, boolean, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
@@ -279,6 +279,10 @@ export const paymentEvents = pay.table(
     uniqueIndex('payment_events_seq_idx').on(t.seq),
     index('payment_events_payment_idx').on(t.paymentId, t.seq),
     index('payment_events_kind_idx').on(t.paymentId, t.event),
+    /** Settlement line reads look up included events by the settlement id in the payload. */
+    index('payment_events_settlement_included_idx')
+      .on(sql`(payload->>'settlementId')`)
+      .where(sql`${t.event} = 'settlement.included'`),
   ],
 );
 

@@ -455,12 +455,19 @@ export interface ListProc {
 }
 
 const arr = (v: unknown) => v as Array<Record<string, unknown>>;
-const pageRows = (v: unknown) => {
-  if (v && typeof v === 'object' && Array.isArray((v as { items?: unknown }).items)) {
+export function pageRows(v: unknown): Array<Record<string, unknown>> {
+  if (
+    v !== null &&
+    typeof v === 'object' &&
+    'items' in v &&
+    Array.isArray((v as { items: unknown }).items) &&
+    'nextCursor' in v &&
+    ((v as { nextCursor: unknown }).nextCursor === null || typeof (v as { nextCursor: unknown }).nextCursor === 'string')
+  ) {
     return (v as { items: Array<Record<string, unknown>> }).items;
   }
-  return [];
-};
+  throw new Error('list page is not { items, nextCursor }');
+}
 
 export const LIST_PROCS: ListProc[] = [
   {

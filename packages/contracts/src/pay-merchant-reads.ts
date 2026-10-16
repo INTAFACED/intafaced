@@ -84,12 +84,28 @@ export const payRecordedPricingSnapshotSchema = z
   .strict();
 export type PayRecordedPricingSnapshot = z.infer<typeof payRecordedPricingSnapshotSchema>;
 
+/**
+ * Viewer and developer reads. The fee that was charged, and nothing about which
+ * rule, spread, or layer produced it.
+ */
+export const payFeeOnlySnapshotSchema = z.object({ fee: payAmountStringSchema }).strict();
+
+/** Full snapshot for owner, admin, and finance. Fee only for viewer and developer. */
+export const payPricingSnapshotViewSchema = z.union([payRecordedPricingSnapshotSchema, payFeeOnlySnapshotSchema]);
+
 export const paySettlementLineSchema = z
   .object({
     paymentId: z.string().uuid(),
-    amount: payAmountStringSchema,
+    /**
+     * Net included at freeze (captured minus refunded). Null when the
+     * `settlement.included` event predates that field — never the payment's
+     * face amount, which does not sum to the settlement gross.
+     */
+    amount: payAmountStringSchema.nullable(),
     assetId: payAssetCodeSchema,
     createdAt: payTimestampSchema,
+    /** False when `amount` was not stored on the freeze event. */
+    includedAmountKnown: z.boolean(),
   })
   .strict();
 export type PaySettlementLine = z.infer<typeof paySettlementLineSchema>;

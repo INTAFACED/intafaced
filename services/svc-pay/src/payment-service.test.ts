@@ -2633,6 +2633,9 @@ describe('svc-pay money PG-hard', () => {
       expect(await availableOf(MERCHANT_USER)).toBe('50');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect((await pay.getSettlement(settlement.id)).status).toBe('failed');
+      const failedRead = await pay.readSettlement(settlement.id);
+      expect(failedRead.failure).toEqual({ code: 'bank.rejected', message: 'The payout was rejected.' });
+      expect(failedRead.failedAt).toBeInstanceOf(Date);
       expect(ledger.reconcile()).toEqual({ ok: true });
 
       // And it can be retried onto a working destination.
@@ -2643,6 +2646,41 @@ describe('svc-pay money PG-hard', () => {
       });
       expect(retried.status).toBe('paid_out');
       expect(await availableOf(MERCHANT_USER)).toBe('0');
+      const paidRead = await pay.readSettlement(settlement.id);
+      expect(paidRead.status).toBe('paid_out');
+      expect(paidRead.failure).toBeNull();
+      expect(paidRead.failedAt).toBeNull();
+      const [cleared] = await sql<Array<{ failed_at: Date | null; failure_code: string | null }>>`
+        SELECT failed_at, failure_code FROM pay.settlements WHERE id = ${settlement.id}`;
+      expect(cleared!.failed_at).toBeNull();
+      expect(cleared!.failure_code).toBeNull();
+    });
+
+    it('overwrites the settlement failure on each refusal instead of keeping the first', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '50');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'w-payout-fail-overwrite');
+      const request = {
+        settlementId: settlement.id,
+        railId: 'card-sandbox',
+        destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+      };
+      card.failNext('bank.rejected', 'Beneficiary account closed');
+      await expect(pay.payoutSettlement(request)).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      await sql`
+        UPDATE pay.settlements
+           SET failed_at = '2000-01-01T00:00:00.000Z', failure_code = 'card.declined'
+         WHERE id = ${settlement.id}`;
+      card.failNext('acquirer.unavailable', 'rail text that must not become the stored code');
+      await expect(pay.payoutSettlement(request)).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      const [row] = await sql<Array<{ failed_at: Date; failure_code: string }>>`
+        SELECT failed_at, failure_code FROM pay.settlements WHERE id = ${settlement.id}`;
+      expect(row!.failure_code).toBe('acquirer.unavailable');
+      expect(row!.failed_at.toISOString().startsWith('2000-01-01')).toBe(false);
+      const read = await pay.readSettlement(settlement.id);
+      expect(read.status).toBe('failed');
+      expect(read.failure?.code).toBe('acquirer.unavailable');
     });
 
     it('is idempotent — paying out twice pays once', async () => {

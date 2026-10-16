@@ -4,7 +4,7 @@ import {
   payMerchantFailureSchema,
   payPageSchema,
   payPaymentListInputSchema,
-  payRecordedPricingSnapshotSchema,
+  payPricingSnapshotViewSchema,
   paySettlementLineSchema,
   paySettlementLinesInputSchema,
   paySettlementListInputSchema,
@@ -35,7 +35,9 @@ import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { PayGuardRefusal } from './seams/guards.js';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
-import { allowMerchantRead } from './merchant-read-access.js';
+import { allowMerchantRead, type MerchantReadAudience } from './merchant-read-access.js';
+import { logPaymentFactsReadFailure } from './payment-facts-log.js';
+import { projectPricingSnapshot, projectTeamHistoryEvent } from './team-read-projection.js';
 import type { MerchantReadPermission, MerchantTeamRead } from './merchant-team-read.js';
 import { merchantNameInputSchema } from './merchant-names.js';
 import { areaForSurface, type PayfacSurface } from './payfac-permissions.js';
@@ -98,7 +100,7 @@ const paymentView = z.object({
   refundedAmount: amountSchema,
   createdAt: z.string().datetime({ offset: true }),
   /** Stored when the fee was decided. Null when no snapshot row exists. Never recomputed. */
-  pricingSnapshot: payRecordedPricingSnapshotSchema.nullable(),
+  pricingSnapshot: payPricingSnapshotViewSchema.nullable(),
   /** Catalog code and sentence. Null when the payment has not failed. */
   failure: payMerchantFailureSchema.nullable(),
 });
@@ -117,12 +119,12 @@ const settlementView = z.object({
 });
 
 const settlementDetailView = settlementView.extend({
-  createdAt: z.string().datetime({ offset: true }),
+  createdAt: z.string().datetime({ offset: true }).nullable(),
   sentAt: z.string().datetime({ offset: true }).nullable(),
   settledAt: z.string().datetime({ offset: true }).nullable(),
   failedAt: z.string().datetime({ offset: true }).nullable(),
   failure: payMerchantFailureSchema.nullable(),
-  pricingSnapshot: payRecordedPricingSnapshotSchema.nullable(),
+  pricingSnapshot: payPricingSnapshotViewSchema.nullable(),
 });
 
 /**
@@ -249,9 +251,33 @@ export function createPayRouter(
       () => new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found'),
     );
 
-  const paymentOut = async (view: Awaited<ReturnType<PayService['getPayment']>>): Promise<PaymentViewOut> => {
-    const facts = (await pay.paymentFacts?.(view.id)) ?? { pricingSnapshot: null, failure: null };
-    return { ...toPaymentOut(view), pricingSnapshot: facts.pricingSnapshot, failure: facts.failure };
+  const paymentOut = async (
+    view: Awaited<ReturnType<PayService['getPayment']>>,
+    audience: MerchantReadAudience,
+    afterCommit: boolean,
+  ): Promise<PaymentViewOut> => {
+    let facts: { pricingSnapshot: { fee: string } | null; failure: PaymentViewOut['failure'] } = {
+      pricingSnapshot: null,
+      failure: null,
+    };
+    try {
+      facts = (await pay.paymentFacts?.(view.id)) ?? facts;
+    } catch (err) {
+      // The mutation has committed. A facts read must not turn that into an error
+      // the client will retry.
+      if (!afterCommit) throw err;
+      logPaymentFactsReadFailure(view.id);
+    }
+    return {
+      ...toPaymentOut(view),
+      pricingSnapshot: projectPricingSnapshot(facts.pricingSnapshot, audience),
+      failure: facts.failure,
+    };
+  };
+
+  const settlementDetailOut = (row: Parameters<typeof toSettlementDetail>[0], audience: MerchantReadAudience): SettlementDetailOut => {
+    const detail = toSettlementDetail(row);
+    return { ...detail, pricingSnapshot: projectPricingSnapshot(detail.pricingSnapshot, audience) };
   };
 
   return router({
@@ -707,6 +733,8 @@ export function createPayRouter(
                 amount: parseAmount(input.amount),
                 identityAuthority: credentialAuthority(ctx.principal),
               }),
+              'owner',
+              true,
             );
           }),
         ),
@@ -718,7 +746,11 @@ export function createPayRouter(
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.authorize');
-            return paymentOut(await pay.authorize(input.paymentId, { identityAuthority: credentialAuthority(ctx.principal) }));
+            return paymentOut(
+              await pay.authorize(input.paymentId, { identityAuthority: credentialAuthority(ctx.principal) }),
+              'owner',
+              true,
+            );
           }),
         ),
 
@@ -734,6 +766,8 @@ export function createPayRouter(
                 ...(input.amount === undefined ? {} : { amount: parseAmount(input.amount) }),
                 identityAuthority: credentialAuthority(ctx.principal),
               }),
+              'owner',
+              true,
             );
           }),
         ),
@@ -759,7 +793,7 @@ export function createPayRouter(
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.refund');
-            return paymentOut(await pay.refund(input.paymentId, parseAmount(input.amount), { refundId: input.refundId }));
+            return paymentOut(await pay.refund(input.paymentId, parseAmount(input.amount), { refundId: input.refundId }), 'owner', true);
           }),
         ),
 
@@ -773,8 +807,8 @@ export function createPayRouter(
             // is the RESPONSE, and it must come before the return, not after
             // the caller has the object.
             const payment = await pay.getPayment(input.paymentId);
-            await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
-            return paymentOut(payment);
+            const audience = await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
+            return paymentOut(payment, audience, false);
           }),
         ),
 
@@ -784,12 +818,12 @@ export function createPayRouter(
         .output(payPageSchema(paymentView))
         .query(({ ctx, input }) =>
           wrap(async () => {
-            await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
+            const audience = await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
             const page = await pay.listPayments(input);
             return {
               items: page.items.map((item) => ({
                 ...toPaymentOut(item),
-                pricingSnapshot: item.pricingSnapshot,
+                pricingSnapshot: projectPricingSnapshot(item.pricingSnapshot, audience),
                 failure: item.failure,
               })),
               nextCursor: page.nextCursor,
@@ -811,13 +845,25 @@ export function createPayRouter(
         )
         .output(
           z.array(
-            z.object({
-              id: z.string().uuid(),
-              event: z.string(),
-              payload: z.record(z.unknown()),
-              railEventId: z.string().nullable(),
-              ts: z.string().datetime({ offset: true }),
-            }),
+            z.union([
+              z.object({
+                id: z.string().uuid(),
+                event: z.string(),
+                payload: z.record(z.unknown()),
+                railEventId: z.string().nullable(),
+                ts: z.string().datetime({ offset: true }),
+              }),
+              z
+                .object({
+                  id: z.string().uuid(),
+                  event: z.string(),
+                  ts: z.string().datetime({ offset: true }),
+                  amount: amountSchema.nullable(),
+                  assetId: assetIdSchema.nullable(),
+                  failure: payMerchantFailureSchema.nullable(),
+                })
+                .strict(),
+            ]),
           ),
         )
         .query(({ ctx, input }) =>
@@ -826,15 +872,20 @@ export function createPayRouter(
             // event log is never touched for a caller who does not own it.
             // `payment_events` carries instrument metadata, customer refs and
             // rail references, so this is the more sensitive of the two reads.
+            // A team role gets the allowlisted projection. The owner keeps the payload.
             const payment = await pay.getPayment(input.paymentId);
-            await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
-            return (await pay.history(input.paymentId, input.limit)).map((e) => ({
-              id: e.id,
-              event: e.event,
-              payload: e.payload,
-              railEventId: e.railEventId,
-              ts: e.ts.toISOString(),
-            }));
+            const audience = await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
+            const events = await pay.history(input.paymentId, input.limit);
+            if (audience === 'owner') {
+              return events.map((e) => ({
+                id: e.id,
+                event: e.event,
+                payload: e.payload,
+                railEventId: e.railEventId,
+                ts: e.ts.toISOString(),
+              }));
+            }
+            return events.map((e) => projectTeamHistoryEvent(e));
           }),
         ),
     }),
@@ -883,8 +934,8 @@ export function createPayRouter(
             const settlement = pay.readSettlement
               ? await pay.readSettlement(input.settlementId)
               : await pay.getSettlement(input.settlementId);
-            await assertSettlementRead(ctx.principal.userId, input.settlementId, settlement.merchantId);
-            return toSettlementDetail(settlement);
+            const audience = await assertSettlementRead(ctx.principal.userId, input.settlementId, settlement.merchantId);
+            return settlementDetailOut(settlement, audience);
           }),
         ),
 
@@ -896,9 +947,9 @@ export function createPayRouter(
         .output(payPageSchema(settlementDetailView))
         .query(({ ctx, input }) =>
           wrap(async () => {
-            await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
+            const audience = await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
             const page = await pay.listSettlements(input);
-            return { items: page.items.map(toSettlementDetail), nextCursor: page.nextCursor };
+            return { items: page.items.map((item) => settlementDetailOut(item, audience)), nextCursor: page.nextCursor };
           }),
         ),
 
@@ -914,9 +965,10 @@ export function createPayRouter(
             return {
               items: page.items.map((line) => ({
                 paymentId: line.paymentId,
-                amount: formatAmount(line.amount),
+                amount: line.amount === null ? null : formatAmount(line.amount),
                 assetId: line.assetId,
                 createdAt: line.createdAt.toISOString(),
+                includedAmountKnown: line.includedAmountKnown,
               })),
               nextCursor: page.nextCursor,
             };
@@ -1781,7 +1833,7 @@ function toSettlementDetail(
   };
   return {
     ...toSettlementOut(row),
-    createdAt: at(row.createdAt) ?? '1970-01-01T00:00:00.000Z',
+    createdAt: at(row.createdAt),
     sentAt: at(row.sentAt),
     settledAt: at(row.settledAt),
     failedAt: at(row.failedAt),

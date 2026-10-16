@@ -23,3 +23,9 @@ CREATE INDEX IF NOT EXISTS "payments_merchant_list_idx"
   ON "pay"."payments" ("merchant_id", "created_at" DESC, "id" DESC);
 CREATE INDEX IF NOT EXISTS "settlements_merchant_list_idx"
   ON "pay"."settlements" ("merchant_id", "created_at" DESC, "id" DESC);
+
+-- Settlement lines look up `settlement.included` by the settlement id stored in
+-- the payload. Partial: other events do not carry that lookup.
+CREATE INDEX IF NOT EXISTS "payment_events_settlement_included_idx"
+  ON "pay"."payment_events" ((payload->>'settlementId'))
+  WHERE event = 'settlement.included';

@@ -455,6 +455,7 @@ describe('the spec is served, and describes what the routes actually do', () => 
     expect(desc).toContain('ifc_test_');
     expect(desc).toContain('pay.sandbox_rail_refused');
     expect(desc).toContain('mode: "sandbox" | "live"');
+    expect(desc).toContain('{ items, nextCursor }');
     expect(desc).toContain('Idempotency-Key');
     expect(desc).toMatch(/decimal string/i);
   });
@@ -897,16 +898,16 @@ describe('step 4 — sandbox keys route to sandbox rail (ADR §2.5)', () => {
     expect(explicit.json().items).toHaveLength(1);
   });
 
-  it('sandbox list omits live-rail rows rather than painting them live', async () => {
+  it('sandbox list scopes rails before the cursor and echoes that cursor', async () => {
+    const liveId = '55555555-5555-4555-8555-555555555555';
     const pay = stubPay({
-      listPayments: async () =>
-        ({
-          items: [
-            { ...paymentRow, id: PAYMENT, railAdapter: 'card-sandbox' },
-            { ...paymentRow, id: '55555555-5555-4555-8555-555555555555', railAdapter: 'crypto-native' },
-          ],
-          nextCursor: null,
-        }) as never,
+      listPayments: async (input: { railMode?: string }) => {
+        expect(input.railMode).toBe('sandbox');
+        return {
+          items: [{ ...paymentRow, id: PAYMENT, railAdapter: 'card-sandbox' }],
+          nextCursor: 'sandbox-page',
+        } as never;
+      },
     });
     app = await build(pay);
 
@@ -921,6 +922,8 @@ describe('step 4 — sandbox keys route to sandbox rail (ADR §2.5)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.railAdapter).toBe('card-sandbox');
     expect(rows[0]!.mode).toBe('sandbox');
+    expect(res.json().nextCursor).toBe('sandbox-page');
+    expect(res.body).not.toContain(liveId);
   });
 
   it('sandbox create that the core echoes as live is refused, not returned as live', async () => {

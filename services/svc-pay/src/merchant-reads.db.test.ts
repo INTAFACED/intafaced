@@ -6,11 +6,12 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
+import { MemoryLedger, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createFounderAuthority } from './founder-authority.js';
 import { loadHaltAutoTripConfig } from './halts/config.js';
 import { PayHaltStore } from './halts/store.js';
+import { decodeListCursor } from './list-page.js';
 import { teamReadFromSql } from './merchant-team-read.js';
 import { createPayHaltsRouter } from './namespaces/pay-halts.js';
 import { PayService } from './payment-service.js';
@@ -37,6 +38,9 @@ const authConfig = {
 const OWNER = '11111111-1111-4111-8111-111111111111';
 const VIEWER = '22222222-2222-4222-8222-222222222222';
 const FINANCE_B = '33333333-3333-4333-8333-333333333333';
+const ADMIN = '77777777-7777-4777-8777-777777777777';
+const DEVELOPER = '88888888-8888-4888-8888-888888888888';
+const FINANCE = '99999999-9999-4999-8999-999999999999';
 const INVITED = '44444444-4444-4444-8444-444444444444';
 const REMOVED = '55555555-5555-4555-8555-555555555555';
 const STRANGER = '66666666-6666-4666-8666-666666666666';
@@ -163,9 +167,12 @@ describe('merchant team reads, list pages, and stored detail', () => {
     expect(got.failure).toBeNull();
     const listed = await viewer.payment.list({ merchantId: mine.id, limit: 10 });
     expect(listed.items.map((item) => item.id)).toEqual([row.id]);
-    expect(await viewer.payment.history({ paymentId: row.id, limit: 20 })).toEqual(
-      expect.arrayContaining([expect.objectContaining({ event: 'created' })]),
+    const history = await viewer.payment.history({ paymentId: row.id, limit: 20 });
+    expect(history).toEqual(
+      expect.arrayContaining([expect.objectContaining({ event: 'created', amount: '10', assetId: 'USDT', failure: null })]),
     );
+    expect(history.every((event) => !('payload' in event) && !('railEventId' in event))).toBe(true);
+    expect(JSON.stringify(history)).not.toContain('tok_ok');
     const haltViewer = halts.createCaller(await ctx(['pay:read'], VIEWER));
     await expect(haltViewer.payHalts.status({ merchantId: mine.id })).resolves.toMatchObject({ readable: true });
 
@@ -280,9 +287,28 @@ describe('merchant team reads, list pages, and stored detail', () => {
       )`;
     await sql`UPDATE pay.merchants SET pricing = '{"feeBps":900}'::jsonb WHERE id = ${mine.id}`;
 
+    await member(mine.id, ADMIN, 'admin', 'active');
+    await member(mine.id, FINANCE, 'finance', 'active');
+    await member(mine.id, DEVELOPER, 'developer', 'active');
+    await member(mine.id, VIEWER, 'viewer', 'active');
+
     const owner = router.createCaller(await ctx(['pay:read'], OWNER));
     const detail = await owner.payment.get({ paymentId: captured.id });
     expect(detail.pricingSnapshot).toMatchObject({ fee: '1.25', feeBps: 250, ruleId: rule!.id, appliedLayer: 'merchant' });
+    for (const userId of [ADMIN, FINANCE]) {
+      const caller = router.createCaller(await ctx(['pay:read'], userId));
+      expect((await caller.payment.get({ paymentId: captured.id })).pricingSnapshot).toMatchObject({
+        fee: '1.25',
+        ruleId: rule!.id,
+        appliedLayer: 'merchant',
+      });
+    }
+    for (const userId of [VIEWER, DEVELOPER]) {
+      const caller = router.createCaller(await ctx(['pay:read'], userId));
+      const snap = (await caller.payment.get({ paymentId: captured.id })).pricingSnapshot;
+      expect(snap).toEqual({ fee: '1.25' });
+      expect(JSON.stringify(snap)).not.toContain(rule!.id);
+    }
 
     const posted = await pay.settleWindow({
       merchantId: mine.id,
@@ -298,6 +324,7 @@ describe('merchant team reads, list pages, and stored detail', () => {
     const lines = await owner.settlement.lines({ settlementId: posted.id, limit: 10 });
     expect(lines.items.map((line) => line.paymentId)).toContain(captured.id);
     expect(lines.items[0]!.amount).toBe('10');
+    expect(lines.items[0]!.includedAmountKnown).toBe(true);
 
     const failedPayment = await payment(mine.id);
     await sql`
@@ -307,5 +334,156 @@ describe('merchant team reads, list pages, and stored detail', () => {
     expect(failed.failure).toEqual({ code: 'card.declined', message: 'The card was declined.' });
     expect(JSON.stringify(failed)).not.toContain(SECRET);
     expect(JSON.stringify(await owner.payment.list({ merchantId: mine.id, limit: 10 }))).not.toContain(SECRET);
+
+    const viewerSettlement = await router.createCaller(await ctx(['pay:read'], VIEWER)).settlement.get({ settlementId: posted.id });
+    expect(viewerSettlement.pricingSnapshot).toBeNull();
+  });
+
+  it('hides rail failure text, the instrument, and the routing decision from every team role', async () => {
+    const mine = await merchant(OWNER);
+    for (const [userId, role] of [
+      [VIEWER, 'viewer'],
+      [DEVELOPER, 'developer'],
+      [FINANCE, 'finance'],
+      [ADMIN, 'admin'],
+    ] as const) {
+      await member(mine.id, userId, role, 'active');
+    }
+    const row = await pay.createPayment({
+      merchantId: mine.id,
+      amount: parseAmount('10'),
+      assetId: 'USDT',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      instrument: { kind: 'card', token: SECRET },
+    });
+    await sql`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES
+        (${row.id}, 'failed', ${sql.json({ failureCode: 'card.declined', failureReason: SECRET, railPayload: { secret: SECRET } })}),
+        (${row.id}, 'rail.authorize', ${sql.json({ failureReason: SECRET, amount: '10', assetId: 'USDT' })}),
+        (${row.id}, 'rail.selected', ${sql.json({ kind: 'pay.routing.decision', chosenRailId: SECRET, considered: [{ railId: SECRET }] })})`;
+
+    const ownerHistory = JSON.stringify(
+      await router.createCaller(await ctx(['pay:read'], OWNER)).payment.history({ paymentId: row.id, limit: 20 }),
+    );
+    expect(ownerHistory).toContain(SECRET);
+
+    for (const userId of [VIEWER, DEVELOPER, FINANCE, ADMIN]) {
+      const history = await router.createCaller(await ctx(['pay:read'], userId)).payment.history({ paymentId: row.id, limit: 20 });
+      const body = JSON.stringify(history);
+      expect(body).not.toContain(SECRET);
+      expect(body).not.toContain('failureReason');
+      expect(body).not.toContain('chosenRailId');
+      expect(body).not.toContain('railPayload');
+      expect(history.every((event) => !('payload' in event))).toBe(true);
+      expect(body).toContain('card.declined');
+      expect(body).toContain('The card was declined.');
+    }
+  });
+
+  it('lists settlement lines at the frozen net, which sums to the gross', async () => {
+    const mine = await merchant(OWNER);
+    const other = await merchant(FINANCE);
+    // The authorization amount is frozen and the event log is append-only, so a
+    // partial capture cannot be written. The rail interface refuses it; the
+    // difference is a refund, then a further partial refund. The frozen net is
+    // 20 - 8 - 4 = 8, not the face amount 20.
+    const partial = await pay.createPayment({
+      merchantId: mine.id,
+      amount: parseAmount('20'),
+      assetId: 'USDT',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      instrument: { kind: 'card', token: 'tok_ok' },
+    });
+    const authorized = await pay.authorize(partial.id);
+    await expect(pay.capture(authorized.id, { amount: parseAmount('12') })).rejects.toMatchObject({
+      code: 'pay.partial_capture_unsupported',
+    });
+    const captured = await pay.capture(authorized.id);
+    await pay.refund(captured.id, parseAmount('8'));
+    await pay.refund(captured.id, parseAmount('4'));
+    const whole = await payment(mine.id);
+    await pay.capture((await pay.authorize(whole.id)).id);
+
+    const posted = await pay.settleWindow({
+      merchantId: mine.id,
+      window: '2026-10-16-lines',
+      assetId: 'USDT',
+      from: new Date('2020-01-01T00:00:00.000Z'),
+      to: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    expect(formatAmount(posted.gross)).toBe('18');
+
+    const owner = router.createCaller(await ctx(['pay:read'], OWNER));
+    const lines = await owner.settlement.lines({ settlementId: posted.id, limit: 10 });
+    const byId = new Map(lines.items.map((line) => [line.paymentId, line]));
+    expect(byId.get(captured.id)).toMatchObject({ amount: '8', includedAmountKnown: true });
+    expect(byId.get(whole.id)).toMatchObject({ amount: '10', includedAmountKnown: true });
+    const sum = lines.items.reduce((total, line) => total + parseAmount(line.amount ?? '0'), 0n);
+    expect(formatAmount(sum)).toBe(formatAmount(posted.gross));
+
+    const foreign = await payment(other.id);
+    await sql`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (${foreign.id}, 'settlement.included', ${sql.json({ settlementId: posted.id, amount: '999', assetId: 'USDT' })})`;
+    const fenced = await owner.settlement.lines({ settlementId: posted.id, limit: 10 });
+    expect(fenced.items.map((line) => line.paymentId)).not.toContain(foreign.id);
+
+    const [older] = await sql<{ id: string }[]>`
+      INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status)
+      VALUES (${mine.id}, '2001-01-01', 'USDT', 10, 0, 10, 'posted')
+      RETURNING id`;
+    await sql`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (${whole.id}, 'settlement.included', ${sql.json({ settlementId: older!.id, window: '2001-01-01', assetId: 'USDT' })})`;
+    const legacy = await owner.settlement.lines({ settlementId: older!.id, limit: 10 });
+    expect(legacy.items).toEqual([expect.objectContaining({ paymentId: whole.id, amount: null, includedAmountKnown: false })]);
+
+    const [index] = await sql<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes WHERE indexname = 'payment_events_settlement_included_idx'`;
+    expect(index!.indexdef).toMatch(/payload\s*->>\s*'settlementId'/);
+    expect(index!.indexdef).toContain('settlement.included');
+  });
+
+  it('does not put a live payment id in a sandbox list cursor', async () => {
+    const mine = await merchant(OWNER);
+    const newest = await payment(mine.id);
+    // This harness only registers the sandbox rail. The live row is inserted
+    // with a rail id that does not end in `-sandbox`; the column cannot be updated later.
+    const [live] = await sql<{ id: string }[]>`
+      INSERT INTO pay.payments (merchant_id, amount, currency, method, rail_adapter, status, created_at)
+      VALUES (${mine.id}, 10, 'USDT', 'crypto', 'crypto-native', 'created', '2026-06-02T00:00:00.000Z')
+      RETURNING id`;
+    const oldest = await payment(mine.id);
+    await sql`UPDATE pay.payments SET created_at = '2026-06-03T00:00:00.000Z' WHERE id = ${newest.id}`;
+    await sql`UPDATE pay.payments SET created_at = '2026-06-01T00:00:00.000Z' WHERE id = ${oldest.id}`;
+
+    const page = await pay.listPayments({ merchantId: mine.id, limit: 1, railMode: 'sandbox' });
+    expect(page.items.map((item) => item.id)).toEqual([newest.id]);
+    expect(decodeListCursor(page.nextCursor!).id).toBe(newest.id);
+    const rest = await pay.listPayments({ merchantId: mine.id, limit: 1, railMode: 'sandbox', cursor: page.nextCursor! });
+    expect(rest.items.map((item) => item.id)).toEqual([oldest.id]);
+    expect(rest.nextCursor).toBeNull();
+    expect([page.items[0]!.id, rest.items[0]!.id]).not.toContain(live.id);
+  });
+
+  it('emits a settlement failure only while the settlement is failed', async () => {
+    const mine = await merchant(OWNER);
+    const [paid] = await sql<{ id: string }[]>`
+      INSERT INTO pay.settlements (
+        merchant_id, "window", asset_id, gross, fees, net, status, payout_method, payout_ref, failure_code, failed_at
+      )
+      VALUES (
+        ${mine.id}, '2099-02-02', 'USDT', 1, 0, 1, 'paid_out', 'card-sandbox', 'rail-ref-paid', 'bank.rejected', now()
+      )
+      RETURNING id`;
+    const owner = router.createCaller(await ctx(['pay:read'], OWNER));
+    const detail = await owner.settlement.get({ settlementId: paid!.id });
+    expect(detail.status).toBe('paid_out');
+    expect(detail.failure).toBeNull();
+    expect(detail.failedAt).toBeNull();
+    expect(detail.createdAt).not.toBe('1970-01-01T00:00:00.000Z');
   });
 });

@@ -13,19 +13,29 @@ export interface MerchantTeamRead {
    * member are all false, so the caller cannot tell those apart.
    */
   allows(userId: string | undefined, merchantId: string, permission: MerchantReadPermission): Promise<boolean>;
+  /**
+   * The active stored role, or null. Same silence as `allows`: missing, invited,
+   * removed, and another merchant's member are all null.
+   */
+  activeRole(userId: string | undefined, merchantId: string): Promise<TeamRole | null>;
 }
 
 export function teamReadFromSql(sql: Sql): MerchantTeamRead {
   return {
-    async allows(userId, merchantId, permission) {
-      if (!userId) return false;
+    async activeRole(userId, merchantId) {
+      if (!userId) return null;
       const rows = await sql<Array<{ role: string }>>`
         SELECT role FROM pay.merchant_team_members
          WHERE merchant_id = ${merchantId} AND user_id = ${userId} AND status = 'active'
          LIMIT 1`;
       const role = rows[0]?.role;
-      if (!role || !STORED_ROLES.has(role as TeamRole)) return false;
-      return roleHasPermission(role as TeamRole, permission as MerchantPermission);
+      if (!role || !STORED_ROLES.has(role as TeamRole)) return null;
+      return role as TeamRole;
+    },
+    async allows(userId, merchantId, permission) {
+      const role = await this.activeRole(userId, merchantId);
+      if (!role) return false;
+      return roleHasPermission(role, permission as MerchantPermission);
     },
   };
 }

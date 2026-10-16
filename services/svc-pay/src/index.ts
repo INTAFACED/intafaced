@@ -5,6 +5,7 @@ import { createPayfacAuthorityGuard, drainPayfacPermissionIntents } from './payf
 import { createFounderAuthority } from './founder-authority.js';
 import { ControlService, teamAccessPorts } from './control/index.js';
 import { teamReadFromSql } from './merchant-team-read.js';
+import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
 import { loadHaltAutoTripConfig } from './halts/config.js';
@@ -409,6 +410,7 @@ export type { PayNamespacesRouter } from './namespaces/index.js';
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 // Callers get a uniform not-found; operators get the real reason (log only).
 setIsolationDenialSink((denial) => app.log.warn({ isolation: denial }, 'pay.isolation_denied'));
+setPaymentFactsReadFailureSink((event) => app.log.warn(event, 'payment facts unread after commit'));
 
 // Keep the exact request bytes so S2S verifiers can check the signed digest
 // (L2-6). Installed once here; internal registers pass `installRawBody: false`
