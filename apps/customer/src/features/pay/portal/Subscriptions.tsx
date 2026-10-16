@@ -16,7 +16,7 @@ import type { PortalApi } from './api';
 import type { Cycle } from './billing-schemas';
 import type { PortalRoute } from './routes';
 import type { ApiResult } from '../../../shared/api';
-import { checkSubscriptionOriginal, checkSubscriptionCreateOriginal, createSubscriptionWithRecovery } from './subscription-recovery';
+import { checkSubscriptionOriginal, createSubscriptionWithRecovery, replaySubscriptionCreate } from './subscription-recovery';
 
 type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
@@ -446,9 +446,11 @@ export function SubscriptionDetailView({
 function SubscriptionRecovery({
   check,
   onKnown,
+  onSettled,
 }: {
   check: (current: () => boolean) => Promise<ApiResult<Subscription>>;
   onKnown: (subscription: Subscription) => void;
+  onSettled?: (result: ApiResult<Subscription>) => void;
 }) {
   const mounted = useRef(true);
   const busyRef = useRef(false);
@@ -475,7 +477,11 @@ function SubscriptionRecovery({
             const result = await check(() => mounted.current);
             if (!mounted.current) return;
             if (result.ok) onKnown(result.data);
-            else setMessage(c.t('subscriptionStillUnresolved'));
+            else
+              setMessage(
+                result.reason === 'uncertain' || result.reason === 'aborted' ? c.t('subscriptionStillUnresolved') : result.message,
+              );
+            onSettled?.(result);
           } finally {
             busyRef.current = false;
             if (mounted.current) setBusy(false);
@@ -619,6 +625,7 @@ export function CreateSubscriptionView({
   const [mandateId, setMandateId] = useState('');
   const [path, setPath] = useState('');
   const [created, setCreated] = useState('');
+  const [createNotice, setCreateNotice] = useState('');
   useUnsavedForm(Boolean(mandateId || path), c.t('draftWarning'));
   const choices = mandates.status === 'ready' ? mandates.data.filter((m) => m.status === 'active') : [];
   const selected = choices.find((m) => m.id === mandateId);
@@ -663,16 +670,23 @@ export function CreateSubscriptionView({
                 {pay && locked && (
                   <SubscriptionRecovery
                     key={`${pay.authority!.userId}:${mandateId}`}
-                    check={(current) => checkSubscriptionCreateOriginal(pay, mandateId, current)}
+                    check={(current) => replaySubscriptionCreate(pay, mandateId, path, current)}
                     onKnown={(data) => {
+                      setCreateNotice('');
                       setCreated(data.id);
                       setMandateId('');
                       setPath('');
                       setRevision((v) => v + 1);
                       reload();
                     }}
+                    onSettled={(result) => {
+                      refreshLock((v) => v + 1);
+                      if (!result.ok && result.reason !== 'uncertain' && result.reason !== 'aborted') setCreateNotice(result.message);
+                      else setCreateNotice('');
+                    }}
                   />
                 )}
+                {createNotice && <p role="status">{createNotice}</p>}
                 {pay ? (
                   <span
                     title={
@@ -699,6 +713,7 @@ export function CreateSubscriptionView({
                         }
                       }}
                       onConfirmed={(data) => {
+                        setCreateNotice('');
                         setCreated(data.id);
                         setMandateId('');
                         setPath('');

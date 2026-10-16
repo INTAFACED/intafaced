@@ -528,6 +528,58 @@ describe('W1 control guards', () => {
       expect((await sql`SELECT 1 FROM pay.control_pricing_snapshots WHERE subject_id = ${bareId}`).length).toBe(0);
     });
 
+    it('a failing over-cap notice does not roll back a capture whose ledger post landed', async () => {
+      const warnings: Array<Record<string, unknown>> = [];
+      const p = service(
+        composeGuards(
+          createControlGuards({
+            sql,
+            mode: 'required',
+            warn: (fields) => {
+              warnings.push(fields);
+            },
+          }),
+        ),
+      );
+      const m = await merchant('99999999-9999-4999-8999-999999999997', p);
+      await configure(m.id);
+      const ids: string[] = [];
+      for (let i = 0; i < 4; i += 1) {
+        const created = await pay(p, m.id, '100');
+        await fund(p, created.id, '100');
+        ids.push(created.id);
+      }
+      await sql.unsafe(`
+        CREATE OR REPLACE FUNCTION pay.test_reject_over_cap_notice() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          RAISE EXCEPTION 'notice insert refused';
+        END $$;
+        CREATE TRIGGER test_reject_over_cap_notice
+        BEFORE INSERT ON pay.merchant_notifications
+        FOR EACH ROW EXECUTE FUNCTION pay.test_reject_over_cap_notice();
+      `);
+      try {
+        for (const id of ids) expect((await p.capture(id)).status).toBe('captured');
+        expect(await usage(m.id, 'daily_intake')).toBe('400');
+        expect(warnings).toEqual([
+          expect.objectContaining({
+            event: 'payment.captured_over_cap_notice_failed',
+            paymentId: ids[3],
+            merchantId: m.id,
+          }),
+        ]);
+        expect(await sql`SELECT 1 FROM pay.merchant_notifications WHERE merchant_id = ${m.id}`).toHaveLength(0);
+        expect(await sql`SELECT 1 FROM pay.control_audit WHERE merchant_id = ${m.id} AND kind = 'payment.captured_over_cap'`).toHaveLength(
+          1,
+        );
+        expect(await ledger.getTxByKey(`payment.capture:${ids[3]!.toLowerCase()}`)).not.toBeNull();
+      } finally {
+        await sql`DROP TRIGGER IF EXISTS test_reject_over_cap_notice ON pay.merchant_notifications`;
+        await sql`DROP FUNCTION IF EXISTS pay.test_reject_over_cap_notice()`;
+      }
+    });
+
     it('a pricing rule that cannot be computed skips the snapshot, never the capture', async () => {
       const m = await merchant('99999999-9999-4999-8999-999999999999');
       await configure(m.id);

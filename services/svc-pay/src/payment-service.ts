@@ -1,4 +1,12 @@
 import { postPayLedger } from './ledger-receipt.js';
+import {
+  CaptureReconcileError,
+  runCaptureReconcile,
+  type BookedCaptureCompletion,
+  type CaptureReconcileInput,
+  type CaptureReconcileMode,
+  type CaptureReconcileReport,
+} from './capture-reconcile.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { withPaymentAdmission, preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
 import { FRESH, NOOP_GUARDS, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
@@ -185,6 +193,10 @@ export type PayErrorCode =
   | 'pay.invalid_transition'
   | 'pay.capture_exceeds_authorized'
   | 'pay.partial_capture_unsupported'
+  /** PAY_CAPTURE_RECONCILE is off. The job refuses and does not read payments. */
+  | 'pay.capture_reconcile_disabled'
+  /** Reconcile batch size unpublished. Blank is not a default pass. */
+  | 'pay.capture_reconcile_batch_limit_unset'
   | 'pay.refund_exceeds_captured'
   /** Refund refused — nothing was captured. Before ledger-client posts. */
   | 'pay.nothing_captured'
@@ -340,7 +352,22 @@ export type PayErrorCode =
    * refuse and say by how much, so the merchant re-consents with a new mandate —
    * the same disposition that ADR gives a resume past 2× the original duration.
    */
-  | 'pay.subscription_resume_exceeds_mandate';
+  | 'pay.subscription_resume_exceeds_mandate'
+  /**
+   * Idempotency-Key was blank or longer than 255 characters — the same cap the
+   * public REST door already uses. Nothing was written.
+   */
+  | 'pay.idempotency_required'
+  /**
+   * This Idempotency-Key is already stored for a different subscription.create
+   * body. Replaying either result would be a guess.
+   */
+  | 'pay.idempotency_conflict'
+  /**
+   * The mandate already has a subscription that is not cancelled and not
+   * completed. Paused still counts: the schedule exists.
+   */
+  | 'pay.subscription_mandate_open';
 
 export class PayError extends Error {
   constructor(
@@ -2233,36 +2260,76 @@ export class PayService {
             }),
           );
 
-          // Seam: the money has moved. Intake is counted here, after the ledger post and with the
-          // counter locks held only from this point to the commit (seams/guards.ts). Never refuses a cap.
-          await this.guards.afterPaymentCaptureBooked({
-            tx,
-            paymentId: row.id,
-            merchantId: row.merchant_id,
-            assetId: row.currency,
-            amount: result.amount,
-          });
-
-          await appendEvent(tx, row.id, 'captured', {
-            amount: formatAmount(result.amount),
-            railRef: result.railRef,
+          // The reconciler calls this same function and does not post again.
+          const view = await this.finishBookedCapture(tx, row, {
             ledgerTxId: posted.id,
+            amount: result.amount,
+            railRef: result.railRef,
           });
-          await tx`UPDATE pay.payments SET status = 'captured', updated_at = now() WHERE id = ${row.id}`;
-
-          // In the SAME transaction as the capture, because a hosted checkout
-          // that says "paid" out of step with the book is the whole failure mode
-          // this feature has to avoid in both directions.
-          await completeCheckoutSession(tx, row.id);
-
           span.setAttribute('intafaced.amount', formatAmount(result.amount));
-          return this.view(tx, { ...row, status: 'captured' });
+          return view;
         },
       ).then((view) => {
         if (view.status === 'captured') this.notifyPaymentEvent('payment.captured', view);
         return view;
       }),
     );
+  }
+
+  /**
+   * What a capture does after the ledger post has succeeded: count intake, append
+   * the captured event, project the status, close the checkout. No ledger post.
+   * `capture` calls it after `postPayLedger`. The authorized-capture reconciler
+   * calls it when that key is already on the book.
+   */
+  private async finishBookedCapture(tx: Sql, row: PaymentRow, booked: BookedCaptureCompletion): Promise<PaymentView> {
+    await this.guards.afterPaymentCaptureBooked({
+      tx,
+      paymentId: row.id,
+      merchantId: row.merchant_id,
+      assetId: row.currency,
+      amount: booked.amount,
+      // Live capture omits this: the guard clock is the booking time. The reconciler
+      // passes the ledger postedAt so the cap period is the booking, not the run.
+      ...(booked.postedAt ? { at: booked.postedAt } : {}),
+    });
+    await appendEvent(tx, row.id, 'captured', {
+      amount: formatAmount(booked.amount),
+      railRef: booked.railRef,
+      ledgerTxId: booked.ledgerTxId,
+    });
+    await tx`UPDATE pay.payments SET status = 'captured', updated_at = now() WHERE id = ${row.id}`;
+    // Same transaction as the capture. A hosted checkout that says "paid" out of
+    // step with the book is the failure this feature exists to avoid.
+    await completeCheckoutSession(tx, row.id);
+    return this.view(tx, { ...row, status: 'captured' });
+  }
+
+  /**
+   * Finish `authorized` payments whose ledger capture key already exists.
+   * Does not post. `mode: 'off'` throws and reads nothing.
+   */
+  async reconcileAuthorizedCaptures(input: CaptureReconcileInput, mode: CaptureReconcileMode): Promise<CaptureReconcileReport> {
+    try {
+      return await runCaptureReconcile(
+        {
+          sql: this.sql,
+          ledger: this.ledger,
+          lockMerchant: async (tx, merchantId) => {
+            await this.lockMerchantEligibility(tx, merchantId);
+          },
+          complete: (tx, row, booked) => this.finishBookedCapture(tx, row as PaymentRow, booked),
+          onReconciled: (view) => {
+            if (view.status === 'captured') this.notifyPaymentEvent('payment.captured', view as PaymentView);
+          },
+        },
+        input,
+        mode,
+      );
+    } catch (error) {
+      if (error instanceof CaptureReconcileError) throw new PayError(error.message, error.code);
+      throw error;
+    }
   }
 
   /**

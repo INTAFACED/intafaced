@@ -840,6 +840,10 @@ services:
       PAY_CHECKOUT_SESSION_TTL_SECONDS: ${PAY_CHECKOUT_SESSION_TTL_SECONDS:?missing — copy .env.example to .env}
       PAY_PUBLIC_BASE_PATH: ${PAY_PUBLIC_BASE_PATH:-/api/pay}
       PAY_ALLOW_SANDBOX_RAILS: ${PAY_ALLOW_SANDBOX_RAILS:-false}
+      # Authorized-capture reconciler. Default off: the job refuses and moves
+      # nothing. `required` finishes payments whose ledger capture key already
+      # exists, and does not post again. env.ts default is the same `off`.
+      PAY_CAPTURE_RECONCILE: ${PAY_CAPTURE_RECONCILE:-off}
       PAY_DEFAULT_FEE_BPS: ${PAY_DEFAULT_FEE_BPS:-}
       # Open-session cap + operator risk band. env.ts already names these;
       # blank risk band refuses — never invent `low`. Open-session cap: no git

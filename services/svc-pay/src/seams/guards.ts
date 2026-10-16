@@ -203,6 +203,12 @@ export interface PaymentCaptureBookedContext {
   readonly merchantId: string;
   readonly assetId: string;
   readonly amount: Amount;
+  /**
+   * When set, intake is counted on this instant's day and month. The
+   * authorized-capture reconciler passes the ledger transaction's postedAt so a
+   * capture booked earlier is not charged to the run. A live capture omits it.
+   */
+  readonly at?: Date;
 }
 
 /** Context for `beforePayoutAdmit`; runs inside the transaction that records a NEW payout admission. */

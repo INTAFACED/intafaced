@@ -5,7 +5,9 @@ import {
   PAY_HALT_SCOPES,
   conversionQuoteInputSchema,
   founderApprovalDestinationSchema,
+  founderControlAuditEntrySchema,
   founderControlAuditListInputSchema,
+  founderPendingChangeSchema,
   founderMerchantDrilldownSchema,
   founderMerchantListInputSchema,
   founderMerchantListSchema,
@@ -193,11 +195,14 @@ describe('pay contracts: founder cursors and destination reveal', () => {
   const over = '9223372036854775808';
 
   it('an audit or pending-change cursor must be a bigint, including the 19-digit maximum', () => {
+    expect(founderControlAuditEntrySchema.shape.seq.safeParse('abc').success).toBe(false);
+    expect(founderPendingChangeSchema.shape.seq.safeParse('abc').success).toBe(false);
     for (const schema of [founderControlAuditListInputSchema, founderPendingChangeListInputSchema]) {
       expect(schema.safeParse({ limit: 1, cursor: '1' }).success).toBe(true);
       expect(schema.safeParse({ limit: 1, cursor: max }).success).toBe(true);
       expect(schema.safeParse({ limit: 1, cursor: over }).success).toBe(false);
       expect(schema.safeParse({ limit: 1, cursor: '9999999999999999999' }).success).toBe(false);
+      expect(schema.safeParse({ limit: 1, cursor: 'abc' }).success).toBe(false);
       expect(schema.safeParse({ limit: 1 }).success).toBe(true);
     }
   });

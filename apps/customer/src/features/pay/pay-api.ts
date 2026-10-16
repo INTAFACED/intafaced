@@ -691,6 +691,16 @@ export function createBusinessPayApi(
     }
     return result;
   }
+  /**
+   * `subscription.create` takes `idempotencyKey` on the procedure input.
+   * `api.mutate` has no header slot, so this is not an Idempotency-Key header.
+   * The journal lock stays `${userId}:subscription-create:${mandateId}`.
+   * A new create stores a fresh attempt id on that lock and sends
+   * `${lockId}:${attemptId}`. A retry of the same uncertain attempt reuses
+   * the stored id. A confirmed outcome or a definite refusal drops it, so the
+   * next create on that mandate is a new subscription. An uncertain or aborted
+   * replay keeps the stored id.
+   */
   async function mutate<T>(
     procedure: string,
     input: unknown,
@@ -703,20 +713,54 @@ export function createBusinessPayApi(
     if (denied) return denied;
     const checked = await merchant();
     if (!checked.ok) return checked;
-    return guard.run(
-      `${userId}:${operation}`,
-      () =>
-        api.mutate(
-          'pay',
-          procedure,
-          input,
-          schema.refine(
-            (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
-            'The mutation outcome belongs to another merchant.',
-          ),
-        ),
-      reference,
+    const lockId = `${userId}:${operation}`;
+    const outcome = schema.refine(
+      (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
+      'The mutation outcome belongs to another merchant.',
     );
+    // Pause, resume, and cancel store the expected status in the journal.
+    // subscription.create ignores that argument: its reference is the attempt id below.
+    if (procedure !== 'subscription.create') return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
+    const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+    const sendAttempt = (attemptId: string) =>
+      api.mutate('pay', procedure, { ...fields, idempotencyKey: `${lockId}:${attemptId}` }, outcome);
+    // A lost response leaves the attempt id on the lock. Reuse it. Do not mint
+    // a second id for that same uncertain create: the first request may have
+    // committed, and a new key would not replay it.
+    if (guard.status(lockId) === 'uncertain') {
+      const held = guard.original(lockId);
+      if (held?.status === 'present') {
+        const attemptId = held.value.reference;
+        if (!attemptId) {
+          return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+        }
+        const replayed = await sendAttempt(attemptId);
+        // Match the first attempt: a known outcome, including a definite
+        // refusal, drops the journal. Uncertain and aborted stay held so the
+        // same attempt can be retried.
+        const heldOpen = !replayed.ok && (replayed.reason === 'uncertain' || replayed.reason === 'aborted');
+        if (!heldOpen) await guard.resolve(lockId, held.raw);
+        return replayed;
+      }
+    }
+    let attemptId: string;
+    try {
+      attemptId = globalThis.crypto.randomUUID();
+    } catch {
+      return payRefusal('deviceRecoveryStorageIsUnavailableEnableSession', {
+        code: 'pay.recovery_journal_unavailable',
+        reason: 'not_supported',
+      });
+    }
+    // The journal codec rejects a reference longer than 200. Refuse before
+    // writing an attempt the next read could not recover.
+    if (!attemptId || attemptId.length > 200) {
+      return payRefusal('deviceRecoveryStorageIsUnavailableEnableSession', {
+        code: 'pay.recovery_journal_unavailable',
+        reason: 'not_supported',
+      });
+    }
+    return guard.run(lockId, () => sendAttempt(attemptId), attemptId);
   }
   return {
     merchant,

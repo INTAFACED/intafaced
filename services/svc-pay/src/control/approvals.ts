@@ -383,7 +383,8 @@ export class ApprovalService {
   /**
    * The stored destination of one founder-queue approval. Merchant lists stay masked.
    * Every successful read appends `payout.destination_read` on `pay.control_audit`.
-   * An id that is missing or not on the queue is the same not-found, and writes nothing.
+   * An id that is missing, expired, or not on the queue is the same not-found, and writes nothing.
+   * A plain read: this does not lock the row, so a reveal does not wait behind a decision.
    */
   async founderDestination(founderUserId: string, approvalId: string): Promise<FounderApprovalDestination> {
     return transaction(
@@ -395,7 +396,7 @@ export class ApprovalService {
              AND founder_required
              AND status = 'pending'
              AND checker_user_id IS NOT NULL
-           FOR UPDATE
+             AND expires_at > now()
         `;
         const row = rows[0];
         if (!row) throw notFound();
