@@ -6,6 +6,8 @@ import { defineCopy } from '../../../shared/i18n';
  * number that was not published by INTAFACED.
  */
 const en = {
+  rSubscriptionNotFound:
+    'We could not find that subscription or its mandate in your account. Open your subscriptions list and check the reference.',
   navCompliance: 'Compliance',
   navSettings: 'Business settings',
   navRefunds: 'Refunds',

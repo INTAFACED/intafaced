@@ -1,3 +1,5 @@
+import { useUnsavedForm } from './portal/useUnsavedForm';
+import { extensionCopy } from './portal/extension-copy';
 import { payCopy, PayCopy } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
@@ -241,7 +243,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
     </div>
   );
 }
-function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => void }) {
+export function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [customer, setCustomer] = useState('');
   const [asset, setAsset] = useState('');
@@ -253,6 +255,10 @@ function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => v
   const [rail, setRail] = useState('');
   const [reference, setReference] = useState('');
   const [created, setCreated] = useState('');
+  useUnsavedForm(
+    expanded && Boolean(customer || asset || amount || ceiling || starts || ends || rail || reference),
+    extensionCopy.t('draftWarning'),
+  );
   return (
     <PaySection
       title={payCopy.t('recordACustomerMandate')}
@@ -374,6 +380,14 @@ function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => v
             disabled={!customer || !amount || !asset || !starts || Boolean(pay.access('pay:write'))}
             onConfirmed={(data) => {
               setCreated(data.id);
+              setCustomer('');
+              setAsset('');
+              setAmount('');
+              setCeiling('');
+              setStarts('');
+              setEnds('');
+              setRail('');
+              setReference('');
               refresh();
               setExpanded(false);
             }}

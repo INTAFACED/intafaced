@@ -53,6 +53,8 @@ const businessPaySlugs = [
   'invoices',
   'invoices/:invoiceId',
   'subscriptions',
+  'subscriptions/new',
+  'subscriptions/:subscriptionId',
   'reports',
   'reports/exports',
   'developer',

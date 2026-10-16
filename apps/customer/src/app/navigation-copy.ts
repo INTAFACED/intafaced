@@ -2,6 +2,9 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  'Create subscription': 'Create subscription',
+  'Start a schedule from an existing mandate': 'Start a schedule from an existing mandate',
+
   Compliance: 'Compliance',
   'Business verification and requirements': 'Business verification and requirements',
 

@@ -275,7 +275,7 @@ export const subscriptionSchema = z.object({
   pausedAt: z.string().nullable(),
   resumedAt: z.string().nullable(),
   stalledAt: z.string().nullable(),
-  stallReason: z.enum(['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted']).nullable(),
+  stallReason: z.enum(['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted', 'due_pass_fault']).nullable(),
 });
 export const executionSchema = z.object({
   id,

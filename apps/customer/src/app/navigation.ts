@@ -196,6 +196,7 @@ export const rooms: readonly Room[] = [
       ['settings/team', 'Team settings', 'Manage merchant team access'],
       ['settings/notifications', 'Notification preferences', 'Choose business alerts'],
       ['invoices', 'Invoices', 'Issue and manage invoices'],
+      ['subscriptions/new', 'Create subscription', 'Start a schedule from an existing mandate'],
       ['subscriptions', 'Subscriptions', 'Recurring billing'],
       ['reports', 'Reports', 'Export business activity'],
       ['reports/exports', 'Export jobs', 'Request and download account reports'],
