@@ -189,6 +189,31 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     reason: 'isolation drill close',
   }),
   'founderAdmin.treasury.exposure': () => ({}),
+  'founderAdmin.conversion.resolve.propose': () => ({
+    requestId: randomUUID(),
+    conversionId: ghost(),
+    reason: 'isolation drill',
+  }),
+  'founderAdmin.conversion.resolve.confirm': () => ({
+    requestId: randomUUID(),
+    decision: 'reject' as const,
+    reason: 'isolation drill',
+    expectedChangeHash: hash,
+  }),
+  'founderAdmin.conversion.holds.sweep': () => ({}),
+  'founderAdmin.conversion.lateFill.propose': () => ({
+    requestId: randomUUID(),
+    auditId: ghost(),
+    settlement: 'reviewed outside the book',
+    reason: 'isolation drill',
+  }),
+  'founderAdmin.conversion.lateFill.confirm': () => ({
+    requestId: randomUUID(),
+    decision: 'reject' as const,
+    reason: 'isolation drill',
+    expectedChangeHash: hash,
+  }),
+  'founderAdmin.conversion.lateFill.sweep': () => ({}),
   // W15 operator notes: A is a real merchant, and the seeded note is live exactly until the positive control retracts it.
   'founderAdmin.ops.notes.add': (w) => ({ merchantId: w.e.A.merchantId, body: 'isolation drill', tags: ['drill'], flagged: false }),
   'founderAdmin.ops.notes.list': (w) => ({ merchantId: w.e.A.merchantId, limit: 10 }),
@@ -436,14 +461,13 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   },
   {
     path: 'conversion.quote',
-    scope: 'pay:read',
+    scope: 'pay:write',
     own: 'service',
-    stub: true,
     input: (i) => ({ merchantId: i.merchantId, settlementId: i.settlementId, fromAsset: 'USD', toAsset: 'USDT', fromAmount: '10' }),
   },
-  { path: 'conversion.execute', scope: 'pay:payout', own: 'service', stub: true, input: () => ({ requestId: ghost(), quoteId: ghost() }) },
-  { path: 'conversion.get', scope: 'pay:read', own: 'service', stub: true, input: () => ({ conversionId: ghost() }) },
-  { path: 'conversion.list', scope: 'pay:read', own: 'ok', stub: true, input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
+  { path: 'conversion.execute', scope: 'pay:payout', own: 'service', input: () => ({ requestId: ghost(), quoteId: ghost() }) },
+  { path: 'conversion.get', scope: 'pay:read', own: 'service', input: () => ({ conversionId: ghost() }) },
+  { path: 'conversion.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
   // W15 merchantOps.*: every procedure that takes a resource id. (The caller's merchant comes from the principal,
   // never the body, so there is no `mixed` case: the id is the only thing a caller can aim at someone else.)
   // Order matters for the positive controls: an action that consumes the row (remove, decline, respond) comes after its siblings.

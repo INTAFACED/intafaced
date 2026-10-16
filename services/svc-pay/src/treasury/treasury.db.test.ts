@@ -224,6 +224,7 @@ describe('W5 treasury exposure (real Postgres)', () => {
   it('conversion: refused while the inventory reader is unwired; with one wired, at-limit passes and one minor unit over is refused', async () => {
     const ctx = (fromAmount: bigint, replay = FRESH) => ({
       sql: sql as never,
+      tx: sql as never,
       merchantId: randomUUID(),
       settlementId: randomUUID(),
       fromAsset: 'USD',
@@ -473,6 +474,7 @@ describe('W5 treasury exposure (real Postgres)', () => {
       await expect(
         conv.beforeConversion({
           sql: sql as never,
+          tx: sql as never,
           merchantId: randomUUID(),
           settlementId: randomUUID(),
           fromAsset: 'USD',
@@ -487,6 +489,7 @@ describe('W5 treasury exposure (real Postgres)', () => {
       await expect(
         conv.beforeConversion({
           sql: sql as never,
+          tx: sql as never,
           merchantId: randomUUID(),
           settlementId: randomUUID(),
           fromAsset: 'USD',

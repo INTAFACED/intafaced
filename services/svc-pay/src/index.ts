@@ -13,7 +13,10 @@ import { setAutoTripAccountErrorSink } from './halts/autotrip-log.js';
 import { loadHaltAutoTripConfig } from './halts/config.js';
 import { PayHaltStore } from './halts/store.js';
 import { loadTreasuryLimits } from './treasury/config.js';
-import { UNWIRED_CONVERSION_INVENTORY } from './treasury/exposure.js';
+import { createConversionInventory } from './conversion/inventory.js';
+import { ConversionService, CONVERSION_LATE_FILL_RECHECK_MS } from './conversion/service.js';
+import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
+import { createRegistryReader } from './registries/read-api.js';
 import { buildPayGuards } from './seams/registry.js';
 import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
@@ -167,6 +170,9 @@ const rails = new RailRegistry([
  * is handed to both services below, so the boot refusal and the per-call refusal
  * are one decision rather than two that can drift apart.
  */
+assertConversionBoot(process.env);
+const conversionConfig = readConversionConfig(process.env);
+const conversionVenue = openConversionVenue(process.env);
 const railPosture = assertRailPosture(rails, { ...process.env, PAY_ALLOW_SANDBOX_RAILS: env.PAY_ALLOW_SANDBOX_RAILS });
 const railStatus = railPostureStatus(rails, railPosture.policy);
 
@@ -204,6 +210,15 @@ const identityAdmission = createIdentityOperationDecisionClient({
 });
 const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPermissionIntents(tx, current, identityAdmission));
 const payGuards = buildPayGuards({ sql, ledger });
+const conversion = new ConversionService({
+  sql,
+  ledger,
+  guards: payGuards,
+  venue: conversionVenue,
+  registries: createRegistryReader(sql),
+  slippageBps: conversionConfig.slippageBps,
+  placingMaxAgeMs: conversionConfig.placingMaxAgeMs,
+});
 const pay = new PayService(sql, ledger, rails, {
   guards: payGuards,
   haltStore,
@@ -394,8 +409,8 @@ export const appRouter = mergeRouters(
   // other and the subtree fence would be measuring the wrong actor.
   createSubMerchantRouter(subMerchants, pay),
   createSubscriptionRouter(subscriptions, pay, subMerchants),
-  // W0 stubs: merchantControl, merchantMetrics, founderAdmin, conversion.
-  // Every procedure refuses `pay.not_built` until its workstream fills it in.
+  // merchantControl, merchantMetrics, founderAdmin, conversion, payHalts.
+  // A namespace with no service still refuses `pay.not_built`.
   // W16 registries (founderAdmin.registries.*) are mounted inside founderAdmin through `registries`.
   // W15 (merchantOps.*, founderAdmin.ops.*) needs the database handle.
   // payHalts is built (W5): the same Postgres halt store the guards read.
@@ -405,9 +420,10 @@ export const appRouter = mergeRouters(
     registries: { sql, approvals: actionApprovals },
     sql,
     payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) },
-    treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: UNWIRED_CONVERSION_INVENTORY },
+    treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql, ledger) },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
     control: new ControlService(sql, teamAccessPorts(sql)),
+    conversion,
   }),
 );
 export type { PayRouter } from './router.js';
@@ -571,6 +587,24 @@ const webhookDrain = setInterval(() => {
 }, 15_000);
 webhookDrain.unref?.();
 
+/**
+ * Late-fill detection stays off the quote and execute path. A venue or rate
+ * error is logged and retried next tick; only a found fill blocks new conversions.
+ */
+const lateFillSweep = setInterval(() => {
+  void conversion
+    .sweepLateFills('late-fill-sweep')
+    .then((result) => {
+      for (const failure of result.errors) {
+        app.log.warn({ conversionId: failure.conversionId, code: failure.code }, 'conversion late-fill lookup failed; retry next tick');
+      }
+    })
+    .catch((err) => {
+      app.log.warn({ err }, 'conversion late-fill sweep failed');
+    });
+}, CONVERSION_LATE_FILL_RECHECK_MS);
+lateFillSweep.unref?.();
+
 /** Keep the metrics projection within seconds of source; lag is reported on every metrics response. */
 const metricsRefresher = startMetricsRefresher(metrics.projector, {
   onError: (err) => app.log.warn({ err }, 'metrics refresh failed'),
@@ -721,6 +755,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       watcher?.stop();
+      clearInterval(lateFillSweep);
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();
       // Draining, not dropping: an in-flight capture finishes before the

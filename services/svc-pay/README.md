@@ -343,6 +343,18 @@ What the kit asserts is exactly what the core is entitled to assume. That is wha
 
 ---
 
+## USD → USDT conversion (sandbox)
+
+Live mode refuses to boot. With no testnet key, quote and execute refuse. They do not invent a fill.
+
+**Orphan holds.** `founderAdmin.conversion.holds.sweep` (`sweepOrphanHolds`) is founder-triggered. It is not on a timer. Run it after any resolve, and after a crash, so a hold whose conversion row is failed or gone is released. The amount released is the hold the ledger still has. A live row, including `placing`, is left alone.
+
+**Late fills.** Detection is not on the quote or execute path. A timer calls `sweepLateFills` about once a minute, and a founder can run the same pass with `founderAdmin.conversion.lateFill.sweep`. The venue search is only `placing_at` minus 1 minute through `placing_at` plus 10 minutes (the window in which the venue could have accepted the order). The same window is what resolve and reconcile use. Each successful check stamps `last_checked_at` on the row. A venue or rate error does not stamp the row, is logged, and is retried on the next tick. It does not block quotes or executes. Only a found late fill does.
+
+A found fill writes a `pay.conversion_late_fill` audit row and blocks new quotes and executes with `pay.conversion_late_fill_halt`. Nothing is booked. Clearing a conversion halt, including a halt that was set for another reason, does not lift that block.
+
+**Acknowledgement.** Two founders. `founderAdmin.conversion.lateFill.propose` names how the fill was settled (a sentence, not an amount) and returns a hash bound to the audit row. A different founder calls `founderAdmin.conversion.lateFill.confirm` with that hash. Rejecting leaves the block in place. Confirming records the sentence and lets quotes and executes proceed. It does not book the fill and it does not clear a halt.
+
 ## Kill-switch
 
 `module.pay` in the admin console — the module kill-switch beats every other flag (`packages/config/src/flags.ts`). With it off, no procedure in this service serves. `pay.payfac` and `pay.laneA` gate features not built here.

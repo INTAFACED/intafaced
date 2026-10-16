@@ -130,7 +130,8 @@ export function createHaltGuards(deps: {
     beforePayoutAdmit: (ctx) => assertNotHalted(ctx.tx, 'payout', ctx.merchantId, ctx.replay, { railSend: true, railId: ctx.railId }),
     beforePayoutExecute: (ctx) => assertNotHalted(ctx.sql, 'payout', ctx.merchantId, ctx.replay, { railSend: true, railId: ctx.railId }),
     beforeSettlementRun: (ctx) => assertNotHalted(ctx.sql, 'settlement', ctx.merchantId, ctx.replay),
-    beforeConversion: (ctx) => assertNotHalted(ctx.sql, 'conversion', ctx.merchantId, ctx.replay),
+    // Conversion runs inside the order-intent transaction. `tx` is that transaction; the pool is not a lock.
+    beforeConversion: (ctx) => assertNotHalted(ctx.tx, 'conversion', ctx.merchantId, ctx.replay),
     beforeUserMoneyWithdrawal: (ctx) => assertUserMoneyNotHalted(ctx.tx, ctx.userId, ctx.rail, ctx.replay, deps.ledger),
     // beforeRefund: deliberately absent. See the table above.
   };

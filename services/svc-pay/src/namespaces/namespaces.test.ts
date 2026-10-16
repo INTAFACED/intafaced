@@ -73,6 +73,24 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
   'founderAdmin.approvals.list': { founder: true, input: { limit: 10 } },
   'founderAdmin.approvals.destination': { founder: true, input: { approvalId: id() } },
   'founderAdmin.treasury.exposure': { founder: true, input: {} },
+  'founderAdmin.conversion.resolve.propose': {
+    founder: true,
+    input: { requestId: id(), conversionId: id(), reason: 'drill' },
+  },
+  'founderAdmin.conversion.resolve.confirm': {
+    founder: true,
+    input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
+  },
+  'founderAdmin.conversion.holds.sweep': { founder: true, input: {} },
+  'founderAdmin.conversion.lateFill.propose': {
+    founder: true,
+    input: { requestId: id(), auditId: id(), settlement: 'reviewed outside the book', reason: 'drill' },
+  },
+  'founderAdmin.conversion.lateFill.confirm': {
+    founder: true,
+    input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
+  },
+  'founderAdmin.conversion.lateFill.sweep': { founder: true, input: {} },
 };
 
 const userId = id();
@@ -133,8 +151,8 @@ describe('W0 namespaces are mounted', () => {
     expect(src).toContain('payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) }');
     expect(src).toContain('control: new ControlService(sql, teamAccessPorts(sql))');
     expect(src).toContain('const payGuards = buildPayGuards({ sql, ledger });');
-    // One registry instance serves both the payment service and the user-money service.
-    expect(src.match(/guards: payGuards,/g)).toHaveLength(2);
+    // One registry instance serves the payment service, the user-money service, and conversion.
+    expect(src.match(/guards: payGuards,/g)).toHaveLength(3);
   });
 
   it('merges with an existing router without a path collision', () => {
