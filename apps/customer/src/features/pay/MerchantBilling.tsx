@@ -1,3 +1,4 @@
+import { createSubscriptionWithRecovery } from './portal/subscription-recovery';
 import { useUnsavedForm } from './portal/useUnsavedForm';
 import { extensionCopy } from './portal/extension-copy';
 import { payCopy, PayCopy } from './copy';
@@ -99,17 +100,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                     ]}
                   />
                 }
-                perform={() =>
-                  validatedMutation(
-                    pay,
-                    'subscription.create',
-                    { mandateId, path },
-                    z.object({ mandateId: s.id, path: z.enum(['crypto_invoice', 'card', 'card_mandate']) }),
-                    s.subscriptionSchema,
-                    'pay:write',
-                    'subscription-create',
-                  )
-                }
+                perform={() => createSubscriptionWithRecovery(pay, mandateId, path)}
                 disabled={!mandateId || !path || Boolean(pay.access('pay:write'))}
                 onConfirmed={(data) => {
                   setSelected(data.id);
