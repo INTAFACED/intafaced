@@ -143,3 +143,38 @@ describe('a deactivate whose answer was lost', () => {
     expect(f.reads).toHaveLength(0);
   });
 });
+
+describe('the check button for a held deactivate', () => {
+  // The held attempt is `pending` while this tab's own request is in flight and `uncertain` once its answer is lost.
+  const render = (held: 'pending' | 'uncertain' | null) => {
+    const pay = {
+      access: () => null,
+      authority: { userId, merchantId, scopes: ['pay:read', 'pay:write'] },
+      guard: { status: () => held },
+    } as unknown as BusinessPayApi;
+    return renderToString(
+      <LinksView
+        resource={{ status: 'ready', data: [linkRowSchema.parse(row)] }}
+        retry={() => {}}
+        loadedAt="2026-10-16T00:00:00Z"
+        limit={200}
+        more={() => {}}
+        pay={pay}
+        merchantId={merchantId}
+        linkId={linkId}
+      />,
+    );
+  };
+  it('shows "Check this link" only when the attempt is uncertain', () => {
+    expect(render('uncertain')).toContain('Check this link');
+  });
+  it('does not show it while the request is still in flight in this tab, and still blocks a second deactivate', () => {
+    const out = render('pending');
+    expect(out).not.toContain('Check this link');
+    expect(out).not.toContain('may or may not be off yet');
+    expect(out).toMatch(/<button[^>]*disabled[^>]*>Deactivate/);
+  });
+  it('shows nothing when no attempt is held', () => {
+    expect(render(null)).not.toContain('Check this link');
+  });
+});

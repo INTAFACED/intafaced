@@ -117,7 +117,13 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
       {rows.length > 0 && (
         <ManageDestinations portal={portal} merchantId={merchantId} rows={rows} onChanged={list.reload} setSaid={setSaid} />
       )}
-      <AddDestination portal={portal} merchantId={merchantId} existing={rows} onAdded={list.reload} />
+      <AddDestination
+        portal={portal}
+        merchantId={merchantId}
+        existing={rows}
+        listState={list.state.status === 'ready' ? 'ready' : list.state.status === 'loading' ? 'loading' : 'failed'}
+        onAdded={list.reload}
+      />
     </div>
   );
 }
@@ -243,6 +249,24 @@ export function SaveReview({
 }
 
 /**
+ * Why Save is off, as a copy key, or null. The saved list must have been read first: the service keeps one destination
+ * per network, so without the list the "Replaces…" warning cannot be shown and a save could overwrite one unseen.
+ */
+export function saveBlock(input: {
+  owner: boolean;
+  listState: 'loading' | 'ready' | 'failed';
+  hasRail: boolean;
+  problem: 'empty' | 'crypto' | 'bank' | null;
+}): 'dstOwnerOnly' | 'dstListLoading' | 'dstListFailed' | 'dstPickRail' | 'dstRefEmpty' | 'dstRefCrypto' | 'dstRefBank' | null {
+  if (!input.owner) return 'dstOwnerOnly';
+  if (input.listState === 'loading') return 'dstListLoading';
+  if (input.listState === 'failed') return 'dstListFailed';
+  if (!input.hasRail) return 'dstPickRail';
+  if (input.problem) return input.problem === 'empty' ? 'dstRefEmpty' : input.problem === 'crypto' ? 'dstRefCrypto' : 'dstRefBank';
+  return null;
+}
+
+/**
  * The service keeps ONE destination per network (merchant and rail), so adding on a network that already has one
  * replaces it. That is also why a payout names its destination by `railId` alone (see PayoutNew).
  */
@@ -250,11 +274,14 @@ function AddDestination({
   portal,
   merchantId,
   existing,
+  listState,
   onAdded,
 }: {
   portal: PortalApi;
   merchantId: string;
   existing: readonly DestinationItem[];
+  /** Whether the saved list has been read. Until it has, the page cannot tell whether saving replaces something. */
+  listState: 'loading' | 'ready' | 'failed';
   onAdded: () => void;
 }) {
   const { t } = mc.useCopy();
@@ -272,13 +299,8 @@ function AddDestination({
   const problem = kind ? referenceProblem(kind, ref) : null;
   const sentRef = normaliseReference(ref);
   const replaces = rail ? (existing.find((d) => d.railId === rail.id) ?? null) : null;
-  const why = !owner
-    ? t('dstOwnerOnly')
-    : !rail
-      ? t('dstPickRail')
-      : problem
-        ? t(problem === 'empty' ? 'dstRefEmpty' : problem === 'crypto' ? 'dstRefCrypto' : 'dstRefBank')
-        : null;
+  const block = saveBlock({ owner, listState, hasRail: rail !== null, problem });
+  const why = block ? t(block) : null;
   return (
     <PaySection title={t('dstAddTitle')} description={t('dstAddBody')}>
       {rails.resource.status === 'loading' ? (

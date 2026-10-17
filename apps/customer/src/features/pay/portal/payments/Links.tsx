@@ -23,8 +23,8 @@ import { useServerList } from '../ui/useServerList';
 import { paymentLabel } from '../presentation';
 import type { Payment } from '../schemas';
 import { useAssetChoices } from './asset-choices';
-import { checkoutAddressFor } from './checkout-address';
-import { isWebAddress, LinkAddress } from './LinkAddress';
+import { addressOf } from './checkout-address';
+import { LinkAddress } from './LinkAddress';
 import { definite } from './not-available';
 import { linkRowSchema } from './schemas';
 
@@ -37,18 +37,7 @@ export function linkState(link: Link, now: number) {
   return 'active';
 }
 
-/**
- * The address a link can be copied, opened and scanned from: the checkout address the service stored for it, else one built
- * from a token the service sent. Null when the service sent neither, or the address is not an ordinary web address. Only an
- * active link that has not expired shows it (see the call site).
- */
-export function addressOf(link: { checkoutUrl?: string | null; token?: string | null }): string | null {
-  if (link.checkoutUrl && isWebAddress(link.checkoutUrl)) return link.checkoutUrl;
-  // The service sends a path from its public base; the browser's own origin completes it.
-  if (link.checkoutUrl && link.checkoutUrl.startsWith('/')) return `${globalThis.location?.origin ?? ''}${link.checkoutUrl}`;
-  if (link.token) return checkoutAddressFor(globalThis.location?.origin ?? '', link.token);
-  return null;
-}
+export { addressOf };
 
 /**
  * A `datetime-local` value ("2026-10-17T18:30") is the merchant's own clock. Convert it to the exact moment (an ISO time in
@@ -461,7 +450,11 @@ function DeactivateLink({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const lockId = `${pay.authority?.userId}:link-deactivate:${selected.id}`;
-  const held = Boolean(pay.authority && pay.guard.status(lockId));
+  // `pending` is this tab's own request still in flight (the button is off, nothing to check yet); `uncertain` is an
+  // attempt whose answer was lost, here or in another tab, and only then is there something to check.
+  const attempt = pay.authority ? pay.guard.status(lockId) : undefined;
+  const held = Boolean(attempt);
+  const uncertain = attempt === 'uncertain';
   async function check() {
     setBusy(true);
     setMessage('');
@@ -509,7 +502,7 @@ function DeactivateLink({
         }}
         onConfirmed={retry}
       />
-      {held && (
+      {uncertain && (
         <div className="stack">
           <p className="pp-callout" role="status">
             {t('lk_deactivateUnresolved')}

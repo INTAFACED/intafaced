@@ -17,6 +17,7 @@ import { MerchantNetwork, MerchantPermissions, MerchantDeveloper } from './Merch
 import * as s from './schemas';
 import { LayoutFrame } from './portal/home-layout/Frame';
 import { Redirect } from './portal/chrome/PortalNotFound';
+import { addressOf } from './portal/payments/checkout-address';
 import './portal/portal.css';
 
 /** Legacy room lookup. The shared portal frame owns navigation for every merchant route. */
@@ -281,10 +282,9 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
           />
           {created && (
             <PayNotice title={payCopy.t('newPaymentLink')}>
-              <a className="text-link pay-secret" href={`/pay/checkout?token=${encodeURIComponent(created.token)}`}>
-                {location.origin}
-                <PayCopy k="payCheckoutToken" />
-                {created.token}
+              {/* The same page every merchant screen hands a payer: the service's own address, else the one built from the token. */}
+              <a className="text-link pay-secret" href={addressOf(created) ?? undefined}>
+                {addressOf(created)}
               </a>
               <span className="pay-cell-note">
                 <PayCopy k="expires" /> <PayTime value={created.expiresAt} />

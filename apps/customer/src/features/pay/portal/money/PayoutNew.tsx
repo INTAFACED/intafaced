@@ -34,7 +34,11 @@ import type { Settlement } from '../schemas';
 import type { ApiResult } from '../../../../shared/api';
 
 /** What a payout submit answers: a request for approval, or money sent straight away. */
-export type PayoutOutcome = { route: 'approval'; id: string } | { route: 'sent'; id: string; status: string };
+export type PayoutOutcome =
+  | { route: 'approval'; id: string }
+  | { route: 'sent'; id: string; status: string }
+  /** The request was already used to send this payout: nothing is asked or sent again, the page points at the payout. */
+  | { route: 'used'; id: string };
 
 type T = ReturnType<typeof mc.useCopy>['t'];
 type Refusal = { ok: false; reason: 'error'; code: string; message: string };
@@ -69,7 +73,7 @@ export function payoutProblem(
 
 /**
  * Ask for approval, or send. Only a waiting request goes to the team and only an approved one is sent; an expired,
- * voided, rejected or used one is a refusal, never a quiet "with your team".
+ * voided or rejected one is a refusal, and a used one points at the payout that already went, never a quiet "with your team".
  * `railId` stands for the destination because the service keeps one destination per network (merchant and rail).
  */
 export async function submitPayout(input: {
@@ -96,6 +100,8 @@ export async function submitPayout(input: {
     const status = asked.data.status;
     if (status === 'approved') return send();
     if (status === 'pending') return { ok: true, data: { route: 'approval', id: asked.data.settlementId } };
+    // A used approval means the payout already went: say so and open it, never "Ask again".
+    if (status === 'consumed') return { ok: true, data: { route: 'used', id: asked.data.settlementId } };
     return localRefusal(
       status === 'expired' ? t('pnAskExpired') : t('pnAskStatus', { status: t(`pnAskWord_${status}` as 'pnAskWord_voided') }),
     );
@@ -163,7 +169,13 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
     return (
       <div className="stack">
         <p className="pp-callout" role="status">
-          {done.route === 'approval' ? t('pnDoneApproval') : done.status === 'paid_out' ? t('pnDoneSent') : t('pnDoneCheck')}
+          {done.route === 'approval'
+            ? t('pnDoneApproval')
+            : done.route === 'used'
+              ? t('pnDoneUsed')
+              : done.status === 'paid_out'
+                ? t('pnDoneSent')
+                : t('pnDoneCheck')}
         </p>
         <div className="pp-actions">
           <LinkButton variant="primary" href={`/pay/payouts/${encodeURIComponent(picked || done.id)}`}>

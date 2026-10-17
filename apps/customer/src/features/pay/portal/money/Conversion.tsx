@@ -8,7 +8,7 @@ import { useMerchantAccess } from '../access/MerchantAccess';
 import { Facts, Gate, HaltBanner, PortalFailure, PortalLoading, SelectField, TestTag } from '../components';
 import type { PortalApi } from '../api';
 import { useNow, useReadAt, useUrlParam } from '../hooks';
-import { isUuid, newRequestId } from '../model';
+import { isUuid } from '../model';
 import { useUnsavedForm } from '../useUnsavedForm';
 import type { Settlement } from '../schemas';
 import { CopyReference } from '../ui/CopyReference';
@@ -19,6 +19,7 @@ import { KpiStrip } from '../ui/Kpi';
 import { formatMoney } from '../ui/format';
 import { MoneyText } from '../ui/MoneyText';
 import { PortalReview } from '../ui/PortalReview';
+import { useRequestId } from '../payments/invoice-model';
 import { RelatedLinks } from '../ui/RelatedLinks';
 import { ToneChip, type StatusTone } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
@@ -48,6 +49,8 @@ export function ConversionChip({ status }: { status: string }) {
     <ToneChip tone="progress" label={t('cvStatus_other')} />
   );
 }
+/** The tab-kept request id is named by the settlement alone: no amount, address or quote in the key. */
+export const conversionRequestScope = (settlementId: string | null) => `conversion:${settlementId ?? 'none'}`;
 const orderHref = (id: string) => `/pay/conversion/${encodeURIComponent(id)}`;
 
 /** Conversion is a sandbox. This says so on every conversion page, before anything else. */
@@ -181,7 +184,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
   const [picked, setPicked] = useUrlParam('settlement', '');
   const [amount, setAmount] = useState('');
   const [tried, setTried] = useState(false);
-  const [quote, setQuote] = useState<{ q: ConversionQuote; requestId: string } | null>(null);
+  const [quote, setQuote] = useState<{ q: ConversionQuote } | null>(null);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<{ off: boolean; message: string } | null>(null);
   const settlements = useResource(
@@ -192,6 +195,9 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
   const usd: Settlement[] =
     settlements.resource.status === 'ready' ? settlements.resource.data.items.filter((s) => s.assetId === 'USD') : [];
   const settlement = usd.find((s) => s.id === picked) ?? null;
+  // The id of the conversion being sent, kept in this tab for the settlement (no amount or address in its key). If the
+  // answer is lost and the page reloads, the next press sends the same id and the service replays the first outcome.
+  const request = useRequestId(conversionRequestScope(settlement?.id ?? null));
   const valid = /^\d+(\.\d{1,18})?$/.test(amount.trim()) && /[1-9]/.test(amount);
   const over = settlement && valid ? parseAmount(amount.trim()) > parseAmount(settlement.net) : false;
   const problem = !settlement ? t('cvPickSettlement') : !valid ? t('cvAmountInvalid') : over ? t('cvAmountOver') : null;
@@ -256,7 +262,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                           fromAmount: amount.trim(),
                         });
                         setBusy(false);
-                        if (res.ok) setQuote({ q: res.data, requestId: newRequestId() });
+                        if (res.ok) setQuote({ q: res.data });
                         else setRefusal({ off: isConversionOff(res), message: isConversionOff(res) ? '' : (res.message ?? '') });
                       }}
                     >
@@ -327,7 +333,12 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                     </div>
                   </dl>
                 }
-                perform={() => portal.conversionExecute({ requestId: quote.requestId, quoteId: quote.q.quoteId })}
+                perform={async () => {
+                  const sent = await portal.conversionExecute({ requestId: request.id, quoteId: quote.q.quoteId });
+                  // A confirmed order or a plain refusal ends this request; a lost or unreadable answer keeps the id.
+                  if (sent.ok || sent.reason === 'error' || sent.reason === 'forbidden') request.renew();
+                  return sent;
+                }}
                 onConfirmed={(o) => window.location.assign(orderHref(o.conversionId))}
               />
             </PaySection>
