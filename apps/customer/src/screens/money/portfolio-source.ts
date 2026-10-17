@@ -285,10 +285,14 @@ export interface NamedAccount {
   balance: Decimal;
 }
 
+const SPACES_PAGE = 200;
+
 function accountsFetcher(env: DataEnv): Fetcher<NamedAccount[]> {
   return async (signal) => {
-    const result = await env.api.query('bank', 'spaces.list', { limit: 200 }, z.array(spaceSchema), { signal });
+    const result = await env.api.query('bank', 'spaces.list', { limit: SPACES_PAGE }, z.array(spaceSchema), { signal });
     if (!result.ok) return result;
+    // A full page may not be the whole list, and a partial list would undercount; say it is not available instead.
+    if (result.data.length >= SPACES_PAGE) return { ok: false, reason: 'spaces_list_may_be_partial' };
     return {
       ok: true,
       data: result.data

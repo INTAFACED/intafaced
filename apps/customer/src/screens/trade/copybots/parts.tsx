@@ -5,31 +5,13 @@ import { roomCopy } from './copy';
 import { roomRefusal } from './refusals';
 import type { Failure, WriteGuard } from './guard';
 import type { Live } from './live';
+import { isDevBuild } from '../../../app/feature-registry';
+import { TradeSubNav } from '../TradeSubNav';
 import './copybots.css';
 
-const MODES: ReadonlyArray<{ id: string; label: string; href: string }> = [
-  { id: 'spot', label: 'Spot', href: '/trade' },
-  { id: 'margin', label: 'Margin', href: '/trade/margin' },
-  { id: 'futures', label: 'Futures', href: '/trade/futures' },
-  { id: 'options', label: 'Options', href: '/trade/options' },
-  { id: 'copy', label: 'Copy', href: '/trade/copy' },
-  { id: 'bots', label: 'Bots', href: '/trade/bots' },
-  { id: 'execution', label: 'Execution', href: '/execution' },
-  { id: 'otc', label: 'Quote desk', href: '/otc' },
-];
-
-/** The same trading-mode row the other trading rooms show, so every room stays one click away. */
+/** The shared Trade sub-navigation, so every room stays one click away. */
 export function ModeNav({ active }: { active: 'copy' | 'bots' }) {
-  const { t } = roomCopy.useCopy();
-  return (
-    <nav className="cb-modes" aria-label={t('Trading modes')}>
-      {MODES.map((mode) => (
-        <a key={mode.id} href={mode.href} aria-current={mode.id === active ? 'page' : undefined}>
-          {mode.label}
-        </a>
-      ))}
-    </nav>
-  );
+  return <TradeSubNav active={active} className="px-0" />;
 }
 
 /** Where the data on this screen came from and how old it is. Turns Stale by itself; says Unknown before the first read. */
@@ -49,9 +31,10 @@ export function Freshness({ live, staleAfterMs }: { live: Pick<Live<unknown>, 'a
   );
 }
 
-/** Live money or paper, always visible next to the title (workspace safety, TRD-0090). */
+/** Live money, paper or a TEST build, always visible next to the title (workspace safety, TRD-0090). The build decides: a local-test build never claims real orders. */
 export function AccountBadge({ paper }: { paper: boolean }) {
   const { t } = roomCopy.useCopy();
+  if (isDevBuild()) return <Badge tone="warn">{t('TEST account: no real money')}</Badge>;
   return paper ? <Badge tone="warn">{t('Paper: no money moves')}</Badge> : <Badge tone="neutral">{t('Live account: real orders')}</Badge>;
 }
 

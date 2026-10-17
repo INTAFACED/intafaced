@@ -19,10 +19,12 @@ const messages = {
   accountChanged: 'The account context changed. Review the action again in the current account.',
   gatewayUnreachable: 'We couldn’t reach the service. Try again when the connection returns.',
   gatewayUncertain: 'The gateway did not confirm an outcome. Check the original request before trying again.',
-  unreadableRefusal: 'The request was refused ({status}) and no explanation was given.',
+  unreadableRefusal: 'The request was refused and no explanation was given.',
   unreadableRead: 'The service sent a reply we couldn’t read.',
   unreadableWrite: 'The response could not be read. Check the original request before trying again.',
-  serviceRefusal: 'The service refused this request ({status}).',
+  serviceRefusal: 'The service refused this request.',
+  serviceNoAnswer: 'The service didn’t answer. Try again in a moment.',
+  serviceNotConnected: 'This service isn’t connected here.',
   unverifiedRead: 'The service response could not be verified.',
   unverifiedWrite: 'The service response could not be verified. Check the original request before trying again.',
   stopped: 'Request stopped.',
@@ -57,10 +59,12 @@ export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy
     accountChanged: 'La cuenta ha cambiado. Revisa la acción de nuevo en la cuenta actual.',
     gatewayUnreachable: 'No pudimos contactar con el servicio. Inténtalo cuando se restablezca la conexión.',
     gatewayUncertain: 'La pasarela no confirmó el resultado. Comprueba la solicitud original antes de volver a intentarlo.',
-    unreadableRefusal: 'La solicitud fue rechazada ({status}) y no se dio ninguna explicación.',
+    unreadableRefusal: 'La solicitud fue rechazada y no se dio ninguna explicación.',
     unreadableRead: 'El servicio envió una respuesta que no pudimos leer.',
     unreadableWrite: 'No se pudo leer la respuesta. Comprueba la solicitud original antes de volver a intentarlo.',
-    serviceRefusal: 'El servicio rechazó esta solicitud ({status}).',
+    serviceRefusal: 'El servicio rechazó esta solicitud.',
+    serviceNoAnswer: 'El servicio no respondió. Inténtalo de nuevo en un momento.',
+    serviceNotConnected: 'Este servicio no está conectado aquí.',
     unverifiedRead: 'No se pudo verificar la respuesta del servicio.',
     unverifiedWrite: 'No se pudo verificar la respuesta del servicio. Comprueba la solicitud original antes de volver a intentarlo.',
     stopped: 'Solicitud detenida.',
@@ -95,10 +99,12 @@ export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy
     accountChanged: 'Le compte a changé. Vérifiez à nouveau l’action dans le compte actuel.',
     gatewayUnreachable: 'Nous n’avons pas pu joindre le service. Réessayez lorsque la connexion sera rétablie.',
     gatewayUncertain: 'La passerelle n’a pas confirmé le résultat. Vérifiez la requête initiale avant de réessayer.',
-    unreadableRefusal: 'La requête a été refusée ({status}) et aucune explication n’a été donnée.',
+    unreadableRefusal: 'La requête a été refusée et aucune explication n’a été donnée.',
     unreadableRead: 'Le service a envoyé une réponse que nous n’avons pas pu lire.',
     unreadableWrite: 'La réponse n’a pas pu être lue. Vérifiez la requête initiale avant de réessayer.',
-    serviceRefusal: 'Le service a refusé cette requête ({status}).',
+    serviceRefusal: 'Le service a refusé cette requête.',
+    serviceNoAnswer: 'Le service n’a pas répondu. Réessayez dans un instant.',
+    serviceNotConnected: 'Ce service n’est pas connecté ici.',
     unverifiedRead: 'La réponse du service n’a pas pu être vérifiée.',
     unverifiedWrite: 'La réponse du service n’a pas pu être vérifiée. Vérifiez la requête initiale avant de réessayer.',
     stopped: 'Requête interrompue.',
@@ -124,6 +130,10 @@ type SharedKey =
   | 'gatewayUncertain'
   | 'unreadableRead'
   | 'unreadableWrite'
+  | 'unreadableRefusal'
+  | 'serviceRefusal'
+  | 'serviceNoAnswer'
+  | 'serviceNotConnected'
   | 'unverifiedRead'
   | 'unverifiedWrite'
   | 'stopped'
@@ -138,9 +148,8 @@ type SharedKey =
   | 'passkeyMissing'
   | 'passkeyCreateStopped'
   | 'passkeyCreateFailed';
-export type UiMessage = { key: SharedKey } | { key: 'unreadableRefusal' | 'serviceRefusal'; status: number };
+export type UiMessage = { key: SharedKey };
 
 export function uiMessage(message: UiMessage, locale: UiLocale = currentPreferences().language) {
-  const copy = uiCopy.forLocale(locale);
-  return 'status' in message ? copy.t(message.key, { status: message.status }) : copy.t(message.key);
+  return uiCopy.forLocale(locale).t(message.key);
 }

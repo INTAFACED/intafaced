@@ -298,6 +298,9 @@ function creditBook(options?: { balanceThrows?: boolean }) {
       if (row) row.margin_adjust_request = adjustmentId;
       return [];
     }
+    if (text.includes('INSERT INTO trade.futures_open_requests')) {
+      return [];
+    }
     if (text.includes('SELECT p.*')) {
       if (text.includes('m.symbol =')) {
         const userId = String(values[0]);

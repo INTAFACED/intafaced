@@ -335,6 +335,16 @@ const schema = baseEnvSchema
         const n = typeof v === 'number' ? v : Number(v);
         return Number.isInteger(n) && n > 0 ? n : undefined;
       }, z.number().int().positive().optional()),
+
+      /**
+       * How old a futures mark may be before `futures.mark.<symbol>` sends
+       * nothing. Blank / unset is unpublished — subscribe refuses
+       * `ws.freshness_limit_unset`. Never invent 300.
+       */
+      WS_MARK_FRESHNESS_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1)]),
+      ),
     }),
   );
 
@@ -375,6 +385,7 @@ export const SVC_WS_OWN_ENV_KEYS = [
   'WS_CANDLE_POLL_MS',
   'WS_COD_MIN_LEASE_MS',
   'WS_COD_MAX_LEASE_MS',
+  'WS_MARK_FRESHNESS_SECONDS',
 ] as const;
 
 export const env = loadEnv(schema);

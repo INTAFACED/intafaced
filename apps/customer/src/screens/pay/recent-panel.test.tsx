@@ -76,6 +76,23 @@ describe('recent panel', () => {
     expect(page).toContain('href="/pay/send?to=maya_test"');
   });
 
+  it('never says "No recipients yet" beside a completed send; it labels the send instead', () => {
+    answer.value = ready([row('t1', { counterparty: null })]);
+    const page = render();
+    expect(page).toContain('Sent to another account');
+    expect(page).not.toContain('No recipients yet');
+    expect(page).toContain('Sent · recipient not shown by the bank');
+    expect(page).toContain('data-testid="recent-unnamed-send"');
+    expect(page).not.toContain('data-testid="recent-recipient"');
+  });
+
+  it('keeps the unnamed label for sends only: money received does not make a recipient row', () => {
+    answer.value = ready([row('t2', { kind: 'transfer_in', direction: 'in', counterparty: null })]);
+    const page = render();
+    expect(page).toContain('No recipients yet');
+    expect(page).not.toContain('recipient not shown by the bank');
+  });
+
   it('explains what will appear when the customer has no activity at all', () => {
     answer.value = { status: 'empty' };
     const page = render();

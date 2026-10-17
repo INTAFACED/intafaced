@@ -31,7 +31,7 @@ const en = {
   ltvReaches: 'your loan reaches {percent} of your collateral’s value',
   loanPriceRows: 'Starting LTV and liquidation price',
   loanNoPrice:
-    'Not shown yet. The bank’s loan list doesn’t include the price it uses to value your collateral, so we can’t work this out exactly. The bank confirms your LTV when the loan opens, and Loan health shows it afterwards.',
+    'The bank does not send the price it uses for your collateral, so this can’t be shown here. The bank confirms your LTV when the loan opens, and Loan health shows it afterwards.',
 } as const;
 const es = {
   available: 'Disponible para usar',
@@ -63,7 +63,7 @@ const es = {
   ltvReaches: 'tu préstamo llega al {percent} del valor de tu garantía',
   loanPriceRows: 'LTV inicial y precio de liquidación',
   loanNoPrice:
-    'Todavía no se muestra. La lista de préstamos del banco no incluye el precio con el que valora tu garantía, así que no podemos calcularlo con exactitud. El banco confirma tu LTV cuando se abre el préstamo y Estado de los préstamos lo muestra después.',
+    'El banco no envía el precio que usa para tu garantía, así que aquí no se puede mostrar. El banco confirma tu LTV cuando se abre el préstamo y Estado de los préstamos lo muestra después.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   available: 'Disponible à utiliser',
@@ -95,6 +95,6 @@ const fr = {
   ltvReaches: 'ton prêt atteint {percent} de la valeur de ta garantie',
   loanPriceRows: 'LTV de départ et prix de liquidation',
   loanNoPrice:
-    'Pas encore affiché. La liste des prêts de la banque n’inclut pas le prix qu’elle utilise pour valoriser ta garantie ; nous ne pouvons donc pas le calculer exactement. La banque confirme ton LTV à l’ouverture du prêt, et État des prêts l’affiche ensuite.',
+    'La banque n’envoie pas le prix qu’elle utilise pour ta garantie, donc cela ne peut pas être affiché ici. La banque confirme ton LTV à l’ouverture du prêt, et État des prêts l’affiche ensuite.',
 } satisfies Record<keyof typeof en, string>;
 export const formPreviewCopy = defineCopy('customer.money.formPreview', en, { es, fr });

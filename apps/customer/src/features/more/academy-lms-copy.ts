@@ -134,6 +134,13 @@ const en = {
   residencyNotPayable: 'Not payable',
   residencyPayReason: 'Service reason',
   ambassadorBoundary: 'Ambassadors are appointed by operators. Accepting a residency does not create a payment.',
+  lessonCountOne: '1 lesson',
+  playbookCountOne: '1 playbook',
+  workbookCountOne: '1 workbook',
+  kindAll: 'All types',
+  kindPlaybook: 'Playbook',
+  kindWorkbook: 'Workbook',
+  kindLesson: 'Lesson',
 } as const;
 
 const es: Record<keyof typeof en, string> = {
@@ -266,6 +273,13 @@ const es: Record<keyof typeof en, string> = {
   residencyNotPayable: 'No se puede pagar',
   residencyPayReason: 'Motivo del servicio',
   ambassadorBoundary: 'Los embajadores los nombran los operadores. Aceptar una residencia no genera ningún pago.',
+  lessonCountOne: '1 lección',
+  playbookCountOne: '1 guía',
+  workbookCountOne: '1 cuaderno',
+  kindAll: 'Todos los tipos',
+  kindPlaybook: 'Guía',
+  kindWorkbook: 'Cuaderno',
+  kindLesson: 'Lección',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -403,6 +417,13 @@ const fr: Record<keyof typeof en, string> = {
   residencyNotPayable: 'Non payable',
   residencyPayReason: 'Raison du service',
   ambassadorBoundary: 'Les ambassadeurs sont nommés par les opérateurs. Accepter une résidence ne crée aucun paiement.',
+  lessonCountOne: '1 leçon',
+  playbookCountOne: '1 guide',
+  workbookCountOne: '1 cahier',
+  kindAll: 'Tous les types',
+  kindPlaybook: 'Guide',
+  kindWorkbook: 'Cahier',
+  kindLesson: 'Leçon',
 };
 
 export const academyLmsCopy = defineCopy('more.academyLms', en, { es, fr });

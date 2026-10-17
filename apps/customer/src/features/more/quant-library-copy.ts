@@ -3,7 +3,7 @@ const en = {
   title: 'Strategy library',
   memoryTitle: 'Shared library',
   memoryBody:
-    'Everyone using this service sees the same strategies, so this library is not private to your account. A restart erases them, and there is no version history. Saving to it is switched off; your own drafts stay on this device.',
+    'Everyone using this service sees the same strategies here. Saving to a library is off on this service; your own drafts stay on this device.',
   paperLabel: 'Simulated. Not live trading and not a forecast.',
   search: 'Search name, id or symbol',
   environment: 'Environment',
@@ -40,7 +40,7 @@ const es = {
   title: 'Biblioteca de estrategias',
   memoryTitle: 'Biblioteca compartida',
   memoryBody:
-    'Todas las personas que usan este servicio ven las mismas estrategias, así que esta biblioteca no es privada de tu cuenta. Un reinicio las borra y no hay historial de versiones. Guardar en ella está desactivado; tus borradores se quedan en este dispositivo.',
+    'Todas las personas que usan este servicio ven aquí las mismas estrategias. Guardar en una biblioteca está desactivado en este servicio; tus borradores se quedan en este dispositivo.',
   paperLabel: 'Simulado. No es negociación en vivo ni una previsión.',
   search: 'Buscar nombre, id o símbolo',
   environment: 'Entorno',
@@ -77,7 +77,7 @@ const fr = {
   title: 'Bibliothèque de stratégies',
   memoryTitle: 'Bibliothèque partagée',
   memoryBody:
-    'Toutes les personnes qui utilisent ce service voient les mêmes stratégies : cette bibliothèque n’est donc pas privée à ton compte. Un redémarrage les efface et il n’y a pas d’historique des versions. L’enregistrement y est désactivé ; tes brouillons restent sur cet appareil.',
+    'Toutes les personnes qui utilisent ce service voient ici les mêmes stratégies. L’enregistrement dans une bibliothèque est désactivé sur ce service ; tes brouillons restent sur cet appareil.',
   paperLabel: 'Simulé. Ni trading réel ni prévision.',
   search: 'Rechercher un nom, un id ou un symbole',
   environment: 'Environnement',

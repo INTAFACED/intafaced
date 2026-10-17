@@ -176,10 +176,10 @@ export function ControlsTab({ data, merchantId, here }: { data: ControlsData; me
       </Card>
 
       <Card id="pending" title="Pending changes" sub="Changes one founder has submitted and another has not yet confirmed.">
-        <StateBlock kind="not_built" title="The list of pending changes is not available yet">
-          The service records a pending change but has no read for it, so this page cannot list them or show them to you before you confirm.
-          Until that read exists, the founder who submitted a change sends you its request (copy button on the waiting screen), and you
-          confirm it below. Payout approvals that are waiting are listed on the Approvals tab.
+        <StateBlock kind="not_built" title="Pending changes are not listed on this tab">
+          The service records a pending change, but this tab does not list it or show it to you before you confirm. The founder who
+          submitted a change sends you its request (copy button on the waiting screen), and you confirm it below. Payout approvals that are
+          waiting are listed on the Approvals tab.
         </StateBlock>
         <div className="mp-mt">
           {profile ? (
@@ -197,9 +197,9 @@ export function ControlsTab({ data, merchantId, here }: { data: ControlsData; me
         title="Captures over a cap"
         sub="A capture is never refused for a cap, because the payer's money has already moved. When one goes over, it is flagged for operators."
       >
-        <StateBlock kind="not_built" title="Not available yet">
-          The service writes a row to its control audit for every over-cap capture, but no founder-readable procedure exposes those rows
-          yet, so none can be listed or counted here. This panel fills in when one is added. Nothing is shown rather than a made-up count.
+        <StateBlock kind="not_built" title="Captures over a cap are not listed on this tab">
+          The service writes a row to its control audit for every over-cap capture. This tab does not list or count them; they are in the
+          control audit on the Activity and audit page. Nothing is shown here rather than a made-up count.
         </StateBlock>
       </Card>
     </>
@@ -448,10 +448,9 @@ function TierRules({ tier }: { tier: TierView }) {
 function ChangeHistory({ profile, merchantRules }: { profile: MerchantControlProfile | null; merchantRules: readonly PricingRuleView[] }) {
   return (
     <>
-      <StateBlock kind="not_built" title="Who changed what is not available yet">
-        Every change is recorded with who made it, who confirmed it, the old and new values and the reason, but the service has no
-        founder-readable read of that record yet. When one is added, this card lists it newest first. Below is only what the current state
-        itself says.
+      <StateBlock kind="not_built" title="Who changed what is on the Activity and audit page">
+        Every change is recorded with who made it, who confirmed it, the old and new values and the reason. This tab does not list that
+        record; the Activity and audit page does, newest first. Below is only what the current state itself says.
       </StateBlock>
       <dl className="mp-kv mp-mt">
         <div>

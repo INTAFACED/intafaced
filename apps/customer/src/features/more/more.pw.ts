@@ -11,10 +11,10 @@ test('Quant Studio keeps the draft on this device, closes the shared library, an
   await page.getByLabel('Simulated starting cash').fill('0.000000000000000123');
   await page.getByLabel('Block 1 symbol').fill('ACTUAL/USD');
   await page.getByLabel('Block 1 quantity').fill('0.000000000000000456');
-  await expect(page.getByText('Saved strategies are not private to accounts yet, so the shared library is closed.')).toBeVisible();
+  await expect(page.getByText('Saving to a library is off on this service, so the library is closed.')).toBeVisible();
   const save = page.getByRole('button', { name: 'Save to library', exact: true });
   await expect(save).toBeDisabled();
-  await expect(page.getByText('Saved strategies are not private to your account yet, so drafts stay on this device.')).toBeVisible();
+  await expect(page.getByText('Saving to a library is off on this service. Your draft stays on this device.')).toBeVisible();
   await page.reload();
   await expect(page.getByLabel('Strategy name')).toHaveValue('My experiment');
   await expect(page.getByLabel('Block 1 quantity')).toHaveValue('0.000000000000000456');
@@ -665,10 +665,12 @@ test('token funds actions refuse when the public contract omits the configured a
   });
   await page.goto('/token');
   await expect(
-    page.getByText('Staking and unstaking are unavailable until the service publishes its configured asset ID.', { exact: true }),
-  ).toBeVisible({ timeout: 3000 });
+    page.getByText('Staking and unstaking are off because INTAFACED does not say which token balance they would move.', { exact: true }),
+  ).toBeVisible({
+    timeout: 3000,
+  });
   await expect(page.getByRole('button', { name: 'Review stake' })).toHaveCount(0);
-  await expect(page.getByText('17.125 · asset identity unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('17.125 · token not named', { exact: true })).toBeVisible();
   expect(writes).toBe(0);
 });
 test('market purchase refuses a changed listing before moving value', async ({ page }) => {

@@ -73,20 +73,21 @@ describe('market status', () => {
   });
 
   /**
-   * THE DEFAULT IS THE REFUSAL.
-   *
-   * `assertTradable(market)` with no second argument is the shape every call site
-   * had before futures became orderable, and it must keep refusing — a permissive
-   * reading that arrives by leaving an argument off is the failure mode the option
-   * doc comment names. So this asserts the OLD behaviour survives the new
-   * parameter, with the new code.
+   * Omitting the option follows the published flag, the same read `GET /capabilities`
+   * uses. The suite fixture turns the flag on, so this test turns it off and
+   * proves a blank flag still refuses.
    */
-  it('refuses a futures market by default — omitting the option must not grant it', () => {
+  it('refuses a futures market when the published flag is off and the option is omitted', () => {
+    const previous = process.env.TRADE_FUTURES_ENABLED;
+    process.env.TRADE_FUTURES_ENABLED = 'false';
     try {
       assertTradable(withMarket({ kind: 'futures' }));
       throw new Error('should have thrown');
     } catch (err) {
       expect((err as TradeError).code).toBe('trade.futures_disabled');
+    } finally {
+      if (previous === undefined) delete process.env.TRADE_FUTURES_ENABLED;
+      else process.env.TRADE_FUTURES_ENABLED = previous;
     }
   });
 

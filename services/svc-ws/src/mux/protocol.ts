@@ -55,6 +55,9 @@ export const MUX_MARKET = /^[A-Za-z0-9._:/-]{1,64}$/;
 export type MuxChannelName = 'book' | 'trades' | 'ticker' | 'candles';
 export const MUX_CHANNELS: readonly MuxChannelName[] = ['book', 'trades', 'ticker', 'candles'];
 
+/** Public futures mark. The symbol is the rest of `futures.mark.<symbol>`. */
+export const FUTURES_MARK_PREFIX = 'futures.mark.';
+
 export type MuxVerb = 'subscribe' | 'unsubscribe' | 'resync';
 
 /** Typed refusal codes. Every one is a string a client can branch on. */
@@ -68,14 +71,18 @@ export type MuxErrorCode =
   | 'not_subscribed'
   | 'unsupported'
   | 'at_capacity'
-  | 'unavailable';
+  | 'unavailable'
+  | 'ws.mark_unavailable'
+  | 'ws.freshness_limit_unset';
 
 export type ChannelSpec =
   | { readonly ch: 'book'; readonly market: string }
   | { readonly ch: 'trades'; readonly market: string }
   | { readonly ch: 'candles'; readonly market: string; readonly interval: MuxInterval }
   /** `market` omitted = every market. */
-  | { readonly ch: 'ticker'; readonly market?: string };
+  | { readonly ch: 'ticker'; readonly market?: string }
+  /** Public mark. `symbol` is the listing symbol, not an account. */
+  | { readonly ch: 'futures.mark'; readonly symbol: string };
 
 export type ParsedOp =
   | { readonly ok: true; readonly verb: MuxVerb; readonly id: string | undefined; readonly channels: readonly unknown[] }
@@ -120,10 +127,30 @@ export type ParsedChannel =
   | { readonly ok: true; readonly spec: ChannelSpec }
   | { readonly ok: false; readonly code: 'bad_request' | 'unknown_channel' | 'bad_interval'; readonly message: string };
 
+/** Symbol inside `futures.mark.<symbol>`. Null when the channel is not that shape. */
+export function futuresMarkSymbol(channel: string): string | null {
+  if (!channel.startsWith(FUTURES_MARK_PREFIX)) return null;
+  const symbol = channel.slice(FUTURES_MARK_PREFIX.length);
+  if (!MUX_MARKET.test(symbol)) return null;
+  return symbol;
+}
+
 /** Validate one entry of a `channels` array. Never throws. */
 export function parseChannel(raw: unknown): ParsedChannel {
+  if (typeof raw === 'string') {
+    const symbol = futuresMarkSymbol(raw);
+    if (symbol === null) return { ok: false, code: 'bad_request', message: 'channel entry must be an object' };
+    return { ok: true, spec: { ch: 'futures.mark', symbol } };
+  }
   if (!isRecord(raw)) return { ok: false, code: 'bad_request', message: 'channel entry must be an object' };
   const ch = raw.ch;
+  if (ch === 'futures.mark') {
+    const symbol = raw.symbol;
+    if (typeof symbol !== 'string' || !MUX_MARKET.test(symbol)) {
+      return { ok: false, code: 'bad_request', message: 'futures.mark needs a symbol' };
+    }
+    return { ok: true, spec: { ch: 'futures.mark', symbol } };
+  }
   if (typeof ch !== 'string' || !(MUX_CHANNELS as readonly string[]).includes(ch)) {
     return { ok: false, code: 'unknown_channel', message: `ch must be one of: ${MUX_CHANNELS.join(', ')}` };
   }
@@ -171,5 +198,7 @@ export function subscriptionKey(spec: ChannelSpec, marketId: string | null): str
       return `candles|${marketId}|${spec.interval}`;
     case 'ticker':
       return `ticker|${marketId ?? '*'}`;
+    case 'futures.mark':
+      return `futures.mark|${spec.symbol}`;
   }
 }

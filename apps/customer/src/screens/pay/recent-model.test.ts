@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ActivityItem } from './deps';
-import { isPersonalTransfer, paymentsEmpty, receiptHref, recentPayments, recentRecipients } from './recent-model';
+import { isPersonalTransfer, paymentsEmpty, receiptHref, recentPayments, recentRecipients, unnamedSends } from './recent-model';
 
 const row = (id: string, patch: Partial<ActivityItem> = {}): ActivityItem => ({
   id,
@@ -76,5 +76,20 @@ describe('recent recipients', () => {
   it('respects the limit', () => {
     const items = ['a', 'b', 'c', 'd'].map((id) => row(id, { counterparty: { handle: `user_${id}` } }));
     expect(recentRecipients(items, [], 2)).toHaveLength(2);
+  });
+});
+
+describe('sends nobody can name', () => {
+  it('picks completed sends with no recipient from the bank, never received money or named sends', () => {
+    const items = [
+      row('a', { counterparty: null }),
+      row('b'),
+      row('c', { kind: 'transfer_in', direction: 'in', counterparty: null }),
+      row('a', { counterparty: null }),
+      row('d', { counterparty: null }),
+    ];
+    expect(unnamedSends(items).map((item) => item.id)).toEqual(['a', 'd']);
+    expect(unnamedSends(items, 1)).toHaveLength(1);
+    expect(unnamedSends([])).toEqual([]);
   });
 });
