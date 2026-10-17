@@ -575,6 +575,9 @@ export function mapCreateOrderBody(body: CreateOrderRequest): PlaceOrderInput {
   if (body.reduceOnly === true) {
     throw new TradeError('reduceOnly is not supported on spot', 'trade.order_type_unsupported');
   }
+  if (body.timeInForce === 'MOC') {
+    throw new TradeError('maker-or-cancel is not yet accepted by the trade service', 'trade.invalid_tif');
+  }
 
   let tif = body.timeInForce;
   if (body.postOnly === true) {

@@ -74,6 +74,22 @@ describe('effectiveFeeBps', () => {
 });
 
 describe('ratesForFill', () => {
+  it('a zero rank discount posts the published rate, and 5000 bps off 100 is 50', () => {
+    expect(ratesForFill(PUBLISHED, 0, 0)).toEqual({ makerFeeBps: 100, takerFeeBps: 200 });
+    const halved = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'half', makerBps: '100', takerBps: '100' }));
+    expect(ratesForFill(halved, 5000, 5000)).toEqual({ makerFeeBps: 50, takerFeeBps: 50 });
+  });
+
+  it('a perpetual fill is refused when only the spot rate is published, and the spot rate is not returned', () => {
+    expect(() => ratesForFill(PUBLISHED, 0, 0, 'perpetual')).toThrow(FeeScheduleError);
+    try {
+      ratesForFill(PUBLISHED, 0, 0, 'perpetual');
+    } catch (err) {
+      expect((err as FeeScheduleError).code).toBe('trade.fee_product_unpublished');
+    }
+    expect(ratesForFill(PUBLISHED, 0, 0, 'spot').takerFeeBps).toBe(200);
+  });
+
   it('resolves both sides independently — each carries its own rank', () => {
     const rates = ratesForFill(PUBLISHED, 0, 350);
     expect(rates.makerFeeBps).toBe(100);
