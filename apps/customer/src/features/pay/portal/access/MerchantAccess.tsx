@@ -24,6 +24,8 @@ export type MerchantAccessValue = {
   merchant: Resource<MerchantRecord | null>;
   team: Resource<TeamMe>;
   reloadMerchant: () => void;
+  /** Ask again for everything the access depends on, for the retry button on a page that could not tell who is signed in. */
+  reload: () => void;
   /** Does this person hold the permission (or, for `'owner'`, own the account)? */
   can: (need: Need) => boolean;
   /** Owner of an active account in a session that can change things. */
@@ -46,10 +48,15 @@ export function MerchantAccessProvider({ children }: { children: ReactNode }) {
       merchant: merchant.resource,
       team: team.resource,
       reloadMerchant: merchant.reload,
+      reload: () => {
+        myAccess.reload();
+        merchant.reload();
+        team.reload();
+      },
       can: (need) => allows(access, need),
       canOwnerWrite: ownerMayWrite(access),
     };
-  }, [userId, myAccess.resource, merchant.resource, team.resource, merchant.reload]);
+  }, [userId, myAccess.resource, merchant.resource, team.resource, myAccess.reload, merchant.reload, team.reload]);
   useEffect(() => {
     publishAccess(value);
     return () => publishAccess(null);
@@ -75,9 +82,9 @@ export function readyAccess(value: MerchantAccessValue | null): Ready | null {
 /** Draws its children only for a person who holds the permission. Otherwise it says why, in words. No business shows the one calm setup state, never the page. */
 export function Requires({ need, children }: { need: Need; children: ReactNode }) {
   const { t } = portalCopy.useCopy();
-  const { access, can } = useMerchantAccess();
+  const { access, can, reload } = useMerchantAccess();
   if (access.status === 'loading') return <PortalLoading rows={4} />;
-  if (access.status === 'failed') return <PortalFailure result={access.failure} />;
+  if (access.status === 'failed') return <PortalFailure result={access.failure} retry={reload} />;
   if (access.status === 'none') return <NoBusiness />;
   if (can(need)) return <>{children}</>;
   return <EmptyState title={t('noRoleTitle')}>{need === 'owner' ? t('ownerOnlyBody') : t('noRoleBody')}</EmptyState>;

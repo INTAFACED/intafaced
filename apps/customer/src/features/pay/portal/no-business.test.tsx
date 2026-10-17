@@ -19,6 +19,7 @@ const none: MerchantAccessValue = {
   merchant: { status: 'ready', data: null },
   team: { status: 'loading' },
   reloadMerchant: () => undefined,
+  reload: () => undefined,
   can: () => false,
   canOwnerWrite: false,
 };

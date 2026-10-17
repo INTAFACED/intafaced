@@ -813,6 +813,14 @@
       position: absolute;
       inset: 0;
     }
+    /* A control inside a row (revoke, copy, a second link) sits above the row link, so it is the thing that gets the click. */
+    .pe-row button,
+    .pe-row input,
+    .pe-row select,
+    .pe-row a:not(.pe-open) {
+      position: relative;
+      z-index: 1;
+    }
     .pe-card {
       border-top: 1px solid var(--if-line);
     }

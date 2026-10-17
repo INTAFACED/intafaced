@@ -31,9 +31,9 @@ export function WithAccount({
 }: {
   children: (account: { merchantId: string; role: MemberRole; record: MerchantRecord | null }) => ReactNode;
 }) {
-  const { access, merchant } = useMerchantAccess();
+  const { access, merchant, reload } = useMerchantAccess();
   if (access.status === 'loading') return <PortalLoading rows={4} />;
-  if (access.status === 'failed') return <PortalFailure result={access.failure} />;
+  if (access.status === 'failed') return <PortalFailure result={access.failure} retry={reload} />;
   if (access.status === 'none') return <NoMerchant />;
   // The owner's record is handed over only when it is the business this access resolved to.
   const record = merchant.status === 'ready' && merchant.data?.id === access.merchantId ? merchant.data : null;
