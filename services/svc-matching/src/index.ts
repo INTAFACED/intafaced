@@ -24,7 +24,7 @@ import { shutdownMatching } from './shutdown.js';
 import { registerHealth } from './health.js';
 import { registerMetrics } from './metrics.js';
 import { registerRoutes } from './router.js';
-import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
+import { createIdentityApprovalClient, parseOperatorIds, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 installCodFence();
@@ -126,6 +126,7 @@ registerRoutes(app, engine, env.INTERNAL_SERVICE_SECRET, {
   bodyBind: 'require',
   rulebookVersion: env.MATCHING_RULEBOOK_VERSION,
   approvals: actionApprovals,
+  operatorIds: parseOperatorIds(env.MATCHING_OPERATOR_IDS),
 });
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });

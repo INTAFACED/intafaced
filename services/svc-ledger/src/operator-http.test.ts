@@ -344,6 +344,7 @@ describe('operator HTTP — freeze surface still gates correctly (regression)', 
     });
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ frozen: false, reason: null, actor: null });
+    expect(ok.json().version).toBe('2026-07-27 00:00:00.000000+00');
     await app.close();
   });
 

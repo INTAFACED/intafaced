@@ -15,6 +15,7 @@ export const QUANT_ENVIRONMENT_UNKNOWN = 'quant.environment_unknown' as const;
 export const QUANT_SIMULATED_AS_LIVE = 'quant.simulated_as_live' as const;
 export const QUANT_CASH_UNSET = 'quant.cash_unset' as const;
 export const QUANT_STUDIO_LIST_LIMIT_UNSET = 'quant.studio_list_limit_unset' as const;
+export const QUANT_STUDIO_NOT_FOUND = 'quant.studio_not_found' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -34,6 +35,7 @@ export type QuantCode =
   | typeof QUANT_SIMULATED_AS_LIVE
   | typeof QUANT_CASH_UNSET
   | typeof QUANT_STUDIO_LIST_LIMIT_UNSET
+  | typeof QUANT_STUDIO_NOT_FOUND
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

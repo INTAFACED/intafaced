@@ -3,6 +3,7 @@ import * as bank from './bank-ops/route';
 import * as p2p from './p2p-ops/route';
 import * as academy from './academy-ops/route';
 import * as more from './more-ops/route';
+import * as protocol from './protocol-ops/route';
 import { DESKS, allReads } from '@/lib/ops-desk/catalog';
 
 const gate = vi.hoisted(() => ({ session: vi.fn<() => Promise<unknown>>() }));
@@ -117,6 +118,67 @@ describe('read-only desks have no way to change anything', () => {
   });
 });
 
+describe('GET protocol desk and the token section', () => {
+  it('protocol: reads the chain, audit, indexer and DEX procedures through the edge as the founder, and has no POST', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        urls.push(url);
+        expect((init!.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
+        return Promise.reject(new Error('ECONNREFUSED'));
+      }),
+    );
+    const json = await (await protocol.GET(get('/api/protocol-ops'))).json();
+    expect(urls.sort()).toEqual(
+      [
+        'http://edge:4000/api/protocol/trpc/chainStatus',
+        'http://edge:4000/api/protocol/trpc/auditStatus',
+        'http://edge:4000/api/protocol/trpc/health',
+        'http://edge:4000/api/indexer/trpc/status',
+        'http://edge:4000/api/dex/trpc/health',
+      ].sort(),
+    );
+    // Every service down: every read is a failed part with the time it was tried, never a number.
+    for (const id of ['protocol.chain', 'protocol.audit', 'protocol.indexer', 'protocol.dex', 'protocol.health']) {
+      expect(json.reads[id].part, id).toMatchObject({ kind: 'failed', forbidden: false });
+      expect(Number.isFinite(Date.parse(json.reads[id].asOf)), id).toBe(true);
+    }
+    expect(Object.keys(protocol).filter((k) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(k))).toEqual([]);
+  });
+  it('protocol: an audit answer that claims an outside audit is an unreadable read, not a badge', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.endsWith('/auditStatus')
+          ? ok({ id: 'x', kind: 'internal', packagePath: 'p', artifactHash: '0x1', signedBy: null, signedAt: null, audited: true })
+          : trpcErr(404, 'No procedure found'),
+      ),
+    );
+    const json = await (await protocol.GET(get('/api/protocol-ops'))).json();
+    expect(json.reads['protocol.audit'].part).toMatchObject({ kind: 'failed', message: expect.stringContaining('shape') });
+  });
+  it('more: reads the token procedures with an explicit page size, and a refused token read is forbidden, not empty', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        urls.push(url);
+        if (url.includes('/api/token/trpc/nextEmissionEpoch')) return ok({ epoch: 4 });
+        if (url.includes('/api/token/')) return trpcErr(403, 'Missing scope token:read');
+        return trpcErr(404, 'No procedure found');
+      }),
+    );
+    const json = await (await more.GET(get('/api/more-ops'))).json();
+    const proposals = urls.find((u) => u.includes('/api/token/trpc/listProposals'))!;
+    expect(decodeURIComponent(proposals)).toContain('{"limit":50}');
+    expect(urls.some((u) => u.includes('/api/token/trpc/burnedSupply'))).toBe(true);
+    expect(json.reads['token.epoch'].part).toMatchObject({ kind: 'ok', data: { shape: 'record' } });
+    expect(json.reads['token.proposals'].part).toMatchObject({ kind: 'failed', forbidden: true });
+    expect(json.reads['token.proposals'].part.message).toMatch(/^Your console session does not have token read permission yet/);
+  });
+});
+
 describe('POST on desks with actions', () => {
   const vendorId = '5a3b9c10-1111-4222-8333-444455556666';
   it('more: refuses a request kind that belongs to another desk, before sending anything', async () => {
@@ -178,6 +240,98 @@ describe('POST on desks with actions', () => {
       targetService: 'svc-market',
       targetId: 'market.vendor.vet',
       expectedVersion: '1',
+    });
+  });
+  it('academy: proposes an appointment at identity bound to svc-academy academy.ambassador.appoint, and returns a packet', async () => {
+    const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+    const fn = vi.fn(async (_url: string, init?: RequestInit) =>
+      ok({
+        approvalId: 'appr_1',
+        operationId: 'op_1',
+        ...JSON.parse(String(init!.body)),
+        requesterId: FOUNDER,
+        approverId: null,
+        status: 'PENDING',
+        createdAt: '2026-10-17T03:00:00.000Z',
+        expiresAt: '2026-10-17T03:10:00.000Z',
+      }),
+    );
+    vi.stubGlobal('fetch', fn);
+    const res = await academy.POST(
+      post('/api/academy-ops', {
+        step: 'propose',
+        request: { kind: 'academy.ambassador.appoint', userId },
+        confirm: 'APPOINT AMBASSADOR 9f8e7d6c',
+      }),
+    );
+    expect(await res.json()).toMatchObject({ ok: true, step: 'propose' });
+    expect(fn.mock.calls[0]![0]).toBe('http://edge:4000/api/identity/trpc/actionApproval.propose');
+    expect(JSON.parse(String(fn.mock.calls[0]![1]!.body))).toMatchObject({
+      actionType: 'academy.ambassador.appoint',
+      targetService: 'svc-academy',
+      targetId: 'academy.ambassador.appoint',
+    });
+  });
+  it('academy: an appointment without its typed phrase, or on the wrong desk, is refused before anything is sent', async () => {
+    const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect(
+      (
+        await academy.POST(
+          post('/api/academy-ops', { step: 'propose', request: { kind: 'academy.ambassador.appoint', userId }, confirm: 'appoint' }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await more.POST(
+          post('/api/more-ops', {
+            step: 'propose',
+            request: { kind: 'academy.residency.decide', id: userId, decision: 'accepted' },
+            confirm: 'ACCEPT RESIDENCY 9f8e7d6c',
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+  it('academy: runs a residency decision at svc-academy with the approval ids', async () => {
+    const id = '5a3b9c10-1111-4222-8333-444455556666';
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ id, status: 'rejected' }));
+    vi.stubGlobal('fetch', fn);
+    const res = await academy.POST(
+      post('/api/academy-ops', {
+        step: 'execute',
+        request: { kind: 'academy.residency.decide', id, decision: 'rejected' },
+        confirm: 'REJECT RESIDENCY 5a3b9c10',
+        approvalId: 'appr_1',
+        operationId: 'op_1',
+      }),
+    );
+    expect(await res.json()).toMatchObject({ ok: true, step: 'execute' });
+    expect(fn.mock.calls[0]![0]).toBe('http://edge:4000/api/academy/trpc/decideResidency');
+  });
+  it('academy: a 403 from svc-academy on an appointment is the plain permission sentence, never ok', async () => {
+    const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(403, 'Missing scope admin:write')),
+    );
+    const res = await academy.POST(
+      post('/api/academy-ops', {
+        step: 'execute',
+        request: { kind: 'academy.ambassador.appoint', userId },
+        confirm: 'APPOINT AMBASSADOR 9f8e7d6c',
+        approvalId: 'appr_1',
+        operationId: 'op_1',
+      }),
+    );
+    const json = await res.json();
+    expect(res.status).toBe(409);
+    expect(json).toMatchObject({
+      ok: false,
+      refusal: { title: 'Your console session does not have Academy operator permission yet', changed: 'no' },
     });
   });
   it('academy: runs the freeze at svc-academy with the approval ids', async () => {
@@ -252,6 +406,7 @@ describe('module gate', () => {
       [p2p, '/api/p2p-ops'],
       [academy, '/api/academy-ops'],
       [more, '/api/more-ops'],
+      [protocol, '/api/protocol-ops'],
     ] as const) {
       expect((await route.GET(get(path))).status, path).toBe(404);
     }

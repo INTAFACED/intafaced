@@ -5,7 +5,13 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { checkAccess } from '@intafaced/config';
-import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import {
+  createEdgeContext,
+  EDGE_PRINCIPAL_HEADER,
+  EDGE_SIGNATURE_HEADER,
+  encodePrincipal,
+  signPrincipalHeader,
+} from '@intafaced/contracts';
 import {
   QUANT_BACKTEST_FILLS_MISSING,
   QUANT_BACKTEST_LAKE_MISSING,
@@ -26,6 +32,27 @@ import { createQuantRouter, type QuantRouter } from './router.js';
 const SECRET = 'a-quant-mount-test-edge-secret-long-enough';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-quant' });
 const anonymous = (region = 'DE') => edgeContext({ headers: { 'x-intafaced-region': region }, id: 'req-anon' });
+
+function signed(userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'): ReturnType<typeof edgeContext> {
+  const principal = {
+    sub: userId,
+    userId,
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['trade:read'],
+    tier: 'basic' as const,
+    mfa: false,
+    expiresAt: new Date(Date.now() + 60_000),
+  } satisfies Parameters<typeof encodePrincipal>[0];
+  const raw = encodePrincipal(principal);
+  return edgeContext({
+    headers: {
+      'x-intafaced-region': 'DE',
+      [EDGE_PRINCIPAL_HEADER]: raw,
+      [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, SECRET, 'DE'),
+    },
+    id: `req-${userId}`,
+  });
+}
 
 const limits = { maxOps: 5_000, maxSource: 8_000 };
 
@@ -182,7 +209,7 @@ describe('svc-quant mount — studio.save', () => {
   const blocks = [{ side: 'buy' as const, symbol: 'BTC-USD', qty: '0.01' }];
 
   it('refuses missing risk block by name and does not persist', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(signed());
     await expect(caller.studio.save({ name: 'alpha', blocks, cash: '10000', environment: 'paper' })).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_STUDIO_RISK_BLOCK_REQUIRED),
     });
@@ -191,7 +218,7 @@ describe('svc-quant mount — studio.save', () => {
   });
 
   it('refuses studio.save when cash is omitted — never invents 10000', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(signed());
     await expect(caller.studio.save({ name: 'alpha', blocks, risk, environment: 'paper' })).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_CASH_UNSET),
     });
@@ -200,7 +227,7 @@ describe('svc-quant mount — studio.save', () => {
   });
 
   it('saves a no-code strategy then runs it through existing sandbox.run', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(signed());
     const saved = await caller.studio.save({ name: 'alpha', blocks, risk, cash: '10000', environment: 'paper' });
     expect(saved.risk.maxDrawdown).toBe('500');
     expect(typeof saved.risk.maxNotional).toBe('string');

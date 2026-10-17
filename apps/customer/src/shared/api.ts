@@ -42,6 +42,9 @@ const errorEnvelope = z
       .optional(),
     message: z.string().optional(),
     code: z.string().optional(),
+    // The public market routes answer in the exchange error shape: `code` is a broad class such as "ExchangeError" and the
+    // specific reason, such as `trade.no_book`, sits beside it.
+    intafacedCode: z.string().optional(),
     name: z.string().optional(),
   })
   .passthrough();
@@ -129,6 +132,7 @@ export function createApiClient(
         const error = typeof data?.error === 'object' ? data.error : undefined;
         const code =
           error?.data?.intafacedCode ??
+          data?.intafacedCode ??
           error?.data?.cause?.code ??
           error?.data?.code ??
           data?.code ??

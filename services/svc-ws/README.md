@@ -243,15 +243,16 @@ continues it.
 
 ### Limits and backpressure
 
-| Limit                                      | Behaviour when exceeded                                                                                                                                                                                       |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `WS_MUX_MAX_SUBSCRIPTIONS` per socket      | that channel gets `subscription_limit`; the connection and its other channels are untouched                                                                                                                   |
-| `WS_MUX_MAX_OPS_PER_SECOND` per socket     | token bucket; a subscribe of N channels costs N. More channels than the rate: `bad_request` and **close `1008`** `rate_limited`. A later operation that does not fit the remaining tokens closes the same way |
-| pending operations (16, protocol)          | a client that queues past it is not waiting for answers: **close `1008`**                                                                                                                                     |
-| frame size (8 KiB, protocol)               | the `ws` library closes `1009` before the frame is assembled                                                                                                                                                  |
-| `WS_MAX_CONNECTIONS` multiplexed sockets   | the newest is closed `1013` `at capacity`                                                                                                                                                                     |
-| `WS_MAX_CONNECTIONS` per hub               | **each channel of a multiplexed socket takes one seat in its hub**, like a legacy socket does                                                                                                                 |
-| `WS_HIGH_WATER_BYTES` / `WS_MAX_LAG_TICKS` | slow client: see below                                                                                                                                                                                        |
+| Limit                                      | Behaviour when exceeded                                                                                                                                                                                                                                                       |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WS_MUX_MAX_SUBSCRIPTIONS` per socket      | that channel gets `subscription_limit`; the connection and its other channels are untouched                                                                                                                                                                                   |
+| `WS_MUX_MAX_OPS_PER_SECOND` per socket     | token bucket; a subscribe of N channels costs N. More channels than the rate: `bad_request` and **close `1008`** `rate_limited`. A later operation that does not fit the remaining tokens closes the same way                                                                 |
+| pending operations (16, protocol)          | a client that queues past it is not waiting for answers: **close `1008`**                                                                                                                                                                                                     |
+| frame size (8 KiB, protocol)               | the `ws` library closes `1009` before the frame is assembled                                                                                                                                                                                                                  |
+| `WS_MAX_CONNECTIONS` multiplexed sockets   | the newest multiplexed _connection_ is closed `1013` `at capacity`. This ceiling is not the `?market=` seat pool                                                                                                                                                              |
+| `WS_MUX_MAX_SEATS` per hub                 | book, trades, ticker, and candle subscriptions on the multiplexed door count here, not against `WS_MAX_CONNECTIONS`. Over the cap that channel gets `at_capacity`. Blank refuses the attach `1008` `ws.close.mux_max_seats_unset`. A full mux pool does not refuse `?market=` |
+| `WS_MUX_IDLE_MS`                           | a multiplexed socket that holds no subscription is closed `1008` `ws.close.mux_idle`. Blank, with no connection idle setting on this service, refuses to start the multiplexed door                                                                                           |
+| `WS_HIGH_WATER_BYTES` / `WS_MAX_LAG_TICKS` | slow client: see below                                                                                                                                                                                                                                                        |
 
 Every ceiling is owner-published like the rest of this service: blank is refused, never defaulted. A multiplexed
 connection with a blank subscription or operation ceiling is closed `1008` with `ws.close.mux_max_subscriptions_unset`
@@ -439,32 +440,34 @@ After a consumer is attached, **nats.js owns TCP reconnect** for that connection
 
 ## Configuration
 
-| Variable                              | Default                 | Notes                                                                                                                            |
-| ------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `HTTP_PORT`                           | `4014`                  | every port 4000–4013 is taken                                                                                                    |
-| `MATCHING_URL`                        | `http://localhost:4005` | svc-matching's **read** surface; no credential is sent                                                                           |
-| `TRADE_URL`                           | `http://localhost:4004` | svc-trade's public market **listing**; no credential                                                                             |
-| `NATS_URL`                            | `nats://localhost:4222` | bus for public `orderFilled` tape, private, and drop-copy                                                                        |
-| `WS_DEPTH_LIMIT`                      | _(unset)_               | owner-published levels per side (snapshot and delta); blank refuses `ws.depth_limit_unset` (owner may set 50)                    |
-| `WS_POLL_INTERVAL_MS`                 | `250`                   | one GET per subscribed market per tick                                                                                           |
-| `WS_MARKETS_REFRESH_MS`               | `30000`                 | market-list cache window                                                                                                         |
-| `WS_HIGH_WATER_BYTES`                 | _(unset)_               | owner-published socket buffer above which a client is lagging; blank refuses `ws.high_water_bytes_unset` (owner may set 1048576) |
-| `WS_MAX_LAG_TICKS`                    | _(unset)_               | owner-published consecutive lag ticks before disconnect; blank refuses `ws.max_lag_ticks_unset` (owner may set 20)               |
-| `WS_MAX_CONNECTIONS`                  | _(unset)_               | owner-published max sockets **per hub**; blank refuses `ws.max_connections_unset` (owner may set 5000)                           |
-| `WS_PRIVATE_MAX_CONNECTIONS_PER_USER` | _(unset)_               | private/drop-copy per user; blank refuses `ws.private_max_connections_per_user_unset` (owner may set 16)                         |
-| `WS_HEARTBEAT_MS`                     | `30000`                 | ping cadence; a socket that misses a pong is terminated                                                                          |
-| `WS_MUX_MAX_SUBSCRIPTIONS`            | _(unset)_               | owner-published channels per multiplexed socket; blank closes the socket `1008` `ws.close.mux_max_subscriptions_unset`           |
-| `WS_MUX_MAX_OPS_PER_SECOND`           | _(unset)_               | owner-published inbound operation budget per multiplexed socket; blank closes `1008` `ws.close.mux_max_ops_per_second_unset`     |
-| `WS_TICKER_THROTTLE_MS`               | `1000`                  | a market's ticker row is sent at most once per this many ms                                                                      |
-| `WS_TICKER_POLL_MS`                   | `1000`                  | how often svc-trade's `/api/v1/tickers` is read while somebody watches the ticker (needs `WS_MARKETS_LIST_LIMIT`)                |
-| `WS_CANDLE_POLL_MS`                   | `2000`                  | how often each watched (market, interval) candle is re-read from svc-trade's `/api/v1/ohlcv`                                     |
-| `WS_TRADE_RECENT_LIMIT`               | _(unset)_               | owner-published replay while watched; blank refuses `ws.trade_recent_limit_unset` (owner may set 50)                             |
-| `WS_DROP_COPY_RECENT_LIMIT`           | _(unset)_               | owner-published drop-copy session replay; blank refuses `ws.drop_copy_recent_limit_unset` (owner may set 50)                     |
-| `WS_TRADES_DURABLE`                   | `ws-trade-tape`         | JetStream durable; unique per replica for multi-instance                                                                         |
-| `WS_GATEWAY_ENABLED`                  | `true`                  | kill-switch (env / restart / SIGTERM — not edge admin)                                                                           |
-| `JWT_ACCESS_SECRET`                   | _(unset)_               | optional; `/private/stream` and `/drop-copy/stream` — public path ignores it                                                     |
-| `IDENTITY_URL`                        | _(unset)_               | identity authority base; missing/invalid disables private upgrades only                                                          |
-| `IDENTITY_OWNERSHIP_SECRET`           | _(unset)_               | dedicated identity private-read key matching `IDENTITY_WS_AUTHORITY_SECRET`; at least 32 characters; no default                  |
+| Variable                              | Default                 | Notes                                                                                                                                         |
+| ------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HTTP_PORT`                           | `4014`                  | every port 4000–4013 is taken                                                                                                                 |
+| `MATCHING_URL`                        | `http://localhost:4005` | svc-matching's **read** surface; no credential is sent                                                                                        |
+| `TRADE_URL`                           | `http://localhost:4004` | svc-trade's public market **listing**; no credential                                                                                          |
+| `NATS_URL`                            | `nats://localhost:4222` | bus for public `orderFilled` tape, private, and drop-copy                                                                                     |
+| `WS_DEPTH_LIMIT`                      | _(unset)_               | owner-published levels per side (snapshot and delta); blank refuses `ws.depth_limit_unset` (owner may set 50)                                 |
+| `WS_POLL_INTERVAL_MS`                 | `250`                   | one GET per subscribed market per tick                                                                                                        |
+| `WS_MARKETS_REFRESH_MS`               | `30000`                 | market-list cache window                                                                                                                      |
+| `WS_HIGH_WATER_BYTES`                 | _(unset)_               | owner-published socket buffer above which a client is lagging; blank refuses `ws.high_water_bytes_unset` (owner may set 1048576)              |
+| `WS_MAX_LAG_TICKS`                    | _(unset)_               | owner-published consecutive lag ticks before disconnect; blank refuses `ws.max_lag_ticks_unset` (owner may set 20)                            |
+| `WS_MAX_CONNECTIONS`                  | _(unset)_               | owner-published max sockets **per hub**; blank refuses `ws.max_connections_unset` (owner may set 5000)                                        |
+| `WS_PRIVATE_MAX_CONNECTIONS_PER_USER` | _(unset)_               | private/drop-copy per user; blank refuses `ws.private_max_connections_per_user_unset` (owner may set 16)                                      |
+| `WS_HEARTBEAT_MS`                     | `30000`                 | ping cadence; a socket that misses a pong is terminated                                                                                       |
+| `WS_MUX_MAX_SUBSCRIPTIONS`            | _(unset)_               | owner-published channels per multiplexed socket; blank closes the socket `1008` `ws.close.mux_max_subscriptions_unset`                        |
+| `WS_MUX_MAX_OPS_PER_SECOND`           | _(unset)_               | owner-published inbound operation budget per multiplexed socket; blank closes `1008` `ws.close.mux_max_ops_per_second_unset`                  |
+| `WS_MUX_MAX_SEATS`                    | _(unset)_               | owner-published multiplexed seats per hub, separate from `WS_MAX_CONNECTIONS`; blank refuses the attach `1008` `ws.close.mux_max_seats_unset` |
+| `WS_MUX_IDLE_MS`                      | _(unset)_               | close a multiplexed socket with no subscription; blank refuses to start the mux door (heartbeat is not an idle timeout)                       |
+| `WS_TICKER_THROTTLE_MS`               | `1000`                  | a market's ticker row is sent at most once per this many ms                                                                                   |
+| `WS_TICKER_POLL_MS`                   | `1000`                  | how often svc-trade's `/api/v1/tickers` is read while somebody watches the ticker (needs `WS_MARKETS_LIST_LIMIT`)                             |
+| `WS_CANDLE_POLL_MS`                   | `2000`                  | how often each watched (market, interval) candle is re-read from svc-trade's `/api/v1/ohlcv`                                                  |
+| `WS_TRADE_RECENT_LIMIT`               | _(unset)_               | owner-published replay while watched; blank refuses `ws.trade_recent_limit_unset` (owner may set 50)                                          |
+| `WS_DROP_COPY_RECENT_LIMIT`           | _(unset)_               | owner-published drop-copy session replay; blank refuses `ws.drop_copy_recent_limit_unset` (owner may set 50)                                  |
+| `WS_TRADES_DURABLE`                   | `ws-trade-tape`         | JetStream durable; unique per replica for multi-instance                                                                                      |
+| `WS_GATEWAY_ENABLED`                  | `true`                  | kill-switch (env / restart / SIGTERM — not edge admin)                                                                                        |
+| `JWT_ACCESS_SECRET`                   | _(unset)_               | optional; `/private/stream` and `/drop-copy/stream` — public path ignores it                                                                  |
+| `IDENTITY_URL`                        | _(unset)_               | identity authority base; missing/invalid disables private upgrades only                                                                       |
+| `IDENTITY_OWNERSHIP_SECRET`           | _(unset)_               | dedicated identity private-read key matching `IDENTITY_WS_AUTHORITY_SECRET`; at least 32 characters; no default                               |
 
 ### Isolation (what this process holds)
 
@@ -567,8 +570,9 @@ never `200 { positions: [] }`. Never invent a position frame.
 - **Push candles and tickers.** Both channels are polls of svc-trade's public REST, like depth is a poll of matching
   (`WS_TICKER_POLL_MS`, `WS_CANDLE_POLL_MS`), so a price can be that old on the wire. A push needs svc-trade to
   publish candle / ticker events; until then the `last` in a ticker can trail the tape by up to a poll.
-- **Idle multiplexed sockets.** A multiplexed connection that never subscribes holds one seat of
-  `WS_MAX_CONNECTIONS` until it closes or misses a heartbeat. There is no idle timeout.
+- **Missed-pong is not subscription idle.** `WS_HEARTBEAT_MS` still terminates a socket that stops
+  answering pings. A multiplexed socket that holds no subscription is closed by `WS_MUX_IDLE_MS`
+  (`1008` `ws.close.mux_idle`). Blank idle, and no other connection idle setting, leaves the multiplexed door unmounted.
 - **Compression.** `perMessageDeflate` is off deliberately: a zlib context per socket (~300 KiB at default windows)
   turns "many idle subscribers" — the normal state of a market-data server — into a memory problem, and depth frames
   are small and mostly digits.

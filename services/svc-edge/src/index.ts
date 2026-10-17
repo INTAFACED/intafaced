@@ -196,6 +196,8 @@ const admin = createAdminApi(killSwitches, {
   // here: the edge forwards the operator's own token and holds no credential of
   // the ledger's.
   ledger: env.LEDGER_URL ? httpLedgerOperator(env.LEDGER_URL, env.UPSTREAM_TIMEOUT_MS) : null,
+  complianceQueuePath: env.EDGE_COMPLIANCE_QUEUE_PATH,
+  reconcileLastPath: env.EDGE_RECONCILE_LAST_PATH,
   approvals: createHttpEdgeApprovalConsumer({
     identityUrl: env.IDENTITY_URL,
     edgeSecret: env.EDGE_PRINCIPAL_SECRET,
@@ -428,7 +430,7 @@ await app.register(async (api) => {
       allowedOrigins: cors.origins,
     });
     if (csrf) {
-      return reply.code(403).send({ error: userCopy('edge.origin_not_allowed'), code: csrf.code });
+      return reply.code(403).send({ error: userCopy(csrf.code), code: csrf.code });
     }
 
     const body = upstreamBody(req.method, req.body);

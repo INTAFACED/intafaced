@@ -1,0 +1,337 @@
+/**
+ * Customer step-up (the dialog that mints a stepUpApprovalId).
+ *
+ * The client names the door, the amount and the target, and the same strings it
+ * will send on the bank call. Identity hashes them. svc-bank recomputes that
+ * hash from its own input (`bankActionPayloadHash` in svc-bank) and consumes
+ * the approval once. The two hashes are the same bytes: sha256 of
+ * JSON `{actionType, fields}` with field keys sorted, prefixed `sha256:`.
+ *
+ * `actor` is not a client field. Identity sets it to the signed-in user id.
+ */
+import { createHash } from 'node:crypto';
+import { SAME_PERSON_ACTION_TYPES, type SamePersonActionType } from './action-approval.js';
+
+/** How long the user has to answer the passkey or authenticator after begin. */
+export const CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS = 120;
+
+const AMOUNT_RE = /^\d+(\.\d{1,18})?$/;
+
+export type CustomerStepUpDoor = {
+  readonly scope: SamePersonActionType;
+  readonly purpose: string;
+  /** Field names the client sends. `actor` is added by identity and is not here. */
+  readonly clientFields: readonly string[];
+  readonly amountField?: string;
+  readonly targetField?: string;
+  /** When false, `target` may be omitted and the target field is the empty string. */
+  readonly targetRequired: boolean;
+  readonly emptyOk: readonly string[];
+  readonly decimalFields: readonly string[];
+  readonly fixed: Readonly<Record<string, string>>;
+};
+
+export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
+  {
+    scope: 'bank.step_up.transfers.toUser',
+    purpose: 'transfers.toUser',
+    clientFields: ['transferId', 'fromSpaceId', 'toUserId', 'assetId', 'amount'],
+    amountField: 'amount',
+    targetField: 'toUserId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['amount'],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.transfers.create',
+    purpose: 'transfers.create',
+    clientFields: ['transferId', 'fromSpaceId', 'toSpaceId', 'assetId', 'amount'],
+    amountField: 'amount',
+    targetField: 'toSpaceId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['amount'],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.transfers.scheduleToUser',
+    purpose: 'transfers.scheduleToUser',
+    clientFields: ['scheduleId', 'fromSpaceId', 'toUserId', 'assetId', 'amount', 'cadence', 'startsAt', 'endsAt'],
+    amountField: 'amount',
+    targetField: 'toUserId',
+    targetRequired: true,
+    emptyOk: ['endsAt'],
+    decimalFields: ['amount'],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.transfers.schedule',
+    purpose: 'transfers.schedule',
+    clientFields: ['scheduleId', 'fromSpaceId', 'toSpaceId', 'assetId', 'amount', 'cadence', 'startsAt', 'endsAt'],
+    amountField: 'amount',
+    targetField: 'toSpaceId',
+    targetRequired: true,
+    emptyOk: ['endsAt'],
+    decimalFields: ['amount'],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.business.runPayroll',
+    purpose: 'business.runPayroll',
+    clientFields: ['payrollId', 'accountId', 'fromSpaceId', 'assetId', 'lines'],
+    targetField: 'accountId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.business.proposeTransfer',
+    purpose: 'business.proposeTransfer',
+    clientFields: ['clientId', 'accountId', 'fromSpaceId', 'toSpaceId', 'assetId', 'amount'],
+    amountField: 'amount',
+    targetField: 'toSpaceId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['amount'],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.business.approve',
+    purpose: 'business.approve',
+    clientFields: ['approvalId'],
+    targetField: 'approvalId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.business.addMember',
+    purpose: 'business.addMember',
+    clientFields: ['accountId', 'userId', 'role'],
+    targetField: 'userId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.business.removeMember',
+    purpose: 'business.removeMember',
+    clientFields: ['accountId', 'userId', 'requestId'],
+    targetField: 'userId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.business.setMemberRole',
+    purpose: 'business.setMemberRole',
+    clientFields: ['accountId', 'userId', 'role', 'requestId'],
+    targetField: 'userId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.cards.unfreeze',
+    purpose: 'cards.setStatus',
+    clientFields: ['cardId', 'fromStatus', 'status'],
+    targetField: 'cardId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: { status: 'active' },
+  },
+  {
+    scope: 'bank.step_up.cards.issue',
+    purpose: 'cards.issue',
+    clientFields: ['cardId', 'assetId', 'settlementAssetId', 'cashbackBps', 'perAuthorizationLimit', 'cardType', 'shippingAddress'],
+    amountField: 'perAuthorizationLimit',
+    targetField: 'cardId',
+    targetRequired: true,
+    emptyOk: ['settlementAssetId', 'cashbackBps', 'shippingAddress'],
+    decimalFields: ['perAuthorizationLimit'],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.cards.setLimits',
+    purpose: 'cards.setLimits',
+    clientFields: ['cardId', 'commandId', 'perAuthorizationLimit', 'dailyLimit', 'monthlyLimit', 'cashLimit'],
+    amountField: 'perAuthorizationLimit',
+    targetField: 'cardId',
+    targetRequired: true,
+    // Omitted ceiling is ''; a cleared ceiling is the string "null" (see svc-bank limitField).
+    emptyOk: ['dailyLimit', 'monthlyLimit', 'cashLimit'],
+    decimalFields: ['perAuthorizationLimit'],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.cards.reveal',
+    purpose: 'cards.reveal',
+    clientFields: ['cardId', 'revealId'],
+    targetField: 'cardId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.cards.pinReveal',
+    purpose: 'cards.pinReveal',
+    clientFields: ['cardId', 'revealId'],
+    targetField: 'cardId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.cards.pinSet',
+    purpose: 'cards.pinSet',
+    clientFields: ['cardId', 'commandId'],
+    targetField: 'cardId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.ramps.offramp',
+    purpose: 'ramps.offramp',
+    clientFields: ['offrampId', 'assetId', 'amount', 'kind', 'destinationRef', 'clientRef'],
+    amountField: 'amount',
+    targetField: 'destinationRef',
+    targetRequired: false,
+    emptyOk: ['destinationRef'],
+    decimalFields: ['amount'],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.ramps.setWithdrawDestination',
+    purpose: 'ramps.setWithdrawDestination',
+    clientFields: ['kind', 'ref'],
+    targetField: 'ref',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+];
+
+export function doorForScope(scope: string): CustomerStepUpDoor | undefined {
+  return CUSTOMER_STEP_UP_DOORS.find((door) => door.scope === scope);
+}
+
+/**
+ * Payroll lines, in the order svc-bank hashes them: pairs of `[toSpaceId, amount]`
+ * sorted by space id, then by the amount string (character order, not numeric).
+ */
+export function canonicalPayrollLines(lines: ReadonlyArray<{ toSpaceId: string; amount: string }>): string {
+  return JSON.stringify(
+    lines
+      .map((line) => [line.toSpaceId, line.amount] as const)
+      .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0) : a[0] < b[0] ? -1 : 1)),
+  );
+}
+
+/** Byte-identical to svc-bank `bankActionPayloadHash`. */
+export function customerStepUpPayloadHash(actionType: string, fields: Record<string, string>): string {
+  const sortedCopy: Record<string, string> = {};
+  for (const key of Object.keys(fields).sort()) {
+    const value = fields[key];
+    if (value !== undefined) sortedCopy[key] = value;
+  }
+  const payload = JSON.stringify({ actionType, fields: sortedCopy });
+  return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
+}
+
+export type CustomerStepUpBeginInput = {
+  readonly scope: string;
+  readonly purpose: string;
+  readonly amount?: string;
+  readonly target?: string;
+  readonly fields: Readonly<Record<string, string>>;
+};
+
+export type CustomerStepUpBindFailure =
+  'step_up.unknown_scope' | 'step_up.purpose' | 'step_up.amount' | 'step_up.target' | 'step_up.fields';
+
+export type CustomerStepUpBinding =
+  | {
+      readonly ok: true;
+      readonly scope: SamePersonActionType;
+      readonly purpose: string;
+      readonly amount: string | null;
+      readonly target: string | null;
+      readonly payloadHash: string;
+    }
+  | { readonly ok: false; readonly code: CustomerStepUpBindFailure };
+
+function fieldShapeOk(door: CustomerStepUpDoor, key: string, value: string): boolean {
+  if (value.length > 4000) return false;
+  if (value.length === 0) return door.emptyOk.includes(key);
+  if (door.decimalFields.includes(key) && !AMOUNT_RE.test(value)) return false;
+  if (key === 'cashbackBps') {
+    if (!/^(?:0|[1-9]\d{0,4})$/.test(value)) return false;
+    if (Number(value) > 10_000) return false;
+  }
+  const fixed = door.fixed[key];
+  if (fixed !== undefined && value !== fixed) return false;
+  return true;
+}
+
+/**
+ * Bind a begin request to the signed-in user. `actor` is that user id.
+ * The client cannot supply it. A mismatch is a refusal, not a rewrite.
+ */
+export function bindCustomerStepUp(actor: string, input: CustomerStepUpBeginInput): CustomerStepUpBinding {
+  if (!(SAME_PERSON_ACTION_TYPES as readonly string[]).includes(input.scope)) {
+    return { ok: false, code: 'step_up.unknown_scope' };
+  }
+  const door = doorForScope(input.scope);
+  if (!door) return { ok: false, code: 'step_up.unknown_scope' };
+  if (input.purpose !== door.purpose) return { ok: false, code: 'step_up.purpose' };
+
+  const keys = Object.keys(input.fields);
+  if (keys.includes('actor') || keys.length !== door.clientFields.length || door.clientFields.some((key) => !keys.includes(key))) {
+    return { ok: false, code: 'step_up.fields' };
+  }
+  for (const key of door.clientFields) {
+    const value = input.fields[key];
+    if (value === undefined || !fieldShapeOk(door, key, value)) return { ok: false, code: 'step_up.fields' };
+  }
+
+  if (door.amountField) {
+    const sent = input.fields[door.amountField];
+    if (input.amount === undefined || input.amount !== sent) return { ok: false, code: 'step_up.amount' };
+  } else if (input.amount !== undefined) {
+    return { ok: false, code: 'step_up.amount' };
+  }
+
+  if (door.targetField) {
+    const sent = input.fields[door.targetField] ?? '';
+    if (door.targetRequired) {
+      if (input.target === undefined || input.target !== sent) return { ok: false, code: 'step_up.target' };
+    } else if ((input.target ?? '') !== sent) {
+      return { ok: false, code: 'step_up.target' };
+    }
+  } else if (input.target !== undefined) {
+    return { ok: false, code: 'step_up.target' };
+  }
+
+  const fields: Record<string, string> = { actor };
+  for (const key of door.clientFields) fields[key] = input.fields[key]!;
+  return {
+    ok: true,
+    scope: door.scope,
+    purpose: door.purpose,
+    amount: input.amount ?? null,
+    target: input.target ?? null,
+    payloadHash: customerStepUpPayloadHash(door.scope, fields),
+  };
+}

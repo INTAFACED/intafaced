@@ -268,6 +268,30 @@ const schema = baseEnvSchema
       ),
 
       /**
+       * Seat pool for multiplexed subscriptions, per hub (depth, trades, ticker,
+       * candles). Separate from `WS_MAX_CONNECTIONS`, which is the pool the
+       * original `?market=` sockets use, so an anonymous multiplexed attach
+       * cannot lock that door out. Blank / unset is unpublished — the attach
+       * is refused `ws.close.mux_max_seats_unset`. Never invent a pool size.
+       */
+      WS_MUX_MAX_SEATS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1)]),
+      ),
+
+      /**
+       * How long a multiplexed socket may hold no subscription before it is
+       * closed 1008 `ws.close.mux_idle`. Blank / unset is unpublished. Startup
+       * then uses a connection idle setting if this service has one, and
+       * otherwise refuses to mount the multiplexed door. Heartbeat is a ping
+       * cadence, not that setting. Never invent a timeout.
+       */
+      WS_MUX_IDLE_MS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1)]),
+      ),
+
+      /**
        * All-markets ticker channel. A market's row is sent at most once per this
        * many ms (the product spec is "about one update a second per market").
        */
@@ -344,6 +368,8 @@ export const SVC_WS_OWN_ENV_KEYS = [
   'WS_GATEWAY_ENABLED',
   'WS_MUX_MAX_SUBSCRIPTIONS',
   'WS_MUX_MAX_OPS_PER_SECOND',
+  'WS_MUX_MAX_SEATS',
+  'WS_MUX_IDLE_MS',
   'WS_TICKER_THROTTLE_MS',
   'WS_TICKER_POLL_MS',
   'WS_CANDLE_POLL_MS',

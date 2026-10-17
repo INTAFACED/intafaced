@@ -423,12 +423,29 @@ export class NotifyService {
    * delivered status: `accepted` is gateway acceptance, not end-device proof.
    * Page size is owner-published — omit is not 50.
    */
-  async operatorDeliveryOutcomes(limit?: number): Promise<DeliveryRecord[]> {
+  async operatorDeliveryOutcomes(limit?: number, status?: DeliveryRecord['status']): Promise<DeliveryRecord[]> {
     const cap = assertOperatorDeliveriesLimit(limit);
     return withNotifySpan('notify.operatorDeliveries', { op: 'operatorDeliveries' }, async () => {
       if (!this.deps) return [];
-      return this.deps.deliveries.listRecent(cap);
+      return this.deps.deliveries.listRecent(cap, status);
     });
+  }
+
+  /**
+   * Counts of every delivery row. Refuses when the store is unwired rather than
+   * returning a zero that could be read as "nothing was sent".
+   */
+  async operatorDeliveryAggregates(): Promise<{
+    asOf: string;
+    total: number;
+    byStatus: Record<DeliveryRecord['status'], number>;
+    byChannel: Record<string, number>;
+  }> {
+    if (!this.deps) {
+      throw new Error('notify.delivery_store_unconfigured: delivery rows are not wired, so no aggregate is returned');
+    }
+    const counts = await this.deps.deliveries.aggregate();
+    return { asOf: new Date().toISOString(), ...counts };
   }
 
   // ── Preferences (mute) ─────────────────────────────────────────────────────

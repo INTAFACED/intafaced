@@ -1,62 +1,87 @@
 import { describe, expect, it } from 'vitest';
-import { userCopy } from './user-copy.js';
+import type { TokenError } from './token-service.js';
+import { TOKEN_REFUSAL_COPY, TOKEN_WIRE_COPY, userCopy } from './user-copy.js';
 
 /**
- * Unit card — user-visible token copy resolves @intafaced/i18n keys
- * 1. Promise: TRK-infra.i18n slice — stake / mint / distribute refuse strings
- * 2. Break: unknown key invents English instead of echoing the dotted name
- * 3. Done bar: known key renders catalog copy; unknown key === key string
- * 4. Class N
- * 5. Paths: services/svc-token + packages/i18n consumer pin (do not edit catalog)
- * 6. RED: unknown key becomes a sentence
- * 7. Collision: none vs svc-identity / packages/i18n catalog
+ * Every svc-token refusal code the customer can be shown has a sentence.
+ * An unknown key stays the dotted name. No supply figure is written here.
  */
-describe('userCopy — catalog keys, never invented English', () => {
-  it('resolves a known catalog key from @intafaced/i18n', () => {
+
+const TOKEN_ERROR_CODES = [
+  'token.stake_not_found',
+  'token.stake_locked',
+  'token.stake_closed',
+  'token.stake_conflict',
+  'token.stake_id_required',
+  'token.stake_claim_missing',
+  'token.stake_ledger_mismatch',
+  'token.epoch_closed',
+  'token.epoch_too_early',
+  'token.supply_exhausted',
+  'token.nothing_to_distribute',
+  'token.yield_source_underfunded',
+  'token.yield_window_mismatch',
+  'token.yield_job_unset',
+  'token.emissions_tick_unset',
+  'token.buyback_window_overlap',
+  'token.buyback_window_invalid',
+  'token.buyback_run_conflict',
+  'token.buyback_revenue_invalid',
+  'token.buyback_tokens_unmoved',
+  'token.buyback_job_unset',
+  'token.buyback_book_empty',
+  'token.params_missing',
+  'token.params_invalid',
+  'token.params_unset',
+  'token.proposal_not_found',
+  'token.proposal_not_open',
+  'token.proposal_window',
+  'token.proposal_not_allowed',
+  'token.already_voted',
+  'token.no_voting_weight',
+  'token.proposal_list_limit_unset',
+  'token.stakes_list_limit_unset',
+  'token.governance_quorum_unset',
+  'token.governance_snapshot_missing',
+  'token.governance_execute_unwired',
+] as const satisfies readonly TokenError['code'][];
+
+type Missing = Exclude<TokenError['code'], (typeof TOKEN_ERROR_CODES)[number]>;
+const _everyTokenErrorCodeListed: [Missing] extends [never] ? true : Missing = true;
+void _everyTokenErrorCodeListed;
+
+describe('userCopy — one plain sentence per refusal code', () => {
+  it('resolves catalog keys that are not token codes', () => {
     expect(userCopy('error.notFound')).toBe('We could not find that.');
-    expect(userCopy('token.stake_not_found')).toBe('We could not find that.');
-    expect(userCopy('token.proposal_not_found')).toBe('We could not find that.');
-    expect(userCopy('token.proposal_not_allowed')).toBe('You do not have access to this.');
     expect(userCopy('ledger.insufficient_funds')).toBe('Insufficient balance.');
     expect(userCopy('error.generic')).toBe('Something went wrong. Try again.');
+    expect(userCopy('error.forbidden')).toBe('You do not have access to this.');
   });
 
-  it('renders the dotted key when the key is not in the catalog', () => {
+  it('gives every refusal code a sentence and leaves an unknown key as the key', () => {
+    const codes = [...Object.keys(TOKEN_REFUSAL_COPY), ...Object.keys(TOKEN_WIRE_COPY)] as Array<
+      keyof typeof TOKEN_REFUSAL_COPY | keyof typeof TOKEN_WIRE_COPY
+    >;
+    for (const code of codes) {
+      const sentence = userCopy(code);
+      expect(sentence, code).not.toBe(code);
+      expect(sentence, code).toMatch(/ /);
+      expect(sentence, code).not.toMatch(/\d/);
+      expect(sentence, code).not.toMatch(/136000|max supply|epoch reward|halving/i);
+    }
+
     const missing = 'token.stake.this.key.does.not.exist';
-    const rendered = userCopy(missing);
-
-    expect(rendered).toBe(missing);
-    expect(rendered).not.toMatch(/ /);
-    expect(rendered).not.toMatch(/please try|something went wrong|could not find|insufficient/i);
+    expect(userCopy(missing)).toBe(missing);
   });
 
-  it('does not invent emission or supply copy for unkeyed mint/distribute codes', () => {
-    const exhausted = userCopy('token.supply_exhausted');
-    expect(exhausted).toBe('token.supply_exhausted');
-    expect(exhausted).not.toMatch(/ /);
-    expect(exhausted).not.toMatch(/\d/);
-    expect(exhausted).not.toMatch(/136000|max supply|epoch reward|halving/i);
-
-    const distribute = userCopy('token.nothing_to_distribute');
-    expect(distribute).toBe('token.nothing_to_distribute');
-    expect(distribute).not.toMatch(/ /);
-    expect(distribute).not.toMatch(/no revenue|yield|bps/i);
-
-    const quorum = userCopy('token.governance_quorum_unset');
-    expect(quorum).toBe('token.governance_quorum_unset');
-    expect(quorum).not.toMatch(/ /);
-    const unwired = userCopy('token.governance_execute_unwired');
-    expect(unwired).toBe('token.governance_execute_unwired');
-    const listLimit = userCopy('token.proposal_list_limit_unset');
-    expect(listLimit).toBe('token.proposal_list_limit_unset');
-    expect(listLimit).not.toMatch(/ /);
-    expect(listLimit).not.toMatch(/50/);
-    const stakesLimit = userCopy('token.stakes_list_limit_unset');
-    expect(stakesLimit).toBe('token.stakes_list_limit_unset');
-    expect(stakesLimit).not.toMatch(/ /);
-    expect(stakesLimit).not.toMatch(/50/);
-    const drift = userCopy('token.stake_ledger_mismatch');
-    expect(drift).toBe('token.stake_ledger_mismatch');
-    expect(drift).not.toMatch(/ /);
+  it('names the missing token_params column and does not echo an invented value', () => {
+    expect(userCopy('token.params_invalid')).toBe('Those token settings are not valid.');
+    expect(userCopy('token.params_unset')).toBe('Token settings are not set.');
+    expect(userCopy('token.params_unset', { config: 'token_params.fee_discount_schedule' })).toBe(
+      'Token settings are not set. Missing token_params.fee_discount_schedule.',
+    );
+    expect(userCopy('token.params_unset', { config: '1000000' })).toBe('Token settings are not set.');
+    expect(userCopy('token.proposal_list_limit_unset')).not.toMatch(/50/);
+    expect(userCopy('token.stakes_list_limit_unset')).not.toMatch(/50/);
   });
 });

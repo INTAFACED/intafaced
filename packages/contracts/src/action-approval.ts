@@ -47,6 +47,10 @@ export const SAME_PERSON_ACTION_TYPES = [
   'bank.step_up.cards.reveal',
   'bank.step_up.cards.pinReveal',
   'bank.step_up.cards.pinSet',
+  // Withdrawals. Identity mints and consumes these. svc-bank ramps still gate on the
+  // trade:withdraw bearer until a bank change reads the approval (one service per PR).
+  'bank.step_up.ramps.offramp',
+  'bank.step_up.ramps.setWithdrawDestination',
 ] as const;
 export type SamePersonActionType = (typeof SAME_PERSON_ACTION_TYPES)[number];
 

@@ -1,9 +1,16 @@
 import 'server-only';
-import { supportCommentSchema, supportTicketEventSchema, supportTicketSchema } from '@intafaced/contracts';
+import {
+  supportCaseFileSchema,
+  supportCommentSchema,
+  supportKbArticleSchema,
+  supportTicketEventSchema,
+  supportTicketSchema,
+} from '@intafaced/contracts';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { QUEUE_PAGE, readQueueResult } from './model';
-import type { SupportQueueView, SupportTicketView } from './types';
+import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
+import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
+import type { SupportKbView, SupportQueueView, SupportTicketView, TicketExtrasView } from './types';
 
 /**
  * svc-support's operator desk, read and used as the signed-in founder.
@@ -16,8 +23,7 @@ import type { SupportQueueView, SupportTicketView } from './types';
 
 const LABELS: PartLabels = {
   service: 'svc-support',
-  forbiddenMessage:
-    'svc-support did not accept your founder session. Every support desk action needs the support-staff permission (support:ops), and founder sign-in does not carry it yet.',
+  forbiddenMessage: `${SUPPORT_OPS_FORBIDDEN}. ${SUPPORT_OPS_FORBIDDEN_BODY}`,
 };
 
 const arrayOf =
@@ -61,4 +67,96 @@ export function claimTicket(
   ticketId: string,
 ): Promise<FounderCallResult<ReturnType<typeof supportTicketSchema.parse>>> {
   return founderCall(ctx, 'support', 'claim', 'POST', { ticketId }, parseWith(supportTicketSchema));
+}
+
+/**
+ * The operator-only reads on one ticket: the case file an escalation was made against, and the customer's rating.
+ * Both are `support:ops`. Each is its own part: a refusal on one is shown as that part's refusal, never as "none".
+ */
+export async function loadTicketExtras(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<TicketExtrasView> {
+  const [caseFile, rating] = await Promise.all([
+    founderCall(ctx, 'support', 'caseFile', 'GET', { ticketId }, (raw) => {
+      // founderCall reads a null parse as "unreadable", but null is the service's real answer for "never escalated". Box it.
+      const parsed = supportCaseFileSchema.nullable().safeParse(raw);
+      return parsed.success ? { value: parsed.data } : null;
+    }),
+    founderCall(ctx, 'support', 'ratingOps', 'GET', { ticketId }, (raw) => readRatingResult(raw)),
+  ]);
+  return {
+    asOf: now.toISOString(),
+    caseFile: partFrom(caseFile, (c) => c.value, LABELS),
+    rating: partFrom(rating, (r) => r.value, LABELS),
+  };
+}
+
+/** Published help articles, with the revision a publish or unpublish must quote. svc-support lists no unpublished ones. */
+export async function loadKb(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportKbView> {
+  const result = await founderCall(ctx, 'support', 'listKb', 'GET', { limit: 100 }, arrayOf(supportKbArticleSchema));
+  return { asOf: now.toISOString(), articles: partFrom(result, (a) => a, LABELS) };
+}
+
+/**
+ * One desk write, as the signed-in founder. svc-support takes the operator id from the verified session, so a reply,
+ * a status change or an escalation is recorded against the person at the keyboard.
+ */
+export function runSupportAction(ctx: FounderCallContext, request: SupportActionRequest): Promise<FounderCallResult<unknown>> {
+  switch (request.action) {
+    case 'reply':
+      return founderCall(
+        ctx,
+        'support',
+        'comment',
+        'POST',
+        { ticketId: request.ticketId, body: request.body },
+        parseWith(supportCommentSchema),
+      );
+    case 'status':
+      return founderCall(
+        ctx,
+        'support',
+        'setStatus',
+        'POST',
+        { ticketId: request.ticketId, status: request.status, ...(request.note ? { note: request.note } : {}) },
+        parseWith(supportTicketSchema),
+      );
+    case 'escalate':
+      return founderCall(
+        ctx,
+        'support',
+        'escalate',
+        'POST',
+        {
+          ticketId: request.ticketId,
+          reason: request.reason,
+          summary: request.summary,
+          ...(request.citedArticleIds ? { citedArticleIds: request.citedArticleIds } : {}),
+        },
+        parseWith(supportCaseFileSchema),
+      );
+    case 'kb_publish':
+      return founderCall(
+        ctx,
+        'support',
+        'publishKb',
+        'POST',
+        {
+          id: request.id,
+          titleKey: request.titleKey,
+          bodyKey: request.bodyKey,
+          baseRevision: request.baseRevision,
+          ...(request.category ? { category: request.category } : {}),
+          ...(request.tags ? { tags: request.tags } : {}),
+        },
+        parseWith(supportKbArticleSchema),
+      );
+    case 'kb_unpublish':
+      return founderCall(
+        ctx,
+        'support',
+        'unpublishKb',
+        'POST',
+        { id: request.id, baseRevision: request.baseRevision },
+        parseWith(supportKbArticleSchema),
+      );
+  }
 }

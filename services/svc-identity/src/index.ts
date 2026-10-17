@@ -58,6 +58,9 @@ import { identityReadyHonesty } from './ready-honesty.js';
 import { SqlActionApprovalStore } from './auth/action-approval-store.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
 import { createActionApprovalRouter } from './action-approval-router.js';
+import { createStepUpRouter } from './step-up-router.js';
+import { CustomerStepUpService } from './auth/customer-step-up.js';
+import { SqlCustomerStepUpStore } from './auth/customer-step-up-store.js';
 import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { registerAffiliateProducerAccrue } from './affiliates/producer-accrue.js';
@@ -139,6 +142,11 @@ await sql`SELECT successor_refresh FROM sessions LIMIT 0`.catch(() => {
     'identity schema is out of date: sessions.successor_refresh is missing — apply drizzle/0032_session_refresh_grace.sql before starting svc-identity',
   );
 });
+await sql`SELECT challenge_id FROM customer_step_ups LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: customer_step_ups is missing — apply drizzle/0033_customer_step_up.sql before starting svc-identity',
+  );
+});
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
@@ -197,6 +205,7 @@ const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
 const founderControls = new FounderControls(sql, founderPair);
 await founderControls.bootstrap();
+auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
 
 const referral = new ReferralService(sql);
 const share = new ShareService(sql);
@@ -238,12 +247,26 @@ installFourEyes();
 installApiKeyAttribution(auth);
 installApiKeyRequestSignExchange(auth, sql, signingEncKey);
 
-const actionApprovals = new ActionApprovalService(new SqlActionApprovalStore(sql), {
-  ttlSeconds: env.IDENTITY_ACTION_APPROVAL_TTL_SECONDS,
-  // Founder-only action types (pay, matching, ledger, bank, token, ...) re-check both parties against the live founder
-  // entitlement at approve and again at consume. Unconfigured founder controls answer false, so those types refuse closed.
-  founders: { isFounder: (userId) => founderControls.isLiveFounder(userId) },
-});
+const stepUpStore = new SqlCustomerStepUpStore(sql);
+const actionApprovals = new ActionApprovalService(
+  new SqlActionApprovalStore(sql),
+  {
+    ttlSeconds: env.IDENTITY_ACTION_APPROVAL_TTL_SECONDS,
+    // Founder-only action types (pay, matching, ledger, bank, token, ...) re-check both parties against the live founder
+    // entitlement at approve and again at consume. Unconfigured founder controls answer false, so those types refuse closed.
+    founders: { isFounder: (userId) => founderControls.isLiveFounder(userId) },
+  },
+  () => new Date(),
+  (row, at) =>
+    stepUpStore.auditConsumed({
+      approvalId: row.approvalId,
+      requesterId: row.requesterId,
+      sessionId: row.sessionId,
+      actionType: row.actionType,
+      at,
+    }),
+);
+const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
 installPrivilegedDualControl(auth, actionApprovals);
 installFreezeDualControl(freeze, actionApprovals);
 installLimitFeeTierDualControl(rank, sql, actionApprovals);
@@ -305,6 +328,7 @@ export const appRouter = mergeRouters(
       await auth.stepUp(input);
     },
   }),
+  createStepUpRouter(customerStepUp),
 );
 export type AppRouter = typeof appRouter;
 
