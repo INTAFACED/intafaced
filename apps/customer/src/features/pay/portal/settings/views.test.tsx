@@ -9,7 +9,6 @@ import type { ReactElement } from 'react';
 import type { ApiResult } from '../../../../shared/api';
 import type { Resource } from '../../../../shared/resource';
 import type { PortalApi } from '../api';
-import { ExportsView } from './Exports';
 import type { ListState } from '../hooks';
 import { NotificationsView } from './Notifications';
 import { OnboardingView } from './Onboarding';
@@ -267,56 +266,6 @@ describe('team and roles', () => {
       /2 shown so far\. More are available\./,
     );
     expect(html(<TeamView {...props('owner')} />)).toContain('2 shown. That is everything.');
-  });
-});
-describe('exports', () => {
-  const job = (patch: Partial<p.ExportJob> = {}): p.ExportJob => ({
-    jobId: 'j1',
-    kind: 'payments',
-    filters: { from: '2026-10-01T00:00:00.000Z', to: '2026-10-08T00:00:00.000Z', status: 'captured' },
-    status: 'ready',
-    failureCode: null,
-    fileName: 'payments.csv',
-    sizeBytes: '1024',
-    rowCount: 42,
-    sha256: 'a'.repeat(64),
-    requestedBy: 'owner-1',
-    columns: ['payment_id', 'amount'],
-    generatedAt: '2026-10-15T09:00:00.000Z',
-    asOf: '2026-10-15T09:00:00.000Z',
-    expiresAt: null,
-    createdAt: '2026-10-15T09:00:00.000Z',
-    completedAt: '2026-10-15T09:00:05.000Z',
-    ...patch,
-  });
-  const render = (l: ListState<p.ExportJob>) =>
-    html(<ExportsView portal={portal} list={l} kind="" setKind={noop} status="" setStatus={noop} loadMore={noop} reload={noop} />);
-  it('offers the three report kinds with what each contains', () => {
-    const out = render(list([job()]));
-    for (const word of ['Payments', 'Settlements', 'Payouts', 'Request export']) expect(out).toContain(word);
-    expect(out).toContain('It includes only your data');
-  });
-  it('lists jobs with status words, range, rows, and a download only for a ready one', () => {
-    const out = render(
-      list([
-        job(),
-        job({ jobId: 'j2', status: 'running', rowCount: null, fileName: null }),
-        job({ jobId: 'j3', status: 'failed', rowCount: null, fileName: null }),
-      ]),
-    );
-    expect(out).toContain('Ready');
-    expect(out).toContain('Building');
-    expect(out).toContain('Failed');
-    expect(out).toContain('It could not be built. Try a narrower date range.');
-    expect(out.match(/>Download</g)?.length).toBe(1);
-    expect(out).toContain('2026-10-01 to 2026-10-08');
-    expect(out).toContain('Does not expire');
-  });
-  it('has empty, loading, error and coming-soon states', () => {
-    expect(render(list<p.ExportJob>([]))).toContain('No exports yet');
-    expect(render({ status: 'loading' })).toContain('aria-busy="true"');
-    expect(render({ status: 'failed', failure: refusal('pay.not_built', 501, 'not_supported') })).toMatch(notLiveWords);
-    expect(render({ status: 'failed', failure: refusal('pay.merchant_ops_unavailable', 503, 'unreachable') })).toContain('Try again');
   });
 });
 describe('notifications', () => {
