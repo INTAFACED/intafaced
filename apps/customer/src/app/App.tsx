@@ -166,25 +166,7 @@ export function App() {
         <Screen path={path} search={search} params={matchPath(room.path, path) ?? {}} />
       </Suspense>
     );
-  } else if (path === '/uc/ad/update')
-    // The offer form only knows how to create; there is no edit call yet, so say so instead of showing "Create offer".
-    body = (
-      <div className="legacy-room">
-        <Page title={t('Pick an offer to edit')}>
-          <EmptyState
-            title={t('Pick an offer to edit')}
-            action={
-              <a className="button button--primary" href="/uc/ad">
-                {t('Go to my offers')}
-              </a>
-            }
-          >
-            {t('Open your offers and choose one to review. Changing an offer after it is published is not available yet.')}
-          </EmptyState>
-        </Page>
-      </div>
-    );
-  else if (area) body = <LegacyRoom area={area} path={current} />;
+  } else if (area) body = <LegacyRoom area={area} path={current} />;
   else
     body = (
       <div className="legacy-room">

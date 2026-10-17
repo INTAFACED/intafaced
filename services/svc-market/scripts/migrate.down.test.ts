@@ -40,15 +40,25 @@ async function fixture() {
 
 async function run(db: TestDatabase, down = false) {
   try {
-    const result = await execute('pnpm', ['exec', 'tsx', 'scripts/migrate.ts', ...(down ? ['--down'] : [])], {
+    // One Node process. `pnpm exec tsx` starts pnpm, then the tsx CLI, then
+    // another node. On a loaded runner that startup exceeds this 10s budget,
+    // the process is signalled, and `code` comes back null — the same shape as
+    // a migration that did not exit 1 or 0. The script, flags, and database
+    // URL are unchanged. The budget is unchanged.
+    const result = await execute(process.execPath, ['--import', 'tsx', 'scripts/migrate.ts', ...(down ? ['--down'] : [])], {
       cwd: serviceRoot,
       env: { ...process.env, DATABASE_URL: db.url },
       timeout: 60_000,
     });
-    return { code: 0, ...result };
+    return { code: 0 as number | null, signal: null as string | null, stdout: result.stdout, stderr: result.stderr };
   } catch (err) {
-    const failure = err as { code?: number | string; stdout?: string; stderr?: string };
-    return { code: failure.code, stdout: failure.stdout ?? '', stderr: failure.stderr ?? '' };
+    const failure = err as { code?: number | null; signal?: string | null; stdout?: string; stderr?: string };
+    return {
+      code: typeof failure.code === 'number' ? failure.code : null,
+      signal: failure.signal ?? null,
+      stdout: failure.stdout ?? '',
+      stderr: failure.stderr ?? '',
+    };
   }
 }
 
@@ -67,7 +77,7 @@ describe('actual market migration runner down transactions', { timeout: 90_000 }
       );
       const original = await row(db, purchase);
       const result = await run(db, true);
-      expect(result.code).toBe(1);
+      expect(result.code, `code=${String(result.code)} signal=${result.signal ?? 'none'} stderr=${result.stderr}`).toBe(1);
       expect(result.stderr).toContain('fixture tracking delete failed');
       expect(await row(db, purchase)).toEqual(original);
       const [tracked] = await db.sql`SELECT name FROM market.__migrations WHERE name = ${migration}`;
@@ -95,7 +105,7 @@ describe('actual market migration runner down transactions', { timeout: 90_000 }
       await db.sql`INSERT INTO market.purchases (id, listing_id, buyer_id, vendor_id, vendor_user_id, asset_id, price, commission_bps, period_seconds, status) VALUES (${known}, ${old!.listing_id}, ${old!.buyer_id}, ${old!.vendor_id}, ${old!.vendor_user_id}, 'USDT', 10, 500, 3600, 'pending')`;
       const original = await row(db, known);
       const result = await run(db, true);
-      expect(result.code).toBe(1);
+      expect(result.code, `code=${String(result.code)} signal=${result.signal ?? 'none'} stderr=${result.stderr}`).toBe(1);
       expect(result.stderr).toContain('market.purchase_period_downgrade_refused');
       expect(await row(db, known)).toEqual(original);
       expect((await db.sql`SELECT name FROM market.__migrations WHERE name = ${migration}`)[0]?.name).toBe(migration);
@@ -108,11 +118,13 @@ describe('actual market migration runner down transactions', { timeout: 90_000 }
     const { db, purchase } = await fixture();
     try {
       const original = await row(db, purchase);
-      expect((await run(db, true)).code).toBe(0);
+      const reversed = await run(db, true);
+      expect(reversed.code, `code=${String(reversed.code)} signal=${reversed.signal ?? 'none'} stderr=${reversed.stderr}`).toBe(0);
       const { period_seconds: _unknown, ...withoutPeriod } = original;
       expect(await row(db, purchase)).toEqual(withoutPeriod);
       expect(await db.sql`SELECT name FROM market.__migrations WHERE name = ${migration}`).toHaveLength(0);
-      expect((await run(db)).code).toBe(0);
+      const upgraded = await run(db);
+      expect(upgraded.code, `code=${String(upgraded.code)} signal=${upgraded.signal ?? 'none'} stderr=${upgraded.stderr}`).toBe(0);
       expect(await row(db, purchase)).toEqual(original);
       expect((await db.sql`SELECT name FROM market.__migrations WHERE name = ${migration}`)[0]?.name).toBe(migration);
     } finally {

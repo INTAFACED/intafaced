@@ -174,3 +174,11 @@
     padding: 20px;
   }
 }
+.help__side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.help .contact-card .button {
+  width: auto;
+}

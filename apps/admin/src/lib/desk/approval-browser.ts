@@ -3,7 +3,7 @@ import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { DeskRequest } from './approval-packet';
 import { readStepReply, type StepName, type StepReply } from './approval-types';
 
-export type ApprovalEndpoint = '/api/kill-switch' | '/api/ledger-freeze';
+export type ApprovalEndpoint = '/api/kill-switch' | '/api/ledger-freeze' | '/api/academy-ops' | '/api/more-ops';
 
 export interface StepPayload {
   readonly step: StepName;

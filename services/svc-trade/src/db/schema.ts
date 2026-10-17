@@ -99,7 +99,9 @@ export const timeInForceEnum = trade.enum('time_in_force', ['GTC', 'IOC', 'FOK',
  * recovery — delete it — is also the only thing it can do. Every other status
  * implies a hold that is either live or provably released. `recovery_required`
  * is the explicit frozen-spine unknown outcome; its hold stays encumbered until
- * lookup/reconciliation proves a safe terminal transition.
+ * lookup/reconciliation proves a safe terminal transition. `hold_unknown` is
+ * earlier: the `order.hold` reply was lost, so the row stays until
+ * `order.hold:<orderId>` is read back.
  */
 export const orderStatusEnum = trade.enum('order_status', [
   'pending',
@@ -109,6 +111,7 @@ export const orderStatusEnum = trade.enum('order_status', [
   'rejected',
   'expired',
   'recovery_required',
+  'hold_unknown',
 ]);
 
 /** Which side of the match a fill leg was. Fee rates differ, so it is stored, not inferred. */
