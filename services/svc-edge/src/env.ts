@@ -191,19 +191,6 @@ const schema = baseEnvSchema
         .int()
         .min(1024)
         .max(32 * 1024 * 1024),
-
-      /**
-       * Commercial licence for the embeddable ramp widget (`/api/widget/ramp`).
-       *
-       * UNSET / blank → named refuse `ops.infra_licence_unset`. This is not a
-       * money secret and not a default-on switch: packaging stays refuse-closed
-       * until an operator sets a licence. Do not invent licence content here.
-       */
-      INFRA_LICENCE: z.string().optional(),
-      /** White-label accent — hex only; widget ignores anything else. */
-      INFRA_WIDGET_ACCENT: z.string().optional(),
-      /** Operator-supplied CSS for the widget chrome. Query string cannot set this. */
-      INFRA_WIDGET_CSS: z.string().optional(),
     }),
   );
 

@@ -1,11 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { actionApprovalSchema } from '@intafaced/contracts';
 import {
   ActionApprovalConsumeError,
+  assertFounderAudienceAttestation,
   bankActionPayloadHash,
+  consumeBankOpsApproval,
   createIdentityApprovalClient,
+  IDENTITY_CONSUME_TIMEOUT_MS,
   readApprovalIds,
   stubApprovalConsumer,
   unwiredApprovalConsumer,
+  type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 
 const CONSUME_REQUEST = {
@@ -166,5 +171,136 @@ describe('bank action-approval consume', () => {
       name: 'ActionApprovalConsumeError',
       code: 'action_approval.consume_failed',
     });
+  });
+});
+
+describe('identity consume client', () => {
+  it('gives identity a bounded time to answer, and a timeout rejects instead of hanging', async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort(new DOMException('timed out', 'TimeoutError')));
+    let seen: AbortSignal | null | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        seen = init.signal;
+        if (init.signal?.aborted) throw init.signal.reason;
+        throw new Error('expected an aborted signal');
+      }),
+    );
+    try {
+      const client = createIdentityApprovalClient('http://identity.test', 's'.repeat(32));
+      await expect(
+        client.consume({
+          approvalId: 'a',
+          operationId: 'a',
+          payloadHash: 'sha256:abc',
+          targetService: 'svc-bank',
+          targetId: 'bank.step_up.transfers.toUser',
+          expectedVersion: '1',
+        }),
+      ).rejects.toMatchObject({ name: 'TimeoutError' });
+      expect(timeoutSpy).toHaveBeenCalledWith(IDENTITY_CONSUME_TIMEOUT_MS);
+      expect(IDENTITY_CONSUME_TIMEOUT_MS).toBe(5000);
+      expect(seen).toBeInstanceOf(AbortSignal);
+    } finally {
+      vi.unstubAllGlobals();
+      timeoutSpy.mockRestore();
+    }
+  });
+});
+
+const approvalCmd = { approvalId: 'appr-1', operationId: 'op-1' };
+
+function echoingApproval(actionType: string, mutate: (row: Record<string, unknown>) => void = () => {}): ActionApprovalConsumer {
+  return {
+    async consume(input) {
+      const row: Record<string, unknown> = {
+        ...input,
+        actionType,
+        requesterId: 'founder-a',
+        approverId: 'founder-b',
+        policyVersion: 'v1',
+        createdAt: '2026-09-09T12:00:00.000Z',
+        expiresAt: '2026-09-09T12:10:00.000Z',
+        status: 'CONSUMED',
+        approverIsFounder: true,
+        requesterIsFounder: true,
+      };
+      mutate(row);
+      return actionApprovalSchema.parse(row);
+    },
+  };
+}
+
+describe('founder attestation at bank consume', () => {
+  it('refuses a founder action when identity sends no attestation', async () => {
+    await expect(
+      consumeBankOpsApproval(
+        echoingApproval('bank.fund_pool', (row) => {
+          delete row.approverIsFounder;
+          delete row.requesterIsFounder;
+        }),
+        approvalCmd,
+        'bank.fund_pool',
+        { poolId: 'p' },
+      ),
+    ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
+  });
+
+  it('refuses a forged or mismatched founder attestation', async () => {
+    const refuse = (mutate: (row: Record<string, unknown>) => void) =>
+      expect(
+        consumeBankOpsApproval(echoingApproval('bank.seize_loan', mutate), approvalCmd, 'bank.seize_loan', { loanId: 'l' }),
+      ).rejects.toMatchObject({
+        code: 'action_approval.not_founders',
+      });
+    await refuse((row) => {
+      row.approverIsFounder = false;
+    });
+    await refuse((row) => {
+      row.requesterIsFounder = false;
+    });
+    await refuse((row) => {
+      row.approverId = 'Founder-A';
+      row.requesterId = 'founder-a';
+    });
+    await refuse((row) => {
+      row.targetId = 'bank.other';
+    });
+    await refuse((row) => {
+      row.actionType = 'matching.halt';
+    });
+  });
+
+  it('accepts a distinct founder pair', async () => {
+    await expect(consumeBankOpsApproval(echoingApproval('bank.fund_pool'), approvalCmd, 'bank.fund_pool', { poolId: 'p' })).resolves.toBe(
+      'founder-b',
+    );
+  });
+
+  it('leaves protective verbs working without an attestation', () => {
+    const brakes = [
+      { actionType: 'matching.halt', targetService: 'svc-matching', targetId: 'halt:BTC-USDT' },
+      { actionType: 'matching.halt_all', targetService: 'svc-matching', targetId: 'halt_all' },
+      { actionType: 'matching.reduce_only', targetService: 'svc-matching', targetId: 'reduce_only:BTC-USDT' },
+      { actionType: 'matching.post_only', targetService: 'svc-matching', targetId: 'post_only:BTC-USDT' },
+      { actionType: 'ledger.freeze', targetService: 'svc-ledger', targetId: 'posting_freeze' },
+    ] as const;
+    for (const subject of brakes) {
+      const row = actionApprovalSchema.parse({
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+        ...subject,
+        expectedVersion: '1',
+        payloadHash: 'sha256:abc',
+        requesterId: 'ops-a',
+        approverId: 'ops-b',
+        policyVersion: 'v1',
+        createdAt: '2026-09-09T12:00:00.000Z',
+        expiresAt: '2026-09-09T12:10:00.000Z',
+        status: 'CONSUMED',
+        approverIsFounder: false,
+      });
+      expect(() => assertFounderAudienceAttestation(row, subject)).not.toThrow();
+    }
   });
 });

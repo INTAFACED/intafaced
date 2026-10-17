@@ -9,6 +9,7 @@ import { LedgerError, parseAmount as amt, recipes } from '@intafaced/ledger-clie
 import { LedgerService } from '../service.js';
 import { runScheduledReconciliationTick, type ReconcileTickLog } from './scheduled-reconcile-tick.js';
 import type { ReconciliationReport } from './reconcile.js';
+import { truncateBook } from '../db/journal-guards.testkit.js';
 
 /**
  * The hourly timer. A failed report already halted posting inside
@@ -124,7 +125,10 @@ describe('scheduled reconciliation tick — a throw freezes posting', () => {
 
   beforeEach(async () => {
     const opened = requireDb();
-    await opened.sql`TRUNCATE ledger_freeze_outbox, ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE`;
+    await truncateBook(
+      opened.sql,
+      'ledger_freeze_outbox, ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE',
+    );
     await opened.sql`UPDATE chain_tip SET hash = NULL, seq = 0 WHERE id = true`;
     await opened.sql`UPDATE posting_freeze SET frozen = false, reason = NULL, actor = NULL WHERE id = true`;
   });

@@ -3,12 +3,23 @@ import { transaction } from '@intafaced/db';
 import type { AccountState } from '@intafaced/contracts';
 import { assertDelegatableScopes, issueAccessToken, SESSION_SCOPES, type Scope, type TokenConfig } from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
-import { dummyPasswordHash, generateApiKey, generateToken, hashPassword, hashToken, needsRehash, verifyPassword } from './passwords.js';
-import { assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import {
+  assertPasswordShape,
+  dummyPasswordHash,
+  generateApiKey,
+  generateToken,
+  hashPassword,
+  hashToken,
+  needsRehash,
+  verifyPassword,
+  WeakPasswordError,
+} from './passwords.js';
+import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
 import { recordSuccess, reserveAttempt, type AttemptKind } from './attempt-lockout.js';
+import { matchInvite, type FounderEnrolmentConfig } from './founder-enrolment.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
 import {
   b64urlDecode,
@@ -82,7 +93,18 @@ export class AuthError extends Error {
       | 'auth.session_revoked'
       | 'auth.totp_key_missing'
       | 'auth.delegate_cannot_grant'
-      | 'auth.too_many_attempts',
+      | 'auth.password_unchanged'
+      | 'auth.password_policy'
+      | 'auth.too_many_attempts'
+      | 'auth.invite_invalid'
+      | 'auth.invite_used'
+      | 'auth.invite_expired'
+      | 'auth.founder_enrolment_closed'
+      | 'auth.request_unsigned'
+      | 'auth.request_stale'
+      | 'auth.request_tampered'
+      | 'auth.request_replay'
+      | 'auth.ip_allowlist_required',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
   ) {
@@ -291,6 +313,15 @@ const DEFAULT_WEBAUTHN: WebAuthnConfig = {
   origin: 'http://localhost:3000',
 };
 
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === '23505';
+}
+
+function uniqueConstraintName(err: unknown): string {
+  const name = (err as { constraint_name?: unknown }).constraint_name;
+  return typeof name === 'string' ? name : '';
+}
+
 export class AuthService {
   private readonly pendingTotp: PendingTotpEnrolmentStore;
   private readonly challenges: ChallengeStorePort;
@@ -364,24 +395,32 @@ export class AuthService {
 
   async register(input: RegisterInput): Promise<SessionTokens> {
     const passwordHash = await hashPassword(input.password);
-    const userId = await transaction(this.sql, async (tx) => {
-      const clash = await tx<
-        Array<{ handle: string; email: string }>
-      >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
-      for (const row of clash) {
-        if (row.handle.toLowerCase() === input.handle.toLowerCase()) {
-          throw new AuthError('That handle is taken', 'auth.handle_taken');
-        }
-        throw new AuthError('An account with that email already exists', 'auth.email_taken');
+    const userId = await transaction(this.sql, (tx) => this.insertNewUser(tx, input, passwordHash));
+    return this.finishRegistration(userId, input);
+  }
+
+  /** The user, profile and rank rows of a new account, inside the caller's transaction. */
+  private async insertNewUser(tx: Sql, input: RegisterInput, passwordHash: string): Promise<string> {
+    const clash = await tx<
+      Array<{ handle: string; email: string }>
+    >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
+    for (const row of clash) {
+      if (row.handle.toLowerCase() === input.handle.toLowerCase()) {
+        throw new AuthError('That handle is taken', 'auth.handle_taken');
       }
-      const inserted = await tx<
-        Array<{ id: string }>
-      >`INSERT INTO users (handle, email, password_hash) VALUES (${input.handle}, ${input.email}, ${passwordHash}) RETURNING id`;
-      const id = inserted[0]!.id;
-      await tx`INSERT INTO profiles (user_id, display_name, region) VALUES (${id}, ${input.handle}, ${input.region ?? null})`;
-      await tx`INSERT INTO rank_state (user_id) VALUES (${id})`;
-      return id;
-    });
+      throw new AuthError('An account with that email already exists', 'auth.email_taken');
+    }
+    const inserted = await tx<
+      Array<{ id: string }>
+    >`INSERT INTO users (handle, email, password_hash) VALUES (${input.handle}, ${input.email}, ${passwordHash}) RETURNING id`;
+    const id = inserted[0]!.id;
+    await tx`INSERT INTO profiles (user_id, display_name, region) VALUES (${id}, ${input.handle}, ${input.region ?? null})`;
+    await tx`INSERT INTO rank_state (user_id) VALUES (${id})`;
+    return id;
+  }
+
+  /** After the account is committed: announce it, award the first XP, open a (non-MFA) session. */
+  private async finishRegistration(userId: string, input: RegisterInput): Promise<SessionTokens> {
     await this.bus.publish(
       'userCreated',
       { userId, handle: input.handle, ...(input.region ? { region: input.region } : {}) },
@@ -395,6 +434,103 @@ export class AuthService {
       idempotencyKey: `identity.registered:${userId}`,
     });
     return this.issueSession(userId, { device: input.device, ip: input.ip, mfa: false });
+  }
+
+  /**
+   * FOUNDER ENROLMENT (`auth.registerFounder`, src/auth/founder-enrolment.ts).
+   *
+   * Creates an ordinary account, exactly like `register`, but gated by a
+   * single-use invite instead of REGISTRATION_OPEN. The new account is NOT
+   * privileged until the founder pair is pinned to its id, so the session may
+   * enrol its first factor the normal way (factor-gate.ts is untouched).
+   *
+   * Order matters. The cheap refusals come first, before the argon2 hash that an
+   * attacker could otherwise make us pay for with a bad code:
+   *   closed (not configured, or the pair is pinned) → invalid → expired → used.
+   * The invite is then consumed in the SAME transaction as the user insert,
+   * behind a per-invite advisory lock, with the primary key as the backstop: one
+   * invite makes one account and a race has exactly one winner. The losing
+   * transaction rolls back its user row.
+   *
+   * Logging: one audit line, `founder.enrolled {userId}`. The invite, its hash
+   * and the password are never logged, and the hash is never put next to an
+   * email. The durable record is the `founder_invites_used` row (hash → user,
+   * time), which is immutable.
+   */
+  async registerFounder(
+    input: RegisterInput & { invite: string },
+    config: FounderEnrolmentConfig | undefined,
+    now: Date = new Date(),
+  ): Promise<SessionTokens> {
+    const closed = () => new AuthError('Founder enrolment is closed', 'auth.founder_enrolment_closed');
+    if (!config) throw closed();
+    if (await this.founderPairPinned(this.sql)) throw closed();
+    const hash = matchInvite(input.invite, config.hashes);
+    if (hash === null) throw new AuthError('That invite code is not valid', 'auth.invite_invalid');
+    if (now.getTime() >= config.expiresAt.getTime()) throw new AuthError('That invite code has expired', 'auth.invite_expired');
+    const usedError = () => new AuthError('That invite code has already been used', 'auth.invite_used');
+    if (await this.founderInviteSpent(this.sql, hash)) throw usedError();
+
+    const passwordHash = await hashPassword(input.password);
+    let userId: string;
+    try {
+      userId = await transaction(
+        this.sql,
+        async (tx) => {
+          // Serialise every attempt on this invite, so the loser of a race gets
+          // `invite_used` (not a unique-violation 500) and never half-creates a user.
+          await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`founder-invite:${hash}`}, 0))`;
+          // Re-read under the lock: the pair may have been pinned, the invite spent, while we hashed.
+          if (await this.founderPairPinned(tx)) throw closed();
+          if (await this.founderInviteSpent(tx, hash)) throw usedError();
+          const id = await this.insertNewUser(tx, input, passwordHash);
+          const claimed = await tx<
+            Array<{ hash: string }>
+          >`INSERT INTO founder_invites_used (hash, user_id) VALUES (${hash}, ${id}) ON CONFLICT (hash) DO NOTHING RETURNING hash`;
+          if (claimed.length !== 1) throw usedError();
+          return id;
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (err) {
+      // Two founders racing different invites for the same handle/email: the unique index decides.
+      if (isUniqueViolation(err)) {
+        if (/founder_invites_used/.test(uniqueConstraintName(err))) throw usedError();
+        throw new AuthError(
+          /email/i.test(uniqueConstraintName(err)) ? 'An account with that email already exists' : 'That handle is taken',
+          /email/i.test(uniqueConstraintName(err)) ? 'auth.email_taken' : 'auth.handle_taken',
+        );
+      }
+      throw err;
+    }
+    this.log.warn({ audit: 'founder.enrolled', userId }, 'founder.enrolled');
+    return this.finishRegistration(userId, input);
+  }
+
+  /**
+   * Is founder enrolment open right now? True only while ALL hold: the invites
+   * are configured (hashes and expiry), the founder pair is not pinned, the
+   * expiry has not passed, and at least one invite is unspent. Reveals nothing else.
+   */
+  async founderEnrolmentOpen(config: FounderEnrolmentConfig | undefined, now: Date = new Date()): Promise<boolean> {
+    if (!config) return false;
+    if (now.getTime() >= config.expiresAt.getTime()) return false;
+    if (await this.founderPairPinned(this.sql)) return false;
+    const spent = await this.sql<
+      Array<{ n: number }>
+    >`SELECT count(*)::int AS n FROM founder_invites_used WHERE hash IN ${this.sql(config.hashes as string[])}`;
+    return (spent[0]?.n ?? 0) < config.hashes.length;
+  }
+
+  /** The founder pair is pinned permanently by the first verified boot (founder-controls.ts). */
+  private async founderPairPinned(q: Sql): Promise<boolean> {
+    const rows = await q<Array<{ pinned: boolean }>>`SELECT true AS pinned FROM founder_control_configuration LIMIT 1`;
+    return rows.length > 0;
+  }
+
+  private async founderInviteSpent(q: Sql, hash: string): Promise<boolean> {
+    const rows = await q<Array<{ hash: string }>>`SELECT hash FROM founder_invites_used WHERE hash = ${hash}`;
+    return rows.length > 0;
   }
 
   async login(input: { identifier: string; password: string; totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
@@ -546,6 +682,99 @@ export class AuthService {
     const result = await this.sql`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false`;
     if (result.count > 0) await syncNavigatorSessionsClosedForUser(this.sql, userId);
     return result.count;
+  }
+
+  /**
+   * CHANGE PASSWORD (signed-in user).
+   *
+   * Failures this prevents:
+   *  - a stolen session (or a leaked API key) taking the account over by setting a
+   *    new password: it needs the CURRENT password, and an API key / sub-account
+   *    principal is refused outright (it is not a person at a keyboard);
+   *  - a stolen password plus a non-MFA session doing the same on an account that
+   *    has a second factor: any TOTP / passkey on the account requires the `mfa`
+   *    claim (TOTP or passkey login, or a fresh `auth.stepUp` token). An account
+   *    with NO second factor may change the password with the current one alone;
+   *  - the current password being brute-forced through this door: the guess is
+   *    reserved on the same per-account `password` counter as login BEFORE it is
+   *    verified, so the two doors share one budget;
+   *  - the old password living on in other devices: every OTHER session is revoked
+   *    in the same transaction as the hash update. The calling session stays.
+   *
+   * Order: gate (delegated / MFA) → reserve → verify current → policy → not-the-same
+   * → one transaction (re-check the hash we verified, write, revoke others, clear
+   * the counter). A wrong current password answers `auth.invalid_credentials`,
+   * identical to login. Entitlements (`operatorStatus`) are not touched: this writes
+   * only `users.password_hash` and `sessions`.
+   *
+   * AUDIT: no durable auth-audit table or password-changed bus event exists yet, so
+   * the record is the service's structured log line `auth.password_changed`
+   * (same sink as `identity.account_locked`). User id and counts only, never a secret.
+   */
+  async changePassword(input: {
+    userId: string;
+    sessionId: string;
+    actor: FactorActor;
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<void> {
+    const { userId, sessionId, actor } = input;
+    // Delegated principals first: refused before any lookup, so it cannot probe ids.
+    if (actor.delegated) {
+      throw new AuthError('Sign in yourself to change your password; an API key or sub-account cannot', 'auth.mfa_required');
+    }
+    const rows = await this.sql<
+      Array<{ password_hash: string; status: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT password_hash, status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    // Second factor on the account, or a privileged identity (founder pair / `admin:*`
+    // scope, which never gets the no-factor exception): the session must have passed it. Checked before the
+    // reservation so a missing step-up never spends the password budget.
+    if ((accountHasSecondFactor(user) || actor.privileged) && !actor.mfa) {
+      throw new AuthError('Verify with your second factor before changing your password', 'auth.mfa_required');
+    }
+    // Count the guess BEFORE verifying it (see attempt-lockout.ts); a locked account is refused here.
+    await this.reserve(userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.currentPassword))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    // The current password verified, so it is no longer a guess: a policy or same-password
+    // refusal below must not count toward the lock.
+    await recordSuccess(this.sql, userId, 'password');
+    try {
+      assertPasswordShape(input.newPassword);
+    } catch (err) {
+      if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
+      throw err;
+    }
+    if (input.newPassword === input.currentPassword) {
+      throw new AuthError('The new password must differ from the current one', 'auth.password_unchanged');
+    }
+    const nextHash = await hashPassword(input.newPassword);
+    const revokedIds = await transaction(this.sql, async (tx) => {
+      const locked = await tx<
+        Array<{ password_hash: string; status: string }>
+      >`SELECT password_hash, status FROM users WHERE id = ${userId} FOR UPDATE`;
+      // A parallel change already moved the hash: the password we verified is no longer the current one.
+      if (!locked[0] || locked[0].password_hash !== user.password_hash) {
+        throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+      }
+      if (locked[0].status !== 'active') throw new AuthError(`Account is ${locked[0].status}`, 'auth.account_frozen');
+      const live = await tx<
+        Array<{ id: string }>
+      >`SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()`;
+      if (!live[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+      await tx`UPDATE users SET password_hash = ${nextHash}, updated_at = now() WHERE id = ${userId}`;
+      const revoked = await tx<
+        Array<{ id: string }>
+      >`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false AND id <> ${sessionId} RETURNING id`;
+      await recordSuccess(tx, userId, 'password');
+      return revoked.map((r) => r.id);
+    });
+    for (const id of revokedIds) await syncNavigatorSessionClosed(this.sql, id);
+    this.log.warn({ userId, sessionId, otherSessionsRevoked: revokedIds.length }, 'auth.password_changed');
   }
 
   async getSessionOwnership(sessionId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {
@@ -898,7 +1127,17 @@ export class AuthService {
   async exchangeApiKey(
     key: string,
     requestOrigin?: string | null,
-  ): Promise<{ accessToken: string; expiresAt: Date; userId: string; keyId: string; scopes: string[]; mode: 'live' | 'sandbox' }> {
+  ): Promise<{
+    accessToken: string;
+    expiresAt: Date;
+    userId: string;
+    keyId: string;
+    scopes: string[];
+    mode: 'live' | 'sandbox';
+    requireSignature?: boolean;
+    requireNonEmptyIpAllowlist?: boolean;
+    ipAllowlist?: string[];
+  }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     if (!apiKeyOriginAllowed(verified.domainWhitelist, requestOrigin)) {

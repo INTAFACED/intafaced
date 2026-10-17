@@ -24,6 +24,8 @@
     "@intafaced/i18n": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
+    "@intafaced/venue-adapter": "workspace:*",
+    "@intafaced/venue-contracts": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@trpc/server": "^11.19.0",
     "drizzle-orm": "^0.45.4",

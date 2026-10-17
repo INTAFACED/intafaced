@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt, sub } from '../money.js';
-import { insuranceFund, merchantClearing, railBoundary, userAvailable } from '../accounts.js';
+import { insuranceFund, merchantClearing, merchantProceeds, railBoundary, userAvailable } from '../accounts.js';
 import { InsufficientFundsError, InvalidEntryError } from '../types.js';
 import { recipes } from './index.js';
 
@@ -64,7 +64,7 @@ async function settle(window: string, gross: string, fee: string): Promise<void>
 }
 
 const clearing = async () => formatAmount((await ledger.balance(merchantClearing(MERCHANT, 'USDT'))).amount);
-const merchantBalance = async () => formatAmount((await ledger.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount);
+const merchantBalance = async () => formatAmount((await ledger.balance(merchantProceeds(MERCHANT, 'USDT'))).amount);
 const fund = async () => formatAmount((await ledger.balance(insuranceFund('USDT'))).amount);
 const boundary = async () => formatAmount((await ledger.balance(railBoundary(PAYER_RAIL, 'USDT'))).amount);
 
@@ -245,7 +245,16 @@ describe('the merchant cannot cover it', () => {
     // The merchant has spent most of it. This is the ordinary case: settlement
     // ran days ago and the money is gone.
     await ledger.post(
-      recipes.withdrawHold({ userId: MERCHANT_USER, assetId: 'USDT', amount: amt('90'), rail: 'crypto-native', withdrawalId: 'w1' }),
+      recipes.merchantProceedsPayoutHold({
+        merchantId: MERCHANT,
+        assetId: 'USDT',
+        amount: amt('90'),
+        rail: 'crypto-native',
+        withdrawalId: 'w1',
+      }),
+    );
+    await ledger.post(
+      recipes.deposit({ userId: MERCHANT_USER, assetId: 'USDT', amount: amt('500'), rail: 'test', railRef: 'personal-untouched' }),
     );
     expect(await merchantBalance()).toBe('10');
 
@@ -264,8 +273,9 @@ describe('the merchant cannot cover it', () => {
       ),
     ).rejects.toBeInstanceOf(InsufficientFundsError);
 
-    // Nothing moved. Not the balance, not the boundary.
+    // Nothing moved. Not proceeds, and not the owner's trading balance.
     expect(await merchantBalance()).toBe('10');
+    expect(formatAmount((await ledger.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('500');
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
@@ -273,7 +283,13 @@ describe('the merchant cannot cover it', () => {
     await capture('p1', '100');
     await settle('2026-08-01', '100', '0');
     await ledger.post(
-      recipes.withdrawHold({ userId: MERCHANT_USER, assetId: 'USDT', amount: amt('90'), rail: 'crypto-native', withdrawalId: 'w1' }),
+      recipes.merchantProceedsPayoutHold({
+        merchantId: MERCHANT,
+        assetId: 'USDT',
+        amount: amt('90'),
+        rail: 'crypto-native',
+        withdrawalId: 'w1',
+      }),
     );
     // Fund the backstop out of fee revenue the platform actually earned.
     await capture('p2', '500');

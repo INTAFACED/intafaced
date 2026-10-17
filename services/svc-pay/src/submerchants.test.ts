@@ -169,13 +169,13 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
       // `left` and `right` are peers under one payfac. Neither is above the
       // other, so neither may read the other — nor anything beneath it.
       const peer = await rejection(trees.getSubMerchant(left.id, right.id), SubMerchantError);
-      expect(peer.code).toBe('pay.submerchant_out_of_scope');
+      expect(peer.code).toBe('pay.merchant_not_found');
 
       const nephew = await rejection(trees.getSubMerchant(left.id, rightChild.id), SubMerchantError);
-      expect(nephew.code).toBe('pay.submerchant_out_of_scope');
+      expect(nephew.code).toBe('pay.merchant_not_found');
 
       const listing = await rejection(trees.listSubMerchants(left.id, right.id, 100), SubMerchantError);
-      expect(listing.code).toBe('pay.submerchant_out_of_scope');
+      expect(listing.code).toBe('pay.merchant_not_found');
     });
 
     it('REFUSES UPWARD — a sub-merchant cannot read the parent that onboarded it', async () => {
@@ -183,7 +183,7 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
       const sub = await child(platform.merchantId, platform.merchantId);
 
       const upward = await rejection(trees.getSubMerchant(sub.id, platform.merchantId), SubMerchantError);
-      expect(upward.code).toBe('pay.submerchant_out_of_scope');
+      expect(upward.code).toBe('pay.merchant_not_found');
     });
 
     it('REFUSES ANOTHER TREE ENTIRELY — two payfacs are invisible to each other', async () => {
@@ -191,12 +191,8 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
       const two = await root();
       const twoSub = await child(two.merchantId, two.merchantId);
 
-      expect((await rejection(trees.getSubMerchant(one.merchantId, two.merchantId), SubMerchantError)).code).toBe(
-        'pay.submerchant_out_of_scope',
-      );
-      expect((await rejection(trees.getSubMerchant(one.merchantId, twoSub.id), SubMerchantError)).code).toBe(
-        'pay.submerchant_out_of_scope',
-      );
+      expect((await rejection(trees.getSubMerchant(one.merchantId, two.merchantId), SubMerchantError)).code).toBe('pay.merchant_not_found');
+      expect((await rejection(trees.getSubMerchant(one.merchantId, twoSub.id), SubMerchantError)).code).toBe('pay.merchant_not_found');
     });
 
     it('gives the SAME refusal for a merchant that does not exist as for one out of scope', async () => {
@@ -206,12 +202,13 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
       const two = await root();
 
       const outOfScope = await rejection(trees.getSubMerchant(one.merchantId, two.merchantId), SubMerchantError);
-      expect(outOfScope.code).toBe('pay.submerchant_out_of_scope');
+      expect(outOfScope.code).toBe('pay.merchant_not_found');
 
-      const absent = await rejection(trees.getSubMerchant(one.merchantId, '00000000-0000-4000-8000-000000000000'), SubMerchantError);
-      // Not the same code — an id that is not a merchant at all is a caller
-      // mistake, and it discloses nothing about anybody's tree.
+      const ghost = '00000000-0000-4000-8000-000000000000';
+      const absent = await rejection(trees.getSubMerchant(one.merchantId, ghost), SubMerchantError);
       expect(absent.code).toBe('pay.merchant_not_found');
+      // Same words too (only the id the caller asked about differs).
+      expect(outOfScope.message.replace(two.merchantId, '<id>')).toBe(absent.message.replace(ghost, '<id>'));
     });
 
     it('lets a node read ITSELF without any grant — owning your own merchant is not a permission', async () => {
@@ -316,7 +313,7 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
         }),
         SubMerchantError,
       );
-      expect(err.code).toBe('pay.submerchant_out_of_scope');
+      expect(err.code).toBe('pay.merchant_not_found');
     });
 
     it('REFUSES A SETTLING PARTY THAT IS NOT `self` — that is acquiring, and it needs a sponsor', async () => {
@@ -538,7 +535,7 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
       // And afterwards `left` still cannot so much as ASK about `right`: the
       // fence refuses before the permission question is reached, which is
       // stronger than the permission answering `false`.
-      expect((await rejection(trees.holds(left.id, right.id, 'payment'), SubMerchantError)).code).toBe('pay.submerchant_out_of_scope');
+      expect((await rejection(trees.holds(left.id, right.id, 'payment'), SubMerchantError)).code).toBe('pay.merchant_not_found');
     });
 
     it('REFUSES A SELF-GRANT — authority comes from above, never from yourself', async () => {
@@ -579,7 +576,7 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
         }),
         SubMerchantError,
       );
-      expect(err.code).toBe('pay.submerchant_out_of_scope');
+      expect(err.code).toBe('pay.merchant_not_found');
     });
 
     it('REVOKING actually takes the authority away, and the grantee is refused afterwards', async () => {

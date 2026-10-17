@@ -10,8 +10,33 @@
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
+
+/**
+ * D-44 smoke-rig integers. Product schemas refuse a blank value. Zod's
+ * number coerce turns that missing value into NaN and the boot error is
+ * "received nan". These are this harness's published values, not compose
+ * defaults and not a product fallback.
+ */
+export const CX8_SMOKE_ENV = {
+  DATABASE_POOL_MAX: '10',
+  RECONCILE_CRON_MINUTES: '60',
+  MATCHING_SNAPSHOT_EVERY: '500',
+};
+
+export function cx8RoleEnv(role) {
+  if (role === 'matching') return { MATCHING_SNAPSHOT_EVERY: CX8_SMOKE_ENV.MATCHING_SNAPSHOT_EVERY };
+  if (role === 'ledger') {
+    return {
+      DATABASE_POOL_MAX: CX8_SMOKE_ENV.DATABASE_POOL_MAX,
+      RECONCILE_CRON_MINUTES: CX8_SMOKE_ENV.RECONCILE_CRON_MINUTES,
+    };
+  }
+  if (role === 'identity' || role === 'trade') return { DATABASE_POOL_MAX: CX8_SMOKE_ENV.DATABASE_POOL_MAX };
+  throw new Error(`no CX-8 smoke env for ${role}`);
+}
 
 const ROOT = process.cwd();
 const SECRET = process.env.INTERNAL_SERVICE_SECRET ?? 'dev-only-cx8-internal-service-secret-xx';
@@ -128,6 +153,7 @@ async function main() {
   // Matching first (no DB)
   start('matching', 'node', ['services/svc-matching/dist/index.js'], {
     ...common,
+    ...cx8RoleEnv('matching'),
     SERVICE_NAME: 'svc-matching',
     HTTP_HOST: '127.0.0.1',
     HTTP_PORT: '4005',
@@ -136,6 +162,7 @@ async function main() {
 
   start('ledger', 'node', ['services/svc-ledger/dist/index.js'], {
     ...common,
+    ...cx8RoleEnv('ledger'),
     SERVICE_NAME: 'svc-ledger',
     HTTP_HOST: '127.0.0.1',
     HTTP_PORT: '4001',
@@ -145,6 +172,7 @@ async function main() {
 
   start('identity', 'node', ['services/svc-identity/dist/index.js'], {
     ...common,
+    ...cx8RoleEnv('identity'),
     SERVICE_NAME: 'svc-identity',
     HTTP_HOST: '127.0.0.1',
     HTTP_PORT: '4002',
@@ -162,6 +190,7 @@ async function main() {
 
   start('trade', 'node', ['services/svc-trade/dist/index.js'], {
     ...common,
+    ...cx8RoleEnv('trade'),
     SERVICE_NAME: 'svc-trade',
     HTTP_HOST: '127.0.0.1',
     HTTP_PORT: '4004',
@@ -213,8 +242,16 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((err) => {
-  console.error('[cx8-boot] fatal', err);
-  killAll();
-  process.exit(1);
-});
+function isDirectRun() {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  return import.meta.url === pathToFileURL(resolve(entry)).href;
+}
+
+if (isDirectRun()) {
+  main().catch((err) => {
+    console.error('[cx8-boot] fatal', err);
+    killAll();
+    process.exit(1);
+  });
+}

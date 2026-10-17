@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import { logIsolationDenial } from './isolation-log.js';
 import { pendingPayfacPermissionIntentCount } from './payfac-authority.js';
 
 /**
@@ -438,10 +439,10 @@ export class SubMerchantService {
   async assertWithinSubtree(actorMerchantId: string, subjectMerchantId: string, tx: Sql = this.sql): Promise<string[]> {
     const chain = await this.ancestry(subjectMerchantId, tx);
     if (!chain.includes(actorMerchantId)) {
-      throw new SubMerchantError(
-        `Merchant ${subjectMerchantId} is not inside merchant ${actorMerchantId}'s sub-merchant tree`,
-        'pay.submerchant_out_of_scope',
-      );
+      // The caller sees exactly what a missing id gets (same code, same words as
+      // `ancestry`). The real reason is operator-only: see isolation-log.ts.
+      logIsolationDenial({ reason: 'out_of_scope', merchantId: subjectMerchantId, actorMerchantId });
+      throw new SubMerchantError(`No merchant ${subjectMerchantId}`, 'pay.merchant_not_found');
     }
     return chain;
   }
