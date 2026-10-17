@@ -1,7 +1,8 @@
 export type LedgerLocale = 'en' | 'es' | 'fr';
 const en = {
   title: 'Ledger operations',
-  intro: 'Read the ledger posting record and its last change. Freeze, unfreeze and live reconciliation are unavailable in this desk.',
+  intro:
+    'Read the ledger posting record and its last change. Freezing and unfreezing take two founders. Reconciliation is not available from this console.',
   record: 'Ledger posting record',
   completed: 'Latest completed read · last change recorded below',
   refresh: 'Refresh',
@@ -21,45 +22,36 @@ const en = {
   changed: 'Last change · not read time',
   nullReason: 'No reason recorded (null)',
   nullActor: 'No actor recorded (null)',
+  asOf: 'As of · when this console read the ledger',
   original: 'Original operations',
   historyMissing:
     'Original operation lookup is unavailable. This posting record is not command history or a receipt. Earlier transient outcomes cannot be recovered from the current state.',
   privateMissing:
     'No verified current human ownership is available here. Original private inputs are not displayed, restored or replayed from this record.',
-  commands: 'Freeze and unfreeze unavailable',
-  missingAuthority:
-    'This desk cannot acquire a human treasury session, MFA-backed identity-issued approval or the original operation context. A deployment token or a successful read does not provide them.',
+  commands: 'Freeze and unfreeze',
   transport: 'Credential transport',
   configured: 'Configured transport only. Service reachability and action prerequisites are separate.',
   notConfigured: 'Not configured. Missing names:',
-  requirements: 'Inspect freeze and unfreeze requirements',
-  consequence:
-    'A freeze stops ledger posting platform-wide. Resuming requires reconciliation and a separate deliberate action. These existing confirmations cannot supply the missing authority.',
-  inputReason: 'Reason (recorded with the freeze, minimum 12 characters)',
-  reasonPlaceholder: 'Unavailable — consequential writes have no authority port here',
-  confirm: 'Type',
-  confirmEnd: 'to confirm',
-  freezeAck:
-    'I understand this halts all value movement platform-wide, immediately, and that resuming requires a separate deliberate action.',
-  thawAck: 'Reconciliation is clean and the cause of the freeze is resolved.',
-  freezeButton: 'Freeze ledger',
-  thawButton: 'Unfreeze ledger',
-  reconcile: 'Reconciliation preview',
+  stateUnknown: 'The posting record could not be read, so no freeze or unfreeze can be requested. Retry the read first.',
+  versionMissing:
+    'svc-ledger’s read does not return the posting version that freeze and unfreeze approvals are bound to, so neither can be requested yet. Nothing can be sent. This is filed as a back-end need.',
+  consequenceFreeze:
+    'A freeze stops ledger posting platform-wide: every module posts through the ledger. Two different founders must agree. Resuming is a separate request, after reconciliation.',
+  consequenceThaw:
+    'An unfreeze resumes value movement platform-wide. Two different current founders must agree, and the cause of the freeze must be resolved first.',
+  freezeReasonLabel: 'Why (recorded with the freeze, 12 to 500 characters)',
+  thawReasonLabel: 'Not needed: an unfreeze clears the recorded reason',
+  reconcile: 'Reconciliation',
   reconcileMissing:
-    'Live reconciliation is unavailable: svc-edge exposes no reconcile route. The retained preview is local and sends nothing.',
-  reconcileButton: 'Inspect simulated reconciliation',
-  simulated: 'Simulated — not the book',
-  delivered: 'Nothing was sent',
-  accounts: 'Accounts checked',
-  chain: 'Chain length',
-  assets: 'Unbalanced assets',
-  notCounted: 'Not counted',
-  notChecked: 'Not checked',
+    'Not available from this console. svc-ledger can run a full reconciliation (balances against replay, and the hash chain), but svc-edge exposes no route for it, so this console can neither start one nor read the last result.',
+  reconcileWhy:
+    'No figure is shown because none was read. A reconciliation failure freezes the ledger by itself; the posting record above shows that.',
 } as const;
 type LedgerCopy = { readonly [K in keyof typeof en]: string };
 const es: LedgerCopy = {
   title: 'Operaciones del libro',
-  intro: 'Consulta el estado de contabilización y su último cambio. Congelar, reanudar y la conciliación real no están disponibles aquí.',
+  intro:
+    'Consulta el estado de contabilización y su último cambio. Congelar y reanudar requieren a dos fundadores. La conciliación no está disponible desde esta consola.',
   record: 'Registro de contabilización',
   completed: 'Última lectura completada · último cambio abajo',
   refresh: 'Actualizar',
@@ -79,43 +71,35 @@ const es: LedgerCopy = {
   changed: 'Último cambio · no es la hora de lectura',
   nullReason: 'Sin motivo registrado (null)',
   nullActor: 'Sin actor registrado (null)',
+  asOf: 'A fecha de · cuando esta consola leyó el libro',
   original: 'Operaciones originales',
   historyMissing:
     'La consulta de operaciones originales no está disponible. Este registro no es un historial ni un recibo. No permite recuperar resultados transitorios anteriores.',
   privateMissing:
     'No se puede verificar al propietario humano actual. No se muestran, restauran ni repiten entradas privadas a partir de este registro.',
-  commands: 'Congelar y reanudar no disponibles',
-  missingAuthority:
-    'Aquí no se puede obtener una sesión humana de tesorería, una aprobación emitida por identidad con MFA ni el contexto de la operación original. Un token de despliegue o una lectura correcta no los proporcionan.',
+  commands: 'Congelar y reanudar',
   transport: 'Transporte de credenciales',
   configured: 'Solo el transporte está configurado. La accesibilidad del servicio y los requisitos de acción son independientes.',
   notConfigured: 'Sin configurar. Nombres ausentes:',
-  requirements: 'Consultar requisitos de congelación y reanudación',
-  consequence:
-    'Congelar detiene la contabilización de toda la plataforma. Reanudar requiere conciliación y una acción deliberada aparte. Estas confirmaciones no proporcionan la autoridad ausente.',
-  inputReason: 'Motivo (registrado al congelar, mínimo 12 caracteres)',
-  reasonPlaceholder: 'No disponible — aquí no existe un puerto de autoridad para estas acciones',
-  confirm: 'Escribe',
-  confirmEnd: 'para confirmar',
-  freezeAck:
-    'Entiendo que esto detiene inmediatamente todo movimiento de valor en la plataforma y que reanudar requiere otra acción deliberada.',
-  thawAck: 'La conciliación es correcta y la causa de la congelación está resuelta.',
-  freezeButton: 'Congelar libro',
-  thawButton: 'Reanudar libro',
-  reconcile: 'Vista previa de conciliación',
-  reconcileMissing: 'La conciliación real no está disponible: svc-edge no expone una ruta. La vista previa es local y no envía nada.',
-  reconcileButton: 'Consultar conciliación simulada',
-  simulated: 'Simulado — no es el libro',
-  delivered: 'No se envió nada',
-  accounts: 'Cuentas comprobadas',
-  chain: 'Longitud de la cadena',
-  assets: 'Activos desequilibrados',
-  notCounted: 'Sin contar',
-  notChecked: 'Sin comprobar',
+  stateUnknown: 'No se pudo leer el registro de contabilización, así que no se puede solicitar congelar ni reanudar. Reintenta la lectura.',
+  versionMissing:
+    'La lectura de svc-ledger no devuelve la versión de contabilización a la que se vinculan las aprobaciones, así que todavía no se puede solicitar ni congelar ni reanudar. No se puede enviar nada. Está registrado como necesidad del servicio.',
+  consequenceFreeze:
+    'Congelar detiene la contabilización de toda la plataforma: todos los módulos contabilizan a través del libro. Deben estar de acuerdo dos fundadores distintos. Reanudar es otra solicitud, tras la conciliación.',
+  consequenceThaw:
+    'Reanudar restablece el movimiento de valor en toda la plataforma. Deben estar de acuerdo dos fundadores actuales distintos, y la causa de la congelación debe estar resuelta.',
+  freezeReasonLabel: 'Motivo (se registra con la congelación, de 12 a 500 caracteres)',
+  thawReasonLabel: 'No hace falta: reanudar borra el motivo registrado',
+  reconcile: 'Conciliación',
+  reconcileMissing:
+    'No disponible desde esta consola. svc-ledger puede ejecutar una conciliación completa (saldos frente a repetición y la cadena de hashes), pero svc-edge no expone ninguna ruta, así que esta consola no puede iniciarla ni leer el último resultado.',
+  reconcileWhy:
+    'No se muestra ninguna cifra porque no se leyó ninguna. Un fallo de conciliación congela el libro por sí mismo; el registro de arriba lo muestra.',
 };
 const fr: LedgerCopy = {
   title: 'Opérations du registre',
-  intro: 'Consultez l’état des écritures et son dernier changement. Le gel, la reprise et le rapprochement réel sont indisponibles ici.',
+  intro:
+    'Consultez l’état des écritures et son dernier changement. Le gel et la reprise demandent deux fondateurs. Le rapprochement n’est pas disponible depuis cette console.',
   record: 'État des écritures',
   completed: 'Dernière lecture terminée · dernier changement ci-dessous',
   refresh: 'Actualiser',
@@ -135,39 +119,30 @@ const fr: LedgerCopy = {
   changed: 'Dernier changement · pas l’heure de lecture',
   nullReason: 'Aucun motif enregistré (null)',
   nullActor: 'Aucun acteur enregistré (null)',
+  asOf: 'À la date de · quand cette console a lu le registre',
   original: 'Opérations originales',
   historyMissing:
     'La recherche des opérations originales est indisponible. Cet état n’est ni un historique ni un reçu. Il ne permet pas de récupérer les résultats transitoires antérieurs.',
   privateMissing:
     'La propriété humaine actuelle ne peut pas être vérifiée. Les données privées originales ne sont ni affichées, ni restaurées, ni rejouées à partir de cet état.',
-  commands: 'Gel et reprise indisponibles',
-  missingAuthority:
-    'Ce poste ne peut pas obtenir une session humaine de trésorerie, une approbation d’identité avec MFA ni le contexte de l’opération originale. Un jeton de déploiement ou une lecture réussie ne les fournit pas.',
+  commands: 'Gel et reprise',
   transport: 'Transport des identifiants',
   configured: 'Seul le transport est configuré. L’accessibilité du service et les prérequis d’action sont distincts.',
   notConfigured: 'Non configuré. Noms manquants :',
-  requirements: 'Consulter les prérequis de gel et de reprise',
-  consequence:
-    'Le gel arrête les écritures sur toute la plateforme. La reprise exige un rapprochement et une action délibérée séparée. Ces confirmations ne fournissent pas l’autorité absente.',
-  inputReason: 'Motif (enregistré avec le gel, minimum 12 caractères)',
-  reasonPlaceholder: 'Indisponible — aucun accès d’autorité pour ces actions ici',
-  confirm: 'Saisissez',
-  confirmEnd: 'pour confirmer',
-  freezeAck:
-    'Je comprends que cela arrête immédiatement tout mouvement de valeur sur la plateforme et que la reprise exige une action délibérée séparée.',
-  thawAck: 'Le rapprochement est correct et la cause du gel est résolue.',
-  freezeButton: 'Geler le registre',
-  thawButton: 'Reprendre les écritures',
-  reconcile: 'Aperçu du rapprochement',
-  reconcileMissing: 'Le rapprochement réel est indisponible : svc-edge n’expose aucune route. L’aperçu est local et n’envoie rien.',
-  reconcileButton: 'Consulter le rapprochement simulé',
-  simulated: 'Simulé — pas le registre',
-  delivered: 'Rien n’a été envoyé',
-  accounts: 'Comptes vérifiés',
-  chain: 'Longueur de la chaîne',
-  assets: 'Actifs déséquilibrés',
-  notCounted: 'Non comptés',
-  notChecked: 'Non vérifiés',
+  stateUnknown: 'L’état des écritures n’a pas pu être lu : ni gel ni reprise ne peut être demandé. Réessayez la lecture.',
+  versionMissing:
+    'La lecture de svc-ledger ne renvoie pas la version des écritures à laquelle les approbations sont liées : ni gel ni reprise ne peut être demandé pour l’instant. Rien ne peut être envoyé. C’est enregistré comme besoin du service.',
+  consequenceFreeze:
+    'Le gel arrête les écritures sur toute la plateforme : chaque module écrit via le registre. Deux fondateurs différents doivent être d’accord. La reprise est une demande distincte, après rapprochement.',
+  consequenceThaw:
+    'La reprise rétablit les mouvements de valeur sur toute la plateforme. Deux fondateurs actuels et différents doivent être d’accord, et la cause du gel doit être résolue.',
+  freezeReasonLabel: 'Motif (enregistré avec le gel, de 12 à 500 caractères)',
+  thawReasonLabel: 'Inutile : la reprise efface le motif enregistré',
+  reconcile: 'Rapprochement',
+  reconcileMissing:
+    'Indisponible depuis cette console. svc-ledger sait lancer un rapprochement complet (soldes contre rejeu, et chaîne de hachages), mais svc-edge n’expose aucune route : cette console ne peut ni en lancer un ni lire le dernier résultat.',
+  reconcileWhy:
+    'Aucun chiffre n’est affiché car aucun n’a été lu. Un échec de rapprochement gèle le registre de lui-même ; l’état ci-dessus le montre.',
 };
 export const LEDGER_COPY: Readonly<Record<LedgerLocale, LedgerCopy>> = { en, es, fr };
 export function ledgerCopy(locale: LedgerLocale = 'en'): LedgerCopy {

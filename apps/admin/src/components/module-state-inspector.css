@@ -97,6 +97,11 @@
   gap: 12px;
   min-width: 0;
 }
+.module-inspector .mi-controls {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
 .module-inspector .mi-read-failure,
 .module-inspector .mi-current {
   padding: 20px;
@@ -140,7 +145,8 @@
 .module-inspector .mi-audit time {
   overflow-wrap: anywhere;
 }
-.module-inspector .mi-write-boundary {
+.module-inspector .mi-write-boundary,
+.module-inspector .mi-controls {
   border-top: 1px solid var(--if-border);
   padding-top: 20px;
 }
