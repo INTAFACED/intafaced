@@ -33,6 +33,10 @@ describe('fetchMe', () => {
     expect(await fetchMe(api)).toEqual({ kind: 'ok', userId: ID, handle: 'test_friend' });
     expect(urls[0]).toBe('/api/identity/trpc/me');
   });
+  it('passes through emailVerified when the server sends it', async () => {
+    const { api } = client(() => trpc({ userId: ID, handle: 'test_friend', emailVerified: false }));
+    expect(await fetchMe(api)).toEqual({ kind: 'ok', userId: ID, handle: 'test_friend', emailVerified: false });
+  });
   it('is "unavailable" on 404 and 501 (the server is older than this screen)', async () => {
     expect(await fetchMe(client(() => error(404)).api)).toEqual({ kind: 'unavailable' });
     expect(await fetchMe(client(() => error(501)).api)).toEqual({ kind: 'unavailable' });

@@ -43,6 +43,8 @@ export const users = identity.table(
     id: uuid('id').primaryKey().defaultRandom(),
     handle: citext('handle').notNull(),
     email: citext('email').notNull(),
+    /** Null until the current address is confirmed. Cleared when the email changes. */
+    emailVerifiedAt: tstz('email_verified_at'),
     /** argon2id. Never a fast hash — §9. */
     passwordHash: text('password_hash').notNull(),
     /**
@@ -291,6 +293,56 @@ export const passwordResetProofs = identity.table(
   (t) => [uniqueIndex('password_reset_proofs_code_hash_idx').on(t.codeHash), index('password_reset_proofs_user_open_idx').on(t.userId)],
 );
 
+/**
+ * One-time email confirmation proofs. The token itself is never stored.
+ * `email_hash` binds the proof to the address it was issued for.
+ */
+export const emailConfirmationProofs = identity.table(
+  'email_confirmation_proofs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    emailHash: text('email_hash').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+    consumedAt: tstz('consumed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('email_confirmation_proofs_code_hash_idx').on(t.codeHash),
+    index('email_confirmation_proofs_user_open_idx').on(t.userId),
+  ],
+);
+
+export const emailConfirmationAttempts = identity.table(
+  'email_confirmation_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('email_confirmation_attempts_user_created_idx').on(t.userId, t.createdAt)],
+);
+
+/** Requested, confirmed, or refused. No token, code, or link column. */
+export const emailConfirmationAudit = identity.table(
+  'email_confirmation_audit',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    event: text('event').notNull(),
+    reason: text('reason').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('email_confirmation_audit_user_idx').on(t.userId, t.createdAt)],
+);
+
 export const apiKeys = identity.table(
   'api_keys',
   {
@@ -456,6 +508,9 @@ export const schema = {
   rankThresholds,
   sessions,
   passwordResetProofs,
+  emailConfirmationProofs,
+  emailConfirmationAttempts,
+  emailConfirmationAudit,
   apiKeys,
   subAccounts,
   waitlistEntries,
