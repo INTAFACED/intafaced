@@ -113,7 +113,9 @@ describe('Home panels, in plain words', () => {
       version: '1',
       updatedAt: null,
     });
-    expect(panels({ merchant: { ...merchant, feeBps: null }, pricing: noPrices })).toContain('No fee rate is set on this account');
+    expect(panels({ merchant: { ...merchant, feeBps: null }, pricing: noPrices })).toContain(
+      'No rate is set on your account; settlement uses the platform default.',
+    );
   });
   it('turns basis points into a percentage', () => {
     expect(feePercent(150)).toBe('1.5%');

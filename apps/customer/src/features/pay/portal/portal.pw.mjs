@@ -661,9 +661,7 @@ test('pricing: the fee table, the calculator uses the live engine, and an unconf
 test('pricing: not configured shows the words "not configured" and not one placeholder fee', async ({ page }) => {
   await setup(page, 'quiet');
   await signIn(page, '/pay/pricing');
-  await expect(
-    page.getByText('No pricing schedule is published for this account and no fee rate is set, so no fee is shown.'),
-  ).toBeVisible();
+  await expect(page.getByText('No pricing schedule is published for this account, so no price list is shown.')).toBeVisible();
   await expect(page.getByText('No tier assigned').first()).toBeVisible();
   await expect(page.getByText('The calculator works from a published pricing schedule')).toBeVisible();
   await expect(page.getByText(/\d\.\d\d%/)).toHaveCount(0);

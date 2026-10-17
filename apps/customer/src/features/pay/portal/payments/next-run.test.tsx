@@ -37,7 +37,7 @@ describe('the one fee statement', () => {
     expect(feeStory({ feeBps: 250 })).toBe('Fee 2.50% — taken when a payment settles');
     // A rate that is not the server's marked starter value is not labelled TEST.
     expect(feeStory({ feeBps: 100, starterFee: starter })).toBe('Fee 1.00% — taken when a payment settles');
-    expect(feeStory({ feeBps: null })).toBe('No fee rate is set on this account');
-    expect(feeStory(null)).toBe('No fee rate is set on this account');
+    expect(feeStory({ feeBps: null })).toBe('No rate is set on your account; settlement uses the platform default.');
+    expect(feeStory(null)).toBe('No rate is set on your account; settlement uses the platform default.');
   });
 });

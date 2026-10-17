@@ -87,7 +87,7 @@ const en = {
   downloadSchedule: 'Download schedule (CSV)',
   tierNotAssigned: 'No tier assigned',
   effectiveSince: 'In force since',
-  pricingNotConfiguredBody: 'No pricing schedule is published for this account and no fee rate is set, so no fee is shown.',
+  pricingNotConfiguredBody: 'No pricing schedule is published for this account, so no price list is shown.',
   priceAccountFee: 'Fee on this account',
   pricingNoSchedule: 'No separate price list is published for this account.',
   ruleTitle: 'Prices for {asset}',
