@@ -19,7 +19,7 @@ import { noteAutoTripAccountError } from './halts/autotrip-log.js';
 import { isRailHealthFailureCode } from './halts/rail-health.js';
 import { payoutRailSourceKey, userHaltKey, type PayHaltStore } from './halts/store.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
-import { railBlockingReason, railReasonCode, type RailAdapter, type RailResult } from './rails/rail-adapter.js';
+import { railBlockingReason, railReasonCode, railRefusalIfBlocking, type RailAdapter, type RailResult } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, type ValueMovementPolicy } from './rails/posture.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
@@ -413,6 +413,16 @@ export class UserMoneyService {
     return withMoneySpan('pay.withdraw', { operation: 'withdraw', rail: input.rail, amount: formatAmount(input.amount) }, async (span) => {
       try {
         return await withPayoutLock(this.sql, `withdraw:${JSON.stringify([input.userId, input.clientRef])}`, async (connection) => {
+          // A fresh ask (no row) and a finished refusal (`failed`) are refused
+          // before the claim, so a blocked rail inserts nothing and does not
+          // reopen a failed row. An existing `pending` row is still refused
+          // after the claim, below. `sent` and `held` skip this check.
+          const [priorClaim] = await connection<Array<{ status: string }>>`
+            SELECT status FROM pay.withdrawals
+             WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
+          `;
+          if (!priorClaim || priorClaim.status === 'failed') this.refuseFreshWithdrawal(adapter);
+
           let claimed = await this.claimWithdrawal(input, connection);
 
           // Already finished. Returning it is the only correct answer to a retry:
@@ -504,9 +514,10 @@ export class UserMoneyService {
           const firstDispatch = prior.length === 0 && claimed.status !== 'held';
           const accepted = prior[0]?.outcome === 'accepted' && prior[0].rail_ref;
           // A saved acceptance settles below and does not ask the rail. Every
-          // other attempt is a fresh dispatch: refuse before the attempt row
-          // and before payout, so a blocked rail sends nothing.
-          if (!accepted) this.refuseFreshWithdrawal(adapter);
+          // other attempt records `requested` first, then either a health
+          // refusal (the adapter is not called) or the payout. Phase 3a
+          // reverses a first dispatch and answers outcome-unknown when an
+          // earlier send may have committed.
           await connection`
         INSERT INTO pay.withdrawal_rail_attempts(withdrawal_id, attempt, outcome)
         VALUES (${claimed.id}, ${attempt}, 'requested') ON CONFLICT DO NOTHING
@@ -515,7 +526,8 @@ export class UserMoneyService {
           try {
             result = accepted
               ? { ok: true, railRef: accepted }
-              : await withRailSpan(adapter.id, 'payout', async () =>
+              : (railRefusalIfBlocking(adapter, { amount: claimed.amount, assetId: claimed.assetId }) ??
+                (await withRailSpan(adapter.id, 'payout', async () =>
                   adapter.payout({
                     settlementId: ledgerInput.withdrawalId,
                     merchantId: claimed.userId,
@@ -524,7 +536,7 @@ export class UserMoneyService {
                     window: 'user-withdrawal',
                     destination: claimed.destination,
                   }),
-                );
+                )));
           } catch (error) {
             // Unknown rail outcome: the hold stays. Counting may halt the next
             // withdrawal. It does not reverse this one or replace the throw.

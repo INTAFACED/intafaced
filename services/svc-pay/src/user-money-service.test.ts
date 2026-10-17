@@ -705,6 +705,76 @@ describe('svc-pay user money PG-hard', () => {
       expect(still.railRef).toBe(sent.railRef);
     });
 
+    it('a refused fresh withdrawal leaves no row', async () => {
+      card.setHealthy(false);
+      await expect(withdraw({ clientRef: 'w-fresh-blocked' })).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+        detail: { failureCode: 'rail.marked_down' },
+      });
+      expect(await sql`SELECT id FROM pay.withdrawals WHERE client_ref = 'w-fresh-blocked'`).toHaveLength(0);
+      expect(await availableOf()).toBe('100');
+    });
+
+    it('a rail that goes down after the hold reverses the hold and sends nothing', async () => {
+      const before = await availableOf();
+      let payouts = 0;
+      const realPayout = card.payout.bind(card);
+      card.payout = async (request) => {
+        payouts += 1;
+        return realPayout(request);
+      };
+      const realPost = ledger.post.bind(ledger);
+      ledger.post = async (request) => {
+        const receipt = await realPost(request);
+        if (request.reason === 'withdraw.held') card.setHealthy(false);
+        return receipt;
+      };
+
+      await expect(withdraw({ clientRef: 'w-down-after-hold' })).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+        detail: { failureCode: 'rail.marked_down' },
+      });
+      expect(payouts).toBe(0);
+      expect(await availableOf()).toBe(before);
+      const [row] = await sql<Array<{ status: string; failure_code: string | null }>>`
+        SELECT status, failure_code FROM pay.withdrawals WHERE client_ref = 'w-down-after-hold'
+      `;
+      expect(row).toMatchObject({ status: 'failed', failure_code: 'rail.marked_down' });
+    });
+
+    it('recovery of a held withdrawal with an unknown dispatch on a blocked rail stays held and says outcome unknown', async () => {
+      let payouts = 0;
+      const realPayout = card.payout.bind(card);
+      card.payout = async () => {
+        payouts += 1;
+        throw new Error('rail timed out');
+      };
+
+      await expect(withdraw({ clientRef: 'w-unknown-dispatch' })).rejects.toThrow('rail timed out');
+      expect(payouts).toBe(1);
+      const [held] = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status FROM pay.withdrawals WHERE client_ref = 'w-unknown-dispatch'
+      `;
+      expect(held).toMatchObject({ status: 'held' });
+      expect(await sql`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${held!.id}`).toMatchObject([
+        { outcome: 'requested' },
+      ]);
+      expect(await availableOf()).toBe('60');
+
+      card.setHealthy(false);
+      card.payout = async (request) => {
+        payouts += 1;
+        return realPayout(request);
+      };
+
+      await expect(withdraw({ clientRef: 'w-unknown-dispatch' })).rejects.toMatchObject({
+        code: 'pay.rail_outcome_unknown',
+      });
+      expect(payouts).toBe(1);
+      expect((await money.getWithdrawal(held!.id)).status).toBe('held');
+      expect(await availableOf()).toBe('60');
+    });
+
     it('refuses a reused clientRef that names different money', async () => {
       await withdraw({ clientRef: 'w-42', amount: amt('40') });
 
