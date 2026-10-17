@@ -95,6 +95,9 @@ export type CustomerSeries = z.infer<typeof customerSeriesSchema>;
  * Only an http or https address is accepted.
  */
 export const linkRowSchema = linkSchema.extend({
+  // `prefix` (on linkSchema) is the short non-secret start of the token; `token` is the whole secret, only ever sent when the
+  // service chooses to. Both are declared here so a parse never strips them.
+  token: z.string().min(1).nullish(),
   checkoutUrl: z
     .string()
     .url()

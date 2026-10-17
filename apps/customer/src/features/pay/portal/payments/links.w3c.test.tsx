@@ -51,7 +51,7 @@ it('does not offer a real deactivate action without verified company authority',
   expect(out).toContain('Only the account owner can create or turn off payment links.');
   // The address is shown only when the service sent it; until then the page says plainly that it can't be shown again.
   expect(out).toContain('Link address');
-  expect(out).toContain('can’t be shown again yet');
+  expect(out).toContain('can’t be shown again');
   expect(out).not.toContain('can’t be filtered by payment link yet');
   expect(out).not.toContain('data-testid="link-address"');
   const withAddress = renderToString(
@@ -66,7 +66,7 @@ it('does not offer a real deactivate action without verified company authority',
   expect(withAddress).toContain('>Copy<');
   expect(withAddress).toContain('Open the link');
   expect(withAddress).toContain('QR code for the link address');
-  expect(withAddress).not.toContain('can’t be shown again yet');
+  expect(withAddress).not.toContain('can’t be shown again');
   const unsafe = renderToString(
     <LinksView
       {...props}
@@ -76,7 +76,23 @@ it('does not offer a real deactivate action without verified company authority',
   );
   // An address that is not http or https is never made clickable.
   expect(unsafe).not.toContain('javascript:');
-  expect(unsafe).toContain('can’t be shown again yet');
+  expect(unsafe).toContain('can’t be shown again');
+});
+it('shows Copy, Open and the QR code only while the link is active and not expired', () => {
+  const url = 'https://checkout.test.invalid/pay/checkout?token=TEST-token';
+  const show = (row: object) =>
+    renderToString(<LinksView {...props} linkId={link.id} resource={{ status: 'ready', data: [{ ...link, checkoutUrl: url, ...row }] }} />);
+  expect(show({})).toContain('data-testid="link-address"');
+  for (const row of [{ active: false }, { expiresAt: '2020-01-01T00:00:00Z' }, { uses: 3 }]) {
+    const out = show(row);
+    expect(out).not.toContain('data-testid="link-address"');
+    expect(out).not.toContain(url);
+    expect(out).toContain('This link’s address can’t be shown again.');
+  }
+  // No stored address at all: the same sentence.
+  expect(renderToString(<LinksView {...props} linkId={link.id} resource={{ status: 'ready', data: [link] }} />)).toContain(
+    'This link’s address can’t be shown again.',
+  );
 });
 it('reads the payments made through a link once a payments reader is given', () => {
   const portal = {} as never;

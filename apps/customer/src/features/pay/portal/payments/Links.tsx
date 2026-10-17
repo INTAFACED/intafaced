@@ -36,6 +36,17 @@ export function linkState(link: Link, now: number) {
   return 'active';
 }
 
+/**
+ * The address a link can be copied, opened and scanned from: the checkout address the service stored for it, else one built
+ * from a token the service sent. Null when the service sent neither, or the address is not an ordinary web address. Only an
+ * active link that has not expired shows it (see the call site).
+ */
+export function addressOf(link: Link): string | null {
+  if (link.checkoutUrl && isWebAddress(link.checkoutUrl)) return link.checkoutUrl;
+  if (link.token) return `${location.origin}/pay/checkout?token=${encodeURIComponent(link.token)}`;
+  return null;
+}
+
 /** Matches the mounted createLink input, with a stricter UI requirement to pair a fixed amount and its asset. */
 export const createLinkInputSchema = z
   .object({
@@ -178,8 +189,8 @@ export function LinksView({
                   />
                 </PaySection>
                 <PaySection title={t('lk_addressTitle')} description={t('lk_addressBody')}>
-                  {selected.checkoutUrl && isWebAddress(selected.checkoutUrl) ? (
-                    <LinkAddress url={selected.checkoutUrl} />
+                  {addressOf(selected) && linkState(selected, now) === 'active' ? (
+                    <LinkAddress url={addressOf(selected)!} />
                   ) : (
                     <p className="pp-callout" role="note">
                       {t('lk_addressBlocked')}

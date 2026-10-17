@@ -359,8 +359,7 @@ const en = {
   lk_addressTitle: 'Link address',
   lk_addressBody: 'Share this address or the QR code with your customer. Anyone who has it can open your checkout.',
   lk_addressWhat: 'link address',
-  lk_addressBlocked:
-    'The link address can’t be shown again yet. You only see it once, when you create the link. We’re working on a way to show it later.',
+  lk_addressBlocked: 'This link’s address can’t be shown again.',
   lk_open: 'Open the link',
   lk_qrLabel: 'QR code for the link address',
   lk_qrFailed: 'The QR code couldn’t be drawn. Copy the address instead.',

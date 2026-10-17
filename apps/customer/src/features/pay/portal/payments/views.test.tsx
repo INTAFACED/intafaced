@@ -384,7 +384,7 @@ describe('customers', () => {
     expect(out).toContain('60.25');
     expect(out).toContain('67.75');
     // The daily table counts whole days, so it shows a date and never a made-up hour.
-    expect(out).toContain('<time dateTime="2026-10-17" lang="en">Oct 17, 2026</time>');
+    expect(out).toMatch(/<time dateTime="2026-10-17T00:00:00.000Z"[^>]*lang="en"[^>]*>Oct 17, 2026<\/time>/);
     expect(out).not.toMatch(/12:00\s?AM/);
     expect(out).toContain('href="/pay/payments/99999999-aaaa-bbbb-cccc-dddddddddddd"');
   });
