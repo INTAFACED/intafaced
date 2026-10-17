@@ -118,6 +118,7 @@ describe('svc-ledger freeze', () => {
 
   const USER = '77777777-7777-4777-8777-777777777777';
   const OPERATOR = '11111111-1111-4111-8111-111111111111';
+  const CHECKER = '22222222-2222-4222-8222-222222222222';
 
   let busA: MemoryEventBus;
   let busB: MemoryEventBus;
@@ -199,7 +200,7 @@ describe('svc-ledger freeze', () => {
       await a.freeze('drift', OPERATOR);
       await expect(b.post(deposit())).rejects.toThrow(/frozen/);
 
-      await b.unfreeze(OPERATOR);
+      await b.unfreeze(OPERATOR, CHECKER);
 
       await expect(a.post(deposit())).resolves.toMatchObject({ module: 'ledger' });
       await expect(a.status()).resolves.toEqual({ postingEnabled: true, frozenReason: null, frozenBy: OPERATOR });
@@ -354,7 +355,7 @@ describe('svc-ledger freeze', () => {
       // Book starts open (fixtures). Double thaw must not rewrite actor/time.
       const before = await a.freezeState();
       expect(before.frozen).toBe(false);
-      const again = await a.unfreeze(OPERATOR);
+      const again = await a.unfreeze(OPERATOR, CHECKER);
       expect(again.frozen).toBe(false);
       expect(again.changedAtPrecise).toBe(before.changedAtPrecise);
       expect(busA.emitted('ledgerFreezeUpdated')).toHaveLength(0);
@@ -364,7 +365,7 @@ describe('svc-ledger freeze', () => {
   describe('the rest of the OS is told', () => {
     it('emits ledgerFreezeUpdated in both directions, with who and why', async () => {
       await a.freeze('drift', OPERATOR);
-      await a.unfreeze(OPERATOR);
+      await a.unfreeze(OPERATOR, CHECKER);
 
       const emitted = busA.emitted('ledgerFreezeUpdated');
       expect(emitted).toHaveLength(2);
@@ -442,13 +443,13 @@ describe('svc-ledger freeze', () => {
         gatedBus(inner, () => failPublish),
       );
 
-      await expect(ledger.unfreeze(OPERATOR)).rejects.toThrow(/bus down/);
+      await expect(ledger.unfreeze(OPERATOR, CHECKER)).rejects.toThrow(/bus down/);
       const thawed = await ledger.freezeState();
       expect(thawed).toMatchObject({ frozen: false, reason: null, actor: OPERATOR });
       expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(0);
 
       failPublish = false;
-      const again = await ledger.unfreeze(OPERATOR);
+      const again = await ledger.unfreeze(OPERATOR, CHECKER);
       expect(again.frozen).toBe(false);
       expect(again.changedAtPrecise).toBe(thawed.changedAtPrecise);
       expect(again.changedAt.getTime()).toBe(thawed.changedAt.getTime());
@@ -460,7 +461,7 @@ describe('svc-ledger freeze', () => {
         (await requireDb().sql`SELECT idempotency_key FROM ledger_freeze_outbox ORDER BY switch_seq DESC LIMIT 1`)[0]?.idempotency_key,
       );
 
-      await ledger.unfreeze(OPERATOR);
+      await ledger.unfreeze(OPERATOR, CHECKER);
       expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(1);
       const still = await ledger.freezeState();
       expect(still.changedAtPrecise).toBe(thawed.changedAtPrecise);
@@ -508,7 +509,7 @@ describe('svc-ledger freeze', () => {
       expect(emitted!.idempotencyKey).toBe(`ledger.freeze:seq:${row!.seq}`);
 
       // And the freeze/thaw pair never share an identity, however fast it is.
-      await a.unfreeze(OPERATOR);
+      await a.unfreeze(OPERATOR, CHECKER);
       const keys = busA.emitted('ledgerFreezeUpdated').map((e) => e.idempotencyKey);
       expect(new Set(keys).size).toBe(keys.length);
     });

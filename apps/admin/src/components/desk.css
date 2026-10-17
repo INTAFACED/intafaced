@@ -100,3 +100,6 @@
     grid-template-columns: 1fr;
   }
 }
+.dk-kv-row {
+  display: contents;
+}

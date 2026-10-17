@@ -103,6 +103,15 @@ describe('createLedgerClient.getTxByKey', () => {
     expect(tx?.module).toBe(deposit.module);
     expect(tx?.reason).toBe(deposit.reason);
   });
+
+  it('throws when txByKey returns an empty object', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } })),
+    );
+    const client = createLedgerClient('http://ledger.test', SECRET);
+    await expect(client.getTxByKey('order.hold:missing-shape')).rejects.toThrow(/unreadable body/);
+  });
 });
 
 describe('Convert settle over the HTTP ledger client', () => {

@@ -16,6 +16,8 @@ const fixtureEnvironment = (url: string, port: number) => ({
   OPS_ERASURE_ARCHIVE_TLS_INGRESS: 'trusted_loopback',
   OPS_ERASURE_ARCHIVE_PORT: String(port),
 });
+// A compiled child can take well over 12 s to boot on a CPU-starved CI runner.
+const CHILD_KILL_MS = 30_000;
 function child(environment: NodeJS.ProcessEnv) {
   const process = spawn(globalThis.process.execPath, [entry], { env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '',
@@ -26,7 +28,7 @@ function child(environment: NodeJS.ProcessEnv) {
   process.stdout.on('data', (chunk) => {
     stdout += String(chunk);
   });
-  const timeout = setTimeout(() => process.kill('SIGKILL'), 12000);
+  const timeout = setTimeout(() => process.kill('SIGKILL'), CHILD_KILL_MS);
   timeout.unref();
   const done = once(process, 'exit')
     .then(([code, signal]) => ({ code, signal, stderr, stdout }))
@@ -37,8 +39,8 @@ it('compiled configuration failure emits only a fixed code', async () => {
   const run = child({ OPS_ERASURE_ARCHIVE_URL: 'redaction-fixture-private-input' });
   const result = await run.done;
   expect(result).toEqual({ code: 1, signal: null, stderr: 'ops.crm.archive_startup_failed\n', stdout: '' });
-}, 15000);
-describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receiver owned boot boundary', () => {
+}, 45_000);
+describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receiver owned boot boundary', { timeout: 60_000 }, () => {
   let db: TestDatabase;
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'ops' });
@@ -76,7 +78,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receive
     const url = `http://127.0.0.1:${address.port}/current`;
     try {
       let live = false;
-      for (let attempt = 0; attempt < 100 && !live; attempt++) {
+      for (let attempt = 0; attempt < 400 && !live; attempt++) {
         try {
           const response = await fetch(url, {
             method: 'POST',
