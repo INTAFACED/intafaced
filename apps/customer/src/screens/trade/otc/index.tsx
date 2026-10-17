@@ -114,6 +114,7 @@ function Room({ linkedId }: { linkedId: string | null }) {
                 entries={book.entries}
                 selected={selected}
                 now={now}
+                pendingId={writer.note.state === 'pending' ? writer.note.pending.id : null}
                 onSelect={setSelected}
                 onOpenById={book.open}
                 onForget={(id) => {
