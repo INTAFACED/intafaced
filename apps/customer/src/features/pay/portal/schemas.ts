@@ -296,6 +296,10 @@ export const merchantRecordSchema = z
     kybStatus: kybStatusSchema,
     kybRef: z.string().nullable(),
     feeBps: z.number().nullable(),
+    starterFee: z
+      .object({ bps: z.number().int().min(0).max(10_000), source: z.literal('local_test') })
+      .nullable()
+      .optional(),
   })
   .nullable();
 export type MerchantRecord = NonNullable<z.infer<typeof merchantRecordSchema>>;

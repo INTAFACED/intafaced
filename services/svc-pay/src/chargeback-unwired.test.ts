@@ -7,8 +7,9 @@ import { describe, expect, it } from 'vitest';
  * Q-pay — chargeback post-or-refuse.
  *
  * HTTP must post via ledger-client (`chargeback-ledger.ts`) or return a named
- * refuse. It must not claim `posted` without a tx id. Shortfall/won stay
- * unwired. bank-payout stays absent. No Hyperswitch. No `pay:*` grants.
+ * refuse. It must not claim `posted` without a tx id. Won, shortfall, and
+ * recovery are posted from that file. bank-payout stays absent. No Hyperswitch.
+ * No `pay:*` grants.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -22,12 +23,15 @@ const grantSrc = readFileSync(join(here, 'merchant-pay-grant-path.ts'), 'utf8');
 const pkg = readFileSync(join(here, '../package.json'), 'utf8');
 
 describe('chargeback ledger wire — post-or-refuse (Q-pay)', () => {
-  it('the only production recipe call is chargebackOpen via chargeback-ledger.ts', () => {
+  it('production recipe calls live in chargeback-ledger.ts', () => {
     expect(ledgerSrc).toMatch(/recipes\.chargebackOpen/);
-    expect(ledgerSrc).not.toMatch(/chargebackWon|chargebackShortfall/);
+    expect(ledgerSrc).toMatch(/recipes\.chargebackWon/);
+    expect(ledgerSrc).toMatch(/recipes\.chargebackShortfall\b/);
+    expect(ledgerSrc).toMatch(/recipes\.chargebackShortfallRecovered/);
     expect(paySrc).toMatch(/postDisputeOpening/);
+    expect(paySrc).toMatch(/postDisputeWon/);
+    expect(paySrc).toMatch(/postDisputeShortfall/);
     expect(paySrc).not.toMatch(/recipes\.chargeback/);
-    expect(paySrc).not.toMatch(/chargebackWon|chargebackShortfall/);
   });
 
   it('router dispute doors exist; never hardcode ledgerWire posted', () => {
@@ -35,7 +39,7 @@ describe('chargeback ledger wire — post-or-refuse (Q-pay)', () => {
     expect(routerSrc).toMatch(/openChargeback/);
     expect(routerSrc).toMatch(/socket\.pay-chargeback-ledger-wire|ledgerSocket/);
     expect(routerSrc).not.toMatch(/ledgerWire:\s*['"]posted['"]/);
-    expect(routerSrc).not.toMatch(/chargebackWon|chargebackShortfall|recipes\.chargeback/);
+    expect(routerSrc).not.toMatch(/recipes\.chargeback/);
   });
 
   it('named socket still refuses fixture and uncovered covers', () => {

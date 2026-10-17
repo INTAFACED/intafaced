@@ -30,12 +30,15 @@ const migrations = [
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',
   '0006_pay_merchant_status_history.sql',
+  // createMerchant reads parent_merchant_id, so every list that creates a merchant carries 0009.
+  '0009_pay_submerchant_tree.sql',
   '0014_pay_merchant_payout_destinations.sql',
   '0018_pay_founder_controls_admission.sql',
   // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
   '0071_pay_merchant_names.sql',
   '0073_pay_settlement_read.sql',
   '0087_pay_payment_link_checkout.sql',
+  '0089_pay_payout_dispatched_outcome.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-seams-test-secret-at-least-32-characters';

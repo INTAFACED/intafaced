@@ -10,6 +10,7 @@ import type { ControlAccessPorts } from './access.js';
 import { ControlError } from './errors.js';
 import { encodeListCursor, ListQueryError, parseListFilters } from '../list-page.js';
 import { maskDestination, safeDestinationLabel } from './mask-destination.js';
+import { assertApprovalWithinDailyPayoutLimit, dailyPayoutRemainingRows, type DailyPayoutRemainingRow } from './payout-daily-limit.js';
 import { loadMerchantControl } from './store.js';
 
 /**
@@ -27,8 +28,10 @@ import { loadMerchantControl } from './store.js';
  *
  * Any decision re-reads the settlement and the destination: if the amount or the
  * destination moved since the request, the approval is VOIDED and returned as
- * `voided`, not approved. `beforePayoutAdmit` is the other half: it only lets a
- * payout through on a fully decided, unexpired approval for exactly its payload.
+ * `voided`, not approved. An approve also stays inside the remaining daily
+ * payout limit, under the same counter lock the payout admission uses.
+ * `beforePayoutAdmit` is the other half: it only lets a payout through on a
+ * fully decided, unexpired approval for exactly its payload.
  */
 
 interface ApprovalRow {
@@ -264,7 +267,7 @@ export class ApprovalService {
       from?: string;
       to?: string;
     },
-  ): Promise<{ items: ApprovalDetail[]; nextCursor: string | null }> {
+  ): Promise<{ items: ApprovalDetail[]; nextCursor: string | null; dailyPayoutRemaining: DailyPayoutRemainingRow[] }> {
     this.actorId(principal);
     if (!(await this.options.access.canViewMerchant(principal, input.merchantId))) throw new ControlError('pay.merchant_not_found');
     let filters;
@@ -309,6 +312,12 @@ export class ApprovalService {
     return {
       items: page.map((row) => toApprovalView(row, at)),
       nextCursor: rows.length > input.limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
+      dailyPayoutRemaining: await dailyPayoutRemainingRows(
+        this.sql,
+        input.merchantId,
+        at,
+        page.map((row) => row.asset_code),
+      ),
     };
   }
 
@@ -351,6 +360,11 @@ export class ApprovalService {
           });
           return toApprovalView(updated[0]!, at);
         }
+        await assertApprovalWithinDailyPayoutLimit(
+          tx,
+          { approvalId: row.id, merchantId: row.merchant_id, assetCode: row.asset_code, amount: row.amount },
+          at,
+        );
         // Approved by the merchant side. Stays `pending` until both founders sign when the amount needs them.
         const updated = await tx<ApprovalRow[]>`
           UPDATE pay.control_payout_approvals
@@ -534,6 +548,11 @@ export class ApprovalService {
           if (error instanceof DualControlError) throw new ControlError('pay.dual_control_required', error.message);
           throw error;
         }
+        await assertApprovalWithinDailyPayoutLimit(
+          tx,
+          { approvalId: row.id, merchantId: row.merchant_id, assetCode: row.asset_code, amount: row.amount },
+          at,
+        );
         const updated = await tx<ApprovalRow[]>`
           UPDATE pay.control_payout_approvals
              SET founder_second_user_id = ${founderUserId}, status = 'approved', decided_at = ${at}

@@ -11,7 +11,7 @@ describe('payout lifecycle status', () => {
     expect(derivePayoutLifecycleStatus(kinds)).toBe('pending');
   });
 
-  it('does not add a destination change flow', () => {
-    expect(DESTINATION_CHANGE_FLOW).toBe('absent');
+  it('treats destination remove and set-default as an owner write, not a reviewed change', () => {
+    expect(DESTINATION_CHANGE_FLOW).toBe('owner_write');
   });
 });

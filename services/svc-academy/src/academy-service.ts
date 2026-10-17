@@ -63,6 +63,9 @@ import {
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
 import { hasCurriculumSlug } from './curriculum/catalog.js';
+import type { ProgrammeDefinition } from './curriculum/programmes.js';
+import type { VideoSpineEntry } from './video/catalog.js';
+import { AcademyCustomerStore } from './learning/customer-store.js';
 import {
   assertMayWriteScore,
   assertScore,
@@ -221,9 +224,15 @@ export interface AcademyServiceOptions {
    * trusting `paper: true` on the wire.
    */
   paperMarketFlagPort?: PaperMarketFlagPort;
+  /** Test seam. Production uses the empty-prerequisite catalog. */
+  programmeCatalog?: readonly ProgrammeDefinition[];
+  /** Test seam. Production uses the spine, whose media fields are null until set. */
+  videoSpine?: readonly VideoSpineEntry[];
 }
 
 export class AcademyService {
+  private readonly customer: AcademyCustomerStore;
+
   constructor(
     private readonly sql: Sql,
     private readonly stakes: StakeSource,
@@ -236,7 +245,9 @@ export class AcademyService {
      * being honest: no bus, no award, and `grantCert` says which.
      */
     private readonly certXp: CertXpPublisher = new NullCertXpPublisher(),
-  ) {}
+  ) {
+    this.customer = new AcademyCustomerStore(sql);
+  }
 
   // ── Rooms ──────────────────────────────────────────────────────────────────
 
@@ -1596,21 +1607,70 @@ export class AcademyService {
   }
 
   async enrollCertPath(input: { userId: string; pathSlug: string }): Promise<EnrollmentRecord> {
-    const pathSlug = input.pathSlug.trim().toLowerCase();
-    // Blueprint paths only — enroll is a bookmark, not a grant gate, but any
-    // free-text pathSlug would invent a fourth curriculum axis on the wire.
-    const BLUEPRINT_PATHS = new Set(['foundations', 'markets', 'builder', 'sovereign']);
-    if (!pathSlug || pathSlug.length > 64 || !BLUEPRINT_PATHS.has(pathSlug)) {
-      throw new AcademyError('pathSlug must be one of foundations | markets | builder | sovereign', 'academy.cert_invalid');
-    }
-    const rows = await this.sql<Array<{ user_id: string; path_slug: string; enrolled_at: Date }>>`
-      INSERT INTO academy.cert_enrollments (user_id, path_slug, enrolled_at)
-      VALUES (${input.userId}, ${pathSlug}, now())
-      ON CONFLICT (user_id, path_slug) DO UPDATE SET path_slug = EXCLUDED.path_slug
-      RETURNING user_id, path_slug, enrolled_at
-    `;
-    const row = rows[0]!;
-    return { userId: row.user_id, pathSlug: row.path_slug, enrolledAt: row.enrolled_at };
+    const row = await this.customer.enrollCertPath({
+      userId: input.userId,
+      pathSlug: input.pathSlug,
+      ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
+    });
+    return { userId: row.userId, pathSlug: row.pathSlug, enrolledAt: row.enrolledAt };
+  }
+
+  myCompletions(input: { userId: string; limit: number | null | undefined; cursor?: string | null }) {
+    return this.customer.myCompletions(input);
+  }
+
+  myEnrollments(userId: string) {
+    return this.customer.myEnrollments(userId);
+  }
+
+  leaveCertPath(input: { userId: string; pathSlug: string; clientRequestId: string }) {
+    return this.customer.leaveCertPath(input);
+  }
+
+  learningState(userId: string) {
+    return this.customer.learningState(userId);
+  }
+
+  touchLesson(input: { userId: string; slug: string; secondsRead?: number | null; clientRequestId: string; now?: Date }) {
+    return this.customer.touchLesson(input);
+  }
+
+  residencyCohorts(limit: number | null | undefined) {
+    return this.customer.residencyCohorts(limit);
+  }
+
+  setVideoProgress(input: { userId: string; videoSlug: string; positionSeconds: number; clientRequestId: string; now?: Date }) {
+    return this.customer.setVideoProgress({
+      ...input,
+      ...(this.options.videoSpine ? { spine: this.options.videoSpine } : {}),
+    });
+  }
+
+  getVideoProgress(input: { userId: string; videoSlug: string }) {
+    return this.customer.getVideoProgress({
+      ...input,
+      ...(this.options.videoSpine ? { spine: this.options.videoSpine } : {}),
+    });
+  }
+
+  callerLiveSeats(userId: string) {
+    return this.customer.callerLiveSeats(userId);
+  }
+
+  myUpcomingSessions(input: { userId: string; limit: number | null | undefined }) {
+    return this.customer.myUpcomingSessions(input);
+  }
+
+  sessionCalendar(input: { userId: string; sessionId: string; now?: Date }) {
+    return this.customer.sessionCalendar(input);
+  }
+
+  grantAudit(input: { limit: number | null | undefined; cursor?: string | null; certificateId?: string | null }) {
+    return this.customer.grantAudit(input);
+  }
+
+  opsMetrics(input: { from: string; to: string }) {
+    return this.customer.opsMetrics(input);
   }
 
   async markCurriculumComplete(input: { userId: string; itemSlug: string }): Promise<ItemCompletionRecord> {

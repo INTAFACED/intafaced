@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger } from '@intafaced/ledger-client';
+import { MemoryLedger, merchantClearing, parseAmount, railBoundary } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
 import { listControlAudit } from '../control/audit.js';
@@ -76,8 +76,21 @@ describe('Postgres dispute cases survive a new store', () => {
     return new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
   }
 
-  function payFor(store: PostgresDisputeCaseStore, adapter = rail()) {
-    return new PayService(sql, new MemoryLedger(), new RailRegistry([adapter]), { disputeCases: store });
+  function payFor(store: PostgresDisputeCaseStore, adapter = rail(), ledger = new MemoryLedger()) {
+    return new PayService(sql, ledger, new RailRegistry([adapter]), { disputeCases: store });
+  }
+
+  /** The row is inserted captured. Production capture would have credited clearing; these cases do too. */
+  async function seedClearing(ledger: MemoryLedger, amount = '10') {
+    await ledger.post({
+      idempotencyKey: `test.clearing:${nid()}`,
+      module: 'pay',
+      reason: 'test.capture.seed',
+      entries: [
+        { account: railBoundary('card-sandbox', 'USDT'), direction: 'credit', amount: parseAmount(amount) },
+        { account: merchantClearing(merchant, 'USDT'), direction: 'debit', amount: parseAmount(amount) },
+      ],
+    });
   }
 
   it('keeps the case across a new store, accepts a response, and applies won once', async () => {
@@ -88,7 +101,9 @@ describe('Postgres dispute cases survive a new store', () => {
     const due = '2026-11-01T15:04:05.000Z';
     const openEvent = `evt-open-${nid()}`;
     const store = new PostgresDisputeCaseStore(sql);
-    await payFor(store, adapter).handleWebhook(
+    const ledger = new MemoryLedger();
+    await seedClearing(ledger);
+    await payFor(store, adapter, ledger).handleWebhook(
       'card-sandbox',
       adapter.signWebhook({
         id: openEvent,
@@ -128,7 +143,7 @@ describe('Postgres dispute cases survive a new store', () => {
       amount: '10',
       disputeId,
     });
-    const pay = payFor(new PostgresDisputeCaseStore(sql), adapter);
+    const pay = payFor(new PostgresDisputeCaseStore(sql), adapter, ledger);
     const first = await pay.handleWebhook('card-sandbox', wonBody);
     expect(first.applied).toBe(true);
     expect(first.duplicate).toBe(false);
@@ -157,7 +172,9 @@ describe('Postgres dispute cases survive a new store', () => {
     await captured(railRef);
     const disputeId = `dp-lost-${nid()}`;
     const store = new PostgresDisputeCaseStore(sql);
-    await payFor(store, adapter).handleWebhook(
+    const ledger = new MemoryLedger();
+    await seedClearing(ledger);
+    await payFor(store, adapter, ledger).handleWebhook(
       'card-sandbox',
       adapter.signWebhook({
         id: `evt-open-${nid()}`,
@@ -170,7 +187,7 @@ describe('Postgres dispute cases survive a new store', () => {
     );
     const lostId = `evt-lost-${nid()}`;
     const body = adapter.signWebhook({ id: lostId, type: 'dispute.lost', ref: railRef, amount: '10', disputeId });
-    const pay = payFor(new PostgresDisputeCaseStore(sql), adapter);
+    const pay = payFor(new PostgresDisputeCaseStore(sql), adapter, ledger);
     expect((await pay.handleWebhook('card-sandbox', body)).applied).toBe(true);
     expect((await pay.handleWebhook('card-sandbox', body)).duplicate).toBe(true);
     expect((await new PostgresDisputeCaseStore(sql).get(disputeId))?.status).toBe('lost');
@@ -190,7 +207,9 @@ describe('Postgres dispute cases survive a new store', () => {
     await captured(railRef);
     const disputeId = `dp-bad-due-${nid()}`;
     const eventId = `evt-bad-${nid()}`;
-    const pay = payFor(new PostgresDisputeCaseStore(sql), adapter);
+    const ledger = new MemoryLedger();
+    await seedClearing(ledger);
+    const pay = payFor(new PostgresDisputeCaseStore(sql), adapter, ledger);
     const outcome = await pay.handleWebhook(
       'card-sandbox',
       adapter.signWebhook({
@@ -207,8 +226,8 @@ describe('Postgres dispute cases survive a new store', () => {
     expect(noted).toEqual([eventId]);
     const opened = await new PostgresDisputeCaseStore(sql).get(disputeId);
     expect(opened?.status).toBe('open');
-    expect(opened?.ledgerWire).toBe('refused');
-    expect(opened?.ledgerRefuse?.code).toBeTruthy();
+    expect(opened?.ledgerWire).toBe('posted');
+    expect(opened?.ledgerTxId).toBeTruthy();
     const due = await sql<Array<{ response_due_at: Date | null }>>`
       SELECT response_due_at FROM pay.dispute_response_deadlines
        WHERE merchant_id = ${merchant} AND dispute_id = ${disputeId}`;
@@ -221,7 +240,9 @@ describe('Postgres dispute cases survive a new store', () => {
     await captured(railRef);
     const disputeId = `dp-conflict-${nid()}`;
     const store = new PostgresDisputeCaseStore(sql);
-    const pay = payFor(store, adapter);
+    const ledger = new MemoryLedger();
+    await seedClearing(ledger);
+    const pay = payFor(store, adapter, ledger);
     await pay.handleWebhook(
       'card-sandbox',
       adapter.signWebhook({

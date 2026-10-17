@@ -4,16 +4,35 @@
  * Store listing (bucket LIST) is Class X residual / n/a. Unknown slugs are not
  * invented. Object keys are constants here, never discovered from MinIO.
  */
-export const VIDEO_SPINE = [
+/**
+ * Optional media fields stay null until the owner sets them.
+ * Nothing here guesses a duration, thumbnail, language or captions file.
+ */
+export type VideoSpineEntry = {
+  readonly slug: string;
+  readonly title: string;
+  readonly path: 'foundations' | 'markets' | 'builder' | 'sovereign';
+  readonly objectKey: string;
+  readonly durationSeconds: number | null;
+  readonly thumbnailUrl: string | null;
+  readonly language: string | null;
+  readonly captionsUrl: string | null;
+};
+
+export const VIDEO_SPINE: readonly VideoSpineEntry[] = [
   {
     slug: 'foundations-risk-first',
     title: 'Risk first',
-    path: 'foundations' as const,
+    path: 'foundations',
     objectKey: 'foundations/risk-first.mp4',
+    durationSeconds: null,
+    thumbnailUrl: null,
+    language: null,
+    captionsUrl: null,
   },
-] as const;
+];
 
-export type VideoSpineItem = (typeof VIDEO_SPINE)[number];
+export type VideoSpineItem = VideoSpineEntry;
 
 export function listVideoSpine(): readonly VideoSpineItem[] {
   return VIDEO_SPINE;

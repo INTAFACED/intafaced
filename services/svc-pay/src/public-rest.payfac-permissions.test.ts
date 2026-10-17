@@ -117,6 +117,23 @@ async function build(trees: MerchantAreaFence | PayfacPermissionPort | null) {
 }
 
 describe('REST PayFac permissions (D26-P1-P2)', () => {
+  it('refuses pay:read when the owner grant no longer includes it', async () => {
+    const instance = Fastify({ logger: false });
+    await registerPublicPayRest(instance, {
+      edgeSecret: SECRET,
+      serviceName: 'svc-pay-test',
+      pay: stubPay({ [OWNER]: ROOT }),
+      trees: stubPermissions(),
+      recheckOwnerPayScope: async () => {
+        throw new Error('pay.owner_grant_withdrawn');
+      },
+    });
+    app = instance;
+    const res = await app.inject({ method: 'GET', url: '/v1/submerchant-permissions/areas', headers: signed() });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('pay.owner_grant_withdrawn');
+  });
+
   it('exposes the eleven-area vocabulary under pay:read', async () => {
     app = await build(stubPermissions());
     const res = await app.inject({ method: 'GET', url: '/v1/submerchant-permissions/areas', headers: signed() });
@@ -166,7 +183,7 @@ describe('REST PayFac permissions (D26-P1-P2)', () => {
     expect(res.json()[0].area).toBe('payment.refund');
   });
 
-  it('grants with actorMerchantId from principal merchant, actorId from token', async () => {
+  it('refuses grant until the named account consents, and does not call the journal', async () => {
     const trees = stubPermissions();
     app = await build(trees);
     const res = await app.inject({
@@ -180,36 +197,41 @@ describe('REST PayFac permissions (D26-P1-P2)', () => {
         reason: 'mid runs capture for this cohort',
       },
     });
-    expect(res.statusCode).toBe(200);
-    expect(trees.grantPermission).toHaveBeenCalledWith(
-      expect.objectContaining({
-        actorMerchantId: ROOT,
-        actorId: OWNER,
-        actorScope: 'pay:write',
-        area: 'payment',
-        granteeMerchantId: MID,
-        subjectMerchantId: LEAF,
-      }),
-    );
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('pay.submerchant_consent_required');
+    expect(trees.grantPermission).not.toHaveBeenCalled();
   });
 
-  it('maps SubMerchantError permission_denied to 403 with pay.* code', async () => {
-    const trees = stubPermissions({
-      grantPermission: async () => {
-        throw new SubMerchantError('no', 'pay.submerchant_permission_denied', { area: 'payment' });
-      },
-    });
+  it('refuses revoke the same way', async () => {
+    const trees = stubPermissions();
     app = await build(trees);
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/submerchant-permissions/grant',
+      url: '/v1/submerchant-permissions/revoke',
       headers: signed(),
       payload: {
         granteeMerchantId: MID,
         subjectMerchantId: LEAF,
         area: 'payment',
-        reason: 'should refuse',
+        reason: 'take the capture grant back',
       },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('pay.submerchant_consent_required');
+    expect(trees.revokePermission).not.toHaveBeenCalled();
+  });
+
+  it('maps SubMerchantError permission_denied to 403 with pay.* code', async () => {
+    const trees = stubPermissions({
+      listPermissions: async () => {
+        throw new SubMerchantError('no', 'pay.submerchant_permission_denied', { area: 'payment' });
+      },
+    });
+    app = await build(trees);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/submerchant-permissions?subjectMerchantId=${LEAF}&limit=50`,
+      headers: signed(),
     });
     expect(res.statusCode).toBe(403);
     expect(res.json().error.code).toBe('pay.submerchant_permission_denied');

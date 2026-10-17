@@ -53,9 +53,20 @@ async function stop(child: ChildProcess, exited: Promise<unknown>) {
     throw new Error('Synthetic relay did not terminate cleanly');
   }
 }
+// gateway/index.ts connect_timeout is 5s. This poll used to stop at 100×25ms.
+// Measured 2026-10-17 under the exclusive test database: both boot cases
+// finished in 529ms and 476ms. Tests (full) logs of the passing boot case
+// already spend 2455–4754ms (ready, plus the receipt query and SIGTERM), so a
+// connect still inside the product's own 5s timeout was "not ready". Wait out
+// that connect, then the migration and listen. A refused boot prints its code
+// before it drains the pool, so that path fails on the next tick.
+const READY_BUDGET_MS = 5_000 + 2_000;
 async function ready(process: ReturnType<typeof start>) {
-  for (let i = 0; i < 100; i++) {
-    if (process.child.exitCode !== null) throw new Error('Synthetic relay exited before readiness');
+  const started = Date.now();
+  while (Date.now() - started < READY_BUDGET_MS) {
+    const output = process.output().trim();
+    if (process.child.exitCode !== null) throw new Error(`Synthetic relay exited before readiness: ${output}`);
+    if (output.includes('notify.relay.startup_unavailable')) throw new Error(`Synthetic relay refused to start: ${output}`);
     try {
       const response = await fetch(process.origin + '/ready', { headers: { authorization: `Bearer ${bearer}` } });
       if (response.status === 200) return response;
@@ -64,7 +75,8 @@ async function ready(process: ReturnType<typeof start>) {
     }
     await pause(25);
   }
-  throw new Error('Synthetic relay did not become ready');
+  const output = process.output().trim();
+  throw new Error(`Synthetic relay did not become ready: ${output || '(no output)'}`);
 }
 
 describe('compiled independent relay boot and reboot (actual SQL/HTTP)', () => {

@@ -147,26 +147,25 @@ const createInput = {
 };
 
 describe('the acting node comes from the principal', () => {
-  it('RESOLVES IT FROM THE TOKEN — the merchant node is never an input', async () => {
+  it('refuses submerchant.create until the named account consents', async () => {
     const { caller, seen } = harness();
-    await caller(await ctx(['pay:write'])).submerchant.create(createInput);
-
-    expect(seen.createActorMerchantId).toBe(PLATFORM_MERCHANT);
-    // And the journal's actor is the authenticated user, not anything supplied.
-    expect(seen.createActorId).toBe(PLATFORM_USER);
+    await expect(caller(await ctx(['pay:write'])).submerchant.create(createInput)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('pay.submerchant_consent_required'),
+    });
+    expect(seen.createActorMerchantId).toBeUndefined();
+    expect(seen.createActorId).toBeUndefined();
   });
 
-  it('IGNORES AN actorMerchantId SMUGGLED INTO THE BODY', async () => {
+  it('does not adopt a smuggled actor on submerchant.create', async () => {
     const { caller, seen } = harness();
-
-    await caller(await ctx(['pay:write'])).submerchant.create({
-      ...createInput,
-      // Not in the schema. If it ever became so, this assertion is what fails.
-      ...({ actorMerchantId: OTHER_MERCHANT } as Record<string, unknown>),
-    });
-
-    expect(seen.createActorMerchantId).toBe(PLATFORM_MERCHANT);
-    expect(seen.createActorMerchantId).not.toBe(OTHER_MERCHANT);
+    await expect(
+      caller(await ctx(['pay:write'])).submerchant.create({
+        ...createInput,
+        ...({ actorMerchantId: OTHER_MERCHANT } as Record<string, unknown>),
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(seen.createActorMerchantId).toBeUndefined();
   });
 
   it('resolves a DIFFERENT principal to a different node — two merchants are never conflated', async () => {
@@ -239,17 +238,12 @@ describe('the wire shape', () => {
     expect(areas).toEqual([...PERMISSION_AREAS]);
   });
 
-  it('carries no money — a rate in basis points is the only number on this surface', async () => {
-    const { caller } = harness();
-    const created = await caller(await ctx(['pay:write'])).submerchant.create(createInput);
-
-    // No amount, no balance, no decimal string: this slice moves no value, and
-    // the response shape is where that would first leak.
-    expect(Object.keys(created).sort()).toEqual(
-      ['createdAt', 'depth', 'feeBps', 'id', 'kybStatus', 'mode', 'parentMerchantId', 'settlingParty', 'status', 'userId'].sort(),
-    );
-    expect(created.feeBps).toBe(150);
-    expect(created.createdAt).toBe('2026-08-08T10:00:00.000Z');
+  it('refuses submerchant.create before a fee the caller chose can be stored', async () => {
+    const { caller, seen } = harness();
+    await expect(caller(await ctx(['pay:write'])).submerchant.create(createInput)).rejects.toMatchObject({
+      message: expect.stringContaining('pay.submerchant_consent_required'),
+    });
+    expect(seen.createActorMerchantId).toBeUndefined();
   });
 
   it('requires a reason of substance on a grant — one character answers nothing', async () => {
@@ -276,14 +270,22 @@ describe('the wire shape', () => {
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
 
-  it('records the granting NODE on the event, resolved from the principal', async () => {
+  it('refuses grant and revoke until the named account consents', async () => {
     const { caller, seen } = harness();
-    await caller(await ctx(['pay:write'])).submerchantPermission.grant({
+    const body = {
       granteeMerchantId: OTHER_MERCHANT,
       subjectMerchantId: SUB_MERCHANT,
-      area: 'payment',
+      area: 'payment' as const,
       reason: 'first-line disputes for this cohort',
+    };
+    await expect(caller(await ctx(['pay:write'])).submerchantPermission.grant(body)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('pay.submerchant_consent_required'),
     });
-    expect(seen.grantActorMerchantId).toBe(PLATFORM_MERCHANT);
+    await expect(caller(await ctx(['pay:write'])).submerchantPermission.revoke(body)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('pay.submerchant_consent_required'),
+    });
+    expect(seen.grantActorMerchantId).toBeUndefined();
   });
 });
