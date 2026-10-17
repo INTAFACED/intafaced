@@ -14,12 +14,11 @@ export const dynamic = 'force-dynamic';
 
 /** Audit: who changed what, when and why. Three real sources, each in its own panel, and the combined feed named as missing. */
 export default async function AuditPage({ searchParams }: { searchParams: Promise<{ user?: string | string[] }> }) {
-  const { session, config } = await requireFounderPage();
-  const ctx = { session, config };
+  await requireFounderPage();
   const raw = (await searchParams).user;
   const typed = (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? '';
   const user = typed ? validateUserId(typed) : null;
-  const [kill] = await Promise.all([readKillSwitchSnapshot(ctx)]);
+  const kill = await readKillSwitchSnapshot();
 
   return (
     <DeskPage

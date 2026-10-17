@@ -4,8 +4,8 @@
  * Answers what the real services answer, with the real codes:
  *   · svc-trade  accountControls.getState / history / change  (restriction state kept in state.restrictions)
  *   · svc-identity actionApproval.propose / approve / reject / revoke  (approvals kept in state.approvals)
- * The signed-in operator is Nitro (the TEST sign-in token). A second operator cannot sign in here, so one
- * PENDING request from Phantom is seeded so the approve path can be tried:
+ * The signed-in operator is Nitro (the TEST sign-in token); a sign-in with an identifier that starts with "phantom" is the second TEST
+ * founder. One PENDING request from Phantom is also seeded so the approve path can be tried:
  *     approval id  appr-test-phantom-1
  *     account      00000000-0000-4000-8000-000000000100, restrict, version 0, reason "seeded test request"
  *     payload hash is shown by the "Work out the hash" helper with exactly those details.
@@ -13,7 +13,7 @@
  * There is no list or read-back for approvals here either, because the real service has none.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { NITRO, PHANTOM } from '../base.mjs';
+import { NITRO, PHANTOM, actorOf } from '../base.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TEST_USERS = Array.from({ length: 6 }, (_, i) => `00000000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`);
@@ -42,7 +42,6 @@ const approvalError = (code, message) => {
 };
 const unauthorized = () => trpcError(401, 'UNAUTHORIZED', 'auth.session_invalid', 'sign in again');
 
-const actorOf = (headers) => (/^Bearer test-founder-access-token$/.test(headers.authorization ?? '') ? NITRO : null);
 const inputOf = (query, body, method) => {
   const raw = method === 'GET' ? JSON.parse(query.get('input') ?? '{}') : body;
   return raw && typeof raw === 'object' && 'json' in raw ? raw.json : raw;

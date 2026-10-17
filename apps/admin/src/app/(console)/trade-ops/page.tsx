@@ -26,7 +26,7 @@ const at = (o: Outcome<unknown>): string => (o.kind === 'ok' ? clockUtc(o.asOf) 
 export default async function HealthPage() {
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
-  const [kill, bundle] = await Promise.all([readKillSwitchSnapshot(ctx), loadMarkets(ctx)]);
+  const [kill, bundle] = await Promise.all([readKillSwitchSnapshot(), loadMarkets(ctx)]);
   const { markets, orders, views } = bundle;
 
   const reads: Outcome<unknown>[] = [kill, markets, orders];

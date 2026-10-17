@@ -64,7 +64,7 @@ export const POST = (req: Request) =>
       return ok<PreparedExport>({ dataset, scope, columns: ORDER_COLUMNS, rows, filename: exportFilename(scope, r.asOf), notes }, r.asOf);
     }
     if (dataset === 'kill_switch_audit') {
-      const r = await readKillSwitchSnapshot(ctx);
+      const r = await readKillSwitchSnapshot();
       if (r.kind !== 'ok') return r;
       return ok<PreparedExport>(
         {

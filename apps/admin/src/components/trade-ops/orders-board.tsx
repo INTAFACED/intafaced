@@ -289,6 +289,7 @@ export function OrdersBoard({ rows, limit }: { rows: readonly AdminOrderRow[]; l
         onSelectionChange={setSelected}
         onRowActivate={(o) => router.push(`/trade-ops/orders/${encodeURIComponent(o.id)}`)}
         maxHeight={520}
+        minWidth={1280}
         emptyState={
           <EmptyState
             variant="empty"

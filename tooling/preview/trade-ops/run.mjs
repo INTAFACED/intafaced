@@ -6,7 +6,7 @@
  *
  * :3216 is the console (proxy to a private `next start`). The console's EDGE_URL points at the TEST edge in
  * ./base.mjs and ./fixtures/*.mjs, which passes market data through to the real local stack on :3210.
- * Sign in with any email and password, code 123456. Everything marked TEST is a fixture.
+ * Sign in with any identifier and password, code 123456 (an identifier starting with "phantom" is the second TEST founder). Everything marked TEST is a fixture.
  */
 import { spawn } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
@@ -16,7 +16,7 @@ import { readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { baseRoutes, createState } from './base.mjs';
+import { TEST_OPERATOR_TOKEN, baseRoutes, createState } from './base.mjs';
 
 const repo = resolve(import.meta.dirname, '../../..');
 const PORT = Number(process.env.TROPS_PORT ?? 3216);
@@ -79,6 +79,7 @@ async function main() {
         ...process.env,
         ADMIN_ORIGIN: `http://localhost:${PORT}`,
         EDGE_URL: `http://127.0.0.1:${edgePort}`,
+        ADMIN_OPERATOR_TOKEN: TEST_OPERATOR_TOKEN,
         ADMIN_SESSION_SECRET: randomBytes(32).toString('base64url'),
         APP_ENV: 'dev',
         NEXT_TELEMETRY_DISABLED: '1',

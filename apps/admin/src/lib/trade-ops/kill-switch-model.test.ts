@@ -1,33 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { KillSwitchSnapshot } from '@/lib/control-plane-contract';
-import { checkMassCancel, checkToggle, massCancelOutcome, tradeSwitchState, venueOutcome } from './kill-switch-model';
+import { checkMassCancel, massCancelOutcome, tradeSwitchState, venueOutcome } from './kill-switch-model';
 
 const ME = '00000000-0000-4000-8000-000000000001';
 const OTHER = '00000000-0000-4000-8000-000000000002';
-const good = { disabled: true, reason: 'incident 4471 runaway bot', confirmOperatorId: OTHER, approvalId: 'ap-1', operationId: 'op-1' };
-
-describe('checkToggle', () => {
-  it('accepts a complete request', () => {
-    const c = checkToggle(good, ME);
-    expect(c.ok).toBe(true);
-    if (c.ok) expect(c.body.module).toBe('trade');
-  });
-  it('refuses a short reason with the edge code', () => {
-    expect(checkToggle({ ...good, reason: 'too short' }, ME)).toMatchObject({ ok: false, code: 'edge.invalid_kill_switch' });
-  });
-  it('refuses a missing or same confirming operator as missing_operator', () => {
-    expect(checkToggle({ ...good, confirmOperatorId: '' }, ME)).toMatchObject({ ok: false, code: 'missing_operator' });
-    expect(checkToggle({ ...good, confirmOperatorId: ` ${ME} ` }, ME)).toMatchObject({ ok: false, code: 'missing_operator' });
-  });
-  it('refuses a missing approval or operation id', () => {
-    expect(checkToggle({ ...good, approvalId: '' }, ME)).toMatchObject({ ok: false, code: 'action_approval.missing' });
-    expect(checkToggle({ ...good, operationId: '  ' }, ME)).toMatchObject({ ok: false, code: 'action_approval.missing' });
-  });
-  it('needs a boolean disabled', () => {
-    expect(checkToggle({ ...good, disabled: 'true' }, ME)).toMatchObject({ ok: false });
-  });
-});
-
 describe('tradeSwitchState', () => {
   const base: KillSwitchSnapshot = { disabledModules: [], reasons: {}, audit: [] };
   it('is open with no audit', () => {

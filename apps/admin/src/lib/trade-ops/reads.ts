@@ -1,6 +1,8 @@
 import 'server-only';
-import { decodeSnapshot, type KillSwitchSnapshot } from '@/lib/control-plane-contract';
+import { readKillSwitches } from '@/lib/control-plane-client';
+import type { KillSwitchSnapshot } from '@/lib/control-plane-contract';
 import { edgeCall, trpcSpec, type TradeCtx } from './edge';
+import { killStateOutcome } from './kill-switch-model';
 import type { Outcome } from './outcome';
 
 /**
@@ -206,7 +208,11 @@ export function readOpenOrders(ctx: TradeCtx, limit = 200): Promise<Outcome<read
 
 // ── Kill switches (edge control plane) ──────────────────────────────────────
 
-/** GET /admin/kill-switches: which modules are stopped, why, and the audit tail. */
-export function readKillSwitchSnapshot(ctx: TradeCtx): Promise<Outcome<KillSwitchSnapshot>> {
-  return edgeCall(ctx, { method: 'GET', path: '/admin/kill-switches', parse: (raw) => decodeSnapshot(raw) });
+/**
+ * Which modules are stopped, why, and the audit tail. The edge's /admin/kill-switches takes only the console's server-side
+ * operator token (`admin:write` plus MFA); no founder session carries that scope, so this goes through `readKillSwitches()`
+ * and never signs with the session.
+ */
+export async function readKillSwitchSnapshot(): Promise<Outcome<KillSwitchSnapshot>> {
+  return killStateOutcome(await readKillSwitches());
 }

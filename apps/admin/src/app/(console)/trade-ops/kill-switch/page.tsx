@@ -3,21 +3,27 @@ import { requireFounderPage } from '@/lib/founder-page';
 import { KillSwitchAudit } from '@/components/trade-ops/kill-switch-audit';
 import { KillSwitchExplainer } from '@/components/trade-ops/kill-switch-explainer';
 import { KillSwitchMassCancel } from '@/components/trade-ops/kill-switch-mass-cancel';
-import { KillSwitchToggle } from '@/components/trade-ops/kill-switch-toggle';
+import { KillSwitchDesk } from '@/components/trade-ops/kill-switch-desk';
 import { KillSwitchVenue } from '@/components/trade-ops/kill-switch-venue';
 import { BlockerPanel, ReadProblem } from '@/components/trade-ops/blocker-panel';
 import { DeskPage } from '@/components/trade-ops/desk-page';
-import { tradeAudit, tradeSwitchState, MASS_CANCEL_TODAY } from '@/lib/trade-ops/kill-switch-model';
+import { tradeAudit, tradeSwitchState, killStateOutcome, MASS_CANCEL_TODAY } from '@/lib/trade-ops/kill-switch-model';
 import { BLOCKERS } from '@/lib/trade-ops/blockers';
-import { readKillSwitchSnapshot } from '@/lib/trade-ops/reads';
+import { readKillSwitches } from '@/lib/control-plane-client';
+import { readConsoleStatus } from '@/lib/console-status';
+import { moduleKillBlockedReason } from '@/lib/desk/module-kill-model';
+import { isModuleEnabled } from '@/lib/modules';
 
-/** Kill switch room: stop or resume new trade orders for the whole module, with two people; venue halt and mass cancel are built but blocked. */
+/** Kill switch room: stop or resume new trade orders for the whole module, with two founders (the console's own request flow); venue halt and mass cancel are built but blocked. */
 export const dynamic = 'force-dynamic';
 
 export default async function KillSwitchPage() {
-  const { session, config } = await requireFounderPage();
-  const ctx = { session, config };
-  const snapshot = await readKillSwitchSnapshot(ctx);
+  const { session } = await requireFounderPage();
+  const plane = await readKillSwitches();
+  const snapshot = killStateOutcome(plane);
+  const writesBlocked = isModuleEnabled('killswitches')
+    ? moduleKillBlockedReason(readConsoleStatus())
+    : 'The Kill-switches module is turned off in this deployment (ADMIN_MODULES), so the two-founder request flow is not available here.';
   const state = snapshot.kind === 'ok' ? tradeSwitchState(snapshot.data) : null;
 
   return (
@@ -59,7 +65,12 @@ export default async function KillSwitchPage() {
                     { label: 'Confirmed by', value: state.confirmedBy, mono: true },
                   ]}
                 />
-                <KillSwitchToggle stopped={state.stopped} signedInUserId={session.userId} />
+                <KillSwitchDesk
+                  initial={plane}
+                  initialReadAt={snapshot.kind === 'ok' ? snapshot.asOf : null}
+                  writesBlocked={writesBlocked}
+                  userId={session.userId}
+                />
               </div>
             )
           )}

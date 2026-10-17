@@ -18,7 +18,7 @@ export const POST = (req: Request) =>
   tradeOpsRoute(req, async (ctx, body) => {
     if (body.action === 'combined') return blocked(BLOCKERS.audit_feed_missing);
     if (body.action === 'kill_switch') {
-      const snap = await readKillSwitchSnapshot(ctx);
+      const snap = await readKillSwitchSnapshot();
       return snap.kind === 'ok' ? ok(auditRowsFromKillSwitch(snap.data.audit), snap.asOf) : snap;
     }
     if (body.action === 'restriction_history') {

@@ -12,6 +12,26 @@ import { createHash, randomUUID } from 'node:crypto';
 
 export const NITRO = '00000000-0000-4000-8000-000000000001';
 export const PHANTOM = '00000000-0000-4000-8000-000000000002';
+/**
+ * TEST bearer tokens. A founder session carries NO admin scope, so the TEST edge refuses /admin/kill-switches for the
+ * founder tokens exactly as production does. Only the console's server-side operator token (wired to the console's
+ * ADMIN_OPERATOR_TOKEN by run.mjs) opens that door. Sign in with an identifier that starts with "phantom" for the second TEST founder.
+ */
+export const TEST_OPERATOR_TOKEN = 'test-operator-token-not-a-secret';
+export const FOUNDER_TOKENS = new Map([
+  ['test-founder-access-token', NITRO],
+  ['test-founder-2-access-token', PHANTOM],
+]);
+export const actorOf = (headers) => FOUNDER_TOKENS.get(/^Bearer (.+)$/.exec(headers.authorization ?? '')?.[1] ?? '') ?? null;
+export const isOperatorToken = (headers) => headers.authorization === `Bearer ${TEST_OPERATOR_TOKEN}`;
+/** What svc-edge answers on its operator door when the bearer is not an `admin:write` operator token (a founder session is one). */
+export const operatorDoorRefusal = (headers) =>
+  headers.authorization
+    ? {
+        status: 403,
+        body: { code: 'auth.insufficient_scope', error: 'admin:write scope with MFA is required; no user session carries it' },
+      }
+    : { status: 401, body: { code: 'auth.missing_token', error: 'a bearer token is required' } };
 const UPSTREAM = process.env.TROPS_UPSTREAM ?? 'http://127.0.0.1:3210';
 
 export async function upstream(path) {
@@ -89,19 +109,23 @@ export function baseRoutes(state) {
     {
       method: 'POST',
       path: '/api/identity/trpc/auth.login',
-      handle: () =>
-        trpcOk({
-          userId: NITRO,
-          accessToken: 'test-founder-access-token',
-          refreshToken: 'test-founder-refresh-token',
+      handle: ({ body }) => {
+        const raw = body && typeof body === 'object' && 'json' in body ? body.json : body;
+        const second = /^phantom/i.test(String(raw?.identifier ?? ''));
+        return trpcOk({
+          userId: second ? PHANTOM : NITRO,
+          accessToken: second ? 'test-founder-2-access-token' : 'test-founder-access-token',
+          refreshToken: second ? 'test-founder-2-refresh-token' : 'test-founder-refresh-token',
           expiresAt: new Date(Date.now() + 4 * 3_600_000 - 60_000).toISOString(),
-        }),
+        });
+      },
     },
     { method: 'POST', path: '/api/identity/trpc/auth.logout', handle: () => trpcOk({ signedOut: true }) },
     {
       method: 'GET',
       path: '/api/identity/trpc/accountControls.operatorStatus',
-      handle: () => trpcOk({ status: 'enabled', userId: NITRO, version: '1', changedAt: new Date().toISOString() }),
+      handle: ({ headers }) =>
+        trpcOk({ status: 'enabled', userId: actorOf(headers) ?? NITRO, version: '1', changedAt: new Date().toISOString() }),
     },
     // ── real local data, passed through ──
     { method: 'GET', path: '/api/trade/trpc/markets.list', handle: async ({ url }) => upstream(`${url.pathname}${url.search}`) },
@@ -124,6 +148,10 @@ export function baseRoutes(state) {
         return { status: 200, body: state.orders.slice(0, limit) };
       },
     },
-    { method: 'GET', path: '/admin/kill-switches', handle: () => ({ status: 200, body: state.killSwitch }) },
+    {
+      method: 'GET',
+      path: '/admin/kill-switches',
+      handle: ({ headers }) => (isOperatorToken(headers) ? { status: 200, body: state.killSwitch } : operatorDoorRefusal(headers)),
+    },
   ];
 }

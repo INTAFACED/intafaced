@@ -78,6 +78,17 @@ describe('ADMIN_MODULES gate', () => {
     expect(moduleForApi('/api/session/passkey')).toBeNull();
   });
 
+  it('puts the trade desk pages and APIs behind the tradeops module', () => {
+    expect(moduleForPage('/trade-ops')).toBe('tradeops');
+    expect(moduleForPage('/trade-ops/orders')).toBe('tradeops');
+    expect(moduleForPage('/%74rade-ops/kill-switch')).toBe('tradeops');
+    expect(moduleForApi('/api/trade-ops/approvals')).toBe('tradeops');
+    expect(moduleForApi('/api/trade-ops/kill-switch')).toBe('tradeops');
+    expect(MODULE_ROUTES.find((r) => r.id === 'tradeops')).toEqual({ id: 'tradeops', href: '/trade-ops', label: 'Trade desk' });
+    expect(isModuleEnabled('tradeops', { ADMIN_MODULES: 'crm' })).toBe(false);
+    expect(isModuleEnabled('tradeops', { ADMIN_MODULES: 'crm,tradeops' })).toBe(true);
+  });
+
   it('route guard answers 404 only for disabled modules', async () => {
     const env = { ADMIN_MODULES: 'crm' };
     expect(moduleDisabledResponse('crm', env)).toBeNull();

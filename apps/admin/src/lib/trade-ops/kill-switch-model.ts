@@ -1,23 +1,18 @@
-import type { AuditEntry, KillSwitchSnapshot } from '@/lib/control-plane-contract';
+import type { AuditEntry, ControlPlaneState, KillSwitchSnapshot } from '@/lib/control-plane-contract';
 import { BLOCKERS } from './blockers';
-import { blocked, refused, type Outcome } from './outcome';
+import { blocked, ok, refused, unknown, type Outcome } from './outcome';
 
 /**
- * Pure rules for the Kill switch room: what the trade module's state is, what the edge will refuse before it
- * is asked (so the operator gets the real code instantly), and the two controls whose services do not exist
- * (venue halt-all, mass cancel). No network here; the route and the page call these.
- *
- * Codes mirror services/svc-edge (admin-api.ts, dual-control.ts, action-approval-consume.ts):
- *   missing_operator            confirming operator missing or the same as the signed-in operator
- *   action_approval.missing     approvalId or operationId missing ("a typed-in second name is not approval")
- *   edge.invalid_kill_switch    reason shorter than 12 or longer than 500 characters, or an unknown module
+ * Pure rules for the Kill switch room: what the trade module's state is, and the two controls whose services do
+ * not exist (venue halt-all, mass cancel). No network here; the route and the page call these. Stopping and
+ * resuming the trade module is NOT here: it runs through the console's two-founder flow (`/api/kill-switch`,
+ * `ModuleKillDesk`), the only path the edge's operator door accepts.
  */
 
 /** The only module this room switches. Fixed: the desk never offers another module. */
 export const TRADE_MODULE = 'trade' as const;
 export const REASON_MIN = 12;
 export const REASON_MAX = 500;
-export const ID_MAX = 128;
 
 export type TradeSwitchState =
   | {
@@ -34,6 +29,25 @@ export type TradeSwitchState =
       readonly by: string | null;
       readonly confirmedBy: string | null;
     };
+
+/**
+ * The console's read of the edge's module state, as a desk outcome. Only a decoded snapshot is `ok`. The operator door
+ * refusing us (401/403) or the console not being configured is `refused` with the edge's own code; anything that did not
+ * finish (unreachable, 5xx, a body that is not a snapshot, still loading) is `unknown`. Never "Open" without a snapshot.
+ */
+export function killStateOutcome(state: ControlPlaneState, asOf: string = new Date().toISOString()): Outcome<KillSwitchSnapshot> {
+  const detail = state.detail ?? 'The kill switch state was not read.';
+  switch (state.status) {
+    case 'reachable':
+      return ok(state.snapshot, asOf);
+    case 'unconfigured':
+      return refused(state.code ?? 'admin.kill_unconfigured', detail, state.httpStatus ?? 503, null, asOf);
+    case 'refused':
+      return refused(state.code ?? 'admin.kill_read_refused', detail, state.httpStatus ?? 403, null, asOf);
+    default:
+      return unknown(detail, asOf);
+  }
+}
 
 /** Audit entries newest first (the edge already sends them that way; sorted here so the page never depends on it). */
 export function auditNewestFirst(audit: readonly AuditEntry[]): AuditEntry[] {
@@ -54,70 +68,7 @@ export function tradeSwitchState(snapshot: KillSwitchSnapshot): TradeSwitchState
   return { stopped: true, reason: snapshot.reasons[TRADE_MODULE] ?? '', ...common };
 }
 
-export interface ToggleBody {
-  readonly module: typeof TRADE_MODULE;
-  readonly disabled: boolean;
-  readonly reason: string;
-  readonly confirmOperatorId: string;
-  readonly approvalId: string;
-  readonly operationId: string;
-}
-
-export type ToggleCheck =
-  { readonly ok: true; readonly body: ToggleBody } | { readonly ok: false; readonly code: string; readonly message: string };
-
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
-
-/**
- * Check a disable/enable request the way the edge would, in the edge's own order: shape, reason, dual control, approval.
- * `signedInUserId` is the founder session; the confirming operator must be somebody else.
- */
-export function checkToggle(input: Record<string, unknown>, signedInUserId: string): ToggleCheck {
-  if (typeof input.disabled !== 'boolean')
-    return {
-      ok: false,
-      code: 'edge.invalid_kill_switch',
-      message: 'Say whether to stop (disabled: true) or resume (disabled: false) the trade module.',
-    };
-  const reason = text(input.reason);
-  if (reason.length < REASON_MIN || reason.length > REASON_MAX)
-    return {
-      ok: false,
-      code: 'edge.invalid_kill_switch',
-      message: `The reason must be ${REASON_MIN} to ${REASON_MAX} characters; it is kept in the audit.`,
-    };
-  const confirmOperatorId = text(input.confirmOperatorId);
-  if (confirmOperatorId === '')
-    return {
-      ok: false,
-      code: 'missing_operator',
-      message: 'confirming operator identity is required; the edge does not invent a second caller',
-    };
-  if (confirmOperatorId === signedInUserId.trim())
-    return {
-      ok: false,
-      code: 'missing_operator',
-      message: 'confirming operator must be a distinct identity; the edge does not invent a second caller',
-    };
-  const approvalId = text(input.approvalId);
-  const operationId = text(input.operationId);
-  if (approvalId === '' || operationId === '')
-    return {
-      ok: false,
-      code: 'action_approval.missing',
-      message: 'approvalId and operationId are required; a typed-in second name is not approval',
-    };
-  if (approvalId.length > ID_MAX || operationId.length > ID_MAX)
-    return { ok: false, code: 'edge.invalid_kill_switch', message: `approvalId and operationId are at most ${ID_MAX} characters.` };
-  return { ok: true, body: { module: TRADE_MODULE, disabled: input.disabled, reason, confirmOperatorId, approvalId, operationId } };
-}
-
-/** What the operator reads before confirming, in words (only what svc-edge's kill rule does). */
-export function toggleConsequence(disabled: boolean): string {
-  return disabled
-    ? 'New orders on the trade module are refused by the edge with edge.module_killed (503) for every customer. Reads and order cancels still pass, so customers can see and cancel resting orders. This is not a venue halt: matching keeps running.'
-    : 'The edge lets new orders through on the trade module again. Nothing is replayed; orders refused while it was stopped were never accepted.';
-}
 
 export const TRADE_ALWAYS_ALLOWED = [
   'Reads (GET), such as open orders and balances',

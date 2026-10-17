@@ -1,10 +1,11 @@
 import 'server-only';
 import { authorizeAdminRequest, adminSessionErrorResponse } from '@/lib/founder-session';
+import { moduleDisabledResponse } from '@/lib/modules';
 import type { TradeCtx } from './edge';
 import type { Outcome } from './outcome';
 
 /**
- * Shared shell of every /api/trade-ops/<room> route: founder session + CSRF + origin, JSON body, then the room's
+ * Shared shell of every /api/trade-ops/<room> route: the ADMIN_MODULES gate (`tradeops`), founder session + CSRF + origin, JSON body, then the room's
  * handler, whose Outcome goes back as-is (status 200 for ok, the refusal's own status otherwise).
  */
 
@@ -12,6 +13,8 @@ export async function tradeOpsRoute(
   request: Request,
   handler: (ctx: TradeCtx, body: Record<string, unknown>) => Promise<Outcome<unknown>>,
 ): Promise<Response> {
+  const disabled = moduleDisabledResponse('tradeops');
+  if (disabled) return disabled;
   let ctx: TradeCtx;
   try {
     ctx = await authorizeAdminRequest(request);
