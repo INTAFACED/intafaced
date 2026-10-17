@@ -471,6 +471,18 @@ export function classifyFailure({ check, headJob, baseJob, headLog, baseLog, dec
     });
   if (!declaration) return result('unknown', false, 'identical exact-base failure lacks a unique owner/evidence declaration');
   const inherited = { failures: head.failures, owner: declaration.owner, evidence: declaration.evidence };
+  const fullSuite = check.workflow === 'CI' && check.name === 'Tests (full)' && headJob.name === baseJob.name;
+  // Main is red in these workspaces already. Protected paths are not a second block when the signatures did not grow.
+  if (fullSuite && failingWorkspacesSubset(head.failures, base.failures, workspaceRoots)) {
+    const stepProblem = testStepProblem(headJob, baseJob);
+    if (stepProblem) return result('unknown', false, stepProblem, inherited);
+    return result(
+      'inherited',
+      true,
+      `no new failing workspaces versus the tested main tip; owner ${declaration.owner}; evidence ${declaration.evidence}`,
+      { ...inherited, noNewFailures: true },
+    );
+  }
   if (protectedCheck(check, head.failures, workspaceRoots))
     return result(
       'inherited',
@@ -479,28 +491,14 @@ export function classifyFailure({ check, headJob, baseJob, headLog, baseLog, dec
       inherited,
     );
   // Full coverage can diagnose a shard, but differing harnesses never authorize a failure exception.
-  if (headJob.name !== baseJob.name || check.name !== 'Tests (full)')
+  if (!fullSuite)
     return result(
       'inherited',
       false,
       'identical exact-base failure; only equivalent full-suite jobs may receive a non-protected exception',
       inherited,
     );
-  const headSteps = (headJob.steps ?? []).filter((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion)).map((s) => s.name);
-  const baseSteps = new Set(
-    (baseJob.steps ?? []).filter((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion)).map((s) => s.name),
-  );
-  if (!headSteps.length || headSteps.some((name) => name !== TEST_JOB_POLICY['Tests (full)'].step || !baseSteps.has(name)))
-    return result('unknown', false, 'a non-test step or infrastructure invariant failed; test signatures cannot excuse it');
-  for (const job of [headJob, baseJob]) {
-    if (
-      !(job.steps ?? []).some(
-        (s) => s.name === 'Every infrastructure-backed suite actually ran' && s.status === 'completed' && s.conclusion === 'success',
-      )
-    )
-      return result('unknown', false, 'no successful infrastructure execution backstop at both exact commits');
-  }
-  return result('inherited', true, `identical exact-base failure; owner ${declaration.owner}; evidence ${declaration.evidence}`, inherited);
+  return result('unknown', false, 'failing workspaces are not a subset of the tested main tip', inherited);
 }
 
 function checkLink(check, repo) {
@@ -514,27 +512,128 @@ function checkLink(check, repo) {
   }
 }
 
+const INFRA_SELECTION =
+  /^(?:\.github\/|tooling\/ci\/)|(?:^|\/)(?:package\.json|vitest[^/]*|vite\.config\.[^/]+|turbo\.json|pnpm-workspace\.yaml|pnpm-lock\.yaml)$/;
+
+/** package.json, the lockfile, vitest/turbo config, .github and tooling/ci. Affected-only tests cannot prove these. */
+export function touchesInfraSelection(files) {
+  return (files ?? []).some((file) => INFRA_SELECTION.test(file));
+}
+
+function plainDeclarationLines(input) {
+  let fence;
+  const lines = [];
+  for (const line of String(input ?? '').split(/\r?\n/)) {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (marker) {
+      if (!fence) fence = { char: marker[1][0], length: marker[1].length };
+      else if (marker[1][0] === fence.char && marker[1].length >= fence.length) fence = null;
+      continue;
+    }
+    if (fence || /^\s*>/.test(line)) continue;
+    lines.push(line.trim());
+  }
+  return lines;
+}
+
+/** One plain Patch-Hash line, equal to the gate's canonical patch. A fenced example does not count. */
+export function opusPatchQuoted(declarations, patchHash) {
+  if (!/^[a-f0-9]{64}$/.test(patchHash ?? '')) return false;
+  const found = plainDeclarationLines(declarations).filter((line) => /^Patch-Hash: [a-f0-9]{64}$/.test(line));
+  return found.length === 1 && found[0].slice('Patch-Hash: '.length) === patchHash;
+}
+
+function workspaceOfFailure(failure, workspaceRoots) {
+  if (!/^@intafaced\/[\w.-]+#test$/.test(failure?.task ?? '')) return null;
+  const root = (workspaceRoots ?? knownWorkspaces()).get(failure.task.slice(0, -'#test'.length));
+  if (!root) return null;
+  const path = String(failure.file ?? '').replace(/^\.\//, '');
+  if (!path || path.startsWith('/') || path.includes('\\') || path.split('/').includes('..')) return null;
+  if (/^(?:apps|services|packages|tooling)\//.test(path)) return path.startsWith(`${root}/`) ? root : null;
+  return root;
+}
+
+/** Every failing head workspace already fails on the tested main tip. Unknown provenance fails closed. */
+function failingWorkspacesSubset(headFailures, baseFailures, workspaceRoots) {
+  const base = new Set();
+  for (const failure of baseFailures) {
+    const root = workspaceOfFailure(failure, workspaceRoots);
+    if (!root) return false;
+    base.add(root);
+  }
+  if (!headFailures.length) return false;
+  for (const failure of headFailures) {
+    const root = workspaceOfFailure(failure, workspaceRoots);
+    if (!root || !base.has(root)) return false;
+  }
+  return true;
+}
+
+function failedProofRoots(proof, workspaceRoots) {
+  const roots = workspaceRoots ?? knownWorkspaces();
+  const failed = [];
+  for (const task of proof?.tasks ?? []) {
+    if (!((task.tests?.failed ?? 0) || (task.files?.failed ?? 0))) continue;
+    const root = roots.get(String(task.task ?? '').replace(/#test$/, ''));
+    if (!root) return null;
+    failed.push(root);
+  }
+  return failed;
+}
+
+function proofHasNoNewFailures(headProof, baseProof, workspaceRoots) {
+  const head = failedProofRoots(headProof, workspaceRoots);
+  const base = failedProofRoots(baseProof, workspaceRoots);
+  if (!head || !base) return false;
+  const baseSet = new Set(base);
+  return head.every((root) => baseSet.has(root));
+}
+
 /**
  * Full-suite comparison is intentionally narrow. Arbitrary jobs do not prove
- * changed-path coverage. Changes to CI/test selection invalidate this proof.
+ * changed-path coverage. Infra selection is not an absolute refusal: Tests (full)
+ * continues into the no-new-failures path. A shard still cannot prove it.
  */
 function coverageProblem(check, files) {
   if (check.workflow !== 'CI' || !TEST_JOB_POLICY[check.name])
     return 'changed-path coverage is unknown for this job; no inherited exception';
-  if (
-    files.some((f) =>
-      /^(?:\.github\/|tooling\/ci\/)|(?:^|\/)(?:package\.json|vitest[^/]*|vite\.config\.[^/]+|turbo\.json|pnpm-workspace\.yaml|pnpm-lock\.yaml)$/.test(
-        f,
-      ),
+  if (touchesInfraSelection(files) && check.name !== 'Tests (full)')
+    return 'CI/test selection changed; affected-only jobs cannot prove coverage';
+  return null;
+}
+
+function testStepProblem(headJob, baseJob) {
+  const headSteps = (headJob.steps ?? []).filter((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion)).map((s) => s.name);
+  const baseSteps = new Set(
+    (baseJob.steps ?? []).filter((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion)).map((s) => s.name),
+  );
+  if (!headSteps.length || headSteps.some((name) => name !== TEST_JOB_POLICY['Tests (full)'].step || !baseSteps.has(name)))
+    return 'a non-test step or infrastructure invariant failed; test signatures cannot excuse it';
+  for (const job of [headJob, baseJob]) {
+    if (
+      !(job.steps ?? []).some(
+        (s) => s.name === 'Every infrastructure-backed suite actually ran' && s.status === 'completed' && s.conclusion === 'success',
+      )
     )
-  )
-    return 'CI/test selection changed, so matching job names do not prove identical changed-path coverage';
+      return 'no successful infrastructure execution backstop at both exact commits';
+  }
   return null;
 }
 
 // workspaceRoots injects manifest fixtures for tooling-only offline test copies.
 // Production callers omit it and use manifests from the trusted gate checkout.
-export async function collectEvidence({ gh, repo, head, base, mergeSha, checks, files = [], declarations = '', workspaceRoots }) {
+export async function collectEvidence({
+  gh,
+  repo,
+  head,
+  base,
+  mergeSha,
+  checks,
+  files = [],
+  declarations = '',
+  workspaceRoots,
+  patchHash,
+}) {
   const failed = checks.filter(
     (c) => (isFailed(c) && !REQUIRED.has(keyOf(c))) || (c.workflow === 'CI' && TEST_JOB_POLICY[c.name] && c.bucket === 'pass'),
   );
@@ -652,9 +751,16 @@ export async function collectEvidence({ gh, repo, head, base, mergeSha, checks, 
       if (TEST_JOB_POLICY[check.name]) {
         const scopeProblem = coverageProblem(check, files);
         if (scopeProblem) throw new Error(scopeProblem);
+        if (touchesInfraSelection(files)) {
+          if (check.name !== 'Tests (full)') throw new Error('CI/test selection changed; affected-only jobs cannot prove coverage');
+          if (!opusPatchQuoted(declarations, patchHash))
+            throw new Error('CI/test selection changes require an Opus evidence comment quoting the canonical patch hash');
+        }
         const headProof = testExecutionProof(headJob, headLog, files, workspaceRoots),
           baseProof = testExecutionProof(baseJob, baseLog, files, workspaceRoots);
         if (headProof.problem || baseProof.problem) throw new Error(headProof.problem || baseProof.problem);
+        if (touchesInfraSelection(files) && !proofHasNoNewFailures(headProof, baseProof, workspaceRoots))
+          throw new Error('new failing workspaces versus the tested main tip');
         if (check.bucket === 'pass' && headJob.conclusion !== 'success')
           throw new Error('green check does not match its actual job conclusion');
         coverage.push({
@@ -696,6 +802,15 @@ export async function collectEvidence({ gh, repo, head, base, mergeSha, checks, 
     } catch (error) {
       if (error?.name === 'GitHubRefusalError') throw error;
       classifications.push({ check: keyOf(check), classification: 'unknown', allowed: false, reason: error.message, headRunId, baseRunId });
+    }
+  }
+  const fullSuiteClear = classifications.some((c) => c.allowed && c.noNewFailures && c.check === 'CI/Tests (full)');
+  if (fullSuiteClear) {
+    for (const item of classifications) {
+      if (item.check !== 'CI/CI merge seal' || item.allowed) continue;
+      item.classification = 'inherited';
+      item.allowed = true;
+      item.reason = 'CI merge seal follows Tests (full) with no new failures versus main';
     }
   }
   const reasons = classifications.filter((c) => !c.allowed).map((c) => `${c.check}: ${c.classification} — ${c.reason}`);

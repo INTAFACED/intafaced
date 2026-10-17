@@ -4,13 +4,22 @@
  * Run from a clean, fetched origin/main checkout. The CLI alone writes the version-bound PASS receipt; it never merges.
  */
 import { spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluateGateFileRule } from './gate-file-guard.mjs';
 import { GitHubRefusalError, ghJson, makeGh } from './gate-gh.mjs';
 import { classify } from '../ci/ci-affected.mjs';
-import { collectEvidence } from './merge-evidence.mjs';
-import { canonicalPatch, isProtectedPath, validateOpusReview, writePassReceipt, invalidateReceipt } from './merge-review.mjs';
+import { collectEvidence, touchesInfraSelection } from './merge-evidence.mjs';
+import {
+  GIT_MAX_BUFFER,
+  canonicalPatch,
+  isProtectedPath,
+  readFetchedMain,
+  validateOpusReview,
+  writePassReceipt,
+  invalidateReceipt,
+} from './merge-review.mjs';
 
 export const REPO = 'Phantom-X-007/intafaced';
 export const MARKER = '<!-- merge-gate -->';
@@ -24,8 +33,14 @@ export const REQUIRED = [
   { workflow: 'Supply chain', name: 'Dependency audit' },
 ];
 
-/** Identity of a check or job: "<workflow>/<job name>". */
+/** Identity of a check or job for required-name matching: "<workflow name>/<job name>". */
 export const keyOf = (c) => `${c.workflow ?? ''}/${c.name}`;
+/** Collapse and duplicate detection: workflow id plus job name, so a second workflow cannot reuse a name. */
+export const collapseKey = (c) => {
+  if (!Number.isSafeInteger(c?.workflowId) || c.workflowId <= 0)
+    throw new GateError(`Check "${c?.workflow ?? ''}/${c?.name ?? ''}" has no workflow id.`);
+  return `${c.workflowId}/${c.name}`;
+};
 export const REQUIRED_KEYS = REQUIRED.map(keyOf);
 export const CI_WORKFLOW_NAME = 'CI';
 /**
@@ -104,16 +119,49 @@ export function ciWouldRun(files, patterns = CI_PR_PATHS) {
   });
 }
 
+const RUN_FIELDS = 'databaseId,workflowName,workflowDatabaseId,status,conclusion';
+
+function runIdFromJobLink(link) {
+  try {
+    const url = new URL(link);
+    const match = /^\/[^/]+\/[^/]+\/actions\/runs\/(\d+)\/job\/\d+$/.exec(url.pathname);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Two runs that share a required check key fail closed. A later green Gitleaks
- * (or a PR-added workflow that reuses the required name) must not hide a red one.
- * Non-required keys still collapse to the latest attempt.
+ * Attach the Actions workflow id. An explicit id wins. Otherwise the job link's
+ * run id is joined to a run list that carries workflowDatabaseId. Missing ids
+ * fail closed: collapsing by workflow name is what lets a second "CI" hide a red job.
+ */
+export function identifyChecks(checks, runs = []) {
+  const byRun = new Map();
+  for (const run of runs) {
+    const id = Number(run?.workflowDatabaseId);
+    if (run?.databaseId != null && Number.isSafeInteger(id) && id > 0) byRun.set(String(run.databaseId), id);
+  }
+  return checks.map((check) => {
+    const explicit = Number(check.workflowId ?? check.workflowDatabaseId);
+    const workflowId = Number.isSafeInteger(explicit) && explicit > 0 ? explicit : byRun.get(runIdFromJobLink(check.link) ?? '');
+    if (!Number.isSafeInteger(workflowId) || workflowId <= 0)
+      throw new GateError(`Check "${check.workflow ?? ''}/${check.name ?? ''}" has no workflow id.`);
+    return { ...check, workflowId };
+  });
+}
+
+/**
+ * Two runs that share one workflow id and a required job name fail closed.
+ * A later green Gitleaks from the same workflow must not hide a red one.
+ * A different workflow id is a different key, so it cannot collapse into this one.
  */
 export function sharedRequiredCheckProblem(checks) {
   const counts = new Map();
   for (const check of checks) {
-    const key = keyOf(check);
-    if (!REQUIRED_KEYS.includes(key)) continue;
+    const named = keyOf(check);
+    if (!REQUIRED_KEYS.includes(named)) continue;
+    const key = collapseKey(check);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   const shared = [...counts.entries()].filter(([, count]) => count > 1);
@@ -121,15 +169,16 @@ export function sharedRequiredCheckProblem(checks) {
   return `Required check key is shared by more than one run: ${shared.map(([key, count]) => `${key} ×${count}`).join(', ')}.`;
 }
 
-/** One entry per workflow+name (a re-run leaves several): keep the latest by completedAt, a pending entry counts as latest. */
+/** One entry per workflow id + job name. A re-run of the same workflow collapses; a second workflow does not. */
 export function collapseChecks(checks) {
-  const byName = new Map();
+  const byKey = new Map();
   for (const c of checks) {
-    const prev = byName.get(keyOf(c));
+    const key = collapseKey(c);
+    const prev = byKey.get(key);
     const stamp = (x) => (x.completedAt && !x.completedAt.startsWith('0001') ? Date.parse(x.completedAt) : Infinity);
-    if (!prev || stamp(c) >= stamp(prev)) byName.set(keyOf(c), c);
+    if (!prev || stamp(c) >= stamp(prev)) byKey.set(key, c);
   }
-  return [...byName.values()];
+  return [...byKey.values()];
 }
 
 export function mergeCommand(pr, head, repo = REPO) {
@@ -147,10 +196,14 @@ function parseArgs(argv) {
     else if (a === '--poll-sec') o.pollSec = Number(argv[++i]);
     else if (a === '--ci-grace-sec') o.ciGraceSec = Number(argv[++i]);
     else if (a === '--no-comment') o.comment = false;
+    else if (a === '--reviewer-input') o.reviewerInput = argv[++i];
     else if (a.startsWith('--')) throw new GateError(`unknown argument: ${a}`);
     else rest.push(a);
   }
-  if (rest.length !== 1 || !/^\d+$/.test(rest[0])) throw new GateError('usage: merge-gate.mjs <pr-number> --head <full-sha>');
+  if (rest.length !== 1 || !/^\d+$/.test(rest[0]))
+    throw new GateError('usage: merge-gate.mjs <pr-number> --head <full-sha> [--reviewer-input <dir>]');
+  if (o.reviewerInput !== undefined && (typeof o.reviewerInput !== 'string' || !o.reviewerInput))
+    throw new GateError('--reviewer-input needs a destination directory');
   if (!/^[0-9a-f]{40}$/.test(o.head ?? '')) throw new GateError('--head must be the full 40-character commit sha you reviewed');
   for (const k of ['timeoutMin', 'pollSec', 'ciGraceSec']) if (!(o[k] > 0)) throw new GateError(`${k} must be a positive number`);
   o.pr = Number(rest[0]);
@@ -174,9 +227,9 @@ export async function runGate(
     readCanonicalPatch,
   } = {},
 ) {
-  const liveMainRef = () => {
+  const liveMainRef = ({ refresh = false } = {}) => {
     if (typeof readLiveMain !== 'function') throw new GateError('Live main ref is required to bind the tested parent.');
-    const sha = String(readLiveMain() ?? '').trim();
+    const sha = String(readLiveMain({ refresh }) ?? '').trim();
     if (!/^[0-9a-f]{40}$/.test(sha)) throw new GateError('Could not read the live main ref.');
     return sha;
   };
@@ -237,10 +290,11 @@ export async function runGate(
     .filter((c) => ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c.author_association));
   const declarationComments = declarationCommentsFingerprint(trustedComments(comments));
   const declarations = [trustedBody(first), ...comments.map((c) => c.body ?? '')].join('\n');
+  const readRuns = () => ghJson(gh, ['run', 'list', '-R', repo, '--commit', head, '-L', '100', '--json', RUN_FIELDS]);
   const readChecks = () => {
     const r = gh(['pr', 'checks', String(pr), '-R', repo, '--json', 'name,state,bucket,workflow,link,completedAt'], { allowFail: true });
     if (r.stdout.trim()) {
-      const raw = JSON.parse(r.stdout);
+      const raw = identifyChecks(JSON.parse(r.stdout), readRuns());
       const shared = sharedRequiredCheckProblem(raw);
       if (shared) throw new GateError(shared);
       return collapseChecks(raw);
@@ -248,8 +302,6 @@ export async function runGate(
     if (/no checks reported/i.test(r.stderr)) return [];
     throw new GateError(`gh pr checks returned nothing (${r.status}): ${r.stderr.trim().slice(0, 300)}`);
   };
-  const readRuns = () =>
-    ghJson(gh, ['run', 'list', '-R', repo, '--commit', head, '-L', '100', '--json', 'databaseId,workflowName,status,conclusion']);
   const pendingChecks = (checks) => checks.filter((c) => !['pass', 'fail', 'cancel', 'skipping'].includes(c.bucket));
   const start = now();
   let stable = 0,
@@ -286,15 +338,28 @@ export async function runGate(
   const reasons = [],
     required = {};
   for (const r of REQUIRED) {
-    const c = settled.checks.find((c) => keyOf(c) === keyOf(r));
-    required[r.name] = c?.bucket ?? 'missing';
-    if (!c) reasons.push(`required check "${r.name}" (workflow "${r.workflow}") never reported`);
-    else if (c.bucket !== 'pass') reasons.push(`required check "${r.name}" is ${c.bucket}`);
+    const named = settled.checks.filter((c) => c.workflow === r.workflow && c.name === r.name);
+    const failed = named.find((c) => c.bucket !== 'pass');
+    required[r.name] = !named.length ? 'missing' : failed ? failed.bucket : 'pass';
+    if (!named.length) reasons.push(`required check "${r.name}" (workflow "${r.workflow}") never reported`);
+    else if (failed) reasons.push(`required check "${r.name}" is ${failed.bucket}`);
   }
   const gate = evaluateGateFileRule(first.title, files);
   if (!gate.ok) reasons.push('Gate files changed without a ci: or gate: title declaration.');
   if (!docsOnly && !settled.ciPresent) reasons.push('CI never started for this non-docs PR.');
   if (!docsOnly) reasons.push(...coverageProblems(files, settled.checks));
+  const protectedFiles = files.filter(isProtectedPath);
+  const infraSelection = touchesInfraSelection(files);
+  let patch;
+  if ((protectedFiles.length || infraSelection) && readCanonicalPatch) {
+    try {
+      patch = readCanonicalPatch({ base: reviewBase, head });
+    } catch (error) {
+      throw new GateError(`Canonical patch failed: ${error.message}`);
+    }
+    if (!patch || !/^[a-f0-9]{64}$/.test(patch.hash ?? '') || !Array.isArray(patch.files))
+      throw new GateError('Canonical patch did not return a hash and file list.');
+  }
   let evidence = {
     pass: true,
     reasons: [],
@@ -304,29 +369,29 @@ export async function runGate(
   if (docsOnly) {
     for (const c of settled.checks) if (FAIL_BUCKETS.has(c.bucket)) reasons.push(`docs-only reported check failed: ${keyOf(c)}`);
   } else if (settled.ciPresent) {
-    evidence = await evidenceCollector({ gh, repo, head, base, mergeSha, checks: settled.checks, files, declarations });
+    evidence = await evidenceCollector({
+      gh,
+      repo,
+      head,
+      base,
+      mergeSha,
+      checks: settled.checks,
+      files,
+      declarations,
+      patchHash: patch?.hash,
+    });
     reasons.push(...evidence.reasons);
     if (!evidence.pass && !evidence.reasons.length) reasons.push('Exact-base/head evidence did not pass.');
   }
-  const protectedFiles = files.filter(isProtectedPath);
-  let patch;
-  if (protectedFiles.length && readCanonicalPatch) {
-    try {
-      patch = readCanonicalPatch({ base: reviewBase, head });
-    } catch (error) {
-      throw new GateError(`Canonical patch failed: ${error.message}`);
-    }
-    if (!patch || !/^[a-f0-9]{64}$/.test(patch.hash ?? '') || !Array.isArray(patch.files))
-      throw new GateError('Canonical patch did not return a hash and file list.');
-  }
-  const reviewResult = protectedFiles.length
-    ? reviewValidator({ head, base: reviewBase, declarations, patch })
-    : { pass: true, reasons: [] };
+  const reviewResult =
+    protectedFiles.length || infraSelection
+      ? reviewValidator({ head, base: reviewBase, declarations, patch })
+      : { pass: true, reasons: [] };
   reasons.push(...reviewResult.reasons);
   if (!reviewResult.pass && !reviewResult.reasons.length) reasons.push('Independent Opus review did not pass.');
   const final = viewPr();
   assertSnapshot(final);
-  const liveMainAtVerdict = liveMainRef();
+  const liveMainAtVerdict = liveMainRef({ refresh: true });
   if (liveMainAtVerdict !== liveMain) throw new GateError('Live main moved during this gate run; run its current copy again.');
   if (!docsOnly && base !== liveMainAtVerdict)
     throw new GateError(`Tested main parent ${base} is not the live main ref ${liveMainAtVerdict}.`);
@@ -480,7 +545,14 @@ export async function runVerifiedGate(
   try {
     const problem = mainCopyProblem(git);
     if (problem) throw new GateError(problem);
-    const readLiveMain = () => {
+    const readLiveMain = ({ refresh = false } = {}) => {
+      if (refresh) {
+        try {
+          return readFetchedMain(git);
+        } catch (error) {
+          throw new GateError(error.message);
+        }
+      }
       const parsed = git(['rev-parse', 'origin/main']);
       const sha = String(parsed.stdout ?? '').trim();
       if (parsed.status !== 0 || !/^[0-9a-f]{40}$/.test(sha)) throw new GateError('Could not read the live main ref.');
@@ -499,21 +571,11 @@ export async function runVerifiedGate(
       const rawChecks = ghJson(gh, ['pr', 'checks', String(o.pr), '-R', o.repo, '--json', 'name,state,bucket,workflow,link,completedAt'], {
         allowFail: true,
       });
-      const shared = sharedRequiredCheckProblem(rawChecks);
+      const runs = ghJson(gh, ['run', 'list', '-R', o.repo, '--commit', o.head, '-L', '100', '--json', RUN_FIELDS]);
+      const identified = identifyChecks(rawChecks, runs);
+      const shared = sharedRequiredCheckProblem(identified);
       if (shared) throw new GateError(shared);
-      const checks = collapseChecks(rawChecks);
-      const runs = ghJson(gh, [
-        'run',
-        'list',
-        '-R',
-        o.repo,
-        '--commit',
-        o.head,
-        '-L',
-        '100',
-        '--json',
-        'databaseId,workflowName,status,conclusion',
-      ]);
+      const checks = collapseChecks(identified);
       if (checkFingerprint(checks) !== checkFingerprint(result.checks) || runs.some((r) => r.status !== 'completed'))
         throw new GateError('Checks changed or restarted before receipt; run the gate again.');
       const comments = ghJson(gh, ['api', '--paginate', '--slurp', `repos/${o.repo}/issues/${o.pr}/comments`])
@@ -581,14 +643,111 @@ export async function runVerifiedGate(
   }
 }
 
+/** Drop global and system git config so the canonical patch hash does not depend on this machine. */
+export function pinnedGitEnv(base = process.env) {
+  const env = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (key === 'GIT_CONFIG_PARAMETERS' || key === 'GIT_CONFIG_COUNT' || key.startsWith('GIT_CONFIG_KEY_') || key.startsWith('GIT_CONFIG_VALUE_'))
+      continue;
+    if (
+      key === 'GIT_EXTERNAL_DIFF' ||
+      key === 'GIT_DIR' ||
+      key === 'GIT_WORK_TREE' ||
+      key === 'GIT_ALTERNATE_OBJECT_DIRECTORIES' ||
+      key === 'GIT_OBJECT_DIRECTORY' ||
+      key === 'GIT_CONFIG_GLOBAL' ||
+      key === 'GIT_CONFIG_SYSTEM' ||
+      key === 'GIT_CONFIG_NOSYSTEM'
+    )
+      continue;
+    env[key] = value;
+  }
+  env.GIT_CONFIG_GLOBAL = '/dev/null';
+  env.GIT_CONFIG_SYSTEM = '/dev/null';
+  env.GIT_CONFIG_NOSYSTEM = '1';
+  env.GIT_CONFIG_COUNT = '0';
+  return env;
+}
+
+/** Production git runner. Output above 1 MB is kept; a truncated buffer is a failure, never a patch. */
+export function runGit(root, args) {
+  const r = spawnSync('git', ['-C', root, ...args], {
+    encoding: 'utf8',
+    timeout: 120_000,
+    maxBuffer: GIT_MAX_BUFFER,
+    env: pinnedGitEnv(),
+  });
+  if (r.error?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')
+    return { status: 2, stdout: '', stderr: 'git output exceeded the gate buffer' };
+  return { status: r.status ?? 2, stdout: String(r.stdout ?? ''), stderr: String(r.stderr ?? r.error?.message ?? '') };
+}
+
+/**
+ * Fetch the PR head and write the canonical patch, its hash and its file list.
+ * The reviewer is launched with the patch file, not with the patch pasted into the prompt.
+ */
+export function writeReviewerInput({ pr, head, repo = REPO, dest, git }) {
+  if (typeof dest !== 'string' || !dest) throw new GateError('--reviewer-input needs a destination directory');
+  if (!/^[0-9a-f]{40}$/.test(head ?? '')) throw new GateError('--head must be the full 40-character commit sha you reviewed');
+  let liveMain;
+  try {
+    liveMain = readFetchedMain(git);
+  } catch (error) {
+    throw new GateError(error.message);
+  }
+  const haveHead = () => {
+    const typed = git(['cat-file', '-t', head]);
+    return typed?.status === 0 && String(typed.stdout ?? '').trim() === 'commit';
+  };
+  const fetchedSha = git(['fetch', '-q', 'origin', head]);
+  if (!fetchedSha || fetchedSha.status !== 0 || !haveHead()) {
+    const fetchedPull = git(['fetch', '-q', 'origin', `pull/${pr}/head`]);
+    if (!fetchedPull || fetchedPull.status !== 0) throw new GateError('Could not fetch the PR head commit.');
+    const tip = git(['rev-parse', 'FETCH_HEAD']);
+    if (String(tip?.stdout ?? '').trim() !== head) throw new GateError('Fetched pull head does not match the reviewed head.');
+    if (!haveHead()) throw new GateError('Fetched PR head is not a commit.');
+  }
+  const baseRun = git(['merge-base', 'origin/main', head]);
+  const reviewBase = String(baseRun?.stdout ?? '').trim();
+  if (!baseRun || baseRun.status !== 0 || !/^[0-9a-f]{40}$/.test(reviewBase))
+    throw new GateError('PR merge base could not be resolved.');
+  let patch;
+  try {
+    patch = canonicalPatch({ git, base: reviewBase, head });
+  } catch (error) {
+    throw new GateError(`Canonical patch failed: ${error.message}`);
+  }
+  mkdirSync(dest, { recursive: true });
+  const patchFile = join(dest, 'canonical.patch');
+  writeFileSync(patchFile, patch.patch);
+  const manifest = {
+    pr,
+    repo,
+    head,
+    base: reviewBase,
+    liveMain,
+    patchHash: patch.hash,
+    files: patch.files,
+    patchFile,
+  };
+  const manifestPath = join(dest, 'reviewer-input.json');
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return { manifestPath, ...manifest };
+}
+
 async function main() {
   try {
     const o = parseArgs(process.argv.slice(2));
     const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-    const git = (args) => {
-      const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 120_000 });
-      return { status: r.status ?? 2, stdout: String(r.stdout ?? ''), stderr: String(r.stderr ?? '') };
-    };
+    const git = (args) => runGit(root, args);
+    if (o.reviewerInput) {
+      const written = writeReviewerInput({ pr: o.pr, head: o.head, repo: o.repo, dest: o.reviewerInput, git });
+      console.log(`Reviewer patch file: ${written.patchFile}`);
+      console.log(`Patch-Hash: ${written.patchHash}`);
+      for (const file of written.files) console.log(`Patch-File: ${file}`);
+      console.log(`Reviewer input: ${written.manifestPath}`);
+      return 0;
+    }
     const result = await runVerifiedGate(o, {
       git,
       gh: makeGh(),

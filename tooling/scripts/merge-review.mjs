@@ -58,58 +58,122 @@ const AGENT_ID = /^[a-f0-9]{7,64}$/i;
 const reviewerId = (id) => typeof id === 'string' && (UUID.test(id) || AGENT_ID.test(id));
 const DEFAULT_RECEIPTS = join(homedir(), '.cache/intafaced/merge-gate/receipts');
 const MAX_TRANSCRIPT_BYTES = 128 * 1024 * 1024;
-const TRUNCATED_OUTPUT = /<persisted-output>|Output too large|Full output saved to|output was truncated/i;
 
-function pathFromDiffMarker(line) {
-  if (!line) return undefined;
-  const body = line.replace(/^(?:---|\+\+\+) /, '').replace(/\t.*$/, '');
-  if (body === '/dev/null') return undefined;
-  const raw = body.startsWith('"') ? body.slice(1, -1).replace(/\\([\\"])/g, '$1') : body;
-  return raw.startsWith('a/') || raw.startsWith('b/') ? raw.slice(2) : undefined;
+/** Above spawnSync's 1 MB default so a lockfile-sized patch is not truncated before hashing. */
+export const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+
+function decodeGitQuoted(body) {
+  const bytes = [];
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== '\\') {
+      bytes.push(body.charCodeAt(i) & 0xff);
+      continue;
+    }
+    const next = body[++i];
+    if (next === undefined) throw new Error('Canonical patch has an undecodable path.');
+    if (next === 'n') bytes.push(10);
+    else if (next === 't') bytes.push(9);
+    else if (next === '\\' || next === '"') bytes.push(next.charCodeAt(0));
+    else if (next >= '0' && next <= '7') {
+      let oct = next;
+      for (let k = 0; k < 2 && body[i + 1] >= '0' && body[i + 1] <= '7'; k++) oct += body[++i];
+      bytes.push(parseInt(oct, 8));
+    } else throw new Error('Canonical patch has an undecodable path.');
+  }
+  return Buffer.from(bytes).toString('utf8');
 }
 
-/** File paths from one canonical patch. A header without a path fails closed. */
+/** Two a/ and b/ paths from one `diff --git` header. Quoted paths and renames included. */
+function pathsFromDiffGitHeader(line) {
+  const rest = line.slice('diff --git '.length);
+  const paths = [];
+  let i = 0;
+  while (paths.length < 2) {
+    while (rest[i] === ' ') i++;
+    if (i >= rest.length) break;
+    let path;
+    if (rest[i] === '"') {
+      const start = i + 1;
+      let j = start;
+      while (j < rest.length && rest[j] !== '"') {
+        if (rest[j] === '\\') j += 1;
+        j += 1;
+      }
+      if (rest[j] !== '"') throw new Error('Canonical patch has a diff header without a file path.');
+      path = decodeGitQuoted(rest.slice(start, j));
+      i = j + 1;
+    } else {
+      const start = i;
+      while (i < rest.length && rest[i] !== ' ') i++;
+      path = rest.slice(start, i);
+    }
+    if (!path.startsWith('a/') && !path.startsWith('b/')) throw new Error('Canonical patch has a diff header without a file path.');
+    paths.push(path.slice(2));
+  }
+  if (paths.length !== 2 || paths.some((path) => !path || /[\0]/.test(path)))
+    throw new Error('Canonical patch has a diff header without a file path.');
+  return paths;
+}
+
+/**
+ * File paths from `diff --git` headers, not from `---`/`+++` lines.
+ * Pure renames, mode-only changes and empty new files have no hunk markers.
+ * Both sides of a rename header count. A header without two paths fails closed.
+ */
 export function filesInCanonicalPatch(patch) {
   const files = [];
-  const lines = String(patch).split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].startsWith('diff --git ')) continue;
-    let minus;
-    let plus;
-    for (let j = i + 1; j < lines.length && !lines[j].startsWith('diff --git '); j++) {
-      if (minus === undefined && lines[j].startsWith('--- ')) minus = lines[j];
-      if (lines[j].startsWith('+++ ')) {
-        plus = lines[j];
-        break;
-      }
+  const seen = new Set();
+  for (const line of String(patch).split('\n')) {
+    if (!line.startsWith('diff --git ')) continue;
+    for (const path of pathsFromDiffGitHeader(line)) {
+      if (seen.has(path)) continue;
+      seen.add(path);
+      files.push(path);
     }
-    const path = pathFromDiffMarker(plus) ?? pathFromDiffMarker(minus);
-    if (!path) throw new Error('Canonical patch has a diff header without a file path.');
-    files.push(path);
   }
   return files;
 }
 
 /**
- * The gate's own patch. `git` is `(args) => {status, stdout, stderr}` and is
- * called with exactly the lead's diff options. A checkout wrapper may prepend
- * `-C <origin/main worktree>`; it must not drop these options.
- * `.gitattributes -diff` is defeated by `--text`. `core.attributesFile=/dev/null`
- * drops the extra user attributes file. External diffs and textconv are off.
+ * Diff options that keep the patch bytes independent of rename detection,
+ * a/ b/ prefixes, abbreviation and context. The runner must also ignore
+ * global and system git config (`pinnedGitEnv`); these `-c` flags still win
+ * if a local config sets the same keys. `.gitattributes -diff` is defeated
+ * by `--text`. External diffs and textconv are off.
  */
-export function canonicalPatch({ git, base, head }) {
-  if (typeof git !== 'function' || !SHA.test(base ?? '') || !SHA.test(head ?? ''))
-    throw new Error('Canonical patch requires a git runner and full merge-base and head SHAs.');
-  const args = [
+export function canonicalDiffArgs(base, head) {
+  return [
     '-c',
     'core.attributesFile=/dev/null',
+    '-c',
+    'diff.noprefix=false',
+    '-c',
+    'diff.mnemonicPrefix=false',
+    '-c',
+    'diff.renames=false',
+    '-c',
+    'core.quotePath=true',
     'diff',
     '--no-ext-diff',
     '--no-textconv',
     '--text',
     '--no-color',
+    '--no-renames',
+    '--full-index',
+    '--unified=3',
     `${base}...${head}`,
   ];
+}
+
+/**
+ * The gate's own patch. `git` is `(args) => {status, stdout, stderr}` and is
+ * called with `canonicalDiffArgs`. A checkout wrapper may prepend
+ * `-C <origin/main worktree>`; it must not drop these options.
+ */
+export function canonicalPatch({ git, base, head }) {
+  if (typeof git !== 'function' || !SHA.test(base ?? '') || !SHA.test(head ?? ''))
+    throw new Error('Canonical patch requires a git runner and full merge-base and head SHAs.');
+  const args = canonicalDiffArgs(base, head);
   const result = git(args);
   if (!result || result.status !== 0) {
     throw new Error(
@@ -253,50 +317,9 @@ function reviewerMutation(commands, depth = 0) {
   });
 }
 
-function gitInvocationRejection(words) {
-  const rest = [...words];
-  while (['command', 'then', 'do', 'else', 'if', 'elif', 'while', 'until', '!'].includes(rest[0])) rest.shift();
-  if (rest[0] === 'env') rest.shift();
-  const assignments = [];
-  while (rest.length && /^[A-Za-z_]\w*=/.test(rest[0])) assignments.push(rest.shift());
-  if (!/(?:^|\/)git$/.test(rest[0] ?? '')) return undefined;
-  if (assignments.length) return 'Reviewer git command uses an environment-variable prefix.';
-  rest.shift();
-  while (rest[0]?.startsWith('-')) {
-    const flag = rest.shift();
-    if (flag === '--') break;
-    if (flag === '--no-pager') continue;
-    return 'Reviewer git command uses a global option other than --no-pager.';
-  }
-  return undefined;
-}
-
-function rejectedGitInvocation(commands, depth = 0) {
-  if (depth > 4) return 'Reviewer shell command cannot be safely inspected.';
-  for (const { words } of commands) {
-    const reason = gitInvocationRejection(words);
-    if (reason) return reason;
-    const args = executableWords(words);
-    if (/^(?:.*\/)?(?:ba|z|da)?sh$/.test(args[0] ?? '')) {
-      const flag = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg));
-      if (flag > 0 && typeof args[flag + 1] === 'string') {
-        const nested = shellCommands(args[flag + 1]);
-        if (!nested) return 'Reviewer shell command cannot be safely inspected.';
-        const nestedReason = rejectedGitInvocation(nested, depth + 1);
-        if (nestedReason) return nestedReason;
-      }
-    }
-  }
-  return undefined;
-}
-
 function contentBlocks(message) {
   if (!message) return [];
   return Array.isArray(message.content) ? message.content : [{ type: 'text', text: message.content }];
-}
-
-function truncatedToolOutput(message) {
-  return contentBlocks(message).some((block) => block?.type === 'tool_result' && TRUNCATED_OUTPUT.test(textContent(block.content)));
 }
 
 function reviewInTranscript(file, session, reviewer, head, patch, subagent = false) {
@@ -328,7 +351,6 @@ function reviewInTranscript(file, session, reviewer, head, patch, subagent = fal
     )
       return undefined;
     const message = entry.message;
-    if (truncatedToolOutput(message)) return { blocked: 'Reviewer tool output is persisted or truncated.' };
     if (entry.type === 'user' && message?.role === 'user') {
       const prompt = textContent(message.content);
       if (/Opus-Review:/i.test(prompt) || (prompt.toLowerCase().includes(head.toLowerCase()) && /\bPASS\b/i.test(prompt)))
@@ -341,8 +363,6 @@ function reviewInTranscript(file, session, reviewer, head, patch, subagent = fal
         const commands = shellCommands(block.input.command);
         if (!commands) return { blocked: 'Reviewer shell command cannot be safely inspected.' };
         if (reviewerMutation(commands)) return { blocked: 'Reviewer transcript executes git commit or git push.' };
-        const rejected = rejectedGitInvocation(commands);
-        if (rejected) return { blocked: rejected };
       }
     }
     report.push(...plainLines(textContent(message.content)));
@@ -537,14 +557,44 @@ export function writePassReceipt({ repo, pr, head, liveHead, base, gateSha, evid
   return { path, receipt };
 }
 
+/**
+ * Fetch origin/main and return its full SHA. Callers that trust a receipt or
+ * compare the tested parent at verdict time must use this, not a stale rev-parse.
+ */
+export function readFetchedMain(git) {
+  if (typeof git !== 'function') throw new Error('A git runner is required to fetch origin/main.');
+  const fetched = git(['fetch', '-q', 'origin', 'main']);
+  if (!fetched || fetched.status !== 0)
+    throw new Error(
+      `could not fetch origin/main (${String(fetched?.stderr ?? '')
+        .trim()
+        .slice(0, 200)})`,
+    );
+  const parsed = git(['rev-parse', 'origin/main']);
+  const sha = String(parsed?.stdout ?? '').trim();
+  if (!parsed || parsed.status !== 0 || !SHA.test(sha)) throw new Error('Could not read the live main ref.');
+  return sha;
+}
+
 /** Consumer freshness guard, not tamper resistance: a same-user process can forge JSON. */
-export function validatePassReceipt(receipt, { head, gateSha, now = Date.now(), maxAgeMs = 30 * 60_000 } = {}) {
+export function validatePassReceipt(receipt, { head, gateSha, git, now = Date.now(), maxAgeMs = 30 * 60_000 } = {}) {
   const reasons = [];
   if (!receipt || typeof receipt !== 'object' || receipt.schemaVersion !== 1 || receipt.status !== 'PASS')
     reasons.push('Receipt is not a schema-version-1 PASS.');
   if (!SHA.test(head ?? '') || receipt?.head !== head || receipt?.liveHead !== head)
     reasons.push('Receipt does not match the live PR head.');
   if (!SHA.test(gateSha ?? '') || receipt?.gateSha !== gateSha) reasons.push('Receipt does not match the current trusted gate revision.');
+  let liveMain;
+  if (typeof git !== 'function') reasons.push('Receipt trust requires a fresh fetch of origin/main.');
+  else {
+    try {
+      liveMain = readFetchedMain(git);
+    } catch (error) {
+      reasons.push(error.message);
+    }
+  }
+  if (!SHA.test(receipt?.base ?? '') || !SHA.test(liveMain ?? '') || receipt.base !== liveMain)
+    reasons.push('Receipt base does not match live origin/main.');
   const createdAt = typeof receipt?.createdAt === 'string' ? Date.parse(receipt.createdAt) : NaN;
   if (
     !Number.isFinite(now) ||

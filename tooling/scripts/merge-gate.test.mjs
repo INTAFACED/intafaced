@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writePassReceipt, invalidateReceipt } from './merge-review.mjs';
+import { GIT_MAX_BUFFER, writePassReceipt, invalidateReceipt } from './merge-review.mjs';
 import { test } from 'node:test';
 import { GitHubRefusalError } from './gate-gh.mjs';
 import {
@@ -12,8 +12,10 @@ import {
   ciWouldRun,
   collapseChecks,
   coverageProblems,
+  identifyChecks,
   sharedRequiredCheckProblem,
   mainCopyProblem,
+  writeReviewerInput,
   mergeCommand,
   runGate,
   runVerifiedGate,
@@ -24,9 +26,11 @@ const HEAD = 'a'.repeat(40),
   BASE = 'c'.repeat(40),
   MERGE = 'd'.repeat(40),
   REPO = 'o/r';
-const chk = (name, bucket = 'pass', workflow = 'CI') => ({
+const WORKFLOW_IDS = { CI: 9001, Gitleaks: 9002, 'Supply chain': 9003, Other: 9004, 'Docs format': 9005 };
+const chk = (name, bucket = 'pass', workflow = 'CI', workflowId = WORKFLOW_IDS[workflow]) => ({
   name,
   workflow,
+  workflowId,
   bucket,
   state: bucket.toUpperCase(),
   completedAt: '2026-10-15T00:00:00Z',
@@ -754,10 +758,57 @@ test('two runs sharing a required check key fail closed instead of keeping the l
     link: 'https://github.com/o/r/actions/runs/1/job/9',
   };
   const newer = { ...REQ[0], bucket: 'pass', completedAt: '2026-10-16T00:00:00Z', link: 'https://github.com/o/r/actions/runs/2/job/10' };
-  assert.match(sharedRequiredCheckProblem([older, newer]), /Gitleaks\/Gitleaks ×2/);
+  assert.match(sharedRequiredCheckProblem([older, newer]), /9002\/Gitleaks ×2/);
   assert.equal(sharedRequiredCheckProblem([...REQ, ...CI]), null);
   await assert.rejects(world({ checks: [older, newer, REQ[1], ...CI] }).run(), /shared by more than one run/);
 });
+test('checks collapse by workflow id and job name, so a second CI cannot hide a red job', () => {
+  const red = chk('Typecheck & build', 'fail', 'CI', 9001);
+  const impostor = { ...chk('Typecheck & build', 'pass', 'CI', 9099), completedAt: '2026-10-16T00:00:00Z' };
+  const kept = collapseChecks([red, impostor]);
+  assert.equal(kept.length, 2);
+  assert.ok(kept.some((c) => c.workflowId === 9001 && c.bucket === 'fail'));
+  assert.equal(sharedRequiredCheckProblem([red, impostor]), null);
+  const joined = identifyChecks(
+    [{ name: 'Typecheck & build', workflow: 'CI', bucket: 'fail', link: 'https://github.com/o/r/actions/runs/55/job/7' }],
+    [{ databaseId: 55, workflowDatabaseId: 9001, status: 'completed' }],
+  );
+  assert.equal(joined[0].workflowId, 9001);
+  assert.throws(() => identifyChecks([{ name: 'Typecheck & build', workflow: 'CI', link: 'https://example.test/nope' }], []), /no workflow id/);
+});
+
+test('reviewer input fetches the PR head and writes the patch file, hash and file list', () => {
+  const dest = mkdtempSync(join(tmpdir(), 'reviewer-input-'));
+  const patchBody = 'diff --git a/src/a.ts b/src/a.ts\n';
+  try {
+    const calls = [];
+    const git = (args) => {
+      calls.push(args.join(' '));
+      const key = args.join(' ');
+      if (key === 'fetch -q origin main') return { status: 0, stdout: '', stderr: '' };
+      if (key === 'rev-parse origin/main') return { status: 0, stdout: `${TARGET}\n`, stderr: '' };
+      if (key === `fetch -q origin ${HEAD}`) return { status: 0, stdout: '', stderr: '' };
+      if (key === `cat-file -t ${HEAD}`) return { status: 0, stdout: 'commit\n', stderr: '' };
+      if (key === `merge-base origin/main ${HEAD}`) return { status: 0, stdout: `${BASE}\n`, stderr: '' };
+      if (args[0] === '-c' && args.includes('diff')) return { status: 0, stdout: patchBody, stderr: '' };
+      throw new Error(`unexpected git ${key}`);
+    };
+    const written = writeReviewerInput({ pr: 7, head: HEAD, repo: REPO, dest, git });
+    assert.equal(written.patchHash.length, 64);
+    assert.deepEqual(written.files, ['src/a.ts']);
+    assert.equal(readFileSync(written.patchFile, 'utf8'), patchBody);
+    const manifest = JSON.parse(readFileSync(written.manifestPath, 'utf8'));
+    assert.equal(manifest.head, HEAD);
+    assert.equal(manifest.base, BASE);
+    assert.equal(manifest.liveMain, TARGET);
+    assert.equal(manifest.patchFile, written.patchFile);
+    assert.ok(calls.some((c) => c === `fetch -q origin ${HEAD}`));
+    assert.ok(GIT_MAX_BUFFER > 1024 * 1024);
+  } finally {
+    rmSync(dest, { recursive: true, force: true });
+  }
+});
+
 test('pre-receipt refuses a tested parent that is not the captured live main', async () =>
   withReceipts(async (receiptRoot) => {
     const stale = 'e'.repeat(40);

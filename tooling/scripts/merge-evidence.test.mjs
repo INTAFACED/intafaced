@@ -206,11 +206,15 @@ test('missing signature, location, task attribution and extra unhandled errors b
   }
 });
 
-test('money invariant identical at base is blocked on unrelated UI PR', () => {
-  const result = pure({ headLog: money, baseLog: money });
-  assert.equal(result.classification, 'inherited');
-  assert.equal(result.allowed, false);
-  assert.match(result.reason, /protected/);
+test('money invariant already failing on main is no new failure; a new money workspace still blocks', () => {
+  const same = pure({ headLog: money, baseLog: money });
+  assert.equal(same.classification, 'inherited');
+  assert.equal(same.allowed, true);
+  assert.equal(same.noNewFailures, true);
+  assert.match(same.reason, /no new failing workspaces/);
+  const added = pure({ headLog: money, baseLog: ui });
+  assert.equal(added.classification, 'introduced');
+  assert.equal(added.allowed, false);
 });
 
 test('doctrine/security and task with unknown provenance never get inherited allowance', () => {
@@ -554,18 +558,54 @@ test('broad coverage denominator comes from trusted workspaces, never only emitt
   assert.equal((await collectEvidence(f.options)).pass, true);
 });
 
-test('green proofs apply the same CI and test-selection coverage refusal as failures', async () => {
+test('infra selection passes on the full suite when nothing new fails and the Opus patch hash is quoted', async () => {
+  const hash = 'ab'.repeat(32);
+  const all = ['@intafaced/ui', '@intafaced/ledger-client', '@intafaced/i18n']
+    .map((name) => passedUi.replaceAll('@intafaced/ui', name))
+    .join('\n');
   const f = fixture({
     headJob: job(201, 'success'),
-    headLog: passedUi,
+    headLog: all,
     baseConclusion: 'success',
-    baseLog: passedUi,
+    baseLog: all,
     files: ['package.json'],
   });
   f.options.checks = [{ ...check, bucket: 'pass' }];
+  const missing = await collectEvidence(f.options);
+  assert.equal(missing.pass, false);
+  assert.match(missing.reasons.join(' '), /canonical patch hash/);
+  f.options.patchHash = hash;
+  f.options.declarations = `${declarations}\nPatch-Hash: ${hash}`;
+  const ok = await collectEvidence(f.options);
+  assert.equal(ok.pass, true, ok.reasons.join('; '));
+  f.options.declarations = `${declarations}\n\`\`\`\nPatch-Hash: ${hash}\n\`\`\``;
+  const fenced = await collectEvidence(f.options);
+  assert.equal(fenced.pass, false);
+  assert.match(fenced.reasons.join(' '), /canonical patch hash/);
+});
+
+test('infra selection still refuses an affected-only shard', async () => {
+  const f = shardFixture({ green: true, baseName: 'Tests (full)', baseConclusion: 'success' });
+  f.options.files = ['package.json', ...f.options.files];
+  f.options.patchHash = 'cd'.repeat(32);
+  f.options.declarations += `\nPatch-Hash: ${f.options.patchHash}`;
   const result = await collectEvidence(f.options);
   assert.equal(result.pass, false);
-  assert.match(result.reasons.join(' '), /CI\/test selection changed/);
+  assert.match(result.reasons.join(' '), /affected-only/);
+});
+
+test('CI merge seal is excused only when Tests (full) has no new failures versus main', async () => {
+  const seal = { workflow: 'CI', name: 'CI merge seal', bucket: 'fail', link: `https://github.com/${REPO}/actions/runs/200/job/301` };
+  const f = fixture();
+  f.options.checks = [...f.options.checks, seal];
+  const allowed = await collectEvidence(f.options);
+  assert.equal(allowed.pass, true, allowed.reasons.join('; '));
+  assert.ok(allowed.classifications.some((c) => c.check === 'CI/CI merge seal' && c.allowed));
+  const introduced = fixture({ baseConclusion: 'success', baseLog: passedUi });
+  introduced.options.checks = [...introduced.options.checks, seal];
+  const blocked = await collectEvidence(introduced.options);
+  assert.equal(blocked.pass, false);
+  assert.match(blocked.reasons.join(' '), /introduced|CI merge seal/);
 });
 
 test('changed workspaces may be covered by separate exact-commit shards, with no workspace omitted', async () => {

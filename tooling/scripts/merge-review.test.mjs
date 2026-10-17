@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -17,10 +18,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MONEY_PATH_ROOTS } from '../ci/money-skip-inventory.mjs';
 import { GATE_PATHS } from './gate-file-guard.mjs';
+import { pinnedGitEnv, runGit } from './merge-gate.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  canonicalDiffArgs,
   canonicalPatch,
+  filesInCanonicalPatch,
   invalidateReceipt,
   isProtectedPath,
   validateOpusReview,
@@ -476,17 +480,37 @@ test('receipt identifiers, review mismatch and symlink writes fail closed', (t) 
   assert.equal(lstatSync(receiptRoot).isSymbolicLink(), true);
 });
 
-test('receipt consumer binds live head, current gate revision and a bounded nonfuture age', () => {
+test('receipt consumer binds live head, fetched origin/main, current gate revision and a bounded nonfuture age', () => {
   const now = Date.parse('2026-10-15T11:00:00Z');
-  const receipt = { schemaVersion: 1, status: 'PASS', head, liveHead: head, gateSha, createdAt: new Date(now - 60_000).toISOString() };
-  const validate = (value = receipt, options = {}) => validatePassReceipt(value, { head, gateSha, now, ...options });
+  const receipt = {
+    schemaVersion: 1,
+    status: 'PASS',
+    head,
+    liveHead: head,
+    base,
+    gateSha,
+    createdAt: new Date(now - 60_000).toISOString(),
+  };
+  const git = (args) => {
+    const key = args.join(' ');
+    if (key === 'fetch -q origin main') return { status: 0, stdout: '', stderr: '' };
+    if (key === 'rev-parse origin/main') return { status: 0, stdout: `${base}\n`, stderr: '' };
+    throw new Error(key);
+  };
+  const validate = (value = receipt, options = {}) => validatePassReceipt(value, { head, gateSha, git, now, ...options });
   assert.equal(validate().pass, true);
+  assert.equal(validate(receipt, { git: undefined }).pass, false, 'a receipt is not trusted without a fresh fetch');
+  const stale = (args) => (args[0] === 'rev-parse' ? { status: 0, stdout: `${head}\n`, stderr: '' } : git(args));
+  assert.equal(validate(receipt, { git: stale }).pass, false);
+  assert.match(validate(receipt, { git: stale }).reasons.join(' '), /live origin\/main/);
   for (const change of [
     { schemaVersion: 2 },
     { status: 'FAIL' },
     { head: base },
     { liveHead: base },
     { liveHead: undefined },
+    { base: head },
+    { base: undefined },
     { gateSha: base },
     { createdAt: 'not-a-date' },
     { createdAt: new Date(now + 1).toISOString() },
@@ -500,7 +524,7 @@ test('receipt consumer binds live head, current gate revision and a bounded nonf
   assert.equal(validate(null).pass, false);
 });
 
-test('review transcripts reject env prefixes, git globals other than --no-pager, and truncated output', (t) => {
+test('a patch file, git -C, env prefixes and saved large output do not block a quoted review', (t) => {
   const f = fixture(t);
   const diff = `git diff ${base}...${head}`;
   for (const command of [
@@ -508,22 +532,39 @@ test('review transcripts reject env prefixes, git globals other than --no-pager,
     `GIT_DIR=/tmp/elsewhere ${diff}`,
     `env GIT_EXTERNAL_DIFF=/tmp/evil ${diff}`,
     `git -c diff.external=/tmp/evil diff ${base}...${head}`,
-    `git -c core.attributesFile=/tmp/attr diff ${base}...${head}`,
     `git -C /repo diff ${base}...${head}`,
     `git --git-dir=/tmp/elsewhere diff ${base}...${head}`,
     `bash -c 'GIT_DIR=/tmp/elsewhere git diff ${base}...${head}'`,
+    'cat /tmp/reviewer-input/canonical.patch',
   ]) {
     f.save([...f.diffEntries(command), f.assistant()], { withDiff: false });
-    assert.equal(f.validate().pass, false, command);
+    assert.equal(f.validate().pass, true, command);
   }
   const preview =
     '<persisted-output>\nOutput too large (40KB). Full output saved to: /tmp/tool-results/patch.txt\n\nPreview (first 2KB):\ndiff --git a/src/a.ts b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n</persisted-output>';
-  f.save([...f.diffEntries(diff, preview), f.assistant()], { withDiff: false });
-  assert.equal(f.validate().pass, false, 'persisted preview cannot authorize a review');
-  f.save([...f.diffEntries(`git --no-pager ${diff}`), f.assistant()], { withDiff: false });
-  assert.equal(f.validate().pass, true, '--no-pager is the only allowed git global and is not itself proof');
+  f.save([...f.diffEntries('cat /tmp/reviewer-input/canonical.patch', preview), f.assistant()], { withDiff: false });
+  assert.equal(f.validate().pass, true, 'the patch is a file; a saved tool result is not the proof');
   f.save([f.assistant()], { withDiff: false });
   assert.equal(f.validate().pass, true, 'the report quote stands without a reviewer diff command');
+});
+
+test('canonical file list comes from diff headers, including rename, mode and empty files', () => {
+  assert.deepEqual(
+    filesInCanonicalPatch(
+      ['diff --git a/old.ts b/old.ts', 'deleted file mode 100644', 'diff --git a/new.ts b/new.ts', 'new file mode 100644'].join('\n'),
+    ),
+    ['old.ts', 'new.ts'],
+  );
+  assert.deepEqual(filesInCanonicalPatch('diff --git a/script.sh b/script.sh\nold mode 100644\nnew mode 100755\n'), ['script.sh']);
+  assert.deepEqual(filesInCanonicalPatch('diff --git a/empty.txt b/empty.txt\nnew file mode 100644\nindex 0000000..e69de29\n'), [
+    'empty.txt',
+  ]);
+  assert.deepEqual(filesInCanonicalPatch('diff --git "a/my file.ts" "b/my file.ts"\n'), ['my file.ts']);
+  assert.throws(() => filesInCanonicalPatch('diff --git a/only-one\n'), /without a file path/);
+  const args = canonicalDiffArgs(base, head);
+  assert.ok(args.includes('--no-renames'));
+  assert.ok(args.includes('diff.noprefix=false'));
+  assert.ok(args.includes('--full-index'));
 });
 
 test('canonical patch keeps text hidden by .gitattributes -diff', (t) => {
@@ -584,6 +625,56 @@ test('canonical patch keeps text hidden by .gitattributes -diff', (t) => {
     { withDiff: false },
   );
   assert.equal(f.validate({ patch: canonical }).pass, true, resultReason(f.validate({ patch: canonical })));
+});
+
+test('canonical patch hash ignores global git config and accepts a patch over 1 MB', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'canonical-pin-'));
+  const config = join(dir, 'global.gitconfig');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(config, '[diff]\n\tnoprefix = true\n\trenames = true\n\tcontext = 20\n[core]\n\tabbrev = 7\n');
+  const repo = join(dir, 'repo');
+  mkdirSync(repo);
+  const env = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: config,
+    GIT_AUTHOR_NAME: 'gate-test',
+    GIT_AUTHOR_EMAIL: 'gate-test@example.com',
+    GIT_COMMITTER_NAME: 'gate-test',
+    GIT_COMMITTER_EMAIL: 'gate-test@example.com',
+  };
+  const raw = (args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', env });
+  assert.equal(raw(['init']).status, 0);
+  writeFileSync(join(repo, 'old-name.txt'), 'alpha\n');
+  writeFileSync(join(repo, 'script.sh'), 'echo ok\n');
+  writeFileSync(join(repo, 'wide.txt'), `${'x'.repeat(1_100_000)}\n`);
+  assert.equal(raw(['add', 'old-name.txt', 'script.sh', 'wide.txt']).status, 0);
+  assert.equal(raw(['commit', '-m', 'base']).status, 0);
+  const pinnedBase = raw(['rev-parse', 'HEAD']).stdout.trim();
+  raw(['mv', 'old-name.txt', 'new-name.txt']);
+  writeFileSync(join(repo, 'empty.txt'), '');
+  writeFileSync(join(repo, 'wide.txt'), `${'y'.repeat(1_100_000)}\n`);
+  chmodSync(join(repo, 'script.sh'), 0o755);
+  assert.equal(raw(['add', '-A']).status, 0);
+  assert.equal(raw(['commit', '-m', 'change']).status, 0);
+  const pinnedHead = raw(['rev-parse', 'HEAD']).stdout.trim();
+  const previous = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = config;
+  try {
+    assert.equal(pinnedGitEnv().GIT_CONFIG_GLOBAL, '/dev/null');
+    const canonical = canonicalPatch({ git: (args) => runGit(repo, args), base: pinnedBase, head: pinnedHead });
+    assert.ok(canonical.patch.length > 1024 * 1024);
+    assert.ok(canonical.files.includes('old-name.txt'));
+    assert.ok(canonical.files.includes('new-name.txt'));
+    assert.ok(canonical.files.includes('empty.txt'));
+    assert.ok(canonical.files.includes('script.sh'));
+    assert.ok(canonical.files.includes('wide.txt'));
+    assert.match(canonical.patch, /^diff --git a\//m);
+    const again = canonicalPatch({ git: (args) => runGit(repo, args), base: pinnedBase, head: pinnedHead });
+    assert.equal(again.hash, canonical.hash);
+  } finally {
+    if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previous;
+  }
 });
 
 function resultReason(result) {
