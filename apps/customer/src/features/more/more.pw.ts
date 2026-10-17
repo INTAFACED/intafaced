@@ -625,7 +625,13 @@ test('quant sandbox labels server output simulated and never offers live deploym
     if (proc === 'sandbox.capabilities')
       data = { isolate: 'wired', languages: ['javascript', 'typescript', 'python'], venueVault: 'unset', refuse: null };
     if (proc === 'sandbox.run') {
-      expect(route.request().postDataJSON()).toMatchObject({ cash: '17.125', environment: 'paper', presentedAs: 'paper' });
+      expect(route.request().postDataJSON()).toMatchObject({
+        cash: '17.125',
+        environment: 'paper',
+        presentedAs: 'paper',
+        idempotencyKey: expect.any(String),
+      });
+      expect(String(route.request().postDataJSON().idempotencyKey).trim()).not.toBe('');
       data = {
         ok: true,
         language: 'javascript',

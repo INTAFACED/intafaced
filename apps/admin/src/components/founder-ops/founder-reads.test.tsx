@@ -109,7 +109,8 @@ describe('merchant drilldown F07-F23 reads every section of the contract', () =>
     expect(out).toContain('9,007,199,254,740,993');
     expect(out).toContain('rail.declined');
     expect(out).toContain('refund-TEST-1');
-    expect(out).toContain('No snapshot');
+    expect(out).not.toContain('No snapshot');
+    expect(out).toContain('No fee: payment failed');
     expect(out).toContain('1.25 USDT');
     // Digits beyond a float's reach survive: the trailing 1 of the 18th decimal is not rounded away.
     expect(out).toContain('9,007,199,254,740,993.000000000000000001');
@@ -254,7 +255,7 @@ describe('lists: paging, filters, empty and error states', () => {
       'founderAdmin.merchants.section': () => Response.json({ error: { data: { cause: { code: 'pay.not_built' } } } }, { status: 501 }),
     });
     const out = await drill('customers');
-    expect(out).toContain('Not built yet');
+    expect(out).toContain('Not switched on here');
     expect(out).toContain('founderAdmin.merchants.section');
   });
 });

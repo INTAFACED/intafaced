@@ -3,6 +3,7 @@ import { MerchantDetailView, parseTab } from '@/components/merchants/merchant-de
 import { dayOf } from '@/lib/merchants/dates';
 import { loadNotes } from '@/lib/founder-ops/reads';
 import { loadMerchantApprovals, loadMerchantControls, loadMerchantDetail, loadMerchantHalts, parsePreset } from '@/lib/merchants/loaders';
+import { isTestData } from '@/components/merchants/test-data-badge';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { requireMerchantsFounder } from '@/lib/merchants/page-gate';
 
@@ -52,6 +53,7 @@ export default async function MerchantPage({
       preset={preset}
       asset={typeof query.asset === 'string' ? query.asset : undefined}
       today={dayOf(now)}
+      testData={isTestData()}
     />
   );
 }

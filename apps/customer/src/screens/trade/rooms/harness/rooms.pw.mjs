@@ -151,6 +151,47 @@ test.describe('Options', () => {
     await clean(page, mock);
   });
 
+  test('orders: cancel all with mixed outcomes keeps unconfirmed and unsent orders out of "cancelled"', async ({ page }) => {
+    const mock = await start(page, 'options', { at: OTC_NOW });
+    for (const price of ['500', '510', '520', '530']) {
+      await grid(page, 'Option contracts').getByText('TEST-BTC-25DEC26-60000-C').click();
+      const ticket = page.getByRole('region', { name: 'Order ticket' });
+      await ticket.getByLabel('Size in contracts').fill('1');
+      await ticket.getByLabel('Limit price').fill(price);
+      await ticket.getByRole('button', { name: 'Review order' }).click();
+      await ticket.getByRole('button', { name: 'Place order' }).click();
+      await dialog(page).getByRole('button', { name: 'Place order' }).click();
+      await expect(page.getByText('Done. Your order list will update in a moment.')).toBeVisible();
+    }
+    // Cancel answers, in order: 1 cancelled, 2 refused by the service, 3 answer lost, 4 never reached.
+    let seen = 0;
+    await page.route('**/api/v1/orders/*', async (route) => {
+      if (route.request().method() !== 'DELETE') return route.fallback();
+      seen += 1;
+      if (seen === 1) return route.fallback();
+      if (seen === 2) return route.fulfill({ status: 412, json: { code: 'trade.order_not_cancellable', message: 'Refused' } });
+      return route.abort('connectionreset');
+    });
+    await page.getByRole('tab', { name: 'Orders' }).click();
+    await page.getByRole('button', { name: 'Cancel all open orders' }).click();
+    await dialog(page)
+      .getByRole('button', { name: /Cancel 4 orders/ })
+      .click();
+    const result = page.getByRole('region', { name: 'Cancel all: result' });
+    await expect(result.getByText('1 of 4 cancelled.')).toBeVisible();
+    await expect(result.getByText(/1 refused/)).toBeVisible();
+    await expect(result.getByText(/1 unconfirmed/)).toBeVisible();
+    await expect(result.getByText(/1 not sent/)).toBeVisible();
+    await expect(result.getByText(/still to go/)).toHaveCount(0);
+    await expect(result.getByText('Unconfirmed: the order may still be live. Check Open orders.')).toBeVisible();
+    // The lost-answer order (price 510.0) is still a row in Open orders: nothing hid it.
+    const openOrders = page.getByRole('region', { name: 'Open orders' });
+    await expect(openOrders.getByRole('row').filter({ hasText: '510.0' })).toHaveCount(1);
+    await shot(page, 'options-04d-cancel-all-mixed', { only: [1440, 900] });
+    await shot(page, 'options-04d-cancel-all-mixed-narrow', { only: [390, 844] });
+    await clean(page, mock);
+  });
+
   test('ticket: a live contract is disabled with its reason', async ({ page }) => {
     const mock = await start(page, 'options', { at: OTC_NOW });
     await grid(page, 'Option contracts').getByText('TEST-BTC-LIVE-65000-C').click();

@@ -74,6 +74,10 @@ import { ActionApprovalError } from './auth/action-approval-service.js';
 import { userCopy } from './user-copy.js';
 import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
 import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
+import type { ProfileService } from './profile/profile-service.js';
+import { createProfileRouter } from './profile/profile-router.js';
+import type { AccountChange } from './account/account-router.js';
+import { createAccountRouter } from './account/account-router.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -490,6 +494,10 @@ export function createIdentityRouter(
      * tests; index.ts wires the session row check. A revoked row refuses.
      */
     assertStaffSessionLive?: (sessionId: string, userId: string) => Promise<void>;
+    /** Customer profile edit. Absent → `profile.get` / `profile.update` refuse closed. */
+    profile?: ProfileService;
+    /** Email and phone change. Absent → those doors refuse closed. */
+    account?: AccountChange;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -627,13 +635,16 @@ export function createIdentityRouter(
         return { userId: ctx.principal.userId, handle: view.handle, emailVerified: view.emailVerified };
       }),
 
+    profile: createProfileRouter(options.profile),
+    account: createAccountRouter(options.account),
+
     users: router({
       /**
        * Pay by exact @handle: show the sender who they are about to pay.
        *
        * Returns the least that lets a sender confirm the right person: the
        * stored handle, the user id the transfer needs, and `self`. No display
-       * name (today it is a copy of the handle, never user-set), no email,
+       * name (a profile display name is never returned here), no email,
        * phone or legal name.
        *
        * No enumeration: exact case-insensitive match only; malformed, unknown,

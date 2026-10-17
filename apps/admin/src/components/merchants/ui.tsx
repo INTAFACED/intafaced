@@ -179,7 +179,7 @@ export function FailureState({ failure, what, retryHref }: { failure: PayFailure
   switch (failure.kind) {
     case 'not_built':
       return (
-        <StateBlock kind="not_built" title="Not built yet" requestId={failure.requestId}>
+        <StateBlock kind="not_built" title="Not switched on here" requestId={failure.requestId}>
           {what} needs a service procedure that is not switched on in this deployment (<code>{failure.procedure}</code>). Nothing is shown
           rather than a made-up number.
         </StateBlock>

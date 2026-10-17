@@ -70,6 +70,8 @@ import { createActionApprovalRouter } from './action-approval-router.js';
 import { createStepUpRouter } from './step-up-router.js';
 import { CustomerStepUpService } from './auth/customer-step-up.js';
 import { SqlCustomerStepUpStore } from './auth/customer-step-up-store.js';
+import { ProfileService } from './profile/profile-service.js';
+import { AccountChange } from './account/account-router.js';
 import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { registerAffiliateProducerAccrue } from './affiliates/producer-accrue.js';
@@ -169,6 +171,21 @@ await sql`SELECT consumed_by_service, consumed_by_principal, consumed_request_id
 await sql`SELECT user_id, restricted, version FROM trading_restrictions LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: trading_restrictions is missing — apply drizzle/0038_action_approval_consume_provenance.sql before starting svc-identity',
+  );
+});
+await sql`SELECT version FROM profiles LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: profiles.version is missing — apply drizzle/0042_profile_version.sql before starting svc-identity',
+  );
+});
+await sql`SELECT code_hash FROM contact_change_proofs LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: contact_change_proofs is missing — apply drizzle/0043_contact_change.sql before starting svc-identity',
+  );
+});
+await sql`SELECT phone FROM user_phones LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: user_phones is missing — apply drizzle/0043_contact_change.sql before starting svc-identity',
   );
 });
 
@@ -324,6 +341,19 @@ await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
     'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
   );
 });
+const profile = new ProfileService(sql);
+// Phone codes have no provider. account.phone.begin refuses auth.change_unwired
+// until an owner installs a PhoneCodeSender. This process does not send SMS.
+const account = new AccountChange({
+  sql,
+  approvals: actionApprovals,
+  mail,
+  phone: undefined,
+  ttlSeconds: env.IDENTITY_CONTACT_CHANGE_TTL_SECONDS,
+  maxAttempts: env.IDENTITY_CONTACT_CHANGE_MAX_ATTEMPTS,
+  now: () => new Date(),
+  log: { warn() {} },
+});
 installPrivilegedDualControl(auth, actionApprovals);
 installFreezeDualControl(freeze, actionApprovals);
 installLimitFeeTierDualControl(rank, sql, actionApprovals);
@@ -345,6 +375,8 @@ export const appRouter = mergeRouters(
     founderControls,
     privilegedUserIds: founderPair ?? [],
     assertStaffSessionLive: (sessionId, userId) => assertStaffSessionLive(createSqlTradeIdentityStore(sql), sessionId, userId),
+    profile,
+    account,
   }),
   createApiKeyIpRouter(sql, auth),
   createApiKeyRequestSignRouter(sql, signingEncKey),
@@ -421,6 +453,11 @@ const identityRequestContext = createIdentityRequestContext({
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 auth.useLogger(app.log);
+account.useLog({
+  warn(obj, msg) {
+    app.log.warn(obj, msg);
+  },
+});
 
 const refreshCookieOf = installRefreshCookieHooks(app);
 

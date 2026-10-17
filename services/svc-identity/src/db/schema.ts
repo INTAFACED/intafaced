@@ -81,8 +81,10 @@ export const profiles = identity.table('profiles', {
   /** trader | merchant | creator | student — a user can be several at once. */
   modes: text('modes').array().notNull().default([]),
   locale: text('locale').notNull().default('en'),
-  /** ISO-3166 alpha-2. Drives JURISDICTION_MATRIX lookups. */
+  /** ISO-3166 alpha-2. Drives JURISDICTION_MATRIX lookups. Customers do not set it. */
   region: text('region'),
+  /** Compare-and-set token for profile.update. Existing rows start at 0. */
+  version: integer('version').notNull().default(0),
   /** Set by svc-blueprint in Phase 4. Null until then. */
   blueprintId: uuid('blueprint_id'),
   updatedAt: updatedAt(),
