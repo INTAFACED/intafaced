@@ -1,4 +1,5 @@
-import { Button, EmptyState } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { EmptyState } from '../../ui-kit';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { Facts, Gate, HaltBanner, Money, MoneyLines, NotConfigured, PortalFailure, PortalLoading } from '../components';

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, EmptyState, Field } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { EmptyState, Field } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { Gate, SelectField, PortalLoading } from '../../components';
 import { EntityList } from '../../ui/EntityList';

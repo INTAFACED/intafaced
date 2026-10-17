@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { StatusTag, Button, Field } from '@intafaced/ui';
+import { StatusTag, Button } from '@intafaced/ui';
+import { Field } from '../ui-kit';
 import { PayTime } from '../components';
 import { useNow, useUrlParam } from './hooks';
 import { buildCsv, downloadText } from './csv';

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, Field } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { Field } from '../../ui-kit';
 import { SelectField } from '../components';
 import type { PortalApi } from '../api';
 import { useNow } from '../hooks';

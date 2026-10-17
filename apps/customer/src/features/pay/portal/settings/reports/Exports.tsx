@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Field } from '@intafaced/ui';
+import { Button, Checkbox } from '@intafaced/ui';
+import { Field } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { ListShell, MoreFooter, SelectField } from '../../components';
 import { ToneChip, type StatusTone } from '../../ui/StatusChip';

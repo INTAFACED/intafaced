@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, Field } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { Field } from '../../../ui-kit';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import { useSession } from '../../../../session/session';
 import { PayDetails, PaySection } from '../../../components';

@@ -6,9 +6,7 @@ import { NoBusiness } from './portal/access/NoBusiness';
 import { isLegacyTool, parsePortalRoute, portalRedirect } from './portal/routes';
 import { Checkout } from './Checkout';
 import type { PayBusinessAuthority } from './pay-api';
-import { payCopy, PayCopy } from './copy';
-import { PayNotice } from './components';
-import { Page } from '@intafaced/ui';
+import { payCopy } from './copy';
 import { PortalNotFound, Redirect } from './portal/chrome/PortalNotFound';
 import { MerchantAccessProvider, useMerchantAccess } from './portal/access/MerchantAccess';
 import { authorityFromAccess } from './portal/access/authority';
@@ -60,8 +58,6 @@ function PayRooms({ path }: { path: string }) {
         legacyHome={(effective) => (effective ? <BusinessHomeSection authority={effective} /> : null)}
       />
     );
-  if (current === '/pay/request' || current === '/pay/bills' || current === '/pay/global')
-    return <UnconnectedPersonalRoom current={current} />;
   // The older sandbox tools stay reachable by address only (`?view=tools`).
   if (isLegacyTool(path))
     return (
@@ -84,31 +80,4 @@ function LegacyTools({ path, authority }: { path: string; authority: PayBusiness
       </PortalFrame>
     );
   return <BusinessPay path={path} authority={authority ?? authorityFromAccess(access, userId)} />;
-}
-
-/** Request, Bill pay and Send globally have no contract yet. The redesigned Pay screen (`screens/pay`) owns Send and Receive. */
-function UnconnectedPersonalRoom({ current }: { current: '/pay/request' | '/pay/bills' | '/pay/global' }) {
-  const title =
-    current === '/pay/request'
-      ? payCopy.t('requestAPayment')
-      : current === '/pay/bills'
-        ? payCopy.t('billPay')
-        : payCopy.t('sendToABankAbroad');
-  return (
-    <Page eyebrow={payCopy.t('personalAccount')} title={title}>
-      {current === '/pay/request' ? (
-        <PayNotice title={payCopy.t('paymentRequestsAreNotConnected')}>
-          <PayCopy k="thereIsNoPersonalRequestContractOr" />
-        </PayNotice>
-      ) : current === '/pay/bills' ? (
-        <PayNotice title={payCopy.t('billPaymentRailIsNotConnected')}>
-          <PayCopy k="billerDiscoveryInvoiceValidationAndABill" />
-        </PayNotice>
-      ) : (
-        <PayNotice title={payCopy.t('internationalBankSendingIsNotConnected')}>
-          <PayCopy k="theCorridorRecipientBankValidationExchangeQuote" />
-        </PayNotice>
-      )}
-    </Page>
-  );
 }

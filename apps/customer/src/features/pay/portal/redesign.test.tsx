@@ -3,7 +3,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi } from 'vitest';
-import { DataTable, Field, Page } from '@intafaced/ui';
+import { DataTable } from '@intafaced/ui';
+import { Field, Page } from '../ui-kit';
 import { Chip, PortalLoading } from './components';
 vi.mock('../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../shared/preferences')>();

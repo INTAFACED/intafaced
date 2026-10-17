@@ -1,4 +1,4 @@
-import { Field } from '@intafaced/ui';
+import { Field } from '../../../ui-kit';
 import { SelectField } from '../../components';
 import { useUrlParam } from '../../hooks';
 import { analyticsCopy as c } from './copy';

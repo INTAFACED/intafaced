@@ -7,6 +7,8 @@ import type { PersonalPayApi } from './pay-api';
 import { counterpartyCopy } from './p2p-counterparty-copy';
 import { ordinaryClick, p2pReturn, useCurrentNavigation } from './p2p-return';
 import './p2p-counterparty.css';
+import { p2pDepth } from './personal/p2p-depth-copy';
+import './personal/p2p-depth.css';
 
 const badgeKeys = { 'first-trade': 'first', reliable: 'reliable', 'fast-release': 'fast', spotless: 'spotless' } as const;
 export function P2PCounterparty({ pay, userId, returnTo }: { pay: PersonalPayApi; userId: string; returnTo: string | null }) {
@@ -145,6 +147,20 @@ export function P2PCounterparty({ pay, userId, returnTo }: { pay: PersonalPayApi
             <Copy k="refresh" />
           </Button>
         )}
+        <div className="p2p-cp-actions" data-testid="counterparty-actions">
+          <a className="button button--secondary" href={`/p2p?makerId=${encodeURIComponent(userId)}`}>
+            {p2pDepth.t('cpTheirOffers')}
+          </a>
+          <Button variant="secondary" disabled aria-describedby="cp-reason">
+            {p2pDepth.t('cpFollow')}
+          </Button>
+          <Button variant="secondary" disabled aria-describedby="cp-reason">
+            {p2pDepth.t('cpBlock')}
+          </Button>
+        </div>
+        <p className="muted" id="cp-reason">
+          {p2pDepth.t('cpReason')}
+        </p>
       </PaySection>
     </div>
   );

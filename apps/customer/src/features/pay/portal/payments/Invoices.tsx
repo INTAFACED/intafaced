@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Button, EmptyState, Field } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { EmptyState, Field } from '../../ui-kit';
 import { navigate } from '../../../../app/location';
 import { useResource } from '../../../../shared/resource';
 import { PaySection } from '../../components';

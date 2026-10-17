@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Field } from '@intafaced/ui';
+import { Field } from '../../ui-kit';
 import { useUrlParam } from '../hooks';
 import { SelectField } from '../components';
 import { uiCopy } from './copy';

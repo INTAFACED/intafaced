@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, Checkbox, EmptyState, Field } from '@intafaced/ui';
+import { Button, Checkbox } from '@intafaced/ui';
+import { EmptyState, Field } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { Facts, Gate, SelectField } from '../../components';
 import { NotLiveCard } from '../../chrome/NotLiveCard';

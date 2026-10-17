@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, Field } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { Field } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { ListShell, MoreFooter, SelectField } from '../../components';
 import { EntityList } from '../../ui/EntityList';

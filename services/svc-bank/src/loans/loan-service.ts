@@ -21,7 +21,7 @@ import { BankError } from '../errors.js';
 import { assertLoanProductsListLimit } from '../catalog-list-limit.js';
 import { assertLoansListLimit } from '../owner-list-limit.js';
 import { assertLoanAccrueBatchLimit, assertLoanResumePendingLimit, assertLoanRiskSweepLimit } from '../job-batch-limit.js';
-import { withSessionAdvisoryLock } from '../session-lock.js';
+import { withSessionAdvisoryLock, withSessionAdvisoryLocks } from '../session-lock.js';
 import { withMoneySpan } from '../tracing.js';
 import {
   affiliateLegAfterLoanLiquidate,
@@ -239,6 +239,8 @@ export interface LiquidationVenue {
     markPrice: Amount;
   }): Promise<{ proceeds: Amount; buyer: { collateralTo: AccountRef; proceedsFrom: AccountRef } } | null>;
 }
+
+type LiquidationQuote = NonNullable<Awaited<ReturnType<LiquidationVenue['quote']>>>;
 
 /**
  * The internal market maker takes the other side, at the mark.
@@ -2189,29 +2191,56 @@ export class LoanService {
   /**
    * ONE RUNG. Seize, sell and repay atomically; book any shortfall by name.
    *
-   * The tranche number, the claim insert, and the sale share one session lock.
-   * A second sweep cannot allocate another tranche while that sale is in flight.
-   * When the lock is free, a plan priced against collateral that has already
-   * moved does not post again, and status becomes `liquidating` only from an
-   * open loan.
+   * A new sale's venue quote runs before the loan lock, so a repayment can
+   * settle while the quote is in flight. The debt is read again under the lock
+   * and the sale posts only when that debt is still the quoted plan. A pending
+   * rung stays inside the lock and finishes the sale already stored.
+   *
+   * The tranche number, the claim insert, and the sale share one session lock
+   * with repayment. A second sweep cannot allocate another tranche while that
+   * sale is in flight. When the lock is free, a plan priced against debt or
+   * collateral that has already moved does not post again, and status becomes
+   * `liquidating` only from an open loan.
    */
   private async liquidateTranche(input: Parameters<LoanService['liquidateTrancheLocked']>[0]): Promise<void> {
-    await this.withLiquidationLock(input.loan.id, () => this.liquidateTrancheLocked(input));
+    const { loan } = input;
+    if (loan.quoteAssetId !== loan.debtAssetId || (await this.hasPendingLiquidation(loan.id))) {
+      await this.withLiquidationLock(loan.id, () => this.liquidateTrancheLocked(input));
+      return;
+    }
+
+    const quoted = await this.venue.quote({
+      loanId: loan.id,
+      collateralAssetId: loan.collateralAssetId,
+      collateralAmount: input.collateralToSell,
+      debtAssetId: loan.debtAssetId,
+      markPrice: input.collateralMark.price,
+    });
+    if (quoted === null || quoted.proceeds <= 0n) {
+      throw new BankError(
+        `No counterparty for ${formatAmount(input.collateralToSell)} ${loan.collateralAssetId} on loan ${loan.id}`,
+        'bank.no_liquidation_counterparty',
+      );
+    }
+    await this.withLiquidationLock(loan.id, () => this.liquidateTrancheLocked(input, quoted));
   }
 
-  private async liquidateTrancheLocked(input: {
-    loan: LoanRecord;
-    product: LoanProductRecord;
-    ltv: number;
-    graceWaived: boolean;
-    collateralToSell: Amount;
-    closesPosition: boolean;
-    /** Collateral the rung was priced against. A sale that already moved it makes this plan stale. */
-    collateralAtPlan: Amount;
-    collateralMark: QuotedMark;
-    debt: LoanDebt;
-    now: Date;
-  }): Promise<void> {
+  private async liquidateTrancheLocked(
+    input: {
+      loan: LoanRecord;
+      product: LoanProductRecord;
+      ltv: number;
+      graceWaived: boolean;
+      collateralToSell: Amount;
+      closesPosition: boolean;
+      /** Collateral the rung was priced against. A sale that already moved it makes this plan stale. */
+      collateralAtPlan: Amount;
+      collateralMark: QuotedMark;
+      debt: LoanDebt;
+      now: Date;
+    },
+    externalQuote?: LiquidationQuote,
+  ): Promise<void> {
     const { loan, product, collateralMark } = input;
 
     // The collateral mark is denominated in the quote asset. Proceeds from
@@ -2274,15 +2303,15 @@ export class LoanService {
       : null;
 
     // A new sale needs the loan still open and BOTH sides of the priced LTV
-    // unchanged. markAndAct reads debt before collateral, outside this lock:
-    // another sale can land between them, leaving old debt paired with the
-    // remaining collateral. A collateral-only check accepts that mixed plan
-    // and sells a second tranche. Re-read debt under the same lock as the sale.
-    // A pending rung instead finishes its stored sale, even if debt changed.
+    // unchanged. The quote ran before this lock, so a repayment may have
+    // settled. Selling input.debt would collect principal the borrower already
+    // paid. A pending rung instead finishes its stored sale, even if debt changed.
     let openStatus: 'active' | 'margin_call' | null = null;
+    let pricedDebt = input.debt;
     if (!pending) {
       const debtNow = await this.outstanding(loan.id);
       if (debtNow.principal !== input.debt.principal || debtNow.interest !== input.debt.interest) return;
+      pricedDebt = debtNow;
       const heldNow = await this.collateralOf(loan);
       if (heldNow !== input.collateralAtPlan) return;
       const statusRows = await this.sql<Array<{ status: string }>>`
@@ -2291,19 +2320,35 @@ export class LoanService {
       const status = statusRows[0]?.status;
       if (status !== 'active' && status !== 'margin_call') return;
       openStatus = status;
+      if (await this.hasPendingRepayment(loan.id)) {
+        throw new BankError(
+          `Loan ${loan.id} has a repayment whose ledger outcome is not yet known — no sale until that repayment is re-driven`,
+          'bank.ledger_outcome_unknown',
+        );
+      }
     }
 
     // The sale is already on the ledger once ledger_tx_id is stored. A later
-    // quote is not a buyer for that rung.
-    const quoted = pending?.ledger_tx_id
-      ? null
-      : await this.venue.quote({
+    // quote is not a buyer for that rung. A quote taken before this lock is
+    // used only for a new sale; a pending rung keeps the sale stored on it.
+    const quoted = pending
+      ? pending.ledger_tx_id
+        ? null
+        : await this.venue.quote({
+            loanId: loan.id,
+            collateralAssetId: loan.collateralAssetId,
+            collateralAmount: storedSale ? storedSale.collateralSold : input.collateralToSell,
+            debtAssetId: loan.debtAssetId,
+            markPrice: storedSale ? storedSale.markPrice : collateralMark.price,
+          })
+      : (externalQuote ??
+        (await this.venue.quote({
           loanId: loan.id,
           collateralAssetId: loan.collateralAssetId,
-          collateralAmount: storedSale ? storedSale.collateralSold : input.collateralToSell,
+          collateralAmount: input.collateralToSell,
           debtAssetId: loan.debtAssetId,
-          markPrice: storedSale ? storedSale.markPrice : collateralMark.price,
-        });
+          markPrice: collateralMark.price,
+        })));
 
     if (!pending?.ledger_tx_id && (quoted === null || quoted.proceeds <= 0n)) {
       // No buyer means no sale. Booking one anyway would post a fictional trade
@@ -2340,8 +2385,8 @@ export class LoanService {
           }
         : splitProceeds({
             proceeds: quoted!.proceeds,
-            interestOwed: input.debt.interest,
-            principalOwed: input.debt.principal,
+            interestOwed: pricedDebt.interest,
+            principalOwed: pricedDebt.principal,
             penaltyBps: product.policy.penaltyBps,
             closesPosition: input.closesPosition,
           });
@@ -2832,6 +2877,13 @@ export class LoanService {
     return Number(rows[0]?.n ?? 0) > 0;
   }
 
+  private async hasPendingRepayment(loanId: string, tx: Sql = this.sql): Promise<boolean> {
+    const rows = await tx<Array<{ n: string }>>`
+      SELECT COUNT(*)::text AS n FROM bank.loan_repayments WHERE loan_id = ${loanId} AND status = 'pending'
+    `;
+    return Number(rows[0]?.n ?? 0) > 0;
+  }
+
   private async hasSettledRepayment(loanId: string): Promise<boolean> {
     const rows = await this.sql<Array<{ n: string }>>`
       SELECT COUNT(*)::text AS n FROM bank.loan_repayments WHERE loan_id = ${loanId} AND status = 'settled'
@@ -3042,31 +3094,21 @@ export class LoanService {
   }
 
   /**
-   * One liquidation at a time for a loan, from the tranche allocation through
-   * the sale. Distinct from the repay lock: a repayment and a liquidation are
-   * different claims, and this path must not take or change the repay key.
-   *
-   * `pg_advisory_lock` is session-scoped, so it is still held while the ledger
-   * post runs after the claim transaction commits. The connection is reserved
-   * so unlock hits the session that took the lock. The key is unchanged, so a
-   * replica on older code takes the same lock. See `session-lock.ts` for how the
-   * reserved connections are kept from starving the pool the body runs on.
+   * One repayment and one liquidation at a time for a loan, from the debt
+   * re-read through the ledger post. Both historical keys are taken on one
+   * connection, in sorted order, so a replica still on the old single key
+   * collides with this one. The quote for a new sale is not inside this lock.
    */
-  private async withLiquidationLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
-    return withSessionAdvisoryLock(this.sql, 'bank.loan.liquidate', loanId, body);
+  private async withLoanMoneyLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
+    return withSessionAdvisoryLocks(this.sql, ['bank.loan.liquidate', 'bank.loan.repay'], loanId, body);
   }
 
-  /**
-   * One repayment at a time for a loan, from the debt re-read through settle.
-   *
-   * `pg_advisory_lock` is session-scoped, so it survives the claim commit. The
-   * connection is reserved so unlock hits the session that took the lock. The
-   * key is unchanged, so a replica on older code takes the same lock. See
-   * `session-lock.ts` for how the reserved connections are kept from starving
-   * the pool the body runs on.
-   */
+  private async withLiquidationLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
+    return this.withLoanMoneyLock(loanId, body);
+  }
+
   private async withRepayLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
-    return withSessionAdvisoryLock(this.sql, 'bank.loan.repay', loanId, body);
+    return this.withLoanMoneyLock(loanId, body);
   }
 
   private async nextCollateralSequence(loanId: string): Promise<number> {

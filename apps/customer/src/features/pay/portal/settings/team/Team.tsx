@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { DataTable, Field } from '@intafaced/ui';
+import { DataTable } from '@intafaced/ui';
+import { Field } from '../../../ui-kit';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import { useSession } from '../../../../session/session';
 import { PaySection } from '../../../components';

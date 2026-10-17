@@ -1,4 +1,5 @@
-import { EmptyState, HeroNumber, SegmentedControl } from '@intafaced/ui';
+import { HeroNumber, SegmentedControl } from '@intafaced/ui';
+import { EmptyState } from '../../ui-kit';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { Gate, HaltBanner, PortalFailure, PortalLoading } from '../components';

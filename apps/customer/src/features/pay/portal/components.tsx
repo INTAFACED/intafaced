@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { MoneyDisplay } from './presentation';
-import { Button, EmptyState, StateBlock, StatusTag } from '@intafaced/ui';
+import { Button, StateBlock, StatusTag } from '@intafaced/ui';
+import { EmptyState } from '../ui-kit';
 import { PayTime } from '../components';
 import type { ListState } from './hooks';
 import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';

@@ -48,6 +48,7 @@ import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
+import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
 import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
@@ -127,6 +128,16 @@ await sql`SELECT require_signature FROM api_keys LIMIT 0`.catch(() => {
     'identity schema is out of date: api_keys.require_signature is missing — apply drizzle/0030_api_keys_request_sign.sql before starting svc-identity',
   );
 });
+await sql`SELECT code_hash FROM password_reset_proofs LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: password_reset_proofs is missing — apply drizzle/0031_password_reset_proofs.sql before starting svc-identity',
+  );
+});
+await sql`SELECT successor_refresh FROM sessions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: sessions.successor_refresh is missing — apply drizzle/0032_session_refresh_grace.sql before starting svc-identity',
+  );
+});
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
@@ -174,7 +185,12 @@ const auth = new AuthService(
   undefined,
   undefined,
   env.IDENTITY_MAX_SUB_ACCOUNTS,
+  env.REFRESH_REUSE_GRACE_SECONDS,
 );
+// Lifetime can be published without a mail port. With either one missing, every
+// reset request refuses auth.reset_unwired. No mailer is installed in this
+// process: svc-notify is a different module, and this service does not invent one.
+auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
@@ -311,6 +327,8 @@ const identityRequestContext = createIdentityRequestContext({
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 auth.useLogger(app.log);
+
+const refreshCookieOf = installRefreshCookieHooks(app);
 
 app.addHook('onRequest', (req, _reply, done) => {
   const rawIp = req.headers['x-forwarded-for'] ?? req.headers['x-real-ip'];
@@ -493,7 +511,8 @@ await app.register(fastifyTRPCPlugin, {
       // Origin for apiKeys.exchange domain_whitelist (edge-forwarded; not body).
       const raw = req.headers.origin ?? req.headers['x-forwarded-origin'];
       const clientOrigin = Array.isArray(raw) ? raw[0] : raw;
-      return clientOrigin ? { ...base, clientOrigin } : base;
+      const refreshCookie = refreshCookieOf(req) ?? null;
+      return clientOrigin ? { ...base, clientOrigin, refreshCookie } : { ...base, refreshCookie };
     },
   } satisfies FastifyTRPCPluginOptions<AppRouter>['trpcOptions'],
 });

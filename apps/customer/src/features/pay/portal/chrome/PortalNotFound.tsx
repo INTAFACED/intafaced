@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { Button, EmptyState } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { EmptyState } from '../../ui-kit';
 import { navigate } from '../../../../app/location';
 import { LayoutFrame } from '../home-layout/Frame';
 import { chromeCopy } from './copy';

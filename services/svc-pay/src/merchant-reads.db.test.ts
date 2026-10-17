@@ -486,4 +486,133 @@ describe('merchant team reads, list pages, and stored detail', () => {
     expect(detail.failedAt).toBeNull();
     expect(detail.createdAt).not.toBe('1970-01-01T00:00:00.000Z');
   });
+
+  async function bindSession(merchantId: string, linkId: string, paymentId: string) {
+    await sql`
+      INSERT INTO pay.checkout_sessions (
+        link_id, merchant_id, payment_id, token_hash, token_prefix, amount, currency, rail_adapter, expires_at
+      ) VALUES (
+        ${linkId}, ${merchantId}, ${paymentId}, ${randomUUID()}, 'cs_test', 10, 'USDT', 'card-sandbox', now() + interval '15 minutes'
+      )`;
+  }
+
+  it('filters payment.list by linkId and returns an empty page for a foreign or missing link', async () => {
+    const mine = await merchant(OWNER);
+    const other = await merchant(FINANCE_B);
+    const mineLink = await pay.createPaymentLink({ merchantId: mine.id, label: 'mine' });
+    const otherLink = await pay.createPaymentLink({ merchantId: other.id, label: 'theirs' });
+    const linked = await payment(mine.id);
+    const alsoLinked = await payment(mine.id);
+    const direct = await payment(mine.id);
+    const theirs = await payment(other.id);
+    await bindSession(mine.id, mineLink.id, linked.id);
+    await bindSession(mine.id, mineLink.id, alsoLinked.id);
+    await bindSession(other.id, otherLink.id, theirs.id);
+    await sql`UPDATE pay.payments SET created_at = '2026-04-02T00:00:00.000Z' WHERE id = ${linked.id}`;
+    await sql`UPDATE pay.payments SET created_at = '2026-04-03T00:00:00.000Z' WHERE id = ${alsoLinked.id}`;
+
+    const owner = router.createCaller(await ctx(['pay:read'], OWNER));
+    const page = await owner.payment.list({ merchantId: mine.id, limit: 1, linkId: mineLink.id });
+    expect(page.items.map((item) => item.id)).toEqual([alsoLinked.id]);
+    expect(page.nextCursor).toEqual(expect.any(String));
+    const rest = await owner.payment.list({ merchantId: mine.id, limit: 10, linkId: mineLink.id, cursor: page.nextCursor! });
+    expect(rest.items.map((item) => item.id)).toEqual([linked.id]);
+    expect(rest.nextCursor).toBeNull();
+    expect(rest.items.map((item) => item.id)).not.toContain(direct.id);
+
+    const open = await owner.payment.list({ merchantId: mine.id, limit: 1 });
+    const foreign = await owner.payment.list({
+      merchantId: mine.id,
+      limit: 10,
+      linkId: otherLink.id,
+      cursor: open.nextCursor!,
+    });
+    const missing = await owner.payment.list({ merchantId: mine.id, limit: 10, linkId: randomUUID() });
+    expect(foreign).toEqual({ items: [], nextCursor: null });
+    expect(missing).toEqual(foreign);
+    await expect(owner.payment.list({ merchantId: mine.id, limit: 10, linkId: 'not-a-link' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+  });
+
+  it('reads the checkout profile the write stored, and refuses a foreign merchant like a missing one', async () => {
+    const mine = await merchant(OWNER);
+    const other = await merchant(FINANCE_B);
+    await member(mine.id, VIEWER, 'viewer', 'active');
+    await member(mine.id, DEVELOPER, 'developer', 'active');
+    await member(mine.id, FINANCE, 'finance', 'active');
+    await member(mine.id, ADMIN, 'admin', 'active');
+    const owner = router.createCaller(await ctx(['pay:read', 'pay:write'], OWNER));
+    expect(await owner.merchant.checkoutSettings.get({ merchantId: mine.id })).toEqual({ status: 'not_configured' });
+
+    const storedRouting = { bearer: 'merchant' };
+    const first = await owner.merchant.profile({
+      merchantId: mine.id,
+      domains: ['old.example'],
+      checkoutConfig: { brandName: 'Old' },
+      feeRouting: { bearer: 'customer' },
+    });
+    const second = await owner.merchant.profile({
+      merchantId: mine.id,
+      domains: ['checkout.example'],
+      feeRouting: storedRouting,
+    });
+    await sql`UPDATE pay.payment_profiles SET created_at = now() - interval '1 minute' WHERE id = ${first.id}`;
+    const current = await owner.merchant.checkoutSettings.get({ merchantId: mine.id });
+    expect(current).toMatchObject({
+      status: 'configured',
+      profileId: second.id,
+      domains: ['checkout.example'],
+      checkoutConfig: {},
+      feeRouting: storedRouting,
+    });
+    expect(current).not.toMatchObject({ profileId: first.id });
+    if (current.status === 'configured') expect(current.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    for (const userId of [VIEWER, DEVELOPER]) {
+      const caller = router.createCaller(await ctx(['pay:read'], userId));
+      expect(await caller.merchant.checkoutSettings.get({ merchantId: mine.id })).toMatchObject({
+        profileId: second.id,
+        checkoutConfig: {},
+        feeRouting: null,
+      });
+    }
+    for (const userId of [FINANCE, ADMIN]) {
+      const caller = router.createCaller(await ctx(['pay:read'], userId));
+      expect(await caller.merchant.checkoutSettings.get({ merchantId: mine.id })).toMatchObject({
+        profileId: second.id,
+        checkoutConfig: {},
+        feeRouting: storedRouting,
+      });
+    }
+
+    const otherOwner = router.createCaller(await ctx(['pay:read', 'pay:write'], FINANCE_B));
+    const hidden = await otherOwner.merchant.profile({
+      merchantId: other.id,
+      domains: ['other.example'],
+      checkoutConfig: { brandName: 'Hidden' },
+    });
+    expect(await otherOwner.merchant.checkoutSettings.get({ merchantId: other.id })).toMatchObject({
+      profileId: hidden.id,
+      domains: ['other.example'],
+      checkoutConfig: { brandName: 'Hidden' },
+      feeRouting: {},
+    });
+    const foreign = await owner.merchant.checkoutSettings.get({ merchantId: other.id }).catch((err: unknown) => err);
+    const missing = await owner.merchant.checkoutSettings.get({ merchantId: randomUUID() }).catch((err: unknown) => err);
+    expect(payCode(foreign)).toEqual(payCode(missing));
+    expect(payCode(foreign).pay).toBe('pay.merchant_not_found');
+    expect(JSON.stringify(foreign)).not.toContain('other.example');
+    expect(JSON.stringify(await owner.merchant.checkoutSettings.get({ merchantId: mine.id }))).not.toContain('other.example');
+
+    const stranger = router.createCaller(await ctx(['pay:read'], STRANGER));
+    const strangerForeign = await stranger.merchant.checkoutSettings.get({ merchantId: mine.id }).catch((err: unknown) => err);
+    const strangerMissing = await stranger.merchant.checkoutSettings.get({ merchantId: randomUUID() }).catch((err: unknown) => err);
+    expect(payCode(strangerForeign)).toEqual(payCode(strangerMissing));
+
+    await sql`UPDATE pay.payment_profiles SET checkout_config = '[]'::jsonb WHERE id = ${second.id}`;
+    await expect(owner.merchant.checkoutSettings.get({ merchantId: mine.id })).rejects.toMatchObject({
+      message: expect.stringContaining('pay.checkout_settings_unreadable'),
+    });
+  });
 });

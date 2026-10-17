@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, EmptyState, Field } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { EmptyState, Field } from '../../../ui-kit';
 import type { z } from 'zod';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import { PayDetails, PaySection } from '../../../components';

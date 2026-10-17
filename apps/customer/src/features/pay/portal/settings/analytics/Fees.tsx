@@ -1,4 +1,4 @@
-import { EmptyState } from '@intafaced/ui';
+import { EmptyState } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { NotLiveCard } from '../../chrome/NotLiveCard';
 import { reason } from '../../chrome/copy';

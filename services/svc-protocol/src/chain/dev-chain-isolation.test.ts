@@ -69,7 +69,8 @@ describe('every on-chain suite sends from an account no other suite sends from',
     const collisions = [...byAddress.entries()].filter(([, files]) => files.length > 1);
     expect(collisions.map(([address, files]) => `${address} ← ${files.join(' + ')}`)).toEqual([]);
     expect(byAddress.size).toBe(onChainSuites.length);
-  });
+    // BIP-32 derivation for every on-chain suite is CPU-bound; under CI load it runs past vitest's 5 s default.
+  }, 30_000);
 
   it('never lands a suite on one of anvil\u2019s ten pre-funded accounts', () => {
     // Those are `deploy-dev.ts`'s, and docker-compose.apps.yml names the CREATE
@@ -80,7 +81,7 @@ describe('every on-chain suite sends from an account no other suite sends from',
       expect(PREFUNDED.has(address), `${label(file)} derived a pre-funded account`).toBe(false);
     }
     expect(PREFUNDED.has(devAccount(0).address.toLowerCase())).toBe(true);
-  });
+  }, 30_000);
 
   it('leaves no suite picking an anvil index by hand', () => {
     // The thing that actually drifted. `devChainClients(url, id, N)` is for

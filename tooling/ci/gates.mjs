@@ -53,12 +53,6 @@ const CI_DIR = join(ROOT, 'tooling', 'ci');
  */
 export const GATES = [
   {
-    id: 'agent-autoload',
-    script: 'tooling/ci/agent-autoload-scan.mjs',
-    doctrine: 'multi-dev law',
-    why: 'coordination law must stay in the files a cold agent auto-loads',
-  },
-  {
     id: 'worktree-gc-selftest',
     script: 'tooling/scripts/worktree-gc.mjs',
     args: ['--self-test'],

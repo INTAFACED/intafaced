@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Field } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { Field } from './ui-kit';
 import type { PersonalPayApi } from './pay-api';
 import { id, type Offer } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
@@ -19,6 +20,9 @@ import {
   Status,
 } from './components';
 import './p2p-offer.css';
+import { OfferTabs, TakeOfferPanel } from './personal/P2PDepth';
+import { filterOffers } from './personal/p2p-model';
+import { p2pDepth } from './personal/p2p-depth-copy';
 import { CounterpartyLink, offerReturn, p2pReturn, closeReturnedOffer, consumeMarketArrival, type P2PReturn } from './p2p-return';
 
 /** Only the owner-key/reference names are enumerated. Opaque originals are
@@ -95,6 +99,10 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
     [side, setSide] = useState(initialFilter.side ?? '');
   const [filter, setFilter] = useState<{ asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell' }>(initialFilter);
   const [reference, setReference] = useState('');
+  const [method, setMethod] = useState('');
+  // Offers from one person, from a counterparty page. The service has no maker filter, so the window is narrowed here.
+  const makerParam = arrival.searchParams.get('makerId');
+  const maker = makerParam && id.safeParse(makerParam).success ? makerParam.toLowerCase() : '';
   const [error, setError] = useState<'fiatCurrencyMustUseItsThreeLetter' | 'invalidId' | null>(null);
   const [selected, setSelected] = useState<{ id: string; serial: number } | null>(() =>
     arrival.searchParams.get('offerId') ? { id: arrival.searchParams.get('offerId')!.toLowerCase(), serial: 0 } : null,
@@ -141,6 +149,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
   };
   const list = useResource((signal) => pay.offers({ ...filter, limit }, signal), `pay:offers:${userId}:${JSON.stringify(filter)}:${limit}`);
   const currencies = useResource((signal) => pay.fiat(signal), 'pay:fiat');
+  const registeredMethods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
   const originals = deviceOriginals(userId);
   return (
     <div className={`p2p-offer-workspace${selected ? ' has-selection' : ''}`} lang={languageFor('current')} dir={directionFor('current')}>
@@ -174,6 +183,26 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
               ))}
             </section>
           )}
+          {!mine ? (
+            <OfferTabs
+              side={side as '' | 'buy' | 'sell'}
+              onSide={(next) => {
+                setSide(next);
+                setFilter((previous) => {
+                  const { side: _dropped, ...rest } = previous;
+                  return next ? { ...rest, side: next } : rest;
+                });
+              }}
+            />
+          ) : null}
+          {maker ? (
+            <p className="p2p-notice-row">
+              <span lang="zxx">{p2pDepth.t('makerNotice', { maker })}</span>
+              <a className="text-link" href={location.pathname}>
+                {p2pDepth.t('makerClear')}
+              </a>
+            </p>
+          ) : null}
           <details className="p2p-offer-filters">
             <summary>
               <Copy k="filters" />
@@ -220,6 +249,20 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                   <option value="buy">{payCopy.t('buyingAsset')}</option>
                 </select>
               </label>
+              <label className="field">
+                {p2pDepth.t('filterMethod')}
+                <select value={method} onChange={(event) => setMethod(event.target.value)}>
+                  <option value="">{p2pDepth.t('anyMethod')}</option>
+                  {registeredMethods.resource.status === 'ready' &&
+                    [...new Map(registeredMethods.resource.data.map((entry) => [entry.methodId, entry.label])).entries()].map(
+                      ([methodId, label]) => (
+                        <option key={methodId} value={methodId}>
+                          {label}
+                        </option>
+                      ),
+                    )}
+                </select>
+              </label>
               <Button type="submit" variant="secondary">
                 <PayCopy k="applyFilters" />
               </Button>
@@ -233,7 +276,10 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
           )}
           <PayState resource={list.resource} retry={list.reload} empty={payCopy.t('noOffersReturnedForTheseFilters')}>
             {(rows) => {
-              const visible = mine ? rows.filter((offer) => offer.makerId === userId) : rows;
+              const visible = filterOffers(mine ? rows.filter((offer) => offer.makerId === userId) : rows, {
+                method: method || undefined,
+                makerId: maker || undefined,
+              });
               return (
                 <>
                   {visible.length ? (
@@ -586,6 +632,9 @@ function CurrentOffer({
         offer.status !== 'closed' &&
         !locked && (
           <div className="actions">
+            <a className="button button--secondary" href={`/uc/ad/update?offerId=${encodeURIComponent(offer.id)}`}>
+              {p2pDepth.t('editOffer')}
+            </a>
             <ReviewedAction
               title={offer.status === 'active' ? payCopy.t('pauseOffer') : payCopy.t('resumeOffer')}
               description={payCopy.t('theServiceChecksThatYouOwnThis')}
@@ -607,9 +656,7 @@ function CurrentOffer({
               <PayCopy k="reviewCounterparty" />
             </CounterpartyLink>
           )}
-          <PayNotice title={payCopy.t('newOrderReviewIsUnavailable')}>
-            <PayCopy k="anAuthoritativeFeeAndReservationPreviewIs" />
-          </PayNotice>
+          {offer.status === 'active' ? <TakeOfferPanel offer={offer} /> : null}
         </>
       )}
     </div>

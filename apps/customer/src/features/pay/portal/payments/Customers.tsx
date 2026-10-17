@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { z } from 'zod';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { Button, DataTable, Field } from '@intafaced/ui';
+import { Button, DataTable } from '@intafaced/ui';
+import { Field } from '../../ui-kit';
 import { PayTime, PaySection } from '../../components';
 import {
   BackLink,

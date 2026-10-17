@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { EmptyState } from '@intafaced/ui';
+import { EmptyState } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { PortalFailure, PortalLoading } from '../../components';
 import { Freshness } from '../../ui/Freshness';

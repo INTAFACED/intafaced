@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Field } from '@intafaced/ui';
+import { Field } from '../../ui-kit';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { parseAmount } from '../../../../shared/money';
 import { PaySection } from '../../components';

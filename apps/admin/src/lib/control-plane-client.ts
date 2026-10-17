@@ -105,8 +105,12 @@ export async function readKillSwitches(): Promise<ControlPlaneState> {
   }
 }
 
-/** Retained transport; the read-only inspector cannot arm it. No approval fields are invented. */
-export async function setKillSwitch(input: ToggleInput): Promise<ToggleResult> {
+/**
+ * The module command. `approval` is the identity-issued approval a second founder signed for exactly this command;
+ * svc-edge refuses without it and spends it once. No approval field is ever invented: when it is omitted the body
+ * is the bare intent and the edge refuses with `action_approval.missing`.
+ */
+export async function setKillSwitch(input: ToggleInput, approval?: { approvalId: string; operationId: string }): Promise<ToggleResult> {
   const intent = Object.freeze({ module: input.module, disabled: input.disabled, reason: input.reason });
   const cfg = config('module');
   if (!isConfigured(cfg))
@@ -123,7 +127,7 @@ export async function setKillSwitch(input: ToggleInput): Promise<ToggleResult> {
     const res = await fetch(`${cfg.edgeUrl}/admin/kill-switches`, {
       method: 'POST',
       headers: { authorization: `Bearer ${cfg.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(intent),
+      body: JSON.stringify(approval ? { ...intent, approvalId: approval.approvalId, operationId: approval.operationId } : intent),
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -176,5 +180,39 @@ export async function setFreeze(frozen: boolean, reason?: string): Promise<Freez
     return decodeFreezeCommand(await res.json().catch(() => null), res.status, intent, false);
   } catch {
     return freezeUnresolved(intent, 'The connection ended before the original ledger command outcome was verified.');
+  }
+}
+
+/**
+ * The ledger command with its identity-issued approval. Returns the edge's raw answer so the caller (the approval
+ * desk) can decide what a 2xx means; this function never reports success itself. `reason` is sent trimmed because
+ * svc-ledger hashes the trimmed text.
+ */
+export async function sendFreezeWithApproval(
+  frozen: boolean,
+  reason: string | undefined,
+  approval: { approvalId: string; operationId: string },
+): Promise<
+  | { readonly reached: true; readonly status: number; readonly body: unknown }
+  | { readonly reached: false; readonly sent: boolean; readonly detail: string }
+> {
+  const cfg = config('treasury');
+  if (!isConfigured(cfg)) return { reached: false, sent: false, detail: cfg.reason };
+  try {
+    const res = await fetch(`${cfg.edgeUrl}/admin/ledger/${frozen ? 'freeze' : 'unfreeze'}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${cfg.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(
+        frozen
+          ? { reason, approvalId: approval.approvalId, operationId: approval.operationId }
+          : { approvalId: approval.approvalId, operationId: approval.operationId },
+      ),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    return { reached: true, status: res.status, body: await res.json().catch(() => null) };
+  } catch {
+    // Sent, but no answer: the caller must treat the outcome as unknown.
+    return { reached: false, sent: true, detail: 'The connection ended before the ledger answered.' };
   }
 }

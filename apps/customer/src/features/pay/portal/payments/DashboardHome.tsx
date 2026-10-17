@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Link2, Undo2 } from 'lucide-react';
-import { Button, ChoiceGroup, DataTable, EmptyState, Accordion, AccordionItem, AccordionTrigger, AccordionPanel } from '@intafaced/ui';
+import { Button, ChoiceGroup, DataTable, Accordion, AccordionItem, AccordionTrigger, AccordionPanel } from '@intafaced/ui';
+import { EmptyState } from '../../ui-kit';
 import { useResource, type Resource } from '../../../../shared/resource';
 import type { PortalApi } from '../api';
 import { DashboardInsights, type DashboardData } from './Dashboard';

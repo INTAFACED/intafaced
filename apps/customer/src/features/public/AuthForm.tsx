@@ -35,7 +35,7 @@ type Problem = 'changed' | 'storage' | 'locks' | 'another' | 'cleared' | 'retain
 export function AuthForm({ register }: { register: boolean }) {
   const { t: p, languageFor: publicLanguageFor } = publicCopy.useCopy();
   const { t, Copy, requestedLocale, languageFor } = publicAuthCopy.useCopy();
-  const { api, commit, userId } = useSession();
+  const { api, commit, userId, restoring } = useSession();
   const context = useLocation();
   const authContext = publicAuthContext(location.pathname, location.search);
   const { destination, invite: inviteToken } = authContext;
@@ -153,7 +153,8 @@ export function AuthForm({ register }: { register: boolean }) {
     };
   }, []);
   async function run(kind: 'register' | 'password' | 'options') {
-    if (!sameRender() || (running.current && same(running.current)) || pending) return;
+    // Until the boot refresh answers, a cookie sign-in may still land and change the account under this form.
+    if (!sameRender() || (running.current && same(running.current)) || pending || restoring) return;
     if (!identifier.trim()) {
       if (kind === 'options') {
         setResult(authoredRefusal('error', { key: 'passkeyIdentifier' }));
@@ -482,11 +483,11 @@ export function AuthForm({ register }: { register: boolean }) {
               onChange={(event) => sameRender() && setTotp(event.target.value)}
             />
           )}
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" disabled={pending || restoring}>
             {pending ? p('Connecting…') : register ? p('Create account') : p('Sign in')}
           </Button>
           {!register && (
-            <Button variant="secondary" disabled={pending} onClick={() => void run('options')}>
+            <Button variant="secondary" disabled={pending || restoring} onClick={() => void run('options')}>
               {p('Use a passkey')}
             </Button>
           )}

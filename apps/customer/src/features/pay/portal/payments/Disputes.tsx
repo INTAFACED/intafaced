@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { plainCode } from '../ui/plain-code';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { Button, DataTable, EmptyState } from '@intafaced/ui';
+import { Button, DataTable } from '@intafaced/ui';
+import { EmptyState } from '../../ui-kit';
 import { PayTime, PaySection } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
 import { BackLink, Chip, Facts, Gate, MoneyLines, Money, PortalFailure, PortalLoading, SelectField, Timeline } from '../components';

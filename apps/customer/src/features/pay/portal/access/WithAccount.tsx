@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Button, EmptyState } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { EmptyState } from '../../ui-kit';
 import { PortalFailure, PortalLoading } from '../components';
 import { portalCopy } from '../copy';
 import type { MemberRole, MerchantRecord } from '../schemas';

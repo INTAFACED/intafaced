@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Button, EmptyState } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
+import { EmptyState } from '../../ui-kit';
 import { useMerchantAccess, useOptionalMerchantAccess } from '../access/MerchantAccess';
 import { PortalFailure, PortalLoading, TestTag } from '../components';
 import type { ListState } from '../hooks';

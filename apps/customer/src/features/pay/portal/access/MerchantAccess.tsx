@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react';
-import { EmptyState } from '@intafaced/ui';
+import { EmptyState } from '../../ui-kit';
 import { useSession } from '../../../session/session';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { createPortalApi } from '../api';

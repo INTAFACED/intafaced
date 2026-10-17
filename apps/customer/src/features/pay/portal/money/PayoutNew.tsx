@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { EmptyState } from '@intafaced/ui';
+import { EmptyState } from '../../ui-kit';
 import { useResource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';

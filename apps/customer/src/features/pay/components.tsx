@@ -4,7 +4,8 @@ import { isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, ty
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
-import { Button, ReviewDialog as Dialog, EmptyState, StateBlock, Amount, StatusTag } from '@intafaced/ui';
+import { Button, ReviewDialog as Dialog, StateBlock, Amount, StatusTag } from '@intafaced/ui';
+import { EmptyState } from './ui-kit';
 
 function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { t, languageFor, requestedLocale } = uiCopy.useCopy();
