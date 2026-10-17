@@ -24,25 +24,41 @@ pnpm --filter @intafaced/admin typecheck
 
 ## Screens
 
-| Route           | What it does                                                                                                                                                                               |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/login`        | Individual founder sign-in using password plus TOTP/recovery or WebAuthn.                                                                                                                  |
-| `/crm`          | Investor-first relationship pipeline, preserved questionnaires, owner assignment, next actions and history.                                                                                |
-| `/accounts`     | Inspect identity, trading or merchant control state; submit a versioned action with reason and confirmation; read audit history.                                                           |
-| `/`             | Kill-switches. Every flag grouped by module, resolved at the current `LAUNCH_DROP`, with the reason it resolved that way. `ledger.posting` gets its own alarm panel.                       |
-| `/launch`       | The §11 drop table, plus "what would be live at drop N" resolved against a chosen drop.                                                                                                    |
-| `/jurisdiction` | Counsel-review status per matrix entry, the effective module × region rule grid, and a live `checkAccess()` readout.                                                                       |
-| `/ledger`       | Freeze / unfreeze / reconcile. Freeze requires a written reason, a typed confirmation phrase, and an explicit acknowledgement.                                                             |
-| `/tools`        | Operator tools already mounted on edge `/api/*/trpc/*` (bank.ops, KYC, freeze identity, merchantState, token mint, academy). Not-wired when env missing — never local green money success. |
+| Route           | What it does                                                                                                                                                                                                                                                                                                      |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/login`        | Individual founder sign-in using password plus TOTP/recovery or WebAuthn.                                                                                                                                                                                                                                         |
+| `/crm`          | Investor-first relationship pipeline, preserved questionnaires, owner assignment, next actions and history.                                                                                                                                                                                                       |
+| `/accounts`     | Inspect identity, trading or merchant control state; submit a versioned action with reason and confirmation; read audit history.                                                                                                                                                                                  |
+| `/`             | Kill-switches. Every flag grouped by module, resolved at the current `LAUNCH_DROP`, with the reason it resolved that way. `ledger.posting` gets its own alarm panel.                                                                                                                                              |
+| `/launch`       | The §11 drop table, plus "what would be live at drop N" resolved against a chosen drop.                                                                                                                                                                                                                           |
+| `/jurisdiction` | Counsel-review status per matrix entry, the effective module × region rule grid, and a live `checkAccess()` readout.                                                                                                                                                                                              |
+| `/ledger`       | Posting freeze / unfreeze (two-founder, disabled until the ledger returns its version), reconcile (honestly not available), and pay halts.                                                                                                                                                                        |
+| `/support`      | Support queue, ticket detail, claim.                                                                                                                                                                                                                                                                              |
+| `/notify`       | Notification delivery health by channel, with failures. Read-only.                                                                                                                                                                                                                                                |
+| `/tools`        | Operator tools already mounted on edge `/api/*/trpc/*` (bank.ops, KYC, freeze identity, merchantState, token mint, academy). Not-wired when env missing — never local green money success.                                                                                                                        |
+| `/bank-ops`     | Bank operations (read-only): earn pools, loan products, card programme, ramp programme and fiat probe, business-bank rules. Every figure carries the time it was read; loans book, pool totals, card and ramp volumes, business queue and the frozen-account list are printed as "Not available" with the reason. |
+| `/p2p-ops`      | P2P operations (read-only): service posture, dispute backlog and the open-dispute queue with case detail, late settlements. Escalation and ruling are shown switched off with why (no service procedure / moves escrow). Offers and orders: not available.                                                        |
+| `/academy-ops`  | Academy operations: content inventory, depth and import status, certificate definitions, seasons, paper-trading posture, ambassadors (freeze and lift the freeze as a two-founder request), residency applications. Enrolments and the grant audit: not available.                                                |
+| `/more-ops`     | Agents (route table), Quant (health), Mining, Launch, Market (vendor applications and approved or suspended vendors with approve, reject, suspend as a two-founder request; public listings; commission) and Campaigns. What a service cannot give is named, not zeroed.                                          |
 
 ## Friction is proportional to blast radius
 
-- `reconcile` — read-only on the book. One click.
-- `unfreeze` — resumes value movement. One acknowledgement.
-- `freeze` — stops the platform. Reason (≥ 12 chars) **and** the literal phrase `FREEZE LEDGER` **and** a
-  checked acknowledgement. All three, or the button stays dead.
-- `ledger.posting` off — same reasoning on the kill-switch board: the switch is locked until the operator
-  acknowledges the platform-wide blast radius in the panel above it.
+Every state-changing control here follows one flow: **request, second founder approves, run, then read the state again.**
+
+- Request: a reason (12 to 500 characters) and the exact phrase (`KILL <module>`, `RE-ENABLE <module>`, `FREEZE LEDGER`,
+  `UNFREEZE LEDGER`). Identity records an approval bound to a hash of that exact request.
+- Approve: a DIFFERENT founder pastes the request packet, reads it in plain words, types the phrase and approves.
+  Identity refuses the requester approving their own request. The approver's console recomputes the hash from
+  what they read, so an edited packet cannot get a different request approved.
+- Run: the owning service (svc-edge or svc-ledger) spends the approval once. The page shows what the service said,
+  then reads the state again. It never advances a badge on its own. A 2xx counts only when the body shows the state asked for.
+- Undo: re-enable and unfreeze are the same flow. The requester can withdraw an unused request; the other founder can reject it.
+- Pay halts: setting a halt is one founder; clearing needs a second, different founder (svc-pay enforces it).
+- Identity is never offered a kill: the console needs it to approve the way back.
+
+## Module desks
+
+`src/lib/ops-desk/catalog.ts` lists every read a desk makes (procedure, input, the columns it expects) and every figure it cannot show, with the number of the back-end need in `admin-BACKEND-NEEDS.md`. A catalogue test reads each owning service's router and fails if a read names a procedure that is not a query there. Reads run as the signed-in founder through svc-edge; the services check scopes, so a refused read says so in words and the rest of the desk still loads. The only actions are `market.vendor.vet` and `academy.ambassador.freeze/unfreeze`, both run through the two-founder flow above.
 
 ## Inspected transports
 
@@ -54,15 +70,17 @@ pnpm --filter @intafaced/admin typecheck
 | `GET/POST /api/ledger-freeze`  | `/admin/ledger/freeze` · unfreeze | `EDGE_URL` + `ADMIN_TREASURY_TOKEN` (`admin:treasury`)      |
 | `GET/POST /api/operator-tools` | `/api/{module}/trpc/{procedure}`  | current individual founder session; services enforce scopes |
 
-The `/` board reads current module state and audit. A successful read or configured transport never enables module writes: identity-issued approval and original operation context are not supplied by these controls. Per-flag rows remain explicitly labelled local session previews (flag store §13).
+The `/` board reads current module state and audit, and each module's panel hosts its kill and re-enable controls. The run step is sent with the console's static operator credential, so the edge's own audit names that credential; the founders' identities and the reason are in identity's approval record and the console's log line.
+
+Also mounted here, all read through the signed-in founder's own session: `/api/pay-halts` (svc-pay `payHalts.*`), `/api/support` (svc-support `listQueue` / `get` / `claim`), `/api/notify-health` (svc-notify `operatorDeliveries`), and `/api/compliance` (edge `/admin/compliance/*`, console operator credential).
 
 Operator runbook: [`docs/OPS-KILL-SWITCH-RUNBOOK.md`](../../docs/OPS-KILL-SWITCH-RUNBOOK.md).
 
 ## Still not wired (honest residual)
 
-Ledger ops is read-only: its posting snapshot is neither command history nor an original receipt. Freeze/unfreeze require verified treasury authority, MFA, identity-issued approvals and original lookup; disabled requirement inspection cannot acquire them. Live reconciliation is not mounted. The retained simulated preview sends nothing, and zero placeholder counts are displayed as not counted/not checked.
+Every gap is filed in `~/.codex/context/work/tasks/admin-BACKEND-NEEDS.md`. In short: ledger freeze and unfreeze stay disabled until svc-ledger's `GET /operator/freeze` returns its version; live reconcile has no route, so `/ledger` says so instead of showing numbers; identity cannot list pending approvals, so the request packet is handed over by the founders; founder sessions do not carry `support:ops` or `admin:read`, so the support and notify desks show the service's refusal until identity grants them.
 
-Current main's founder page and BFF gates remain authoritative and asynchronous. Retained browser mutation helpers obtain the current founder CSRF nonce before POST; an absent or malformed nonce is a definite no-dispatch refusal. A valid posting record cannot settle an unknown command. Existing command transports are not new UI authority.
+Current main's founder page and BFF gates remain authoritative and asynchronous. Browser mutation helpers obtain the current founder CSRF nonce before POST; an absent or malformed nonce is a definite no-dispatch refusal. A valid posting record cannot settle an unknown command.
 
 ## Founder sessions and deployment
 

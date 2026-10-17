@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { FLAG_REGISTRY } from '@intafaced/config';
-import { KillSwitchBoard, ModuleCommandReceiptView, moduleTogglePhrase } from '@/components/kill-switch-board';
+import { KillSwitchBoard } from '@/components/kill-switch-board';
 import type { ControlPlaneState } from '@/lib/control-plane-browser';
 
 /**
@@ -41,49 +41,41 @@ const CONTROL_PLANE: ControlPlaneState = {
   detail: null,
 };
 
-describe('module command friction and receipts', () => {
-  it('uses an exact action-specific phrase for kill and re-enable', () => {
-    expect(moduleTogglePhrase('trade', false)).toBe('KILL trade');
-    expect(moduleTogglePhrase('trade', true)).toBe('RE-ENABLE trade');
+describe('the module controls live on the board and are never a browser boolean', () => {
+  it('hosts the two-founder module desk, with the current-state badge, in place of the old read-only boundary', () => {
+    const html = render();
+    expect(html).toContain('data-testid="kill-badge"');
+    expect(html).toContain('Module controls');
+    expect(html).not.toContain('Module writes unavailable');
+    expect(html).not.toContain('Module write unavailable');
   });
 
-  it('renders only the state and audit record returned by svc-edge', () => {
-    const html = renderToStaticMarkup(
-      <ModuleCommandReceiptView
-        receipt={{
-          module: 'trade',
-          disabled: true,
-          status: 200,
-          snapshot: {
-            disabledModules: ['trade'],
-            reasons: { trade: 'market integrity incident' },
-            audit: [
-              {
-                at: '2026-08-26T10:02:00.000Z',
-                module: 'trade',
-                actor: 'incident-operator',
-                reason: 'market integrity incident',
-                previous: false,
-                next: true,
-                changed: true,
-              },
-            ],
-          },
-        }}
-      />,
-    );
+  it('offers no per-module switch: the group header links to the controls instead', () => {
+    const html = render();
+    expect(html).toContain('href="#module=trade"');
+  });
 
-    expect(html).toContain('module-command-receipt');
-    expect(html).toContain('HTTP 200');
-    expect(html).toContain('incident-operator');
-    expect(html).toContain('2026-08-26T10:02:00.000Z');
-    expect(html).toContain('market integrity incident');
+  it('switches the desk off, with the reason, when the console cannot send', () => {
+    const html = render({ moduleWritesBlocked: 'ADMIN_OPERATOR_TOKEN is not set' });
+    expect(html).toContain('This control is switched off');
+    expect(html).toContain('ADMIN_OPERATOR_TOKEN is not set');
+    expect(html).toContain('Kill / re-enable unavailable');
+    expect(html).not.toContain('data-testid="request-form"');
   });
 });
 
 /** The drop the platform actually runs at — `LAUNCH_DROP` defaults to `'0'`. */
 function render(overrides: Partial<Parameters<typeof KillSwitchBoard>[0]> = {}): string {
-  return renderToStaticMarkup(<KillSwitchBoard drop="0" flagEnv={{}} initialControlPlane={CONTROL_PLANE} {...overrides} />);
+  return renderToStaticMarkup(
+    <KillSwitchBoard
+      drop="0"
+      flagEnv={{}}
+      initialControlPlane={CONTROL_PLANE}
+      moduleWritesBlocked={null}
+      userId="11111111-1111-4111-8111-111111111111"
+      {...overrides}
+    />,
+  );
 }
 
 /**
