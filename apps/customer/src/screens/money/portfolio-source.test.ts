@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { fromDerived, fromServer, summaryFetcher, toHomePortfolio, SERVER_SUMMARY_MISSING, type ServerSummary } from './portfolio-source';
+import {
+  fromDerived,
+  fromServer,
+  pickMoneyView,
+  summaryFetcher,
+  toHomePortfolio,
+  SERVER_SUMMARY_MISSING,
+  type ServerSummary,
+} from './portfolio-source';
 import { valuePortfolio } from '../../data/derive';
 import type { DataEnv } from '../../data/queries';
 
@@ -64,6 +72,28 @@ describe('fromDerived', () => {
     expect(view.source).toBe('derived');
     expect(view.rows).toHaveLength(1);
     expect(view.rows[0]).toMatchObject({ asset: 'USDT', class: 'cash', amount: '100', usdValue: '100' });
+  });
+});
+
+describe('pickMoneyView', () => {
+  const retry = () => {};
+  const emptyDerived = { status: 'ready' as const, data: valuePortfolio({ balances: {}, markets: [], tickers: {}, nowMs: 1 }), asOf: 1 };
+  it('shows the bank error, not an invented zero, when the fallback has no rows', () => {
+    const view = pickMoneyView(true, { status: 'error', retry }, emptyDerived);
+    expect(view).toEqual({ status: 'error', retry });
+  });
+  it('shows the labelled fallback when it has rows', () => {
+    const derived = {
+      status: 'ready' as const,
+      data: valuePortfolio({ balances: { USDT: { free: '5', used: '0', total: '5' } }, markets: [], tickers: {}, nowMs: 1 }),
+      asOf: 1,
+    };
+    const view = pickMoneyView(true, { status: 'error', retry }, derived);
+    expect(view.status).toBe('ready');
+    if (view.status === 'ready') expect(view.data.source).toBe('derived');
+  });
+  it("uses the bank's summary when it answered", () => {
+    expect(pickMoneyView(false, { status: 'ready', data: summary(), asOf: 1 }, { status: 'loading' }).status).toBe('ready');
   });
 });
 

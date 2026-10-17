@@ -208,7 +208,20 @@ export function useMoneyPortfolio(): Loadable<MoneyView> {
   const server = useSource(useMemo(() => serverSource(env), [env]));
   const fallback = server.status === 'error' || (server.status === 'refused' && server.code === SERVER_SUMMARY_MISSING);
   const derived = useSource(useMemo(() => (fallback ? portfolioSource(env) : constantSource(WAITING)), [env, fallback]));
-  return useMemo(() => (fallback ? mapLoadable(derived, fromDerived) : mapLoadable(server, fromServer)), [fallback, derived, server]);
+  return useMemo(() => pickMoneyView(fallback, server, derived), [fallback, derived, server]);
+}
+
+/** Which portfolio view to show, given the bank's summary and (when it failed) the client fallback. */
+export function pickMoneyView(
+  fallback: boolean,
+  server: Loadable<ServerSummary>,
+  derived: Loadable<PortfolioSummary>,
+): Loadable<MoneyView> {
+  if (!fallback) return mapLoadable(server, fromServer);
+  const view = mapLoadable(derived, fromDerived);
+  // The fallback leaves out named spaces, so "no rows" there is not "no money": while the bank is failing, show its
+  // error (with retry) instead of an invented zero.
+  return view.status === 'empty' && server.status === 'error' ? server : view;
 }
 
 // ── Home's view of the same total ────────────────────────────────────────────
