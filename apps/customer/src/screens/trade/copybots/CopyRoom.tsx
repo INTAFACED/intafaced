@@ -80,6 +80,11 @@ export function CopyRoom({ path }: { path: string }) {
   const check = async () => {
     const pending = guard.pending;
     if (!pending) return;
+    if (pending.kind !== 'copy') {
+      // Another room's unconfirmed request: only its own room can settle it, so nothing is cleared here.
+      setVerdict(t('That request belongs to the spot desk or another room. Check it there; it stays locked until then.'));
+      return;
+    }
     setChecking(true);
     const fresh = await api.follows();
     setChecking(false);
@@ -89,8 +94,8 @@ export function CopyRoom({ path }: { path: string }) {
     }
     follows.reload();
     if (pending.id.startsWith('follow:')) {
-      const leader = pending.id.split(':')[1];
-      const found = fresh.data.some((f) => f.leaderId === leader);
+      const leader = pending.id.slice('follow:'.length, pending.id.lastIndexOf(':'));
+      const found = fresh.data.some((f) => f.leaderId === leader && ['ACTIVE', 'PAUSED'].includes(f.relationshipState.toUpperCase()));
       setVerdict(
         found
           ? t('The follow was created. It is in My follows.')

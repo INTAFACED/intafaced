@@ -70,6 +70,7 @@ const messages = {
   'Counted from the filled slice orders only': 'Counted from the filled slice orders only',
   Countries: 'Countries',
   Country: 'Country',
+  Custom: 'Custom',
   'Days trading': 'Days trading',
   Dismiss: 'Dismiss',
   'Drawdown limit': 'Drawdown limit',
@@ -83,8 +84,8 @@ const messages = {
   'Enter the leader’s ID': 'Enter the leader’s ID',
   'Enter the run time and the gap between slices in minutes': 'Enter the run time and the gap between slices in minutes',
   'Enter your country as two letters, for example ID': 'Enter your country as two letters, for example ID',
-  'Estimated cost': 'Estimated cost',
-  'Estimated proceeds': 'Estimated proceeds',
+  'Estimated cost, before fees and price moves': 'Estimated cost, before fees and price moves',
+  'Estimated proceeds, before fees and price moves': 'Estimated proceeds, before fees and price moves',
   Execution: 'Execution',
   'Expected to finish': 'Expected to finish',
   'Extra charge on your profit': 'Extra charge on your profit',
@@ -264,6 +265,7 @@ const messages = {
   'Sign in': 'Sign in',
   'Sign in to see the leaders you follow.': 'Sign in to see the leaders you follow.',
   'Sign in to see your bots.': 'Sign in to see your bots.',
+  'Sized from market volume': 'Sized from market volume',
   'Sizes slices to follow the market’s usual trading volume': 'Sizes slices to follow the market’s usual trading volume',
   'Slice by slice, when each order is placed. Nothing is locked up front':
     'Slice by slice, when each order is placed. Nothing is locked up front',
@@ -302,6 +304,8 @@ const messages = {
   'That follow is no longer in your list.': 'That follow is no longer in your list.',
   'That follow is now {state}.': 'That follow is now {state}.',
   'That is more than 500 slices. Make the gap longer.': 'That is more than 500 slices. Make the gap longer.',
+  'That request belongs to the spot desk or another room. Check it there; it stays locked until then.':
+    'That request belongs to the spot desk or another room. Check it there; it stays locked until then.',
   'The ID the leader shares with you': 'The ID the leader shares with you',
   'The amount is below one lot after it is split into slices': 'The amount is below one lot after it is split into slices',
   'The bot trades with your real balance on this market. Each slice is an ordinary order.':

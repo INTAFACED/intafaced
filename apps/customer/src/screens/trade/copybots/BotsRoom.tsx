@@ -184,8 +184,15 @@ export function BotsRoom({ path }: { path: string }) {
   const check = async () => {
     const pending = guard.pending;
     if (!pending) return;
+    if (pending.kind !== 'algo') {
+      // Another room's unconfirmed request: only its own room can settle it, so nothing is cleared here.
+      setVerdict(t('That request belongs to the spot desk or another room. Check it there; it stays locked until then.'));
+      return;
+    }
     setChecking(true);
-    const result = await api.algoGet(pending.id);
+    // A create is remembered by the id we chose; the service stores it as algo-<first 8 of your user id>-<that id>.
+    const serviceId = pending.operation ? pending.id : `algo-${(userId ?? '').slice(0, 8)}-${pending.id}`;
+    const result = await api.algoGet(serviceId);
     setChecking(false);
     if (result.ok) {
       remember({ id: result.data.id, symbol: result.data.symbol, kind: result.data.kind, at: Date.now() });

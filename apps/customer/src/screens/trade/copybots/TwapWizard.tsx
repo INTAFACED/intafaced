@@ -227,9 +227,9 @@ export function TwapWizard({
                 aria-label={t('Run time')}
                 size={32}
                 fullWidth
-                value={PRESETS.some((p) => p.value === duration) ? duration : ''}
-                onValueChange={setDuration}
-                items={PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+                value={PRESETS.some((p) => p.value === duration) ? duration : 'custom'}
+                onValueChange={(v) => v !== 'custom' && setDuration(v)}
+                items={[...PRESETS.map((p) => ({ value: p.value, label: p.label })), { value: 'custom', label: t('Custom') }]}
               />
             </div>
             <Field
@@ -272,8 +272,11 @@ export function TwapWizard({
               <KeyValue
                 items={[
                   { label: t('Slices'), value: String(plan.slices) },
-                  { label: t('Each slice'), value: `${displayAmount(plan.perSlice)} ${market.base}` },
-                  { label: t('Last slice'), value: `${displayAmount(plan.lastSlice)} ${market.base}` },
+                  {
+                    label: t('Each slice'),
+                    value: kind === 'twap' ? `${displayAmount(plan.perSlice)} ${market.base}` : t('Sized from market volume'),
+                  },
+                  ...(kind === 'twap' ? [{ label: t('Last slice'), value: `${displayAmount(plan.lastSlice)} ${market.base}` }] : []),
                   { label: t('Left out (below one lot)'), value: `${displayAmount(plan.leftOut)} ${market.base}` },
                   { label: t('Runs for'), value: durationMs === null ? null : formatClock(Math.min(durationMs, MAX_DURATION_MS)) },
                 ]}
@@ -306,7 +309,10 @@ export function TwapWizard({
               <KeyValue
                 items={[
                   {
-                    label: side === 'buy' ? t('Estimated cost') : t('Estimated proceeds'),
+                    label:
+                      side === 'buy'
+                        ? t('Estimated cost, before fees and price moves')
+                        : t('Estimated proceeds, before fees and price moves'),
                     value: estimate === null ? null : `${displayAmount(estimate)} ${market.quote}`,
                     hint: limit
                       ? t('At your price limit')
