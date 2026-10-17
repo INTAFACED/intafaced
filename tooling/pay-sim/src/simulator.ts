@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import type { Sql } from 'postgres';
 import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
@@ -50,7 +50,14 @@ const SCENARIOS = [
   { archetype: 'broker', amount: '80', refund: '5' },
   { archetype: 'gaming', amount: '40', refund: '1' },
 ] as const;
-const SECRET = 'TEST-DATA-pay-sim-webhook-secret-no-real-keys';
+/**
+ * SANDBOX-ONLY webhook signing secret for the in-memory chain. Never a real key.
+ * Taken from PAY_SIM_WEBHOOK_SECRET when set, otherwise a random value per run, so no
+ * secret is committed to the repository.
+ */
+function sandboxWebhookSecret(): string {
+  return process.env.PAY_SIM_WEBHOOK_SECRET || `sandbox-pay-sim-${randomBytes(24).toString('hex')}`;
+}
 
 function requireCondition(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(`pay-sim assertion failed: ${message}`);
@@ -97,7 +104,7 @@ export async function runSimulation(input: Options, signal?: AbortSignal) {
   const step = <T>(effect: () => Promise<T>) => deadline.step(effect);
   const ledger = new MemoryLedger();
   const chain = new MemoryChain();
-  const crypto = new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 });
+  const crypto = new CryptoNativeAdapter({ chain, secret: sandboxWebhookSecret(), minConfirmations: 6, toleranceSeconds: 300 });
   const faults = { railDown: 0, duplicateEvents: 0, duplicateRefunds: 0, duplicatePayouts: 0, databaseAfterSend: 0 };
   const expected: Outbound[] = [];
   const merchants: Array<{ archetype: string; label: string; id: string }> = [];
