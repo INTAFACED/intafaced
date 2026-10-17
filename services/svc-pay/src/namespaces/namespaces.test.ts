@@ -91,6 +91,14 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
     input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
   },
   'founderAdmin.conversion.lateFill.sweep': { founder: true, input: {} },
+  'founderAdmin.conversion.lateFill.book.propose': {
+    founder: true,
+    input: { requestId: id(), auditId: id(), reason: 'drill' },
+  },
+  'founderAdmin.conversion.lateFill.book.confirm': {
+    founder: true,
+    input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
+  },
 };
 
 const userId = id();
