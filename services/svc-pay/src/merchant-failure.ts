@@ -30,6 +30,9 @@ const FAILURE_CATALOG: Readonly<Record<string, string>> = {
   'payout.no_destination': 'The payout has no destination.',
   'bank.not_configured': 'Bank payout is not configured.',
   'bank.rejected': 'The payout was rejected.',
+  'rail.health_stale': 'The payment rail has not confirmed it is up. Nothing was sent.',
+  'rail.probe_failed': 'The payment rail did not answer a health check. Nothing was sent.',
+  'rail.marked_down': 'The payment rail is marked down. Nothing was sent.',
 };
 
 export interface MerchantFailure {

@@ -39,6 +39,7 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { RailRegistry } from './rails/registry.js';
 import { CryptoChainWatcher, PostgresChainWatcherCursorStore } from './rails/chain-watcher.js';
+import { RailHealthProbeLoop } from './rails/rail-health-probe.js';
 import { EvmLiveChain } from './rails/evm-chain.js';
 import { PostgresBroadcastStore } from './rails/broadcast-store.js';
 import { PostgresRestIdempotencyStore } from './rest-idempotency.js';
@@ -819,10 +820,14 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     pollIntervalMs: env.PAY_CRYPTO_WATCHER_INTERVAL_MS,
     cursorStore: watcherCursors,
     log: (msg, extra) => app.log.info(extra ?? {}, msg),
+    onAlive: () => cryptoRail.noteAlive(),
   });
   watcher.start();
   app.log.info({ intervalMs: env.PAY_CRYPTO_WATCHER_INTERVAL_MS }, 'crypto chain watcher started');
 }
+
+const railProbe = new RailHealthProbeLoop(rails.list());
+void railProbe.start();
 
 /**
  * The posture goes in the log on every start. In dev, where `assertRailPosture`
@@ -857,6 +862,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       watcher?.stop();
+      railProbe.stop();
       clearInterval(lateFillSweep);
       clearInterval(holdSweep);
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
