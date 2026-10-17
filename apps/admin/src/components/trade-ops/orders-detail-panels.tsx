@@ -8,7 +8,7 @@ import { ConfirmAction } from './confirm-action';
 import { OutcomeNotice } from './outcome-notice';
 
 /**
- * The three panels of an order that need services we do not have yet: fills, history, and the operator controls
+ * The three panels of an order that need services we do not have: fills, history, and the operator controls
  * (cancel, start reconcile). All are fully built and send a real request to /api/trade-ops/orders; each answers with a
  * typed refusal naming the owner and requirement id, which is shown as it came. Nothing here ever claims success.
  */

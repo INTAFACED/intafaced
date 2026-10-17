@@ -13,7 +13,7 @@ import { maxAmount, portionOf, scaled, type OrderType, type Side } from './order
 export const bpsToRatio = (bps: number): string => formatAmount((BigInt(bps) * SCALE) / 10_000n);
 
 /**
- * Market sells are not offered yet: the service's preview gives no fee for them, and a market sell has no price
+ * Market sells are off: the service's preview gives no fee for them, and a market sell has no price
  * floor, which is a risk decision for the owner. Limit sells are unaffected.
  */
 export const marketSellOff = (side: Side, type: OrderType): boolean => side === 'sell' && type === 'market';

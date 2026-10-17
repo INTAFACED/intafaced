@@ -1,4 +1,7 @@
 export const USER_ID: string;
+export const OWNER_SCOPES: string[];
+export const OWNER_SCOPES_WITH_MONEY: string[];
+export function accessTokenFor(scopes?: string[]): string;
 export function createPortalMock(
   scenario?: string,
   options?: { now?: number; myAccess?: string; role?: string },

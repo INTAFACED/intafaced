@@ -26,6 +26,7 @@ import { Timeline } from '../ui/Timeline';
 import { uiCopy } from '../ui/copy';
 import { ListBody, LinkButton, localRefusal, NamedBlocker, shortDay } from './common';
 import { mc } from './copy';
+import { useMoneyReason } from '../access/MoneyAction';
 import { conversionStatuses, type ConversionOrder, type ConversionQuote } from './schemas';
 import { settlementName } from './Settlements';
 import { isConversionOff } from './refusals';
@@ -203,6 +204,8 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
   const problem = !settlement ? t('cvPickSettlement') : !valid ? t('cvAmountInvalid') : over ? t('cvAmountOver') : null;
   const expired = quote ? Date.parse(quote.q.expiresAt) <= now : false;
   const may = can('payout.approve');
+  // Getting a quote is an ordinary write; converting moves money and carries the payout scope.
+  const stepReason = useMoneyReason('payout');
   return (
     <div className="stack">
       <TestNotice />
@@ -297,8 +300,8 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                 title={t('cvConvert')}
                 variant="primary"
                 description={t('cvReviewBody')}
-                disabled={expired || !may}
-                disabledReason={expired ? t('cvExpired') : !may ? t('cvNotAllowed') : undefined}
+                disabled={expired || !may || stepReason !== null}
+                disabledReason={expired ? t('cvExpired') : !may ? t('cvNotAllowed') : (stepReason ?? undefined)}
                 review={
                   <dl className="pp-facts">
                     <div>

@@ -54,9 +54,10 @@ export function csvFilename(readId: string, asOf: string): string {
 }
 
 /** What the page says next to the button, so the file is never mistaken for the whole table. */
-export function exportNote(rows: number, pageFull: boolean, page: number | undefined, asOf: string): string {
+export function exportNote(rows: number, pageFull: boolean, page: number | undefined, asOf: string, exact = false): string {
   const noun = rows === 1 ? 'row' : 'rows';
   const base = `Exports the ${rows} ${noun} shown above (not a full table export), as read at ${formatWhen(asOf)}.`;
+  if (exact) return pageFull ? `${base} More rows exist that are not in the file until “Next 50” has read them.` : base;
   return pageFull && page !== undefined
     ? `${base} This read is capped at ${page} rows and the page is full, so more rows may exist that are not in the file.`
     : base;

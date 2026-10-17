@@ -11,6 +11,8 @@ import { allows, canOwnerWrite as ownerMayWrite, resolveAccess, type Access, typ
 import type { MyAccess } from './schemas';
 import { NoBusiness } from './NoBusiness';
 import { publishAccess } from './shared-access';
+import { moneyReason, type MoneyKind } from './money-step';
+import { scopesOfAccessToken } from './session-scopes';
 
 type TeamMe = { merchantId: string; userId: string; role: MemberRole };
 
@@ -30,12 +32,19 @@ export type MerchantAccessValue = {
   can: (need: Need) => boolean;
   /** Owner of an active account in a session that can change things. */
   canOwnerWrite: boolean;
+  /** The scopes the signed-in session carries (read from its access token), or null when they cannot be read. */
+  sessionScopes: ReadonlySet<string> | null;
+  /** Why a refund or a payout cannot be sent from this session, in words, or null when it can. One answer for every control. */
+  moneyReason: (kind: MoneyKind) => string | null;
 };
 
 const Context = createContext<MerchantAccessValue | null>(null);
+/** For tests and previews that draw a page with a fixed access value, without the reads the provider makes. */
+export const MerchantAccessContext = Context;
 
 export function MerchantAccessProvider({ children }: { children: ReactNode }) {
-  const { api, userId } = useSession();
+  const { api, userId, session } = useSession();
+  const accessToken = session?.accessToken;
   const portal = useMemo(() => createPortalApi(api, userId), [api, userId]);
   const who = userId ?? 'anon';
   const myAccess = useResource<MyAccess>((s) => portal.myAccess(s), `portal:my-access:${who}`);
@@ -43,6 +52,7 @@ export function MerchantAccessProvider({ children }: { children: ReactNode }) {
   const team = useResource((s) => portal.teamMe(s), `portal:team-me-shell:${who}`);
   const value = useMemo<MerchantAccessValue>(() => {
     const access = resolveAccess({ sessionUserId: userId, myAccess: myAccess.resource, merchant: merchant.resource, team: team.resource });
+    const sessionScopes = scopesOfAccessToken(accessToken);
     return {
       access,
       merchant: merchant.resource,
@@ -55,8 +65,10 @@ export function MerchantAccessProvider({ children }: { children: ReactNode }) {
       },
       can: (need) => allows(access, need),
       canOwnerWrite: ownerMayWrite(access),
+      sessionScopes,
+      moneyReason: (kind) => moneyReason(kind, sessionScopes),
     };
-  }, [userId, myAccess.resource, merchant.resource, team.resource, myAccess.reload, merchant.reload, team.reload]);
+  }, [userId, accessToken, myAccess.resource, merchant.resource, team.resource, myAccess.reload, merchant.reload, team.reload]);
   useEffect(() => {
     publishAccess(value);
     return () => publishAccess(null);

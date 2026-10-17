@@ -225,14 +225,14 @@ export function BotsRoom({ path }: { path: string }) {
       return { tone: 'lime', word: policy.data ? 'Ready' : 'Checking', reason: null, ready: true };
     }
     if (row.id === 'studio')
-      return { tone: 'warn', word: 'Paper only', reason: 'A strategy can’t trade live yet. It runs on paper.', ready: true };
+      return { tone: 'warn', word: 'Paper only', reason: 'A strategy can’t trade live. It runs on paper.', ready: true };
     return {
       tone: 'neutral',
       word: 'Not built',
       reason:
         row.id === 'grid'
-          ? 'No grid service exists yet. Nothing is simulated.'
-          : 'No recurring-order service exists yet. Use Convert for a single trade.',
+          ? 'No grid service exists. Nothing is simulated.'
+          : 'No recurring-order service exists. Use Convert for a single trade.',
       ready: false,
     };
   };
@@ -428,7 +428,7 @@ export function BotsRoom({ path }: { path: string }) {
                       size="inline"
                       title={t('No bots started on this device')}
                       reason={t(
-                        'The service has no list of your bots yet, so this list is the bots you set up here. Open any bot by its ID below.',
+                        'The service has no list of your bots, so this list is the bots you set up here. Open any bot by its ID below.',
                       )}
                       action={{ label: t('Set up a bot'), onClick: () => setTab('catalogue'), variant: 'secondary' }}
                     />
@@ -471,7 +471,7 @@ export function BotsRoom({ path }: { path: string }) {
               emptyState={
                 <EmptyState
                   size="inline"
-                  title={t('No paper strategies yet')}
+                  title={t('No paper strategies')}
                   reason={t('Write and save a strategy in Quant Studio and it appears here.')}
                   action={{ label: t('Open Quant Studio'), href: '/quant/studio', variant: 'secondary' }}
                 />
@@ -479,7 +479,7 @@ export function BotsRoom({ path }: { path: string }) {
             />
             <KeyValue
               items={[
-                { label: t('Running a strategy live'), value: t('Not built: a strategy cannot trade real money yet') },
+                { label: t('Running a strategy live'), value: t('Not built: a strategy cannot trade real money') },
                 { label: t('Where to write one'), value: t('Quant Studio') },
               ]}
             />

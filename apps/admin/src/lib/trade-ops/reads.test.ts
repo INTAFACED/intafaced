@@ -83,7 +83,7 @@ describe('readEffectiveFees', () => {
     fetchMock.mockResolvedValue(
       reply(503, {
         code: 'ExchangeNotAvailable',
-        message: 'Trading fees are not available yet.',
+        message: 'Trading fees are not available.',
         intafacedCode: 'trade.fee_schedule_blank',
       }),
     );

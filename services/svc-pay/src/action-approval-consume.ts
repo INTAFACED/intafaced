@@ -15,6 +15,8 @@ export const ACTION_APPROVAL_UNWIRED = 'action_approval.identity_unwired' as con
 export const ACTION_APPROVAL_MISSING = 'action_approval.missing' as const;
 /** The approval was not approved by a distinct founder who proposed-and-approved as a founder pair. */
 export const ACTION_APPROVAL_NOT_FOUNDERS = 'action_approval.not_founders' as const;
+/** Identity refused because the consume hash is not the hash the second founder approved. */
+export const ACTION_APPROVAL_PAYLOAD_MISMATCH = 'action_approval.payload_mismatch' as const;
 
 export class ActionApprovalConsumeError extends Error {
   constructor(
@@ -23,6 +25,7 @@ export class ActionApprovalConsumeError extends Error {
       | typeof ACTION_APPROVAL_UNWIRED
       | typeof ACTION_APPROVAL_MISSING
       | typeof ACTION_APPROVAL_NOT_FOUNDERS
+      | typeof ACTION_APPROVAL_PAYLOAD_MISMATCH
       | 'action_approval.consume_failed',
   ) {
     super(message);
@@ -93,7 +96,10 @@ export function createIdentityApprovalClient(baseUrl: string, internalSecret: st
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
-        throw new ActionApprovalConsumeError(`identity refused consume (${res.status}) ${detail}`.trim(), 'action_approval.consume_failed');
+        const code = detail.includes(ACTION_APPROVAL_PAYLOAD_MISMATCH)
+          ? ACTION_APPROVAL_PAYLOAD_MISMATCH
+          : 'action_approval.consume_failed';
+        throw new ActionApprovalConsumeError(`identity refused consume (${res.status}) ${detail}`.trim(), code);
       }
       return actionApprovalSchema.parse(unwrapTrpcJson(await res.json()));
     },

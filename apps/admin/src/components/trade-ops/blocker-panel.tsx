@@ -4,8 +4,8 @@ import { EmptyState } from '@intafaced/ui';
 import type { Blocker, Outcome } from '@/lib/trade-ops/outcome';
 
 /**
- * A room or panel whose service is not there yet: the real blocker, who owns it and the requirement id.
- * Never "coming soon": the operator can read exactly what is missing.
+ * A room or panel whose service is not there: the real blocker, who owns it and the requirement id.
+ * Never a promise of later: the operator can read exactly what is missing.
  */
 export function BlockerPanel({ blocker, title, size = 'panel' }: { blocker: Blocker; title: string; size?: 'inline' | 'panel' | 'page' }) {
   return <EmptyState variant="refused" size={size} title={title} reason={blocker.text} code={`${blocker.owner} · ${blocker.need}`} />;

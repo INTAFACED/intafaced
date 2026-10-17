@@ -17,6 +17,7 @@ import type { Progress } from '../account/schemas';
 import { Blocker } from '../account/ui';
 import { portalCopy } from '../copy';
 import { mc } from '../../money/copy';
+import { feeStory } from '../../ui/fee-story';
 import { describeDestination, railWords } from '../../money/destination';
 import {
   businessDetails,
@@ -384,7 +385,12 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated, progress }: 
                 [t('fBusinessType'), form.businessType],
                 [t('fContactEmail'), form.contactEmail],
                 [t('fExpectedVolume'), form.expectedVolume ? `${form.expectedVolume} (${t('declaredTag')})` : t('notGiven')],
-                [t('factStartingFee'), noFee ? t('feeNotPublished') : t('feeBps', { bps: starterFeeBps })],
+                [
+                  t('factStartingFee'),
+                  noFee
+                    ? t('feeNotPublished')
+                    : feeStory({ feeBps: starterFeeBps, starterFee: { bps: starterFeeBps, source: 'local_test' } }),
+                ],
               ]}
             />
           }

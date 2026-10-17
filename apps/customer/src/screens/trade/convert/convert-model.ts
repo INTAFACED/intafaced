@@ -85,7 +85,7 @@ export interface ConvertPlanInput {
 
 export type ConvertPlan = OrderPlan;
 
-/** The base-coin quantity to ask a quote for, whole lots rounded DOWN, or the plain reason it cannot be asked yet. */
+/** The base-coin quantity to ask a quote for, whole lots rounded DOWN, or the plain reason it cannot be asked. */
 export function planConvert(input: ConvertPlanInput): ConvertPlan {
   const { edge } = input;
   const request: PlanInput = {
