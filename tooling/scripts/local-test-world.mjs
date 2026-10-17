@@ -32,9 +32,9 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
+import { founderVaultFiles as testStackFounderVaultFiles } from './local-test-founders.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
-const SCRIPT_REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const STACK_SCRIPT = path.join(path.dirname(SCRIPT), 'local-test-stack.mjs');
 const MARKER_KIND = 'intafaced-local-test-stack';
 const LOCAL_HOST = '127.0.0.1';
@@ -118,7 +118,7 @@ export function assertLocalTarget({ home = os.homedir(), urls = [EDGE], env = pr
 
 /** Accounts the welcome watcher never funds: the market tooling funds those itself. */
 export function isSkippedAccount(handle) {
-  return /^test[-_](market[-_]maker|taker)/i.test(String(handle)) || isOperatorAccount(handle);
+  return /^test[-_](market[-_]maker|taker)/i.test(String(handle)) || isOperatorAccount(handle) || isLocalTestFounderAccount(handle);
 }
 
 /** The two labelled stand-in operators (local-test-gates.mjs). They approve things; they never receive welcome funds. */
@@ -126,11 +126,17 @@ export function isOperatorAccount(handle) {
   return /^local_test_operator_[ab]$/i.test(String(handle));
 }
 
-/** A test account of any kind (market, friend, harness) — never picked as "the founder". */
+/** The local test stack's own founder pair. Not a customer, and not a test operator. */
+export function isLocalTestFounderAccount(handle) {
+  return /^local_test_founder_[ab]$/i.test(String(handle));
+}
+
+/** A test account of any kind (market, friend, harness, founder pair) — never picked as the welcomed user. */
 export function isTestAccount(user) {
   return (
     /^test[-_]/i.test(String(user.handle)) ||
     isOperatorAccount(user.handle) ||
+    isLocalTestFounderAccount(user.handle) ||
     /@(local\.test|local-test\.invalid|example\.invalid)$/i.test(String(user.email))
   );
 }
@@ -966,7 +972,8 @@ export function planMerchantPopulate({
  * identityHash comes from `kyb.decisionBinding`. This function does not hash a profile.
  */
 export const KYB_DECIDE_ACTION = 'pay.merchant_decide_kyb';
-export const KYB_FOUNDERS_MISSING = 'KYB pending: needs the two local founders (pnpm local:founder)';
+export const KYB_FOUNDERS_MISSING =
+  'KYB pending: local test stack founder pair is not enrolled (pnpm local:stack seeds local_test_founder_a and local_test_founder_b; vault is founders.json in the stack state directory)';
 const KYB_HASH_RE = /^sha256:[0-9a-f]{64}$/;
 
 export function kybDecideApprovalFields({ merchantId, decision, identityHash }) {
@@ -990,44 +997,40 @@ export function kybDecidePayloadHash(input) {
 }
 
 /**
- * Two enrolled local founders from `.env.founder-secrets.local` (pnpm local:founder enrol).
- * Returns null when fewer than two distinct founders have a handle, password, user id and TOTP secret.
- * This reads the founder vault only. It does not read the test-operator file.
+ * The two enrolled local-test founders from `<state>/founders.json`.
+ * Returns null unless both local_test_founder_a and local_test_founder_b have a
+ * password, user id and TOTP secret. A test operator or a Docker founder handle
+ * in the file makes the whole vault unusable, so those credentials are never sent.
  */
 export function enrolledLocalFounders(vault) {
   const rows = Array.isArray(vault?.founders) ? vault.founders : [];
-  const ready = [];
-  const seen = new Set();
+  if (rows.some((f) => f && (isOperatorAccount(f.handle) || f.handle === 'local_nitro' || f.handle === 'local_phantom'))) {
+    return null;
+  }
+  const ready = new Map();
   for (const f of rows) {
     if (!f || typeof f !== 'object') continue;
+    if (!isLocalTestFounderAccount(f.handle)) continue;
     if (typeof f.userId !== 'string' || !f.userId) continue;
-    if (typeof f.handle !== 'string' || !f.handle) continue;
     if (typeof f.password !== 'string' || !f.password) continue;
     if (typeof f.totpSecret !== 'string' || !f.totpSecret) continue;
     if (f.totpConfirmed === false) continue;
-    if (seen.has(f.userId)) continue;
-    seen.add(f.userId);
-    ready.push({
+    if (ready.has(f.handle)) continue;
+    ready.set(f.handle, {
       key: f.key,
       handle: f.handle,
       userId: f.userId,
       password: f.password,
       totpSecret: f.totpSecret,
     });
-    if (ready.length === 2) break;
   }
-  return ready.length === 2 ? ready : null;
+  const pair = ['local_test_founder_a', 'local_test_founder_b'].map((handle) => ready.get(handle));
+  return pair.every(Boolean) ? pair : null;
 }
 
-/** Absolute vault paths. The stack checkout is included only when the marker recorded an absolute repo. */
-export function founderVaultFiles({ scriptRepo, stackRepo } = {}) {
-  const files = [];
-  for (const root of [scriptRepo, stackRepo]) {
-    if (typeof root !== 'string' || !path.isAbsolute(root)) continue;
-    const file = path.join(root, '.env.founder-secrets.local');
-    if (!files.includes(file)) files.push(file);
-  }
-  return files;
+/** The test stack state directory's founder vault. The Docker vault is not a candidate. */
+export function founderVaultFiles({ stateDir } = {}) {
+  return testStackFounderVaultFiles({ stateDir });
 }
 
 /**
@@ -1700,8 +1703,9 @@ const MERCHANT_MONEY = new Set([
  *    null. This step reads PAY_MERCHANT_STARTER_FEE_BPS and does the same.
  * 4. KYB is pay.merchant.submitKyb (pay:write), then pay.merchant.decideKybStub
  *    while value movement is allow-sandbox. Under live-only the stub returns
- *    pay.kyb_operator_required and the step uses the two local founders from
- *    `pnpm local:founder` (not the test operators): they sign in with
+ *    pay.kyb_operator_required and the step uses the two local test founders
+ *    seeded by `pnpm local:stack` (local_test_founder_a and local_test_founder_b,
+ *    not the test operators and not the Docker founder vault): they sign in with
  *    auth.login and their TOTP, one proposes and the other approves
  *    pay.merchant_decide_kyb, then pay.merchant.decideKyb consumes it
  *    (admin:compliance, MFA). The hash is the live kyb.decisionBinding
@@ -1850,7 +1854,7 @@ function trpcData(res) {
 }
 
 function loadEnrolledFounders(gctx) {
-  for (const file of founderVaultFiles({ scriptRepo: SCRIPT_REPO, stackRepo: gctx?.marker?.repo })) {
+  for (const file of founderVaultFiles({ stateDir: gctx?.paths?.stateDir })) {
     const pair = enrolledLocalFounders(readJson(file, null));
     if (pair) return pair;
   }
@@ -1870,7 +1874,7 @@ function listOpenKybApprovals(secrets, payloadHash) {
   );
 }
 
-/** Sign-in is auth.login plus the vault TOTP, the same door `pnpm local:founder` enrols. No new account is registered. */
+/** Sign-in is auth.login plus the test-stack vault TOTP. No new account is registered here. */
 async function signInLocalFounders(gctx, gates, founders) {
   const sessions = [];
   for (const founder of founders) {
