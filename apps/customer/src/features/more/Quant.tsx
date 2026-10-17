@@ -1,3 +1,4 @@
+import { QuantMemoryNotice } from './QuantMemoryNotice';
 import { t as copyText, Text } from './copy';
 import { useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
@@ -138,6 +139,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
           <Text k="quant.execution" />
         </a>
       </div>
+      {mode !== 'sandbox' && <QuantMemoryNotice />}
       <p className="more-badge">
         <Text k="quant.simulated.no.live.trading.authority" />
       </p>
