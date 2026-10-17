@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mock } from './coin.mock.mjs';
+import { wireTicker } from './coin.fixtures.mjs';
 import { refusal } from '../trade/buy/trade.mock.mjs';
 
 const shots = process.env.COIN_SHOTS ?? join(tmpdir(), 'intafaced-coin-shots');
@@ -472,3 +473,76 @@ test('hide balances masks the holding, never the price', async ({ page }) => {
   await expect(page.getByTestId('your-coin')).not.toContainText('16,953');
   await expect(page.getByTestId('stat-high')).toContainText('$68,100.50');
 });
+
+for (const mode of ['simple', 'pro']) {
+  test(`phase2 ${mode}: loading and503 remain distinct from empty success`, async ({ page }) => {
+    if (mode === 'pro') await pro(page);
+    const api = await mock(page, { markets: 'hang' });
+    await open(page);
+    await expect(page.getByTestId('coin-loading')).toBeVisible();
+    await expect(page.locator('.coin-nomarket')).toHaveCount(0);
+    await api.release();
+    await expectPrice(page, '$67,812.40');
+    await mock(page, { markets: { status: 503, json: { error: { message: 'Test catalogue unavailable' } } } });
+    await open(page);
+    await expect(page.locator('.coin-problem')).toContainText('Couldn’t load the price');
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await expect(page.locator('.coin-nomarket')).toHaveCount(0);
+    await expect(page.getByTestId('coin-loading')).toHaveCount(0);
+  });
+
+  test(`phase2 ${mode}: successful empty catalogue keeps the held asset and settles`, async ({ page }) => {
+    if (mode === 'pro') await pro(page);
+    await mock(page, { markets: () => [] });
+    await open(page);
+    await expect(page.locator('.coin-nomarket')).toContainText('BTC');
+    await expect(page.getByTestId('coin-loading')).toHaveCount(0);
+    await expect(page.getByTestId('your-coin')).toContainText('0.25 BTC');
+    await expect(page.getByTestId('your-coin')).toContainText('—');
+    await expect(page.getByTestId('price')).toHaveCount(0);
+    await expect(page.locator('.buy-card')).toHaveCount(0);
+    await expect(page.getByTestId('trade-button')).toHaveCount(0);
+    await page.screenshot({ path: join(shots, `phase2-empty-${mode}.png`) });
+    await open(page, '/coin/ZZZ');
+    await expect(page).toHaveURL(/\/trade$/);
+  });
+
+  test(`phase2 ${mode}: phone exact price and quote do not collide`, async ({ page }) => {
+    test.setTimeout(20000);
+    if (mode === 'pro') await pro(page);
+    const api = await mock(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page);
+    await expectPrice(page, '$67,812.40');
+    for (const enlarged of [false, true]) {
+      await page.evaluate((large) => {
+        document.documentElement.style.fontSize = large ? '24px' : '';
+        const price = document.querySelector('[data-testid=price]');
+        price.style.fontSize = large ? `${parseFloat(getComputedStyle(price).fontSize) * 1.5}px` : '';
+      }, enlarged);
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+      });
+      await expectPrice(page, '$67,812.40');
+      const figure = await box(page.locator('.coin-price-card__figure'));
+      const number = page.getByTestId('price').locator('number-flow-react');
+      await expect.poll(async () => (await number.boundingBox())?.width ?? 0).toBeGreaterThan(100);
+      const price = await box(number);
+      const quote = await box(page.getByTestId('quote-pill'));
+      expect(price.x + price.width).toBeLessThanOrEqual(figure.x + figure.width + 1);
+      expect(price.y + price.height <= quote.y || quote.x >= price.x + price.width).toBe(true);
+      await page.screenshot({ path: join(shots, `phase2-phone-${mode}-${enlarged ? 'large' : 'normal'}.png`) });
+    }
+    await page.getByTestId('quote-pill').click();
+    await page.getByRole('option', { name: 'USDC' }).click();
+    await expectPrice(page, '$67,790.10');
+    await expect(page.getByTestId('pair')).toHaveText('BTC/USDC');
+    api.set('ticker', ({ symbol }) => ({ ...wireTicker(symbol, {}), last: '67.40' }));
+    await open(page);
+    await expectPrice(page, '$67.40');
+    await page.getByTestId('quote-pill').click();
+    await page.getByRole('option', { name: 'USDC' }).click();
+    await expectPrice(page, '$67.40');
+    await page.screenshot({ path: join(shots, `phase2-phone-${mode}-short.png`) });
+  });
+}
