@@ -117,3 +117,20 @@ export function splitSessions<T extends { id: string; createdAt: string }>(
   for (const seat of seats) (newest.has(seat) || seat.id.toLowerCase() === currentId ? recent : older).push(seat);
   return { recent, older };
 }
+
+/**
+ * The one "show more" control under the session list. It first unfolds rows already loaded, then asks the server for the next
+ * page, and only then offers to fold the older rows away again. The server may hold more only when it filled the page it was
+ * asked for.
+ */
+export function sessionMoreControl(input: {
+  hidden: number;
+  expanded: boolean;
+  returned: number;
+  limit: number;
+  maxLimit: number;
+}): 'unfold' | 'fetch' | 'fold' | 'none' {
+  if (input.hidden > 0 && !input.expanded) return 'unfold';
+  if (input.returned >= input.limit && input.limit < input.maxLimit) return 'fetch';
+  return input.hidden > 0 && input.expanded ? 'fold' : 'none';
+}

@@ -39,6 +39,8 @@ const en = {
   serviceNotConnected: 'The {service} service is not connected here, so there is nothing to show.',
   serviceNoAnswer: 'The {service} service didn’t answer.',
   serviceNoAnswerBody: 'Nothing was changed. Try again in a moment.',
+  serviceNotRunning: 'The {service} service isn’t running here.',
+  serviceNotRunningBody: 'It didn’t answer after several tries, so there is nothing to show. Nothing was changed.',
   tryAgain: 'Try again',
   svc_protocol: 'Protocol',
   svc_indexer: 'indexer',
