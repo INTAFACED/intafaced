@@ -19,7 +19,12 @@ export const HANDLE_LOOKUP_RATE_LIMITED = 'identity.handle_lookup_rate_limited';
 /** Same rule as sign-up: 3 to 32 letters, numbers or underscores. */
 export const HANDLE_PATTERN = /^[a-zA-Z0-9_]{3,32}$/;
 
-export const meSchema = z.object({ userId: z.string().uuid(), handle: z.string().min(1) });
+export const meSchema = z.object({
+  userId: z.string().uuid(),
+  handle: z.string().min(1),
+  /** Absent on a server that does not yet report confirmation. */
+  emailVerified: z.boolean().optional(),
+});
 
 export const resolveHandleSchema = z.discriminatedUnion('found', [
   z.object({ found: z.literal(false) }),
@@ -27,7 +32,7 @@ export const resolveHandleSchema = z.discriminatedUnion('found', [
 ]);
 
 export type MeOutcome =
-  | { kind: 'ok'; userId: string; handle: string }
+  | { kind: 'ok'; userId: string; handle: string; emailVerified?: boolean }
   /** The server has no `identity.me` yet. */
   | { kind: 'unavailable' }
   | { kind: 'failed' };
@@ -53,7 +58,14 @@ export function procedureMissing(result: Extract<ApiResult<unknown>, { ok: false
 
 export async function fetchMe(api: ApiClient, signal?: AbortSignal): Promise<MeOutcome> {
   const result = await api.query('identity', 'me', undefined, meSchema, { signal });
-  if (result.ok) return { kind: 'ok', userId: result.data.userId, handle: result.data.handle };
+  if (result.ok) {
+    return {
+      kind: 'ok',
+      userId: result.data.userId,
+      handle: result.data.handle,
+      ...(result.data.emailVerified === undefined ? {} : { emailVerified: result.data.emailVerified }),
+    };
+  }
   return procedureMissing(result) ? { kind: 'unavailable' } : { kind: 'failed' };
 }
 

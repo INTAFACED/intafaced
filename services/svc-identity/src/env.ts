@@ -140,6 +140,13 @@ const schema = serviceEnvSchema
        */
       LEDGER_URL: z.string().url().optional(),
       /**
+       * svc-pay base URL for the owner pay-scope grant lookup at session issue.
+       * Unset → sessions stay on ordinary scopes (the grant is not consulted).
+       * Set → identity asks pay and attaches pay:read, pay:write, and pay:onboard
+       * when the published law allows them.
+       */
+      PAY_URL: z.string().url().optional(),
+      /**
        * Owner-published max *live* (non-revoked) sub-accounts per identity
        * (SPEC-SUBACCOUNTS §4 / §8). Blank / unset → unpublished; create refuses
        * (`auth.sub_account_cap_unset`). Never git-default 25 — that looks published.
@@ -166,6 +173,48 @@ const schema = serviceEnvSchema
        * Never git-default 900 or 15 minutes. One day is the ceiling.
        */
       IDENTITY_PASSWORD_RESET_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Mail transport. Blank / unset → unwired; confirmation and reset requests
+       * refuse. `local-outbox` is the only implemented transport and is refused
+       * at boot unless APP_ENV is exactly dev or test. Any other name refuses
+       * at boot. No provider is configured here.
+       */
+      IDENTITY_MAIL_TRANSPORT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** Absolute file path for the local-outbox transport. Required when that transport is selected. */
+      IDENTITY_LOCAL_MAIL_OUTBOX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /**
+       * Owner-published lifetime for an email-confirmation proof, in seconds.
+       * Blank / unset → unpublished; the request refuses (`auth.email_confirm_unwired`).
+       * Never git-default a lifetime. One day is the ceiling.
+       */
+      IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published confirmation requests per window. Blank / unset, or a
+       * window without a max, stays unpublished and the request refuses.
+       * The ceiling is technical. It is not a default budget.
+       */
+      IDENTITY_EMAIL_CONFIRM_RATE_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1_000).optional()),
+      IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;

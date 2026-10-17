@@ -28,8 +28,8 @@ import { assertPermission, type MerchantCaller } from './roles.js';
  *
  * WHAT THIS DOES NOT DO. It never posts to the ledger. The opening result on
  * the detail is whatever the case already recorded (`posted` with a tx id, or
- * a named refuse). Shortfall and won-resolution stay unwired. A response
- * deadline is the rail event's due date or null. This file does not invent one.
+ * a named refuse). Outcome posts are the pay service's. A response deadline
+ * is the rail event's due date or null. This file does not invent one.
  */
 
 export const EVIDENCE_KINDS = ['receipt', 'shipping_proof', 'customer_communication', 'terms_accepted', 'identity_check', 'other'] as const;

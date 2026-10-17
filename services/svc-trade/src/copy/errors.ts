@@ -35,13 +35,16 @@ export type CopyErrorCode =
   | 'trade.copy_state_invalid'
   | 'trade.copy_flatten_refused'
   | 'trade.copy_flatten_drift'
-  | 'trade.copy_flatten_unavailable';
+  | 'trade.copy_flatten_unavailable'
+  | 'trade.copy_flatten_partial';
 
 export class CopyError extends Error {
   constructor(
     message: string,
     readonly code: CopyErrorCode,
     readonly residual?: string,
+    /** Placed close order ids when a later market refuses (`trade.copy_flatten_partial`). */
+    readonly orderIds?: readonly string[],
   ) {
     super(message);
     this.name = 'CopyError';

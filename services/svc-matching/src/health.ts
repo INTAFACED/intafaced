@@ -10,6 +10,9 @@ export interface HealthEngine {
   readonly isVenueHalted: boolean;
   readonly markets: readonly unknown[];
   readonly restingOrderCount: number;
+  readonly admissionOpen: boolean;
+  readonly admissionReason: string | null;
+  holdHaltedMarkets(): readonly string[];
 }
 
 export interface HealthJournal {
@@ -29,6 +32,12 @@ export interface MatchingHealthBody {
   readonly markets: number;
   readonly restingOrders: number;
   readonly journalRecords: number;
+  /** False when the replay hold check could not be read. The book does not open. */
+  readonly admissionOpen: boolean;
+  /** Typed reason while admission is closed. Null when the book may trade. */
+  readonly admissionReason: string | null;
+  /** Markets halted because a resting hold could not be pulled. */
+  readonly holdHalted: readonly string[];
 }
 
 export function matchingHealthBody(service: string, engine: HealthEngine, journal: HealthJournal): MatchingHealthBody {
@@ -40,6 +49,9 @@ export function matchingHealthBody(service: string, engine: HealthEngine, journa
     markets: engine.markets.length,
     restingOrders: engine.restingOrderCount,
     journalRecords: journal.length,
+    admissionOpen: engine.admissionOpen,
+    admissionReason: engine.admissionReason,
+    holdHalted: engine.holdHaltedMarkets(),
   };
 }
 

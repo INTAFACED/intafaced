@@ -243,6 +243,36 @@ export type BankErrorCode =
    * The missing piece is an outside company, the card issuer.
    */
   | 'bank.rewards_issuer_unset'
+  /**
+   * Cashback for this user is posted in more than one asset.
+   * The read will not add those figures into one number.
+   */
+  | 'bank.rewards_asset_ambiguous'
+  /** A physical card was asked for without a delivery address. */
+  | 'bank.card_shipping_address_required'
+  /** A retried issue disagreed with the card type or delivery address already stored. */
+  | 'bank.card_issue_conflict'
+  /** A command id was reused for a different card change. */
+  | 'bank.card_command_conflict'
+  /** A replacement id was reused for a different card, or the reason disagreed. */
+  | 'bank.card_replace_conflict'
+  /**
+   * No live issuer can return a PAN. card-sim has no card number.
+   * The missing piece is `socket.live-issuer`.
+   */
+  | 'bank.card_pan_issuer_unset'
+  /**
+   * No live issuer can view or set a PIN.
+   * The missing piece is `socket.live-issuer`.
+   */
+  | 'bank.card_pin_issuer_unset'
+  /** A PIN was not 4 to 12 digits. The refusal never echoes the PIN. */
+  | 'bank.card_pin_invalid'
+  /**
+   * No live issuer can push a card into Apple Pay or Google Pay.
+   * The missing piece is `socket.live-issuer`.
+   */
+  | 'bank.card_wallet_issuer_unset'
   // ── Ramps (§8.1 / D-S-09, crypto ledger half) ──────────────────────────
   /**
    * NO RAMP PROGRAMME IS CONFIGURED.
@@ -498,7 +528,35 @@ export type BankErrorCode =
   /** The approval was already spent on a different operation. Ask again. */
   | 'bank.step_up_used'
   /** Identity could not answer, or is not wired. Nothing was posted; fail closed. */
-  | 'bank.step_up_unavailable';
+  | 'bank.step_up_unavailable'
+  /** No operator row publishes a per-transfer limit, a daily limit, and a fee for this asset. */
+  | 'bank.personal_transfer_terms_unset'
+  /** A positive fee is published and bankTransfer has no fee leg. Nothing is posted. */
+  | 'bank.personal_transfer_fee_unwired'
+  | 'bank.personal_transfer_limit_exceeded'
+  | 'bank.personal_transfer_daily_limit_exceeded'
+  /** Same transfer id, different note, payee, amount, or request. */
+  | 'bank.personal_transfer_conflict'
+  | 'bank.personal_transfer_not_found'
+  | 'bank.personal_note_invalid'
+  | 'bank.personal_request_not_found'
+  | 'bank.personal_request_closed'
+  | 'bank.personal_request_expired'
+  | 'bank.personal_request_not_payer'
+  | 'bank.personal_request_not_payee'
+  | 'bank.personal_request_amount_mismatch'
+  /** The transfer's recipient is not the request's payee. Nothing is posted. */
+  | 'bank.personal_request_payee_mismatch'
+  | 'bank.personal_request_claim_held'
+  | 'bank.personal_request_conflict'
+  | 'bank.personal_request_self'
+  | 'bank.personal_request_list_limit_unset'
+  | 'bank.personal_request_payer_unknown'
+  | 'bank.pay_request_notify_unwired'
+  /** IDENTITY_URL is unset, so a request cannot name either person. */
+  | 'bank.party_handles_unset'
+  /** Identity did not answer a handle lookup. Nothing was created. */
+  | 'bank.party_handles_unavailable';
 
 export class BankError extends Error {
   constructor(

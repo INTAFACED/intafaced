@@ -51,6 +51,8 @@ export interface ActivityItem {
    * order's lines exactly instead of guessing by time.
    */
   readonly orderId?: string;
+  /** Recipient-visible note on a personal send. Absent when that send had none. */
+  readonly note?: string;
 }
 
 export interface ActivityPage {
@@ -104,12 +106,23 @@ export interface SpaceLister {
   allNamedSpaces(userId: string, assetId?: string): Promise<SpaceRecord[]>;
 }
 
+export interface TransferFact {
+  readonly note: string | null;
+  readonly counterpartyHandle: string | null;
+}
+
+/** Note and the other party's handle for personal sends this service recorded, keyed by ledger tx id. */
+export interface ActivityTransferFacts {
+  forTransfers(userId: string, txIds: readonly string[]): Promise<ReadonlyMap<string, TransferFact>>;
+}
+
 export interface ActivityServiceOptions {
   /** Unset = every call refuses `ActivityUnavailableError`. Never an empty list. */
   pages?: LedgerHistoryPages;
   /** Signs page cursors. Required with `pages`. */
   cursorSecret?: string;
   counterparties?: ActivityCounterparties;
+  transferFacts?: ActivityTransferFacts;
 }
 
 /** The feed cannot be served right now. A retry may work; the caller sent nothing wrong. */
@@ -311,19 +324,35 @@ export class ActivityService {
       };
     });
 
-    const resolver = this.options.counterparties;
     const wanted = [...new Set(items.filter((i) => i.kind === 'transfer_in' || i.kind === 'transfer_out').map((i) => i.txId))];
-    if (resolver === undefined || wanted.length === 0) return items;
-    let handles: ReadonlyMap<string, { handle: string }>;
-    try {
-      handles = await resolver.handlesFor(userId, wanted);
-    } catch {
-      // A handle is a nicety. Failing to find one never hides the money movement.
-      return items;
+    let withHandles = items;
+    const resolver = this.options.counterparties;
+    if (resolver !== undefined && wanted.length > 0) {
+      try {
+        const handles = await resolver.handlesFor(userId, wanted);
+        withHandles = items.map((i) => {
+          const h = i.kind === 'transfer_in' || i.kind === 'transfer_out' ? handles.get(i.txId) : undefined;
+          return h === undefined ? i : { ...i, counterparty: { handle: h.handle } };
+        });
+      } catch {
+        // A handle is a nicety. Failing to find one never hides the money movement.
+      }
     }
-    return items.map((i) => {
-      const h = i.kind === 'transfer_in' || i.kind === 'transfer_out' ? handles.get(i.txId) : undefined;
-      return h === undefined ? i : { ...i, counterparty: { handle: h.handle } };
-    });
+    const facts = this.options.transferFacts;
+    if (facts === undefined || wanted.length === 0) return withHandles;
+    try {
+      const recorded = await facts.forTransfers(userId, wanted);
+      return withHandles.map((i) => {
+        const fact = i.kind === 'transfer_in' || i.kind === 'transfer_out' ? recorded.get(i.txId) : undefined;
+        if (fact === undefined) return i;
+        return {
+          ...i,
+          ...(fact.counterpartyHandle ? { counterparty: { handle: fact.counterpartyHandle } } : {}),
+          ...(fact.note ? { note: fact.note } : {}),
+        };
+      });
+    } catch {
+      return withHandles;
+    }
   }
 }

@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { payAmountStringSchema, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
-import { PERMISSION_AREAS, SubMerchantError, type SubMerchantService } from './submerchants.js';
+import { PERMISSION_AREAS, SubMerchantError, refuseSubMerchantWithoutConsent, type SubMerchantService } from './submerchants.js';
 import { readSubMerchantSummary } from './merchant-portal/summary.js';
 
 /**
@@ -160,6 +160,7 @@ const CALLER_FAULT: Readonly<Record<string, 'FORBIDDEN' | 'BAD_REQUEST' | 'NOT_F
   'pay.submerchant_not_onboarded': 'FORBIDDEN',
   'pay.submerchant_out_of_scope': 'FORBIDDEN',
   'pay.submerchant_permission_denied': 'FORBIDDEN',
+  'pay.submerchant_consent_required': 'FORBIDDEN',
   'pay.submerchant_grant_lateral': 'FORBIDDEN',
   'pay.submerchant_grant_self': 'BAD_REQUEST',
   'pay.submerchant_grant_redundant': 'BAD_REQUEST',
@@ -189,7 +190,7 @@ const CALLER_FAULT: Readonly<Record<string, 'FORBIDDEN' | 'BAD_REQUEST' | 'NOT_F
 function toTrpcError(err: unknown): unknown {
   if (err instanceof SubMerchantError) {
     const code = CALLER_FAULT[err.code];
-    if (code) return new TRPCError({ code, message: err.message, cause: err });
+    if (code) return new TRPCError({ code, message: `${err.code}: ${err.message}`, cause: err });
   }
   return err;
 }
@@ -260,6 +261,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
         .output(subMerchantView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
+            refuseSubMerchantWithoutConsent();
             const actorMerchantId = await actor(ctx.principal?.userId);
             const record = await subMerchants.createSubMerchant({
               actorMerchantId,
@@ -361,6 +363,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
         .output(permissionEventView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
+            refuseSubMerchantWithoutConsent();
             const actorMerchantId = await actor(ctx.principal?.userId);
             const event = await subMerchants.grantPermission({
               actorMerchantId,
@@ -388,6 +391,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
         .output(permissionEventView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
+            refuseSubMerchantWithoutConsent();
             const actorMerchantId = await actor(ctx.principal?.userId);
             const event = await subMerchants.revokePermission({
               actorMerchantId,
