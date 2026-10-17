@@ -300,11 +300,12 @@ describe('kyc.approve is the operator action that grants custodial access', () =
   });
 
   it('REQUIRES A SECOND FACTOR, even with the right scope', async () => {
-    // `admin:compliance` is NOT in INTERACTIVE_ONLY_SCOPES, so `requireScope`
-    // does not demand mfa for it — this endpoint demands it itself. Approving a
-    // record is a privilege-escalation primitive: a leaked operator credential
-    // that can self-approve an account to `institutional` unlocks every
-    // custodial module in the OS.
+    // `admin:compliance` is interactive-only (no API key) but not in
+    // `SESSION_MFA_SCOPES`, so `requireScope` does not demand mfa for a
+    // session — this endpoint demands it itself. Approving a record is a
+    // privilege-escalation primitive: a leaked operator credential that can
+    // self-approve an account to `institutional` unlocks every custodial
+    // module in the OS.
     const api = await caller(['admin:compliance'], { userId: OPERATOR, mfa: false });
     const err = await api.kyc.approve({ recordId: RECORD }).catch((e: unknown) => e);
 
@@ -403,7 +404,9 @@ describe('kyc.approve is the operator action that grants custodial access', () =
     });
     const err = await api.kyc.approve({ recordId: RECORD }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('FORBIDDEN');
-    expect((err as Error).message).toMatch(/agent must never write reviewed_by/);
+    // requireScope refuses the key before the handler's reviewed_by check.
+    expect((err as Error).message).toMatch(/cannot be used from an API key/);
+    expect((err as { cause?: { code?: string } }).cause?.code).toBe('scope.interactive_only');
     expect(stub.calls.filter((c) => c.method === 'approveKycRecord')).toHaveLength(0);
   });
 });
