@@ -39,6 +39,7 @@ import {
   type DraftValues,
 } from '@/lib/crm-drafts';
 import { enquiryIdFromSearch, signInHref } from '@/lib/crm-return';
+import { CRM_NOT_CONFIGURED_TEXT, crmRefusalKind, crmUpstreamCode, type CrmRefusalKind } from '@/lib/crm-refusal';
 import type {
   CrmActivity,
   CrmContact,
@@ -280,8 +281,8 @@ function answerText(key: string, value: unknown): string {
   return String(value);
 }
 
-/** session = 401/403 (sign in again); conflict = 409/412 (changed or refused); other = anything else. */
-export type CrmErrorKind = 'session' | 'conflict' | 'other';
+/** session = 401/403 (sign in again); conflict = a real version conflict (409/412); unconfigured = CRM is not set up here; other = anything else. */
+export type CrmErrorKind = CrmRefusalKind;
 export class CrmRequestError extends Error {
   constructor(
     message: string,
@@ -293,11 +294,12 @@ export class CrmRequestError extends Error {
 async function readJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...options, cache: 'no-store' });
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403)
-      throw new CrmRequestError('Your founder session is unavailable. Sign in again.', 'session');
-    if (response.status === 409 || response.status === 412)
-      throw new CrmRequestError('The enquiry changed or this action was refused. Reload it and review before retrying.', 'conflict');
-    throw new CrmRequestError('The workspace could not confirm this request. Refresh the enquiry before retrying.', 'other');
+    const kind = crmRefusalKind(response.status, crmUpstreamCode(await response.json().catch(() => null)));
+    if (kind === 'unconfigured') throw new CrmRequestError(CRM_NOT_CONFIGURED_TEXT, kind);
+    if (kind === 'session') throw new CrmRequestError('Your founder session is unavailable. Sign in again.', kind);
+    if (kind === 'conflict')
+      throw new CrmRequestError('The enquiry changed or this action was refused. Reload it and review before retrying.', kind);
+    throw new CrmRequestError('The workspace could not confirm this request. Refresh the enquiry before retrying.', kind);
   }
   return (await response.json()) as T;
 }

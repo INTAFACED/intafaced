@@ -21,6 +21,12 @@ interface Entry {
   readonly changed?: 'no' | 'unknown';
 }
 
+const CRM_NOT_CONFIGURED: Entry = {
+  title: 'CRM is not configured on this deployment',
+  body: 'Its storage or founder list is not set up here, so there is nothing to read or change.',
+  next: 'Nothing was changed. Retrying will not help; ask engineering to configure CRM.',
+};
+
 const BY_CODE: Readonly<Record<string, Entry>> = {
   'action_approval.same_person': {
     title: 'A different founder has to do this',
@@ -177,6 +183,14 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'Your session does not hold the permission this needs',
     body: 'The service checks permissions itself and refused.',
     next: 'Nothing was changed.',
+  },
+  'ops.crm.configuration_unverified': CRM_NOT_CONFIGURED,
+  'ops.crm.storage_unconfigured': CRM_NOT_CONFIGURED,
+  'ops.crm.authority_unconfigured': CRM_NOT_CONFIGURED,
+  'ops.crm.revision_conflict': {
+    title: 'The record changed',
+    body: 'Someone saved a newer version of this record first, so this request no longer applies.',
+    next: 'Reload the record, review it and decide again. Nothing was changed.',
   },
   'admin.session_required': {
     title: 'You are signed out',

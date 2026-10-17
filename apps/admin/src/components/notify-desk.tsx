@@ -7,6 +7,8 @@ import { fetchNotify } from '@/lib/notify/browser';
 import { channelStats, failureRows, spanOf, type DeliveriesRead, type NotifyView } from '@/lib/notify/model';
 import { shortId } from '@/lib/desk/desk-model';
 import './desk.css';
+import { formatAsOf } from '@/lib/as-of';
+import { codeWords } from '@/lib/desk/words';
 
 /**
  * NOTIFY DELIVERY HEALTH — read-only.
@@ -74,7 +76,9 @@ export function ChannelTable({ read }: { read: DeliveriesRead }) {
                     {s.acceptedPercent === null ? 'nothing settled yet' : `${s.acceptedPercent}% (${s.counts.accepted} of ${s.settled})`}
                   </td>
                   <td>{s.oldestPendingCreatedAt ?? '—'}</td>
-                  <td>{s.topRefusalCodes.length === 0 ? '—' : s.topRefusalCodes.map((c) => `${c.code} ×${c.count}`).join(', ')}</td>
+                  <td>
+                    {s.topRefusalCodes.length === 0 ? '—' : s.topRefusalCodes.map((c) => `${codeWords(c.code)} ×${c.count}`).join(', ')}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -145,7 +149,7 @@ export function NotifyDeskView({ view, loading, onRefresh }: NotifyViewProps) {
         <button type="button" className="adm-btn" onClick={onRefresh} disabled={loading}>
           {loading ? 'Reading…' : 'Refresh'}
         </button>
-        <span className="dk-asof">{view ? `As of ${view.asOf} (when this console read svc-notify)` : 'No read yet'}</span>
+        <span className="dk-asof">{view ? `As of ${formatAsOf(view.asOf)} (when this console read svc-notify)` : 'No read yet'}</span>
       </div>
       {!view && <p className="dk-why">svc-notify could not be read. Nothing is shown rather than a guess.</p>}
       {view && view.health.kind === 'ok' && (

@@ -22,6 +22,7 @@ import { fetchPayHalts, newRequestId, postHalt, type HaltReply, type HaltRequest
 import type { Part, PayHaltsRead } from '@/lib/pay-halts/types';
 import { shortId } from '@/lib/desk/desk-model';
 import './desk.css';
+import { formatAsOf } from '@/lib/as-of';
 
 /**
  * PAYMENTS HALTS — stop an operation, or resume it with a second founder.
@@ -244,7 +245,7 @@ export function PayHaltsDeskView(p: PayHaltsViewProps) {
         <button type="button" className="adm-btn" onClick={p.onRead} disabled={p.loading}>
           {p.loading ? 'Reading…' : 'Refresh'}
         </button>
-        <span className="dk-asof">{read ? `As of ${read.asOf} (when this console read svc-pay)` : 'No read yet'}</span>
+        <span className="dk-asof">{read ? `As of ${formatAsOf(read.asOf)} (when this console read svc-pay)` : 'No read yet'}</span>
       </div>
       <p className="dk-muted">
         Stopping an operation is one founder and immediate. Resuming one takes two different founders: the first records it and the halt
