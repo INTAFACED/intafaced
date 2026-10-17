@@ -40,6 +40,10 @@ export const merchantCapabilityFlagsSchema = z
     'halts.read': z.boolean(),
     'payout.request': z.boolean(),
     'payout.approve': z.boolean(),
+    'activity.read': z.boolean(),
+    'payouts.read': z.boolean(),
+    'webhooks.read': z.boolean(),
+    'webhooks.manage': z.boolean(),
   })
   .strict();
 
