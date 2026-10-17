@@ -1,0 +1,93 @@
+/**
+ * Plain words for the typed refusals these rooms meet (UI-SPEC 4.3). The customer reads a title and one sentence that
+ * names the real reason; the service code sits underneath as small support text. No "coming soon", no service names.
+ * Codes this file does not know fall through to the shared `refusalCopy`, so a new code never shows raw JSON.
+ */
+import { refusalCopy, refusalSupportCode } from './ui';
+
+export interface Words {
+  title: string;
+  body: string;
+  code?: string;
+}
+
+const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
+  'trade.otc_desk_law_blank': {
+    title: 'The quote desk is not open yet',
+    body: 'The desk spread, stake rule and counterparty are not published, so no firm price can be given.',
+  },
+  'trade.otc_stake_gate': { title: 'A stake is needed for the quote desk', body: 'This desk is open to accounts that hold the required stake.' },
+  'trade.otc_stake_unavailable': { title: 'Stake could not be checked', body: 'The desk could not read your stake, so it did not quote. Nothing was held.' },
+  'trade.otc_quote_expired': { title: 'That quote has expired', body: 'Ask for a new price. An expired quote holds nothing.' },
+  'trade.otc_quote_missing': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
+  'trade.otc_not_owner': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
+  'trade.otc_last_look_forbidden': { title: 'The price must match the quote', body: 'The desk fills at the quoted price only. Nothing was accepted.' },
+  'trade.otc_no_reference_price': { title: 'No reference price right now', body: 'The desk has no fresh mid price for this pair, so it did not quote.' },
+  'trade.rfq_missing_price': { title: 'No reference price right now', body: 'The desk has no fresh mid price for this pair, so it did not quote.' },
+  'trade.otc_bad_spread': { title: 'The desk spread is not set', body: 'The desk cannot price this pair until its spread is published.' },
+  'trade.otc_settle_refused': { title: 'Settlement was refused', body: 'The accepted quote did not settle. Your hold stays as reported; check the quote status.' },
+  'trade.rfq_already_bound': { title: 'That quote is already accepted', body: 'It can be settled, but not expired or accepted again.' },
+  'trade.rfq_allocation_refused': {
+    title: 'Allocation is not open',
+    body: 'Splitting a quote across accounts waits for an owner-published rule that names the accounts.',
+  },
+  'trade.rfq_give_up_refused': {
+    title: 'Give-up is not open',
+    body: 'Passing a quote to a carrying account waits for an owner-published rule that names the account.',
+  },
+  'trade.algo_volume_immature': {
+    title: 'Not enough trading history for this schedule',
+    body: 'VWAP and participation schedules need recent volume for this market. Use a TWAP schedule instead.',
+  },
+  'trade.algo_cancel_incomplete': {
+    title: 'The last cancel did not finish',
+    body: 'Some child orders are still open. Cancel again; the schedule cannot resume until it finishes.',
+  },
+  'trade.algo_not_found': { title: "We couldn't find that schedule", body: 'Check the schedule id. You can only open your own schedules.' },
+  'trade.options_settlement_law_unset': {
+    title: 'Live options are not open',
+    body: 'The settlement asset rule is not published, so no live option can be traded.',
+  },
+  'trade.options_fixing_unconfigured': { title: 'No settlement price source', body: 'The fixing source for option expiry is not configured.' },
+  'trade.options_terms_incomplete': { title: 'This contract is missing terms', body: 'A strike, expiry or style is missing, so it cannot be traded.' },
+  'trade.unsettled_asset_class_listing': {
+    title: 'Live options are not open',
+    body: 'The settlement asset rule is not published, so only paper option markets can take orders.',
+  },
+  'trade.market_kind_unsupported': { title: 'Live options are not open', body: 'The live options engine is not enabled. Paper markets only.' },
+  'trade.greeks_native_unlinked': {
+    title: 'Greeks are not available here',
+    body: 'The pricing library is not linked in this environment, so no Greeks are shown rather than guessed ones.',
+  },
+  'trade.batch_outcome_unknown': {
+    title: 'This order may have been placed',
+    body: 'The service could not confirm the outcome. Check status before placing it again.',
+  },
+  'trade.client_order_id_conflict': { title: 'That order id was used for a different order', body: 'Nothing new was placed. Start a new ladder.' },
+};
+
+export interface RefusalInput {
+  reason?: string;
+  message?: string;
+  code?: string;
+}
+
+export function roomWords(input: RefusalInput): Words {
+  const code = input.code?.trim();
+  if (code) {
+    const known = KNOWN[code];
+    if (known) return { ...known, code: refusalSupportCode(code) };
+    if (code.startsWith('trade.greeks_')) return { ...KNOWN['trade.greeks_native_unlinked']!, code: refusalSupportCode(code) };
+    const shared = refusalCopy(code);
+    return { title: shared.title, body: shared.body, code: refusalSupportCode(code) };
+  }
+  if (input.reason === 'unauthorized') return { title: 'Sign in again', body: 'Your session ended. Sign in to carry on.' };
+  if (input.reason === 'unreachable' || input.reason === 'uncertain')
+    return { title: "We couldn't confirm that", body: 'The connection dropped before an answer arrived. Check status before trying again.' };
+  return { title: "This can't be done right now", body: input.message?.trim() || 'Try again later. If it keeps happening, contact support.' };
+}
+
+/** True when the service said it does not offer this (so a retry cannot help). */
+export function isRefusedClosed(code: string | undefined): boolean {
+  return code !== undefined && code in KNOWN;
+}
