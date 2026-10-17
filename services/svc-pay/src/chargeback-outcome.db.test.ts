@@ -41,6 +41,7 @@ const migrations = [
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',
   '0006_pay_merchant_status_history.sql',
+  '0009_pay_submerchant_tree.sql',
   '0014_pay_merchant_payout_destinations.sql',
   '0018_pay_founder_controls_admission.sql',
   '0050_pay_control_tiers.sql',
