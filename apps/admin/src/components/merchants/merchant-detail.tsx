@@ -514,7 +514,7 @@ function Settlements({ metrics, here }: { metrics: MerchantDetailData['metrics']
             </table>
           )}
           <p className="mp-footnote mp-mt">
-            Individual settlements with retry and hold are not connected yet. This tab is the summary the read model projects.
+            Individual settlements with retry and hold are not connected here. This tab is the summary the read model projects.
           </p>
         </Card>
       )}

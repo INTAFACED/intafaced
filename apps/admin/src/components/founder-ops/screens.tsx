@@ -21,7 +21,7 @@ export function NotConnected({ reason }: { reason: string }) {
   return (
     <StateBlock
       kind="not_built"
-      title="Not connected yet"
+      title="Not connected"
       action={
         <a className="mp-btn" href="/merchants">
           Open available overview

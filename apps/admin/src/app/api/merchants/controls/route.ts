@@ -143,5 +143,5 @@ export async function POST(request: Request) {
 const RESERVE_NOT_BUILT = {
   title: 'This change is not built yet',
   body: 'The service behind it is not switched on for this deployment. For a reserve, the ledger side of withholding money is not connected.',
-  next: 'Nothing was changed. This control is not connected yet.',
+  next: 'Nothing was changed. This control is not connected here.',
 };
