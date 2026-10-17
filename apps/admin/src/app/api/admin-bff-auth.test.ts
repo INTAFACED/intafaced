@@ -6,6 +6,7 @@ import { GET as operatorToolsGet, POST as operatorToolsPost } from './operator-t
 import { GET as bankOpsGet } from './bank-ops/route.js';
 import { GET as payOpsGet } from './pay-ops/route.js';
 import { GET as payOpsTransferGet } from './pay-ops/transfer/route.js';
+import { GET as payOpsPageGet } from './pay-ops/page/route.js';
 import { GET as p2pOpsGet } from './p2p-ops/route.js';
 import { GET as academyOpsGet, POST as academyOpsPost } from './academy-ops/route.js';
 import { GET as moreOpsGet, POST as moreOpsPost } from './more-ops/route.js';
@@ -32,6 +33,7 @@ const routes = [
   ['GET /api/bank-ops', bankOpsGet, 'GET'],
   ['GET /api/pay-ops', payOpsGet, 'GET'],
   ['GET /api/pay-ops/transfer', payOpsTransferGet, 'GET'],
+  ['GET /api/pay-ops/page', payOpsPageGet, 'GET'],
   ['GET /api/p2p-ops', p2pOpsGet, 'GET'],
   ['GET /api/academy-ops', academyOpsGet, 'GET'],
   ['POST /api/academy-ops', academyOpsPost, 'POST'],

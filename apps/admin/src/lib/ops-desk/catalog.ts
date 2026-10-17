@@ -432,6 +432,7 @@ const TRANSFER_REFUSALS: Readonly<Record<string, string>> = {
 const BILLS_REFUSALS: Readonly<Record<string, string>> = {
   'bank.bills_list_limit_unset': 'svc-bank refused because this console sent no page size. svc-bank has no default page size.',
   'bank.global_list_limit_unset': 'svc-bank refused because this console sent no page size. svc-bank has no default page size.',
+  'bank.bills_cursor_invalid': 'svc-bank refused the page marker as one it did not issue.',
 };
 
 /**
@@ -468,7 +469,14 @@ function payHealth(hours: 24 | 168): { standing: ReadSpec; oneOff: ReadSpec; bil
         int('standingOrders.rejected', 'Rejected'),
         int('standingOrders.skipped', 'Skipped'),
         text('standingOrders.failureRate', 'Rejected out of attempts', { nullable: true }),
-        int('standingOrders.oldestPendingAgeSeconds', 'Oldest pending (seconds; a dash means none is pending)', { nullable: true }),
+        col(
+          'standingOrders.oldestPendingAgeSeconds',
+          'Oldest pending among attempts in this window (older ones are not counted; a dash means none in this window is pending)',
+          'seconds',
+          {
+            nullable: true,
+          },
+        ),
       ],
     },
     oneOff: {
@@ -485,7 +493,14 @@ function payHealth(hours: 24 | 168): { standing: ReadSpec; oneOff: ReadSpec; bil
         int('oneOff.reserved', 'Reserved, not yet posted'),
         text('oneOff.failureRate', 'Failed out of created', { nullable: true, alwaysNull: true }),
         text('oneOff.failureRateReason', 'Why there is no failure figure', { mustBe: 'failures_not_recorded' }),
-        int('oneOff.oldestPendingAgeSeconds', 'Oldest reserved (seconds; a dash means none is reserved)', { nullable: true }),
+        col(
+          'oneOff.oldestPendingAgeSeconds',
+          'Oldest reserved among sends created in this window (older ones are not counted; a dash means none created in this window is still reserved)',
+          'seconds',
+          {
+            nullable: true,
+          },
+        ),
       ],
     },
     bills: {
@@ -504,7 +519,14 @@ function payHealth(hours: 24 | 168): { standing: ReadSpec; oneOff: ReadSpec; bil
         int('bills.failed', 'Failed'),
         int('bills.returned', 'Returned'),
         text('bills.failureRate', 'Failed out of created', { nullable: true }),
-        int('bills.oldestPendingAgeSeconds', 'Oldest submitted (seconds; a dash means none is waiting)', { nullable: true }),
+        col(
+          'bills.oldestPendingAgeSeconds',
+          'Oldest submitted among payments created in this window (older ones are not counted; a dash means none created in this window is still waiting)',
+          'seconds',
+          {
+            nullable: true,
+          },
+        ),
       ],
     },
   };
@@ -534,7 +556,8 @@ const payP2pPointer: ReadSpec = {
 const payFailedStanding: ReadSpec = {
   id: 'pay.failed-standing',
   title: 'Rejected standing-order transfers, last 7 days',
-  note: 'Newest first. Rejected executions only: svc-bank records no failed one-off sends, so none are listed (see below). The 50 newest; when the page is full, more exist and this is not a total (the 7-day figure under Transfer health is the count). A dash in a name column is explained in the column beside it. Open a row to read its full record.',
+  note: 'Newest first. Rejected executions only: svc-bank records no failed one-off sends, so none are listed (see below). Fifty a page: when svc-bank says more exist, “Next 50” reads the next page; the 7-day figure under Transfer health is the count. A dash in a name column is explained in the column beside it. Open a row to read its full record.',
+  cursorKey: 'nextCursor',
   module: 'bank',
   plainName: 'the rejected standing orders',
   procedure: 'ops.failedTransfers',
@@ -553,7 +576,7 @@ const payFailedStanding: ReadSpec = {
     text('sender.reason', 'Why no sender name', { nullable: true }),
     text('receiver.handle', 'Receiver', { nullable: true }),
     text('receiver.reason', 'Why no receiver name', { nullable: true }),
-    text('rejectionCode', 'Rejection code as stored', { detail: true }),
+    text('rejectionCode', 'Rejection code (in words)', { detail: true }),
     text('status', 'Status', { detail: true, mustBe: 'rejected' }),
     text('kind', 'Kind', { detail: true, mustBe: 'standing_order' }),
     text('id', 'Execution id', { detail: true }),
@@ -584,7 +607,7 @@ export const PAY_TRANSFER_DETAIL: ReadSpec = {
     time('attemptedAt', 'Attempted (created, for a one-off send)'),
     time('settledAt', 'Settled', { nullable: true }),
     text('reason', 'Why it was rejected', { nullable: true }),
-    text('rejectionCode', 'Rejection code as stored', { nullable: true }),
+    text('rejectionCode', 'Rejection code (in words)', { nullable: true }),
     text('senderUserId', 'Sender (account id)'),
     text('receiverUserId', 'Receiver (account id)'),
     text('ledgerTxId', 'Ledger transaction', { nullable: true }),
@@ -639,7 +662,8 @@ const payBillsVolumes: ReadSpec = {
 const payBillsFailed: ReadSpec = {
   id: 'pay.bills-failed',
   title: 'Failed bill payments',
-  note: 'Newest first, status failed only (a returned payment is not in this list). The 50 newest; when the page is full, more exist and this is not a total.',
+  note: 'Newest first, status failed only (a returned payment is not in this list). Fifty a page: when svc-bank says more exist, “Next 50” reads the next page.',
+  cursorKey: 'nextCursor',
   module: 'bank',
   plainName: 'the failed bill payments',
   procedure: 'bills.ops.failed',
@@ -651,11 +675,11 @@ const payBillsFailed: ReadSpec = {
   columns: [
     time('createdAt', 'Created'),
     text('billerId', 'Biller'),
-    text('reference', 'Reference'),
     amount('amount', 'Amount'),
     text('assetId', 'Asset'),
     text('failureCode', 'Failure', { nullable: true }),
     text('failureBlocker', 'Waiting on', { nullable: true }),
+    text('reference', 'Reference at the biller', { detail: true }),
     text('status', 'Status', { detail: true, mustBe: 'failed' }),
     text('userId', 'Payer (account id)', { detail: true }),
     text('fromSpaceId', 'Paid from (space id)', { detail: true }),
@@ -714,7 +738,7 @@ const payGlobalVolumes: ReadSpec = {
 const payGlobalFailed: ReadSpec = {
   id: 'pay.global-failed',
   title: 'Failed global sends',
-  note: 'Newest first, status failed only. The 50 newest; when the page is full, more exist and this is not a total. svc-bank pages this list by size only, so older failures are not reachable from here.',
+  note: 'Newest first, status failed only. The 50 newest. svc-bank gives this list no page marker, so when exactly 50 are shown more may exist and older failures cannot be reached from here.',
   module: 'bank',
   plainName: 'the failed global sends',
   procedure: 'global.ops.failed',
@@ -762,7 +786,7 @@ const paySections: readonly DeskSection[] = [
       un(
         'pay.pending-transfers',
         'List of pending standing-order executions and reserved one-off sends',
-        'The counts under Transfer health give how many are pending and the age of the oldest, but svc-bank has no read that lists them, so a stuck transfer cannot be picked from a list. It can be read by id below.',
+        'The counts under Transfer health give how many are pending and the age of the oldest, but svc-bank has no read that lists them, so a stuck transfer cannot be picked from a list. It can be read by id below. Those figures also count only rows created or attempted inside the window: a transfer older than the window that is still pending is in no figure at all, and the list that is needed must not be limited by a window (or must allow a long one).',
         41,
       ),
     ],
@@ -806,7 +830,7 @@ const paySections: readonly DeskSection[] = [
     id: 'health',
     title: 'Transfer health',
     intro:
-      'Counts of what personal transfers did in a window, from svc-bank’s own tables: standing orders, one-off sends and bill payments. Two windows are read, 24 hours and 7 days, ending when this console reads. Counts only; svc-bank gives no money total for these.',
+      'Counts of what personal transfers did in a window, from svc-bank’s own tables: standing orders, one-off sends and bill payments. Two windows are read, 24 hours and 7 days, ending when this console reads. Counts only; svc-bank gives no money total for these. An age is the oldest still-pending row among those created in the window: a transfer older than the window that is still pending is in no figure here (back-end need 41).',
     reads: [health24.standing, health24.oneOff, health24.bills, payP2pPointer, health7d.standing, health7d.oneOff, health7d.bills],
     unavailable: [
       un(

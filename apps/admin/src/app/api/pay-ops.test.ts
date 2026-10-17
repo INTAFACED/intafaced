@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as payOps from './pay-ops/route';
 import * as transfer from './pay-ops/transfer/route';
+import * as page from './pay-ops/page/route';
 
 /**
  * The Personal Pay desk through its BFFs: which svc-bank procedures it calls and with what input, that a refused or drifting answer
@@ -30,7 +31,7 @@ const trpcErr = (status: number, message: string, code?: string) =>
     { error: { message, code: -32603, data: { code: 'X', httpStatus: status, ...(code ? { cause: { code } } : {}) } } },
     { status },
   );
-const get = (path: string) => new Request(`http://admin.example${path}`);
+const get = (path: string, headers: Record<string, string> = {}) => new Request(`http://admin.example${path}`, { headers });
 
 beforeEach(() => {
   gate.session.mockResolvedValue(ctx);
@@ -187,6 +188,7 @@ describe('GET /api/pay-ops', () => {
   it('has no way to change anything: GET only', () => {
     expect(Object.keys(payOps).filter((k) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(k))).toEqual([]);
     expect(Object.keys(transfer).filter((k) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(k))).toEqual([]);
+    expect(Object.keys(page).filter((k) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(k))).toEqual([]);
   });
 });
 
@@ -229,15 +231,36 @@ describe('GET /api/pay-ops/transfer', () => {
     expect(json.part).toMatchObject({ kind: 'failed', code: 'bank.ops_transfer_not_found' });
     expect(json.part.message).toContain('same answer for an id that is not in its format');
   });
-  it('a missing, blank, over-long or spaced id is refused here with 400 and nothing is sent', async () => {
+  it('an id svc-bank could never have issued is refused here with 400 and nothing is sent: blank, under 8 or over 64 characters, or with a control character', async () => {
     const fn = vi.fn();
     vi.stubGlobal('fetch', fn);
-    for (const q of ['', '?id=', '?id=%20', `?id=${'a'.repeat(65)}`, '?id=a%20b', '?id=a%0Ab']) {
+    for (const q of ['', '?id=', '?id=%20', '?id=short-7', `?id=${'a'.repeat(65)}`, '?id=abcdefg%0Ah', '?id=abcdefg%00h']) {
       const res = await transfer.GET(get(`/api/pay-ops/transfer${q}`));
       expect(res.status, q).toBe(400);
       expect(await res.json()).toEqual({ error: 'transfer_id_invalid' });
     }
     expect(fn).not.toHaveBeenCalled();
+  });
+  it('an id svc-bank accepts for a one-off send (8 to 64 characters, any printable ones, trimmed) is passed on as typed', async () => {
+    const fn = vi.fn(async (_url: string) => ok(DETAIL));
+    vi.stubGlobal('fetch', fn);
+    for (const id of ['send 0001 ünï', 'a'.repeat(64), '  trimmed-id-1  ']) {
+      expect((await transfer.GET(get(`/api/pay-ops/transfer?id=${encodeURIComponent(id)}`))).status).toBe(200);
+    }
+    const sent = fn.mock.calls.map(([url]) => JSON.parse(new URL(url).searchParams.get('input')!).id);
+    expect(sent).toEqual(['send 0001 ünï', 'a'.repeat(64), 'trimmed-id-1']);
+  });
+  it('it writes an audit line at the service, so only this console’s own page may ask: another site or a sibling subdomain gets 403 and nothing is read', async () => {
+    const fn = vi.fn(async () => ok(DETAIL));
+    vi.stubGlobal('fetch', fn);
+    for (const site of ['cross-site', 'same-site', 'none']) {
+      const res = await transfer.GET(get(`/api/pay-ops/transfer?id=${EXEC}`, { 'sec-fetch-site': site }));
+      expect(res.status, site).toBe(403);
+      expect(await res.json()).toEqual({ error: 'not_same_origin' });
+    }
+    expect(fn).not.toHaveBeenCalled();
+    expect((await transfer.GET(get(`/api/pay-ops/transfer?id=${EXEC}`, { 'sec-fetch-site': 'same-origin' }))).status).toBe(200);
+    expect(fn).toHaveBeenCalledTimes(1);
   });
   it('a refused founder session is returned unchanged and nothing is read', async () => {
     gate.session.mockResolvedValue(Response.json({ code: 'admin.session_required' }, { status: 401 }));
@@ -253,7 +276,52 @@ describe('GET /api/pay-ops/transfer', () => {
     vi.stubGlobal('fetch', fn);
     expect((await payOps.GET(get('/api/pay-ops'))).status).toBe(404);
     expect((await transfer.GET(get(`/api/pay-ops/transfer?id=${EXEC}`))).status).toBe(404);
+    expect((await page.GET(get('/api/pay-ops/page?read=pay.failed-standing&cursor=abc'))).status).toBe(404);
     expect(gate.session).not.toHaveBeenCalled();
     expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/pay-ops/page', () => {
+  const ITEM = ANSWERS['ops.failedTransfers'] as { items: object[] };
+  it('reads the next page of a list that has a marker, with the marker added to the same input, as the founder', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok({ items: ITEM.items, nextCursor: null }));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await page.GET(get('/api/pay-ops/page?read=pay.failed-standing&cursor=abc_-123'))).json();
+    const [url, init] = fn.mock.calls[0]!;
+    expect(url.startsWith('http://edge:4000/api/bank/trpc/ops.failedTransfers?input=')).toBe(true);
+    expect(JSON.parse(new URL(url).searchParams.get('input')!)).toEqual({ windowHours: 168, limit: 50, cursor: 'abc_-123' });
+    expect((init!.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
+    expect(json.part).toMatchObject({ kind: 'ok', data: { shape: 'list', nextCursor: null, pageFull: false } });
+    fn.mockClear();
+    await page.GET(get('/api/pay-ops/page?read=pay.bills-failed&cursor=zzz'));
+    expect(JSON.parse(new URL(fn.mock.calls[0]![0]).searchParams.get('input')!)).toEqual({ limit: 50, cursor: 'zzz' });
+  });
+  it('a read without a marker (global sends, health), an unknown read or a marker that is not base64url is refused here with 400', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    for (const q of [
+      '?read=pay.global-failed&cursor=abc',
+      '?read=pay.standing-24h&cursor=abc',
+      '?read=nope&cursor=abc',
+      '?read=pay.failed-standing',
+      '?read=pay.failed-standing&cursor=',
+      '?read=pay.failed-standing&cursor=a%20b',
+      `?read=pay.failed-standing&cursor=${'a'.repeat(513)}`,
+    ]) {
+      const res = await page.GET(get(`/api/pay-ops/page${q}`));
+      expect(res.status, q).toBe(400);
+      expect(await res.json()).toEqual({ error: 'page_invalid' });
+    }
+    expect(fn).not.toHaveBeenCalled();
+  });
+  it('a marker svc-bank did not issue is its own refusal, in a sentence', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(400, 'bad cursor', 'bank.bills_cursor_invalid')),
+    );
+    const json = await (await page.GET(get('/api/pay-ops/page?read=pay.bills-failed&cursor=abc'))).json();
+    expect(json.part).toMatchObject({ kind: 'failed', code: 'bank.bills_cursor_invalid' });
+    expect(json.part.message).toContain('did not issue');
   });
 });

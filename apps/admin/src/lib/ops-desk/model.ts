@@ -47,6 +47,7 @@ function cellOf(column: Column, source: Record<string, unknown>): Cell | null {
       return typeof value === 'string' ? make(value) : null;
     case 'int':
     case 'bps':
+    case 'seconds':
       return typeof value === 'number' && Number.isInteger(value) ? make(value) : null;
     case 'bool':
       return typeof value === 'boolean' ? make(value) : null;
@@ -111,7 +112,28 @@ export function readData(spec: ReadSpec, raw: unknown): ReadData | null {
     seen.add(id);
     rows.push({ id, cells });
   }
+  if (spec.cursorKey !== undefined) {
+    // The service's own page marker: a string when more rows exist, null on the last page. Anything else is an unreadable answer.
+    const marker = isRecord(raw) && Object.hasOwn(raw, spec.cursorKey) ? raw[spec.cursorKey] : undefined;
+    if (marker !== null && typeof marker !== 'string') return null;
+    return { shape: 'list', rows, pageFull: marker !== null, nextCursor: marker };
+  }
   return { shape: 'list', rows, pageFull: spec.page !== undefined && rows.length >= spec.page };
+}
+
+/**
+ * A whole number of seconds as the two largest units, from integers only: 11520 is "3 h 12 min", 604000 is "6 d 23 h", 45 is "45 s".
+ * Display only; the service's number is unchanged in the record.
+ */
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.trunc(seconds));
+  const d = Math.trunc(s / 86_400);
+  const h = Math.trunc((s % 86_400) / 3_600);
+  const m = Math.trunc((s % 3_600) / 60);
+  if (d > 0) return `${d} d ${h} h`;
+  if (h > 0) return `${h} h ${m} min`;
+  if (m > 0) return `${m} min ${s % 60} s`;
+  return `${s} s`;
 }
 
 /** Whole basis points as a percent with two decimals, using integers only: 1250 is "12.50%". */
@@ -126,6 +148,7 @@ export function formatCell(cell: Cell): string {
   if (v === null) return '—';
   if (cell.kind === 'bool') return v === true ? 'yes' : 'no';
   if (cell.kind === 'bps' && typeof v === 'number') return formatBps(v);
+  if (cell.kind === 'seconds' && typeof v === 'number') return formatDuration(v);
   if (cell.kind === 'list' || cell.kind === 'assetAmounts') return Array.isArray(v) ? (v.length === 0 ? 'none' : v.join(', ')) : '—';
   return String(v);
 }
@@ -145,9 +168,17 @@ export function cellOfRow(row: Row, key: string): CellValue | undefined {
   return row.cells.find((c) => c.key === key)?.value;
 }
 
-/** `5 rows`, with the honest caveat when the page was full (more may exist) and the page size is known. */
-export function rowCountText(rows: number, pageFull: boolean, page: number | undefined): string {
+/**
+ * `5 rows`, with the honest caveat when the page was full (more may exist) and the page size is known. `exact` is for a list whose
+ * service gives a page marker: then a full page means more rows DO exist, and exactly 50 rows with no marker means there are no more.
+ */
+export function rowCountText(rows: number, pageFull: boolean, page: number | undefined, exact = false): string {
   const noun = rows === 1 ? 'row' : 'rows';
+  if (exact) {
+    return pageFull
+      ? `${rows} ${noun} so far (more rows exist; “Next ${page ?? 'page'}” reads them)`
+      : `${rows} ${noun} (that is all of them)`;
+  }
   if (pageFull && page !== undefined) return `${rows} ${noun} (the page is full at ${page}; more may exist, so this is not a total)`;
   return `${rows} ${noun}`;
 }

@@ -749,6 +749,60 @@ describe('Personal Pay desk', () => {
     expect(html).toContain('only lets the owner of a standing order cancel');
     expect(html).toContain('href="/tools"');
   });
+  it('a list with a next page offers “Next 50” and says more exist; the last page says that is all', () => {
+    const more = render(props('pay', view('pay', [okOutcome('pay', 'pay.failed-standing', { items: [FAILED], nextCursor: 'abc_-1' })])));
+    expect(more).toContain('data-testid="next-page"');
+    expect(more).toContain('Next 50');
+    expect(more).toContain('more rows exist');
+    const last = render(props('pay', view('pay', [okOutcome('pay', 'pay.failed-standing', { items: [FAILED], nextCursor: null })])));
+    expect(last).not.toContain('data-testid="next-page"');
+    expect(last).toContain('that is all of them');
+  });
+  it('the global list has no page marker, so exactly 50 rows are described as “may exist”', () => {
+    const send = {
+      id: EXEC,
+      userId: 'u',
+      fromSpaceId: 's',
+      assetId: 'USDC',
+      amount: '1',
+      toCurrency: 'EUR',
+      recipientId: 'r',
+      country: 'DE',
+      deliveryMethod: 'bank',
+      status: 'failed',
+      failureCode: null,
+      failureBlocker: null,
+      providerRef: null,
+      quoteRate: null,
+      quoteFee: null,
+      quoteFeeAsset: null,
+      quoteReceive: null,
+      quoteValidUntil: null,
+      quoteEta: null,
+      ledgerTxId: null,
+      createdAt: AT,
+      updatedAt: AT,
+    };
+    const rows = Array.from({ length: 50 }, (_, i) => ({ ...send, id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}` }));
+    const html = render(props('pay', view('pay', [okOutcome('pay', 'pay.global-failed', rows)])));
+    expect(html).toContain('more may exist');
+    expect(html).not.toContain('data-testid="next-page"');
+  });
+  it('a stuck-transfer age reads as a duration with the window named', () => {
+    const html = render(
+      props(
+        'pay',
+        view('pay', [
+          okOutcome('pay', 'pay.oneoff-7d', {
+            ...HEALTH,
+            oneOff: { ...HEALTH.oneOff, reserved: 1, total: 1, oldestPendingAgeSeconds: 604_000 },
+          }),
+        ]),
+      ),
+    );
+    expect(html).toContain('6 d 23 h');
+    expect(html).toContain('older ones are not counted');
+  });
   it('has a lookup box for one transfer by id', () => {
     const html = render(props('pay', view('pay', [])));
     expect(html).toContain('data-testid="transfer-lookup"');

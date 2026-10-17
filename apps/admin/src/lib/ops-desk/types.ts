@@ -20,6 +20,8 @@ export type CellKind =
   | 'time'
   /** Whole basis points, shown as a percent without floating point. */
   | 'bps'
+  /** A whole number of seconds, shown as a duration ("3 h 12 min"). The number is the service's; only the display is changed. */
+  | 'seconds'
   /** A decimal string a service formatted (money). Shown exactly as given, never parsed. */
   | 'amount'
   /** An array of strings. */
@@ -79,8 +81,13 @@ export interface ReadSpec {
   /** List only, instead of `idKey`: the service gives these rows no id (a total per vendor and asset). They are shown by position and carry no row action. */
   readonly anonymousRows?: true;
   readonly columns: readonly Column[];
-  /** The page size asked for. A full page means more rows may exist. */
+  /** The page size asked for. A full page means more rows may exist (unless `cursorKey` is set: then the service says so exactly). */
   readonly page?: number;
+  /**
+   * List only: the property of the answer that holds the service's page marker (`nextCursor`: a string, or null on the last page).
+   * With it the desk knows exactly whether more rows exist and can read the next page; without it a full page only means "may exist".
+   */
+  readonly cursorKey?: string;
   /** What an empty answer means. It is never "healthy". */
   readonly emptyText: string;
   /** What a refusal of this founder's session means for this read. */
@@ -172,7 +179,14 @@ export interface Row {
 
 export type ReadData =
   | { readonly shape: 'record'; readonly cells: readonly Cell[] }
-  | { readonly shape: 'list'; readonly rows: readonly Row[]; readonly pageFull: boolean };
+  | {
+      readonly shape: 'list';
+      readonly rows: readonly Row[];
+      /** With a `cursorKey` this is exact (the service gave a next page); without one it only means the page is full. */
+      readonly pageFull: boolean;
+      /** Only on a list with a `cursorKey`: the service's marker for the next page, or null on the last page. */
+      readonly nextCursor?: string | null;
+    };
 
 export interface ReadOutcome {
   readonly id: string;

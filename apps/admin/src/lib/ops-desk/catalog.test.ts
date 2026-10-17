@@ -195,6 +195,31 @@ describe('the desks cover what the product order asks for', () => {
       expect(r.page).toBe(50);
     }
   });
+  it('pay: the oldest-pending ages name the window they cover, and are shown as durations', () => {
+    for (const r of allReads(DESKS.pay).filter((x) => x.procedure === 'ops.transferHealth' && x.id !== 'pay.p2p-pointer')) {
+      const age = r.columns.find((c) => c.key.endsWith('oldestPendingAgeSeconds'))!;
+      expect(age.kind, r.id).toBe('seconds');
+      expect(age.label, r.id).toMatch(/in this window/);
+      expect(age.label, r.id).toMatch(/older ones are not counted/);
+      expect(age.label, r.id).not.toMatch(/a dash means none is (pending|reserved|waiting)\b/);
+    }
+  });
+  it('pay: lists with a page marker read it; lists without one never claim a full page means more exist', () => {
+    const reads = allReads(DESKS.pay).filter((r) => r.shape === 'list');
+    expect(reads.filter((r) => r.cursorKey).map((r) => r.id)).toEqual(['pay.failed-standing', 'pay.bills-failed']);
+    for (const r of reads) {
+      if (r.cursorKey) expect(r.cursorKey).toBe('nextCursor');
+      expect(r.note, r.id).not.toMatch(/when the page is full, more exist/);
+    }
+    expect(allReads(DESKS.pay).find((r) => r.id === 'pay.global-failed')!.note).toMatch(/exactly 50 are shown more may exist/);
+  });
+  it('pay: the bill reference is in the detail, not the table, and a code column does not promise the stored value', () => {
+    const bills = allReads(DESKS.pay).find((r) => r.id === 'pay.bills-failed')!;
+    expect(bills.columns.find((c) => c.key === 'reference')).toMatchObject({ detail: true });
+    for (const r of [allReads(DESKS.pay).find((x) => x.id === 'pay.failed-standing')!, PAY_TRANSFER_DETAIL]) {
+      expect(r.columns.find((c) => c.key === 'rejectionCode')!.label).not.toMatch(/as stored/);
+    }
+  });
   it('pay: a one-off failure rate is a dash with its reason, and the P2P pointer is pinned to what svc-bank states', () => {
     const oneOff = allReads(DESKS.pay).find((r) => r.id === 'pay.oneoff-24h')!;
     expect(oneOff.columns.find((c) => c.key === 'oneOff.failureRate')).toMatchObject({ kind: 'text', nullable: true, alwaysNull: true });

@@ -13,6 +13,7 @@ describe('desk words', () => {
     expect(codeWords('failures_not_recorded')).toBe('svc-bank does not record a refused one-off send, so it has no failure figure');
     expect(codeWords('standing_order')).toBe('Standing order');
     expect(codeWords('one_off')).toBe('One-off send');
+    expect(codeWords('socket.psp-partners')).toBe('A payment-service partner is not connected');
     expect(codeWords('ledger.insufficient_funds')).toBe('Insufficient funds');
   });
   it('words any other service code by its last part, and leaves ordinary values alone', () => {

@@ -15,7 +15,8 @@ import {
 import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import type { Part } from '@/lib/desk/part';
-import { fetchDesk } from '@/lib/ops-desk/browser';
+import { fetchDesk, fetchPage } from '@/lib/ops-desk/browser';
+import { ownServerFailureText } from '@/lib/ops-desk/own-server';
 import { csvFilename, exportNote, listToCsv } from '@/lib/ops-desk/csv';
 import { downloadCsv } from '@/lib/ops-desk/csv-browser';
 import { displayCell, rowCountText, tableCells } from '@/lib/ops-desk/model';
@@ -125,7 +126,7 @@ export function ExportCsv({ spec, data, asOf }: { spec: ReadSpec; data: Extract<
         Export CSV ({data.rows.length} {data.rows.length === 1 ? 'row' : 'rows'} shown)
       </button>
       <span className="dk-muted" data-testid="export-note">
-        {exportNote(data.rows.length, data.pageFull, spec.page, asOf)}
+        {exportNote(data.rows.length, data.pageFull, spec.page, asOf, data.nextCursor !== undefined)}
       </span>
       {failed && (
         <span className="dk-why" role="alert">
@@ -148,7 +149,7 @@ export function ListView({ spec, data, ctx, openKey, onOpen, asOf }: ListViewPro
   return (
     <div className="dk-stack" data-testid="list">
       <p className="dk-muted" data-testid="list-count">
-        {rowCountText(data.rows.length, data.pageFull, spec.page)}
+        {rowCountText(data.rows.length, data.pageFull, spec.page, data.nextCursor !== undefined)}
       </p>
       {asOf !== undefined && <ExportCsv spec={spec} data={data} asOf={asOf} />}
       <div className="dk-table-wrap" role="region" aria-label={spec.title} tabIndex={0}>
@@ -202,6 +203,66 @@ function RowFragment({ children, open, detail, columns }: { children: ReactNode;
   );
 }
 
+/**
+ * A list whose service gives a page marker: the rows read so far, and a button that reads the next page when the service says one
+ * exists. The next page is read on request through the console's own server; rows already shown are never repeated, and a refused
+ * or failed page keeps what is already on screen and says why.
+ */
+export function PagedList({ spec, data, ctx, openKey, onOpen, asOf }: ListViewProps) {
+  const [extra, setExtra] = useState<readonly Row[]>([]);
+  const [cursor, setCursor] = useState<string | null | undefined>(data.nextCursor);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const lock = useRef(false);
+  const rows = [...data.rows, ...extra];
+  async function next() {
+    if (lock.current || typeof cursor !== 'string') return;
+    lock.current = true;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const result = await fetchPage(spec.id, cursor);
+      if (!result.ok) return setProblem(ownServerFailureText(result, 'page'));
+      const { part } = result.outcome;
+      if (part.kind === 'failed') return setProblem(part.message);
+      const page = part.data;
+      if (page.shape !== 'list') return setProblem('The page came back in a shape this console does not understand.');
+      const seen = new Set(rows.map((r) => r.id));
+      setExtra((now) => [...now, ...page.rows.filter((r) => !seen.has(r.id))]);
+      setCursor(page.nextCursor ?? null);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
+  const more = typeof cursor === 'string';
+  return (
+    <div className="dk-stack" data-testid="paged-list">
+      <ListView
+        spec={spec}
+        data={{ ...data, rows, pageFull: more, nextCursor: cursor ?? null }}
+        ctx={ctx}
+        openKey={openKey}
+        onOpen={onOpen}
+        {...(asOf ? { asOf } : {})}
+      />
+      {more && (
+        <div className="dk-row">
+          <button type="button" className="adm-btn" disabled={busy} onClick={() => void next()} data-testid="next-page">
+            {busy ? 'Reading…' : `Next ${spec.page ?? ''}`.trim()}
+          </button>
+          <span className="dk-muted">svc-bank says more rows exist. Each page is read on request.</span>
+        </div>
+      )}
+      {problem && (
+        <p className="dk-why" role="alert" data-testid="page-problem">
+          {problem}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export interface ReadBlockProps {
   readonly spec: ReadSpec;
   readonly outcome: ReadOutcome | undefined;
@@ -221,8 +282,19 @@ export function ReadBlock({ spec, outcome, ctx, openKey, onOpen }: ReadBlockProp
       {!outcome && <p className="dk-why">This part was not read. Nothing is shown rather than a guess.</p>}
       {outcome?.part.kind === 'failed' && <Failed title={spec.title} part={outcome.part} plainName={spec.plainName} asOf={outcome.asOf} />}
       {outcome?.part.kind === 'ok' && outcome.part.data.shape === 'record' && <RecordFacts cells={outcome.part.data.cells} />}
-      {outcome?.part.kind === 'ok' && outcome.part.data.shape === 'list' && (
+      {outcome?.part.kind === 'ok' && outcome.part.data.shape === 'list' && spec.cursorKey === undefined && (
         <ListView spec={spec} data={outcome.part.data} ctx={ctx} openKey={openKey} onOpen={onOpen} asOf={outcome.asOf} />
+      )}
+      {outcome?.part.kind === 'ok' && outcome.part.data.shape === 'list' && spec.cursorKey !== undefined && (
+        <PagedList
+          key={outcome.asOf}
+          spec={spec}
+          data={outcome.part.data}
+          ctx={ctx}
+          openKey={openKey}
+          onOpen={onOpen}
+          asOf={outcome.asOf}
+        />
       )}
     </section>
   );

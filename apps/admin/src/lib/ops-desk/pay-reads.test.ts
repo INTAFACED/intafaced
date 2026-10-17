@@ -65,6 +65,14 @@ describe('transfer health', () => {
     expect(formatCell(cell('standingOrders.failureRate'))).toBe('—');
     expect(formatCell(cell('standingOrders.oldestPendingAgeSeconds'))).toBe('—');
   });
+  it('an age is a human duration, and the number is the service’s', () => {
+    const cell = record('pay.standing-24h', { ...HEALTH, standingOrders: { ...HEALTH.standingOrders, oldestPendingAgeSeconds: 11_520 } });
+    expect(cell('standingOrders.oldestPendingAgeSeconds').value).toBe(11_520);
+    expect(displayCell(cell('standingOrders.oldestPendingAgeSeconds'))).toBe('3 h 12 min');
+  });
+  it('the age labels say the figure covers only the window', () => {
+    expect(record('pay.oneoff-7d', HEALTH)('oneOff.oldestPendingAgeSeconds').label).toContain('among sends created in this window');
+  });
   it('a non-terminating ratio stays the fraction svc-bank gave, not a float', () => {
     const cell = record('pay.bills-24h', HEALTH);
     expect(displayCell(cell('bills.failureRate'))).toBe('1/5');
@@ -127,9 +135,11 @@ describe('rejected standing-order transfers', () => {
     expect(displayCell(cell('receiver.reason'))).toBe('The directory could not name this person');
     expect(formatCell(cell('sender.reason'))).toBe('—');
   });
-  it('a full page of 50 is flagged as not a total', () => {
+  it('exactly 50 rows with a next page means more exist; exactly 50 with none means that is all', () => {
     const items = Array.from({ length: 50 }, (_, i) => ({ ...ITEM, id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}` }));
-    expect(readData(read('pay.failed-standing'), { items, nextCursor: 'abc' })).toMatchObject({ pageFull: true });
+    expect(readData(read('pay.failed-standing'), { items, nextCursor: 'abc' })).toMatchObject({ pageFull: true, nextCursor: 'abc' });
+    expect(readData(read('pay.failed-standing'), { items, nextCursor: null })).toMatchObject({ pageFull: false, nextCursor: null });
+    expect(readData(read('pay.failed-standing'), { items })).toBeNull();
   });
   it('an item that is not a rejected standing order is unreadable, and so is a repeated id', () => {
     expect(readData(read('pay.failed-standing'), { items: [{ ...ITEM, status: 'settled' }], nextCursor: null })).toBeNull();
@@ -217,6 +227,7 @@ describe('bill payments and global sends', () => {
     });
     if (data?.shape !== 'record') throw new Error('record expected');
     expect(data.cells.find((c) => c.key === 'rails.payRail')!.value).toBe('unset');
+    expect(displayCell(data.cells.find((c) => c.key === 'rails.blocker')!)).toBe('A payment-service partner is not connected');
     expect(data.cells.find((c) => c.key === 'counts.paid')!.value).toBe(2);
   });
   it('bills volumes: rows have no id and show the service’s own sums', () => {

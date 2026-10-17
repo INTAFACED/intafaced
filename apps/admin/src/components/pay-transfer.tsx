@@ -3,7 +3,8 @@
 import { useRef, useState } from 'react';
 import { fetchTransfer } from '@/lib/ops-desk/browser';
 import { displayCell } from '@/lib/ops-desk/model';
-import type { ReadOutcome } from '@/lib/ops-desk/types';
+import { ownServerFailureText, type OwnFetch } from '@/lib/ops-desk/own-server';
+import { transferIdOf } from '@/lib/ops-desk/transfer-id';
 import { formatAsOf } from '@/lib/as-of';
 import './desk.css';
 
@@ -13,16 +14,17 @@ import './desk.css';
  * its code; nothing is shown in place of a record that could not be read.
  */
 
-type Load = { readonly state: 'idle' } | { readonly state: 'loading' } | { readonly state: 'done'; readonly outcome: ReadOutcome | null };
+type Load = { readonly state: 'idle' } | { readonly state: 'loading' } | { readonly state: 'done'; readonly result: OwnFetch };
 
-function RecordView({ outcome }: { outcome: ReadOutcome | null }) {
-  if (outcome === null) {
+export function RecordView({ result }: { result: OwnFetch }) {
+  if (!result.ok) {
     return (
       <p className="dk-why" role="alert" data-testid="transfer-unreached">
-        The console could not reach its own server for this record. Nothing is shown rather than a guess.
+        {ownServerFailureText(result, 'transfer')}
       </p>
     );
   }
+  const { outcome } = result;
   const { part } = outcome;
   if (part.kind === 'failed') {
     return (
@@ -65,7 +67,7 @@ export function TransferRecord({ id }: { id: string }) {
     busy.current = true;
     setLoad({ state: 'loading' });
     try {
-      setLoad({ state: 'done', outcome: await fetchTransfer(id) });
+      setLoad({ state: 'done', result: await fetchTransfer(id) });
     } finally {
       busy.current = false;
     }
@@ -78,7 +80,7 @@ export function TransferRecord({ id }: { id: string }) {
         </button>
         <span className="dk-muted">svc-bank logs your account and this id each time it hands out a record.</span>
       </div>
-      {load.state === 'done' && <RecordView outcome={load.outcome} />}
+      {load.state === 'done' && <RecordView result={load.result} />}
     </div>
   );
 }
@@ -88,13 +90,14 @@ export function TransferLookup() {
   const [typed, setTyped] = useState('');
   const [asked, setAsked] = useState<string | null>(null);
   const id = typed.trim();
+  const valid = transferIdOf(id) !== null;
   return (
     <form
       className="dk-stack"
       data-testid="transfer-lookup"
       onSubmit={(e) => {
         e.preventDefault();
-        if (id !== '') setAsked(id);
+        if (valid) setAsked(id);
       }}
     >
       <h3>Look up one transfer</h3>
@@ -118,10 +121,10 @@ export function TransferLookup() {
         />
       </div>
       <div className="dk-row">
-        <button type="submit" className="adm-btn" disabled={id === ''}>
+        <button type="submit" className="adm-btn" disabled={!valid}>
           Find this transfer
         </button>
-        {id === '' && <span className="dk-why">Enter a transfer id first.</span>}
+        {!valid && <span className="dk-why">Enter a transfer id first (8 to 64 characters, as svc-bank issues them).</span>}
       </div>
       {asked !== null && <TransferRecord key={asked} id={asked} />}
     </form>
