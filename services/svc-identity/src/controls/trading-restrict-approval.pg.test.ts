@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
-import type { AccountControlInput, Context } from '@intafaced/contracts';
+import type { IdentityAccountControlInput, Context } from '@intafaced/contracts';
 import { createTestDatabase } from '../fixture-truncate.testkit.js';
 import { ActionApprovalService } from '../auth/action-approval-service.js';
 import { SqlActionApprovalStore } from '../auth/action-approval-store.js';
@@ -54,7 +54,7 @@ if (!available) {
     return { principal: await verifyAccessToken(token, tokens), service: null, region: 'DE', requestId: randomUUID() };
   };
 
-  const trading = (extra: Partial<AccountControlInput> = {}): AccountControlInput => ({
+  const trading = (extra: Partial<IdentityAccountControlInput> = {}): IdentityAccountControlInput => ({
     requestId: randomUUID(),
     target: { area: 'trading', userId: target },
     action: 'restrict',
