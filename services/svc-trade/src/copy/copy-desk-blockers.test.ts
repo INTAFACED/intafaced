@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { CopyService } from '../controls/test-admission.js';
 import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
+import { COPY_PLACE_DISABLED_RESIDUAL } from './auto-mirror-place.js';
 import { COPY_FLATTEN_DISPOSITION } from './copy-flatten.js';
 import { COPY_CONTROL_DISPOSITIONS } from './copy-lifecycle.js';
 import {
@@ -28,7 +29,25 @@ const FOLLOWER = '00000000-0000-4000-8000-0000000000a1';
 const LEADER = '00000000-0000-4000-8000-0000000000a2';
 const SESSION = '00000000-0000-4000-8000-0000000000a3';
 const futureExpiry = '2026-12-01T00:00:00.000Z';
-const FORBIDDEN_WIRE = /DIRECTION|D26-|§|leader_share_bps/;
+const FORBIDDEN_WIRE = /DIRECTION|D26-|§|leader_share_bps|TRADE_COPY_PLACE_MIRROR|copy\.placeMirror/;
+
+/** Every object key at any depth. Arrays are walked; their indexes are not keys. */
+function collectKeys(value: unknown): string[] {
+  const keys: string[] = [];
+  const walk = (node: unknown) => {
+    if (node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    for (const [key, child] of Object.entries(node)) {
+      keys.push(key);
+      walk(child);
+    }
+  };
+  walk(value);
+  return keys;
+}
 
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-trade' });
 
@@ -156,6 +175,36 @@ describe('copy.deskStatus blockers', () => {
       expect(cause.code).toBe('trade.copy_jurisdiction_blank');
       expect(cause.blockers).toEqual(desk.blockers);
       expect(cause.blockers).toEqual([{ code: 'trade.copy_jurisdiction_blank' }, { code: 'trade.copy_place_disabled' }]);
+    }
+  });
+
+  it('customer desks omit residual at every depth while ops keeps the place sentence', async () => {
+    const blankLaws = createTradeRouter(
+      {} as TradeService,
+      undefined,
+      new CopyService(new MemoryLedger(), { feeShareLaw: { published: false }, jurisdictionLaw: { published: false } }),
+    );
+    const publishedPlaceOff = createTradeRouter(
+      {} as TradeService,
+      undefined,
+      new CopyService(new MemoryLedger(), { feeShareLaw: publishedFee, jurisdictionLaw: publishedJur }),
+    );
+    const unmounted = createTradeRouter({} as TradeService);
+    const placeOff = [blankLaws, publishedPlaceOff];
+
+    for (const router of [...placeOff, unmounted]) {
+      const desk = await router.createCaller(signed()).copy.deskStatus();
+      const keys = collectKeys(desk);
+      expect(keys).not.toContain('residual');
+      expect(keys).not.toContain('residuals');
+      expect(keys).not.toContain('statusLine');
+      expect(JSON.stringify(desk)).not.toMatch(FORBIDDEN_WIRE);
+      const ops = await router.createCaller(signed(['admin:read'])).copy.opsStatus();
+      expect(ops.residuals.autoMirrorPlace).toBe(COPY_PLACE_DISABLED_RESIDUAL);
+    }
+    for (const router of placeOff) {
+      const desk = await router.createCaller(signed()).copy.deskStatus();
+      expect(desk.blockers.map((b) => b.code)).toContain('trade.copy_place_disabled');
     }
   });
 });

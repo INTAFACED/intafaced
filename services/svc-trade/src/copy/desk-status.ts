@@ -3,7 +3,7 @@
  * Mounted and unmounted desks share this shape.
  */
 import { z } from 'zod';
-import { autoMirrorPlaceStatus, COPY_PLACE_DISABLED_RESIDUAL } from './auto-mirror-place.js';
+import { autoMirrorPlaceStatus, COPY_AUTO_MIRROR_PLACE_SOCKET, COPY_PLACE_DISABLED_RESIDUAL } from './auto-mirror-place.js';
 import {
   COPY_DESK_BLOCKER_CODES,
   COPY_FEE_SHARE_RESIDUAL,
@@ -77,7 +77,7 @@ export function presentCustomerCopyDesk(facts: CopyDeskFacts) {
     leaderShareBps: feeSharePublished && facts.fee.published === true ? String(facts.fee.leaderShareBps) : null,
     jurisdictionPublished,
     blockers,
-    autoMirrorPlace: autoMirrorPlaceStatus(placeEnabled),
+    autoMirrorPlace: { published: placeEnabled, socket: COPY_AUTO_MIRROR_PLACE_SOCKET },
   };
 }
 
@@ -92,6 +92,7 @@ export function presentCopyOpsStatus(facts: CopyDeskFacts) {
   if (!placeEnabled) logCopyResidual('trade.copy_place_disabled', COPY_PLACE_DISABLED_RESIDUAL);
   return {
     ...customer,
+    autoMirrorPlace: autoMirrorPlaceStatus(placeEnabled),
     statusLine: copyLawStatusLine(fee, jurisdiction),
     residual: copyLawResidual(fee, jurisdiction),
     residuals: {
@@ -120,11 +121,15 @@ export const copyDeskStatusOutput = z.object({
   autoMirrorPlace: z.object({
     published: z.boolean(),
     socket: z.string(),
-    residual: z.string().nullable(),
   }),
 });
 
 export const copyOpsStatusOutput = copyDeskStatusOutput.extend({
+  autoMirrorPlace: z.object({
+    published: z.boolean(),
+    socket: z.string(),
+    residual: z.string().nullable(),
+  }),
   statusLine: z.string(),
   residual: z.string().nullable(),
   residuals: z.object({
