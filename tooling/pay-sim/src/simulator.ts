@@ -14,16 +14,34 @@ import { assertProjection, recompute, type Sources } from './oracle.js';
 import { SimulationDatabase } from './database.js';
 import { syntheticPayoutAddress } from './fixtures.js';
 
-export const BASE = 'b8b8cbb220dda79f71401dadb8825ded2de91992';
+/** origin/main this manifest was read against. */
+export const BASE = '6e618f75a8ffd2ef7d254f72bbecbf29c559331f';
+/**
+ * What this simulator does not assert. Status is the service on `BASE`, not a pass.
+ * W1 and W5 guards are real. W6's conversion service is on main; its pay seam slot still returns nothing.
+ * W9's screening slot still returns nothing.
+ */
 export const NOT_BUILT = [
-  { id: 'W1', status: 'not-built-at-base', checks: 'Merchant caps/pricing controls/approval thresholds: no-op slot; not asserted.' },
-  { id: 'W5', status: 'not-built-at-base', checks: 'Granular halts/exposure/automatic storm trip: no-op slot; not asserted.' },
+  {
+    id: 'W1',
+    status: 'built-not-asserted',
+    checks: 'Merchant caps exist behind PAY_MERCHANT_CONTROLS (default off). This simulator does not assert them.',
+  },
+  {
+    id: 'W5',
+    status: 'built-not-asserted',
+    checks: 'Halt guards exist. Automatic storm trip is not in that guard. This simulator does not assert exposure.',
+  },
   {
     id: 'W6',
-    status: 'not-built-at-base',
-    checks: 'Conversions/venue orders/venue-down/order-before-write recovery: not built; not asserted.',
+    status: 'built-not-asserted',
+    checks: 'Conversion service is on main. createW6ConversionGuards still returns nothing. This simulator does not place venue orders.',
   },
-  { id: 'W9', status: 'not-built-at-base', checks: 'Screening provider and approval review: no-op slot; not asserted.' },
+  {
+    id: 'W9',
+    status: 'not-built-at-base',
+    checks: 'Screening provider slot still returns nothing on this main. Not asserted.',
+  },
 ] as const;
 
 /** Archetypes are scenario metadata only. All rates and amounts below are TEST VALUES. */

@@ -9,7 +9,8 @@ const cli = new URL('./cli.ts', import.meta.url).pathname;
 it('prints honest help without a DB and rejects unsafe options without leaking secrets', async () => {
   const help = await exec(process.execPath, [tsx, cli, '--help'], { env: { ...process.env, APP_ENV: 'production' }, timeout: 5000 });
   expect(help.stdout).toContain('TEST DATA');
-  expect(help.stdout).toContain('not built or asserted');
+  expect(help.stdout).toContain('6e618f75a8ffd2ef7d254f72bbecbf29c559331f');
+  expect(help.stdout).toContain('W9 screening is not built on this main');
   const secret = 'NEVER-PRINT-THIS-PASSWORD';
   try {
     await exec(process.execPath, [tsx, cli, `--${secret}`], {

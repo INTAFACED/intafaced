@@ -46,11 +46,13 @@ startup or cleanup unexpectedly hangs; forced termination is an error and never
 a successful run.
 
 The capability manifest is pinned to main
-`b8b8cbb220dda79f71401dadb8825ded2de91992`. At that base the W1 caps/approval
-controls, W5 halts/exposure/automatic storm trip, W6 conversions/venue orders and
-W9 screening provider are not built. Their assertions are explicitly reported as
-**not built at pinned base**, never as passing. The payout DB fault exercises an
-existing payout seam; it does not claim to test an unbuilt conversion order.
+`6e618f75a8ffd2ef7d254f72bbecbf29c559331f` (2026-10-17). On that commit, read from
+this tree: W1 merchant-control guards and W5 halt guards exist (caps default off;
+automatic storm trip is not in the halt guard). The W6 conversion service is in
+`services/svc-pay/src/conversion/`; `createW6ConversionGuards` still returns
+nothing. The W9 screening slot `createW9ScreeningGuards` still returns nothing.
+This simulator does not assert W1, W5, W6 or W9. It reports that, and it does not
+report them as passing. The payout DB fault exercises an existing payout seam.
 
 ```sh
 # Local safety/oracle/CLI/fixture tests, no PostgreSQL connection:
