@@ -8,8 +8,18 @@
  * re-checks that BOTH the proposer and the approver are still live founders when the approval is consumed. A broad
  * `admin:*` scope, `market:ops` or `support:ops` does not make a founder.
  *
- * `operator`: every other four-eyes operator action (edge.kill, kyc.*, market.*, academy.*, p2p.*, account freezes...).
- * Only an operator principal (founder, `admin:*`, `market:ops`, `support:ops`) may propose, approve or reject one.
+ * `operator`: every other four-eyes operator action (kyc.*, market.*, academy.*, p2p.*, account freezes,
+ * and the protective brakes other than ledger freeze). Only an operator principal (founder, `admin:*`,
+ * `market:ops`, `support:ops`) may propose, approve or reject one.
+ *
+ * `edge.kill` (kill and re-enable share that type), `ledger.freeze` and `ledger.unfreeze` are founder-level
+ * even where a protective-brake list would have left freeze with operators. An `admin:*`, `market:ops` or
+ * `support:ops` session is refused at approve. The audience is computed when the approval is decided, so a
+ * row that was pending before this rule is judged by the rule, not by the rule that was current when it was proposed.
+ *
+ * `trade_ops`: `trading.restrict` filed against svc-identity. The caller must hold the trade-ops operator
+ * permission (`admin:write`) on an interactive MFA session. `market:ops` and `support:ops` do not qualify.
+ * The same type filed against any other service keeps the stricter founder answer.
  * Before this, any two self-registered users with a TOTP could propose and approve `matching.open` (issue #4724).
  *
  * `self`: a money-out step-up for the user's OWN intent (`SAME_PERSON_ACTION_TYPES`). Created
@@ -26,7 +36,22 @@
 import { isSamePersonActionType, PROTECTIVE_OPERATOR_APPROVALS } from '@intafaced/contracts';
 import { factorActor } from './factor-gate.js';
 
-export type ActionAudience = 'founder' | 'operator' | 'self';
+export type ActionAudience = 'founder' | 'operator' | 'self' | 'trade_ops';
+
+/**
+ * Founder-level even when a protective list or an operator target service would say otherwise.
+ * `edge.kill` covers both kill (`disabled: true`) and re-enable (`disabled: false`); both use target verb `kill`.
+ */
+export const FOUNDER_LEVEL_ACTION_TYPES: readonly string[] = ['edge.kill', 'ledger.freeze', 'ledger.unfreeze'];
+
+/** Trading restriction filed at identity. The desk's older `account.trading_restriction` name is not this type. */
+export const TRADING_RESTRICT_ACTION_TYPE = 'trading.restrict';
+export const TRADING_RESTRICT_TARGET_SERVICE = 'svc-identity';
+/**
+ * Trade-ops operator permission. The trade desk's operator token is `admin:write` plus MFA.
+ * There is no separate `trade:ops` scope. `market:ops` and `support:ops` are not this permission.
+ */
+export const TRADE_OPS_OPERATOR_PERMISSION = 'admin:write';
 
 /** Whole namespaces that move money or change a venue or the book. A new type under one is founder-only the day it exists. */
 export const FOUNDER_ACTION_PREFIXES: readonly string[] = ['pay.', 'matching.', 'ledger.', 'bank.', 'token.', 'treasury.'];
@@ -66,6 +91,9 @@ function isFounderName(name: string): boolean {
 /** Audience of a bare action type string. Same rules as `audienceOfApproval` with no target to look at. */
 export function audienceOf(actionType: string): ActionAudience {
   if (isSamePersonActionType(actionType)) return 'self';
+  const type = norm(actionType);
+  if (FOUNDER_LEVEL_ACTION_TYPES.includes(type)) return 'founder';
+  if (type === TRADING_RESTRICT_ACTION_TYPE) return 'trade_ops';
   return isFounderName(actionType) ? 'founder' : 'operator';
 }
 
@@ -91,6 +119,10 @@ export function audienceOfApproval(subject: ApprovalSubject): ActionAudience {
   const type = norm(subject.actionType);
   const service = norm(subject.targetService);
   const verb = verbOf(subject.targetId);
+  // Before the protective exception, so ledger.freeze is not left with operators.
+  if (FOUNDER_LEVEL_ACTION_TYPES.includes(type)) return 'founder';
+  // Only this service. Filed against svc-trade or a money service, the stricter rule below wins.
+  if (type === TRADING_RESTRICT_ACTION_TYPE && service === TRADING_RESTRICT_TARGET_SERVICE) return 'trade_ops';
   if (PROTECTIVE_OPERATOR_APPROVALS.some((p) => p.actionType === type && p.targetService === service && p.targetVerb === verb))
     return 'operator';
   if (isFounderName(subject.actionType) || isFounderName(subject.targetId)) return 'founder';
@@ -141,6 +173,16 @@ export function staticFounderDirectory(ids: readonly string[]): FounderDirectory
  * A founder acts as a signed-in person: MFA satisfied, no API key, no sub-account. This is the principal half of the
  * founder check; membership of the founder pair is the directory's half.
  */
+/** Interactive MFA session holding the trade-ops permission. An API key or sub-account is never one. */
+export function isTradeOpsOperatorPrincipal(principal: {
+  readonly mfa: boolean;
+  readonly scopes: readonly string[];
+  readonly kid?: string | undefined;
+  readonly sub_account?: string | undefined;
+}): boolean {
+  return principal.mfa === true && !principal.kid && !principal.sub_account && principal.scopes.includes(TRADE_OPS_OPERATOR_PERMISSION);
+}
+
 export function isInteractiveFounderPrincipal(principal: {
   readonly mfa: boolean;
   readonly kid?: string | undefined;
