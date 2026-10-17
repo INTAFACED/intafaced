@@ -91,11 +91,29 @@ export async function insertPayoutAdmission(
   identity?: IdentityPayoutAdmissionPort,
   authority?: IdentityOperationIntent['authority'],
   authorityPort?: OwnerIdentityAuthorityPort,
+  /**
+   * Awaited after the destination share lock and before the admission insert.
+   * Production callers omit it. A test uses it to show remove cannot pass
+   * while the admission transaction still holds the row.
+   */
+  holdWhileDestinationLocked?: () => Promise<void>,
 ): Promise<PayoutAdmission> {
   return payoutTransaction(sql, async (tx) => {
     const rows = await tx`SELECT operations_control_version FROM pay.merchants WHERE id=${record.merchant_id} FOR SHARE`;
     if (!rows[0]) throw new Error('pay.merchant_not_found');
     await guard(tx);
+    // Share lock conflicts with remove's FOR UPDATE, so a delete cannot commit
+    // between this check and the admission insert. A rail with no stored row
+    // (an offered destination that was never saved) locks nothing.
+    await tx`
+      SELECT id FROM pay.merchant_payout_destinations
+       WHERE merchant_id = ${record.merchant_id}
+         AND rail_id = ${record.rail_id}
+         AND kind = ${record.destination_kind}
+         AND ref = ${record.destination_ref}
+       FOR SHARE
+    `;
+    if (holdWhileDestinationLocked) await holdWhileDestinationLocked();
     const id = randomUUID();
     const operation = {
       service: 'svc-pay' as const,

@@ -337,28 +337,81 @@ export const merchantAnalyticsVolumeSchema = z
   })
   .strict();
 
+/** Fees and gross on a rate row. A refused row may be negative; every other row is not. */
+const signedPayAmountSchema = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
+
+const LEDGER_SCALE = 10n ** 18n;
+const FEE_RATE_SCALE = 1_000_000n;
+
+function ledgerScaled(raw: string): bigint | null {
+  const match = /^(-?)(\d+)(?:\.(\d{1,18}))?$/.exec(raw);
+  if (!match) return null;
+  const [, sign, whole, frac = ''] = match;
+  const value = BigInt(whole ?? '0') * LEDGER_SCALE + BigInt(frac.padEnd(18, '0'));
+  return sign === '-' ? -value : value;
+}
+
+function feeRateScaled(raw: string): bigint | null {
+  const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(raw);
+  if (!match) return null;
+  const [, whole, frac = ''] = match;
+  return BigInt(whole ?? '0') * FEE_RATE_SCALE + BigInt(frac.padEnd(6, '0'));
+}
+
 /**
- * Fees ÷ gross for one asset over the requested window. `rate` is null unless
- * the quotient is exact at 18 decimal places. `gross_zero` is not a rate of 0.
+ * Fees ÷ gross for one asset over the requested window. The quotient is rounded
+ * down to 6 decimal places. `exact` lost nothing; `rounded` did. `no_volume`
+ * is a zero gross, not a rate of 0. `refused` is a negative input.
  */
 export const merchantEffectiveRateSchema = z
   .object({
     assetCode: payAssetCodeSchema,
-    fees: payAmountStringSchema,
-    gross: payAmountStringSchema,
+    fees: signedPayAmountSchema,
+    gross: signedPayAmountSchema,
     rate: payAmountStringSchema.nullable(),
-    rateStatus: z.enum(['exact', 'not_terminating', 'gross_zero']),
+    rateStatus: z.enum(['exact', 'rounded', 'no_volume', 'refused']),
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (value.rateStatus === 'exact' && value.rate === null) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'an exact rate needs a quotient' });
+    const negative = value.fees.startsWith('-') || value.gross.startsWith('-');
+    const publishes = value.rateStatus === 'exact' || value.rateStatus === 'rounded';
+    if (publishes && value.rate === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a published rate needs a quotient' });
     }
-    if (value.rateStatus !== 'exact' && value.rate !== null) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only an exact quotient carries a rate' });
+    if (!publishes && value.rate !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only a published quotient carries a rate' });
     }
-    if (value.rateStatus === 'gross_zero' && value.gross !== '0') {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'gross_zero requires a zero gross' });
+    if (value.rate !== null && !/^\d+(\.\d{1,6})?$/.test(value.rate)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a rate has at most 6 decimal places' });
+    }
+    if (value.rateStatus === 'no_volume' && (value.gross !== '0' || negative)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'no_volume requires a zero gross and a non-negative fee' });
+    }
+    if (value.rateStatus === 'refused' && !negative) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'refused requires a negative input' });
+    }
+    if (publishes && (negative || value.gross === '0')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a published rate needs a positive gross and a non-negative fee' });
+    }
+    if (publishes && value.rate !== null && !negative && value.gross !== '0') {
+      const fees = ledgerScaled(value.fees);
+      const gross = ledgerScaled(value.gross);
+      const rate = feeRateScaled(value.rate);
+      if (fees === null || gross === null || rate === null || gross <= 0n) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a published rate needs a readable quotient' });
+      } else {
+        const quotient = (fees * FEE_RATE_SCALE) / gross;
+        const remainder = (fees * FEE_RATE_SCALE) % gross;
+        if (rate !== quotient) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'the rate is not the rounded-down quotient' });
+        }
+        if (value.rateStatus === 'exact' && remainder !== 0n) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'exact requires a quotient that fits 6 decimal places' });
+        }
+        if (value.rateStatus === 'rounded' && remainder === 0n) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'rounded requires a quotient that does not fit 6 decimal places' });
+        }
+      }
     }
   });
 
@@ -384,8 +437,9 @@ export const merchantAnalyticsFeesSchema = z
     nextCursor: z.string().nullable(),
     /**
      * There is no single rate across assets. `rates` is fees ÷ gross per asset
-     * over the whole window. A quotient that does not fit 18 decimal places is
-     * `not_terminating` with a null rate. A zero gross is `gross_zero`, not 0.
+     * over the whole window, rounded down to 6 decimal places. `rounded` keeps
+     * that quotient. `exact` lost nothing. A zero gross is `no_volume`, not 0.
+     * A negative input is `refused`.
      */
     effectiveRate: z.null(),
     effectiveRateReason: z.literal('not_aggregated'),

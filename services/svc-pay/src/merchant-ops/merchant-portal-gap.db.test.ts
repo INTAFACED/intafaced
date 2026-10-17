@@ -538,11 +538,11 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
       ],
     });
     expect(created.amount).toBe('3.25');
-    expect(created.customerEmail).toBe('buyer@example.com');
+    expect(created.customerEmail).toBe('b***@e***.com');
     expect(created.dueAt).toBe(dueAt);
     expect(created.lineItems).toEqual([
-      { description: 'Widget', quantity: '2', unitAmount: '1.25', amount: '2.5' },
-      { description: 'Seal', quantity: '1.5', unitAmount: '0.5', amount: '0.75' },
+      { kind: 'charge', description: 'Widget', quantity: '2', unitAmount: '1.25', amount: '2.5' },
+      { kind: 'charge', description: 'Seal', quantity: '1.5', unitAmount: '0.5', amount: '0.75' },
     ]);
     const got = await ownerCaller.merchantOps.invoices.get({ invoiceId: created.id });
     expect(got).toMatchObject({
@@ -551,7 +551,10 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
       lineItems: created.lineItems,
     });
     const found = await ownerCaller.merchantOps.invoices.list({ limit: 20, search: 'buyer@example.com' });
-    expect(found.items.map((item) => item.id)).toContain(created.id);
+    expect(found.items.map((item) => item.id)).not.toContain(created.id);
+    const listed = await ownerCaller.merchantOps.invoices.list({ limit: 20 });
+    expect(listed.items.find((item) => item.id === created.id)?.customerEmail).toBe('b***@e***.com');
+    expect(JSON.stringify(listed)).not.toContain('buyer@example.com');
 
     expect(
       (
@@ -607,7 +610,7 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
       lineItems: [{ description: 'One', quantity: '1.0', unitAmount: '2.00' }],
     });
     expect(replay.id).toBe(first.id);
-    expect(replay.lineItems).toEqual([{ description: 'One', quantity: '1', unitAmount: '2', amount: '2' }]);
+    expect(replay.lineItems).toEqual([{ kind: 'charge', description: 'One', quantity: '1', unitAmount: '2', amount: '2' }]);
     expect(
       (
         await refusal(() =>
@@ -620,6 +623,134 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
         )
       ).cause,
     ).toBe('pay.request_id_reused');
+  });
+
+  it('negates credits, refuses an all-free total, masks the email except on an owner get, and logs that read', async () => {
+    const admin = nid();
+    await sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+      VALUES (${merchant}, ${admin}, 'admin', 'active', ${owner}, now())`;
+    const ownerCaller = as(owner);
+    const mixed = await ownerCaller.merchantOps.invoices.create({
+      requestId: nid(),
+      assetId: 'USDT',
+      amount: '7.5',
+      customerEmail: 'buyer@example.com',
+      lineItems: [
+        { description: 'Work', quantity: '2', unitAmount: '5' },
+        { description: 'Rebate', kind: 'credit', quantity: '1', unitAmount: '2.5' },
+        { description: 'Sample', kind: 'charge', quantity: '1', unitAmount: '0' },
+      ],
+    });
+    expect(mixed.lineItems).toEqual([
+      { kind: 'charge', description: 'Work', quantity: '2', unitAmount: '5', amount: '10' },
+      { kind: 'credit', description: 'Rebate', quantity: '1', unitAmount: '2.5', amount: '-2.5' },
+      { kind: 'charge', description: 'Sample', quantity: '1', unitAmount: '0', amount: '0' },
+    ]);
+    expect(mixed.customerEmail).toBe('b***@e***.com');
+    expect(
+      (
+        await refusal(() =>
+          ownerCaller.merchantOps.invoices.create({
+            requestId: nid(),
+            assetId: 'USDT',
+            amount: '1',
+            lineItems: [{ description: 'Free', quantity: '1', unitAmount: '0' }],
+          }),
+        )
+      ).cause,
+    ).toBe('pay.invoice_total_not_positive');
+    expect(
+      (
+        await refusal(() =>
+          ownerCaller.merchantOps.invoices.create({
+            requestId: nid(),
+            assetId: 'USDT',
+            amount: '1',
+            lineItems: [
+              { description: 'Work', quantity: '1', unitAmount: '5' },
+              { description: 'Rebate', kind: 'credit', quantity: '1', unitAmount: '5' },
+            ],
+          }),
+        )
+      ).cause,
+    ).toBe('pay.invoice_total_not_positive');
+
+    const same = nid();
+    const charged = await ownerCaller.merchantOps.invoices.create({
+      requestId: same,
+      assetId: 'USDT',
+      amount: '2',
+      lineItems: [{ description: 'One', quantity: '1', unitAmount: '2' }],
+    });
+    const replayed = await ownerCaller.merchantOps.invoices.create({
+      requestId: same,
+      assetId: 'USDT',
+      amount: '2',
+      lineItems: [{ description: 'One', quantity: '1', unitAmount: '2', kind: 'charge' }],
+    });
+    expect(replayed.id).toBe(charged.id);
+    expect(
+      (
+        await refusal(() =>
+          ownerCaller.merchantOps.invoices.create({
+            requestId: same,
+            assetId: 'USDT',
+            amount: '2',
+            lineItems: [
+              { description: 'One', kind: 'charge', quantity: '1', unitAmount: '4' },
+              { description: 'Rebate', kind: 'credit', quantity: '1', unitAmount: '2' },
+            ],
+          }),
+        )
+      ).cause,
+    ).toBe('pay.request_id_reused');
+
+    await expect(
+      sql.begin(async (tx) => {
+        await tx`
+          UPDATE pay.merchant_invoice_lines
+             SET unit_amount = 0, line_amount = 0
+           WHERE invoice_id = ${mixed.id} AND kind = 'charge'`;
+      }),
+    ).rejects.toThrow(/pay.invoice_total_not_positive/);
+    await expect(
+      sql`
+        UPDATE pay.merchant_invoice_lines
+           SET line_amount = -1
+         WHERE invoice_id = ${mixed.id} AND kind = 'charge'`,
+    ).rejects.toThrow(/check|sign_ck|violates/);
+
+    const roles = [
+      ['admin', as(admin)],
+      ['finance', as(finance)],
+      ['developer', as(developer)],
+      ['viewer', as(viewer)],
+      ['api-key', routerFor().createCaller(ctxOf(principalOf(owner, { kid: nid(), mfa: false })))],
+      ['owner-without-mfa', routerFor().createCaller(ctxOf(principalOf(owner, { mfa: false })))],
+    ] as const;
+    for (const [, caller] of roles) {
+      const page = await caller.merchantOps.invoices.list({ limit: 20 });
+      expect(page.items.find((item) => item.id === mixed.id)?.customerEmail).toBe('b***@e***.com');
+      expect(JSON.stringify(page)).not.toContain('buyer@example.com');
+      const detail = await caller.merchantOps.invoices.get({ invoiceId: mixed.id });
+      expect(detail.customerEmail).toBe('b***@e***.com');
+    }
+    const before = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.control_audit
+       WHERE kind = 'invoice.customer_email_read' AND scope_id = ${mixed.id}`;
+    expect(before[0]!.n).toBe(0);
+    expect((await ownerCaller.merchantOps.invoices.get({ invoiceId: mixed.id })).customerEmail).toBe('buyer@example.com');
+    expect((await ownerCaller.merchantOps.invoices.get({ invoiceId: mixed.id })).customerEmail).toBe('buyer@example.com');
+    const reads = await sql<Array<{ reason: string; after: { invoiceId?: string } | null }>>`
+      SELECT reason, after FROM pay.control_audit
+       WHERE kind = 'invoice.customer_email_read' AND scope_id = ${mixed.id}
+       ORDER BY seq`;
+    expect(reads).toHaveLength(2);
+    expect(reads.every((row) => row.reason.length > 0)).toBe(true);
+    expect(JSON.stringify(reads)).not.toContain('buyer@example.com');
+    const ownerList = await ownerCaller.merchantOps.invoices.list({ limit: 20 });
+    expect(ownerList.items.find((item) => item.id === mixed.id)?.customerEmail).toBe('b***@e***.com');
   });
 
   it('reissues a sent invoice link once per request and refuses a void whose link cannot be deactivated', async () => {

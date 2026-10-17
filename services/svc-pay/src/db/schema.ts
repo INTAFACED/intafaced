@@ -922,7 +922,7 @@ export const merchantInvoices = pay.table(
   (t) => [index('merchant_invoices_list_idx').on(t.merchantId, t.createdAt, t.id)],
 );
 
-/** Invoice lines. line_amount is quantity times unit amount. Not a ledger post. */
+/** Invoice lines. line_amount is the signed quantity times unit amount. Not a ledger post. */
 export const merchantInvoiceLines = pay.table(
   'merchant_invoice_lines',
   {
@@ -932,6 +932,7 @@ export const merchantInvoiceLines = pay.table(
     quantity: amount('quantity').notNull(),
     unitAmount: amount('unit_amount').notNull(),
     lineAmount: amount('line_amount').notNull(),
+    kind: text('kind').notNull().default('charge'),
   },
   (t) => [primaryKey({ name: 'merchant_invoice_lines_pkey', columns: [t.invoiceId, t.lineNo] })],
 );

@@ -1210,8 +1210,8 @@ describe('merchant portal procedures', () => {
     const odd = await as(developer).merchantAnalytics.fees({ merchantId: merchantA, ...WINDOW, bucket: 'day', limit: 10 });
     expect(odd.rates).toEqual(
       expect.arrayContaining([
-        { assetCode: 'BTC', fees: '1', gross: '0', rate: null, rateStatus: 'gross_zero' },
-        { assetCode: 'ETH', fees: '1', gross: '3', rate: null, rateStatus: 'not_terminating' },
+        { assetCode: 'BTC', fees: '1', gross: '0', rate: null, rateStatus: 'no_volume' },
+        { assetCode: 'ETH', fees: '1', gross: '3', rate: '0.333333', rateStatus: 'rounded' },
       ]),
     );
     expect(fees.conversionCost).toBeNull();

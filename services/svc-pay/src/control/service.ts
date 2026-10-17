@@ -233,7 +233,7 @@ export class ControlService {
   // ── operator reads ────────────────────────────────────────────────────────
 
   async listTiers() {
-    const rows = await this.sql<Array<Parameters<typeof toTier>[0] & { merchants: string }>>`
+    const rows = await this.sql<Array<Parameters<typeof toTier>[0] & { merchants: string; merchant_visible: boolean }>>`
       SELECT t.*, (SELECT count(*) FROM pay.control_merchant_profiles p WHERE p.tier_id = t.id) AS merchants
         FROM pay.control_tiers t ORDER BY t.id
     `;
@@ -248,6 +248,7 @@ export class ControlService {
         approvalThresholds: [...tier.approvalThresholds].map(([assetCode, amount]) => ({ assetCode, amount: fmt(amount) })),
         founderThresholds: [...tier.founderThresholds].map(([assetCode, amount]) => ({ assetCode, amount: fmt(amount) })),
         approvalTtlSeconds: tier.approvalTtlSeconds,
+        merchantVisible: row.merchant_visible,
         version: tier.version.toString(),
         merchants: Number(row.merchants),
       };
@@ -300,17 +301,22 @@ export class ControlService {
   }
 
   /**
-   * The tier ladder this merchant may read: every configured tier's caps and
-   * reserve, plus which tier is theirs. Founder thresholds, approval bars, TTL
-   * and merchant counts stay on `founderAdmin.control.tiers.list`. No catalogue
-   * is `not_configured`. An assigned id with no row is not reported as current.
-   * More than 64 tiers refuses rather than dropping the rest. 64 is a response
-   * bound, not a product limit.
+   * The tier ladder this merchant may read: their own tier, plus any tier
+   * flagged `merchant_visible`. Another merchant's unpublished tier is not
+   * included. Founder thresholds, approval bars, TTL, the visibility flag and
+   * merchant counts stay on `founderAdmin.control.tiers.list`. No visible tier
+   * and no assignment is `not_configured`. An assigned id with no row is not
+   * reported as current. More than 64 visible tiers refuses rather than
+   * dropping the rest. 64 is a response bound, not a product limit.
    */
   async merchantTierList(merchantId: string): Promise<MerchantTierList> {
     const control = await loadMerchantControl(this.sql, merchantId);
+    const assigned = control.profile?.tierId ?? null;
     const rows = await this.sql<Array<Parameters<typeof toTier>[0]>>`
-      SELECT * FROM pay.control_tiers ORDER BY id LIMIT 65
+      SELECT * FROM pay.control_tiers
+       WHERE merchant_visible OR (${assigned}::text IS NOT NULL AND id = ${assigned})
+       ORDER BY id
+       LIMIT 65
     `;
     if (rows.length === 0) return { status: 'not_configured', ownTierId: null };
     if (rows.length > 64) throw new ControlError('pay.control_invalid', 'tier catalogue exceeds the response bound');
@@ -331,7 +337,6 @@ export class ControlService {
       if (!summary.success) throw new ControlError('pay.control_invalid', 'tier is unreadable');
       return summary.data;
     });
-    const assigned = control.profile?.tierId ?? null;
     const ownTierId = assigned !== null && tiers.some((tier) => tier.id === assigned) ? assigned : null;
     return { status: 'configured', ownTierId, tiers };
   }

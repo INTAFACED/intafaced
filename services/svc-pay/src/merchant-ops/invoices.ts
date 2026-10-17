@@ -108,14 +108,35 @@ function fingerprint(action: string, parts: readonly string[]): string {
     .digest('hex');
 }
 
-function view(row: InvoiceRow, lineItems: readonly InvoiceLineView[] = []): InvoiceView {
+/**
+ * One character of the local part and one of the domain, then the public suffix.
+ * `buyer@example.com` becomes `b***@e***.com`. Null stays null.
+ */
+export function maskCustomerEmail(email: string | null): string | null {
+  if (email === null) return null;
+  const at = email.indexOf('@');
+  if (at <= 0) return '***';
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const dot = domain.lastIndexOf('.');
+  const localMasked = `${local[0]}***`;
+  const domainMasked = dot > 0 ? `${domain[0]}***${domain.slice(dot)}` : `${domain[0] ?? '*'}***`;
+  return `${localMasked}@${domainMasked}`;
+}
+
+/** The interactive owner session. An API key and every other team role stay masked. */
+function revealsCustomerEmail(caller: MerchantCaller): boolean {
+  return caller.role === 'owner' && caller.interactive && !caller.viaApiKey;
+}
+
+function view(row: InvoiceRow, lineItems: readonly InvoiceLineView[] = [], revealEmail = false): InvoiceView {
   return {
     id: row.id,
     status: row.status as InvoiceStatus,
     assetId: row.asset_id,
     amount: money(row.amount),
     customerRef: row.customer_ref,
-    customerEmail: row.customer_email,
+    customerEmail: revealEmail ? row.customer_email : maskCustomerEmail(row.customer_email),
     description: row.description,
     dueAt: row.due_at ? iso(row.due_at) : null,
     lineItems,
@@ -180,8 +201,10 @@ export class InvoiceService {
     const description = blankToNull(input.description, 2000);
     const dueAt = parseDue(input.dueAt);
     const lineItems = normalizeInvoiceLines(input.lineItems);
-    if (lineItems && formatAmount(sumLineAmounts(lineItems)) !== amount) {
-      throw new MerchantOpsError('pay.invoice_total_mismatch', 'bad_request');
+    if (lineItems) {
+      const total = sumLineAmounts(lineItems);
+      if (total <= 0n) throw new MerchantOpsError('pay.invoice_total_not_positive', 'bad_request');
+      if (formatAmount(total) !== amount) throw new MerchantOpsError('pay.invoice_total_mismatch', 'bad_request');
     }
     const fp = fingerprint('create', [
       input.assetId,
@@ -269,7 +292,6 @@ export class InvoiceService {
            ${filters.search}::text IS NULL
            OR id::text = lower(${filters.search})
            OR customer_ref = ${filters.search}
-           OR customer_email = ${filters.search}
          )
          AND (
            ${cursorAt}::text IS NULL
@@ -296,7 +318,9 @@ export class InvoiceService {
     const row = await this.owned(caller, invoiceId);
     if (!row) throw notFound();
     const lines = await this.linesFor([row.id]);
-    return view(row, lines.get(row.id) ?? []);
+    const reveal = revealsCustomerEmail(caller);
+    if (reveal && row.customer_email !== null) await this.logEmailRead(caller, row.id);
+    return view(row, lines.get(row.id) ?? [], reveal);
   }
 
   async send(caller: MerchantCaller, input: { requestId: string; invoiceId: string }) {
@@ -574,6 +598,7 @@ export class InvoiceService {
           quantity: line.quantity,
           unit_amount: line.unitAmount,
           line_amount: line.amount,
+          kind: line.kind,
         })),
       )}
     `;
@@ -583,16 +608,25 @@ export class InvoiceService {
     const grouped = new Map<string, InvoiceLineView[]>();
     if (ids.length === 0) return grouped;
     const rows = await this.sql<
-      Array<{ invoice_id: string; description: string; quantity: string; unit_amount: string; line_amount: string }>
+      Array<{
+        invoice_id: string;
+        description: string;
+        quantity: string;
+        unit_amount: string;
+        line_amount: string;
+        kind: string;
+      }>
     >`
-      SELECT invoice_id, description, quantity::text, unit_amount::text, line_amount::text
+      SELECT invoice_id, description, quantity::text, unit_amount::text, line_amount::text, kind
         FROM pay.merchant_invoice_lines
        WHERE invoice_id IN ${this.sql([...ids])}
        ORDER BY invoice_id, line_no
     `;
     for (const row of rows) {
+      const kind = row.kind === 'credit' ? 'credit' : 'charge';
       const list = grouped.get(row.invoice_id) ?? [];
       list.push({
+        kind,
         description: row.description,
         quantity: money(row.quantity),
         unitAmount: money(row.unit_amount),
@@ -627,6 +661,22 @@ export class InvoiceService {
 
   private sameAction(prior: ActionRow, action: string, fp: string): void {
     if (prior.action !== action || prior.fingerprint !== fp) throw new MerchantOpsError('pay.request_id_reused', 'conflict');
+  }
+
+  /** One row per full-value read. The address itself is not copied into the log. */
+  private async logEmailRead(caller: MerchantCaller, invoiceId: string): Promise<void> {
+    await this.sql`
+      INSERT INTO pay.control_audit (scope, scope_id, merchant_id, kind, outcome, actor_id, reason, after)
+      VALUES (
+        'merchant',
+        ${invoiceId},
+        ${caller.merchantId},
+        'invoice.customer_email_read',
+        'shown',
+        ${caller.userId},
+        'owner session read the customer email',
+        ${this.sql.json({ invoiceId })}
+      )`;
   }
 
   private async recordAction(

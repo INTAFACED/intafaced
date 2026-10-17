@@ -188,6 +188,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
                       description: z.string().trim().min(1).max(500),
                       quantity: z.string().trim().min(1).max(80),
                       unitAmount: z.string().trim().min(1).max(80),
+                      kind: z.enum(['charge', 'credit']).default('charge'),
                     })
                     .strict(),
                 )
