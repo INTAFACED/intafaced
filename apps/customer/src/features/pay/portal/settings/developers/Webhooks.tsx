@@ -66,11 +66,12 @@ export function Webhooks({ api, canManage }: { api: SettingsBApi; canManage: boo
           empty={{
             title: q || status ? t('noEndpointsMatch') : t('noEndpointsTitle'),
             body: q || status ? t('noEndpointsMatchBody') : t('noEndpointsBody'),
-            action: q || status ? undefined : (
-              <a className="text-link" href="#add">
-                {t('addEndpoint')}
-              </a>
-            ),
+            action:
+              q || status ? undefined : (
+                <a className="text-link" href="#add">
+                  {t('addEndpoint')}
+                </a>
+              ),
           }}
         >
           {(rows) => (
@@ -86,7 +87,9 @@ export function Webhooks({ api, canManage }: { api: SettingsBApi; canManage: boo
                     cell: (e) => (
                       <>
                         <strong className="pp-wrap">{shownEndpointUrl(e.url)}</strong>
-                        {endpointNeedsAttention(e) && <small className="pay-cell-note">{t('failingNote', { n: e.consecutiveFailures })}</small>}
+                        {endpointNeedsAttention(e) && (
+                          <small className="pay-cell-note">{t('failingNote', { n: e.consecutiveFailures })}</small>
+                        )}
                       </>
                     ),
                   },

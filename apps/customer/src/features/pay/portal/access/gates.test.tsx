@@ -14,11 +14,7 @@ const answers: { myAccess: unknown; merchant: unknown } = { myAccess: null, merc
 vi.mock('../../../session/session', () => ({ useSession: () => ({ api: {}, userId: ME }) }));
 vi.mock('../../../../shared/resource', () => ({
   useResource: (_load: unknown, key: string) => ({
-    resource: key.includes('my-access')
-      ? answers.myAccess
-      : key.includes('portal:merchant')
-        ? answers.merchant
-        : { status: 'loading' },
+    resource: key.includes('my-access') ? answers.myAccess : key.includes('portal:merchant') ? answers.merchant : { status: 'loading' },
     reload: () => undefined,
   }),
 }));

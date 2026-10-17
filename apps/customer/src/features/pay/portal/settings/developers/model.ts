@@ -11,7 +11,10 @@ const v4 = (host: string): number[] | null => {
 
 /** Hosts INTAFACED will never post to. The service checks again (and resolves the name); this keeps the obvious mistakes off the wire. */
 export function isPrivateHost(rawHost: string): boolean {
-  const host = rawHost.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  const host = rawHost
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
   if (!host) return true;
   if (host === 'localhost' || /\.(localhost|local|internal|lan|home|corp|intranet)$/.test(host)) return true;
   if (!host.includes('.') && !host.includes(':')) return true;
@@ -19,12 +22,25 @@ export function isPrivateHost(rawHost: string): boolean {
   if (ip) {
     const [a, b] = ip as [number, number, number, number];
     return (
-      a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      a >= 224
     );
   }
   if (host.includes(':')) {
-    return host === '::' || host === '::1' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host) || host.startsWith('::ffff:') || host.startsWith('ff');
+    return (
+      host === '::' ||
+      host === '::1' ||
+      /^f[cd]/.test(host) ||
+      /^fe[89ab]/.test(host) ||
+      host.startsWith('::ffff:') ||
+      host.startsWith('ff')
+    );
   }
   return false;
 }
@@ -73,7 +89,14 @@ export function ipProblem(raw: string): IpProblem | null {
 
 /** Split a pasted list (commas, spaces, new lines) into unique addresses. */
 export function splitIps(text: string): string[] {
-  return [...new Set(text.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      text
+        .split(/[\s,;]+/)
+        .map((x) => x.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 export const keyScopes = ['pay:read', 'pay:write', 'pay:refund'] as const;

@@ -13,7 +13,6 @@ const en = {
   oldest: 'Oldest first',
   nameSort: 'Name / reference',
   shown: '{count} records shown',
-  loadedMetrics: 'Right now',
   active: 'Active',
   revoked: 'Revoked',
   disabled: 'Disabled',

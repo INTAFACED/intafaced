@@ -73,6 +73,8 @@ export function ReportsView({ jobs, hasMore, role }: { jobs: readonly ExportJob[
 
 function Filters({ kind }: { kind: ExportKind }) {
   const { t } = c.useCopy();
-  const parts = [hasDateRange(kind) ? t('filterDates') : null, statusesFor(kind) ? t('filterStatus') : null, t('filterAsset')].filter(Boolean);
+  const parts = [hasDateRange(kind) ? t('filterDates') : null, statusesFor(kind) ? t('filterStatus') : null, t('filterAsset')].filter(
+    Boolean,
+  );
   return <>{parts.join(', ')}</>;
 }

@@ -15,10 +15,28 @@ import { useResource } from '../../../../../shared/resource';
 import { useSession } from '../../../../session/session';
 import type { SettingsBApi } from '../b-client';
 import { reportsCopy as c } from './copy';
-import { canDelete, columnLabel, columnsFor, formatBytes, hasDateRange, isBuilding, isKnownKind, rangeParts, statusesFor, windowOf, windowProblem } from './model';
+import {
+  canDelete,
+  columnLabel,
+  columnsFor,
+  formatBytes,
+  hasDateRange,
+  isBuilding,
+  isKnownKind,
+  rangeParts,
+  statusesFor,
+  windowOf,
+  windowProblem,
+} from './model';
 import { exportKinds, exportStatuses, type ExportJob, type ExportKind, type ExportStatus } from './schemas';
 
-const tone: Record<ExportStatus, StatusTone> = { queued: 'progress', running: 'progress', ready: 'done', failed: 'failed', expired: 'progress' };
+const tone: Record<ExportStatus, StatusTone> = {
+  queued: 'progress',
+  running: 'progress',
+  ready: 'done',
+  failed: 'failed',
+  expired: 'progress',
+};
 export function JobChip({ status }: { status: ExportStatus }) {
   const { t } = c.useCopy();
   return <ToneChip tone={tone[status]} label={t(`job_${status}`)} tip={t(`jobTip_${status}`)} />;
@@ -66,13 +84,29 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
         <div className="pp-filterbar" role="search" aria-label={t('jobsTitle')}>
           <div className="pp-filter-row">
             <Field label={t('search')} value={q} onChange={(e) => setQ(e.target.value)} hint={t('searchHint')} />
-            <SelectField label={t('colReport')} value={kind} onChange={setKind} options={[['', t('allReports')], ...exportKinds.map((k) => [k, t(`kind_${k}`)] as const)]} />
-            <SelectField label={t('colStatus')} value={status} onChange={setStatus} options={[['', t('allStatuses')], ...exportStatuses.map((s) => [s, t(`job_${s}`)] as const)]} />
+            <SelectField
+              label={t('colReport')}
+              value={kind}
+              onChange={setKind}
+              options={[['', t('allReports')], ...exportKinds.map((k) => [k, t(`kind_${k}`)] as const)]}
+            />
+            <SelectField
+              label={t('colStatus')}
+              value={status}
+              onChange={setStatus}
+              options={[['', t('allStatuses')], ...exportStatuses.map((s) => [s, t(`job_${s}`)] as const)]}
+            />
             <SelectField
               label={t('colRequested')}
               value={date}
               onChange={setDate}
-              options={[['', t('anyDate')], ['today', t('today')], ['7d', t('last7')], ['30d', t('last30')], ['custom', t('custom')]]}
+              options={[
+                ['', t('anyDate')],
+                ['today', t('today')],
+                ['7d', t('last7')],
+                ['30d', t('last30')],
+                ['custom', t('custom')],
+              ]}
             />
           </div>
           {date === 'custom' && (
@@ -107,7 +141,10 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
         <ListShell
           state={list.state}
           retry={() => reload()}
-          empty={{ title: filtered ? t('jobsNoMatchTitle') : t('jobsEmptyTitle'), body: filtered ? t('jobsNoMatchBody') : t('jobsEmptyBody') }}
+          empty={{
+            title: filtered ? t('jobsNoMatchTitle') : t('jobsEmptyTitle'),
+            body: filtered ? t('jobsNoMatchBody') : t('jobsEmptyBody'),
+          }}
         >
           {(rows) => (
             <>
@@ -127,15 +164,30 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                       </>
                     ),
                   },
-                  { header: t('colSize'), cell: (j) => (j.status === 'ready' ? <span className="numeric pp-nowrap">{`${j.rowCount ?? '—'} · ${formatBytes(j.sizeBytes)}`}</span> : '—') },
-                  { header: t('colRequestedBy'), cell: (j) => (j.requestedBy === userId ? t('you') : (names.get(j.requestedBy) ?? t('teammate'))) },
+                  {
+                    header: t('colSize'),
+                    cell: (j) =>
+                      j.status === 'ready' ? (
+                        <span className="numeric pp-nowrap">{`${j.rowCount ?? '—'} · ${formatBytes(j.sizeBytes)}`}</span>
+                      ) : (
+                        '—'
+                      ),
+                  },
+                  {
+                    header: t('colRequestedBy'),
+                    cell: (j) => (j.requestedBy === userId ? t('you') : (names.get(j.requestedBy) ?? t('teammate'))),
+                  },
                   {
                     header: t('colGenerated'),
                     cell: (j) =>
                       j.generatedAt ? (
                         <>
                           <DateTime value={j.generatedAt} />
-                          {j.asOf && <small className="pay-cell-note">{t('asOf')} <DateTime value={j.asOf} /></small>}
+                          {j.asOf && (
+                            <small className="pay-cell-note">
+                              {t('asOf')} <DateTime value={j.asOf} />
+                            </small>
+                          )}
                         </>
                       ) : (
                         <DateTime value={j.createdAt} />
@@ -143,9 +195,21 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                   },
                   {
                     header: t('colExpires'),
-                    cell: (j) => (j.status === 'expired' ? t('deleted') : j.expiresAt ? <DateTime value={j.expiresAt} /> : j.status === 'ready' ? t('noExpiry') : '—'),
+                    cell: (j) =>
+                      j.status === 'expired' ? (
+                        t('deleted')
+                      ) : j.expiresAt ? (
+                        <DateTime value={j.expiresAt} />
+                      ) : j.status === 'ready' ? (
+                        t('noExpiry')
+                      ) : (
+                        '—'
+                      ),
                   },
-                  { header: <span className="pp-sr">{t('colActions')}</span>, cell: (j) => <JobActions api={api} job={j} onDone={() => reload()} /> },
+                  {
+                    header: <span className="pp-sr">{t('colActions')}</span>,
+                    cell: (j) => <JobActions api={api} job={j} onDone={() => reload()} />,
+                  },
                 ]}
                 card={(j) => ({
                   title: kindName(t, j.kind),
@@ -172,14 +236,18 @@ export function Covers({ job }: { job: Pick<ExportJob, 'filters' | 'kind'> }) {
       : p.from || p.to
         ? t('rangeFromTo', { from: p.from ?? t('rangeStart'), to: p.to ?? t('rangeNow') })
         : t('rangeAll');
-  return (
-    <>
-      {[range, p.status ? p.status.replaceAll('_', ' ') : null, p.asset].filter(Boolean).join(' · ')}
-    </>
-  );
+  return <>{[range, p.status ? p.status.replaceAll('_', ' ') : null, p.asset].filter(Boolean).join(' · ')}</>;
 }
 
-export function JobActions({ api, job, onDone }: { api: Pick<SettingsBApi, 'reportDownload' | 'reportDelete'>; job: ExportJob; onDone: () => void }) {
+export function JobActions({
+  api,
+  job,
+  onDone,
+}: {
+  api: Pick<SettingsBApi, 'reportDownload' | 'reportDelete'>;
+  job: ExportJob;
+  onDone: () => void;
+}) {
   const { t } = c.useCopy();
   const [state, setState] = useState<'idle' | 'busy' | string>('idle');
   async function download() {
@@ -197,7 +265,12 @@ export function JobActions({ api, job, onDone }: { api: Pick<SettingsBApi, 'repo
   return (
     <div className="pp-actions">
       {job.status === 'ready' && (
-        <Button variant="secondary" onClick={() => void download()} disabled={state === 'busy'} aria-label={t('downloadAria', { name: job.fileName ?? kindName(t, job.kind) })}>
+        <Button
+          variant="secondary"
+          onClick={() => void download()}
+          disabled={state === 'busy'}
+          aria-label={t('downloadAria', { name: job.fileName ?? kindName(t, job.kind) })}
+        >
           {state === 'busy' ? t('downloading') : t('download')}
         </Button>
       )}
@@ -296,13 +369,41 @@ export function RequestForm({
         </div>
         {hasDateRange(kind) ? (
           <div className="form-row">
-            <Field label={t('from')} type="date" value={from} onChange={(e) => { setFrom(e.target.value); setRequestId(newRequestId()); }} hint={t('fromHint')} />
-            <Field label={t('to')} type="date" value={to} error={bad} onChange={(e) => { setTo(e.target.value); setRequestId(newRequestId()); }} hint={t('toHint')} />
+            <Field
+              label={t('from')}
+              type="date"
+              value={from}
+              onChange={(e) => {
+                setFrom(e.target.value);
+                setRequestId(newRequestId());
+              }}
+              hint={t('fromHint')}
+            />
+            <Field
+              label={t('to')}
+              type="date"
+              value={to}
+              error={bad}
+              onChange={(e) => {
+                setTo(e.target.value);
+                setRequestId(newRequestId());
+              }}
+              hint={t('toHint')}
+            />
           </div>
         ) : (
           <p className="muted">{t('noRangeForKind')}</p>
         )}
-        <Field label={t('assetLabel')} value={assetId} maxLength={32} hint={t('assetHint')} onChange={(e) => { setAssetId(e.target.value.toUpperCase()); setRequestId(newRequestId()); }} />
+        <Field
+          label={t('assetLabel')}
+          value={assetId}
+          maxLength={32}
+          hint={t('assetHint')}
+          onChange={(e) => {
+            setAssetId(e.target.value.toUpperCase());
+            setRequestId(newRequestId());
+          }}
+        />
         <fieldset className="pp-fieldset">
           <legend>{t('columnsTitle')}</legend>
           <div className="pp-columns">

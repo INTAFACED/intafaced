@@ -31,7 +31,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
     const text = portal.map((file) => readFileSync(file, 'utf8')).join('\n');
     const procedures = [
       ...text.matchAll(
-        /'((?:merchant|merchantOps|merchantMetrics|merchantControl|merchantAnalytics|submerchant|submerchantPermission|payHalts|payment|settlement|conversion|railHealth)[A-Za-z.]*)'/g,
+        /'((?:(?:merchant|merchantOps|merchantMetrics|merchantControl|merchantAnalytics|submerchant|submerchantPermission|payHalts|payment|settlement|conversion)\.[A-Za-z.]+|railHealth))'/g,
       ),
     ].map((m) => m[1]!);
     expect(procedures.length).toBeGreaterThan(20);

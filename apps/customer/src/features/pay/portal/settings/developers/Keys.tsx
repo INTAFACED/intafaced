@@ -144,7 +144,10 @@ export function KeysView({
                           cell: (k) => (k.lastUsedAt ? <DateTime value={k.lastUsedAt} /> : <span className="muted">{t('neverUsed')}</span>),
                         },
                         { header: t('colStatus'), cell: (k) => <StatusChip entity="key" value={k.revoked ? 'revoked' : 'active'} /> },
-                        { header: <span className="pp-sr">{t('colActions')}</span>, cell: (k) => <KeyRevoke api={api} apiKey={k} onDone={reload} /> },
+                        {
+                          header: <span className="pp-sr">{t('colActions')}</span>,
+                          cell: (k) => <KeyRevoke api={api} apiKey={k} onDone={reload} />,
+                        },
                       ]}
                       card={(k) => ({
                         title: (
@@ -164,10 +167,14 @@ export function KeysView({
         )}
       </PaySection>
       <div id="create">
-        <CreateKey api={api} scopes={scopes} onCreated={(created) => {
-          setRevealed({ title: t('newKeyTitle'), secret: created.key, what: t('newKeyWhat') });
-          reload();
-        }} />
+        <CreateKey
+          api={api}
+          scopes={scopes}
+          onCreated={(created) => {
+            setRevealed({ title: t('newKeyTitle'), secret: created.key, what: t('newKeyWhat') });
+            reload();
+          }}
+        />
       </div>
     </div>
   );
@@ -203,7 +210,15 @@ export function CreateKey({
         </p>
       )}
       <div className="form-stack pp-form">
-        <Field label={t('keyNameLabel')} hint={t('keyNameHint')} value={name} maxLength={64} error={nameError} disabled={blocked} onChange={(e) => setName(e.target.value)} />
+        <Field
+          label={t('keyNameLabel')}
+          hint={t('keyNameHint')}
+          value={name}
+          maxLength={64}
+          error={nameError}
+          disabled={blocked}
+          onChange={(e) => setName(e.target.value)}
+        />
         <fieldset className="pp-fieldset" disabled={blocked}>
           <legend>{t('colPermissions')}</legend>
           {keyScopes.map((scope) => (

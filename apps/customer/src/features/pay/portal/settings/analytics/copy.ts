@@ -65,7 +65,8 @@ const en = {
   rateOffBody:
     'INTAFACED stores the fee total for each day but not the pricing rule behind it, so a rate cannot be worked out honestly. It will show here once those rules are recorded. Conversion cost is also not recorded yet.',
   feesOffTitle: 'Fee analytics are not switched on yet',
-  feesOffBody: 'The fee summary for your account has not been switched on. Your settlements list already shows the fees on each settlement.',
+  feesOffBody:
+    'The fee summary for your account has not been switched on. Your settlements list already shows the fees on each settlement.',
 } as const;
 export const analyticsCopy = defineCopy('pay.portal.settings.analytics', en);
 /** The wording as written, for the copy lint. */

@@ -7,7 +7,6 @@ const en = {
   reasonLimits: 'Limits not set yet: INTAFACED is finalising account tiers',
   reasonDocuments: 'Document checks not connected yet',
   reasonVerified: 'Available after your business is verified',
-  reasonOwner: 'Available to the account owner once the account is active',
   reasonHistory: 'History not connected yet: past changes aren’t recorded for your account yet',
   reasonDetail: 'Detail not connected yet: this extra information isn’t available for your account yet',
   reasonLists: 'Not connected yet: this view isn’t available for your account yet',

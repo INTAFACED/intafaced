@@ -23,9 +23,11 @@ export function Sandbox({ api }: { api: SettingsBApi }) {
 
 export function SandboxView({ keys, health, reload }: { keys: Resource<ApiKey[]>; health: Resource<Health>; reload: () => void }) {
   const { t } = c.useCopy();
-  const testKeys = keys.status === 'ready' ? keys.data.filter((k) => k.mode === 'sandbox' && isPayKey(k.scopes) && !k.revoked).length : null;
+  const testKeys =
+    keys.status === 'ready' ? keys.data.filter((k) => k.mode === 'sandbox' && isPayKey(k.scopes) && !k.revoked).length : null;
   const endpointsOn = health.status === 'ready' ? health.data.endpoints.filter((e) => e.status === 'active').length : null;
-  const sum = (key: 'delivered' | 'failed' | 'dead') => (health.status === 'ready' ? health.data.endpoints.reduce((n, e) => n + e.deliveries[key], 0) : null);
+  const sum = (key: 'delivered' | 'failed' | 'dead') =>
+    health.status === 'ready' ? health.data.endpoints.reduce((n, e) => n + e.deliveries[key], 0) : null;
   const delivered = sum('delivered');
   const failed = health.status === 'ready' ? (sum('failed') ?? 0) + (sum('dead') ?? 0) : null;
   const dash = '—';
@@ -40,7 +42,12 @@ export function SandboxView({ keys, health, reload }: { keys: Resource<ApiKey[]>
         tiles={[
           { label: t('tileTestKeys'), period: t('rightNow'), href: '/pay/developer/keys?status=active', value: testKeys ?? dash },
           { label: t('tileEndpointsOn'), period: t('rightNow'), href: '/pay/developer/webhooks?status=active', value: endpointsOn ?? dash },
-          { label: t('deliveredTile'), period: t('allEndpoints'), href: '/pay/developer/deliveries?status=delivered', value: delivered ?? dash },
+          {
+            label: t('deliveredTile'),
+            period: t('allEndpoints'),
+            href: '/pay/developer/deliveries?status=delivered',
+            value: delivered ?? dash,
+          },
           { label: t('failedTile'), period: t('allEndpoints'), href: '/pay/developer/deliveries?status=failed', value: failed ?? dash },
         ]}
       />

@@ -14,7 +14,19 @@ export function useAnalyticsState(now: number) {
   const [asset, setAsset] = useUrlParam('asset');
   const preset = (['today', '7d', '30d', 'custom'].includes(range) ? range : '30d') as Preset;
   const window = windowFor(preset, now, { from, to });
-  return { preset, setRange, from, setFrom, to, setTo, bucket: (bucket === 'week' ? 'week' : 'day') as 'day' | 'week', setBucket, asset, setAsset, window };
+  return {
+    preset,
+    setRange,
+    from,
+    setFrom,
+    to,
+    setTo,
+    bucket: (bucket === 'week' ? 'week' : 'day') as 'day' | 'week',
+    setBucket,
+    asset,
+    setAsset,
+    window,
+  };
 }
 
 export function AnalyticsControls({ state, assets }: { state: AnalyticsState; assets: readonly string[] }) {
@@ -48,14 +60,24 @@ export function AnalyticsControls({ state, assets }: { state: AnalyticsState; as
             label={t('asset')}
             value={state.asset}
             onChange={state.setAsset}
-            options={[['', t('allAssets')], ...assets.map((a) => [a, a] as const), ...(state.asset && !assets.includes(state.asset) ? ([[state.asset, state.asset]] as const) : [])]}
+            options={[
+              ['', t('allAssets')],
+              ...assets.map((a) => [a, a] as const),
+              ...(state.asset && !assets.includes(state.asset) ? ([[state.asset, state.asset]] as const) : []),
+            ]}
           />
         )}
       </div>
       {state.preset === 'custom' && (
         <div className="pp-filter-row">
           <Field label={t('from')} type="date" value={state.from} onChange={(e) => state.setFrom(e.target.value)} />
-          <Field label={t('to')} type="date" value={state.to} onChange={(e) => state.setTo(e.target.value)} error={badCustom ? t('errCustom') : undefined} />
+          <Field
+            label={t('to')}
+            type="date"
+            value={state.to}
+            onChange={(e) => state.setTo(e.target.value)}
+            error={badCustom ? t('errCustom') : undefined}
+          />
         </div>
       )}
     </div>
