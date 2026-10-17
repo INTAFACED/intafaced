@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { adjudicationOutcome, checkAdjudication, readCasesOutcome } from './surveillance-model';
+import { adjudicationOutcome, checkAdjudication, parseSurveillanceCases } from './surveillance-model';
 
 const ok = { caseId: 'c-1', decision: 'no_violation', rationale: 'orders were genuine, filled later' };
 
-describe('surveillance law', () => {
-  it('reading cases is the typed blocker', () => {
-    expect(readCasesOutcome()).toMatchObject({ kind: 'refused', blocker: { key: 'surveillance_not_routed' } });
+describe('surveillance cases', () => {
+  it('reads svc-matching cases exactly as presented', () => {
+    const row = { accountId: 'a-1', marketId: 'm-1', reason: 'spoofing: 12 cancels inside 2s', status: 'open' };
+    expect(parseSurveillanceCases([row])).toEqual([row]);
+    expect(parseSurveillanceCases([])).toEqual([]);
   });
+  it('shows nothing rather than a guess when a row is not in that shape', () => {
+    expect(parseSurveillanceCases({ cases: [] })).toBeNull();
+    expect(parseSurveillanceCases([{ accountId: 'a-1', marketId: 'm-1', reason: 'x', status: 'closed' }])).toBeNull();
+    expect(parseSurveillanceCases([null])).toBeNull();
+  });
+});
+
+describe('surveillance law', () => {
   it('refuses automatic adjudication', () => {
     expect(checkAdjudication({ ...ok, auto: true })).toMatchObject({ ok: false, code: 'auto_adjudicate_forbidden' });
   });
@@ -19,7 +29,7 @@ describe('surveillance law', () => {
     expect(checkAdjudication({ ...ok, decision: 'ban' })).toMatchObject({ code: 'surveillance.bad_decision' });
     expect(checkAdjudication({ ...ok, rationale: 'no' })).toMatchObject({ code: 'surveillance.bad_rationale' });
   });
-  it('a valid decision ends in the typed blocker', () => {
-    expect(adjudicationOutcome(ok)).toMatchObject({ kind: 'refused', blocker: { key: 'surveillance_not_routed' } });
+  it('a valid decision ends in the adjudicate blocker, which names the real gap', () => {
+    expect(adjudicationOutcome(ok)).toMatchObject({ kind: 'refused', blocker: { key: 'surveillance_adjudicate_not_exposed' } });
   });
 });

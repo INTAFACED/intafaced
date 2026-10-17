@@ -2,35 +2,40 @@
 
 import { useState, type ReactNode } from 'react';
 import { Badge, KeyValue, Table, type TableColumn } from '@intafaced/ui';
-import { STATE_LABEL, type SurveillanceCase } from '@/lib/trade-ops/surveillance-model';
+import type { SurveillanceCase } from '@/lib/trade-ops/surveillance-model';
 import { SurveillanceAdjudicate } from './surveillance-adjudicate';
 
 /**
- * Case list, detail and decision form. The table is fully built. When the cases cannot be read, `unreadable`
- * is drawn in place of rows, so an empty table is never mistaken for "no cases". Detail shows the selected case.
+ * Case list, detail and decision form. The rows are exactly what svc-matching presents (account, market, the detector's
+ * reason, status). When the cases cannot be read, `unreadable` is drawn in place of rows, so an empty table is never
+ * mistaken for "no cases"; `noCases` is only true after a successful read that returned none.
  */
-export function SurveillanceCases({ cases, unreadable }: { cases: readonly SurveillanceCase[]; unreadable: ReactNode | null }) {
+const keyOf = (c: SurveillanceCase) => `${c.accountId}|${c.marketId}|${c.reason}`;
+
+export function SurveillanceCases({
+  cases,
+  unreadable,
+  noCases = false,
+}: {
+  cases: readonly SurveillanceCase[];
+  unreadable: ReactNode | null;
+  noCases?: boolean;
+}) {
   const [selected, setSelected] = useState<SurveillanceCase | null>(null);
   const columns: TableColumn<SurveillanceCase>[] = [
-    { id: 'id', header: 'Case', value: (c) => c.id, sortable: true, width: 160 },
-    { id: 'market', header: 'Market', value: (c) => c.market, sortable: true, width: 120 },
-    { id: 'account', header: 'Account', value: (c) => c.accountId },
-    { id: 'detector', header: 'Detector', cell: (c) => <Badge density="dense">{c.detector}</Badge>, value: (c) => c.detector, width: 110 },
+    { id: 'account', header: 'Account', value: (c) => c.accountId, sortable: true },
+    { id: 'market', header: 'Market', value: (c) => c.marketId, sortable: true, width: 200 },
+    { id: 'reason', header: 'Reason', value: (c) => c.reason },
     {
-      id: 'window',
-      header: 'Window (UTC)',
-      value: (c) => `${c.windowStart.slice(0, 19).replace('T', ' ')} to ${c.windowEnd.slice(11, 19)}`,
-    },
-    {
-      id: 'state',
+      id: 'status',
       header: 'State',
-      cell: (c) => (
-        <Badge tone={c.state === 'adjudicated' ? 'lime' : 'warn'} variant="outline" density="dense">
-          {STATE_LABEL[c.state]}
+      cell: () => (
+        <Badge tone="warn" variant="outline" density="dense">
+          Open
         </Badge>
       ),
-      value: (c) => c.state,
-      width: 130,
+      value: (c) => c.status,
+      width: 100,
     },
   ];
   return (
@@ -41,12 +46,14 @@ export function SurveillanceCases({ cases, unreadable }: { cases: readonly Surve
           density="dense"
           columns={columns}
           rows={cases}
-          getRowId={(c) => c.id}
+          getRowId={keyOf}
           selection="single"
-          selectedIds={new Set(selected ? [selected.id] : [])}
-          onSelectionChange={(ids) => setSelected(cases.find((c) => ids.has(c.id)) ?? null)}
+          selectedIds={new Set(selected ? [keyOf(selected)] : [])}
+          onSelectionChange={(ids) => setSelected(cases.find((c) => ids.has(keyOf(c))) ?? null)}
           onRowActivate={setSelected}
-          emptyState={unreadable ?? undefined}
+          emptyState={
+            unreadable ?? (noCases ? <p className="p-4 text-sm text-fg-2">The matching engine reports no open cases.</p> : undefined)
+          }
         />
       </div>
       <div className="flex min-w-0 flex-col gap-4">
@@ -54,14 +61,10 @@ export function SurveillanceCases({ cases, unreadable }: { cases: readonly Surve
           <KeyValue
             density="dense"
             items={[
-              { label: 'Case', value: selected.id, mono: true },
-              { label: 'Market', value: selected.market },
               { label: 'Account', value: selected.accountId, mono: true },
-              { label: 'Detector', value: selected.detector },
-              { label: 'Window start (UTC)', value: selected.windowStart },
-              { label: 'Window end (UTC)', value: selected.windowEnd },
-              { label: 'State', value: STATE_LABEL[selected.state] },
-              { label: 'Evidence', value: selected.evidence.length ? selected.evidence.join('; ') : null },
+              { label: 'Market', value: selected.marketId, mono: true },
+              { label: 'Reason', value: selected.reason },
+              { label: 'State', value: 'Open' },
             ]}
           />
         ) : (
@@ -69,7 +72,7 @@ export function SurveillanceCases({ cases, unreadable }: { cases: readonly Surve
             {unreadable ? 'No case can be opened: the cases are not readable (see the left panel).' : 'Select a case to see its detail.'}
           </p>
         )}
-        <SurveillanceAdjudicate caseId={selected?.id ?? ''} />
+        <SurveillanceAdjudicate caseId={selected ? keyOf(selected) : ''} />
       </div>
     </div>
   );

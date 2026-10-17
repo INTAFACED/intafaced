@@ -1,4 +1,4 @@
-import { actOnApproval, proposeRestriction, restrictionPayloadHash } from '@/lib/trade-ops/approvals-calls';
+import { actOnApproval, listApprovals, proposeRestriction, restrictionPayloadHash } from '@/lib/trade-ops/approvals-calls';
 import { validateAct, validateApply } from '@/lib/trade-ops/approvals';
 import { tradeOpsRoute } from '@/lib/trade-ops/bff';
 import { BLOCKERS } from '@/lib/trade-ops/blockers';
@@ -13,6 +13,7 @@ import { validateChange } from '@/lib/trade-ops/restrictions';
  *   POST { action: 'propose', userId, change: 'restrict'|'restore', reason, expectedVersion }
  *   POST { action: 'approve', approvalId, expectedPayloadHash, knownRequesterId? }
  *   POST { action: 'reject' | 'revoke', approvalId, knownRequesterId? }
+ *   POST { action: 'list', view: 'pending'|'mine' }  identity's own list, fixed page of 50
  *   POST { action: 'apply', ... }   BLOCKED (restriction_no_four_eyes): validated, then refused with the typed blocker.
  */
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,10 @@ export const POST = (req: Request) =>
         return blocked(BLOCKERS.restriction_no_four_eyes);
       }
       return proposeRestriction(ctx, change.value);
+    }
+    if (action === 'list') {
+      if (body.view !== 'pending' && body.view !== 'mine') return refused('trade_ops.view_invalid', 'Choose pending or mine.', 400);
+      return listApprovals(ctx, body.view, 50);
     }
     if (action === 'approve' || action === 'reject' || action === 'revoke') {
       const act = validateAct({ ...body, verb: action }, ctx.session.userId);

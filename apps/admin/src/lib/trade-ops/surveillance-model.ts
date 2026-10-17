@@ -2,28 +2,34 @@ import { BLOCKERS } from './blockers';
 import { blocked, refused, type Outcome } from './outcome';
 
 /**
- * Pure rules for the Surveillance room. The case store is on svc-matching and is not routed to operators, so
- * reading cases and recording a decision both return the typed blocker surveillance_not_routed. The shapes and
- * the law are built anyway: no automatic adjudication, no invented sanction or fine.
+ * Pure rules for the Surveillance room. Reading cases is live: svc-matching's open cases come through svc-edge
+ * (`GET /admin/trade-ops/surveillance/cases`). Recording a decision is the typed blocker surveillance_adjudicate_not_exposed:
+ * svc-edge registers no adjudicate or fine route, on purpose. The law is built anyway: no automatic adjudication, no
+ * invented sanction or fine.
  */
 
-export type Detector = 'spoofing' | 'layering';
-export type CaseState = 'open' | 'under_review' | 'adjudicated';
-
+/** One open case exactly as svc-matching presents it. Nothing else (no id, window or detector) is invented here. */
 export interface SurveillanceCase {
-  readonly id: string;
-  readonly market: string;
   readonly accountId: string;
-  readonly detector: Detector;
-  /** ISO start and end of the window the detector flagged. */
-  readonly windowStart: string;
-  readonly windowEnd: string;
-  readonly state: CaseState;
-  /** Evidence lines supplied by the service. Never invented here. */
-  readonly evidence: readonly string[];
+  readonly marketId: string;
+  /** The detector's own reason line. */
+  readonly reason: string;
+  readonly status: 'open';
 }
 
-export const DETECTORS: readonly Detector[] = ['spoofing', 'layering'];
+/** Null when the body is not an array of cases in that shape: a guess is never shown. */
+export function parseSurveillanceCases(raw: unknown): SurveillanceCase[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: SurveillanceCase[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') return null;
+    const r = row as Record<string, unknown>;
+    if (typeof r.accountId !== 'string' || typeof r.marketId !== 'string' || typeof r.reason !== 'string' || r.status !== 'open')
+      return null;
+    out.push({ accountId: r.accountId, marketId: r.marketId, reason: r.reason, status: 'open' });
+  }
+  return out;
+}
 
 export const DECISIONS = [
   { value: 'no_violation', label: 'No violation found' },
@@ -34,11 +40,6 @@ export type Decision = (typeof DECISIONS)[number]['value'];
 
 export const LAW =
   'A person decides every case. The desk never adjudicates automatically and never proposes, invents or records a sanction or a fine. The service refuses both: auto_adjudicate_forbidden and invented_sanction.';
-
-/** Reading cases: the service is not routed, so this is the honest answer for the page and the list action. */
-export function readCasesOutcome(): Outcome<never> {
-  return blocked(BLOCKERS.surveillance_not_routed);
-}
 
 export type AdjudicationCheck =
   | { readonly ok: true; readonly body: { caseId: string; decision: Decision; rationale: string } }
@@ -66,7 +67,5 @@ export function checkAdjudication(input: Record<string, unknown>): AdjudicationC
 
 export function adjudicationOutcome(input: Record<string, unknown>): Outcome<never> {
   const c = checkAdjudication(input);
-  return c.ok ? blocked(BLOCKERS.surveillance_not_routed) : refused(c.code, c.message, 400);
+  return c.ok ? blocked(BLOCKERS.surveillance_adjudicate_not_exposed) : refused(c.code, c.message, 400);
 }
-
-export const STATE_LABEL: Record<CaseState, string> = { open: 'Open', under_review: 'Under review', adjudicated: 'Decided' };

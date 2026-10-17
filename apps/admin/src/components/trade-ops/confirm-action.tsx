@@ -33,6 +33,8 @@ export function ConfirmAction(props: {
   /** Minimum reason length. 0 hides the reason field. */
   reasonMin?: number;
   triggerVariant?: 'primary' | 'secondary' | 'ghost' | 'sell';
+  /** The word on the green badge after success. Default "Applied". */
+  doneText?: string;
   disabled?: boolean;
   disabledReason?: string;
   run: (reason: string) => Promise<Outcome<unknown>>;
@@ -96,7 +98,7 @@ export function ConfirmAction(props: {
             <Input id={reasonId} value={reason} onValueChange={setReason} density="dense" />
           </Field>
         ) : null}
-        {result ? <OutcomeNotice outcome={result} className="mt-4" /> : null}
+        {result ? <OutcomeNotice outcome={result} doneText={props.doneText} className="mt-4" /> : null}
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="secondary" shape="rounded" size={32} disabled={busy} />}>
             {result?.kind === 'ok' ? 'Close' : 'Cancel'}

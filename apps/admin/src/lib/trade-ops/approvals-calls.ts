@@ -126,3 +126,24 @@ export async function actOnApproval(ctx: TradeCtx, a: ActOnApproval): Promise<Ou
     a.verb === 'approve' ? { approvalId: a.approvalId, expectedPayloadHash: a.expectedPayloadHash } : { approvalId: a.approvalId };
   return withServiceCode(await edgeCall(ctx, trpcSpec('identity', `actionApproval.${a.verb}`, 'mutation', input, parseApproval)));
 }
+
+export interface ApprovalList {
+  readonly approvals: readonly ActionApproval[];
+  readonly pageFull: boolean;
+}
+
+/** actionApproval.list: `pending` = approvals this operator may decide; `mine` = the ones they proposed. Limit is required by identity. */
+export async function listApprovals(ctx: TradeCtx, view: 'pending' | 'mine', limit: number): Promise<Outcome<ApprovalList>> {
+  return withServiceCode(
+    await edgeCall(
+      ctx,
+      trpcSpec('identity', 'actionApproval.list', 'query', { view, limit }, (raw) => {
+        if (!raw || typeof raw !== 'object') return null;
+        const r = raw as { approvals?: unknown; pageFull?: unknown };
+        if (!Array.isArray(r.approvals) || typeof r.pageFull !== 'boolean') return null;
+        const rows = r.approvals.map(parseApproval);
+        return rows.every((x): x is ActionApproval => x !== null) ? { approvals: rows, pageFull: r.pageFull } : null;
+      }),
+    ),
+  );
+}

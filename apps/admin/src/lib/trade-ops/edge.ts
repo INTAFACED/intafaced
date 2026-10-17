@@ -48,7 +48,9 @@ export function errorParts(body: unknown, status: number): { code: string; messa
       data.code,
       typeof root.error === 'string' ? root.error : undefined,
     ) ?? `http.${status}`;
-  const message = pick(root.message, json.message, root.detail, root.reason) ?? `The service answered ${status} (${code}).`;
+  // svc-edge's operator doors put the sentence in `error` next to a `code`; without a `code`, `error` is itself the code.
+  const sentence = typeof root.error === 'string' && typeof root.code === 'string' ? root.error : undefined;
+  const message = pick(root.message, json.message, root.detail, root.reason, sentence) ?? `The service answered ${status} (${code}).`;
   return { code, message };
 }
 
@@ -88,6 +90,11 @@ export async function edgeCall<T>(ctx: TradeCtx, spec: EdgeSpec<T>): Promise<Out
     );
   }
   const body: unknown = await res.json().catch(() => null);
+  // svc-edge says `outcome: unknown` when its own upstream call timed out: the action may or may not have happened.
+  if (body && typeof body === 'object' && (body as { outcome?: unknown }).outcome === 'unknown') {
+    const parts = errorParts(body, res.status);
+    return unknown(`${parts.message} (${parts.code}). The result is not known: read the state again before repeating it.`, at());
+  }
   if (res.ok) {
     const parsed = spec.parse(unwrapTrpc(body));
     return parsed === null

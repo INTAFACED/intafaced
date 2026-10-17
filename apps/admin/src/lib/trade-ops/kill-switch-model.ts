@@ -3,8 +3,8 @@ import { BLOCKERS } from './blockers';
 import { blocked, ok, refused, unknown, type Outcome } from './outcome';
 
 /**
- * Pure rules for the Kill switch room: what the trade module's state is, and the two controls whose services do
- * not exist (venue halt-all, mass cancel). No network here; the route and the page call these. Stopping and
+ * Pure rules for the Kill switch room: what the trade module's state is, and the control whose service does
+ * not exist (mass cancel). Venue halt-all and resume-all live in matching-controls.ts. No network here; the route and the page call these. Stopping and
  * resuming the trade module is NOT here: it runs through the console's two-founder flow (`/api/kill-switch`,
  * `ModuleKillDesk`), the only path the edge's operator door accepts.
  */
@@ -75,34 +75,6 @@ export const TRADE_ALWAYS_ALLOWED = [
   'orders.cancel over tRPC, and DELETE /api/v1/orders and /api/v1/orders/:id (cancel)',
   'DELETE /api/v1/positions/:id (close one futures position)',
 ] as const;
-
-// ── Venue halt-all / resume-all (matching): service missing ──────────────────
-
-export interface VenueBody {
-  readonly action: 'halt_all' | 'resume_all';
-  readonly reason: string;
-  readonly confirmOperatorId: string;
-}
-
-export function checkVenue(
-  input: Record<string, unknown>,
-  signedInUserId: string,
-): { ok: true; body: VenueBody } | { ok: false; code: string; message: string } {
-  if (input.action !== 'halt_all' && input.action !== 'resume_all')
-    return { ok: false, code: 'trade_ops.bad_action', message: 'Choose halt all or resume all.' };
-  const reason = text(input.reason);
-  if (reason.length < REASON_MIN || reason.length > REASON_MAX)
-    return { ok: false, code: 'trade_ops.bad_reason', message: `The reason must be ${REASON_MIN} to ${REASON_MAX} characters.` };
-  const confirmOperatorId = text(input.confirmOperatorId);
-  if (confirmOperatorId === '' || confirmOperatorId === signedInUserId.trim())
-    return { ok: false, code: 'missing_operator', message: 'A distinct confirming operator is required.' };
-  return { ok: true, body: { action: input.action, reason, confirmOperatorId } };
-}
-
-export function venueOutcome(input: Record<string, unknown>, signedInUserId: string): Outcome<never> {
-  const c = checkVenue(input, signedInUserId);
-  return c.ok ? blocked(BLOCKERS.matching_not_routed) : refused(c.code, c.message, 400);
-}
 
 // ── Mass cancel: service missing ─────────────────────────────────────────────
 

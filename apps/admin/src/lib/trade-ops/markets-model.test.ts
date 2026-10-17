@@ -9,7 +9,6 @@ import {
   oldestAsOf,
   seededPercent,
   tallyOrders,
-  validateMarketAction,
   type MarketRowView,
 } from './markets-model';
 
@@ -52,17 +51,6 @@ const order = (symbol: string, over: Partial<AdminOrderRow> = {}): AdminOrderRow
   ...over,
 });
 const view = (m: MarketRow): MarketRowView => ({ market: m, lifecycle: null, orders: null });
-const ME = '00000000-0000-4000-8000-000000000001';
-const OTHER = '00000000-0000-4000-8000-000000000002';
-const good = {
-  action: 'delist',
-  symbol: 'AUD/USD',
-  reason: 'market is being retired',
-  confirmOperatorId: OTHER,
-  approvalId: 'approval-12345',
-  typedSymbol: 'AUD/USD',
-};
-
 describe('orders per market', () => {
   it('counts open, seeded and held per symbol and ignores non-open', () => {
     const t = tallyOrders([
@@ -104,41 +92,5 @@ describe('filters and counts', () => {
     expect(oldestAsOf([null])).toBeNull();
     expect(clockUtc('2026-10-17T10:00:05.123Z')).toBe('10:00:05 UTC');
     expect(clockUtc(null)).toBe('—');
-  });
-});
-
-describe('validateMarketAction', () => {
-  it('accepts a complete delist', () => {
-    const r = validateMarketAction(good, ME);
-    expect(r.ok).toBe(true);
-  });
-  it('refuses a short reason', () => {
-    expect(validateMarketAction({ ...good, reason: 'short' }, ME)).toMatchObject({ ok: false, code: 'trade_ops.reason_too_short' });
-  });
-  it('refuses the requester as second operator', () => {
-    expect(validateMarketAction({ ...good, confirmOperatorId: ME.toUpperCase() }, ME)).toMatchObject({
-      ok: false,
-      code: 'trade_ops.same_person',
-    });
-  });
-  it('requires a second operator and approval for halt, resume and delist, but not reduce-only', () => {
-    for (const action of ['halt', 'resume', 'delist'])
-      expect(validateMarketAction({ ...good, action, confirmOperatorId: '' }, ME)).toMatchObject({
-        ok: false,
-        code: 'trade_ops.second_operator_required',
-      });
-    expect(validateMarketAction({ ...good, action: 'halt', approvalId: '' }, ME)).toMatchObject({
-      ok: false,
-      code: 'trade_ops.approval_required',
-    });
-    expect(validateMarketAction({ ...good, action: 'reduce_only', confirmOperatorId: '', approvalId: '' }, ME).ok).toBe(true);
-  });
-  it('requires the symbol typed back for delist only', () => {
-    expect(validateMarketAction({ ...good, typedSymbol: 'AUD' }, ME)).toMatchObject({ ok: false, code: 'trade_ops.symbol_mismatch' });
-    expect(validateMarketAction({ ...good, action: 'halt', typedSymbol: '' }, ME).ok).toBe(true);
-  });
-  it('refuses unknown actions and a second id that is not an id', () => {
-    expect(validateMarketAction({ ...good, action: 'nuke' }, ME)).toMatchObject({ code: 'trade_ops.bad_action' });
-    expect(validateMarketAction({ ...good, confirmOperatorId: 'x y' }, ME)).toMatchObject({ code: 'trade_ops.second_operator_invalid' });
   });
 });
