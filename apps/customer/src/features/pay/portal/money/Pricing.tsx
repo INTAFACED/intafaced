@@ -1,19 +1,20 @@
 import { useState } from 'react';
 import type { ApiResult } from '../../../../shared/api';
-import { portalAmount } from '../presentation';
 import { useResource } from '../../../../shared/resource';
 import { Button, DataTable } from '@intafaced/ui';
 import { Field } from '../../ui-kit';
 import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
-import { Facts, Gate, Money, NotConfigured, PortalFailure, PortalLoading, SelectField } from '../components';
+import { Facts, Gate, NotConfigured, PortalFailure, PortalLoading, SelectField } from '../components';
 import { mc as portalCopy } from './copy';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt } from '../hooks';
 import { isNotLive } from '../refusal';
 import { DateTime } from '../ui/DateTime';
 import { Freshness } from '../ui/Freshness';
+import { formatMoney } from '../ui/format';
 import { KpiStrip } from '../ui/Kpi';
+import { MoneyText } from '../ui/MoneyText';
 import { NamedBlocker, TestBanner } from './common';
 import { bpsPercent, isCalcAmount, pricingAssets } from './model';
 import type { PortalApi } from '../api';
@@ -194,13 +195,17 @@ function RuleTable({ rule, feeOnly }: { rule: PricingRule; feeOnly: boolean }) {
         {rule.bands.map((b) => (
           <tr key={b.fromAmount}>
             <th scope="row">
-              <Money value={b.fromAmount} asset={rule.assetCode} />
+              <MoneyText value={b.fromAmount} asset={rule.assetCode} />
             </th>
             <td className="numeric">
               {bpsPercent(b.feeBps)} <span className="pp-unit">{`(${b.feeBps} bps)`}</span>
             </td>
             <td>
-              {b.flatFee === null ? <span className="muted">{t('noFlatFee')}</span> : <Money value={b.flatFee} asset={rule.assetCode} />}
+              {b.flatFee === null ? (
+                <span className="muted">{t('noFlatFee')}</span>
+              ) : (
+                <MoneyText value={b.flatFee} asset={rule.assetCode} />
+              )}
             </td>
           </tr>
         ))}
@@ -318,20 +323,20 @@ export function FeeCalculator({
       {outcome &&
         (outcome.result.ok ? (
           <div aria-live="polite">
-            <h3 className="pp-sub">{t('calcResultFor', { amount: portalAmount(outcome.amount, outcome.asset), asset: outcome.asset })}</h3>
+            <h3 className="pp-sub">{t('calcResultFor', { amount: formatMoney(outcome.amount, outcome.asset), asset: outcome.asset })}</h3>
             <Facts
               items={[
-                [t('calcFee'), <Money value={outcome.result.data.fee} asset={outcome.asset} />],
+                [t('calcFee'), <MoneyText value={outcome.result.data.fee} asset={outcome.asset} />],
                 ...(!feeOnly && outcome.result.data.spread !== null
-                  ? ([[t('spreadLabel'), <Money value={outcome.result.data.spread} asset={outcome.asset} />]] as const)
+                  ? ([[t('spreadLabel'), <MoneyText value={outcome.result.data.spread} asset={outcome.asset} />]] as const)
                   : []),
-                [t('calcNet'), <Money value={outcome.result.data.net} asset={outcome.asset} />],
+                [t('calcNet'), <MoneyText value={outcome.result.data.net} asset={outcome.asset} />],
                 ...(feeOnly
                   ? []
                   : ([
                       [t('calcApplied'), t(`layer_${outcome.result.data.appliedLayer}` as 'layer_global')],
-                      [t('calcBand'), <Money value={outcome.result.data.bandFrom} asset={outcome.asset} />],
-                      [t('calcMonthSoFar'), <Money value={outcome.result.data.monthlyVolumeBefore} asset={outcome.asset} />],
+                      [t('calcBand'), <MoneyText value={outcome.result.data.bandFrom} asset={outcome.asset} />],
+                      [t('calcMonthSoFar'), <MoneyText value={outcome.result.data.monthlyVolumeBefore} asset={outcome.asset} />],
                       [
                         t('roundingLabel'),
                         t(outcome.result.data.roundingBeneficiary === 'platform' ? 'roundingPlatform' : 'roundingMerchant'),

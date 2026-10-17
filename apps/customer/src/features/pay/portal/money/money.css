@@ -16,3 +16,33 @@
 .mn-hero .pp-money {
   overflow-wrap: normal;
 }
+
+/* Balances on a phone. Section headings start at the left edge, a tile's label and its period stack instead of running
+   together (see portal.css), and a payout row wraps its amount and status chip inside the panel instead of clipping at the edge. */
+.if-business .mn-page .pay-section > header {
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+.if-business .mn-page .pay-section > header > div {
+  min-width: 0;
+}
+@media (max-width: 480px) {
+  .if-business .mn-page .pay-section {
+    padding: 16px;
+  }
+  .if-business .mn-page .pe-card-link {
+    flex-wrap: wrap;
+    padding-inline: 0;
+  }
+  .if-business .mn-page .pe-card-main {
+    flex: 1 1 140px;
+  }
+  .if-business .mn-page .pe-card-side {
+    flex: 0 1 auto;
+    justify-items: end;
+    margin-left: auto;
+  }
+  .if-business .mn-page .pe-card-amount {
+    white-space: normal;
+  }
+}

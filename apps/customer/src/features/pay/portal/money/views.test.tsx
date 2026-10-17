@@ -26,6 +26,7 @@ import { ApprovalDecision } from './Approvals';
 import { MoneyFailure, NamedBlocker } from './common';
 import { ConversionChip } from './Conversion';
 import { PayoutDetailView } from './Payouts';
+import { NoPayable } from './PayoutNew';
 import { RefundChip } from './Refunds';
 import { statementColumns } from './Statement';
 import { mc } from './copy';
@@ -157,6 +158,26 @@ describe('payout detail', () => {
     );
     expect(out).toContain('The payment network declined this payout.');
     expect(out).not.toMatch(/pay\.[a-z_]+/);
+    // The failure copy says "try again", so the page has to offer it: a link that opens the payout form on this settlement.
+    expect(out).toContain('Try this payout again');
+    expect(out).toContain('href="/pay/payouts/new?settlement=bb000002-0000-4000-8000-000000000002"');
+  });
+  it('offers no retry on a payout that was paid', () => {
+    expect(render([paid])).not.toContain('Try this payout again');
+  });
+});
+
+describe('payout form with nothing to start', () => {
+  it('names the settlements waiting for approval and links to them', () => {
+    const out = renderToString(<NoPayable waitingN={2} />);
+    expect(out).toContain('2 settlements are waiting for a second person');
+    expect(out).toContain('href="/pay/approvals?status=pending"');
+    expect(renderToString(<NoPayable waitingN={1} />)).toContain('1 settlement is waiting');
+  });
+  it('says nothing is finalised only when nothing is waiting', () => {
+    const out = renderToString(<NoPayable waitingN={0} />);
+    expect(out).toContain('Nothing is ready to pay out');
+    expect(out).not.toContain('approval');
   });
 });
 
@@ -181,6 +202,28 @@ describe('approval review', () => {
       />,
     );
     expect(out).toContain('Destination not shown for this request');
+  });
+  const decide = (remaining: string | null) =>
+    renderToString(
+      <ApprovalDecision
+        portal={portal}
+        approval={approval({ amount: '965.55' })}
+        me="TEST-checker"
+        role="finance"
+        now={NOW}
+        remaining={remaining}
+        onDone={noop}
+      />,
+    );
+  it('warns before approving more than is left of today’s payout limit, with the exact amount left', () => {
+    const out = decide('200');
+    expect(out).toContain('more than you have left of today’s payout limit (200.00 USDT)');
+    expect(out).toContain('pp-callout--warn');
+  });
+  it('does not warn when the payout fits, or when the limit is unknown', () => {
+    expect(decide('965.55')).not.toContain('payout limit');
+    expect(decide('1000')).not.toContain('payout limit');
+    expect(decide(null)).not.toContain('payout limit');
   });
 });
 
@@ -212,6 +255,32 @@ describe('statement table', () => {
   });
 });
 
+describe('statement fee lines', () => {
+  const fee: StatementLine = {
+    id: 'f',
+    at: '2026-10-14T23:30:00.000Z',
+    assetId: 'USD',
+    kind: 'fee',
+    amount: '1.2',
+    account: 'houseFees',
+    direction: 'credit',
+    runningClearing: null,
+    runningProceeds: null,
+    runningOrder: 'clear',
+  };
+  const out = renderToString(
+    <EntityList label="x" rows={[fee]} rowKey={(l) => l.id} columns={statementColumns(mc.t, false, false)} card={() => ({ title: 'x' })} />,
+  );
+  it('signs a fee as taken and calls it so', () => {
+    expect(out.replace(/<!-- -->/g, '')).toContain('− ');
+    expect(out).toContain('1.20');
+    expect(out).toContain('Fee taken');
+  });
+  it('labels every time UTC, and pads money to two places', () => {
+    expect(out).toContain('Oct 14, 2026, 11:30 PM UTC');
+  });
+});
+
 describe('words', () => {
   it('names the reason a part is not live, never "coming soon"', () => {
     const out = renderToString(
@@ -223,8 +292,8 @@ describe('words', () => {
     expect(out.toLowerCase()).not.toContain('coming soon');
   });
   it('gives refunds and conversions plain status words', () => {
-    expect(renderToString(<RefundChip status="posted" />)).toContain('Pending');
-    expect(renderToString(<RefundChip status="reversed" />)).toContain('Failed');
+    expect(renderToString(<RefundChip status="posted" />)).toContain('In progress');
+    expect(renderToString(<RefundChip status="reversed" />)).toContain('Reversed');
     expect(renderToString(<ConversionChip status="partially_filled" />)).toContain('Partly done');
     expect(renderToString(<ConversionChip status="something_new" />)).toContain('Update');
   });

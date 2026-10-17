@@ -855,6 +855,7 @@
     }
     .pp-detail-title {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: flex-start;
       gap: 16px;
@@ -876,6 +877,13 @@
       display: grid;
       gap: 8px;
     }
+    /* The kit's text input is 40px high (h-10). Selects in the bar match it, so the row shares one top and one baseline. */
+    .pp-filterbar .pp-select select {
+      box-sizing: border-box;
+      height: 40px;
+      padding-block: 0;
+    }
+
     @media (max-width: 719px) {
       .pe-list .pe-table {
         display: none;
@@ -891,4 +899,26 @@
 .if-business .pp .text-link,
 .if-business .plo .text-link {
   color: var(--if-fg);
+}
+
+/* Filter bar: a select and the kit's text input share one label style and one control height (40px), so the row has a single
+   top and baseline. These sit outside the layer because the shared `.field` rules do. */
+.if-business .pp-filterbar .pp-select {
+  gap: 6px;
+}
+.if-business .pp-filterbar .pp-select > span:first-child {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+/* A KPI tile on a phone: the label and its period stack, so "Paid in" and "Today (UTC)" never run together. */
+@media (max-width: 480px) {
+  .if-business .pp-kpi-label {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .if-business .pp-kpi {
+    padding: 14px;
+  }
 }

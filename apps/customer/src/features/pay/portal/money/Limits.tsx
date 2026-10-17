@@ -11,7 +11,7 @@ import { newRequestId } from '../model';
 import { isNotLive } from '../refusal';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { capKinds } from '../schemas';
-import { DateTime } from '../ui/DateTime';
+import { DateTime, UTC } from '../ui/DateTime';
 import { Freshness } from '../ui/Freshness';
 import { KpiStrip } from '../ui/Kpi';
 import { MoneyText } from '../ui/MoneyText';
@@ -85,7 +85,7 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
             label: t('kpiNextReset'),
             period: t('mnPeriodNow'),
             href: '/pay/limits',
-            value: nextReset ? <DateTime value={nextReset} /> : '—',
+            value: nextReset ? <DateTime value={nextReset} timeZone={UTC} /> : '—',
           },
         ]}
       />
@@ -156,7 +156,7 @@ function LimitItem({ row, test }: { row: LimitRow; test: boolean }) {
                         <MoneyText value={row.remaining} asset={row.assetCode ?? ''} test={test} />
                       ),
                     ],
-                    [t('capResets'), row.resetsAt ? <DateTime value={row.resetsAt} /> : '—'],
+                    [t('capResets'), row.resetsAt ? <DateTime value={row.resetsAt} timeZone={UTC} /> : '—'],
                   ] as const)
                 : ([[t('capUsed'), <span className="muted">{t('capNoUsage')}</span>]] as const)),
             ]}

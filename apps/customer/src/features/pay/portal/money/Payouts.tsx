@@ -2,7 +2,7 @@ import { useResource, type Resource } from '../../../../shared/resource';
 import { Button } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';
 import { PaySection } from '../../components';
-import { Gate, HaltBanner, Money, PortalFailure, PortalLoading, SpanText } from '../components';
+import { Gate, HaltBanner, PortalFailure, PortalLoading, SpanText } from '../components';
 import { isNotLive, portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
@@ -11,7 +11,7 @@ import { isUuid } from '../model';
 import type { Approval, Settlement, Usage } from '../schemas';
 import { AuditPanel } from '../ui/AuditPanel';
 import { CopyReference } from '../ui/CopyReference';
-import { DateTime } from '../ui/DateTime';
+import { DateTime, UTC } from '../ui/DateTime';
 import { DetailHeader } from '../ui/DetailHeader';
 import { FilterRow, useListFilters } from '../ui/FilterRow';
 import { Freshness } from '../ui/Freshness';
@@ -333,16 +333,16 @@ export function PayoutDetailView({
               ? destination(latest)
               : null;
           const action =
-            state === 'ready' ? (
+            state === 'ready' || state === 'failed' ? (
               <LinkButton variant="primary" href={`/pay/payouts/new?settlement=${encodeURIComponent(s.id)}`}>
-                {t('pdoRequest')}
+                {t(state === 'failed' ? 'pdoRetry' : 'pdoRequest')}
               </LinkButton>
             ) : undefined;
           return (
             <>
               <DetailHeader
                 back={{ href: '/pay/payouts', label: t('mnBackPayouts') }}
-                title={<Money value={s.net} asset={s.assetId} />}
+                title={<MoneyText value={s.net} asset={s.assetId} />}
                 status={<StatusChip entity="payout" value={state} />}
                 subtitle={payoutName(t, locale, { createdAt: s.createdAt ?? s.settledAt ?? s.sentAt ?? new Date(0).toISOString() }, latest)}
                 action={action}
@@ -367,7 +367,9 @@ export function PayoutDetailView({
                     [t('colStatus'), <StatusChip entity="payout" value={state} />],
                     [t('colAmount'), <MoneyText value={s.net} asset={s.assetId} test={test} />],
                     [t('apvTo'), dest ?? <span className="muted">{t('apvToUnknown')}</span>],
-                    ...(lc?.fee != null ? ([[t('pdoFee'), <MoneyText value={lc.fee} asset={s.assetId} test={test} />]] as const) : []),
+                    ...(lc?.fee != null
+                      ? ([[t('pdoFee'), <MoneyText value={lc.fee} asset={s.assetId} test={test} sign="minus" />]] as const)
+                      : []),
                     [t('pdoScreening'), <NotConfigured>{t('pdoScreeningNone')}</NotConfigured>],
                     [t('payoutMethod'), s.payoutMethod ? railWords(t, s.payoutMethod) : <span className="muted">{t('notPaidYet')}</span>],
                     [
@@ -425,7 +427,16 @@ export function PayoutDetailView({
                 {latest?.status === 'pending' && (
                   <>
                     <h3 className="pp-sub">{t('decideTitle')}</h3>
-                    <ApprovalDecision portal={portal} approval={latest} me={me} role={role} now={now} names={names} onDone={reload} />
+                    <ApprovalDecision
+                      portal={portal}
+                      approval={latest}
+                      me={me}
+                      role={role}
+                      now={now}
+                      names={names}
+                      remaining={usage.status === 'ready' ? (payoutHeadroom(usage.data, s.assetId)?.remaining ?? null) : null}
+                      onDone={reload}
+                    />
                     <h3 className="pp-sub">{t('cancelTitle')}</h3>
                     <CancelRequest portal={portal} approval={latest} me={me} onDone={reload} />
                   </>
@@ -481,7 +492,7 @@ function PayoutCap({ usage, assetId, test, retry }: { usage: Resource<Usage>; as
           [t('capDailyPayout'), row.limit ? <MoneyText value={row.limit} asset={assetId} test={test} /> : '—'],
           [t('capUsed'), row.used ? <MoneyText value={row.used} asset={assetId} test={test} /> : '—'],
           [t('capRemaining'), row.remaining ? <MoneyText value={row.remaining} asset={assetId} test={test} /> : '—'],
-          [t('capResets'), row.resetsAt ? <DateTime value={row.resetsAt} /> : '—'],
+          [t('capResets'), row.resetsAt ? <DateTime value={row.resetsAt} timeZone={UTC} /> : '—'],
         ]}
       />
     </>

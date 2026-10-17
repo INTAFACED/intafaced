@@ -15,6 +15,9 @@ import {
   refundRate,
   roundedDecimal,
   runningView,
+  lineSign,
+  overRemaining,
+  splitPayable,
   statementRangeTooWide,
   sumByAsset,
   tieView,
@@ -251,5 +254,36 @@ describe('forms', () => {
     expect(askCaps(rows, { 'daily_payout:USDT': '10000' }).problem).toBe('notMore');
     expect(askCaps(rows, { 'daily_payout:USDT': 'lots' }).problem).toBe('format');
     expect(askCaps(rows, {}).problem).toBe('none');
+  });
+});
+
+describe('payout picker', () => {
+  const s = (id: string, status: string) => ({ id, status });
+  const pending = new Map([['b', { status: 'pending' as const }]]);
+  it('includes posted and failed settlements, never pending or paid out', () => {
+    const r = splitPayable([s('a', 'posted'), s('c', 'failed'), s('d', 'pending'), s('e', 'paid_out')], null);
+    expect(r.payable.map((x) => x.id)).toEqual(['a', 'c']);
+  });
+  it('leaves out settlements already waiting for approval and counts them', () => {
+    const r = splitPayable([s('a', 'posted'), s('b', 'posted')], pending);
+    expect(r.payable.map((x) => x.id)).toEqual(['a']);
+    expect(r.waitingN).toBe(1);
+    expect(splitPayable([s('b', 'posted')], pending)).toEqual({ payable: [], waitingN: 1 });
+  });
+});
+
+describe('payout limit headroom', () => {
+  it('compares exact decimals, so 200 left is less than 965.55', () => {
+    expect(overRemaining('965.55', '200')).toBe(true);
+    expect(overRemaining('200', '200')).toBe(false);
+    expect(overRemaining('0.1', '0.10')).toBe(false);
+  });
+});
+
+describe('statement line signs', () => {
+  it('takes a fee on the fees account away', () => {
+    expect(lineSign({ account: 'houseFees', direction: 'credit', kind: 'fee' })).toBe(-1);
+    expect(lineSign({ account: 'houseFees', direction: 'debit', kind: 'other' })).toBe(0);
+    expect(lineSign({ account: 'clearing', direction: 'debit' })).toBe(1);
   });
 });

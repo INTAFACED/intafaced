@@ -38,6 +38,9 @@ const en = {
   copyFailed: 'Couldn’t copy. Select the text and copy it yourself.',
   copyLabel: 'Copy {what}',
   // money
+  rateHow: 'Fees taken divided by gross payments, worked out per asset for the period shown above. Assets are never added together.',
+  rateLabel: 'Effective fee rate by asset',
+  rateNone: 'no rate, nothing was paid in',
   testTag: 'TEST',
   testTip: 'Test money. Nothing here is real.',
   // status chips for entities the older vocabulary did not cover

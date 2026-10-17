@@ -90,9 +90,8 @@ for (const width of [1440, 390])
     }
   });
 
-// Open: the shared filter bar draws the search box 40px high and the status/date/asset selects 44px high, so they do not
-// share a baseline (measured 8px apart at 1440). The fix belongs to the shared filter styles, not to this test.
-test.fixme('payout filter controls share a baseline', async ({ page }) => {
+// The shared filter bar draws the search box and the status/date/asset selects at the same height, so they share a baseline.
+test('payout filter controls share a baseline', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await setup(page);
   await go(page, '/pay/payouts');

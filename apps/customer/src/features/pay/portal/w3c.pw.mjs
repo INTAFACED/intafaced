@@ -102,7 +102,7 @@ test('refunds: the account list, URL filters, CSV and detail timeline', async ({
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download this page' }).click();
   expect((await download).suggestedFilename()).toMatch(/refunds.*\.csv$/);
-  await page.getByLabel('Status').selectOption({ label: 'Failed' });
+  await page.getByLabel('Status').selectOption({ label: 'Reversed' });
   await expect(page).toHaveURL(/status=/);
   await expect(list.getByRole('row')).toHaveCount(2);
   await page.getByLabel('Status').selectOption('');

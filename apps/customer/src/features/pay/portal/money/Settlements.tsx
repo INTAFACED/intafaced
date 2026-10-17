@@ -2,7 +2,7 @@ import { useResource } from '../../../../shared/resource';
 import { Button } from '@intafaced/ui';
 import { PaySection } from '../../components';
 import { isUuid } from '../model';
-import { Gate, HaltBanner, Money, MoneyLines, PortalFailure, PortalLoading } from '../components';
+import { Gate, HaltBanner, PortalFailure, PortalLoading } from '../components';
 import { portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
@@ -14,7 +14,7 @@ import { DetailHeader } from '../ui/DetailHeader';
 import { FilterRow, useListFilters } from '../ui/FilterRow';
 import { Freshness } from '../ui/Freshness';
 import { KpiStrip } from '../ui/Kpi';
-import { MoneyText } from '../ui/MoneyText';
+import { MoneyList, MoneyText } from '../ui/MoneyText';
 import { RelatedLinks } from '../ui/RelatedLinks';
 import { StatusChip } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
@@ -81,19 +81,41 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
             label: t('settleGross'),
             period: t('mnPeriod30'),
             href: '/pay/settlements?date=30d',
-            value: snap ? <MoneyLines items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.gross }))} /> : '—',
+            value: snap ? (
+              <MoneyList
+                items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.gross }))}
+                emptyLabel={t('noPaymentsInPeriod')}
+              />
+            ) : (
+              '—'
+            ),
           },
           {
             label: t('settleFees'),
             period: t('mnPeriod30'),
             href: '/pay/settlements?date=30d',
-            value: snap ? <MoneyLines items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.fees }))} /> : '—',
+            value: snap ? (
+              <MoneyList
+                items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.fees }))}
+                emptyLabel={t('noPaymentsInPeriod')}
+                sign="minus"
+              />
+            ) : (
+              '—'
+            ),
           },
           {
             label: t('settleNet'),
             period: t('mnPeriod30'),
             href: '/pay/settlements?date=30d',
-            value: snap ? <MoneyLines items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.net }))} /> : '—',
+            value: snap ? (
+              <MoneyList
+                items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.net }))}
+                emptyLabel={t('noPaymentsInPeriod')}
+              />
+            ) : (
+              '—'
+            ),
           },
           { label: t('settleReady'), period: t('mnPeriodNow'), href: '/pay/settlements?status=posted', value: count(c?.posted) },
           { label: t('settlePending'), period: t('mnPeriodNow'), href: '/pay/settlements?status=pending', value: count(c?.pending) },
@@ -176,7 +198,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
           { header: t('colSettlement'), cell: (s) => settlementName(t, locale, s) },
           { header: t('colNet'), cell: (s) => <MoneyText value={s.net} asset={s.assetId} test={test} /> },
           { header: t('colGross'), cell: (s) => <MoneyText value={s.gross} asset={s.assetId} test={test} /> },
-          { header: t('colFees'), cell: (s) => <MoneyText value={s.fees} asset={s.assetId} test={test} /> },
+          { header: t('colFees'), cell: (s) => <MoneyText value={s.fees} asset={s.assetId} test={test} sign="minus" /> },
           { header: t('colStatus'), cell: (s) => <StatusChip entity="settlement" value={s.status} /> },
         ]}
         card={(s) => ({
@@ -251,7 +273,7 @@ export function SettlementDetailPage({
                 back={{ href: '/pay/settlements', label: t('mnBackSettlements') }}
                 title={
                   <>
-                    <Money value={s.net} asset={s.assetId} /> {t('mnNet')}
+                    <MoneyText value={s.net} asset={s.assetId} /> {t('mnNet')}
                   </>
                 }
                 status={<StatusChip entity="settlement" value={s.status} />}
@@ -330,7 +352,7 @@ export function SettlementDetailPage({
                   <div>
                     <dt>{t('lineFees')}</dt>
                     <dd>
-                      <MoneyText value={s.fees} asset={s.assetId} test={test} />
+                      <MoneyText value={s.fees} asset={s.assetId} test={test} sign="minus" />
                     </dd>
                   </div>
                   <div>
@@ -351,7 +373,7 @@ export function SettlementDetailPage({
                     <div>
                       <dt>{t('feeCharged')}</dt>
                       <dd>
-                        <MoneyText value={snap.fee} asset={s.assetId} test={test} />
+                        <MoneyText value={snap.fee} asset={s.assetId} test={test} sign="minus" />
                       </dd>
                     </div>
                     {full && (
@@ -364,7 +386,7 @@ export function SettlementDetailPage({
                           <div>
                             <dt>{t('feeFlat')}</dt>
                             <dd>
-                              <MoneyText value={full.flatFee} asset={s.assetId} test={test} />
+                              <MoneyText value={full.flatFee} asset={s.assetId} test={test} sign="minus" />
                             </dd>
                           </div>
                         )}

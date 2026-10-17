@@ -8,6 +8,7 @@ import { useNow, useUrlParam } from '../hooks';
 import { EntityList } from '../ui/EntityList';
 import { Freshness } from '../ui/Freshness';
 import { KpiStrip } from '../ui/Kpi';
+import { moneyPlaces } from '../ui/format';
 import { MoneyText } from '../ui/MoneyText';
 import { StatusChip } from '../ui/StatusChip';
 import { DateTime } from '../ui/DateTime';
@@ -53,7 +54,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
     waiting.reload();
   };
   return (
-    <div className="stack">
+    <div className="stack mn-page">
       <HaltBanner resource={halts.resource} scopes={['settlement', 'payout']} />
       <TestBanner />
       <Gate resource={snapshot.resource} retry={reload} rows={4}>
@@ -66,6 +67,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
               </EmptyState>
             );
           const asset = assets.includes(picked) ? picked : assets[0]!;
+          const places = moneyPlaces(asset);
           const balance = data.balances.find((b) => b.assetCode === asset)!;
           const q = `asset=${encodeURIComponent(asset)}`;
           const posted = onTheWay.resource.status === 'ready' ? onTheWay.resource.data.items.filter((p) => p.status === 'posted') : null;
@@ -94,8 +96,8 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                 )}
                 <div className="mn-hero">
                   <span className="mn-hero-label">{t('balAvailable')}</span>
-                  <HeroNumber value={roundedDecimal(balance.available, 2)} decimals={2} unit={asset} />
-                  {hasHiddenDigits(balance.available, 2) && (
+                  <HeroNumber value={roundedDecimal(balance.available, places)} decimals={places} unit={asset} />
+                  {hasHiddenDigits(balance.available, places) && (
                     <span className="muted">
                       {t('balExact')} <MoneyText value={balance.available} asset={asset} test={test} />
                     </span>

@@ -6,6 +6,7 @@ import { PortalFailure, PortalLoading, TestTag } from '../components';
 import type { ListState } from '../hooks';
 import { newRequestId } from '../model';
 import { isNotLive, refusalText } from '../refusal';
+import { formatDay } from '../ui/format';
 import { EntityList, type EntityCard, type EntityColumn } from '../ui/EntityList';
 import { dateRange, type ListFilters } from '../ui/FilterRow';
 import type { PortalApi } from '../api';
@@ -264,10 +265,9 @@ export function payoutName(
   return approval?.destinationMasked ? t('payoutNameTo', { to: approval.destinationMasked, when }) : t('payoutNamePlain', { when });
 }
 
-/** "Oct 15", in the browser's time zone. */
+/** "Oct 15, 2026", in the browser's time zone (the same day the list shows for this row). */
 export function shortDay(value: string, locale: string): string {
-  const d = new Date(value);
-  return Number.isFinite(d.getTime()) ? d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }) : value;
+  return formatDay(value, locale) ?? value;
 }
 
 /** A refusal this page words itself (an address that cannot be right), shaped like a service refusal. */

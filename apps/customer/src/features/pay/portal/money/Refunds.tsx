@@ -6,7 +6,7 @@ import { useResource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import { MerchantRefund } from '../../MerchantRefund';
-import { Facts, Gate, Money, MoneyLines, PortalFailure, PortalLoading } from '../components';
+import { Facts, Gate, PortalFailure, PortalLoading } from '../components';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt, useUrlParam } from '../hooks';
@@ -20,7 +20,7 @@ import { ExactMoneyScope } from '../ui/ExactMoneyScope';
 import { FilterRow, useListFilters } from '../ui/FilterRow';
 import { Freshness } from '../ui/Freshness';
 import { KpiStrip } from '../ui/Kpi';
-import { MoneyText } from '../ui/MoneyText';
+import { MoneyList, MoneyText } from '../ui/MoneyText';
 import { RelatedLinks } from '../ui/RelatedLinks';
 import { ToneChip, type StatusTone } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
@@ -116,13 +116,13 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
             label: t('rfRefunded'),
             period: t('mnPeriod30'),
             href: '/pay/refunds?date=30d',
-            value: snap ? <MoneyLines items={snap.refunded} /> : '—',
+            value: snap ? <MoneyList items={snap.refunded} emptyLabel={t('noPaymentsInPeriod')} /> : '—',
           },
           {
             label: t('rfCaptured'),
             period: t('mnPeriod30'),
             href: '/pay/payments?date=30d',
-            value: snap ? <MoneyLines items={snap.captured} /> : '—',
+            value: snap ? <MoneyList items={snap.captured} emptyLabel={t('noPaymentsInPeriod')} /> : '—',
           },
           {
             label: t('rfRate'),
@@ -244,7 +244,7 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
             <>
               <DetailHeader
                 back={{ href: '/pay/refunds', label: t('backRefunds') }}
-                title={<Money value={x.amount} asset={x.assetId} />}
+                title={<MoneyText value={x.amount} asset={x.assetId} />}
                 status={<RefundChip status={x.status} />}
                 subtitle={t('refundName', { when: shortDay(x.createdAt, locale) })}
                 action={

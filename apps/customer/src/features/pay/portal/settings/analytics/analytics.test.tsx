@@ -176,10 +176,15 @@ describe('fees page', () => {
     expect(out).toContain('11.6');
     expect(out).toContain('291.30');
   });
-  it('never works out an effective rate itself: it names what is missing', () => {
+  it('works out the effective rate per asset as fees divided by gross, from the sums on the page', () => {
     const out = renderToString(<FeesPage resource={{ status: 'ready', data: data() }} />);
+    expect(out).toContain('Effective fee rate by asset');
+    expect(out.match(/2\.90%/g)).toHaveLength(2); // 1.45 / 50 (USD) and 11.60 / 400 (USDT), never mixed
+    expect(out).not.toContain('No rate shown yet');
+  });
+  it('names what is missing when the figures are cut short, instead of a partial rate', () => {
+    const out = renderToString(<FeesPage resource={{ status: 'ready', data: data({ complete: false }) }} />);
     expect(out).toContain('No rate shown yet');
-    expect(out).toContain('not the pricing rule');
     expect(out).not.toMatch(/\d\.\d+%/);
   });
   it('shows a rate only when the service sends one', () => {
