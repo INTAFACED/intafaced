@@ -40,3 +40,28 @@ export type InvoiceLink = z.infer<typeof invoiceLinkSchema>;
 
 export const invoiceSentSchema = z.object({ invoice: invoiceSchema, paymentLink: invoiceLinkSchema.nullable() });
 export type InvoiceSent = z.infer<typeof invoiceSentSchema>;
+
+// mirrors origin/feat/pay-portal-be-reads-money:packages/contracts/src/pay-portal-reads.ts (payment.refunds.list); import from @intafaced/contracts after merge
+export const paymentRefundRowSchema = z.object({
+  id,
+  refundId: z.string(),
+  paymentId: id,
+  amount,
+  assetId: asset,
+  status: z.enum(['posted', 'settled', 'reversed']),
+  createdAt: timestamp,
+  settledAt: timestamp.nullable().optional(),
+});
+export type PaymentRefundRow = z.infer<typeof paymentRefundRowSchema>;
+
+/** `merchantOps.activity.list` on main (#4826). Details are an allowlist of short labels and amounts. */
+export const activityItemSchema = z.object({
+  id: z.string(),
+  occurredAt: timestamp,
+  actorId: z.string(),
+  action: z.string(),
+  objectType: z.string(),
+  objectId: z.string(),
+  detail: z.record(z.string()),
+});
+export type ActivityItem = z.infer<typeof activityItemSchema>;

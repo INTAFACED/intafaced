@@ -150,6 +150,24 @@ export function createPaymentsMock(ctx) {
           capturedAmount: taken ? amount : '0',
           refundedAmount: status === 'refunded' ? amount : '0',
           createdAt: iso(now - n * 3 * 3600_000),
+          pricingSnapshot:
+            n % 5 === 0
+              ? null
+              : {
+                  fee: '1.20',
+                  assetCode: asset,
+                  appliedLayer: 'tier',
+                  ruleId: hex('ab', 1),
+                  feeBps: 150,
+                  flatFee: '0.30',
+                  spreadBps: null,
+                  roundingBeneficiary: 'platform',
+                  roundingMode: 'ceil',
+                  bookedFee: null,
+                  reserveAmount: null,
+                  recordedAt: iso(now - n * 3 * 3600_000),
+                },
+          failure: status === 'failed' ? { code: 'card_declined', message: 'The card was declined.' } : null,
         };
       })
     : [];
@@ -207,6 +225,45 @@ export function createPaymentsMock(ctx) {
               (!input.search || p.customerRef === input.search || p.id === input.search.toLowerCase()),
           );
           return ok(route, page(rows, input));
+        }
+        case 'payment.refunds.list': {
+          const p = payments.find((x) => x.id === input.paymentId);
+          if (!p || p.status !== 'refunded') return ok(route, { items: [], nextCursor: null });
+          return ok(route, {
+            items: [
+              {
+                id: hex('rf', 1),
+                refundId: 'TEST-refund-1',
+                paymentId: p.id,
+                merchantId: MERCHANT_ID,
+                amount: p.amount,
+                assetId: p.assetId,
+                reason: null,
+                actor: null,
+                status: 'posted',
+                createdAt: iso(Date.parse(p.createdAt) + 900_000),
+                settledAt: null,
+                source: 'clearing',
+                ledgerEffect: { recorded: true, pot: 'clearing', ledgerTxId: null, direction: 'credit' },
+                payment: { paymentId: p.id, status: p.status },
+              },
+            ],
+            nextCursor: null,
+          });
+        }
+        case 'merchantOps.activity.list': {
+          const items = input.search
+            ? ['created', 'captured'].map((action, k) => ({
+                id: `act-${k}`,
+                occurredAt: iso(now - (k + 1) * 3600_000),
+                actorId: 'system',
+                action: `payment_${action}`,
+                objectType: 'payment',
+                objectId: input.search,
+                detail: { status: action },
+              }))
+            : [];
+          return ok(route, { items, nextCursor: null });
         }
         case 'payment.get': {
           const p = payments.find((x) => x.id === input.paymentId);

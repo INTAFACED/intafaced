@@ -1,83 +1,66 @@
-import { useState } from 'react';
-import { plainCode } from '../ui/plain-code';
+import { Button, EmptyState } from '@intafaced/ui';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { reason } from '../chrome/copy';
-import { Button, DataTable, EmptyState, Field, ChoiceGroup as Tabs } from '@intafaced/ui';
-import { PayTime, PaySection } from '../../components';
-import {
-  AsOf,
-  BackLink,
-  Chip,
-  NotLive,
-  Facts,
-  Gate,
-  HaltBanner,
-  Kpi,
-  KpiGrid,
-  Money,
-  MoneyLines,
-  NotConfigured,
-  PortalFailure,
-  PortalLoading,
-  ReadAt,
-  SelectField,
-  Timeline,
-} from '../components';
-import { portalCopy } from './copy';
-import { buildCsv, downloadText } from '../csv';
-import { useReadAt, useUrlParam } from '../hooks';
-import { assetsIn, isUuid, nextLimit, paymentLinks, paymentRefunds, readLimit, shortId, sortKeys, MAX_LIMIT, type SortKey } from '../model';
-import { countOf, filterPayments, paymentSteps, readSort, refundable, sortRows, successRate, type PaymentFilters } from './model';
+import { PaySection } from '../../components';
+import { Facts, Gate, HaltBanner, Money, MoneyLines, NotConfigured, PortalFailure, PortalLoading } from '../components';
+import type { ListState } from '../hooks';
+import { isUuid, paymentLinks, paymentRefunds, shortId } from '../model';
 import { paymentLabel } from '../presentation';
 import { portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
-import {
-  paymentStatuses,
-  type DisputeDetail,
-  type HaltStatus,
-  type MetricPreset,
-  type Payment,
-  type PaymentEvent,
-  type Snapshot,
-} from '../schemas';
+import type { DisputeDetail, HaltStatus, Payment, PaymentEvent, Snapshot } from '../schemas';
+import { paymentStatuses } from '../schemas';
+import { CopyReference } from '../ui/CopyReference';
+import { DateTime } from '../ui/DateTime';
+import { DetailHeader } from '../ui/DetailHeader';
+import { EntityList } from '../ui/EntityList';
+import { dateRange, FilterRow, useListFilters, type DatePreset, type ListFilters } from '../ui/FilterRow';
+import { Freshness } from '../ui/Freshness';
+import { KpiStrip } from '../ui/Kpi';
+import { plainCode } from '../ui/plain-code';
+import { RelatedLinks } from '../ui/RelatedLinks';
+import { StatusChip } from '../ui/StatusChip';
+import { Timeline } from '../ui/Timeline';
+import { useServerList } from '../ui/useServerList';
+import { assetsOf } from '../model';
+import { ExportResults } from './ExportResults';
+import { portalCopy as c } from './copy';
+import { canRefund, feeSummary, PRESET, totalsPeriod } from './payment-model';
+import { countOf, paymentSteps, refundable, successRate } from './model';
+import type { ActivityItem, PaymentRefundRow } from './schemas';
 
 export const paymentHref = (id: string) => `/pay/payments/${encodeURIComponent(id)}`;
 
-/** `/pay/payments`: every payment on this account, with the totals for the period above it. */
+/** `/pay/payments`: the server filters and pages the list; the totals above it say which period they cover. */
 export function Payments({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
-  const [period, setPeriod] = useState<MetricPreset>('rolling_30d');
-  const [status, setStatus] = useUrlParam('status', '');
-  const [q, setQ] = useUrlParam('q', '');
-  const [asset, setAsset] = useUrlParam('asset', '');
-  const [from, setFrom] = useUrlParam('from', '');
-  const [to, setTo] = useUrlParam('to', '');
-  const [sortRaw, setSort] = useUrlParam('sort', 'newest');
-  const [limitRaw, setLimitRaw] = useUrlParam('limit', '25');
-  const limit = readLimit(limitRaw);
-  const snapshot = useResource((s) => portal.snapshot(merchantId, period, s), `portal:payments-kpi:${merchantId}:${period}`);
+  const filters = useListFilters();
+  const range = dateRange(filters.date as DatePreset, Date.now(), { from: filters.from, to: filters.to });
+  const query = {
+    status: filters.status,
+    search: filters.search.trim(),
+    assetId: filters.asset,
+    from: range.from ?? '',
+    to: range.to ?? '',
+  };
+  const list = useServerList(
+    (f, cursor, signal) => portal.paymentPage(merchantId, f, cursor, signal),
+    query,
+    (p: Payment) => p.id,
+  );
+  const { period } = totalsPeriod(filters.date);
+  const snapshot = useResource((s) => portal.snapshot(merchantId, PRESET[period], s), `portal:payments-kpi:${merchantId}:${period}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `portal:halts:${merchantId}`);
-  const list = useResource((s) => portal.payments(merchantId, status, limit, s), `portal:payments:${merchantId}:${status}:${limit}`);
-  const loadedAt = useReadAt(list.resource.status === 'ready', list.resource);
-  const set = { q: setQ, asset: setAsset, from: setFrom, to: setTo } as const;
   return (
     <PaymentsView
+      portal={portal}
+      filters={filters}
+      range={range}
+      list={list.state}
       snapshot={snapshot.resource}
-      period={period}
-      setPeriod={setPeriod}
       halts={halts.resource}
-      list={list.resource}
-      loadedAt={loadedAt}
-      status={status}
-      setStatus={setStatus}
-      filters={{ q, asset, from, to }}
-      setFilter={(key, value) => set[key](value)}
-      sort={readSort(sortRaw)}
-      setSort={setSort}
-      limit={limit}
-      setLimit={(n) => setLimitRaw(String(n))}
+      loadMore={list.loadMore}
       retry={() => {
-        snapshot.reload();
         list.reload();
+        snapshot.reload();
         halts.reload();
       }}
     />
@@ -85,306 +68,178 @@ export function Payments({ portal, merchantId }: { portal: PortalApi; merchantId
 }
 
 export function PaymentsView({
-  snapshot,
-  period,
-  setPeriod,
-  halts,
-  list,
-  loadedAt,
-  status,
-  setStatus,
+  portal,
   filters,
-  setFilter,
-  sort,
-  setSort,
-  limit,
-  setLimit,
+  range,
+  list,
+  snapshot,
+  halts,
+  loadMore,
   retry,
 }: {
+  portal: PortalApi;
+  filters: ListFilters;
+  range: { from?: string; to?: string };
+  list: ListState<Payment>;
   snapshot: Resource<Snapshot>;
-  period: MetricPreset;
-  setPeriod: (value: MetricPreset) => void;
   halts: Resource<HaltStatus>;
-  list: Resource<Payment[]>;
-  loadedAt: string | null;
-  status: string;
-  setStatus: (value: string) => void;
-  filters: PaymentFilters;
-  setFilter: (key: keyof PaymentFilters, value: string) => void;
-  sort: SortKey;
-  setSort: (value: string) => void;
-  limit: number;
-  setLimit: (value: number) => void;
+  loadMore: () => void;
   retry: () => void;
 }) {
-  const { t } = portalCopy.useCopy();
-  const labels: Record<MetricPreset, string> = { today: t('periodToday'), rolling_7d: t('period7d'), rolling_30d: t('period30d') };
-  const narrowed = Boolean(filters.q || filters.asset || filters.from || filters.to);
-  const clear = () => {
-    setStatus('');
-    for (const key of ['q', 'asset', 'from', 'to'] as const) setFilter(key, '');
-  };
+  const { t } = c.useCopy();
+  const { period, matchesList } = totalsPeriod(filters.date);
+  const filtered = Boolean(filters.status || filters.search || filters.date || filters.asset);
+  const assets = snapshot.status === 'ready' ? assetsOf(snapshot.data) : [];
   return (
     <div className="stack">
+      {snapshot.status === 'ready' ? (
+        <Freshness asOf={snapshot.data.freshness.asOf} lagSeconds={snapshot.data.freshness.lagSeconds ?? 0} />
+      ) : null}
       <HaltBanner resource={halts} scopes={['intake']} />
-      <PaySection
-        title={t('paymentsKpiTitle')}
-        description={t('paymentsKpiBody')}
-        action={
-          <Tabs
-            items={['today', 'rolling_7d', 'rolling_30d']}
-            value={period}
-            onChange={(v) => setPeriod(v as MetricPreset)}
-            label={t('periodLabel')}
-            labels={labels}
-          />
-        }
-      >
-        <Gate resource={snapshot} retry={retry} rows={2}>
-          {(snap) => {
-            const rate = successRate(snap.statusMix);
-            return (
-              <>
-                <AsOf freshness={snap.freshness} />
-                <KpiGrid label={t('kpiGroup', { period: labels[period] })}>
-                  <Kpi label={t('kpiCount')} period={labels[period]} value={snap.paymentCount} href="/pay/payments" />
-                  <Kpi
-                    label={t('kpiVolume')}
-                    period={labels[period]}
-                    value={<MoneyLines items={snap.captured} />}
-                    note={t('kpiVolumeNote')}
-                  />
-                  <Kpi label={t('kpiRefunded')} period={labels[period]} value={<MoneyLines items={snap.refunded} />} />
-                  <Kpi
-                    label={t('kpiSuccess')}
-                    period={labels[period]}
-                    value={rate.pct === null ? '—' : `${rate.pct}%`}
-                    note={rate.pct === null ? t('kpiSuccessNone') : t('kpiSuccessNote', { failed: rate.failed, total: rate.total })}
-                  />
-                </KpiGrid>
-                <nav className="pp-actions pp-note" aria-label={t('paymentsKpiTitle')}>
-                  <a className="text-link" href="/pay/payments?status=failed">
-                    {t('kpiFailed')}: {countOf(snap.statusMix, 'failed')}
-                  </a>
-                  <a className="text-link" href="/pay/payments?status=disputed">
-                    {t('kpiDisputed')}: {countOf(snap.statusMix, 'disputed')}
-                  </a>
-                </nav>
-              </>
-            );
-          }}
-        </Gate>
-      </PaySection>
-
-      <PaySection title={t('paymentsTitle')} description={t('paymentsBody')}>
-        <PaymentList
-          list={list}
-          loadedAt={loadedAt}
-          status={status}
-          setStatus={setStatus}
-          filters={filters}
-          setFilter={setFilter}
-          sort={sort}
-          setSort={setSort}
-          limit={limit}
-          setLimit={setLimit}
-          narrowed={narrowed}
-          clear={clear}
-          retry={retry}
-        />
-      </PaySection>
+      <Totals snapshot={snapshot} period={period} matchesList={matchesList} retry={retry} />
+      <FilterRow
+        label={t('pay_listTitle')}
+        filters={filters}
+        statuses={paymentStatuses.map((s) => [s, t(`chipPayment_${s}` as 'chipPayment_created')] as const)}
+        assets={assets}
+        {...(list.status === 'ready' ? { shown: list.items.length, hasMore: list.hasMore } : {})}
+      />
+      {list.status === 'loading' && <PortalLoading />}
+      {list.status === 'failed' && <PortalFailure result={list.failure} retry={retry} />}
+      {list.status === 'ready' &&
+        (list.items.length === 0 ? (
+          <EmptyState
+            title={t(filtered ? 'pay_emptyFilteredTitle' : 'noPayments')}
+            action={
+              filtered ? undefined : (
+                <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links/new" />}>
+                  {t('createLink')}
+                </Button>
+              )
+            }
+          >
+            {t(filtered ? 'pay_emptyFilteredBody' : 'noPaymentsBody')}
+          </EmptyState>
+        ) : (
+          <>
+            <EntityList
+              label={t('pay_listTitle')}
+              rows={list.items}
+              rowKey={(p) => p.id}
+              href={(p) => paymentHref(p.id)}
+              columns={[
+                {
+                  header: t('colPayment'),
+                  cell: (p) => (
+                    <>
+                      <strong>{paymentLabel(p)}</strong>
+                      {p.customerRef && p.description && <small className="pay-cell-note">{p.description}</small>}
+                    </>
+                  ),
+                },
+                { header: t('colAmount'), cell: (p) => <Money value={p.amount} asset={p.assetId} /> },
+                { header: t('colStatus'), cell: (p) => <StatusChip entity="payment" value={p.status} /> },
+                { header: t('pay_colMethod'), cell: (p) => plainCode(p.method.replace(/^TEST-/, '').replace(/-/g, '_')) },
+                { header: t('colCreated'), cell: (p) => <DateTime value={p.createdAt} /> },
+              ]}
+              card={(p) => ({
+                title: paymentLabel(p),
+                time: <DateTime value={p.createdAt} />,
+                amount: <Money value={p.amount} asset={p.assetId} />,
+                status: <StatusChip entity="payment" value={p.status} />,
+              })}
+            />
+            <div className="pp-actions">
+              {list.hasMore && (
+                <Button variant="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
+                  {list.more === 'loading' ? t('pay_loadingMore') : t('pay_loadMore')}
+                </Button>
+              )}
+              <ExportResults
+                portal={portal}
+                kind="payments"
+                filters={{
+                  ...(range.from ? { from: range.from } : {}),
+                  ...(range.to ? { to: range.to } : {}),
+                  ...(filters.status ? { status: filters.status } : {}),
+                  ...(filters.asset ? { assetId: filters.asset } : {}),
+                }}
+                searchLeftOut={Boolean(filters.search.trim())}
+                summary={[
+                  [t('colStatus'), filters.status ? t(`chipPayment_${filters.status}` as 'chipPayment_created') : t('pay_any')],
+                  [
+                    t('pay_date'),
+                    range.from || range.to ? `${range.from?.slice(0, 10) ?? '…'} → ${range.to?.slice(0, 10) ?? '…'}` : t('pay_any'),
+                  ],
+                  [t('pay_asset'), filters.asset || t('pay_any')],
+                ]}
+              />
+            </div>
+          </>
+        ))}
     </div>
   );
 }
 
-function PaymentList({
-  list,
-  loadedAt,
-  status,
-  setStatus,
-  filters,
-  setFilter,
-  sort,
-  setSort,
-  limit,
-  setLimit,
-  narrowed,
-  clear,
+function Totals({
+  snapshot,
+  period,
+  matchesList,
   retry,
 }: {
-  list: Resource<Payment[]>;
-  loadedAt: string | null;
-  status: string;
-  setStatus: (value: string) => void;
-  filters: PaymentFilters;
-  setFilter: (key: keyof PaymentFilters, value: string) => void;
-  sort: SortKey;
-  setSort: (value: string) => void;
-  limit: number;
-  setLimit: (value: number) => void;
-  narrowed: boolean;
-  clear: () => void;
+  snapshot: Resource<Snapshot>;
+  period: 'today' | '7d' | '30d';
+  matchesList: boolean;
   retry: () => void;
 }) {
-  const { t } = portalCopy.useCopy();
-  const loaded = list.status === 'ready' ? list.data : [];
-  const rows = sortRows(
-    filterPayments(loaded, filters),
-    sort,
-    (r) => r.createdAt,
-    (r) => r.amount,
-  );
-  const exportCsv = () =>
-    downloadText(
-      'payments.csv',
-      buildCsv(
-        ['payment_id', 'created_at', 'status', 'amount', 'captured', 'refunded', 'asset', 'method', 'rail', 'rail_reference'],
-        rows.map((r) => [
-          r.id,
-          r.createdAt,
-          r.status,
-          r.amount,
-          r.capturedAmount,
-          r.refundedAmount,
-          r.assetId,
-          r.method,
-          r.railAdapter,
-          r.railRef ?? '',
-        ]),
-        { generatedAt: new Date().toISOString(), asOf: loadedAt ?? '' },
-      ),
-    );
+  const { t } = c.useCopy();
+  if (snapshot.status === 'loading') return <PortalLoading rows={2} />;
+  if (snapshot.status === 'failed') return <PortalFailure result={snapshot.failure} retry={retry} />;
+  const snap = snapshot.data;
+  const label = t(`pay_period_${period}`);
+  const rate = successRate(snap.statusMix);
+  const { from, to } = dateRange(period, Date.now());
+  const refundsHref = `/pay/refunds?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) }).toString()}`;
+  const list = (extra: Record<string, string>) => `/pay/payments?${new URLSearchParams({ ...extra, date: period }).toString()}`;
   return (
-    <>
-      <div className="pp-filter-row" role="search" aria-label={t('paymentsFilters')}>
-        <SelectField
-          label={t('filterStatus')}
-          value={status}
-          onChange={setStatus}
-          options={[['', t('filterAll')], ...paymentStatuses.map((s) => [s, t(`chipPayment_${s}` as 'chipPayment_created')] as const)]}
-        />
-        <SelectField
-          label={t('filterAsset')}
-          value={filters.asset}
-          onChange={(v) => setFilter('asset', v)}
-          options={[['', t('filterAll')], ...assetsIn(loaded).map((a) => [a, a] as const)]}
-        />
-        <Field label={t('filterFrom')} type="date" value={filters.from} onChange={(e) => setFilter('from', e.target.value)} />
-        <Field label={t('filterTo')} type="date" value={filters.to} onChange={(e) => setFilter('to', e.target.value)} />
-        <Field
-          label={t('searchPayments')}
-          type="search"
-          value={filters.q}
-          onChange={(e) => setFilter('q', e.target.value)}
-          maxLength={200}
-          hint={t('searchPaymentsHint')}
-        />
-        <SelectField
-          label={t('sortBy')}
-          value={sort}
-          onChange={setSort}
-          options={sortKeys.map((k) => [k, t(`sort_${k}` as 'sort_newest')] as const)}
-        />
-        <Button variant="secondary" onClick={exportCsv} disabled={rows.length === 0}>
-          {t('downloadCsv')}
-        </Button>
-      </div>
-      <ReadAt at={loadedAt} />
-      {list.status === 'loading' ? (
-        <PortalLoading />
-      ) : list.status === 'failed' ? (
-        <PortalFailure result={list.failure} retry={retry} />
-      ) : loaded.length === 0 ? (
-        <EmptyState
-          title={status ? t('paymentsNoStatusTitle') : t('paymentsEmptyTitle')}
-          action={
-            status ? (
-              <Button variant="secondary" onClick={clear}>
-                {t('clearFilters')}
-              </Button>
-            ) : (
-              <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links" />}>
-                {t('actCreateLink')}
-              </Button>
-            )
-          }
-        >
-          {status ? t('paymentsNoStatusBody') : t('paymentsEmptyBody')}
-        </EmptyState>
-      ) : rows.length === 0 ? (
-        <EmptyState
-          title={t('paymentsNoMatchTitle')}
-          action={
-            <Button variant="secondary" onClick={clear}>
-              {t('clearFilters')}
-            </Button>
-          }
-        >
-          {t('paymentsNoMatchBody', { count: loaded.length })}
-        </EmptyState>
-      ) : (
-        <>
-          <DataTable
-            label={t('paymentsTitle')}
-            headers={[t('colPayment'), t('colCreated'), t('colAmount'), t('colCaptured'), t('colRefunded'), t('colStatus'), t('colRail')]}
-          >
-            {rows.map((p) => (
-              <tr key={p.id}>
-                <th scope="row">
-                  <a className="text-link" href={paymentHref(p.id)} aria-label={t('openPaymentAria', { id: p.id })}>
-                    {paymentLabel(p)}
-                  </a>
-                </th>
-                <td>
-                  <PayTime value={p.createdAt} />
-                </td>
-                <td>
-                  <Money value={p.amount} asset={p.assetId} />
-                </td>
-                <td>
-                  <Money value={p.capturedAmount} asset={p.assetId} />
-                </td>
-                <td>
-                  <Money value={p.refundedAmount} asset={p.assetId} />
-                </td>
-                <td>
-                  <Chip kind="payment" value={p.status} />
-                </td>
-                <td>
-                  {p.railAdapter}
-                  <small className="pay-cell-note">{p.method}</small>
-                </td>
-              </tr>
-            ))}
-          </DataTable>
-          <div className="pp-more">
-            <p className="muted" role="status">
-              {narrowed
-                ? t('paymentsNarrowed', { shown: rows.length, loaded: loaded.length })
-                : loaded.length >= limit && limit < MAX_LIMIT
-                  ? t('rowsSoFar', { count: loaded.length })
-                  : t('rowsAll', { count: loaded.length })}
-            </p>
-            {loaded.length >= limit && limit < MAX_LIMIT && (
-              <Button variant="secondary" onClick={() => setLimit(nextLimit(limit))}>
-                {t('loadMore')}
-              </Button>
-            )}
-            {loaded.length >= MAX_LIMIT && (
-              <a className="text-link" href="/pay/exports">
-                {t('olderInExports', { max: MAX_LIMIT })}
-              </a>
-            )}
-          </div>
-        </>
-      )}
-    </>
+    <div className="stack">
+      <KpiStrip
+        label={t('pay_totalsLabel', { period: label })}
+        tiles={[
+          { label: t('kpiCount'), period: label, href: list({}), value: snap.paymentCount },
+          {
+            label: t('kpiVolume'),
+            period: label,
+            href: list({ status: 'captured' }),
+            value: <MoneyLines items={snap.captured} />,
+            note: t('kpiVolumeNote'),
+          },
+          { label: t('kpiRefunded'), period: label, href: refundsHref, value: <MoneyLines items={snap.refunded} /> },
+          {
+            label: t('kpiSuccess'),
+            period: label,
+            href: list({}),
+            value: rate.pct === null ? '—' : `${rate.pct}%`,
+            note: rate.pct === null ? t('kpiSuccessNone') : t('kpiSuccessNote', { failed: rate.failed, total: rate.total }),
+          },
+          {
+            label: t('kpiFailed'),
+            period: label,
+            href: list({ status: 'failed' }),
+            value: countOf(snap.statusMix, 'failed'),
+            tone: countOf(snap.statusMix, 'failed') > 0 ? 'attention' : undefined,
+          },
+          { label: t('kpiDisputed'), period: label, href: list({ status: 'disputed' }), value: countOf(snap.statusMix, 'disputed') },
+        ]}
+      />
+      {!matchesList && <p className="muted pp-note">{t('pay_totalsWider', { period: label })}</p>}
+    </div>
   );
 }
 
 // ---- detail ---------------------------------------------------------------------------------------------
 
-export function PaymentDetailPage({ portal, paymentId }: { portal: PortalApi; paymentId: string }) {
+export function PaymentDetailPage({ portal, paymentId, merchantId }: { portal: PortalApi; paymentId: string; merchantId: string }) {
   const valid = isUuid(paymentId);
   const payment = useResource(
     (s) => (valid ? portal.payment(paymentId, s) : Promise.resolve(portalRefusal('rPaymentNotFound'))),
@@ -393,6 +248,14 @@ export function PaymentDetailPage({ portal, paymentId }: { portal: PortalApi; pa
   const history = useResource(
     (s) => (valid ? portal.paymentHistory(paymentId, s) : Promise.resolve(portalRefusal('rPaymentNotFound'))),
     `portal:payment-history:${paymentId}`,
+  );
+  const refunds = useResource(
+    (s) => (valid ? portal.paymentRefundRows(paymentId, merchantId, s) : Promise.resolve(portalRefusal('rPaymentNotFound'))),
+    `portal:payment-refunds:${paymentId}`,
+  );
+  const activity = useResource(
+    (s) => (valid ? portal.paymentActivity(paymentId, s) : Promise.resolve(portalRefusal('rPaymentNotFound'))),
+    `portal:payment-activity:${paymentId}`,
   );
   const disputeId = history.resource.status === 'ready' ? paymentLinks(history.resource.data).disputeId : null;
   const dispute = useResource<DisputeDetail | null>(
@@ -403,79 +266,129 @@ export function PaymentDetailPage({ portal, paymentId }: { portal: PortalApi; pa
     <PaymentDetailView
       payment={payment.resource}
       history={history.resource}
+      refunds={refunds.resource.status === 'ready' ? refunds.resource.data.items : refunds.resource}
+      activity={
+        activity.resource.status === 'ready' ? activity.resource.data.items.filter((a) => a.objectId === paymentId) : activity.resource
+      }
       dispute={disputeId ? dispute.resource : null}
       retry={() => {
         payment.reload();
         history.reload();
+        refunds.reload();
+        activity.reload();
         dispute.reload();
       }}
     />
   );
 }
 
+type Loaded<T> = T | Resource<never>;
+const isResource = <T,>(value: Loaded<T[]>): value is Resource<never> => !Array.isArray(value);
+
 export function PaymentDetailView({
   payment,
   history,
+  refunds,
+  activity,
   dispute,
   retry,
 }: {
   payment: Resource<Payment>;
   history: Resource<PaymentEvent[]>;
+  /** The refunds list for this payment, or why it could not be read (then the refunds come from the payment's own history). */
+  refunds: Loaded<PaymentRefundRow[]>;
+  activity: Loaded<ActivityItem[]>;
   /** `null` means this payment has no dispute. */
   dispute: Resource<DisputeDetail | null> | null;
   retry: () => void;
 }) {
-  const { t } = portalCopy.useCopy();
+  const { t } = c.useCopy();
   return (
     <div className="stack">
-      <BackLink href="/pay/payments">{t('backToPayments')}</BackLink>
       <Gate resource={payment} retry={retry} rows={5}>
         {(p) => {
           const events = history.status === 'ready' ? history.data : [];
           const links = paymentLinks(events);
-          const refunds = paymentRefunds(events);
+          const customerRef = p.customerRef?.trim() || links.customerRef;
+          const fee = feeSummary(p);
+          const derived = paymentRefunds(events);
+          const related = [
+            ...(links.settlementId
+              ? [{ href: `/pay/settlements/${encodeURIComponent(links.settlementId)}`, label: t('linkSettlement') }]
+              : []),
+            ...(links.disputeId ? [{ href: `/pay/disputes/${encodeURIComponent(links.disputeId)}`, label: t('linkDispute') }] : []),
+            ...(customerRef ? [{ href: `/pay/customers/${encodeURIComponent(customerRef)}`, label: t('linkCustomer') }] : []),
+          ];
           return (
             <>
-              <PaySection title={t('keyFacts')} description={t('paymentFactsBody')}>
+              <DetailHeader
+                back={{ href: '/pay/payments', label: t('backToPayments') }}
+                title={<Money value={p.amount} asset={p.assetId} />}
+                status={<StatusChip entity="payment" value={p.status} />}
+                subtitle={[paymentLabel(p), plainCode(p.method.replace(/^TEST-/, '').replace(/-/g, '_'))].join(' · ')}
+                action={
+                  canRefund(p) ? (
+                    <Button
+                      variant="primary"
+                      nativeButton={false}
+                      role="link"
+                      render={<a href={`/pay/refunds/new?payment=${encodeURIComponent(p.id)}`} />}
+                    >
+                      {t('pay_refund')}
+                    </Button>
+                  ) : undefined
+                }
+              />
+              <PaySection title={t('pay_summary')}>
                 <Facts
                   items={[
-                    [t('colPayment'), <span className="pp-mono pp-copy">{p.id}</span>],
-                    [t('colStatus'), <Chip kind="payment" value={p.status} />],
-                    [t('colCreated'), <PayTime value={p.createdAt} />],
-                    [t('colRail'), `${p.railAdapter} · ${p.method}`],
-                    [t('railReference'), p.railRef ? <span className="pp-mono pp-copy">{p.railRef}</span> : t('notConfirmedYet')],
+                    [t('pay_amount'), <Money value={p.amount} asset={p.assetId} />],
+                    [t('colCaptured'), <Money value={p.capturedAmount} asset={p.assetId} />],
+                    [t('colRefunded'), <Money value={p.refundedAmount} asset={p.assetId} />],
+                    [t('stillRefundable'), <Money value={refundable(p)} asset={p.assetId} />],
+                    ...(fee.kind === 'none'
+                      ? ([[t('pay_fee'), <NotConfigured>{t('pay_feeNotRecorded')}</NotConfigured>]] as const)
+                      : ([
+                          [t('pay_fee'), <Money value={fee.fee} asset={fee.assetId} />],
+                          ...(fee.net ? ([[t('pay_net'), <Money value={fee.net} asset={fee.assetId} />]] as const) : []),
+                          ...(fee.kind === 'rule'
+                            ? ([
+                                [
+                                  t('pay_feeRule'),
+                                  t(`pay_layer_${fee.layer}`, { percent: fee.percent }) +
+                                    (fee.flatFee ? t('pay_flatFee', { flat: fee.flatFee, asset: fee.assetId }) : ''),
+                                ],
+                              ] as const)
+                            : []),
+                        ] as const)),
+                  ]}
+                />
+                {p.failure && (
+                  <p className="pp-callout" role="note">
+                    {t('pay_whyFailed')} {p.failure.message}
+                  </p>
+                )}
+              </PaySection>
+              <PaySection title={t('keyFacts')}>
+                <Facts
+                  items={[
+                    [t('colCreated'), <DateTime value={p.createdAt} />],
                     [
                       t('payerReference'),
-                      links.customerRef ? (
-                        <a className="text-link pp-mono" href={`/pay/customers/${encodeURIComponent(links.customerRef)}`}>
-                          {links.customerRef}
+                      customerRef ? (
+                        <a className="text-link" href={`/pay/customers/${encodeURIComponent(customerRef)}`}>
+                          {customerRef}
                         </a>
                       ) : (
                         t('notGiven')
                       ),
                     ],
+                    [t('colRail'), `${p.railAdapter} · ${p.method}`],
+                    ...(p.description ? ([[t('pay_description'), p.description]] as const) : []),
                   ]}
                 />
               </PaySection>
-
-              <PaySection title={t('amountsTitle')} description={t('amountsBody')}>
-                <Facts
-                  items={[
-                    [t('amountRequested'), <Money value={p.amount} asset={p.assetId} />],
-                    [t('colCaptured'), <Money value={p.capturedAmount} asset={p.assetId} />],
-                    [t('colRefunded'), <Money value={p.refundedAmount} asset={p.assetId} />],
-                    [t('stillRefundable'), <Money value={refundable(p)} asset={p.assetId} />],
-                  ]}
-                />
-                <NotLive reason={reason('reasonFees')} title={t('feeSoonTitle')}>
-                  {t('feeSoonBody')}{' '}
-                  <a className="text-link" href="/pay/pricing">
-                    {t('seePricing')}
-                  </a>
-                </NotLive>
-              </PaySection>
-
-              <PaySection title={t('timelineTitle')} description={t('paymentTimelineBody')}>
+              <PaySection title={t('timelineTitle')}>
                 {history.status === 'loading' ? (
                   <PortalLoading rows={3} />
                 ) : history.status === 'failed' ? (
@@ -484,94 +397,29 @@ export function PaymentDetailView({
                   <PaymentTimeline events={history.data} currency={p.assetId} />
                 )}
               </PaySection>
-
               <div className="pp-two">
-                <PaySection title={t('refundsTitle')} description={t('refundsBody')}>
-                  {history.status !== 'ready' ? (
-                    <p className="muted">{t('refundsAfterHistory')}</p>
-                  ) : refunds.length === 0 ? (
-                    <EmptyState title={t('refundsEmptyTitle')}>{t('refundsEmptyBody')}</EmptyState>
-                  ) : (
-                    <DataTable label={t('refundsTitle')} headers={[t('colRefund'), t('colAmount'), t('colStatus'), t('colWhen')]}>
-                      {refunds.map((r) => (
-                        <tr key={r.refundId}>
-                          <th scope="row" className="pp-mono">
-                            {shortId(r.refundId)}
-                          </th>
-                          <td>{r.amount ? <Money value={r.amount} asset={p.assetId} /> : '—'}</td>
-                          <td>{t(`refundState_${r.state}` as 'refundState_completed')}</td>
-                          <td>
-                            <PayTime value={r.at} />
-                          </td>
-                        </tr>
-                      ))}
-                    </DataTable>
-                  )}
-                  <a className="text-link" href={`/pay/payments?view=tools&payment=${encodeURIComponent(p.id)}`}>
-                    {t('refundOrCapture')}
-                  </a>
+                <PaySection title={t('refundsTitle')}>
+                  <RefundsList refunds={refunds} derived={derived} assetId={p.assetId} />
                 </PaySection>
-                <PaySection title={t('disputeCardTitle')} description={t('disputeCardBody')}>
+                <PaySection title={t('disputeCardTitle')}>
                   <DisputeCard dispute={dispute} status={p.status} retry={retry} />
                 </PaySection>
               </div>
-
-              <PaySection title={t('relatedTitle')} description={t('relatedBody')}>
-                <ul className="pp-links">
-                  {links.settlementId && (
-                    <li>
-                      <a className="text-link" href={`/pay/settlements/${encodeURIComponent(links.settlementId)}`}>
-                        {t('linkSettlement')}
-                      </a>
-                    </li>
-                  )}
-                  {links.customerRef && (
-                    <li>
-                      <a className="text-link" href={`/pay/customers/${encodeURIComponent(links.customerRef)}`}>
-                        {t('linkCustomer')}
-                      </a>
-                    </li>
-                  )}
-                  {links.disputeId && (
-                    <li>
-                      <a className="text-link" href={`/pay/disputes/${encodeURIComponent(links.disputeId)}`}>
-                        {t('linkDispute')}
-                      </a>
-                    </li>
-                  )}
-                  <li>
-                    <a className="text-link" href="/pay/pricing">
-                      {t('linkPricing')}
-                    </a>
-                  </li>
-                </ul>
+              <PaySection title={t('pay_activity')}>
+                <ActivityList activity={activity} />
               </PaySection>
-
-              <PaySection title={t('idsTitle')} description={t('idsBody')}>
+              <RelatedLinks links={related} />
+              <PaySection title={t('idsTitle')}>
                 <Facts
                   items={[
-                    [t('idPayment'), <span className="pp-mono pp-copy">{p.id}</span>],
-                    ...(p.railRef ? ([[t('railReference'), <span className="pp-mono pp-copy">{p.railRef}</span>]] as const) : []),
-                    ...(links.ledgerTxId ? ([[t('idLedger'), <span className="pp-mono pp-copy">{links.ledgerTxId}</span>]] as const) : []),
-                    ...(links.settlementId
-                      ? ([[t('colSettlement'), <span className="pp-mono pp-copy">{links.settlementId}</span>]] as const)
+                    [t('idPayment'), <CopyReference value={p.id} what={t('idPayment')} />],
+                    ...(p.railRef ? ([[t('railReference'), <CopyReference value={p.railRef} what={t('railReference')} />]] as const) : []),
+                    ...(links.ledgerTxId
+                      ? ([[t('idLedger'), <CopyReference value={links.ledgerTxId} what={t('idLedger')} />]] as const)
                       : []),
-                    ...refunds.map(
-                      (r) =>
-                        [
-                          `${t('idRefund')} ${shortId(r.refundId)}`,
-                          <span key={r.refundId} className="pp-mono pp-copy">
-                            {r.refundId}
-                          </span>,
-                        ] as const,
-                    ),
                   ]}
                 />
               </PaySection>
-
-              <NotLive reason={reason('reasonDetail')} title={t('ledgerSoonTitle')}>
-                {t('ledgerSoonBody')}
-              </NotLive>
             </>
           );
         }}
@@ -580,8 +428,74 @@ export function PaymentDetailView({
   );
 }
 
+function RefundsList({
+  refunds,
+  derived,
+  assetId,
+}: {
+  refunds: Loaded<PaymentRefundRow[]>;
+  derived: ReturnType<typeof paymentRefunds>;
+  assetId: string;
+}) {
+  const { t } = c.useCopy();
+  // The refunds list is the source. If it is not switched on for this account, the payment's own history is the fallback.
+  const rows = isResource(refunds)
+    ? derived.map((r) => ({
+        key: r.refundId,
+        href: null as string | null,
+        amount: r.amount,
+        status: t(`refundState_${r.state}` as 'refundState_completed'),
+        at: r.at,
+      }))
+    : refunds.map((r) => ({
+        key: r.id,
+        href: `/pay/refunds/${encodeURIComponent(r.id)}`,
+        amount: r.amount,
+        status: t(`pay_refund_${r.status}`),
+        at: r.createdAt,
+      }));
+  if (rows.length === 0) return <p className="muted">{t('refundsEmptyBody')}</p>;
+  return (
+    <ul className="pp-links">
+      {rows.map((r) => (
+        <li key={r.key}>
+          {r.amount ? <Money value={r.amount} asset={assetId} /> : '—'} · {r.status} · <DateTime value={r.at} />
+          {r.href && (
+            <>
+              {' '}
+              <a className="text-link" href={r.href}>
+                {shortId(r.key)}
+              </a>
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ActivityList({ activity }: { activity: Loaded<ActivityItem[]> }) {
+  const { t } = c.useCopy();
+  if (isResource(activity)) {
+    if (activity.status === 'loading') return <PortalLoading rows={2} />;
+    if (activity.status === 'failed') return <PortalFailure result={activity.failure} />;
+    return null;
+  }
+  if (activity.length === 0) return <p className="muted">{t('pay_activityEmpty')}</p>;
+  return (
+    <Timeline
+      label={t('pay_activity')}
+      items={activity.map((a) => ({
+        at: a.occurredAt,
+        title: plainCode(a.action),
+        ...(a.detail.amount ? { detail: `${a.detail.amount}${a.detail.asset ? ` ${a.detail.asset}` : ''}` } : {}),
+      }))}
+    />
+  );
+}
+
 function PaymentTimeline({ events, currency }: { events: PaymentEvent[]; currency: string }) {
-  const { t } = portalCopy.useCopy();
+  const { t } = c.useCopy();
   const steps = paymentSteps(events);
   if (steps.length === 0) return <p className="muted">{t('timelineEmpty')}</p>;
   return (
@@ -597,7 +511,7 @@ function PaymentTimeline({ events, currency }: { events: PaymentEvent[]; currenc
 }
 
 function DisputeCard({ dispute, status, retry }: { dispute: Resource<DisputeDetail | null> | null; status: string; retry: () => void }) {
-  const { t } = portalCopy.useCopy();
+  const { t } = c.useCopy();
   if (dispute === null) return <p className="muted">{status === 'disputed' ? t('disputeCardMissing') : t('disputeCardNone')}</p>;
   if (dispute.status === 'loading') return <PortalLoading rows={2} />;
   if (dispute.status === 'failed') return <PortalFailure result={dispute.failure} retry={retry} />;
@@ -607,10 +521,10 @@ function DisputeCard({ dispute, status, retry }: { dispute: Resource<DisputeDeta
     <>
       <Facts
         items={[
-          [t('colStatus'), <Chip kind="dispute" value={d.status} />],
+          [t('colStatus'), <StatusChip entity="dispute" value={d.status} />],
           [t('colAmount'), <Money value={d.amount} asset={d.assetId} />],
           [t('colReason'), d.reasonCode ? plainCode(d.reasonCode) : t('notGiven')],
-          [t('colDue'), d.responseDueAt ? <PayTime value={d.responseDueAt} /> : <NotConfigured>{t('noDeadline')}</NotConfigured>],
+          [t('colDue'), d.responseDueAt ? <DateTime value={d.responseDueAt} /> : <NotConfigured>{t('noDeadline')}</NotConfigured>],
         ]}
       />
       <a className="text-link" href={`/pay/disputes/${encodeURIComponent(d.disputeId)}`}>

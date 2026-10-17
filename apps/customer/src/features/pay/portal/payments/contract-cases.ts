@@ -7,6 +7,8 @@ export const paymentsContract: ContractPart = {
     { method: 'payment', run: (p) => p.payment('aa000003-0000-4000-8000-000000000003') },
     { method: 'paymentHistory', run: (p) => p.paymentHistory('aa000003-0000-4000-8000-000000000003') },
     { method: 'paymentPage', run: (p) => p.paymentPage(merchant, { assetId: 'USDT' }, undefined) },
+    { method: 'paymentRefundRows', run: (p) => p.paymentRefundRows('aa000004-0000-4000-8000-000000000004', merchant) },
+    { method: 'paymentActivity', run: (p) => p.paymentActivity('aa000003-0000-4000-8000-000000000003') },
     { method: 'invoices', run: (p) => p.invoices({ status: 'sent' }, undefined) },
     { method: 'invoice', run: (p) => p.invoice('1a000002-0000-4000-8000-000000000002') },
     {

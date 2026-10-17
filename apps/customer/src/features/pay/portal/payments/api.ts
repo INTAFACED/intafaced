@@ -89,6 +89,10 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
       },
       signal,
     ),
+  paymentRefundRows: (paymentId: string, merchantId: string, signal?: AbortSignal) =>
+    list('payment.refunds.list', pay.paymentRefundRowSchema, { merchantId, paymentId, limit: 200 }, signal),
+  paymentActivity: (paymentId: string, signal?: AbortSignal) =>
+    list('merchantOps.activity.list', pay.activityItemSchema, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
   invoices: (
     filters: { status?: string; search?: string; assetId?: string; from?: string; to?: string },
     cursor: string | undefined,

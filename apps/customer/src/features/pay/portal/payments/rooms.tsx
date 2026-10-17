@@ -131,7 +131,6 @@ export const paymentsRooms: RoomTable = {
     header: () => ({
       title: t('pagePayments'),
       purpose: t('purposePayments'),
-      action: link('/pay/payments?view=tools', t('actPaymentTools'), 'primary'),
     }),
     render: (_route, { portal }) => (
       <WithAccount>
@@ -144,19 +143,16 @@ export const paymentsRooms: RoomTable = {
     ),
   },
   payment: {
-    header: (route) => ({
+    header: () => ({
       title: t('pagePayment'),
       purpose: t('purposePayment'),
-      action: route.param
-        ? link(`/pay/payments?view=tools&payment=${encodeURIComponent(route.param)}`, t('refundOrCapture'), 'primary')
-        : undefined,
     }),
     here: '/pay/payments',
     render: (route, { portal }) => (
       <WithAccount>
-        {() => (
+        {({ merchantId }) => (
           <Requires need="payments.read">
-            <PaymentDetailPage portal={portal} paymentId={route.param!} />
+            <PaymentDetailPage portal={portal} paymentId={route.param!} merchantId={merchantId} />
           </Requires>
         )}
       </WithAccount>
