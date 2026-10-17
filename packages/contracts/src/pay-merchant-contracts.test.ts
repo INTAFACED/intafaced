@@ -14,6 +14,7 @@ import {
   founderControlAuditListInputSchema,
   founderPendingChangeSchema,
   founderMerchantDrilldownSchema,
+  kybDecisionBindingSchema,
   founderMerchantListInputSchema,
   founderMerchantListSchema,
   founderMerchantRowSchema,
@@ -511,6 +512,21 @@ describe('pay contracts: founder cursors and destination reveal', () => {
       }).success,
     ).toBe(true);
     expect(founderApprovalDestinationSchema.safeParse({ ...approval, destinationRef: ref }).success).toBe(false);
+  });
+
+  it('a KYB decision binding is the identity fields and the hash', () => {
+    const row = {
+      merchantId,
+      legalName: 'Shop Ltd',
+      address: null,
+      statementDescriptor: 'SHOP',
+      industry: 'Retail',
+      identityHash: `sha256:${'ab'.repeat(32)}`,
+    };
+    expect(kybDecisionBindingSchema.parse(row)).toEqual(row);
+    expect(kybDecisionBindingSchema.safeParse({ ...row, profileVersion: '1' }).success).toBe(false);
+    expect(kybDecisionBindingSchema.safeParse({ ...row, website: 'https://shop.example' }).success).toBe(false);
+    expect(kybDecisionBindingSchema.safeParse({ ...row, identityHash: 'not-a-hash' }).success).toBe(false);
   });
 });
 

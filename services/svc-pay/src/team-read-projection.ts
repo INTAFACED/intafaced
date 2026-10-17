@@ -1,19 +1,18 @@
 import type { PayRecordedPricingSnapshot } from '@intafaced/contracts';
 import { safeFailure, type MerchantFailure } from './merchant-failure.js';
 import type { MerchantReadAudience } from './merchant-read-access.js';
+import { seesFullPricing } from './merchant-ops/roles.js';
 
 /**
  * Commercial terms on a stored pricing row. Owner, admin, and finance see the
  * row. Viewer and developer see the fee amount and nothing else.
  */
-const FULL_PRICING = new Set<MerchantReadAudience>(['owner', 'admin', 'finance']);
-
 export function projectPricingSnapshot<T extends { fee: string }>(
   snapshot: T | null,
   audience: MerchantReadAudience,
 ): T | { fee: string } | null {
   if (!snapshot) return null;
-  if (FULL_PRICING.has(audience)) return snapshot;
+  if (seesFullPricing(audience)) return snapshot;
   return { fee: snapshot.fee };
 }
 

@@ -255,10 +255,12 @@ function composeRouter(parts: {
       parts.destinations,
       actionApprovals,
       teamReadFromSql(parts.sql),
+      undefined,
+      parts.sql,
     ),
     createMerchantStateRouter(new MerchantStateService(parts.sql), new MerchantAccountControls(parts.sql, parts.founderAuthority)),
     createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), actionApprovals, parts.pay),
-    createSubMerchantRouter(parts.subMerchants, parts.pay),
+    createSubMerchantRouter(parts.subMerchants, parts.pay, parts.sql),
     // One mount list, as in src/index.ts. A workstream that adds a mount there adds ONE line here.
     createPayNamespaces({
       founderAuthority: parts.founderAuthority,
