@@ -57,6 +57,11 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'The case file keeps what you concluded, so it cannot be blank.',
     next: 'Write the summary and try again.',
   },
+  'support.order.user_mismatch': {
+    title: "That order is a different customer's",
+    body: 'The desk only shows an order when it belongs to the customer on this ticket. This one does not, so the status was not shown.',
+    next: 'Nothing was changed. The order was not cancelled.',
+  },
   'support.identity_grounding_unwired': {
     title: 'The support desk cannot read account state',
     body: 'svc-support is not connected to identity on this deployment, so it will not escalate without reading the account.',
