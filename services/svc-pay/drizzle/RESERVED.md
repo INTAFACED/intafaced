@@ -11,7 +11,7 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0055-0057 | W2 metrics read model                                 | reserved                                        |
 | 0058-0059 | W5 halts and treasury exposure                        | used                                            |
 | 0060-0061 | W6 conversion                                         | reserved                                        |
-| 0062      | W9 screening                                          | reserved                                        |
+| 0062      | W9 screening                                          | used (screening cases)                          |
 | 0063      | W10 B2B ramp (switched off)                           | left empty; shipped as 0078                     |
 | 0064-0068 | W15 merchant operations APIs                          | used                                            |
 | 0069-0070 | W16 venue, network and wallet-route registries        | reserved (0069 tables, 0070 audit events)       |

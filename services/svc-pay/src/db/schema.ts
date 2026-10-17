@@ -910,6 +910,23 @@ export const merchantInvoices = pay.table(
   (t) => [index('merchant_invoices_list_idx').on(t.merchantId, t.createdAt, t.id)],
 );
 
+/**
+ * One screening case per custodial send. Status is clear, review, refuse, or
+ * unavailable. Factors are codes only: no name, address, or list contents.
+ */
+export const screeningCases = pay.table(
+  'screening_cases',
+  {
+    subjectKind: text('subject_kind').notNull(),
+    subjectKey: text('subject_key').notNull(),
+    status: text('status').notNull(),
+    factors: jsonb('factors').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ name: 'screening_cases_pkey', columns: [t.subjectKind, t.subjectKey] })],
+);
+
 export const merchantInvoiceActions = pay.table(
   'merchant_invoice_actions',
   {
@@ -949,4 +966,5 @@ export const schema = {
   merchantDisputeEvidenceContent,
   merchantInvoices,
   merchantInvoiceActions,
+  screeningCases,
 };
