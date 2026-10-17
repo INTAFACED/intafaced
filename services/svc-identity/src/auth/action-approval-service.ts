@@ -65,6 +65,8 @@ export class ActionApprovalService {
     private readonly store: ActionApprovalStore,
     private readonly policy: ActionApprovalPolicy,
     private readonly clock: () => Date = () => new Date(),
+    /** Same-person consume writes the customer step-up audit. Absent in unit tests. */
+    private readonly onSamePersonConsumed?: (row: StoredApproval, at: Date) => Promise<void>,
   ) {}
 
   async propose(requesterId: string, input: ActionApprovalProposeInput): Promise<ActionApproval> {
@@ -223,7 +225,8 @@ export class ActionApprovalService {
     // here, not grandfathered. The result is attested to the target service on the returned row.
     const founderAttestation =
       audienceOfApproval(row) === 'founder' ? await this.requireFounders(row, { approverId: row.approverId }) : null;
-    const next = await this.store.casConsume({ ...input, now: this.clock() });
+    const consumedAt = this.clock();
+    const next = await this.store.casConsume({ ...input, now: consumedAt });
     if (!next) {
       const again = await this.loadLive(input.approvalId);
       if (again.status === 'CONSUMED') {
@@ -231,6 +234,7 @@ export class ActionApprovalService {
       }
       throw this.terminal(again, 'action_approval.not_approved');
     }
+    if (next.kind === 'same_person') await this.onSamePersonConsumed?.(next, consumedAt);
     return { ...toActionApproval(next), ...(founderAttestation ?? {}) };
   }
 
