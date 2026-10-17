@@ -6,6 +6,12 @@ import { defineCopy } from '../../../shared/i18n';
  * number that was not published by INTAFACED.
  */
 const en = {
+  navConversion: 'Conversion',
+  rSubscriptionNotFound:
+    'We could not find that subscription or its mandate in your account. Open your subscriptions list and check the reference.',
+  navCompliance: 'Compliance',
+  navSettings: 'Business settings',
+  navRefunds: 'Refunds',
   // shell
   navOnboarding: 'Set up your account',
   navTeam: 'Team and roles',
@@ -16,7 +22,7 @@ const en = {
   actCreateLink: 'Create a payment link',
   pageOnboarding: 'Set up your account',
   purposeOnboarding:
-    'Three steps: your business details, verification, and where you get paid. You can start taking test payments as soon as it is done.',
+    'Three steps: your business details, verification, and where you get paid. Each step shows what is saved and what still needs to be connected.',
   pageTeam: 'Team and roles',
   purposeTeam: 'Who can see and do what on this account.',
   actInvite: 'Invite someone',
@@ -186,7 +192,8 @@ const en = {
     'Send INTAFACED the reference of your business verification file. INTAFACED reviews it and decides; it is never approved automatically.',
   step3Title: 'Payout destination',
   step3Short: 'Where you get paid',
-  step3Body: 'Choose where your money is sent when you pay out. You can start in sandbox now; live payouts wait for verification.',
+  step3Body:
+    'Choose where your money is sent when you pay out. Saving a destination does not activate payments; live payouts wait for verification and operator activation.',
   groupBusiness: 'Your business',
   groupContact: 'Contact',
   groupVolume: 'What you expect',
@@ -436,9 +443,18 @@ const en = {
   exportKind_payments: 'Payments',
   exportKind_settlements: 'Settlements',
   exportKind_payouts: 'Payouts',
+  exportKind_refunds: 'Refunds',
+  exportKind_ledger_statement: 'Ledger statement',
+  exportKind_disputes: 'Disputes',
+  exportKind_fees: 'Fees',
   exportHint_payments: 'Every payment, with amounts, status and dates.',
   exportHint_settlements: 'Each settlement with gross, fees and net.',
   exportHint_payouts: 'Each settlement paid out, with its payout reference.',
+  exportHint_refunds: 'Each refund, with the payment it belongs to.',
+  exportHint_ledger_statement: 'Clearing and proceeds balances the ledger reports for this account.',
+  exportHint_disputes: 'Disputes on your payments, with status and amount.',
+  exportHint_fees: 'The fee recorded on each payment or settlement.',
+  exportExpired: 'This file has expired. Request it again if you still need it.',
   fStatusFilter: 'Status',
   fFrom: 'From',
   hFrom: 'Optional. The start of this day, UTC.',
@@ -535,6 +551,8 @@ const en = {
   tipExport_ready: 'Your export is ready to download.',
   chipExport_failed: 'Failed',
   tipExport_failed: 'The export could not be built.',
+  chipExport_expired: 'Expired',
+  tipExport_expired: 'This file is no longer available. Request the export again if you still need it.',
   chipMember_active: 'Active',
   tipMember_active: 'This person has access now.',
   chipMember_invited: 'Invited',
@@ -662,6 +680,7 @@ const en = {
   haltOp_settlement: 'Settlements are paused.',
   haltGlobal: 'INTAFACED has paused this for every account',
   haltYours: 'INTAFACED has paused this on your account',
+  haltRail: 'INTAFACED has paused payouts on the {rail} rail',
   haltSince: 'since',
   haltEffect: 'Nothing you do here will move money until it is lifted.',
   stepItem_done: 'done',

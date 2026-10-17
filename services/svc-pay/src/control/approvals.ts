@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import type { PayoutApproval } from '@intafaced/contracts';
+import type { FounderApprovalDestination, FounderApprovalQueueItem, PayoutApproval } from '@intafaced/contracts';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { requireDualControl, DualControlError } from '../dual-control.js';
@@ -8,6 +8,8 @@ import { payoutPayloadHash, voidStaleApprovals, type PayoutPayload } from './app
 import { writeAudit } from './audit.js';
 import type { ControlAccessPorts } from './access.js';
 import { ControlError } from './errors.js';
+import { encodeListCursor, ListQueryError, parseListFilters } from '../list-page.js';
+import { maskDestination, safeDestinationLabel } from './mask-destination.js';
 import { loadMerchantControl } from './store.js';
 
 /**
@@ -57,6 +59,8 @@ export interface ApprovalDetail extends PayoutApproval {
   readonly founderRequired: boolean;
   readonly checkerDecided: boolean;
   readonly founderApprovals: number;
+  /** Set once a founder has confirmed. Stripped from the merchant wire view. */
+  readonly founderFirstUserId: string | null;
 }
 
 export function toApprovalView(row: ApprovalRow, now: Date): ApprovalDetail {
@@ -75,16 +79,25 @@ export function toApprovalView(row: ApprovalRow, now: Date): ApprovalDetail {
     createdAt: row.created_at.toISOString(),
     decidedAt: row.decided_at ? row.decided_at.toISOString() : null,
     expiresAt: row.expires_at.toISOString(),
+    railId: safeDestinationLabel(row.rail_id, row.destination_ref),
+    destinationKind: safeDestinationLabel(row.destination_kind, row.destination_ref),
+    destinationMasked: maskDestination(row.destination_kind, row.destination_ref),
     founderRequired: row.founder_required,
     checkerDecided: row.checker_user_id !== null,
     founderApprovals: (row.founder_first_user_id ? 1 : 0) + (row.founder_second_user_id ? 1 : 0),
+    founderFirstUserId: row.founder_first_user_id,
   };
 }
 
-/** The contract view, without the internal progress fields. */
+/** The merchant wire view. No full destination, and no founder id. */
 export function toContractApproval(detail: ApprovalDetail): PayoutApproval {
-  const { founderRequired: _a, checkerDecided: _b, founderApprovals: _c, ...contract } = detail;
+  const { founderRequired: _a, checkerDecided: _b, founderApprovals: _c, founderFirstUserId: _d, ...contract } = detail;
   return contract;
+}
+
+/** Founder queue row: the merchant view plus which founder already confirmed, if any. */
+export function toFounderQueueItem(detail: ApprovalDetail): FounderApprovalQueueItem {
+  return { ...toContractApproval(detail), founderFirstUserId: detail.founderFirstUserId };
 }
 
 export interface ApprovalServiceOptions {
@@ -242,18 +255,61 @@ export class ApprovalService {
 
   async list(
     principal: Principal,
-    input: { merchantId: string; status?: PayoutApproval['status']; limit: number },
-  ): Promise<ApprovalDetail[]> {
+    input: {
+      merchantId: string;
+      status?: PayoutApproval['status'];
+      limit: number;
+      cursor?: string;
+      search?: string;
+      from?: string;
+      to?: string;
+    },
+  ): Promise<{ items: ApprovalDetail[]; nextCursor: string | null }> {
     this.actorId(principal);
     if (!(await this.options.access.canViewMerchant(principal, input.merchantId))) throw new ControlError('pay.merchant_not_found');
+    let filters;
+    try {
+      filters = parseListFilters(input);
+    } catch (error) {
+      if (error instanceof ListQueryError) throw new ControlError('pay.control_invalid');
+      throw error;
+    }
     const at = this.now();
-    const rows = await this.sql<ApprovalRow[]>`
-      SELECT * FROM pay.control_payout_approvals WHERE merchant_id = ${input.merchantId} ORDER BY seq DESC LIMIT ${input.limit * 4}
+    const status = input.status ?? null;
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
+    const rows = await this.sql<Array<ApprovalRow & { created_at_cursor: string }>>`
+      SELECT id, seq, merchant_id, settlement_id, asset_code, amount::text, rail_id, destination_kind, destination_ref,
+             payload_hash, status, founder_required, maker_user_id, checker_user_id, checker_reason, checker_decided_at,
+             founder_first_user_id, founder_second_user_id, created_at, decided_at, expires_at,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM pay.control_payout_approvals
+       WHERE merchant_id = ${input.merchantId}
+         AND (
+           ${status}::text IS NULL
+           OR (${status} = 'expired' AND (status = 'expired' OR (status IN ('pending', 'approved') AND expires_at <= ${at})))
+           OR (${status} <> 'expired' AND status = ${status} AND NOT (status IN ('pending', 'approved') AND expires_at <= ${at}))
+         )
+         AND (
+           ${filters.search}::text IS NULL
+           OR id::text = lower(${filters.search})
+           OR settlement_id::text = lower(${filters.search})
+         )
+         AND (${filters.from}::timestamptz IS NULL OR created_at >= ${filters.from})
+         AND (${filters.to}::timestamptz IS NULL OR created_at < ${filters.to})
+         AND (
+           ${cursorAt}::text IS NULL
+           OR (created_at, id) < ((${cursorAt}::text)::timestamptz, ${cursorId}::uuid)
+         )
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${input.limit + 1}
     `;
-    return rows
-      .map((r) => toApprovalView(r, at))
-      .filter((a) => input.status === undefined || a.status === input.status)
-      .slice(0, input.limit);
+    const page = rows.slice(0, input.limit);
+    const last = page[page.length - 1];
+    return {
+      items: page.map((row) => toApprovalView(row, at)),
+      nextCursor: rows.length > input.limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
+    };
   }
 
   /** Merchant-side checker decision. */
@@ -349,8 +405,23 @@ export class ApprovalService {
     );
   }
 
+  /** Pending payout approvals for one merchant. Caller has already been authorised (founder drill-down). */
+  async pendingForMerchant(merchantId: string, limit: number): Promise<ApprovalDetail[]> {
+    const at = this.now();
+    const rows = await this.sql<ApprovalRow[]>`
+      SELECT * FROM pay.control_payout_approvals
+       WHERE merchant_id = ${merchantId} AND status = 'pending'
+       ORDER BY seq DESC
+       LIMIT ${limit}
+    `;
+    return rows.map((row) => toApprovalView(row, at)).filter((approval) => approval.status === 'pending');
+  }
+
   /** Founders waiting to sign: merchant-side approved, founder step still open. */
-  async founderQueue(input: { limit: number; cursor?: string }): Promise<{ approvals: ApprovalDetail[]; nextCursor: string | null }> {
+  async founderQueue(input: {
+    limit: number;
+    cursor?: string;
+  }): Promise<{ approvals: FounderApprovalQueueItem[]; nextCursor: string | null }> {
     const at = this.now();
     const after = input.cursor && /^\d+$/.test(input.cursor) ? input.cursor : '0';
     const rows = await this.sql<ApprovalRow[]>`
@@ -360,9 +431,50 @@ export class ApprovalService {
     `;
     const page = rows.slice(0, input.limit);
     return {
-      approvals: page.map((r) => toApprovalView(r, at)),
+      approvals: page.map((r) => toFounderQueueItem(toApprovalView(r, at))),
       nextCursor: rows.length > input.limit ? page[page.length - 1]!.seq : null,
     };
+  }
+
+  /**
+   * The stored destination of one founder-queue approval. Merchant lists stay masked.
+   * Every successful read appends `payout.destination_read` on `pay.control_audit`.
+   * An id that is missing, expired, or not on the queue is the same not-found, and writes nothing.
+   * A plain read: this does not lock the row, so a reveal does not wait behind a decision.
+   */
+  async founderDestination(founderUserId: string, approvalId: string): Promise<FounderApprovalDestination> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const rows = await tx<ApprovalRow[]>`
+          SELECT * FROM pay.control_payout_approvals
+           WHERE id = ${approvalId}
+             AND founder_required
+             AND status = 'pending'
+             AND checker_user_id IS NOT NULL
+             AND expires_at > now()
+        `;
+        const row = rows[0];
+        if (!row) throw notFound();
+        await writeAudit(tx, {
+          scope: 'approval',
+          scopeId: row.id,
+          merchantId: row.merchant_id,
+          kind: 'payout.destination_read',
+          outcome: 'read',
+          actorId: founderUserId,
+          reason: 'founder read the full payout destination',
+          after: { payloadHash: row.payload_hash },
+        });
+        return {
+          approvalId: row.id,
+          railId: row.rail_id,
+          destinationKind: row.destination_kind,
+          destinationRef: row.destination_ref,
+        };
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   /** A founder signs (first call) or countersigns (second call, a different founder). */

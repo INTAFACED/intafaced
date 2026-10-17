@@ -31,7 +31,7 @@ export function ownerAccessPorts(sql: Sql): ControlAccessPorts {
 }
 
 /** The caller's role for ONE merchant: owner of that merchant, else an ACTIVE team member of it, else null. */
-async function roleFor(sql: Sql, principal: Principal, merchantId: string): Promise<MerchantRole | null> {
+export async function roleOnMerchant(sql: Sql, principal: Principal, merchantId: string): Promise<MerchantRole | null> {
   if (!principal?.userId) return null;
   const owned = await sql`SELECT 1 FROM pay.merchants WHERE id = ${merchantId} AND user_id = ${principal.userId}`;
   if (owned.length > 0) return 'owner';
@@ -45,11 +45,11 @@ async function roleFor(sql: Sql, principal: Principal, merchantId: string): Prom
 export function teamAccessPorts(sql: Sql): ControlAccessPorts {
   return {
     canViewMerchant: async (principal, merchantId) => {
-      const role = await roleFor(sql, principal, merchantId);
+      const role = await roleOnMerchant(sql, principal, merchantId);
       return role !== null && (roleHasPermission(role, 'payout.request') || roleHasPermission(role, 'payout.approve'));
     },
     canApprovePayout: async (principal, merchantId) => {
-      const role = await roleFor(sql, principal, merchantId);
+      const role = await roleOnMerchant(sql, principal, merchantId);
       return role !== null && roleHasPermission(role, 'payout.approve');
     },
   };

@@ -31,6 +31,7 @@ import {
   marketMaker,
   marketMakerOrderHoldAccount,
   merchantClearing,
+  merchantProceeds,
   orderHoldAccount,
   positionCollateralAccount,
   userAvailable,
@@ -1414,7 +1415,8 @@ describe('recipes — the money paths', () => {
       }),
     );
 
-    expect(await balanceOf(USER_B, 'USDT')).toBe('975');
+    expect(formatAmount((await ledger.balance(merchantProceeds('m-2', 'USDT'))).amount)).toBe('975');
+    expect(await balanceOf(USER_B, 'USDT')).toBe('0');
     expect(formatAmount((await ledger.balance(houseFees('pay', 'USDT'))).amount)).toBe('25');
     expect(formatAmount((await ledger.balance(merchantClearing('m-2', 'USDT'))).amount)).toBe('0');
     expect(ledger.totalsByAsset().USDT).toBe('0');
@@ -1523,7 +1525,8 @@ describe('recipes — the money paths', () => {
       ),
     ).rejects.toThrow(InsufficientFundsError);
 
-    expect(await balanceOf(USER_A, 'USDT')).toBe('90');
+    expect(formatAmount((await ledger.balance(merchantProceeds('m-6', 'USDT'))).amount)).toBe('90');
+    expect(await balanceOf(USER_A, 'USDT')).toBe('0');
     expect(ledger.totalsByAsset().USDT).toBe('0');
   });
 
@@ -1562,7 +1565,8 @@ describe('recipes — the money paths', () => {
     );
 
     expect(formatAmount((await ledger.balance(merchantClearing('m-7', 'USDT'))).amount)).toBe('0');
-    expect(await balanceOf(USER_B, 'USDT')).toBe('195');
+    expect(formatAmount((await ledger.balance(merchantProceeds('m-7', 'USDT'))).amount)).toBe('195');
+    expect(await balanceOf(USER_B, 'USDT')).toBe('0');
     expect(ledger.totalsByAsset().USDT).toBe('0');
     expect(ledger.reconcile()).toEqual({ ok: true });
   });

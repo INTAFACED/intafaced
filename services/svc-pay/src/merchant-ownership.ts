@@ -81,9 +81,9 @@ export function merchantNotFound(merchantId: string): PayError {
  * inside the caller's own tree (`pay.submerchant_permission_denied`) passes
  * through untouched: that caller already knows the subtree exists.
  */
-export async function refuseAsMissing(check: Promise<void>, missing: () => PayError): Promise<void> {
+export async function refuseAsMissing<T>(check: Promise<T>, missing: () => PayError): Promise<T> {
   try {
-    await check;
+    return await check;
   } catch (err) {
     if (err instanceof PayError && err.code === 'pay.merchant_not_found') throw missing();
     throw err;

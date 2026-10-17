@@ -288,7 +288,15 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
   const [expires, setExpires] = useState('');
   const [created, setCreated] = useState<z.infer<typeof s.newLinkSchema> | null>(null);
   const links = useResource(
-    (signal) => pay.query('merchant.listLinks', { merchantId, limit }, z.array(s.linkSchema), signal),
+    (signal) =>
+      pay
+        .query(
+          'merchant.listLinks',
+          { merchantId, limit },
+          z.object({ items: z.array(s.linkSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:links:${merchantId}:${limit}`,
   );
   const input = {
@@ -453,7 +461,15 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
   const [destination, setDestination] = useState('');
   const [reason, setReason] = useState('');
   const records = useResource(
-    (signal) => pay.query('settlement.list', { merchantId, limit }, z.array(s.settlementSchema), signal),
+    (signal) =>
+      pay
+        .query(
+          'settlement.list',
+          { merchantId, limit },
+          z.object({ items: z.array(s.settlementSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:settlements:${merchantId}:${limit}`,
   );
   const details = useResource(

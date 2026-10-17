@@ -81,7 +81,7 @@ function stubPay(): PayService {
     getPayment: async () => {
       throw new PayError('unused', 'pay.payment_not_found');
     },
-    listPayments: async () => [],
+    listPayments: async () => ({ items: [], nextCursor: null }),
     clearingBalance: async () => parseAmount('0'),
     merchantBalance: async () => parseAmount('0'),
     createPayment: async (input: { railAdapter: string }) =>

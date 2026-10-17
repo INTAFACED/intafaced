@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { MerchantDetailView, parseTab } from '@/components/merchants/merchant-detail';
 import { dayOf } from '@/lib/merchants/dates';
-import { loadMerchantDetail, parsePreset } from '@/lib/merchants/loaders';
+import { loadMerchantApprovals, loadMerchantControls, loadMerchantDetail, loadMerchantHalts, parsePreset } from '@/lib/merchants/loaders';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { requireMerchantsFounder } from '@/lib/merchants/page-gate';
 
@@ -26,11 +26,25 @@ export default async function MerchantPage({
   const now = new Date();
   const data = await loadMerchantDetail(ctx, id.toLowerCase(), preset, now);
   if (data.metrics.kind === 'not_found' || data.series.kind === 'not_found') notFound();
+  const tab = parseTab(query.tab);
+  const merchantId = id.toLowerCase();
+  // Only the open tab reads its own procedures, so the overview does not pay for them.
+  const tabData =
+    tab === 'controls'
+      ? { controls: await loadMerchantControls(ctx, merchantId, now) }
+      : tab === 'approvals'
+        ? { approvals: await loadMerchantApprovals(ctx, now) }
+        : tab === 'halts'
+          ? { halts: await loadMerchantHalts(ctx, merchantId, now) }
+          : {};
   return (
     <MerchantDetailView
-      merchantId={id.toLowerCase()}
+      merchantId={merchantId}
       data={data}
-      tab={parseTab(query.tab)}
+      tab={tab}
+      tabData={tabData}
+      currentUserId={ctx.session.userId}
+      now={now}
       preset={preset}
       asset={typeof query.asset === 'string' ? query.asset : undefined}
       today={dayOf(now)}

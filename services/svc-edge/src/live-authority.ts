@@ -11,6 +11,7 @@ import { assertApiKeyOrigin, optionalOriginAllowlist } from './api-key-origin.js
 import { assertApiKeyProduct, optionalProductScopes } from './api-key-product.js';
 import { assertApiKeyAccount, optionalAccountIdFromExchange } from './api-key-account.js';
 import { assertKeyNotExpired, optionalExpiresAtFromExchange } from './api-key-expires.js';
+import { ipAllowlistSatisfied, optionalFlag } from './api-key-request-sign.js';
 
 type Eligible = Extract<CurrentAuthorityResult, { status: 'eligible' }>;
 export type EdgeAuthorityOptions = {
@@ -21,6 +22,8 @@ export type EdgeAuthorityOptions = {
   origin?: string | null;
   accountId?: string | null;
   product?: string | null;
+  /** True when this request presented the raw API key and identity accepted it. */
+  apiKeyBearerSatisfied?: boolean;
 };
 
 /** One fresh read per request; never money admission or a cached founder entitlement. */
@@ -94,6 +97,17 @@ export async function readEdgeAuthority(principal: Principal, options: EdgeAutho
           fetch: guardedFetch,
         });
         assertApiKeyIp(optionalIpAllowlist(metadata), options.clientIp);
+        if (optionalFlag(metadata, 'requireSignature', 'require_signature') && options.apiKeyBearerSatisfied !== true) {
+          return null;
+        }
+        if (
+          !ipAllowlistSatisfied(
+            optionalFlag(metadata, 'requireNonEmptyIpAllowlist', 'require_non_empty_ip_allowlist'),
+            optionalIpAllowlist(metadata),
+          )
+        ) {
+          return null;
+        }
         assertApiKeyOrigin(optionalOriginAllowlist(metadata), options.origin);
         assertApiKeyProduct(optionalProductScopes(metadata) ?? [], options.product);
         assertApiKeyAccount(optionalAccountIdFromExchange(metadata), options.accountId);

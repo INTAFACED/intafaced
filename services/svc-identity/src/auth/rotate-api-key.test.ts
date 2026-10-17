@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { PlaceDoor } from './place-door.js';
 import { rotateApiKey, RotateApiKeyError } from './rotate-api-key.js';
@@ -63,6 +64,7 @@ describe('rotateApiKey', () => {
       prefix: 'ifk_live',
       mode: 'live',
       revokedKeyId: 'old',
+      signingSecret: null,
     });
     expect(created).toHaveLength(1);
     expect(revoked).toEqual(['old']);
@@ -83,6 +85,19 @@ describe('rotateApiKey', () => {
       }),
     ).rejects.toMatchObject({ code: 'auth.account_denied' });
     expect(revoked).toEqual(['k1']);
+  });
+
+  it('returns a new signing secret when the old key required one, and refuses without the encryption key', async () => {
+    const { minter, created } = makeMinter();
+    const enc = randomBytes(32);
+    const signed = { ...oldRow, require_signature: true, require_non_empty_ip_allowlist: true };
+    await expect(
+      rotateApiKey(minter, fakeSql([[signed]]), { userId: 'u', keyId: 'old', grantorScopes: ['identity:read'] }),
+    ).rejects.toMatchObject({ code: 'auth.not_configured' });
+    expect(created).toEqual([]);
+    const out = await rotateApiKey(minter, fakeSql([[signed]]), { userId: 'u', keyId: 'old', grantorScopes: ['identity:read'] }, enc);
+    expect(out.signingSecret?.startsWith('ifs_')).toBe(true);
+    expect(out.revokedKeyId).toBe('old');
   });
 
   it('revokes the new key if the old key cannot be revoked', async () => {

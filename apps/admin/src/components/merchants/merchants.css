@@ -6,6 +6,7 @@
  */
 
 .mp-page {
+  --if-accent: #c8f64a;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -993,4 +994,168 @@ textarea.mp-input {
 }
 .mp-table--rows {
   min-width: 720px;
+}
+
+/* ── Controls, approvals and halts (W4b) ────────────────────────────────── */
+.mp-h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.mp-block {
+  display: block;
+}
+.mp-subpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--if-border);
+  border-radius: 12px;
+  background: var(--if-surface);
+  max-width: 880px;
+}
+.mp-kv--stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.mp-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid var(--if-border);
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--if-text-muted);
+  cursor: pointer;
+}
+.mp-pill input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.mp-pill[data-on='true'] {
+  background: var(--if-surface-raised);
+  color: var(--if-text);
+  border-color: var(--if-border-strong);
+}
+.mp-pill:focus-within {
+  outline: 2px solid var(--if-accent);
+  outline-offset: 2px;
+}
+.mp-rows {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0;
+}
+.mp-rowedit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) auto;
+  gap: 10px 12px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--if-border);
+  border-radius: 10px;
+}
+.mp-rowedit > .mp-btn {
+  align-self: end;
+}
+.mp-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+}
+.mp-meter__bar {
+  flex: 1 1 80px;
+  height: 6px;
+  min-width: 60px;
+  border-radius: 999px;
+  background: var(--if-border);
+  overflow: hidden;
+}
+.mp-meter__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--if-accent);
+}
+.mp-meter[data-state='near'] .mp-meter__bar > span {
+  background: var(--if-warn);
+}
+.mp-meter[data-state='full'] .mp-meter__bar > span {
+  background: var(--if-short);
+}
+.mp-table tr[data-inforce='false'] > td,
+.mp-table tr[data-inforce='false'] > th {
+  color: var(--if-text-muted);
+}
+.mp-decision {
+  min-width: 200px;
+}
+.mp-decision__panel {
+  min-width: 280px;
+  max-width: 520px;
+}
+@media (max-width: 640px) {
+  .mp-rowedit {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mp-decision__panel {
+    min-width: 0;
+  }
+  .mp-subpanel {
+    padding: 12px;
+  }
+}
+
+/* Approvals rows become stacked cards on a phone, so the decision button is never off-screen to the right. */
+@media (max-width: 640px) {
+  .mp-table--cards {
+    min-width: 0;
+  }
+  .mp-table--cards thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .mp-table--cards,
+  .mp-table--cards tbody,
+  .mp-table--cards tr,
+  .mp-table--cards td {
+    display: block;
+  }
+  .mp-table--cards tr {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--if-border);
+  }
+  .mp-table--cards td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 6px 14px;
+    border-bottom: 0;
+    text-align: right;
+  }
+  .mp-table--cards td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--if-text-faint);
+    text-align: left;
+  }
+  .mp-table--cards td[data-label='Your decision'] {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: left;
+  }
+  .mp-table--cards .mp-block {
+    text-align: right;
+  }
 }

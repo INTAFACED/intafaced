@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
@@ -14,6 +15,7 @@ import {
   migrations,
   openAdmin,
   OWNER_A,
+  OWNER_B,
   resetControl,
   TEST_GLOBAL_RULE,
   TEST_TIER,
@@ -49,6 +51,7 @@ describe('dual-control configuration changes', () => {
   const audit = (scopeId: string) =>
     sql<Array<{ kind: string; outcome: string; actor_id: string; second_actor_id: string | null }>>`
       SELECT kind, outcome, actor_id, second_actor_id FROM pay.control_audit WHERE scope_id = ${scopeId} ORDER BY seq`;
+  const hashOf = (target: Parameters<typeof founderChangeHash>[0], version: string) => founderChangeHash(target, version);
   const tierTarget = { scope: 'tier', change: { kind: 'upsert_tier', tier: TEST_TIER } } as const;
 
   it('nothing takes effect until a DIFFERENT founder confirms; both founders are on the audit row', async () => {
@@ -62,12 +65,19 @@ describe('dual-control configuration changes', () => {
     expect(submitted.outcome).toBe('pending_second_approval');
     expect((await sql`SELECT 1 FROM pay.control_tiers`).length).toBe(0);
 
-    await expect(changes.confirm(FOUNDER_1, { requestId, decision: 'confirm', reason: 'self confirm' })).rejects.toMatchObject({
+    await expect(
+      changes.confirm(FOUNDER_1, { requestId, decision: 'confirm', reason: 'self confirm', expectedChangeHash: hashOf(tierTarget, '0') }),
+    ).rejects.toMatchObject({
       code: 'pay.dual_control_required',
     });
     expect((await sql`SELECT 1 FROM pay.control_tiers`).length).toBe(0);
 
-    const done = await changes.confirm(FOUNDER_2, { requestId, decision: 'confirm', reason: 'looks right' });
+    const done = await changes.confirm(FOUNDER_2, {
+      requestId,
+      decision: 'confirm',
+      reason: 'looks right',
+      expectedChangeHash: hashOf(tierTarget, '0'),
+    });
     expect(done.outcome).toBe('changed');
     expect((await sql`SELECT version FROM pay.control_tiers WHERE id = ${TEST_TIER.id}`)[0]!.version).toBe('1');
     expect(await audit(TEST_TIER.id)).toEqual([
@@ -75,7 +85,9 @@ describe('dual-control configuration changes', () => {
       { kind: 'control.change_decided', outcome: 'changed', actor_id: FOUNDER_1, second_actor_id: FOUNDER_2 },
     ]);
     // A second confirm of a decided request is not applied twice.
-    await expect(changes.confirm(FOUNDER_1, { requestId, decision: 'confirm', reason: 'again' })).rejects.toMatchObject({
+    await expect(
+      changes.confirm(FOUNDER_1, { requestId, decision: 'confirm', reason: 'again', expectedChangeHash: hashOf(tierTarget, '0') }),
+    ).rejects.toMatchObject({
       code: 'pay.change_not_pending',
     });
   });
@@ -83,7 +95,16 @@ describe('dual-control configuration changes', () => {
   it('a rejected change never applies; reusing a request id for something else is refused', async () => {
     const requestId = randomUUID();
     await changes.submit(FOUNDER_1, { requestId, target: tierTarget, reason: 'try', expectedVersion: '0' });
-    expect((await changes.confirm(FOUNDER_2, { requestId, decision: 'reject', reason: 'not agreed' })).outcome).toBe('refused');
+    expect(
+      (
+        await changes.confirm(FOUNDER_2, {
+          requestId,
+          decision: 'reject',
+          reason: 'not agreed',
+          expectedChangeHash: hashOf(tierTarget, '0'),
+        })
+      ).outcome,
+    ).toBe('refused');
     expect((await sql`SELECT 1 FROM pay.control_tiers`).length).toBe(0);
     const other = { ...tierTarget, change: { kind: 'upsert_tier', tier: { ...TEST_TIER, name: 'other' } } } as const;
     await expect(changes.submit(FOUNDER_1, { requestId, target: other, reason: 'sneaky', expectedVersion: '0' })).rejects.toMatchObject({
@@ -106,8 +127,26 @@ describe('dual-control configuration changes', () => {
     const rename = (name: string) => ({ ...tierTarget, change: { kind: 'upsert_tier', tier: { ...TEST_TIER, name } } }) as const;
     await changes.submit(FOUNDER_1, { requestId: a, target: rename('first'), reason: 'a', expectedVersion: '1' });
     await changes.submit(FOUNDER_1, { requestId: b, target: rename('second'), reason: 'b', expectedVersion: '1' });
-    expect((await changes.confirm(FOUNDER_2, { requestId: a, decision: 'confirm', reason: 'ok' })).outcome).toBe('changed');
-    expect((await changes.confirm(FOUNDER_2, { requestId: b, decision: 'confirm', reason: 'ok' })).outcome).toBe('conflict');
+    expect(
+      (
+        await changes.confirm(FOUNDER_2, {
+          requestId: a,
+          decision: 'confirm',
+          reason: 'ok',
+          expectedChangeHash: hashOf(rename('first'), '1'),
+        })
+      ).outcome,
+    ).toBe('changed');
+    expect(
+      (
+        await changes.confirm(FOUNDER_2, {
+          requestId: b,
+          decision: 'confirm',
+          reason: 'ok',
+          expectedChangeHash: hashOf(rename('second'), '1'),
+        })
+      ).outcome,
+    ).toBe('conflict');
     expect((await sql`SELECT name FROM pay.control_tiers`)[0]!.name).toBe('first');
     expect((await audit(TEST_TIER.id)).map((r) => r.outcome)).toContain('conflict');
   });
@@ -196,6 +235,159 @@ describe('dual-control configuration changes', () => {
     expect(quote).toMatchObject({ fee: '2.8', spread: '0.4', net: '96.8', roundingMode: 'ceil', appliedLayer: 'global' });
     await expect(control.previewPricing({ merchantId, assetCode: 'USD', amount: '1' })).rejects.toMatchObject({
       code: 'pay.pricing_unconfigured',
+    });
+  });
+
+  it('set_caps with no tier is refused with pay.tier_unassigned: it would change nothing, so it never records "changed"', async () => {
+    const caps = { kind: 'set_caps' as const, caps: [{ kind: 'per_payment' as const, assetCode: 'USDT', limit: '7' }] };
+    const requestId = randomUUID();
+    await expect(
+      changes.submit(FOUNDER_1, {
+        requestId,
+        target: { scope: 'merchant', merchantId, change: caps },
+        reason: 'caps first',
+        expectedVersion: '0',
+      }),
+    ).rejects.toMatchObject({ code: 'pay.tier_unassigned' });
+    expect((await sql`SELECT 1 FROM pay.control_changes WHERE request_id = ${requestId}`).length).toBe(0);
+    expect((await sql`SELECT 1 FROM pay.control_merchant_profiles WHERE merchant_id = ${merchantId}`).length).toBe(0);
+    // Once the merchant has a tier the same change goes through, and the override merges per kind over the tier's caps.
+    await applyChange(changes, sql, tierTarget);
+    await applyChange(changes, sql, {
+      scope: 'merchant',
+      merchantId,
+      change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null },
+    });
+    await applyChange(changes, sql, { scope: 'merchant', merchantId, change: caps });
+    const profile = await new ControlService(sql, ownerAccessPorts(sql)).profile(merchantId);
+    expect(profile.caps).toContainEqual({ kind: 'per_payment', assetCode: 'USDT', limit: '7' });
+    expect(profile.caps).toContainEqual({ kind: 'daily_intake', assetCode: 'USDT', limit: '300' });
+  });
+
+  describe('a confirm only applies the change its confirmer was shown (expectedChangeHash)', () => {
+    let otherMerchantId = '';
+    const rule = (assetCode: string, feeBps: number) => ({
+      layer: 'merchant' as const,
+      scopeId: '',
+      assetCode,
+      bands: [{ fromAmount: '0', feeBps, flatFee: null }],
+      spreadBps: null,
+      roundingBeneficiary: 'platform' as const,
+    });
+    const merchantTarget = (id: string, change: Record<string, unknown>) => ({ scope: 'merchant', merchantId: id, change }) as never;
+
+    beforeEach(async () => {
+      const pay = new PayService(sql, new MemoryLedger(), new RailRegistry([]), {});
+      otherMerchantId = (await pay.createMerchant({ userId: OWNER_B, pricing: { feeBps: 0 } })).id;
+      await applyChange(changes, sql, tierTarget);
+    }, 30_000);
+
+    const profileRow = (id: string) =>
+      sql<
+        Array<{ tier_id: string | null; archetype_id: string | null; caps_override: unknown; reserve_override: unknown; version: string }>
+      >`SELECT tier_id, archetype_id, caps_override, reserve_override, version FROM pay.control_merchant_profiles WHERE merchant_id = ${id}`;
+    const status = async (requestId: string) =>
+      (await sql<Array<{ status: string }>>`SELECT status FROM pay.control_changes WHERE request_id = ${requestId}`)[0]!.status;
+
+    async function stored(target: ReturnType<typeof merchantTarget>) {
+      const requestId = randomUUID();
+      const out = await changes.submit(FOUNDER_1, { requestId, target, reason: 'submitted for the drill', expectedVersion: '0' });
+      expect(out.outcome).toBe('pending_second_approval');
+      return requestId;
+    }
+
+    it('applies when the hash matches what was stored', async () => {
+      const target = merchantTarget(merchantId, { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: 'psp' });
+      const requestId = await stored(target);
+      const done = await changes.confirm(FOUNDER_2, {
+        requestId,
+        decision: 'confirm',
+        reason: 'matches',
+        expectedChangeHash: hashOf(target, '0'),
+      });
+      expect(done.outcome).toBe('changed');
+      expect((await profileRow(merchantId))[0]).toMatchObject({ tier_id: TEST_TIER.id, archetype_id: 'psp' });
+    });
+
+    it.each([
+      [
+        'a different merchant',
+        () => merchantTarget(merchantId, { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null }),
+        () => merchantTarget(otherMerchantId, { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null }),
+      ],
+      [
+        'a different kind of change',
+        () => merchantTarget(merchantId, { kind: 'set_reserve', reserve: { rollingReserveBps: 0, holdDays: 0 } }),
+        () => merchantTarget(merchantId, { kind: 'set_caps', caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '7' }] }),
+      ],
+      [
+        'an extra pricing rule',
+        () =>
+          merchantTarget(merchantId, {
+            kind: 'set_pricing',
+            pricing: [
+              { ...rule('USD', 100), scopeId: merchantId },
+              { ...rule('USDT', 0), scopeId: merchantId },
+            ],
+          }),
+        () => merchantTarget(merchantId, { kind: 'set_pricing', pricing: [{ ...rule('USD', 100), scopeId: merchantId }] }),
+      ],
+      [
+        'a different archetype',
+        () => merchantTarget(merchantId, { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: 'psp' }),
+        () => merchantTarget(merchantId, { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null }),
+      ],
+    ])('refuses %s and applies nothing, then still works with the right hash', async (_name, storedTarget, shownTarget) => {
+      const target = storedTarget();
+      const requestId = await stored(target);
+      const before = [await profileRow(merchantId), await profileRow(otherMerchantId)];
+      const wrong = {
+        requestId,
+        decision: 'confirm' as const,
+        reason: 'shown something else',
+        expectedChangeHash: hashOf(shownTarget(), '0'),
+      };
+      await expect(changes.confirm(FOUNDER_2, wrong)).rejects.toMatchObject({ code: 'pay.change_hash_mismatch' });
+      // Declining with the wrong hash is refused too: a decline of something you did not see is not a decision.
+      await expect(changes.confirm(FOUNDER_2, { ...wrong, decision: 'reject' })).rejects.toMatchObject({
+        code: 'pay.change_hash_mismatch',
+      });
+      expect([await profileRow(merchantId), await profileRow(otherMerchantId)]).toEqual(before);
+      expect(await status(requestId)).toBe('pending');
+      expect((await audit(merchantId)).map((r) => r.kind)).toEqual(['control.change_submitted']);
+      // A shape that is not a hash at all, and the right hash with the wrong version, are refused the same way.
+      await expect(changes.confirm(FOUNDER_2, { ...wrong, expectedChangeHash: 'sha256:nothex' })).rejects.toMatchObject({
+        code: 'pay.change_hash_mismatch',
+      });
+      await expect(changes.confirm(FOUNDER_2, { ...wrong, expectedChangeHash: hashOf(target, '9') })).rejects.toMatchObject({
+        code: 'pay.change_hash_mismatch',
+      });
+      expect(await status(requestId)).toBe('pending');
+      const right = await changes.confirm(FOUNDER_2, { ...wrong, reason: 'now it matches', expectedChangeHash: hashOf(target, '0') });
+      expect(right.outcome).toBe('changed');
+      expect(await status(requestId)).toBe('applied');
+    });
+
+    it('the hash check runs before the dual-control check and before a repeat is answered', async () => {
+      const target = merchantTarget(merchantId, { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null });
+      const requestId = await stored(target);
+      await expect(
+        changes.confirm(FOUNDER_1, { requestId, decision: 'confirm', reason: 'self and wrong', expectedChangeHash: hashOf(target, '5') }),
+      ).rejects.toMatchObject({ code: 'pay.change_hash_mismatch' });
+      await changes.confirm(FOUNDER_2, { requestId, decision: 'confirm', reason: 'ok', expectedChangeHash: hashOf(target, '0') });
+      await expect(
+        changes.confirm(FOUNDER_2, { requestId, decision: 'confirm', reason: 'retry wrong', expectedChangeHash: hashOf(target, '5') }),
+      ).rejects.toMatchObject({ code: 'pay.change_hash_mismatch' });
+      expect(
+        (
+          await changes.confirm(FOUNDER_2, {
+            requestId,
+            decision: 'confirm',
+            reason: 'retry right',
+            expectedChangeHash: hashOf(target, '0'),
+          })
+        ).outcome,
+      ).toBe('changed');
     });
   });
 });
