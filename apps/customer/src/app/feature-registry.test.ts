@@ -32,7 +32,7 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/portfolio/BTC/repeat-buy',
       '/bank',
       '/bank/earn',
-      '/trade/margin',
+      '/trade/options',
       '/otc',
       '/otc/tradeInfo',
       '/pay/request',

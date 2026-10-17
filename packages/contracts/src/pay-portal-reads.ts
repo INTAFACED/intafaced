@@ -13,6 +13,36 @@ import { payListCursorSchema, payListSearchSchema, payMerchantFailureSchema, pay
 
 const pageLimitSchema = z.number().int().min(1).max(200).optional();
 
+/**
+ * Current hosted-checkout profile (`merchant.profile` / `payment_profiles`).
+ * No row is `not_configured`. A row is the JSON and domains that write stored,
+ * including an empty object or an empty domain list. This read does not fill
+ * a fee, a domain, or a brand. `feeRouting` is null when hidden for this role.
+ */
+const checkoutSettingsRecordSchema = z.record(z.unknown());
+
+export const payCheckoutSettingsGetInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+  })
+  .strict();
+
+export const payCheckoutSettingsSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('not_configured') }).strict(),
+  z
+    .object({
+      status: z.literal('configured'),
+      profileId: z.string().uuid(),
+      checkoutConfig: checkoutSettingsRecordSchema,
+      /** Null = hidden for this role (never {}). An empty object is stored data. */
+      feeRouting: checkoutSettingsRecordSchema.nullable(),
+      domains: z.array(z.string()),
+      createdAt: payTimestampSchema,
+    })
+    .strict(),
+]);
+export type PayCheckoutSettings = z.infer<typeof payCheckoutSettingsSchema>;
+
 export const payDestinationScreeningSchema = z.literal('not_recorded');
 export const payDestinationDefaultSchema = z.literal('unset');
 
