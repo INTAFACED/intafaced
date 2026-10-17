@@ -10,7 +10,7 @@ import { MemoryLedger, parseAmount, recipes, type LedgerClient } from '@intaface
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { maskDestination } from '../control/mask-destination.js';
 import { teamReadFromSql } from '../merchant-team-read.js';
-import { MerchantPayoutDestinationStore } from '../merchant-payout-destination.js';
+import { memoryPayoutDestinations, MerchantPayoutDestinationStore } from '../merchant-payout-destination.js';
 import { PayError, PayService, type PayErrorCode } from '../payment-service.js';
 import type { PayFail } from './common.js';
 import { listMerchantStatement } from './statement.js';
@@ -110,6 +110,7 @@ describe('merchant portal reads', () => {
     ]);
     pay = new PayService(sql, ledger, rails, {
       checkoutRiskBand: 'low',
+      payoutDestinations: memoryPayoutDestinations(),
       linkDefaultTtlDays: 30,
       linkMaxTtlDays: 365,
       checkoutSessionTtlSeconds: 900,
@@ -575,10 +576,15 @@ describe('merchant portal reads', () => {
       to: new Date('2030-01-01T00:00:00.000Z'),
     });
     await pause(30);
+    await pay.destinationBook().seedVerified({
+      merchantId: mine.id,
+      railId: 'card-sandbox',
+      kind: 'bank',
+      ref: 'DE89370400440532013000',
+    });
     await pay.payoutSettlement({
       settlementId: settlement.id,
       railId: 'card-sandbox',
-      destination: { kind: 'bank', ref: 'DE89370400440532013000' },
     });
 
     const captureTx = await ledger.getTxByKey(`payment.capture:${payment.id}`);

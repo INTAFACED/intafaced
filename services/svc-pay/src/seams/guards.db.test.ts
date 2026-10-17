@@ -3,11 +3,12 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { memoryPayoutDestinations } from '../merchant-payout-destination.js';
+import { installPayoutDestinationShim } from '../payout-destination-test-shim.js';
 import { RailRegistry } from '../rails/registry.js';
 import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { CryptoNativeAdapter } from '../rails/crypto-native.js';
@@ -68,7 +69,13 @@ describe('guard seams are called on the real money paths', () => {
     sql = db.sql;
   }, 120_000);
 
+  let restorePayoutShim: (() => void) | undefined;
+  afterEach(() => {
+    restorePayoutShim?.();
+    restorePayoutShim = undefined;
+  });
   beforeEach(async () => {
+    restorePayoutShim = installPayoutDestinationShim(sql);
     await truncatePayForTest(
       sql,
       'pay',

@@ -179,6 +179,16 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     decimalFields: [],
     fixed: {},
   },
+  {
+    scope: 'pay.step_up.payoutDestination.set',
+    purpose: 'payoutDestination.set',
+    clientFields: ['merchantId', 'railId', 'kind', 'ref'],
+    targetField: 'ref',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
 ];
 
 export function doorForScope(scope: string): CustomerStepUpDoor | undefined {

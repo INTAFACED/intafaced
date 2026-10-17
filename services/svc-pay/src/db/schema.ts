@@ -850,6 +850,12 @@ export const merchantPayoutDestinations = pay.table(
     railId: text('rail_id').notNull(),
     kind: text('kind').notNull(),
     ref: text('ref').notNull(),
+    /** Payable only after step-up. Rows saved by payouts before D-142 stay false. */
+    verified: boolean('verified').notNull().default(false),
+    verifiedAt: tstz('verified_at'),
+    pendingKind: text('pending_kind'),
+    pendingRef: text('pending_ref'),
+    pendingActivatesAt: tstz('pending_activates_at'),
     /** Page key for the inventory cursor. Not a second destination. */
     id: uuid('id').notNull().defaultRandom(),
     createdAt: createdAt(),

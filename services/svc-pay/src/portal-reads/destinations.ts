@@ -6,18 +6,19 @@ import { assertPortalPageLimit, portalFilters, pageCursor } from './common.js';
 /**
  * DESTINATION INVENTORY — read only.
  *
- * Main's destination write is `merchant.setPayoutDestination`: one row per
- * rail, overwritten by the owner. It is not a reviewed action and it does not
- * ask for step-up. A payout approval is voided when the destination that
- * payout would use changes afterwards. That voids the payout request. It is
- * not an approval to change the saved destination.
+ * Main's destination write is `merchant.setPayoutDestination` and
+ * `merchant.payoutDestinations.change`: one active row per rail. Adding the
+ * first one needs step-up. Changing it needs step-up and the hold. A payout
+ * cannot name a destination. A payout approval is voided when the stored
+ * destination that payout would use changes afterwards. That voids the payout
+ * request. It is not an approval to change the saved destination.
  *
  * set-default and remove are not procedures. There is no default column — one
  * row per rail is that rail's destination — and W9 does not store a destination
  * screening verdict. `defaultFlag` stays `unset`. `screeningState` stays
  * `not_recorded`. `lastUsedAt` is the latest paid-out send on that rail, or null.
  */
-export const DESTINATION_CHANGE_FLOW = 'absent' as const;
+export const DESTINATION_CHANGE_FLOW = 'step_up_hold' as const;
 
 export interface PayoutDestinationItem {
   id: string;

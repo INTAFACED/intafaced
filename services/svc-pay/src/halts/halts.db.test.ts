@@ -6,11 +6,12 @@ import postgres from 'postgres';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, merchantClearing, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PayService } from '../payment-service.js';
 import { UserMoneyService } from '../user-money-service.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { memoryPayoutDestinations } from '../merchant-payout-destination.js';
+import { installPayoutDestinationShim } from '../payout-destination-test-shim.js';
 import { RailRegistry } from '../rails/registry.js';
 import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { CryptoNativeAdapter } from '../rails/crypto-native.js';
@@ -97,7 +98,13 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
     poolB = postgres(db.url, { max: 3, connection: { search_path: 'pay,public' }, onnotice: () => undefined });
   }, 120_000);
 
+  let restorePayoutShim: (() => void) | undefined;
+  afterEach(() => {
+    restorePayoutShim?.();
+    restorePayoutShim = undefined;
+  });
   beforeEach(async () => {
+    restorePayoutShim = installPayoutDestinationShim(poolA);
     await truncatePayForTest(
       poolA,
       'pay',
