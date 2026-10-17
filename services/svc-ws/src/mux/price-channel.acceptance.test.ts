@@ -118,9 +118,7 @@ describe('one price channel costs one operation', () => {
     const detach = w.hub.attach('id-btc', '1m', first, w.clock.now);
     expect(detach).not.toBeNull();
     await w.flush();
-    expect(first.frames).toEqual([
-      expect.objectContaining({ type: 'status', code: 'candles.unavailable' }),
-    ]);
+    expect(first.frames).toEqual([expect.objectContaining({ type: 'status', code: 'candles.unavailable' })]);
     detach!();
 
     for (let i = 0; i < 10; i += 1) {
@@ -128,9 +126,7 @@ describe('one price channel costs one operation', () => {
       const leave = w.hub.attach('id-btc', '1m', sink, w.clock.now);
       expect(leave).not.toBeNull();
       await w.flush();
-      expect(sink.frames).toEqual([
-        expect.objectContaining({ type: 'status', code: 'candles.unavailable' }),
-      ]);
+      expect(sink.frames).toEqual([expect.objectContaining({ type: 'status', code: 'candles.unavailable' })]);
       leave!();
     }
 

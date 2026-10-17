@@ -243,15 +243,15 @@ continues it.
 
 ### Limits and backpressure
 
-| Limit                                      | Behaviour when exceeded                                                                                                  |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `WS_MUX_MAX_SUBSCRIPTIONS` per socket      | that channel gets `subscription_limit`; the connection and its other channels are untouched                              |
+| Limit                                      | Behaviour when exceeded                                                                                                                                                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WS_MUX_MAX_SUBSCRIPTIONS` per socket      | that channel gets `subscription_limit`; the connection and its other channels are untouched                                                                                                                   |
 | `WS_MUX_MAX_OPS_PER_SECOND` per socket     | token bucket; a subscribe of N channels costs N. More channels than the rate: `bad_request` and **close `1008`** `rate_limited`. A later operation that does not fit the remaining tokens closes the same way |
-| pending operations (16, protocol)          | a client that queues past it is not waiting for answers: **close `1008`**                                                |
-| frame size (8 KiB, protocol)               | the `ws` library closes `1009` before the frame is assembled                                                             |
-| `WS_MAX_CONNECTIONS` multiplexed sockets   | the newest is closed `1013` `at capacity`                                                                                |
-| `WS_MAX_CONNECTIONS` per hub               | **each channel of a multiplexed socket takes one seat in its hub**, like a legacy socket does                            |
-| `WS_HIGH_WATER_BYTES` / `WS_MAX_LAG_TICKS` | slow client: see below                                                                                                   |
+| pending operations (16, protocol)          | a client that queues past it is not waiting for answers: **close `1008`**                                                                                                                                     |
+| frame size (8 KiB, protocol)               | the `ws` library closes `1009` before the frame is assembled                                                                                                                                                  |
+| `WS_MAX_CONNECTIONS` multiplexed sockets   | the newest is closed `1013` `at capacity`                                                                                                                                                                     |
+| `WS_MAX_CONNECTIONS` per hub               | **each channel of a multiplexed socket takes one seat in its hub**, like a legacy socket does                                                                                                                 |
+| `WS_HIGH_WATER_BYTES` / `WS_MAX_LAG_TICKS` | slow client: see below                                                                                                                                                                                        |
 
 Every ceiling is owner-published like the rest of this service: blank is refused, never defaulted. A multiplexed
 connection with a blank subscription or operation ceiling is closed `1008` with `ws.close.mux_max_subscriptions_unset`

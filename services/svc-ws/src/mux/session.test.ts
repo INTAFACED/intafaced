@@ -474,9 +474,7 @@ describe('limits', () => {
     }));
     tight.session.onMessage(JSON.stringify({ op: 'subscribe', id: 'c64', channels }));
     expect(tight.socket.closed).toMatchObject({ code: 1008, reason: expect.stringMatching(/rate_limited/) });
-    expect(tight.socket.errors()).toEqual([
-      expect.objectContaining({ op: 'error', code: 'bad_request', id: 'c64' }),
-    ]);
+    expect(tight.socket.errors()).toEqual([expect.objectContaining({ op: 'error', code: 'bad_request', id: 'c64' })]);
     expect(tight.socket.errors()[0].message).toContain('64');
     expect(tight.socket.errors()[0].message).toContain('2');
     expect(tight.socket.acks()).toHaveLength(0);
