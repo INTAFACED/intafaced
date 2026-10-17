@@ -787,7 +787,7 @@ test('approvals: a request a teammate already approved waits on INTAFACED, and c
     decidedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
     expiresAt: new Date(Date.now() + 40 * 3600_000).toISOString(),
   };
-  await page.route('**/api/pay/trpc/merchantControl.approvals.list*', (route) => json(route, [row]));
+  await page.route('**/api/pay/trpc/merchantControl.approvals.list*', (route) => json(route, { items: [row], nextCursor: null }));
   await signIn(page, '/pay/approvals');
   await expect(page.getByText('Approved by TEST Accounts, waiting for INTAFACED’s sign-off.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve payout' })).toBeDisabled();

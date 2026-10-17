@@ -147,6 +147,8 @@ const en = {
   tipExport_ready: 'Your export is ready to download.',
   chipExport_failed: 'Failed',
   tipExport_failed: 'The export could not be built.',
+  chipExport_expired: 'Expired',
+  tipExport_expired: 'This file is no longer available. Request the export again if you still need it.',
   chipMember_active: 'Active',
   tipMember_active: 'This person has access now.',
   chipMember_invited: 'Invited',

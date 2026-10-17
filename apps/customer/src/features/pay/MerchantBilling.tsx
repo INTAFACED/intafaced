@@ -20,11 +20,27 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
   const [path, setPath] = useState('');
   const [projectedEnd, setProjectedEnd] = useState<string | null | undefined>();
   const mandates = useResource(
-    (signal) => pay.query('mandate.list', { merchantId, limit }, z.array(s.mandateSchema), signal),
+    (signal) =>
+      pay
+        .query(
+          'mandate.list',
+          { merchantId, limit },
+          z.object({ items: z.array(s.mandateSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:mandates:${merchantId}:${limit}`,
   );
   const subscriptions = useResource(
-    (signal) => pay.query('subscription.list', { merchantId, limit }, z.array(s.subscriptionSchema), signal),
+    (signal) =>
+      pay
+        .query(
+          'subscription.list',
+          { merchantId, limit },
+          z.object({ items: z.array(s.subscriptionSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:subscriptions:${merchantId}:${limit}`,
   );
   const posture = useResource(

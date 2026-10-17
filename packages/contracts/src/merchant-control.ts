@@ -204,6 +204,17 @@ export const merchantControlApprovalListInputSchema = z
     merchantId: payMerchantIdSchema,
     status: payPayoutApprovalStatusSchema.optional(),
     limit: z.number().int().min(1).max(200),
+    cursor: z.string().min(1).max(300).optional(),
+    search: z.string().trim().min(1).max(200).optional(),
+    from: z.string().datetime({ offset: true }).optional(),
+    to: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+
+export const merchantControlApprovalPageSchema = z
+  .object({
+    items: z.array(payoutApprovalSchema),
+    nextCursor: z.string().nullable(),
   })
   .strict();
 
