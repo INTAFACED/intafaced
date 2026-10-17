@@ -41,7 +41,15 @@ import {
 import { liveAccountsIn, sandboxChargebackOpeningProbe, sandboxChargebackWonProbe } from './sandbox-ledger-guard.js';
 import { isSandboxRailId } from './sandbox-key-routing.js';
 import { classifySettlementTx, legacyPostMatchesFrozen, readSettlementBook, settlementIdempotencyKey } from './settlement-book.js';
-import type { PaymentIntent, RailAdapter, RailEvent, RailResult, RailWebhookRequest } from './rails/rail-adapter.js';
+import {
+  railBlockingReason,
+  railReasonCode,
+  type PaymentIntent,
+  type RailAdapter,
+  type RailEvent,
+  type RailResult,
+  type RailWebhookRequest,
+} from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, PublicCheckoutUnavailable, type ValueMovementPolicy } from './rails/posture.js';
 import {
@@ -498,6 +506,15 @@ export class PayError extends Error {
     super(message);
     this.name = 'PayError';
   }
+}
+
+/** Stale, probe-failed, or marked-down. Throws before a hold or a rail send. Absent rails are not this case. */
+function refuseUnusableRail(adapter: RailAdapter, now: Date): void {
+  const reason = railBlockingReason(adapter, now);
+  if (!reason) return;
+  throw new PayError(`Rail "${adapter.id}" is not usable (${reason}). No value moved.`, 'pay.rail_failed', {
+    failureCode: railReasonCode(reason),
+  });
 }
 
 /** Owner house take unpublished. Blank PAY_DEFAULT_FEE_BPS is not 0. */
@@ -2862,6 +2879,7 @@ export class PayService {
           }
 
           const adapter = this.rails.require(row.rail_adapter, 'authorize');
+          refuseUnusableRail(adapter, this.now());
 
           const intent: PaymentIntent = {
             paymentId: row.id,
@@ -3044,6 +3062,7 @@ export class PayService {
           );
 
           const adapter = this.rails.require(row.rail_adapter, 'capture');
+          refuseUnusableRail(adapter, this.now());
           const railRef = row.rail_ref;
 
           const result = await withRailSpan(adapter.id, 'capture', async () => adapter.capture(railRef));
@@ -3366,7 +3385,9 @@ export class PayService {
         // state deliberately blocks every further refund on the payment until an
         // operator reconciles it. A refusal that was knowable here must not cost
         // the merchant that.
-        assertRailMayMoveValue(this.rails.require(row.rail_adapter, 'refund'), 'refund', this.valueMovement);
+        const refundRail = this.rails.require(row.rail_adapter, 'refund');
+        assertRailMayMoveValue(refundRail, 'refund', this.valueMovement);
+        refuseUnusableRail(refundRail, this.now());
 
         const sequence = await countEvents(tx, row.id, 'refund.posted');
         const refundId = options.refundId ?? `${row.id}:${sequence + 1}`;
@@ -4665,6 +4686,7 @@ export class PayService {
           }
           const adapter = this.rails.require(admission?.rail_id ?? input.railId, 'payout');
           assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
+          refuseUnusableRail(adapter, this.now());
           // Classified before the admission exists. An unrecognised book must
           // refuse without a pending exposure row. A resumed admission already
           // has that row; its book is read below, once, for the plan.

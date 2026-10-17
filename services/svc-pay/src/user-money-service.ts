@@ -19,7 +19,7 @@ import { noteAutoTripAccountError } from './halts/autotrip-log.js';
 import { isRailHealthFailureCode } from './halts/rail-health.js';
 import { payoutRailSourceKey, userHaltKey, type PayHaltStore } from './halts/store.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
-import type { RailResult } from './rails/rail-adapter.js';
+import { railBlockingReason, railReasonCode, type RailResult } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, type ValueMovementPolicy } from './rails/posture.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
@@ -384,6 +384,12 @@ export class UserMoneyService {
     // user has been told `sent`. Refusing at this line means no row exists, no
     // hold was placed, and nothing has to be unwound.
     assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
+    const blocked = railBlockingReason(adapter);
+    if (blocked) {
+      throw new PayError(`Rail "${adapter.id}" is not usable (${blocked}). No value moved.`, 'pay.rail_failed', {
+        failureCode: railReasonCode(blocked),
+      });
+    }
 
     // Same gate as merchant payoutSettlement: crypto must not accept an IBAN
     // (and bank/sandbox must not accept a chain address). BEFORE claim/hold so

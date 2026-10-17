@@ -836,6 +836,13 @@ export interface RailAdapter {
 
   health(): RailHealth;
 
+  /**
+   * Confirm the counterparty is still answering and refresh `lastUpdate`.
+   * A successful probe is what keeps an idle rail usable. Money calls do not
+   * count: they are the traffic a stale rail must not receive.
+   */
+  probe?(): Promise<RailProbeResult>;
+
   authorize(p: PaymentIntent): Promise<RailResult>;
   capture(ref: string): Promise<RailResult>;
   refund(ref: string, amount: Amount, opts?: RailRefundOptions): Promise<RailResult>;
@@ -986,6 +993,100 @@ export function isAbsent(adapter: RailAdapter): boolean {
 export const VALUE_LEAVING_CAPABILITIES: readonly RailCapability[] = ['payout', 'refund'];
 
 /**
+ * How long a rail may go without a successful probe before it is unknown.
+ * Same idea as a stale venue quote (`isRoutable`): lastUpdate is the last
+ * confirmation, not the last payment. Idle is not "up".
+ */
+export const RAIL_HEALTH_MAX_STALENESS_MS = 30_000;
+
+/** No successful probe within {@link RAIL_HEALTH_MAX_STALENESS_MS}. The reason includes `ageMs`. */
+export const RAIL_HEALTH_STALE = 'rail.health_stale';
+/** crypto-native in dev/test with no `PAY_CRYPTO_RPC_URL` (MemoryChain). The rail can still run the fixture. */
+export const RAIL_RPC_UNSET = 'rail.rpc_unset';
+/** card-sandbox is up. It is a mock acquirer, not a live one. */
+export const RAIL_SANDBOX_ONLY = 'rail.sandbox_only';
+/** `setHealthy(false)` or an equivalent operator down. */
+export const RAIL_MARKED_DOWN = 'rail.marked_down';
+/** The last probe threw or the chain did not answer. */
+export const RAIL_PROBE_FAILED = 'rail.probe_failed';
+
+export interface RailProbeResult {
+  readonly ok: boolean;
+  readonly reason?: string;
+}
+
+export function railHealthStaleReason(ageMs: number): string {
+  const age = Number.isFinite(ageMs) ? Math.max(0, Math.trunc(ageMs)) : 0;
+  return `${RAIL_HEALTH_STALE} ageMs=${age}`;
+}
+
+/** The typed code at the front of a health reason. Prose that is not a code becomes `rail.unhealthy`. */
+export function railReasonCode(reason: string): string {
+  const token = reason.trim().split(/\s+/)[0] ?? '';
+  if (/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/.test(token)) return token;
+  return 'rail.unhealthy';
+}
+
+/**
+ * Why this rail must not be offered, or null when it may.
+ *
+ * `health()` and this function agree when `now` is the adapter's clock: a
+ * stale `lastUpdate` is not healthy, and every not-usable state has a reason.
+ * A caller-supplied `now` that is later than the adapter clock is still not
+ * usable (`rail.health_stale`), which is what the conformance kit pins.
+ */
+export function railUnusableReason(
+  adapter: RailAdapter,
+  now: Date = new Date(),
+  maxStalenessMs = RAIL_HEALTH_MAX_STALENESS_MS,
+): string | null {
+  const health = adapter.health();
+  const ageMs = now.getTime() - health.lastUpdate.getTime();
+  if (Number.isFinite(ageMs) && ageMs > maxStalenessMs) return railHealthStaleReason(ageMs);
+  if (!health.healthy) {
+    const reason = health.reason?.trim() ?? '';
+    return reason.length > 0 ? reason : 'rail.unhealthy';
+  }
+  return null;
+}
+
+/**
+ * Reasons that mean "do not send this call". Absent rails keep their own
+ * refusal (`chain.not_configured` / `pay.rail_not_live`); a standing
+ * `rail.rpc_unset` or `rail.sandbox_only` on a fresh sandbox is information,
+ * not a block — dev and CI move fixture value through those rails.
+ */
+const MONEY_BLOCKING_REASONS: ReadonlySet<string> = new Set([RAIL_HEALTH_STALE, RAIL_PROBE_FAILED, RAIL_MARKED_DOWN]);
+
+export function railBlockingReason(
+  adapter: RailAdapter,
+  now: Date = new Date(),
+  maxStalenessMs = RAIL_HEALTH_MAX_STALENESS_MS,
+): string | null {
+  const reason = railUnusableReason(adapter, now, maxStalenessMs);
+  if (!reason) return null;
+  return MONEY_BLOCKING_REASONS.has(railReasonCode(reason)) ? reason : null;
+}
+
+/** A failed rail result when {@link railBlockingReason} is set. Does not touch the rail. */
+export function railRefusalIfBlocking(
+  adapter: RailAdapter,
+  input: { amount: Amount; assetId: string; railRef?: string; at?: Date },
+): RailResult | null {
+  const at = input.at ?? new Date();
+  const reason = railBlockingReason(adapter, at);
+  if (!reason) return null;
+  return railFailure({
+    railRef: input.railRef ?? '',
+    amount: input.amount,
+    assetId: input.assetId,
+    failureCode: railReasonCode(reason),
+    failureReason: reason,
+    at,
+  });
+}
+
+/**
  * A rail is usable only when it is healthy AND its health is fresh.
  *
  * Same failure as a stale venue quote (`isRoutable` in venue-adapter): an
@@ -993,10 +1094,8 @@ export const VALUE_LEAVING_CAPABILITIES: readonly RailCapability[] = ['payout', 
  * is "unknown", and routing traffic to unknown is how a payment sits in
  * `created` while a merchant watches a spinner.
  */
-export function isUsable(adapter: RailAdapter, now: Date = new Date(), maxStalenessMs = 30_000): boolean {
-  const health = adapter.health();
-  if (!health.healthy) return false;
-  return now.getTime() - health.lastUpdate.getTime() <= maxStalenessMs;
+export function isUsable(adapter: RailAdapter, now: Date = new Date(), maxStalenessMs = RAIL_HEALTH_MAX_STALENESS_MS): boolean {
+  return railUnusableReason(adapter, now, maxStalenessMs) === null;
 }
 
 /** A failed result, in one place, so every adapter shapes declines identically. */

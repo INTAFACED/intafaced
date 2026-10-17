@@ -2,6 +2,12 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { ChainNotConfiguredError, type CryptoChainPort } from './chain-port.js';
 import {
   railFailure,
+  railHealthStaleReason,
+  railRefusalIfBlocking,
+  RAIL_HEALTH_MAX_STALENESS_MS,
+  RAIL_MARKED_DOWN,
+  RAIL_PROBE_FAILED,
+  RAIL_RPC_UNSET,
   type PaymentIntent,
   type RailAdapter,
   type RailCapability,
@@ -9,6 +15,7 @@ import {
   type RailHealth,
   type RailMode,
   type PayoutRailStatus,
+  type RailProbeResult,
   type RailResult,
   type RailWebhookRequest,
   type SettlementInstruction,
@@ -109,6 +116,8 @@ export class CryptoNativeAdapter implements RailAdapter {
   private refundSequence = 0;
   private lastContact: Date;
   private up = true;
+  /** Set when the last probe failed. Cleared only by a later successful probe or watcher refresh. */
+  private probeDown: string | null = null;
 
   constructor(private readonly options: CryptoNativeOptions) {
     this.chain = options.chain;
@@ -131,18 +140,58 @@ export class CryptoNativeAdapter implements RailAdapter {
    * `isUsable` is what routing and the operator console read, and a rail whose
    * every call is going to throw must not appear on either as available. A
    * sandbox chain is reported healthy on purpose — it genuinely works, which is
-   * what dev and CI need; `mode` is what stops it moving real money.
+   * what dev and CI need; `mode` is what stops it moving real money. Dev with
+   * no RPC is that sandbox (`MemoryChain`). The standing reason is
+   * `rail.rpc_unset` so the console is not a blank dash. It is not a block.
+   *
+   * `lastUpdate` is the last successful probe (or watcher refresh), not the
+   * last payment. Older than {@link RAIL_HEALTH_MAX_STALENESS_MS} is unknown:
+   * `healthy: false`, reason `rail.health_stale`, and money calls refuse.
    */
   health(): RailHealth {
     if (this.chain.posture === 'absent') {
       return { healthy: false, latencyMs: 0, lastUpdate: this.now(), reason: this.chain.description };
     }
-    return {
-      healthy: this.up,
-      latencyMs: 40,
-      lastUpdate: this.lastContact,
-      reason: this.up ? undefined : 'chain watcher unreachable',
-    };
+    const ageMs = this.now().getTime() - this.lastContact.getTime();
+    if (this.probeDown) {
+      return { healthy: false, latencyMs: 40, lastUpdate: this.lastContact, reason: this.probeDown };
+    }
+    if (ageMs > RAIL_HEALTH_MAX_STALENESS_MS) {
+      return { healthy: false, latencyMs: 40, lastUpdate: this.lastContact, reason: railHealthStaleReason(ageMs) };
+    }
+    if (!this.up) {
+      return { healthy: false, latencyMs: 40, lastUpdate: this.lastContact, reason: RAIL_MARKED_DOWN };
+    }
+    if (this.chain.posture === 'sandbox') {
+      return { healthy: true, latencyMs: 40, lastUpdate: this.lastContact, reason: RAIL_RPC_UNSET };
+    }
+    return { healthy: true, latencyMs: 40, lastUpdate: this.lastContact };
+  }
+
+  /**
+   * Confirm the chain is answering. Success refreshes `lastContact`. Failure
+   * does not: a missed probe ages into `rail.health_stale`, and a thrown ping
+   * is `rail.probe_failed` immediately.
+   */
+  async probe(): Promise<RailProbeResult> {
+    if (this.chain.posture === 'absent') return { ok: false, reason: RAIL_RPC_UNSET };
+    if (!this.up) return { ok: false, reason: RAIL_MARKED_DOWN };
+    try {
+      await this.chain.ping();
+      this.probeDown = null;
+      this.lastContact = this.now();
+      return { ok: true };
+    } catch (err) {
+      this.probeDown = err instanceof ChainNotConfiguredError ? RAIL_RPC_UNSET : RAIL_PROBE_FAILED;
+      return { ok: false, reason: this.probeDown };
+    }
+  }
+
+  /** Live chain watcher, after `refresh()` returned. Not a payment. */
+  noteAlive(): void {
+    if (this.chain.posture === 'absent') return;
+    this.probeDown = null;
+    this.lastContact = this.now();
   }
 
   setHealthy(up: boolean): void {
@@ -154,12 +203,20 @@ export class CryptoNativeAdapter implements RailAdapter {
     this.completedRefundKeys.clear();
     this.refundSequence = 0;
     this.up = true;
+    this.probeDown = null;
     this.lastContact = this.now();
+  }
+
+  /** Refuse a new money call when the rail is stale, down, or the probe failed. Does not refresh contact. */
+  private blockMoney(amount: Amount, assetId: string, railRef = ''): RailResult | null {
+    return railRefusalIfBlocking(this, { amount, assetId, railRef, at: this.now() });
   }
 
   // ── The interface ──────────────────────────────────────────────────────
 
   async authorize(p: PaymentIntent): Promise<RailResult> {
+    const blocked = this.blockMoney(p.amount, p.assetId);
+    if (blocked) return blocked;
     this.lastContact = this.now();
 
     if (p.amount <= 0n) {
@@ -271,6 +328,8 @@ export class CryptoNativeAdapter implements RailAdapter {
   }
 
   async capture(ref: string): Promise<RailResult> {
+    const blocked = this.blockMoney(0n, '', ref);
+    if (blocked) return blocked;
     this.lastContact = this.now();
 
     // Derived from chain state, never from adapter memory — that is what makes
@@ -323,6 +382,8 @@ export class CryptoNativeAdapter implements RailAdapter {
   }
 
   async refund(ref: string, amount: Amount, opts?: { refundId?: string }): Promise<RailResult> {
+    const blocked = this.blockMoney(amount, '', ref);
+    if (blocked) return blocked;
     this.lastContact = this.now();
 
     let transfer: Awaited<ReturnType<CryptoChainPort['inboundTransfer']>>;
@@ -447,6 +508,8 @@ export class CryptoNativeAdapter implements RailAdapter {
   }
 
   async payout(s: SettlementInstruction): Promise<RailResult> {
+    const blocked = this.blockMoney(s.amount, s.assetId);
+    if (blocked) return blocked;
     this.lastContact = this.now();
 
     if (s.amount <= 0n) {
