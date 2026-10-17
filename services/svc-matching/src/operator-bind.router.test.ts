@@ -122,7 +122,10 @@ describe('matching.open binds the approval to operators (#4724)', () => {
   });
 
   it('refuses opening when identity did not attest a founder pair', async () => {
-    const { app, engine } = await prelaunched(identityApproval(OP_A, OP_B, { approverIsFounder: false, requesterIsFounder: false }), OPERATORS);
+    const { app, engine } = await prelaunched(
+      identityApproval(OP_A, OP_B, { approverIsFounder: false, requesterIsFounder: false }),
+      OPERATORS,
+    );
     const res = await post(app, `/markets/${MARKET}/open`, { operatorId: OP_A, ...ids });
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe('action_approval.not_founders');
