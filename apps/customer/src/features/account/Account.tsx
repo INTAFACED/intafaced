@@ -54,7 +54,7 @@ export function Account() {
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
   const identity = useIdentity(api, userId);
   const { timeZone } = usePreferences();
-  // Strategy subaccounts are a hidden feature (feature-registry.ts): the rank and handle stay, the subaccount cards do not.
+  // Strategy subaccounts are a blocked feature (feature-registry.ts): the cards show and refuse honestly; only a row marked hidden would drop them.
   const showSubaccounts = featureById('strategy-subaccounts')?.status !== 'hidden';
   const [limit, setLimit] = useState(50),
     [label, setLabel] = useState(''),

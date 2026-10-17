@@ -10,6 +10,7 @@ import { defineConfig } from 'vitest/config';
 // apply when the variable is not already exported by the caller.
 export default defineConfig({
   test: {
+    setupFiles: ['./vitest.futures-open-fixture.ts'],
     env: {
       INTAFACED_SCREENING_FAIL_CLOSED: 'off',
       DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://svc_trade@127.0.0.1:5432/intafaced_trade_test',
