@@ -244,6 +244,13 @@
       text-align: left !important;
       overflow-wrap: anywhere;
     }
+    /* Notes with an action button (Check what happened, Try again, Dismiss): put the button under the text, not beside a one-word-wide column. */
+    .cb-note {
+      flex-wrap: wrap;
+    }
+    .cb-note > div {
+      flex: 1 1 14rem;
+    }
   }
 
   /*
