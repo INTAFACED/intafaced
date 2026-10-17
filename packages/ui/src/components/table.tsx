@@ -97,6 +97,8 @@ export interface TableProps<Row> {
   /** px. The table body scrolls inside it. */
   maxHeight?: number;
   overscan?: number;
+  /** px or any CSS width. The table never gets narrower than this, so on a narrow screen it scrolls sideways (the pinned first column stays) instead of squeezing every column. */
+  minWidth?: number | string;
   labels?: Partial<TableLabels>;
   className?: string;
 }
@@ -294,6 +296,7 @@ export function Table<Row>({
   virtualize = false,
   maxHeight,
   overscan = 8,
+  minWidth,
   labels: labelOverrides,
   className,
 }: TableProps<Row>) {
@@ -312,6 +315,7 @@ export function Table<Row>({
   const showRows = status === 'ready' && rows.length > 0;
   const windowed = virtualize && showRows;
   const scrollHeight = maxHeight ?? (virtualize ? 480 : undefined);
+  const scrollable = scrollHeight !== undefined || minWidth !== undefined;
   const columnCount = columns.length + (selection === 'multiple' ? 1 : 0);
   const rowIds = React.useMemo(() => rows.map(getRowId), [rows, getRowId]);
 
@@ -370,17 +374,18 @@ export function Table<Row>({
       <div
         ref={attachScroll}
         data-slot="table-scroll"
-        role={scrollHeight ? 'region' : undefined}
-        aria-label={scrollHeight ? label : undefined}
-        tabIndex={scrollHeight && (!interactive || windowed) ? 0 : undefined}
+        role={scrollable ? 'region' : undefined}
+        aria-label={scrollable ? label : undefined}
+        tabIndex={scrollable && (!interactive || windowed) ? 0 : undefined}
         style={scrollHeight ? { maxHeight: scrollHeight } : undefined}
-        className={cn('w-full overflow-x-auto', scrollHeight && 'overflow-y-auto', scrollHeight && (!interactive || windowed) && focusRing)}
+        className={cn('w-full overflow-x-auto', scrollHeight && 'overflow-y-auto', scrollable && (!interactive || windowed) && focusRing)}
       >
         <table
           role={selection !== 'none' || onRowActivate ? 'grid' : undefined}
           aria-multiselectable={selection === 'multiple' ? true : undefined}
           aria-busy={busy || undefined}
           aria-rowcount={windowed ? rows.length + 1 : undefined}
+          style={minWidth === undefined ? undefined : { minWidth }}
           className="w-full table-fixed border-separate border-spacing-0 text-fg"
         >
           <caption className="sr-only">{label}</caption>

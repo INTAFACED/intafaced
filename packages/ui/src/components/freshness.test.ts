@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asOfIso, CLOCK_SKEW_TOLERANCE_MS, formatAsOf, freshnessOf, parseAsOf } from './freshness.js';
+import { asOfIso, CLOCK_SKEW_TOLERANCE_MS, formatAsOf, freshnessOf, msUntilFreshnessChange, parseAsOf } from './freshness.js';
 
 // TEST timestamps, fixed.
 const NOW = Date.UTC(2026, 9, 17, 14, 5, 0); // 2026-10-17 14:05:00 UTC
@@ -97,5 +97,44 @@ describe('parseAsOf rejects times that are not milliseconds', () => {
     expect(parseAsOf('1760000000000')).toBe(1760000000000);
     expect(asOfIso(1760000000000)).toBe('2025-10-09T08:53:20.000Z');
     expect(parseAsOf('2026-10-17T14:05:00Z')).toBe(Date.parse('2026-10-17T14:05:00Z'));
+  });
+});
+
+describe('msUntilFreshnessChange', () => {
+  const base = { now: NOW, staleAfterMs: 5 * MIN };
+  it('a fresh live value turns stale after staleAfterMs - age + 1', () => {
+    const age = 30_000;
+    const wait = msUntilFreshnessChange({ ...base, asOf: NOW - age });
+    expect(wait).toBe(5 * MIN - age + 1);
+    // the answer really flips at that moment, and not one ms before
+    expect(freshnessOf({ ...base, asOf: NOW - age, now: NOW + wait! - 1 })).toBe('live');
+    expect(freshnessOf({ ...base, asOf: NOW - age, now: NOW + wait! })).toBe('stale');
+  });
+  it('a value exactly staleAfterMs old still has 1 ms left', () => {
+    expect(msUntilFreshnessChange({ ...base, asOf: NOW - 5 * MIN })).toBe(1);
+  });
+  it('already stale returns null', () => {
+    expect(msUntilFreshnessChange({ ...base, asOf: NOW - 5 * MIN - 1 })).toBeNull();
+    expect(msUntilFreshnessChange({ ...base, asOf: NOW - 60 * MIN })).toBeNull();
+  });
+  it('refused returns null', () => {
+    expect(msUntilFreshnessChange({ ...base, asOf: NOW, refused: true })).toBeNull();
+  });
+  it('an unusable asOf, staleAfterMs or now returns null', () => {
+    for (const asOf of [null, undefined, '', 'not a date', 0, Number.NaN]) {
+      expect(msUntilFreshnessChange({ ...base, asOf })).toBeNull();
+    }
+    expect(msUntilFreshnessChange({ now: NOW, asOf: NOW, staleAfterMs: null })).toBeNull();
+    expect(msUntilFreshnessChange({ now: NOW, asOf: NOW, staleAfterMs: -1 })).toBeNull();
+    expect(msUntilFreshnessChange({ ...base, asOf: NOW, now: Number.NaN })).toBeNull();
+  });
+  it('asOf 10 s in the future returns the ms until it is within the 5 s tolerance', () => {
+    const wait = msUntilFreshnessChange({ ...base, asOf: NOW + 10_000 });
+    expect(wait).toBe(10_000 - CLOCK_SKEW_TOLERANCE_MS);
+    expect(freshnessOf({ ...base, asOf: NOW + 10_000 })).toBe('unknown');
+    expect(freshnessOf({ ...base, asOf: NOW + 10_000, now: NOW + wait! })).toBe('live');
+  });
+  it('asOf exactly at the tolerance edge is already live, so the next change is going stale', () => {
+    expect(msUntilFreshnessChange({ ...base, asOf: NOW + CLOCK_SKEW_TOLERANCE_MS })).toBe(5 * MIN + CLOCK_SKEW_TOLERANCE_MS + 1);
   });
 });

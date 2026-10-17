@@ -114,4 +114,5 @@ export { Stat, type StatProps, type StatSize } from './stat.js';
 export { KeyValue, type KeyValueProps, type KeyValueItem } from './key-value.js';
 export { Badge, type BadgeProps, type BadgeTone, type BadgeVariant } from './badge.js';
 export { StatusChip, type StatusChipProps } from './status-chip.js';
-export { freshnessOf, formatAsOf, type Freshness, type FreshnessInput } from './freshness.js';
+export { freshnessOf, formatAsOf, msUntilFreshnessChange, type Freshness, type FreshnessInput } from './freshness.js';
+export { useFreshnessClock, type UseFreshnessClockOptions } from './use-freshness-clock.js';

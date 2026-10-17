@@ -38,7 +38,7 @@ function DemoHeader({ density, loading }: { density?: 'dense' | 'comfortable'; l
 
 /** A page at a fixed 1440 px viewport, scaled to fit a frame, so the three widths can be compared. */
 function ScaledPage({ width }: { width: PageWidth }) {
-  const scale = 0.27;
+  const scale = 0.23;
   return (
     <div>
       <Caption>
