@@ -254,6 +254,8 @@ export interface ProbeIds {
   settlementId: string;
   linkId: string;
   endpointId: string;
+  spareEndpointId: string;
+  deliveryId: string;
   /** W15 merchant operations ids. */
   disputeId: string;
   customerRef: string;
@@ -273,6 +275,8 @@ export const idsOfEntity = (e: Entity): ProbeIds => ({
   settlementId: e.settlementId,
   linkId: e.linkId,
   endpointId: e.endpointId,
+  spareEndpointId: e.spareEndpointId,
+  deliveryId: e.deliveryId,
   disputeId: e.disputeId,
   customerRef: e.customerRef,
   exportJobId: e.exportJobId,
@@ -289,6 +293,8 @@ export const ghostIds = (): ProbeIds => ({
   settlementId: ghost(),
   linkId: ghost(),
   endpointId: ghost(),
+  spareEndpointId: ghost(),
+  deliveryId: ghost(),
   disputeId: `dp-${ghost()}`,
   customerRef: `cust-${ghost()}`,
   exportJobId: ghost(),
@@ -636,6 +642,35 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ memberId: i.inviteId }),
   },
   { path: 'merchantOps.team.declineInvite', scope: 'pay:write', own: 'ok', sessionOnly: true, input: (i) => ({ memberId: i.inviteId }) },
+  { path: 'merchantOps.exports.expire', scope: 'pay:write', own: 'ok', input: (i) => ({ jobId: i.exportJobId }) },
+  {
+    path: 'merchantOps.webhooks.update',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ endpointId: i.endpointId, url: `http://localhost:9/hook-updated-${i.endpointId.slice(0, 8)}` }),
+  },
+  {
+    path: 'merchantOps.webhooks.disable',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ endpointId: i.spareEndpointId }),
+  },
+  {
+    path: 'merchantOps.webhooks.rotateSecret',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ endpointId: i.endpointId, requestId: randomUUID() }),
+  },
+  {
+    path: 'merchantOps.webhooks.deliveries.retry',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ deliveryId: i.deliveryId, requestId: randomUUID() }),
+  },
   // W10: while pay.b2b_ramp is off, the owner and a stranger get the same refusal. The flag check runs before any merchant lookup.
   {
     path: 'b2bRamp.status',
@@ -717,7 +752,7 @@ export const LIST_PROCS: ListProc[] = [
   {
     name: 'trpc merchant.listLinks',
     call: { via: 'trpc', path: 'merchant.listLinks', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.linkId],
   },
   {
@@ -729,19 +764,69 @@ export const LIST_PROCS: ListProc[] = [
   {
     name: 'rest GET /v1/payment-links',
     call: { via: 'rest', req: (e) => ({ method: 'GET', url: `/v1/payment-links?merchantId=${e.merchantId}&limit=200` }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.linkId],
   },
   {
     name: 'rest GET /v1/webhook-endpoints',
     call: { via: 'rest', req: (e) => ({ method: 'GET', url: `/v1/webhook-endpoints?merchantId=${e.merchantId}&limit=200` }) },
     rows: arr,
-    expectedIds: (e) => [e.endpointId],
+    expectedIds: (e) => [e.endpointId, e.spareEndpointId],
   },
   {
     name: 'rest GET /v1/webhook-deliveries',
     call: { via: 'rest', req: (e) => ({ method: 'GET', url: `/v1/webhook-deliveries?merchantId=${e.merchantId}&limit=200` }) },
     rows: arr,
+  },
+  {
+    name: 'trpc merchantOps.activity.list',
+    call: { via: 'trpc', path: 'merchantOps.activity.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+  },
+  {
+    name: 'trpc merchantOps.payouts.list',
+    call: { via: 'trpc', path: 'merchantOps.payouts.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.settlementId],
+  },
+  {
+    name: 'trpc merchantOps.webhooks.list',
+    call: { via: 'trpc', path: 'merchantOps.webhooks.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.endpointId, e.spareEndpointId],
+  },
+  {
+    name: 'trpc merchantOps.webhooks.health',
+    call: { via: 'trpc', path: 'merchantOps.webhooks.health', input: () => ({}) },
+    rows: (v) => {
+      const endpoints = (v as { endpoints?: Array<{ endpointId: string }> }).endpoints ?? [];
+      return endpoints.map((row) => ({ id: row.endpointId }));
+    },
+    expectedIds: (e) => [e.endpointId, e.spareEndpointId],
+  },
+  {
+    name: 'trpc merchantOps.webhooks.deliveries.list',
+    call: { via: 'trpc', path: 'merchantOps.webhooks.deliveries.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.deliveryId],
+  },
+  {
+    name: 'trpc merchantOps.exports.list',
+    call: { via: 'trpc', path: 'merchantOps.exports.list', input: () => ({ limit: 200 }) },
+    rows: (v) => pageRows(v).map((r) => ({ ...r, id: String(r.jobId) })),
+    expectedIds: (e) => [e.exportJobId],
+  },
+  {
+    name: 'trpc merchantOps.disputes.list',
+    call: { via: 'trpc', path: 'merchantOps.disputes.list', input: () => ({ limit: 200 }) },
+    rows: (v) => pageRows(v).map((r) => ({ ...r, id: String(r.disputeId) })),
+    expectedIds: (e) => [e.disputeId],
+  },
+  {
+    name: 'trpc merchantControl.approvals.list',
+    call: { via: 'trpc', path: 'merchantControl.approvals.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
+    rows: (v) => pageRows(v).map((r) => ({ ...r, id: String(r.approvalId) })),
+    expectedIds: (e) => [e.approvalId],
   },
 ];
 

@@ -319,17 +319,25 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
              * Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().min(1).max(300).optional(),
+            search: z.string().trim().min(1).max(200).optional(),
+            from: z.string().datetime({ offset: true }).optional(),
+            to: z.string().datetime({ offset: true }).optional(),
           }),
         )
-        .output(z.array(mandateView))
+        .output(z.object({ items: z.array(mandateView), nextCursor: z.string().nullable() }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             await assertPaymentArea(ctx.principal?.userId, input.merchantId);
-            const rows = await subscriptions.listMandates(input.merchantId, {
+            const page = await subscriptions.listMandates(input.merchantId, {
               status: input.status,
+              cursor: input.cursor,
+              search: input.search,
+              from: input.from,
+              to: input.to,
               limit: input.limit,
             });
-            return rows.map(toMandateOut);
+            return { items: page.items.map(toMandateOut), nextCursor: page.nextCursor };
           }),
         ),
 
@@ -522,17 +530,25 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
              * Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().min(1).max(300).optional(),
+            search: z.string().trim().min(1).max(200).optional(),
+            from: z.string().datetime({ offset: true }).optional(),
+            to: z.string().datetime({ offset: true }).optional(),
           }),
         )
-        .output(z.array(subscriptionView))
+        .output(z.object({ items: z.array(subscriptionView), nextCursor: z.string().nullable() }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             await assertPaymentArea(ctx.principal?.userId, input.merchantId);
-            const rows = await subscriptions.listSubscriptions(input.merchantId, {
+            const page = await subscriptions.listSubscriptions(input.merchantId, {
               status: input.status,
               limit: input.limit,
+              cursor: input.cursor,
+              search: input.search,
+              from: input.from,
+              to: input.to,
             });
-            return rows.map(toSubOut);
+            return { items: page.items.map(toSubOut), nextCursor: page.nextCursor };
           }),
         ),
 

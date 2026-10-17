@@ -78,7 +78,16 @@ export interface TeamEventView {
 export class TeamService {
   constructor(private readonly sql: Sql) {}
 
-  async list(caller: MerchantCaller, input: { limit?: number | undefined; cursor?: string; status?: 'active' | 'invited' | 'removed' }) {
+  async list(
+    caller: MerchantCaller,
+    input: {
+      limit?: number | undefined;
+      cursor?: string;
+      status?: 'active' | 'invited' | 'removed';
+      role?: MerchantRole;
+      search?: string;
+    },
+  ) {
     assertPermission(caller, 'team.read');
     const limit = requireLimit(input.limit);
     const after = decodeCursor(input.cursor);
@@ -88,14 +97,21 @@ export class TeamService {
         FROM pay.merchant_team_members m
        WHERE m.merchant_id = ${caller.merchantId}
          ${input.status ? sql`AND m.status = ${input.status}` : sql``}
+         ${input.role && input.role !== 'owner' ? sql`AND m.role = ${input.role}` : sql``}
+         ${input.role === 'owner' ? sql`AND false` : sql``}
+         ${input.search ? sql`AND (m.user_id = ${input.search} OR starts_with(lower(coalesce(m.label, '')), lower(${input.search})))` : sql``}
          ${after ? sql`AND (m.created_at, m.id) < ((${after.ts}::text)::timestamptz, ${after.key}::uuid)` : sql``}
        ORDER BY m.created_at DESC, m.id DESC
        LIMIT ${limit + 1}`;
     const page = toPage(rows, limit, view, (r) => encodeCursor(r.cursor_ts, r.id));
-    // The owner heads the first page only; they are not a row and have no cursor.
-    if (input.cursor === undefined && (input.status === undefined || input.status === 'active')) {
+    const ownerMatches =
+      (input.role === undefined || input.role === 'owner') &&
+      (input.status === undefined || input.status === 'active') &&
+      input.cursor === undefined;
+    if (ownerMatches) {
       const owner = await sql<Array<{ user_id: string; created_at: Date }>>`
         SELECT user_id, created_at FROM pay.merchants WHERE id = ${caller.merchantId}`;
+      if (input.search && owner[0]!.user_id !== input.search) return page;
       page.items.unshift({
         memberId: null,
         userId: owner[0]!.user_id,

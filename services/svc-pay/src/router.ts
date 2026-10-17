@@ -692,28 +692,37 @@ export function createPayRouter(
              * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().min(1).max(300).optional(),
+            search: z.string().trim().min(1).max(200).optional(),
+            assetId: z.string().trim().min(1).max(16).optional(),
+            from: z.string().datetime({ offset: true }).optional(),
+            to: z.string().datetime({ offset: true }).optional(),
+            active: z.boolean().optional(),
           }),
         )
         .output(
-          z.array(
-            z.object({
-              id: z.string().uuid(),
-              prefix: z.string(),
-              label: z.string(),
-              amount: amountSchema.nullable(),
-              currency: z.string().nullable(),
-              active: z.boolean(),
-              expiresAt: z.string().nullable(),
-              maxUses: z.number().int().nullable(),
-              uses: z.number().int(),
-              createdAt: z.string(),
-            }),
-          ),
+          z.object({
+            items: z.array(
+              z.object({
+                id: z.string().uuid(),
+                prefix: z.string(),
+                label: z.string(),
+                amount: amountSchema.nullable(),
+                currency: z.string().nullable(),
+                active: z.boolean(),
+                expiresAt: z.string().nullable(),
+                maxUses: z.number().int().nullable(),
+                uses: z.number().int(),
+                createdAt: z.string(),
+              }),
+            ),
+            nextCursor: z.string().nullable(),
+          }),
         )
         .query(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.listLinks');
-            return pay.listPaymentLinks(input.merchantId, input.limit);
+            return pay.listPaymentLinks(input.merchantId, input);
           }),
         ),
 

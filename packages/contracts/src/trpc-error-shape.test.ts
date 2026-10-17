@@ -53,6 +53,22 @@ describe('errorFormatter retryAfterSeconds', () => {
     expect(data).not.toHaveProperty('retryAfterSeconds');
   });
 
+  it('puts a non-empty request id on the error the client can show', async () => {
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/lockedOut'),
+      router: app,
+      createContext: () => ({ requestId: 'req-portal-1' }) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.requestId).toBe('req-portal-1');
+  });
+
+  it('omits requestId when the context has none', async () => {
+    const data = await wireData('lockedOut');
+    expect(data).not.toHaveProperty('requestId');
+  });
+
   it('ignores junk values', () => {
     expect(retryAfterSecondsOf(new FakeAuthError('auth.too_many_attempts', { retryAfterSeconds: Number.NaN }))).toBeUndefined();
     expect(retryAfterSecondsOf(new FakeAuthError('auth.too_many_attempts', { retryAfterSeconds: -3 }))).toBeUndefined();

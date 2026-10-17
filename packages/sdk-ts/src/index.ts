@@ -33,6 +33,7 @@ export {
   type PayPaymentPage,
   type PayPaymentStatus,
 } from './payments-page.js';
+export { paymentLinkPageFromResponse, parsePaymentLinkPage, type PayPaymentLink, type PayPaymentLinkPage } from './payment-links-page.js';
 
 export function createPayClient(options: PayClientOptions): PayClient & PayOperations {
   const client = new PayClient(options);
