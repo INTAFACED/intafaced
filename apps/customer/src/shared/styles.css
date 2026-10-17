@@ -28,75 +28,76 @@
   font-size: 14px;
   line-height: 1.5;
 }
-* {
+:where(.legacy-room),
+:where(.legacy-room) * {
   box-sizing: border-box;
 }
 body {
   margin: 0;
   min-width: 320px;
 }
-button,
-input,
-select,
-textarea {
+:where(.legacy-room) button,
+:where(.legacy-room) input,
+:where(.legacy-room) select,
+:where(.legacy-room) textarea {
   font: inherit;
 }
-button,
-a,
-input,
-select,
-textarea {
+:where(.legacy-room) button,
+:where(.legacy-room) a,
+:where(.legacy-room) input,
+:where(.legacy-room) select,
+:where(.legacy-room) textarea {
   -webkit-tap-highlight-color: transparent;
 }
-button,
-select {
+:where(.legacy-room) button,
+:where(.legacy-room) select {
   cursor: pointer;
 }
-button:disabled {
+:where(.legacy-room) button:disabled {
   cursor: not-allowed;
 }
-button {
+:where(.legacy-room) button {
   color: inherit;
 }
-a {
+:where(.legacy-room) a {
   color: inherit;
   text-decoration: none;
 }
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-[tabindex]:focus-visible {
+:where(.legacy-room) button:focus-visible,
+:where(.legacy-room) a:focus-visible,
+:where(.legacy-room) input:focus-visible,
+:where(.legacy-room) select:focus-visible,
+:where(.legacy-room) textarea:focus-visible,
+:where(.legacy-room) [tabindex]:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 3px;
 }
-button:disabled {
+:where(.legacy-room) button:disabled {
   opacity: 0.48;
 }
-h1,
-h2,
-h3,
-p {
+:where(.legacy-room) h1,
+:where(.legacy-room) h2,
+:where(.legacy-room) h3,
+:where(.legacy-room) p {
   margin: 0;
 }
-h1 {
+:where(.legacy-room) h1 {
   font-size: 32px;
   line-height: 40px;
   letter-spacing: -0.035em;
   font-weight: 500;
 }
-h2 {
+:where(.legacy-room) h2 {
   font-size: 20px;
   line-height: 28px;
   font-weight: 500;
   letter-spacing: -0.02em;
 }
-h3 {
+:where(.legacy-room) h3 {
   font-size: 16px;
   font-weight: 500;
 }
-small {
+:where(.legacy-room) small {
   font-size: 12px;
 }
 .muted,
@@ -194,8 +195,8 @@ html[data-theme='light'] .button--danger {
   color: var(--color-muted);
 }
 .field input,
-select,
-textarea {
+:where(.legacy-room) select,
+:where(.legacy-room) textarea {
   width: 100%;
   min-height: 46px;
   color: var(--color-text);
@@ -205,7 +206,7 @@ textarea {
   padding: 11px 12px;
 }
 .field input::placeholder,
-textarea::placeholder {
+:where(.legacy-room) textarea::placeholder {
   color: var(--color-mix-secondary);
 }
 .field input[aria-invalid='true'] {
@@ -392,34 +393,34 @@ textarea::placeholder {
   overflow: auto;
   max-width: 100%;
 }
-table {
+:where(.legacy-room) table {
   border-collapse: collapse;
   width: 100%;
   text-align: left;
 }
-th {
+:where(.legacy-room) th {
   font-size: 12px;
   font-weight: 400;
   color: var(--color-muted);
   padding: 12px 16px;
   white-space: nowrap;
 }
-td {
+:where(.legacy-room) td {
   padding: 16px;
   border-top: 1px solid var(--color-divider);
   vertical-align: middle;
 }
-th:first-child,
-td:first-child {
+:where(.legacy-room) th:first-child,
+:where(.legacy-room) td:first-child {
   padding-left: 0;
 }
-th:last-child,
-td:last-child {
+:where(.legacy-room) th:last-child,
+:where(.legacy-room) td:last-child {
   padding-right: 0;
   text-align: right;
 }
-td.numeric,
-th.numeric {
+:where(.legacy-room) td.numeric,
+:where(.legacy-room) th.numeric {
   text-align: right;
 }
 .dialog {
@@ -508,176 +509,6 @@ th.numeric {
 .skip-link:focus {
   top: 12px;
 }
-.app-shell {
-  min-height: 100dvh;
-  display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
-}
-.rail {
-  background: var(--color-shell);
-  border-right: 1px solid var(--color-divider);
-  padding: 28px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 38px;
-  position: sticky;
-  top: 0;
-  height: 100dvh;
-}
-.brand {
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: -0.05em;
-  white-space: nowrap;
-}
-.brand span {
-  color: var(--color-accent);
-}
-.door-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.door-nav a {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-height: 52px;
-  padding: 12px 14px;
-  border-radius: 8px;
-  font-size: 16px;
-  color: var(--color-muted);
-}
-.door-nav a[aria-current='page'] {
-  background: var(--color-selected);
-  color: var(--color-accent);
-}
-.door-nav a:hover {
-  color: var(--color-text);
-}
-.rail-footer {
-  margin-top: auto;
-  color: var(--color-muted);
-  font-size: 12px;
-}
-.workspace {
-  min-width: 0;
-}
-.topbar {
-  height: 76px;
-  padding: 0 32px;
-  border-bottom: 1px solid var(--color-divider);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-}
-.mobile-brand {
-  display: none;
-}
-.search-trigger {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  width: min(432px, 45vw);
-  height: 44px;
-  padding: 10px 16px;
-  color: var(--color-muted);
-  background: var(--color-shell);
-  border: 1px solid var(--color-search-border);
-  border-radius: 8px;
-  text-align: left;
-}
-.search-trigger kbd {
-  margin-left: auto;
-  font-size: 11px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: 1px 5px;
-}
-.account-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.account-controls .button {
-  min-height: 40px;
-  padding: 8px 10px;
-}
-.person-trigger {
-  border: 1px solid var(--color-muted);
-  border-radius: 50%;
-  background: var(--color-shell);
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-}
-.search-results {
-  display: flex;
-  flex-direction: column;
-  margin-top: 20px;
-}
-.search-results a {
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-  border-radius: 6px;
-}
-.search-results a:hover {
-  background: var(--color-selected);
-}
-.search-results a small {
-  color: var(--color-muted);
-}
-.mobile-doors {
-  display: none;
-}
-.trade-shell {
-  display: block;
-}
-.trade-shell .rail {
-  display: none;
-}
-.trade-shell .topbar {
-  height: 48px;
-  padding-inline: 20px;
-  gap: 16px;
-}
-.trade-top-nav {
-  display: flex;
-  align-items: center;
-  gap: 32px;
-}
-.trade-top-nav nav {
-  display: flex;
-  gap: 24px;
-  height: 48px;
-}
-.trade-top-nav nav a {
-  display: flex;
-  align-items: center;
-  border-bottom: 2px solid transparent;
-  color: var(--color-muted);
-}
-.trade-top-nav nav a[aria-current='page'] {
-  color: var(--color-text);
-  border-bottom-color: var(--color-accent);
-}
-.trade-shell .search-trigger {
-  height: 32px;
-  width: 310px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-.trade-shell .person-trigger {
-  width: 32px;
-  height: 32px;
-}
-.trade-shell .account-controls .button {
-  min-height: 32px;
-  font-size: 12px;
-}
 @media (min-width: 1600px) {
   .page {
     padding-inline: 72px;
@@ -691,67 +522,12 @@ th.numeric {
     gap: 24px;
     grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
   }
-  .trade-shell .search-trigger {
-    width: 180px;
-  }
 }
 @media (max-width: 800px) {
-  .app-shell {
-    display: block;
-    padding-bottom: 80px;
-  }
-  .rail {
-    display: none;
-  }
-  .topbar {
-    height: 64px;
-    padding-inline: 20px;
-    gap: 12px;
-  }
-  .search-trigger {
-    width: 44px;
-    justify-content: center;
-    padding: 0;
-    border: none;
-    background: transparent;
-  }
-  .search-trigger span,
-  .search-trigger kbd {
-    display: none;
-  }
-  .mobile-brand {
-    margin-right: auto;
-  }
-  .account-controls {
-    gap: 4px;
-  }
-  .mobile-doors {
-    display: flex;
-    position: fixed;
-    inset: auto 0 0;
-    z-index: 20;
-    background: var(--color-shell);
-    border-top: 1px solid var(--color-divider);
-    padding: 8px 8px max(8px, env(safe-area-inset-bottom));
-  }
-  .mobile-doors a {
-    flex: 1;
-    min-height: 52px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    color: var(--color-muted);
-    font-size: 11px;
-  }
-  .mobile-doors a[aria-current='page'] {
-    color: var(--color-accent);
-  }
   .page {
     padding: 28px 20px 36px;
   }
-  h1 {
+  :where(.legacy-room) h1 {
     font-size: 28px;
     line-height: 36px;
   }
@@ -771,21 +547,6 @@ th.numeric {
   .stat > strong {
     font-size: 26px;
   }
-  .trade-top-nav {
-    gap: 12px;
-  }
-  .trade-top-nav nav {
-    display: none;
-  }
-  .trade-shell .topbar {
-    height: 56px;
-  }
-  .trade-shell .search-trigger {
-    width: 32px;
-  }
-  .trade-shell .account-controls .button {
-    font-size: 12px;
-  }
   .if-panel__header,
   .if-panel__body {
     padding: 20px;
@@ -795,24 +556,11 @@ th.numeric {
   .page {
     padding-inline: 16px;
   }
-  .topbar {
-    padding-inline: 16px;
-  }
-  .trade-shell .topbar {
-    padding-inline: var(--spacing-12);
-    gap: var(--spacing-4);
-  }
-  .trade-shell .search-trigger {
-    flex-shrink: 0;
-  }
   .form-row {
     grid-template-columns: 1fr;
   }
   .stat-row {
     gap: 16px;
-  }
-  .brand {
-    font-size: 17px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

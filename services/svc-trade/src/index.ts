@@ -9,6 +9,7 @@ import { assertNoLocalTestFixtures } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { createMatchingClient } from './spot/matching-client.js';
+import { createTickerStatsReader } from './spot/ticker-stats.js';
 import { createRankPerksClient } from './spot/rank-perks.js';
 import { createAffiliateAccrueClient } from './spot/affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './spot/affiliate-payout.js';
@@ -81,6 +82,7 @@ import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
+import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
 import { startAlgoJobs } from './algo/algo-jobs.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
 import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
@@ -98,6 +100,7 @@ import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
+import { logTrpcServerFault } from './trpc-error-log.js';
 
 registerProcessHooks(
   startTelemetry({
@@ -154,6 +157,8 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['trade'],
 });
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
+const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+retainRawBody(app);
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
   accountAdmission: tradingControls,
   marketLifecycle,
@@ -173,6 +178,8 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   affiliateAccrue,
   affiliatePayout,
   dropCopyIngest,
+  holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
+  onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
 const subscriptions = await subscribeMatchingEvents(bus, trade);
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
@@ -287,8 +294,6 @@ const copy = new CopyService(ledger, {
 export const appRouter = createTradeRouter(trade, otc, copy, tradingControls);
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
-const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
-retainRawBody(app);
 if (venueBookPort && venuePublicAdapter) {
   for (const symbol of venueStreamSymbols) {
     const book = new MaintainedBook(venuePublicAdapter, symbol);
@@ -352,6 +357,9 @@ const positions = new PositionService(sql, ledger, {
   profitSource,
   bus,
   maxLeverage,
+  // The same ladder the liquidation tick rates against: a withdrawal is refused when the ladder
+  // would liquidate what is left. `policy` is unset until the owner publishes the D3 table.
+  ladder: futuresJobs.ladderGate,
   assertAdlDisclosureAcked: async (userId) => {
     try {
       await assertAdlDisclosureAcked(adlDisclosureAcks, userId);
@@ -442,6 +450,27 @@ const optionsExerciseJobs = startOptionsExerciseJobs({
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'options exercise job tick failed'),
 });
+const holdUnknownSweep = startHoldUnknownSweepJobs({
+  trade,
+  config: {
+    enabled: env.TRADE_HOLD_UNKNOWN_SWEEP_ENABLED,
+    intervalMs: env.TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS,
+  },
+  onError: (name, err) => app.log.error({ err, job: name }, 'hold-unknown sweep tick failed'),
+  onResult: (r) => {
+    if (r.alerts.length === 0) return;
+    app.log.error(
+      {
+        examined: r.examined,
+        booked: r.booked,
+        absent: r.absent,
+        stillUnknown: r.stillUnknown,
+        alerts: r.alerts,
+      },
+      'hold-unknown sweep — order.hold reply was lost',
+    );
+  },
+});
 const reconcileJobs = startEngineLedgerReconcileJobs({
   sql,
   ledger,
@@ -513,6 +542,7 @@ registerPublicRest(app, {
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
+  tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   fundingRateForMarket: async (marketId, _symbol) => {
     const entry = futuresJobs.getPublishedRate(marketId);
@@ -750,7 +780,8 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+    createContext: ({ req }) => edgeContext(req),
+    onError: ({ path, type, error }) => logTrpcServerFault(app.log, { path, type, error }),
   } satisfies FastifyTRPCPluginOptions<TradeRouter>['trpcOptions'],
 });
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
@@ -772,6 +803,8 @@ app.log.info(
     optionsJobs: optionsExerciseJobs.host.list(),
     reconcileJobsEnabled: env.TRADE_RECONCILE_JOBS_ENABLED,
     reconcileJobs: reconcileJobs.host.list(),
+    holdUnknownSweepEnabled: env.TRADE_HOLD_UNKNOWN_SWEEP_ENABLED,
+    holdUnknownSweep: holdUnknownSweep.host.list(),
     trpc: true,
   },
   'svc-trade ready',
@@ -785,6 +818,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       algoJobs.stop();
       optionsExerciseJobs.stop();
       reconcileJobs.stop();
+      holdUnknownSweep.stop();
       await Promise.all([...venueMaintainedBooks.values()].map((b) => b.close()));
       await app.close();
       for (const subscription of subscriptions) await subscription.unsubscribe();

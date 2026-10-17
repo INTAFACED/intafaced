@@ -13,6 +13,7 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
+import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { assertCardAuthorizationsListLimit, assertCardsListLimit } from '../owner-list-limit.js';
 import type { MarkQuality, PriceSource } from '../loans/prices.js';
 import { withMoneySpan } from '../tracing.js';
@@ -1408,9 +1409,10 @@ export class CardService {
 
     // THE LEDGER KEY IS THE AUTHORISATION, NOT THE AMOUNT.
     //
-    // `post()` returns the existing transaction for a reused business key and
-    // never compares the body against it, which is correct for a re-drive and
-    // wrong for a disagreement. Without this check a second caller arriving at
+    // `post()` returns the existing transaction for a reused business key; in the ledger's
+    // `detect` mode it still does not refuse a different body (it logs
+    // `ledger.idempotency_mismatch`), which is correct for a re-drive and wrong for a
+    // disagreement. Without this check a second caller arriving at
     // the same sequence with a DIFFERENT amount is handed the first caller's
     // transaction and believes its own number: it reports a capture at a value
     // the ledger never saw, computes its remainder from that value — so the
@@ -1448,13 +1450,20 @@ export class CardService {
     try {
       posted = await input.post();
     } catch (err) {
-      await this.sql`
-        UPDATE bank.card_settlements
-           SET status = 'rejected',
-               rejection_code = ${err instanceof LedgerError ? err.code : 'bank.post_failed'},
-               ledger_tx_id = NULL
-         WHERE id = ${claim.id}
-      `;
+      // Only a definite ledger refusal proves nothing committed under this key.
+      // Anything else (a transport error, a 5xx, an untyped body) can follow a
+      // commit whose reply was lost: the row stays `pending` and a retry
+      // re-drives the same key. A durable `rejected` for a committed capture
+      // would let the same authorisation settle twice.
+      if (isDefiniteLedgerRefusal(err)) {
+        await this.sql`
+          UPDATE bank.card_settlements
+             SET status = 'rejected',
+                 rejection_code = ${(err as LedgerError).code},
+                 ledger_tx_id = NULL
+           WHERE id = ${claim.id}
+        `;
+      }
       throw err;
     }
 

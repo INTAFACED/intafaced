@@ -283,8 +283,15 @@ export function serviceAuthHeadersForBody(
  * The last must not be confused with "no body": "no body" verifies against the
  * empty digest, whereas "we did not look" has to fail closed under `require`.
  * See `raw-body.ts`.
+ *
+ * `unread: true` narrows the last state: retention IS installed on this instance
+ * but the request announced a body (content-length, transfer-encoding) that no
+ * parser kept — e.g. a `text/plain` POST, or a tRPC POST whose adapter parser
+ * replaced the retaining one. We positively know a body exists and cannot digest
+ * it, so an authentic v2 signature (which may well be the digest of the EMPTY
+ * body, replayed) is refused in BOTH modes rather than waved through.
  */
-export type ServiceRawBody = { retained: true; bytes: Buffer } | { retained: false };
+export type ServiceRawBody = { retained: true; bytes: Buffer } | { retained: false; unread?: true };
 
 export interface ServiceVerifyOptions {
   /**
@@ -394,6 +401,12 @@ export function verifyServiceCall(
   }
 
   if (!rawBody.retained) {
+    // A body was announced on an instance that retains bodies, and nobody kept
+    // it. The digest header is authentic but may be the digest of the empty body
+    // replayed against this one (captured from any bodyless call). Never
+    // accepted, whatever the mode: honest v2 callers sign their real bytes and
+    // would have mismatched the empty digest anyway, so refusing costs nothing.
+    if (rawBody.unread) return reject('body-unavailable');
     // The signature proves the digest header is authentic, so nothing was
     // tampered with in transit — but without the bytes we cannot prove the body
     // MATCHES that digest. Under `require` that is a deployment fault in this

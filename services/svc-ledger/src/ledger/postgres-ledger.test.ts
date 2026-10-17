@@ -17,6 +17,7 @@ import {
 import { PostgresLedger } from './postgres-ledger.js';
 import { HistoryTooLargeError } from './history.js';
 import { reconcileBalances, verifyChain, totalsByAsset, runReconciliation } from './reconcile.js';
+import { truncateBook, withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 
 /**
  * svc-ledger runs the SAME conformance suite as the in-memory reference
@@ -104,9 +105,7 @@ describe('PostgresLedger', () => {
    * *this* suite's schema via search_path.
    */
   const reset = async () => {
-    await db!.sql`
-      TRUNCATE ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE
-    `;
+    await truncateBook(db!.sql, 'ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE');
     await db!.sql`UPDATE chain_tip SET hash = NULL, seq = 0 WHERE id = true`;
   };
 
@@ -250,10 +249,14 @@ describe('PostgresLedger', () => {
       expect(await verifyChain(db!.sql)).toMatchObject({ ok: true });
 
       // Someone with database access inflates an entry.
-      await db!.sql`
-        UPDATE ledger_entries SET amount = 999999
-         WHERE id = (SELECT MIN(id) FROM ledger_entries)
-      `;
+      // 0023 makes this UPDATE a refusal on its own, so the tamper goes through
+      // the break-glass path (guards off, then restored) to prove detection still works.
+      await withJournalGuardsOff(db!.sql, ['update'], async () => {
+        await db!.sql`
+          UPDATE ledger_entries SET amount = 999999
+           WHERE id = (SELECT MIN(id) FROM ledger_entries)
+        `;
+      });
 
       const result = await verifyChain(db!.sql);
       expect(result.ok).toBe(false);
@@ -338,6 +341,53 @@ describe('PostgresLedger', () => {
       // The chain must still be intact: concurrency must not fork it.
       expect(await verifyChain(db!.sql)).toMatchObject({ ok: true });
     }, 60_000);
+
+    /**
+     * Rows booked before migration 0021 have no stored request digest, and the
+     * claim table is append-only, so they cannot be backfilled. For those the
+     * engine keeps the old answer (the original transaction) rather than refusing
+     * every legacy retry. A row WITH a digest refuses a different body (conformance).
+     */
+    it('keeps answering a legacy claim (no stored digest) with the original, and stores a digest for new posts', async () => {
+      await reset();
+      const first = await engine.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('7'), rail: 'test', railRef: 'legacy-claim' }),
+      );
+      const [stored] = await db!.sql<Array<{ request_fingerprint: string | null }>>`
+        SELECT request_fingerprint FROM ledger_posted_keys WHERE tx_id = ${first.id}
+      `;
+      expect(stored?.request_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+
+      await db!.sql`ALTER TABLE ledger_posted_keys DISABLE TRIGGER ledger_posted_keys_immutable`;
+      try {
+        await db!.sql`UPDATE ledger_posted_keys SET request_fingerprint = NULL WHERE tx_id = ${first.id}`;
+      } finally {
+        await db!.sql`ALTER TABLE ledger_posted_keys ENABLE TRIGGER ledger_posted_keys_immutable`;
+      }
+      const other = recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('70'), rail: 'test', railRef: 'legacy-claim' });
+      expect((await engine.post(other)).id).toBe(first.id);
+    });
+
+    /**
+     * Rollout mode. Several jobs rebuild their body from live state when re-run under the same key, so the service ships in
+     * `detect`: the original is returned (as before) and the mismatch is reported, until those call sites are fixed.
+     */
+    it('detect mode answers a different body with the original transaction and reports it', async () => {
+      await reset();
+      const seen: Array<{ idempotencyKey: string; module: string; reason: string }> = [];
+      const detecting = new PostgresLedger(db!.sql, { idempotencyConflict: 'detect', onIdempotencyMismatch: (i) => seen.push(i) });
+      const first = await detecting.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('7'), rail: 'test', railRef: 'detect-mode' }),
+      );
+      const other = recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('70'), rail: 'test', railRef: 'detect-mode' });
+      expect((await detecting.post(other)).id).toBe(first.id);
+      expect(seen).toEqual([{ idempotencyKey: first.idempotencyKey, module: other.module, reason: other.reason }]);
+      // The same body is a plain retry: nothing reported.
+      await detecting.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('7'), rail: 'test', railRef: 'detect-mode' }));
+      expect(seen).toHaveLength(1);
+      // The default engine (the spec) refuses.
+      await expect(engine.post(other)).rejects.toMatchObject({ code: 'ledger.idempotency_conflict' });
+    });
 
     /**
      * journal() is the replay source: every transaction, in commit order.

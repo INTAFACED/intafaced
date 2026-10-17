@@ -1,3 +1,4 @@
+import { Wordmark } from '@intafaced/ui';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { Invitation } from './Invitation';
@@ -6,11 +7,14 @@ import { findRoom, roomTitle } from '../../app/navigation';
 import { publicAuthContext, publicAuthHref } from './auth-context';
 import './public.css';
 import { publicCopy } from './public-copy';
+import { PasswordRecovery } from './PasswordRecovery';
+import { AboutPage, AppPage, CampaignsOverview, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
+import { pagesCopy } from './public-pages-copy';
 
 function Brand() {
   return (
     <a href="/" className="brand">
-      intafaced<span aria-hidden="true">·</span>
+      <Wordmark />
     </a>
   );
 }
@@ -41,6 +45,22 @@ export function PublicRoutes({ path }: { path: string }) {
           <Invitation />
         ) : path === '/help' || path === '/helpdetail' ? (
           <Help />
+        ) : path === '/findPwd' ? (
+          <PasswordRecovery />
+        ) : path === '/about-us' ? (
+          <AboutPage />
+        ) : path === '/partner' ? (
+          <PartnerPage />
+        ) : path === '/notice' || path === '/announcement' ? (
+          <NoticePage />
+        ) : path.startsWith('/notice/') || path.startsWith('/announcement/') ? (
+          <NoticePage detail />
+        ) : path === '/app' ? (
+          <AppPage />
+        ) : path === '/lab' ? (
+          <CampaignsOverview />
+        ) : path.startsWith('/lab/detail/') ? (
+          <CampaignsOverview detail />
         ) : (
           <PublicInformation path={path} />
         )}
@@ -59,6 +79,7 @@ export function PublicRoutes({ path }: { path: string }) {
 }
 function Home() {
   const { t } = publicCopy.useCopy();
+  const pages = pagesCopy.useCopy();
   return (
     <>
       <section className="home-hero">
@@ -153,101 +174,21 @@ function Home() {
           </article>
         </div>
       </section>
+      <section className="pub-inside" aria-labelledby="home-inside">
+        <h2 id="home-inside">{pages.t('insideTitle')}</h2>
+        <p className="muted">{pages.t('insideIntro')}</p>
+        <RoomDirectory />
+      </section>
     </>
   );
 }
+/** Any public address that has no page of its own. */
 function PublicInformation({ path }: { path: string }) {
   const { t, requestedLocale } = publicCopy.useCopy();
   const room = findRoom(path);
-  if (path === '/about-us')
-    return (
-      <Page
-        title={t('A connected view of your money.')}
-        description={t('Intafaced brings money, trading, payments and product tools into one account.')}
-      >
-        <div className="public-prose">
-          <h2>{t('Four doors. One account.')}</h2>
-          <p>
-            {t(
-              'Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context. More brings together learning, research and the rest of the product.',
-            )}
-          </p>
-          <h2>{t('Clear information comes first.')}</h2>
-          <p>
-            {t(
-              'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.',
-            )}
-          </p>
-          <a className="text-link" href="/register">
-            {t('Create an account ↗')}
-          </a>
-        </div>
-      </Page>
-    );
-  const details: Record<string, { title: string; body: string; action?: string }> = {
-    '/findPwd': {
-      title: t('Password recovery is not connected'),
-      body: t(
-        'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.',
-      ),
-      action: t('Contact support'),
-    },
-    '/notice': {
-      title: t('No public announcements service is connected'),
-      body: t('Account notifications belong to your private inbox. They are not public announcements.'),
-      action: t('Open account inbox'),
-    },
-    '/app': {
-      title: t('Mobile download links are not published'),
-      body: t('No verified App Store or Google Play release has been provided. You can use the responsive web app on your phone.'),
-      action: t('Open the web app'),
-    },
-    '/partner': {
-      title: t('Partner intake is not connected'),
-      body: t('A published partner contact or intake form is not available. This screen does not submit an application.'),
-      action: t('Contact support'),
-    },
-    '/lab': {
-      title: t('Campaign catalogue is not connected'),
-      body: t('No public campaign contract or published campaign list is available. There are no invented promotions here.'),
-    },
-    '/invite': {
-      title: t('Invite from your account'),
-      body: t(
-        'Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools.',
-      ),
-      action: t('Open invitations'),
-    },
-  };
-  const info =
-    details[path] ??
-    (path.startsWith('/notice/') || path.startsWith('/announcement/')
-      ? details['/notice']
-      : path.startsWith('/lab/detail/')
-        ? details['/lab']
-        : undefined);
-  const href =
-    path === '/notice' || path.startsWith('/notice/')
-      ? '/notifications'
-      : path === '/app'
-        ? '/money'
-        : path === '/invite'
-          ? '/uc/promotion'
-          : '/support';
   return (
     <Page title={room ? roomTitle(room, requestedLocale) : t('Page unavailable')}>
-      <EmptyState
-        title={info?.title ?? t('This page is not published')}
-        action={
-          info?.action ? (
-            <a className="text-link" href={href}>
-              {info.action} ↗
-            </a>
-          ) : undefined
-        }
-      >
-        {info?.body ?? t('There is no published content available for this address.')}
-      </EmptyState>
+      <EmptyState title={t('This page is not published')}>{t('There is no published content available for this address.')}</EmptyState>
     </Page>
   );
 }

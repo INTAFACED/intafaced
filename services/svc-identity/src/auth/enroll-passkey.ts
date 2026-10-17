@@ -10,7 +10,9 @@ import {
   type PublicKeyCredentialCreationOptionsJSON,
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
+import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
+import { checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { SqlChallengeStore, type ChallengeStorePort } from './webauthn.js';
 
 export class EnrollPasskeyError extends Error {
@@ -158,6 +160,7 @@ export async function enrollPasskey(
   rp: PasskeyRp,
   response: RegistrationResponseJSON,
   challenges: ChallengeStorePort,
+  actor: FactorActor,
   ceremony: PasskeyCeremony = defaultCeremony,
 ): Promise<{ credentialId: string }> {
   const { rpId, origins } = requireRp(rp);
@@ -199,15 +202,28 @@ export async function enrollPasskey(
     transports: cred.transports,
     createdAt: new Date().toISOString(),
   };
-  const existing = asCreds(user.webauthn_creds);
-  if (existing.some((c) => c.credentialId === stored.credentialId)) {
-    throw new EnrollPasskeyError('That authenticator is already registered', 'auth.webauthn_invalid');
-  }
-  const next = [...existing, stored];
-  await sql`
-    UPDATE users
-       SET webauthn_creds = ${sql.json(next as never)}, updated_at = now()
-     WHERE id = ${userId}
-  `;
+  // The ceremony above is pure crypto, so it runs before the lock. Re-read the
+  // list under a row lock: a racing enrol, login counter write or unenrol that
+  // committed since the first read is merged, never overwritten, and a removed
+  // passkey cannot be written back. The add-a-factor gate runs here too, on the
+  // locked row: the router's unlocked check is only a fast refusal, and two
+  // parallel password-only first-factor enrolments would otherwise both pass it.
+  await transaction(sql, async (tx) => {
+    const locked = await tx<Array<{ totp_secret: string | null; webauthn_creds: unknown }>>`
+      SELECT totp_secret, webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE
+    `;
+    if (!locked[0]) throw new EnrollPasskeyError('User not found', 'auth.not_found');
+    checkMayAddFactor(locked[0], actor);
+    const existing = asCreds(locked[0].webauthn_creds);
+    if (existing.some((c) => c.credentialId === stored.credentialId)) {
+      throw new EnrollPasskeyError('That authenticator is already registered', 'auth.webauthn_invalid');
+    }
+    const next = [...existing, stored];
+    await tx`
+      UPDATE users
+         SET webauthn_creds = ${tx.json(next as never)}, updated_at = now()
+       WHERE id = ${userId}
+    `;
+  });
   return { credentialId: stored.credentialId };
 }

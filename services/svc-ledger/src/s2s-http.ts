@@ -17,12 +17,13 @@ import {
   UnbalancedTransactionError,
   InvalidEntryError,
   type EntryInput,
+  type LedgerTx,
 } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import { composePortfolioView } from '@intafaced/portfolio-view';
 import { handleCustody } from './ledger/custody-adapters.js';
 import { handleFinanceClose } from './ledger/finance-close.js';
-import { parseHistoryDoorInput, parseHistoryRange } from './ledger/history.js';
+import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { handleReportExport } from './ledger/report-export.js';
 import { handleResilience } from './ledger/resilience-gate.js';
 import { handleStatementPnlHappyOrRefuse } from './ledger/statement-pnl-reproduce.js';
@@ -68,6 +69,11 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
   if (err instanceof LedgerError && err.code === 'ledger.unauthenticated') {
     return { status: 401, body: { message: err.message, code: err.code } };
   }
+  // 409: the key is taken by a different movement. Retrying unchanged is guaranteed
+  // useless and the caller must NOT record success; a new key is a new movement.
+  if (err instanceof LedgerError && err.code === 'ledger.idempotency_conflict') {
+    return { status: 409, body: { message: err.message, code: err.code } };
+  }
   if (err instanceof LedgerError && err.code === 'ledger.frozen') {
     return { status: 412, body: { message: userCopy(err.code), code: err.code } };
   }
@@ -82,6 +88,7 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
     (err.code === 'ledger.history_range_invalid' ||
       err.code === 'ledger.history_range_too_large' ||
       err.code === 'ledger.history_page_socket' ||
+      err.code === 'ledger.history_cursor_invalid' ||
       err.code === RECIPE_REQUIRED_CODE)
   ) {
     return { status: 400, body: { message: err.message, code: err.code } };
@@ -124,7 +131,28 @@ export async function handleS2sPost(ledger: LedgerService, body: unknown) {
     ...(input.meta ? { meta: input.meta } : {}),
     ...(input.correlationId ? { correlationId: input.correlationId } : {}),
   });
-  return { txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() };
+  return postAcknowledgement(tx);
+}
+
+/**
+ * What a post returns: the transaction identity AND the entries the ledger actually booked, so a caller's receipt check
+ * compares real accounts and amounts instead of an empty list. Amounts are decimal strings.
+ */
+export function postAcknowledgement(tx: LedgerTx) {
+  return {
+    txId: tx.id,
+    hash: tx.hash,
+    postedAt: tx.postedAt.toISOString(),
+    entries: (tx.entries ?? []).map((e) => ({
+      id: e.id,
+      txId: e.txId,
+      accountId: e.accountId,
+      assetId: e.assetId,
+      direction: e.direction,
+      amount: formatAmount(e.amount),
+      balanceAfter: formatAmount(e.balanceAfter),
+    })),
+  };
 }
 
 export async function handleS2sBalance(ledger: LedgerService, body: unknown) {
@@ -170,6 +198,76 @@ export async function handleS2sHistory(ledger: LedgerService, body: unknown) {
     amount: formatAmount(e.amount),
     postedAt: e.postedAt.toISOString(),
   }));
+}
+
+/**
+ * Paged history (U5a). `/trpc/history` is unchanged and still refuses a cursor;
+ * this is the sibling that serves one. Scope (owner, kind, purpose, optional
+ * asset) comes from the body, which only an authenticated service can send; the
+ * cursor is a position inside that scope and is never read for an account.
+ */
+export async function handleS2sHistoryPage(ledger: LedgerService, body: unknown) {
+  return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(body)));
+}
+
+const txByKeyInput = z.object({ idempotencyKey: z.string().min(1).max(512) });
+
+/**
+ * Was this idempotency key already booked? A read, never a post.
+ *
+ * svc-trade's Convert settle asks this before each step (is the customer hold
+ * already released? is the fill already booked?), and its HTTP client had no
+ * door to ask, so every `convert.accept` came back as a 500. Answers the
+ * identifying fields only: the entries (who moved what) stay in the ledger.
+ */
+export async function handleS2sTxByKey(ledger: LedgerService, body: unknown) {
+  const input = txByKeyInput.parse(body);
+  const tx = await ledger.getTxByKey(input.idempotencyKey);
+  if (!tx) return { found: false as const };
+  return {
+    found: true as const,
+    txId: tx.id,
+    hash: tx.hash,
+    postedAt: tx.postedAt.toISOString(),
+    module: tx.module,
+    reason: tx.reason,
+  };
+}
+
+const txByIdInput = z.object({ txId: z.string().uuid() });
+
+/**
+ * Fetch one booked transaction by its id. A read, never a post. The twin of
+ * `txByKey`, for the callers that hold a ledger tx id (a payout receipt, a
+ * business transfer) and need to check what it booked.
+ *
+ * Returns no more than the in-process `getTx`: the identifying fields plus the
+ * entries (a caller verifying a receipt must see who was debited and credited,
+ * which `txByKey` deliberately does not give). Free-form `meta` and the
+ * sharding hashes stay in the ledger. The id must be a UUID, which is what
+ * every ledger tx id is; anything else is refused up front rather than reaching
+ * the database as a malformed-uuid error.
+ */
+export async function handleS2sTxById(ledger: LedgerService, body: unknown) {
+  const input = txByIdInput.parse(body);
+  const tx = await ledger.getTx(input.txId);
+  if (!tx) return { found: false as const };
+  return {
+    found: true as const,
+    txId: tx.id,
+    idempotencyKey: tx.idempotencyKey,
+    hash: tx.hash,
+    postedAt: tx.postedAt.toISOString(),
+    module: tx.module,
+    reason: tx.reason,
+    entries: tx.entries.map((e) => ({
+      accountId: e.accountId,
+      assetId: e.assetId,
+      direction: e.direction,
+      // Decimal string on the wire, always (see `handleS2sHistory`).
+      amount: formatAmount(e.amount),
+    })),
+  };
 }
 
 export async function handleS2sBalances(ledger: LedgerService, body: unknown) {
@@ -335,6 +433,10 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   app.post('/trpc/post', guarded(handleS2sPost));
   app.post('/trpc/balance', guarded(handleS2sBalance));
   app.post('/trpc/balances', guarded(handleS2sBalances));
+  // Read-only existence check by idempotency key; same `guarded` door.
+  app.post('/trpc/txByKey', guarded(handleS2sTxByKey));
+  // Read-only fetch by tx id; same `guarded` door.
+  app.post('/trpc/txById', guarded(handleS2sTxById));
   // Guarded by the same `authenticate` as the other three, and that is the point
   // of registering it here rather than anywhere else: an entry history is a
   // record of what a person or the house did with their money, at least as
@@ -342,6 +444,8 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   // would have been unauthenticated exactly as the money plane once was. There
   // is one door, and every route goes through it.
   app.post('/trpc/history', guarded(handleS2sHistory));
+  // Paged sibling, same `guarded` door (U5a).
+  app.post('/trpc/historyPage', guarded(handleS2sHistoryPage));
   app.post(
     '/trpc/portfolio',
     guarded((svc, body) => handleS2sPortfolio(svc, body, { url: options.indexerUrl, fetch: options.indexerFetch })),

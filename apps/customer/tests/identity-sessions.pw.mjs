@@ -106,12 +106,12 @@ async function login(page, path = '/uc/safe') {
   await page.locator('form button[type="submit"]').click();
   await expect(page).toHaveURL(new URL(path, test.info().project.use.baseURL).href);
 }
-const region = (page, name = 'Signed-in identity sessions') => page.getByRole('region', { name, exact: true });
-const seatButton = (page, id = one) => region(page).getByRole('button', { name: 'Review session ' + id, exact: true });
+const region = (page, name = 'Where you’re signed in') => page.getByRole('region', { name, exact: true });
+const seatButton = (page, id = one) => region(page).getByRole('button', { name: 'Sign out session ' + id, exact: true });
 const unknown = (page) => region(page).getByRole('region', { name: 'Original revoke is not confirmed', exact: true });
 const receipt = (page) => region(page).getByRole('region', { name: 'Session revocation response', exact: true });
 async function send(page) {
-  await page.getByRole('dialog').getByRole('button', { name: 'Revoke this session', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Sign out this session', exact: true }).click();
 }
 async function marker(page) {
   return page.evaluate((key) => localStorage.getItem(key), key);
@@ -129,7 +129,7 @@ async function viewLocale(context, lang) {
   return view;
 }
 async function logout(page) {
-  await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
 }
 const fail = (route, status = 503, message = 'Isolated lost response', code = 'ISOLATED_REFUSAL') =>
@@ -197,7 +197,7 @@ for (const malformed of ['owner', 'duplicate', 'date', 'impossibleDate', 'overLi
     await login(page);
     await expect(region(page).getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
     await expect(region(page).locator('time')).toHaveCount(0);
-    await expect(region(page).getByRole('button', { name: /^Review session / })).toHaveCount(0);
+    await expect(region(page).getByRole('button', { name: /^Sign out session / })).toHaveCount(0);
     await expect(region(page)).not.toContainText('Invalid Date');
     expect(state.writes).toEqual([]);
   });
@@ -218,7 +218,7 @@ test('native failed refresh hides old rows then GET-only retry restores bounded 
 test('native zero live window stays distinct from read refusal and does not prove a revoke', async ({ page, context }) => {
   const state = await network(context, { rows: [] });
   await login(page);
-  await expect(region(page)).toContainText('No live sessions returned');
+  await expect(region(page)).toContainText('No active sessions');
   await expect(receipt(page)).toHaveCount(0);
   expect(state.writes).toEqual([]);
 });
@@ -226,11 +226,11 @@ test('native explicit live window is bounded50 100 150 200 with no cursor or com
   const state = await network(context);
   await login(page);
   for (const n of [100, 150, 200]) {
-    await region(page).getByRole('button', { name: 'Expand session window', exact: true }).click();
+    await region(page).getByRole('button', { name: 'Show more', exact: true }).click();
     await expect.poll(() => state.reads.filter((r) => r.procedure === 'listSessions').at(-1)?.input.limit).toBe(n);
   }
   await expect(region(page)).toContainText('older sessions may be outside this window');
-  await expect(region(page).getByRole('button', { name: 'Expand session window', exact: true })).toHaveCount(0);
+  await expect(region(page).getByRole('button', { name: 'Show more', exact: true })).toHaveCount(0);
   expect(state.writes).toEqual([]);
 });
 for (const changed of ['absent', 'createdAt'])
@@ -361,7 +361,7 @@ test('native corrupt or foreign-owner journal blocks without displaying private 
       ),
     { key, other, two },
   );
-  await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
   await page.getByRole('link', { name: 'Security', exact: true }).click();
   await expect(region(page)).toContainText('The original request cannot be safely saved or read');
   await expect(region(page)).not.toContainText(other);

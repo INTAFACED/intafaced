@@ -7,6 +7,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { installSnippets } from './render-security-headers.mjs';
 
 const customer = dirname(dirname(fileURLToPath(import.meta.url)));
 const binary = process.env.NGINX_BINARY || 'nginx';
@@ -16,6 +17,24 @@ const stop = (server) =>
     server.closeAllConnections();
     server.close(resolve);
   });
+
+const securityHeaders = {
+  'strict-transport-security': 'max-age=86400',
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'strict-origin-when-cross-origin',
+  'cross-origin-opener-policy': 'same-origin',
+};
+function assertSecurityHeaders(response, label) {
+  for (const [name, value] of Object.entries(securityHeaders)) assert.equal(response.headers.get(name), value, `${label}: ${name}`);
+  const csp = response.headers.get('content-security-policy');
+  assert.match(csp, /(^|; )script-src 'self'(;|$)/, `${label}: script-src is self only`);
+  assert.doesNotMatch(csp.match(/script-src [^;]*/)[0], /unsafe-inline|unsafe-eval/, label);
+  assert.match(csp, /frame-ancestors 'none'/, label);
+  const permissions = response.headers.get('permissions-policy');
+  assert.match(permissions, /geolocation=\(\)/, label);
+  assert.doesNotMatch(permissions, /publickey-credentials/, `${label}: passkeys must keep their default allowlist`);
+}
 
 test('customer proxy serves React deep links, refuses bare API paths, caches assets, and preserves edge/WS contracts', async () => {
   const temp = mkdtempSync(join(tmpdir(), 'intafaced-customer-proxy-'));
@@ -63,10 +82,12 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
     const portReservation = createServer();
     const port = await listen(portReservation);
     await stop(portReservation);
+    installSnippets(join(temp, 'snippets'));
     const source = readFileSync(join(customer, 'nginx.conf'), 'utf8')
       .replace('listen 80;', `listen 127.0.0.1:${port};`)
       .replace('listen [::]:80;', '')
       .replace('/usr/share/nginx/html', join(customer, 'dist'))
+      .replaceAll('/etc/nginx/snippets/', `${join(temp, 'snippets')}/`)
       .replaceAll('svc-edge:4000', `127.0.0.1:${apiPort}`)
       .replaceAll('svc-ws:4014', `127.0.0.1:${wsPort}`);
     const config = join(temp, 'nginx.conf');
@@ -95,6 +116,7 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
       assert.equal(response.status, 200, path);
       assert.equal(await response.text(), index, path);
       assert.equal(response.headers.get('cache-control'), 'no-store', path);
+      assertSecurityHeaders(response, path);
     }
     assert.equal((await fetch(origin + '/api')).status, 404);
     assert.equal((await fetch(origin + '/ws')).status, 404);
@@ -103,12 +125,15 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
     assert.equal(chunk.status, 200);
     assert.match(chunk.headers.get('content-type'), /javascript/);
     assert.equal(chunk.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+    assertSecurityHeaders(chunk, asset);
     const missing = await fetch(origin + '/assets/missing-chunk.js');
     assert.equal(missing.status, 404);
     assert.notEqual(await missing.text(), index);
     assert.equal(missing.headers.get('cache-control'), null);
+    assertSecurityHeaders(missing, '/assets/missing-chunk.js (404)');
     const descriptor = await fetch(origin + '/customer-deployment.json');
     assert.equal(descriptor.headers.get('cache-control'), 'no-store');
+    assertSecurityHeaders(descriptor, '/customer-deployment.json');
     assert.equal((await descriptor.json()).product, 'intafaced-customer');
     for (const [feature, library] of [
       ['trade', 'lightweight-charts'],
@@ -127,6 +152,10 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
       body: '{"reference":"public-contract-test"}',
     });
     assert.equal(edge.headers.get('cache-control'), 'no-store');
+    // /api/ answers belong to svc-edge (its own documents set their framing headers), so nginx adds only HSTS there.
+    assert.equal(edge.headers.get('strict-transport-security'), 'max-age=86400');
+    assert.equal(edge.headers.get('x-frame-options'), null);
+    assert.equal(edge.headers.get('content-security-policy'), null);
     assert.match(edge.headers.get('set-cookie'), /HttpOnly/);
     assert.deepEqual(await edge.json(), {
       path: '/api/bank/transfers?limit=20',

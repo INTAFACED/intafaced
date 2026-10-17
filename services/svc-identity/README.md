@@ -193,6 +193,23 @@ controls unconfigured. `/ready` reports `founderControls.configured`. The first
 verified pair is pinned in Postgres; changing environment IDs cannot replace it,
 and restarting cannot restore revoked operator entitlement.
 
+### Founder enrolment (before the pair is pinned)
+
+The two founders create their own accounts through `auth.registerFounder
+{invite, handle, email, password}` while public sign-up (`REGISTRATION_OPEN`)
+stays closed. Apply `drizzle/0028_founder_invites_used.sql`. Run
+`pnpm --filter @intafaced/svc-identity founder:invites` on a trusted machine: it
+prints two single-use codes (160 bits, base32, grouped) and exactly two lines to
+configure, `IDENTITY_FOUNDER_INVITE_HASHES` (two lowercase sha256 hex values) and
+`IDENTITY_FOUNDER_INVITE_EXPIRES_AT` (ISO 8601, 72 h out). It touches no network, file
+or database; give each code to one founder over a separate channel. Unset means
+closed. `auth.founderEnrolmentStatus` answers `{open}`: true only while the pair is
+not pinned, both variables are set, the expiry has not passed and an invite is unspent.
+Refusals (`intafacedCode`): `auth.invite_invalid`, `auth.invite_used`,
+`auth.invite_expired`, `auth.founder_enrolment_closed`. An invite is spent in the same
+transaction as the user insert; once the founder pair is pinned the door is shut for
+good. The new account enrols TOTP/passkey through the normal first-factor path.
+
 `accountControls.change`, `compliance.freezeIdentity`, `compliance.unfreezeIdentity`
 and `disableUser` require the shared strict identity command: `requestId`,
 `target: {area: "identity", userId}`, `action`, `reason`, `expectedVersion`. The
@@ -271,3 +288,11 @@ outcome retains the pending marker and cannot be reported as a completed local
 restriction. An existing grant resolves only its original payload after freeze;
 it grants no fresh child or changed business operation and proves no completed
 ledger effect. Trading/payment enforcement belongs to their service consumers.
+
+Apply `drizzle/0027_auth_attempt_lockouts.sql` before deploying the per-account sign-in
+lockout (`src/auth/attempt-lockout.ts`): 10 wrong passwords in 15 minutes, or 5 wrong
+TOTP/recovery codes in 10 minutes, refuse that account with `auth.too_many_attempts`
+(HTTP 429, with `retryAfterSeconds` in the error data) for 15 minutes; 20 consecutive
+wrong codes with no success in between lock the 2FA step for 24 hours (passwords have
+no long lock). A correct password clears the password counter immediately. Counters live in Postgres, shared by every replica. The service refuses to
+boot if the `auth_attempts` table is missing.

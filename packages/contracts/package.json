@@ -21,6 +21,10 @@
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
+    },
+    "./founder-change-hash": {
+      "types": "./dist/founder-change-hash.d.ts",
+      "default": "./dist/founder-change-hash.js"
     }
   },
   "scripts": {

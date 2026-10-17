@@ -10,6 +10,7 @@ import {
   moduleForApi,
   isUndecodablePath,
   moduleForPage,
+  navNeeded,
 } from './modules';
 
 describe('ADMIN_MODULES gate', () => {
@@ -73,6 +74,10 @@ describe('ADMIN_MODULES gate', () => {
     expect(moduleForApi('/api/ledger-freeze')).toBe('ledger');
     expect(moduleForApi('/api/operator-tools')).toBe('tools');
     expect(moduleForApi('/api/analytics/warehouse')).toBe('tools');
+    expect(moduleForApi('/api/bank-ops')).toBe('bank-ops');
+    expect(moduleForApi('/api/p2p-ops')).toBe('p2p-ops');
+    expect(moduleForApi('/api/academy-ops')).toBe('academy-ops');
+    expect(moduleForApi('/api/more-ops')).toBe('more-ops');
     expect(moduleForApi('/api/session')).toBeNull();
     expect(moduleForApi('/api/session/passkey')).toBeNull();
   });
@@ -83,5 +88,14 @@ describe('ADMIN_MODULES gate', () => {
     const res = moduleDisabledResponse('tools', env);
     expect(res?.status).toBe(404);
     expect(await res?.json()).toEqual({ error: 'not_found' });
+  });
+});
+
+describe('navigation bar', () => {
+  it('is hidden when only one module is enabled, and shown from two', () => {
+    expect(navNeeded(1)).toBe(false);
+    expect(navNeeded(0)).toBe(false);
+    expect(navNeeded(2)).toBe(true);
+    expect(navNeeded(MODULE_ROUTES.length)).toBe(true);
   });
 });

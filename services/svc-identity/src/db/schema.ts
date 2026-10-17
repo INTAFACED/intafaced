@@ -264,6 +264,25 @@ export const sessions = identity.table(
   (t) => [uniqueIndex('sessions_refresh_idx').on(t.refreshHash), index('sessions_user_idx').on(t.userId, t.revoked)],
 );
 
+/**
+ * One-time signed-out password reset proofs. The code itself is never stored.
+ */
+export const passwordResetProofs = identity.table(
+  'password_reset_proofs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** SHA-256 hex of the mailed code. */
+    codeHash: text('code_hash').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+    consumedAt: tstz('consumed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('password_reset_proofs_code_hash_idx').on(t.codeHash), index('password_reset_proofs_user_open_idx').on(t.userId)],
+);
+
 export const apiKeys = identity.table(
   'api_keys',
   {
@@ -294,6 +313,12 @@ export const apiKeys = identity.table(
      * Minted into the short access token as `key_env`. Default live.
      */
     mode: text('mode').notNull().default('live'),
+    /** Opt-in inbound HMAC. Default false: unsigned calls stay accepted. */
+    requireSignature: boolean('require_signature').notNull().default(false),
+    /** When true, an empty IP allowlist refuses. Default false keeps empty = open. */
+    requireNonEmptyIpAllowlist: boolean('require_non_empty_ip_allowlist').notNull().default(false),
+    /** HMAC key. Shown once when signature is turned on. Never listed. */
+    requestSigningSecret: text('request_signing_secret'),
     lastUsedAt: tstz('last_used_at'),
     expiresAt: tstz('expires_at'),
     revoked: boolean('revoked').notNull().default(false),
@@ -388,6 +413,10 @@ export const actionApprovals = identity.table(
     expiresAt: tstz('expires_at').notNull(),
     approvedAt: tstz('approved_at'),
     consumedAt: tstz('consumed_at'),
+    /** `four_eyes` (default) or `same_person` money-out step-up (migration 0028). */
+    kind: text('kind').notNull().default('four_eyes'),
+    /** Session a same_person approval is bound to; null for four_eyes. */
+    sessionId: text('session_id'),
   },
   (t) => [
     uniqueIndex('action_approvals_operation_idx').on(t.operationId),
@@ -418,6 +447,7 @@ export const schema = {
   xpEvents,
   rankThresholds,
   sessions,
+  passwordResetProofs,
   apiKeys,
   subAccounts,
   waitlistEntries,

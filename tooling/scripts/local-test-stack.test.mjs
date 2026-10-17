@@ -1,8 +1,20 @@
 // Proves the local test stack's two safety properties without starting anything:
 // local:fund refuses outside its own stack, and the script never supplies a sanctions list.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
+import {
+  existsSync,
+  realpathSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,3 +79,260 @@ assert.equal(/screening\.local\.json/.test(source), true);
 assert.equal(/\bZZ\b/.test(source), false, 'the repo script must not carry the ZZ fixture');
 
 console.log('local-test-stack: 6 refusal checks passed');
+
+// 7. Every Edge upstream, and every module the Customer app calls, points at a service this
+// stack starts or is listed as intentionally absent with a reason. `plan` changes nothing.
+const repo = resolve(here, '..', '..');
+const planHome = mkdtempSync(join(tmpdir(), 'local-test-stack-plan-'));
+try {
+  const r = spawnSync(process.execPath, [script, 'plan', '--json'], { env: { ...process.env, HOME: planHome }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(existsSync(join(planHome, '.intafaced')), false, 'plan must not create the state directory');
+  assert.equal(/x{32}/.test(r.stdout), false, 'plan output must not carry any secret value');
+  const plan = JSON.parse(r.stdout);
+
+  const names = plan.services.map((x) => x.name);
+  assert.equal(new Set(names).size, names.length, 'duplicate service names');
+  assert.equal(new Set(plan.services.map((x) => x.port)).size, names.length, 'two services share a port');
+  for (const sv of plan.services) {
+    assert.equal(sv.url, `http://127.0.0.1:${sv.port}`, `${sv.name} must bind loopback`);
+    assert.equal(existsSync(join(repo, 'services', `svc-${sv.name}`, 'src', 'index.ts')), true, `no services/svc-${sv.name}`);
+    assert.equal(plan.backendPackages.includes(`svc-${sv.name}`), true, `svc-${sv.name} is started but never built`);
+  }
+  for (const schema of plan.schemas) {
+    assert.equal(names.includes(schema), true, `schema ${schema} has no service`);
+    const sql = join(repo, 'services', `svc-${schema}`, 'scripts', 'migrate.ts');
+    assert.equal(existsSync(sql), true, `svc-${schema} has no migrate script`);
+  }
+  assert.equal(names.at(-1), 'edge', 'Edge starts last');
+
+  // Edge route table, read from source.
+  const routes = readFileSync(join(repo, 'services', 'svc-edge', 'src', 'routes.ts'), 'utf8');
+  const upstreams = [...routes.matchAll(/prefix: '\/api\/([a-z0-9]+)', module: '[a-z0-9-]+', envVar: '([A-Z0-9_]+)'/g)].map((m) => ({
+    prefix: m[1],
+    envVar: m[2],
+  }));
+  assert.ok(upstreams.length >= 20, `could not read the Edge route table (${upstreams.length} rows)`);
+  const reachable = (envVar) => {
+    const u = plan.edgeUpstreams[envVar];
+    if (!u) return null;
+    if (u.service) {
+      assert.equal(u.service, envVar.replace(/_URL$/, '').toLowerCase(), `${envVar} points at the wrong service (${u.service})`);
+    }
+    if (u.service) return names.includes(u.service) && u.url === plan.services.find((x) => x.name === u.service).url ? 'started' : 'broken';
+    return u.absentReason && u.absentReason.length > 20 ? 'absent' : 'broken';
+  };
+  for (const { prefix, envVar } of upstreams) {
+    assert.ok(
+      reachable(envVar) && reachable(envVar) !== 'broken',
+      `Edge ${envVar} (/api/${prefix}) is neither a started service nor listed absent with a reason`,
+    );
+  }
+
+  // Modules the Customer app calls (literal names in api.query/mutate/plain/rest-free helpers and /api/<module> paths).
+  const walk = (dir) =>
+    readdirSync(dir).flatMap((f) => {
+      const full = join(dir, f);
+      if (statSync(full).isDirectory()) return f === 'vendor' || f === 'node_modules' ? [] : walk(full);
+      return /\.(ts|tsx)$/.test(f) && !/\.(test|pw|spec)\./.test(f) ? [full] : [];
+    });
+  const used = new Set();
+  for (const f of walk(join(repo, 'apps', 'customer', 'src'))) {
+    const src = readFileSync(f, 'utf8');
+    for (const m of src.matchAll(/\b(?:query|mutate|plain)\(\s*'([a-z0-9]+)'/g)) used.add(m[1]);
+    for (const m of src.matchAll(/'\/api\/([a-z0-9]+)/g)) used.add(m[1]);
+  }
+  used.delete('v1'); // public exchange REST, served by svc-trade
+  used.add('trade');
+  used.delete('ledger'); // /api/ledger is deliberately not routed (a string in a comment/refusal)
+  used.delete('v2');
+  assert.ok(used.size >= 12, `found only ${used.size} Customer modules: ${[...used]}`);
+  const unmapped = [...used].filter((m) => !upstreams.some((u) => u.prefix === m));
+  assert.deepEqual(unmapped, [], `Customer calls modules Edge has no route for: ${unmapped}`);
+  const absentButUsed = [];
+  for (const m of used) {
+    const envVar = upstreams.find((u) => u.prefix === m).envVar;
+    const state = reachable(envVar);
+    assert.equal(state === 'started' || state === 'absent', true, `Customer module ${m} (${envVar}) has no started service`);
+    if (state === 'absent') absentButUsed.push(m);
+  }
+  // The only Customer module allowed to be absent is mining (static placeholder room), with its reason on record.
+  assert.deepEqual(absentButUsed, ['mining'], `unexpected Customer modules without a service: ${absentButUsed}`);
+} finally {
+  rmSync(planHome, { recursive: true, force: true });
+}
+console.log('local-test-stack: edge upstream coverage checks passed');
+
+// 8. Customer folder override (LOCAL_STACK_CUSTOMER_DIST / `customer-dist`): validated, saved with mode 600,
+// shown in plan/status, and it stops ensureBuilt from building the Customer app. Nothing here starts a server.
+const distHome = mkdtempSync(join(tmpdir(), 'local-test-stack-dist-'));
+const outside = mkdtempSync(join(tmpdir(), 'local-test-stack-outside-'));
+try {
+  const run = (args, env = {}) =>
+    spawnSync(process.execPath, [script, ...args], {
+      env: { ...process.env, LOCAL_STACK_CUSTOMER_DIST: '', ...env, HOME: distHome },
+      encoding: 'utf8',
+    });
+  const saved = join(distHome, '.intafaced', 'local-test-stack', 'customer-dist.json');
+  const good = join(distHome, 'review', 'dist');
+  mkdirSync(good, { recursive: true });
+  writeFileSync(join(good, 'index.html'), '<html><body>redesign</body></html>');
+  const noIndex = join(distHome, 'empty');
+  mkdirSync(noIndex);
+  writeFileSync(join(outside, 'index.html'), '<html></html>');
+  symlinkSync(outside, join(distHome, 'sneaky'));
+  const sourceDir = join(distHome, 'src-folder');
+  mkdirSync(sourceDir);
+  writeFileSync(join(sourceDir, 'index.html'), '<html></html>');
+  writeFileSync(join(sourceDir, 'package.json'), '{}');
+  const hiddenDir = join(distHome, '.intafaced', 'build');
+  mkdirSync(hiddenDir, { recursive: true });
+  writeFileSync(join(hiddenDir, 'index.html'), '<html></html>');
+  const dotParent = join(distHome, '.ssh');
+  mkdirSync(dotParent);
+  writeFileSync(join(dotParent, 'index.html'), '<html></html>');
+
+  // Refusals: relative, missing, no index.html, outside $HOME (also through a symlink). Nothing is saved.
+  for (const [arg, re] of [
+    ['review/dist', /absolute path/],
+    [join(distHome, 'nope'), /does not exist/],
+    [noIndex, /no index\.html/],
+    [outside, /not inside your home folder/],
+    [join(distHome, 'sneaky'), /not inside your home folder/],
+    [join(distHome, 'review', 'dist', 'index.html'), /is not a folder/],
+    [sourceDir, /contains package\.json/],
+    [hiddenDir, /hidden folder \(\.intafaced\)/],
+    [dotParent, /hidden folder \(\.ssh\)/],
+  ]) {
+    const r = run(['customer-dist', arg]);
+    assert.equal(r.status, 1, `${arg}: ${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, re, arg);
+    assert.equal(existsSync(saved), false, `${arg}: must not be saved`);
+  }
+
+  // Without an override the Customer app is built as before.
+  let plan = JSON.parse(run(['plan', '--json']).stdout);
+  assert.equal(plan.customer.source, 'own');
+  assert.equal(plan.customer.wouldBuild, true, 'no override: ensureBuilt builds the Customer app');
+
+  // `pnpm local:stack customer-dist <path>` goes through `start`; it saves the choice at mode 600.
+  let r = run(['start', 'customer-dist', good]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(statSync(saved).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(readFileSync(saved, 'utf8')).path, realpathSync(good));
+  plan = JSON.parse(run(['plan', '--json']).stdout);
+  assert.equal(plan.customer.source, 'saved');
+  assert.equal(plan.customer.dir, realpathSync(good));
+  assert.equal(plan.customer.wouldBuild, false, 'override: ensureBuilt must not build the Customer app');
+  assert.match(run(['customer-dist']).stdout, /override, saved by "customer-dist"; never rebuilt or overwritten/);
+  assert.match(run(['status']).stdout, /customer app: .*review.*dist/);
+
+  // A stamp from a build that skipped the Customer app cannot vouch for the checkout's own dist.
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
+  const stampFile = join(distHome, '.intafaced', 'local-test-stack', 'build-stamp.json');
+  writeFileSync(stampFile, JSON.stringify({ head, builtAt: 'x', customerBuilt: false }));
+  plan = JSON.parse(run(['plan', '--json']).stdout);
+  assert.equal(plan.customer.wouldBuild, false, 'override stays in force with a skipped-customer stamp');
+
+  // Live check on a throwaway port (never 3210): symlink escapes and dotfiles are 404, normal files are served.
+  writeFileSync(join(good, 'app.js'), 'console.log(1)');
+  mkdirSync(join(good, '.git'));
+  writeFileSync(join(good, '.git', 'config'), 'secret');
+  writeFileSync(join(good, '.env'), 'secret');
+  writeFileSync(join(outside, 'passwd.txt'), 'outside-secret');
+  symlinkSync(join(outside, 'passwd.txt'), join(good, 'leak.txt'));
+  symlinkSync(outside, join(good, 'leakdir'));
+  const port = await new Promise((ok) => {
+    const probe = createServer();
+    probe.listen(0, '127.0.0.1', () => {
+      const { port: pt } = probe.address();
+      probe.close(() => ok(pt));
+    });
+  });
+  const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
+    env: { ...process.env, HOME: distHome },
+    stdio: 'ignore',
+  });
+  try {
+    const get = async (path) => {
+      for (let i = 0; i < 50; i++) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}${path}`);
+          return { status: res.status, text: await res.text() };
+        } catch {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }
+      throw new Error('throwaway server did not answer');
+    };
+    assert.equal((await get('/app.js')).text, 'console.log(1)');
+    assert.match((await get('/some/route')).text, /redesign/, 'unknown route falls back to the override index.html');
+    for (const bad of ['/leak.txt', '/leakdir/passwd.txt', '/.env', '/.git/config']) {
+      const res = await get(bad);
+      assert.equal(res.status, 404, bad);
+      assert.equal(res.text.includes('secret'), false, bad);
+    }
+    // Traversal never reaches a file outside the folder: it only gets the app shell.
+    assert.match((await get('/%2e%2e/%2e%2e/etc/hosts')).text, /redesign/);
+    // Clearing takes effect on the next request, with no restart.
+    run(['customer-dist', '--clear']);
+    assert.doesNotMatch((await get('/')).text, /redesign/);
+    run(['customer-dist', good]);
+    assert.match((await get('/')).text, /redesign/);
+  } finally {
+    server.kill('SIGTERM');
+  }
+
+  // The shell variable beats the saved choice; a bad one is reported, never silently ignored.
+  const other = join(distHome, 'other');
+  mkdirSync(other);
+  writeFileSync(join(other, 'index.html'), '<html></html>');
+  plan = JSON.parse(run(['plan', '--json'], { LOCAL_STACK_CUSTOMER_DIST: other }).stdout);
+  assert.equal(plan.customer.source, 'env');
+  assert.equal(plan.customer.dir, realpathSync(other));
+  plan = JSON.parse(run(['plan', '--json'], { LOCAL_STACK_CUSTOMER_DIST: 'relative' }).stdout);
+  assert.match(plan.customer.error, /absolute path/);
+  assert.equal(plan.customer.wouldBuild, false);
+
+  // --clear returns to the checkout's own build, and the skipped-customer stamp forces a Customer build.
+  r = run(['customer-dist', '--clear']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(existsSync(saved), false);
+  plan = JSON.parse(run(['plan', '--json']).stdout);
+  assert.equal(plan.customer.source, 'own');
+  assert.equal(plan.customer.wouldBuild, true);
+} finally {
+  rmSync(distHome, { recursive: true, force: true });
+  rmSync(outside, { recursive: true, force: true });
+}
+// The only Customer build call is inside the `!override` guard in ensureBuilt.
+assert.match(
+  source,
+  /if \(!override\) \{\s*say\('  build: customer app…'\);\s*runPnpm\(\['--filter', '@intafaced\/customer\.\.\.', 'build'\], 'build-customer'\);/,
+);
+assert.equal(source.split("'build-customer'").length - 1, 1, 'one place builds the Customer app');
+console.log('local-test-stack: customer folder override checks passed');
+
+// 9. The test market maker is part of `status`, and start / restart bring it back if it was running before.
+{
+  const mkHome = mkdtempSync(join(tmpdir(), 'local-test-stack-market-'));
+  try {
+    const state = join(mkHome, '.intafaced', 'local-test-stack');
+    const status = () => spawnSync(process.execPath, [script, 'status'], { env: { ...process.env, HOME: mkHome }, encoding: 'utf8' });
+    // Never started: shown, and not an error by itself.
+    assert.match(status().stdout, /market-maker\s+-\s+-\s+not started/);
+    // Started once, process gone: DOWN, and `status` exits non-zero so a script or a glance notices.
+    mkdirSync(join(state, 'run'), { recursive: true });
+    writeFileSync(join(state, 'run', 'market.json'), JSON.stringify({ pid: 99998, startedAt: '2026-10-14T00:00:00.000Z' }));
+    const down = status();
+    assert.match(down.stdout, /market-maker\s+-\s+99998\s+DOWN \(was running/);
+    assert.equal(down.status, 1);
+  } finally {
+    rmSync(mkHome, { recursive: true, force: true });
+  }
+  // start (and restart, which ends in start) calls ensure after the services are up; it never starts one that was never started.
+  assert.match(source, /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*ensureMarket\(\);/);
+  assert.match(source, /async function cmdRestart[\s\S]*?await cmdStart\(\[\]\);/);
+  assert.match(source, /local-test-market\.mjs'\), 'ensure'\]/);
+  console.log('local-test-stack: market supervision checks passed');
+}

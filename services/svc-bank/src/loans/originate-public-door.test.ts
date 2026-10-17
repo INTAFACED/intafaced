@@ -57,7 +57,7 @@ describe('originate pins marksFor before the ledger posts', () => {
   it('open asks for marks before loanCollateralLock / loanDraw', () => {
     const src = readFileSync(join(here, 'loan-service.ts'), 'utf8');
     const openAt = src.indexOf('async open(input:');
-    const marksAt = src.indexOf('const marks = await this.marksFor(', openAt);
+    const marksAt = src.indexOf('await this.checkOpeningLtv(', openAt);
     const completeAt = src.indexOf('return this.completePending', openAt);
     expect(openAt).toBeGreaterThan(-1);
     expect(marksAt).toBeGreaterThan(openAt);
@@ -65,6 +65,8 @@ describe('originate pins marksFor before the ledger posts', () => {
     expect(src).toMatch(/recipes\.loanCollateralLock/);
     expect(src).toMatch(/recipes\.loanDraw/);
     expect(src).toMatch(/bank\.mark_missing/);
+    // The marks themselves are read by the shared opening-LTV check.
+    expect(src.indexOf('await this.marksFor(', src.indexOf('private async checkOpeningLtv('))).toBeGreaterThan(-1);
   });
 });
 
@@ -106,7 +108,7 @@ async function mountDoors(bank: ReturnType<typeof createBankServices>): Promise<
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<BankRouter>['trpcOptions'],
   });
   await app.ready();

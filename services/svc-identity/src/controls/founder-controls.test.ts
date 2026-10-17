@@ -109,3 +109,16 @@ describe('founder identity authority', () => {
     ).rejects.toMatchObject({ code: 'identity.controls_unconfigured' });
   });
 });
+
+describe('FounderControls.isLiveFounder', () => {
+  it('a storage failure throws (cannot tell), while non-members answer false without touching storage', async () => {
+    const sql = (() => Promise.reject(new Error('db down'))) as never;
+    const controls = new FounderControls(sql, parseFounderPair(A, B));
+    // not bootstrapped: not configured, so no founder and no query
+    expect(await controls.isLiveFounder(A)).toBe(false);
+    (controls as unknown as { configured: boolean }).configured = true;
+    expect(await controls.isLiveFounder(S)).toBe(false);
+    expect(await controls.isLiveFounder('not-a-uuid')).toBe(false);
+    await expect(controls.isLiveFounder(A)).rejects.toThrow('db down');
+  });
+});

@@ -316,9 +316,14 @@ describe('a payout rail id cannot be blank', () => {
     expect(checksBefore.find((row) => row.conname === KIND_CK)?.def).toBe('CHECK ((length(btrim(kind)) > 0))');
     expect(checksBefore.find((row) => row.conname === REF_CK)?.def).toBe('CHECK ((length(btrim(ref)) > 0))');
     expect(primaryKeyBefore).toBe('PRIMARY KEY (merchant_id, rail_id)');
-    expect(indexesBefore.map((row) => row.name)).toEqual([MERCHANT_IDX, 'merchant_payout_destinations_pkey']);
+    // 0080 appends a uuid page key and its unique index. The rail_id check is unchanged.
+    expect(indexesBefore.map((row) => row.name)).toEqual([
+      'merchant_payout_destinations_id_idx',
+      MERCHANT_IDX,
+      'merchant_payout_destinations_pkey',
+    ]);
     expect(indexesBefore.every((row) => !/btrim/i.test(row.def))).toBe(true);
-    expect(columnsBefore).toEqual(['merchant_id', 'rail_id', 'kind', 'ref', 'created_at', 'updated_at']);
+    expect(columnsBefore).toEqual(['merchant_id', 'rail_id', 'kind', 'ref', 'created_at', 'updated_at', 'id']);
     expect(columnsBefore).not.toContain('amount');
 
     async function expectAddRefused(): Promise<void> {

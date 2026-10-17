@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { AuthError } from '@intafaced/auth';
-import { assertScreeningConfigured } from '@intafaced/config';
+import { assertNoLocalTestFixtures, assertScreeningConfigured } from '@intafaced/config';
 import { createAdminApi, httpLedgerOperator } from './admin-api.js';
 import { readEdgeAuthority } from './live-authority.js';
 import { createHttpEdgeApprovalConsumer } from './action-approval-consume.js';
@@ -43,6 +43,13 @@ registerProcessHooks(
     environment: env.APP_ENV,
   }),
 );
+
+// Local-test stand-ins (ZZ / fixture-marked / only user-assigned screening list,
+// INTAFACED_SCREENING_FAIL_CLOSED=off) are refused unless APP_ENV is exactly dev/test.
+// The edge is where the screening list arrives (docker-compose.apps.yml). Reads the raw
+// APP_ENV, not the schema default: unset = NOT dev. Throws at module scope, before the
+// server listens, like `assertScreeningConfigured` below (issue #4611, pattern from #4607).
+assertNoLocalTestFixtures(process.env);
 
 /**
  * svc-edge — the front door (§9).
@@ -281,11 +288,7 @@ registerGeoBlockGuard(app);
 registerNetworkAccessGuard(app);
 registerAdminRoutes(app, admin);
 
-registerWidgetRampRoute(app, {
-  licence: env.INFRA_LICENCE,
-  accent: env.INFRA_WIDGET_ACCENT,
-  tenantCss: env.INFRA_WIDGET_CSS,
-});
+registerWidgetRampRoute(app);
 
 /**
  * The proxy.
@@ -353,6 +356,13 @@ await app.register(async (api) => {
       });
     }
 
+    const rawBody = Buffer.isBuffer(req.body)
+      ? req.body
+      : typeof req.body === 'string'
+        ? Buffer.from(req.body)
+        : req.body instanceof Uint8Array
+          ? Buffer.from(req.body)
+          : Buffer.alloc(0);
     const exchanged = await exchangePrincipal(req.headers, {
       tokens: tokenConfig,
       edgeSecret: env.EDGE_PRINCIPAL_SECRET,
@@ -365,6 +375,7 @@ await app.register(async (api) => {
       // x-forwarded-for — principal-exchange strips those and writes this.
       clientIp: req.ip,
       resolvedProduct: target.upstream.module,
+      request: { method: req.method, path: `${url.pathname}${url.search}`, body: rawBody },
     });
 
     // A refused token is logged and the request continues as ANONYMOUS. The

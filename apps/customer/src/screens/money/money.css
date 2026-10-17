@@ -1,0 +1,825 @@
+/*
+ * Money, portfolio and activity (UI-SPEC 5.3, 5.4). Only --if-* tokens: no colour values live here.
+ *
+ * The whole file is in `@layer components`: unlayered CSS beats every layer, so an unlayered link or button rule would
+ * override the kit's utilities (the Buy pill once turned white on lime, critic H1). The order is declared again so it
+ * holds in any bundle order. Sizes are px so the legacy 14 px root can't shrink them (critic H2).
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .if-money {
+    width: min(var(--if-container-max), calc(100% - 56px));
+    margin: 0 auto;
+    padding: 32px 0 64px;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .if-money * {
+    box-sizing: border-box;
+  }
+  .if-money :where(a) {
+    color: inherit;
+    text-decoration: none;
+  }
+  .if-money :focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .if-money :where(h1, h2, p, ul, table) {
+    margin: 0;
+    padding: 0;
+  }
+  .if-money :where(ul) {
+    list-style: none;
+  }
+  .if-money .if-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .if-money .if-tip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--if-fg-2);
+    cursor: help;
+  }
+  .if-money .if-tip:hover {
+    color: var(--if-fg);
+  }
+
+  /* Header: label, hero, change on the left; the action pills on the right */
+  .money-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .money-head__main {
+    min-width: 0;
+  }
+  .money-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 20px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .money-eye {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--if-fg-2);
+    cursor: pointer;
+    transition: color var(--if-t-fast) var(--if-ease);
+  }
+  .money-eye:hover {
+    color: var(--if-fg);
+  }
+  .money-total {
+    display: flex;
+    align-items: center;
+    height: 56px;
+    margin-top: 4px;
+  }
+  .money-change {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    height: 20px;
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .money-change > [data-slot='change-text'] {
+    line-height: 20px;
+  }
+  .money-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .money-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 24px;
+    min-height: 40px;
+  }
+
+  /* Allocation bar: 8 px, r-xs, one segment per coin; legend under it */
+  .money-alloc {
+    margin-top: 24px;
+  }
+  .money-alloc__bar {
+    display: flex;
+    gap: 2px;
+    height: 8px;
+    overflow: hidden;
+    border-radius: var(--if-r-xs);
+  }
+  .money-alloc__seg {
+    flex: 1 1 0;
+    min-width: 2px;
+  }
+  .money-alloc__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    margin-top: 12px;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .money-alloc__legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .money-alloc__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+  }
+  .money-alloc__pct {
+    color: var(--if-fg);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Cards */
+  .money-card {
+    margin-top: 32px;
+    padding-bottom: 8px;
+    border-radius: var(--if-r-lg);
+    background: var(--if-panel);
+    scroll-margin-top: 96px;
+  }
+  .money-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    padding: 0 24px;
+  }
+  .money-card__head h2 {
+    font: 600 20px/28px var(--if-font-ui);
+  }
+  .money-card__total {
+    font: 600 20px/28px var(--if-font-ui);
+  }
+  .money-card__note {
+    margin: -8px 24px 8px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
+  /* Coin table */
+  .money-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+  }
+  .money-col--coin {
+    width: 28%;
+  }
+  .money-col--amount {
+    width: 18%;
+  }
+  .money-col--value {
+    width: 14%;
+  }
+  .money-col--today {
+    width: 20%;
+  }
+  .money-col--actions {
+    width: 20%;
+  }
+  .money-table th {
+    height: 32px;
+    padding: 0 8px;
+    text-align: left;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .money-table th:first-child,
+  .money-table td:first-child {
+    padding-left: 24px;
+  }
+  .money-table th:last-child,
+  .money-table td:last-child {
+    padding-right: 24px;
+  }
+  .money-table td {
+    height: 64px;
+    padding: 0 8px;
+    border-top: 1px solid var(--if-line);
+    font: 400 14px/20px var(--if-font-ui);
+    vertical-align: middle;
+  }
+  .money-table thead + tbody tr:first-child td {
+    border-top: 0;
+  }
+  .money-table .money-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .money-row {
+    transition: background var(--if-t-fast) var(--if-ease);
+  }
+  .money-row:hover,
+  .money-row:focus-within {
+    background: var(--if-hover);
+  }
+  .money-coin {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    border-radius: var(--if-r-sm);
+  }
+  .money-coin__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .money-coin__top {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .money-coin__ticker {
+    font: 500 16px/24px var(--if-font-ui);
+  }
+  .money-coin__share {
+    color: var(--if-fg-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .money-coin__name {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .money-today {
+    font: 400 13px/18px var(--if-font-ui);
+    justify-content: flex-end;
+  }
+  .money-row__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity var(--if-t-fast) var(--if-ease);
+  }
+  .money-row:hover .money-row__actions,
+  .money-row:focus-within .money-row__actions {
+    opacity: 1;
+  }
+  @media (hover: none) {
+    .money-row__actions {
+      opacity: 1;
+    }
+  }
+
+  /* Pro (UI-SPEC 5.3): rows 40, Available and In orders columns, actions always shown, hero 32/40 */
+  .if-money[data-density='pro'] .money-total {
+    height: 40px;
+  }
+  @media (min-width: 961px) {
+    .if-money[data-density='pro'] .money-col--coin {
+      width: 22%;
+    }
+    .if-money[data-density='pro'] .money-col--amount {
+      width: 14%;
+    }
+    .if-money[data-density='pro'] .money-col--value {
+      width: 12%;
+    }
+    .if-money[data-density='pro'] .money-col--today {
+      width: 14%;
+    }
+    .if-money[data-density='pro'] .money-col--free,
+    .if-money[data-density='pro'] .money-col--used {
+      width: 12%;
+    }
+    .if-money[data-density='pro'] .money-col--actions {
+      width: 14%;
+    }
+  }
+  .if-money[data-density='pro'] .money-table td {
+    height: 40px;
+  }
+  .if-money[data-density='pro'] .money-coin {
+    min-height: 32px;
+  }
+  .if-money[data-density='pro'] .money-coin__text {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .if-money[data-density='pro'] .money-coin__ticker {
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .if-money[data-density='pro'] .money-row__actions {
+    opacity: 1;
+  }
+
+  /* Small balances */
+  .money-small__trigger {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    height: 56px;
+    padding: 0 24px;
+    border: 0;
+    border-top: 1px solid var(--if-line);
+    background: transparent;
+    color: var(--if-fg);
+    font: 500 14px/20px var(--if-font-ui);
+    text-align: left;
+    cursor: pointer;
+  }
+  .money-small__trigger:hover {
+    background: var(--if-hover);
+  }
+  .money-small__count {
+    margin-left: auto;
+    color: var(--if-fg-2);
+    font-weight: 400;
+  }
+  .money-small__chev {
+    color: var(--if-fg-2);
+    transition: transform var(--if-t-tab) var(--if-ease);
+  }
+  .money-small__trigger[data-panel-open] .money-small__chev {
+    transform: rotate(180deg);
+  }
+
+  /* Named accounts */
+  .money-accounts__row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 56px;
+    padding: 0 24px;
+    border-top: 1px solid var(--if-line);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .money-accounts__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+
+  /* States */
+  .money-state {
+    margin-top: 32px;
+    border-radius: var(--if-r-lg);
+    background: var(--if-panel);
+  }
+  .money-card .money-state {
+    margin-top: 0;
+    background: transparent;
+  }
+  .money-skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 64px;
+    padding: 0 24px;
+    border-top: 1px solid var(--if-line);
+  }
+  .money-skeleton-gap {
+    flex: 1;
+  }
+
+  /* Activity */
+  .money-title {
+    font: 700 28px/34px var(--if-font-ui);
+  }
+  .money-tabs {
+    margin-top: 16px;
+  }
+  .money-filter {
+    display: flex;
+    margin-top: 16px;
+  }
+  .money-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px 0 12px;
+    border: 1px solid var(--if-line);
+    border-radius: 999px;
+    background: var(--if-raised);
+    color: var(--if-fg);
+    font: 500 13px/18px var(--if-font-ui);
+    cursor: pointer;
+    transition: background-color var(--if-t-fast) var(--if-ease);
+  }
+  .money-chip:hover {
+    background: var(--if-pill-active);
+  }
+  .money-chip svg {
+    color: var(--if-fg-2);
+  }
+  .money-filter + .money-card--activity {
+    margin-top: 12px;
+  }
+  .money-card--activity {
+    margin-top: 16px;
+    padding-bottom: 0;
+    overflow: hidden;
+  }
+  .money-table--activity td {
+    height: 48px;
+  }
+  .money-table--activity thead + tbody tr:first-child td {
+    border-top: 0;
+  }
+  .money-act__hold {
+    color: var(--if-warn);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .money-trade-tab {
+    padding-bottom: 8px;
+    overflow-x: auto;
+  }
+  .money-trade-tab .dk-table th:first-child,
+  .money-trade-tab .dk-table td:first-child {
+    padding-left: 24px;
+  }
+  .money-trade-tab .dk-table th:last-child,
+  .money-trade-tab .dk-table td:last-child {
+    padding-right: 24px;
+  }
+  .money-trade-tab .dk-bt-skeleton {
+    padding: 12px 24px;
+  }
+  .money-trade-tab__head {
+    margin: 0;
+    padding: 16px 24px 8px;
+    font: 500 16px/24px var(--if-font-ui);
+  }
+  .money-state--compact {
+    padding: 16px 24px;
+  }
+  /* Pro: activity rows 40 (Simple 48) */
+  .if-money--activity .dk-table td {
+    height: 48px;
+  }
+  .if-money--activity[data-density='pro'] .money-table--activity td {
+    height: 40px;
+  }
+  .if-money--activity[data-density='pro'] .dk-table td,
+  .if-money--activity[data-density='pro'] .dk-table[data-layout='activity'] td {
+    height: 40px;
+  }
+  .if-money--activity[data-density='pro'] .money-act__icon {
+    width: 24px;
+    height: 24px;
+  }
+  .money-act-col--what {
+    width: 42%;
+  }
+  .money-act-col--time {
+    width: 20%;
+  }
+  .money-act-col--amount {
+    width: 20%;
+  }
+  .money-act-col--status {
+    width: 18%;
+  }
+  .money-act__what {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .money-act__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    background: var(--if-field);
+    color: var(--if-fg-2);
+  }
+  .money-act__icon[data-direction='in'] {
+    color: var(--if-up-text);
+  }
+  .money-act__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .money-act__title {
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .money-act__sub {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .money-act__time {
+    color: var(--if-fg-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .money-act__status {
+    text-align: left;
+  }
+  .money-act:hover {
+    background: var(--if-hover);
+  }
+  .money-act-skeleton__row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 56px;
+    padding: 0 24px;
+    border-top: 1px solid var(--if-line);
+  }
+  .money-act-skeleton__row:first-child {
+    border-top: 0;
+  }
+  .money-more {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 0 24px;
+    border-top: 1px solid var(--if-line);
+  }
+  .money-more__note {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
+  .money-act__done {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
+  /* Narrower windows: stack the header, then let the tables lose their least important columns (every action stays
+     reachable from the coin page the row opens) */
+  @media (max-width: 1279px) {
+    .money-head {
+      flex-direction: column;
+      gap: 0;
+    }
+    .money-actions {
+      justify-content: flex-start;
+      margin-top: 20px;
+    }
+  }
+  @media (max-width: 960px) {
+    .money-cell--actions,
+    .money-cell--pro,
+    .money-cell--status {
+      display: none;
+    }
+    .money-col--coin {
+      width: 32%;
+    }
+    .money-col--amount {
+      width: 24%;
+    }
+    .money-col--value {
+      width: 20%;
+    }
+    .money-col--today {
+      width: 24%;
+    }
+    .money-act-col--what {
+      width: 46%;
+    }
+    .money-act-col--time {
+      width: 26%;
+    }
+    .money-act-col--amount {
+      width: 28%;
+    }
+  }
+  @media (max-width: 640px) {
+    .money-cell--today {
+      display: none;
+    }
+    .money-col--coin {
+      width: 40%;
+    }
+    .money-col--amount {
+      width: 32%;
+    }
+    .money-col--value {
+      width: 28%;
+    }
+    .money-card__head {
+      padding: 0 16px;
+    }
+    .money-coin__share {
+      display: none;
+    }
+    .money-table th:first-child,
+    .money-table td:first-child {
+      padding-left: 16px;
+    }
+    .money-table th:last-child,
+    .money-table td:last-child {
+      padding-right: 16px;
+    }
+    .money-act__time {
+      white-space: normal;
+    }
+    .money-act-col--what {
+      width: 44%;
+    }
+    .money-act-col--time {
+      width: 26%;
+    }
+    .money-act-col--amount {
+      width: 30%;
+    }
+  }
+
+  /* Activity search, statement and one-transaction page */
+  .money-act__link:hover {
+    text-decoration: underline;
+  }
+  .money-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .money-bar__search {
+    display: flex;
+    flex: 1 1 260px;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-lg);
+    background: var(--if-raised);
+    color: var(--if-fg-2);
+  }
+  .money-bar__search input,
+  .money-bar__field input,
+  .money-bar__field select {
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--if-fg);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .money-bar__search input {
+    flex: 1;
+    outline: none;
+  }
+  .money-bar__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .money-bar__field input,
+  .money-bar__field select {
+    height: 40px;
+    padding: 0 10px;
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-lg);
+    background: var(--if-raised);
+  }
+  .money-bar__error {
+    flex-basis: 100%;
+    color: var(--if-warn);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .money-export {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+  }
+  .money-export__note {
+    flex: 1 1 240px;
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .money-detail {
+    max-width: 760px;
+  }
+  .money-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 16px;
+    color: var(--if-fg-2);
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .money-back:hover {
+    color: var(--if-fg);
+  }
+  .money-detail__head {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .money-detail__amount {
+    font: 700 40px/48px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+  .money-detail__status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    color: var(--if-fg-2);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .money-detail__note {
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .money-detail__skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .money-detail__card {
+    padding: 8px 24px 24px;
+  }
+  .money-detail__h {
+    padding: 16px 0 8px;
+    font: 600 18px/26px var(--if-font-ui);
+  }
+  .money-facts {
+    margin: 0;
+  }
+  .money-fact {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 0;
+    border-top: 1px solid var(--if-line);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .money-fact dt {
+    color: var(--if-fg-2);
+  }
+  .money-fact dd {
+    margin: 0;
+    min-width: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+  .money-code {
+    font-family: var(--if-font-mono);
+    font-size: 13px;
+  }
+  .money-detail__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 16px 0 8px;
+  }
+  @media (max-width: 640px) {
+    .money-detail__amount {
+      font-size: 32px;
+      line-height: 40px;
+    }
+    .money-fact {
+      flex-direction: column;
+      gap: 4px;
+    }
+    .money-fact dd {
+      text-align: left;
+    }
+  }
+}

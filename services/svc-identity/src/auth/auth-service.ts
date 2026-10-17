@@ -3,10 +3,24 @@ import { transaction } from '@intafaced/db';
 import type { AccountState } from '@intafaced/contracts';
 import { assertDelegatableScopes, issueAccessToken, SESSION_SCOPES, type Scope, type TokenConfig } from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
-import { dummyPasswordHash, generateApiKey, generateToken, hashPassword, hashToken, needsRehash, verifyPassword } from './passwords.js';
+import {
+  assertPasswordShape,
+  dummyPasswordHash,
+  generateApiKey,
+  generateToken,
+  hashPassword,
+  hashToken,
+  needsRehash,
+  verifyPassword,
+  WeakPasswordError,
+} from './passwords.js';
+import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import { completePasswordReset, publishedPasswordResetTtlSeconds, requestPasswordReset, type PasswordResetMail } from './password-reset.js';
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
+import { recordSuccess, reserveAttempt, type AttemptKind } from './attempt-lockout.js';
+import { matchInvite, type FounderEnrolmentConfig } from './founder-enrolment.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
 import {
   b64urlDecode,
@@ -56,6 +70,7 @@ export class AuthError extends Error {
       | 'auth.handle_taken'
       | 'auth.email_taken'
       | 'auth.mfa_required'
+      | 'auth.privileged_enrolment_requires_invite'
       | 'auth.mfa_invalid'
       | 'auth.mfa_already_enrolled'
       | 'auth.session_invalid'
@@ -78,7 +93,23 @@ export class AuthError extends Error {
       | 'auth.session_denied'
       | 'auth.session_revoked'
       | 'auth.totp_key_missing'
-      | 'auth.delegate_cannot_grant',
+      | 'auth.delegate_cannot_grant'
+      | 'auth.password_unchanged'
+      | 'auth.password_policy'
+      | 'auth.reset_proof_invalid'
+      | 'auth.reset_unwired'
+      | 'auth.too_many_attempts'
+      | 'auth.invite_invalid'
+      | 'auth.invite_used'
+      | 'auth.invite_expired'
+      | 'auth.founder_enrolment_closed'
+      | 'auth.request_unsigned'
+      | 'auth.request_stale'
+      | 'auth.request_tampered'
+      | 'auth.request_replay'
+      | 'auth.ip_allowlist_required',
+    /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
+    readonly details?: { readonly retryAfterSeconds?: number },
   ) {
     super(message);
     this.name = 'AuthError';
@@ -285,6 +316,15 @@ const DEFAULT_WEBAUTHN: WebAuthnConfig = {
   origin: 'http://localhost:3000',
 };
 
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === '23505';
+}
+
+function uniqueConstraintName(err: unknown): string {
+  const name = (err as { constraint_name?: unknown }).constraint_name;
+  return typeof name === 'string' ? name : '';
+}
+
 export class AuthService {
   private readonly pendingTotp: PendingTotpEnrolmentStore;
   private readonly challenges: ChallengeStorePort;
@@ -292,6 +332,10 @@ export class AuthService {
   private readonly totpSecretKey: Buffer | null;
   /** Owner-published live cap. Undefined = unpublished — create refuses, never invents 25. */
   private readonly maxSubAccounts: number | undefined;
+  /** Owner-published reset lifetime. Undefined = unpublished — reset refuses, never invents 900. */
+  private passwordResetTtlSeconds: number | undefined;
+  private passwordResetMail: PasswordResetMail | undefined;
+  private passwordResetNow: () => Date = () => new Date();
 
   constructor(
     private readonly sql: Sql,
@@ -312,35 +356,103 @@ export class AuthService {
       maxSubAccounts !== undefined && Number.isFinite(maxSubAccounts) && maxSubAccounts >= 1 ? Math.floor(maxSubAccounts) : undefined;
   }
 
-  private openTotpSecretColumn(stored: string): string {
+  /** Structured warn sink. Defaults to one JSON line on stderr; index.ts swaps in the Fastify logger. */
+  private log: { warn(obj: Record<string, unknown>, msg: string): void } = {
+    warn: (obj, msg) => process.stderr.write(`${JSON.stringify({ level: 'warn', ...obj, msg })}\n`),
+  };
+
+  useLogger(log: { warn(obj: Record<string, unknown>, msg: string): void }): void {
+    this.log = log;
+  }
+
+  /** Install the mail handoff. Unset refuses every reset request the same way. */
+  usePasswordResetMail(mail: PasswordResetMail | undefined): void {
+    this.passwordResetMail = mail;
+  }
+
+  /** Owner-published lifetime in seconds. Unset, 0, or out of range stays unpublished. */
+  usePasswordResetTtl(seconds: number | undefined): void {
+    this.passwordResetTtlSeconds = publishedPasswordResetTtlSeconds(seconds);
+  }
+
+  /** Test clock. Production uses the real clock. */
+  usePasswordResetClock(now: () => Date): void {
+    this.passwordResetNow = now;
+  }
+
+  private resetDeps() {
+    return {
+      sql: this.sql,
+      mail: this.passwordResetMail,
+      ttlSeconds: this.passwordResetTtlSeconds,
+      now: this.passwordResetNow,
+      log: this.log,
+    };
+  }
+
+  /** Count a sign-in attempt (see attempt-lockout.ts); log once when this attempt is the one that sets a lock. */
+  private async reserve(userId: string, kind: AttemptKind): Promise<void> {
+    const { lockedForSeconds } = await reserveAttempt(this.sql, userId, kind);
+    if (lockedForSeconds !== null) this.log.warn({ userId, kind, lockedForSeconds }, 'identity.account_locked');
+  }
+
+  /**
+   * The user's TOTP secret in the clear, or null when the stored value cannot be
+   * opened (key lost / rotated, corrupt ciphertext). Null makes the caller fall
+   * through to recovery codes, so a lost key does not make the account
+   * unrecoverable. The caller still answers `auth.mfa_invalid` on failure, so
+   * nothing about the stored value reaches the client. One warn line, id only.
+   */
+  private tryOpenTotpSecret(userId: string, stored: string): string | null {
     try {
       return materializeTotpSecret(this.totpSecretKey, stored);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'TOTP secret unreadable';
-      throw new AuthError(msg, 'auth.mfa_invalid');
+    } catch {
+      this.log.warn({ userId }, 'identity.totp_secret_undecryptable');
+      return null;
     }
+  }
+
+  /**
+   * Check a TOTP or recovery code for a user whose `mfa` attempt is already
+   * reserved. Throws `auth.mfa_invalid` when neither matches.
+   */
+  private async verifyMfaCode(userId: string, storedSecret: string, code: string): Promise<void> {
+    const secret = this.tryOpenTotpSecret(userId, storedSecret);
+    if (secret !== null && matchTotpStep(secret, code) !== null) {
+      await this.consumeTotpCode(userId, secret, code);
+      return;
+    }
+    if (!(await this.tryRedeemRecoveryCode(userId, code))) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
   }
 
   async register(input: RegisterInput): Promise<SessionTokens> {
     const passwordHash = await hashPassword(input.password);
-    const userId = await transaction(this.sql, async (tx) => {
-      const clash = await tx<
-        Array<{ handle: string; email: string }>
-      >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
-      for (const row of clash) {
-        if (row.handle.toLowerCase() === input.handle.toLowerCase()) {
-          throw new AuthError('That handle is taken', 'auth.handle_taken');
-        }
-        throw new AuthError('An account with that email already exists', 'auth.email_taken');
+    const userId = await transaction(this.sql, (tx) => this.insertNewUser(tx, input, passwordHash));
+    return this.finishRegistration(userId, input);
+  }
+
+  /** The user, profile and rank rows of a new account, inside the caller's transaction. */
+  private async insertNewUser(tx: Sql, input: RegisterInput, passwordHash: string): Promise<string> {
+    const clash = await tx<
+      Array<{ handle: string; email: string }>
+    >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
+    for (const row of clash) {
+      if (row.handle.toLowerCase() === input.handle.toLowerCase()) {
+        throw new AuthError('That handle is taken', 'auth.handle_taken');
       }
-      const inserted = await tx<
-        Array<{ id: string }>
-      >`INSERT INTO users (handle, email, password_hash) VALUES (${input.handle}, ${input.email}, ${passwordHash}) RETURNING id`;
-      const id = inserted[0]!.id;
-      await tx`INSERT INTO profiles (user_id, display_name, region) VALUES (${id}, ${input.handle}, ${input.region ?? null})`;
-      await tx`INSERT INTO rank_state (user_id) VALUES (${id})`;
-      return id;
-    });
+      throw new AuthError('An account with that email already exists', 'auth.email_taken');
+    }
+    const inserted = await tx<
+      Array<{ id: string }>
+    >`INSERT INTO users (handle, email, password_hash) VALUES (${input.handle}, ${input.email}, ${passwordHash}) RETURNING id`;
+    const id = inserted[0]!.id;
+    await tx`INSERT INTO profiles (user_id, display_name, region) VALUES (${id}, ${input.handle}, ${input.region ?? null})`;
+    await tx`INSERT INTO rank_state (user_id) VALUES (${id})`;
+    return id;
+  }
+
+  /** After the account is committed: announce it, award the first XP, open a (non-MFA) session. */
+  private async finishRegistration(userId: string, input: RegisterInput): Promise<SessionTokens> {
     await this.bus.publish(
       'userCreated',
       { userId, handle: input.handle, ...(input.region ? { region: input.region } : {}) },
@@ -356,28 +468,138 @@ export class AuthService {
     return this.issueSession(userId, { device: input.device, ip: input.ip, mfa: false });
   }
 
+  /**
+   * FOUNDER ENROLMENT (`auth.registerFounder`, src/auth/founder-enrolment.ts).
+   *
+   * Creates an ordinary account, exactly like `register`, but gated by a
+   * single-use invite instead of REGISTRATION_OPEN. The new account is NOT
+   * privileged until the founder pair is pinned to its id, so the session may
+   * enrol its first factor the normal way (factor-gate.ts is untouched).
+   *
+   * Order matters. The cheap refusals come first, before the argon2 hash that an
+   * attacker could otherwise make us pay for with a bad code:
+   *   closed (not configured, or the pair is pinned) → invalid → expired → used.
+   * The invite is then consumed in the SAME transaction as the user insert,
+   * behind a per-invite advisory lock, with the primary key as the backstop: one
+   * invite makes one account and a race has exactly one winner. The losing
+   * transaction rolls back its user row.
+   *
+   * Logging: one audit line, `founder.enrolled {userId}`. The invite, its hash
+   * and the password are never logged, and the hash is never put next to an
+   * email. The durable record is the `founder_invites_used` row (hash → user,
+   * time), which is immutable.
+   */
+  async registerFounder(
+    input: RegisterInput & { invite: string },
+    config: FounderEnrolmentConfig | undefined,
+    now: Date = new Date(),
+  ): Promise<SessionTokens> {
+    const closed = () => new AuthError('Founder enrolment is closed', 'auth.founder_enrolment_closed');
+    if (!config) throw closed();
+    if (await this.founderPairPinned(this.sql)) throw closed();
+    const hash = matchInvite(input.invite, config.hashes);
+    if (hash === null) throw new AuthError('That invite code is not valid', 'auth.invite_invalid');
+    if (now.getTime() >= config.expiresAt.getTime()) throw new AuthError('That invite code has expired', 'auth.invite_expired');
+    const usedError = () => new AuthError('That invite code has already been used', 'auth.invite_used');
+    if (await this.founderInviteSpent(this.sql, hash)) throw usedError();
+
+    const passwordHash = await hashPassword(input.password);
+    let userId: string;
+    try {
+      userId = await transaction(
+        this.sql,
+        async (tx) => {
+          // Serialise every attempt on this invite, so the loser of a race gets
+          // `invite_used` (not a unique-violation 500) and never half-creates a user.
+          await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`founder-invite:${hash}`}, 0))`;
+          // Re-read under the lock: the pair may have been pinned, the invite spent, while we hashed.
+          if (await this.founderPairPinned(tx)) throw closed();
+          if (await this.founderInviteSpent(tx, hash)) throw usedError();
+          const id = await this.insertNewUser(tx, input, passwordHash);
+          const claimed = await tx<
+            Array<{ hash: string }>
+          >`INSERT INTO founder_invites_used (hash, user_id) VALUES (${hash}, ${id}) ON CONFLICT (hash) DO NOTHING RETURNING hash`;
+          if (claimed.length !== 1) throw usedError();
+          return id;
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (err) {
+      // Two founders racing different invites for the same handle/email: the unique index decides.
+      if (isUniqueViolation(err)) {
+        if (/founder_invites_used/.test(uniqueConstraintName(err))) throw usedError();
+        throw new AuthError(
+          /email/i.test(uniqueConstraintName(err)) ? 'An account with that email already exists' : 'That handle is taken',
+          /email/i.test(uniqueConstraintName(err)) ? 'auth.email_taken' : 'auth.handle_taken',
+        );
+      }
+      throw err;
+    }
+    this.log.warn({ audit: 'founder.enrolled', userId }, 'founder.enrolled');
+    return this.finishRegistration(userId, input);
+  }
+
+  /**
+   * Is founder enrolment open right now? True only while ALL hold: the invites
+   * are configured (hashes and expiry), the founder pair is not pinned, the
+   * expiry has not passed, and at least one invite is unspent. Reveals nothing else.
+   */
+  async founderEnrolmentOpen(config: FounderEnrolmentConfig | undefined, now: Date = new Date()): Promise<boolean> {
+    if (!config) return false;
+    if (now.getTime() >= config.expiresAt.getTime()) return false;
+    if (await this.founderPairPinned(this.sql)) return false;
+    const spent = await this.sql<
+      Array<{ n: number }>
+    >`SELECT count(*)::int AS n FROM founder_invites_used WHERE hash IN ${this.sql(config.hashes as string[])}`;
+    return (spent[0]?.n ?? 0) < config.hashes.length;
+  }
+
+  /** The founder pair is pinned permanently by the first verified boot (founder-controls.ts). */
+  private async founderPairPinned(q: Sql): Promise<boolean> {
+    const rows = await q<Array<{ pinned: boolean }>>`SELECT true AS pinned FROM founder_control_configuration LIMIT 1`;
+    return rows.length > 0;
+  }
+
+  private async founderInviteSpent(q: Sql, hash: string): Promise<boolean> {
+    const rows = await q<Array<{ hash: string }>>`SELECT hash FROM founder_invites_used WHERE hash = ${hash}`;
+    return rows.length > 0;
+  }
+
   async login(input: { identifier: string; password: string; totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
     const rows = await this.sql<
       Array<{ id: string; password_hash: string; status: string; totp_secret: string | null }>
     >`SELECT id, password_hash, status, totp_secret FROM users WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
     const user = rows[0];
-    const storedHash = user?.password_hash ?? (await dummyPasswordHash());
+    // Reserve the password guess BEFORE verifying it (see attempt-lockout.ts). Unknown
+    // identifiers have no row and keep answering `invalid_credentials`. A locked
+    // account still pays the password-hash cost (against the dummy hash) so timing
+    // does not separate locked from wrong from unknown.
+    let locked: AuthError | undefined;
+    if (user) {
+      try {
+        await this.reserve(user.id, 'password');
+      } catch (err) {
+        if (!(err instanceof AuthError) || err.code !== 'auth.too_many_attempts') throw err;
+        locked = err;
+      }
+    }
+    const storedHash = user && !locked ? user.password_hash : await dummyPasswordHash();
     const passwordOk = await verifyPassword(storedHash, input.password);
+    if (locked) throw locked;
     if (!user || !passwordOk) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    // The password verified: it is no longer a guess. Clear its counter NOW, before the
+    // two-step TOTP flow (password first, code second), so a correct password is never
+    // left counting against the owner. The mfa counter is separate and stays.
+    await recordSuccess(this.sql, user.id, 'password');
     let mfa = false;
     if (user.totp_secret) {
       if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
-      const secret = this.openTotpSecretColumn(user.totp_secret);
-      const totpMatch = matchTotpStep(secret, input.totpCode);
-      if (totpMatch !== null) {
-        await this.consumeTotpCode(user.id, secret, input.totpCode);
-        mfa = true;
-      } else {
-        const redeemed = await this.tryRedeemRecoveryCode(user.id, input.totpCode);
-        if (!redeemed) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
-        mfa = true;
-      }
+      // Counted before the code is looked at; a locked account is refused here without consuming a step or a recovery code.
+      await this.reserve(user.id, 'mfa');
+      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
+      mfa = true;
+      await recordSuccess(this.sql, user.id, 'mfa');
     }
     if (await needsRehash(user.password_hash)) {
       const upgraded = await hashPassword(input.password);
@@ -494,6 +716,117 @@ export class AuthService {
     return result.count;
   }
 
+  /**
+   * CHANGE PASSWORD (signed-in user).
+   *
+   * Failures this prevents:
+   *  - a stolen session (or a leaked API key) taking the account over by setting a
+   *    new password: it needs the CURRENT password, and an API key / sub-account
+   *    principal is refused outright (it is not a person at a keyboard);
+   *  - a stolen password plus a non-MFA session doing the same on an account that
+   *    has a second factor: any TOTP / passkey on the account requires the `mfa`
+   *    claim (TOTP or passkey login, or a fresh `auth.stepUp` token). An account
+   *    with NO second factor may change the password with the current one alone;
+   *  - the current password being brute-forced through this door: the guess is
+   *    reserved on the same per-account `password` counter as login BEFORE it is
+   *    verified, so the two doors share one budget;
+   *  - the old password living on in other devices: every OTHER session is revoked
+   *    in the same transaction as the hash update. The calling session stays.
+   *
+   * Order: gate (delegated / MFA) → reserve → verify current → policy → not-the-same
+   * → one transaction (re-check the hash we verified, write, revoke others, clear
+   * the counter). A wrong current password answers `auth.invalid_credentials`,
+   * identical to login. Entitlements (`operatorStatus`) are not touched: this writes
+   * only `users.password_hash` and `sessions`.
+   *
+   * AUDIT: no durable auth-audit table or password-changed bus event exists yet, so
+   * the record is the service's structured log line `auth.password_changed`
+   * (same sink as `identity.account_locked`). User id and counts only, never a secret.
+   */
+  async changePassword(input: {
+    userId: string;
+    sessionId: string;
+    actor: FactorActor;
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<void> {
+    const { userId, sessionId, actor } = input;
+    // Delegated principals first: refused before any lookup, so it cannot probe ids.
+    if (actor.delegated) {
+      throw new AuthError('Sign in yourself to change your password; an API key or sub-account cannot', 'auth.mfa_required');
+    }
+    const rows = await this.sql<
+      Array<{ password_hash: string; status: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT password_hash, status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    // Second factor on the account, or a privileged identity (founder pair / `admin:*`
+    // scope, which never gets the no-factor exception): the session must have passed it. Checked before the
+    // reservation so a missing step-up never spends the password budget.
+    if ((accountHasSecondFactor(user) || actor.privileged) && !actor.mfa) {
+      throw new AuthError('Verify with your second factor before changing your password', 'auth.mfa_required');
+    }
+    // Count the guess BEFORE verifying it (see attempt-lockout.ts); a locked account is refused here.
+    await this.reserve(userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.currentPassword))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    // The current password verified, so it is no longer a guess: a policy or same-password
+    // refusal below must not count toward the lock.
+    await recordSuccess(this.sql, userId, 'password');
+    try {
+      assertPasswordShape(input.newPassword);
+    } catch (err) {
+      if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
+      throw err;
+    }
+    if (input.newPassword === input.currentPassword) {
+      throw new AuthError('The new password must differ from the current one', 'auth.password_unchanged');
+    }
+    const nextHash = await hashPassword(input.newPassword);
+    const revokedIds = await transaction(this.sql, async (tx) => {
+      const locked = await tx<
+        Array<{ password_hash: string; status: string }>
+      >`SELECT password_hash, status FROM users WHERE id = ${userId} FOR UPDATE`;
+      // A parallel change already moved the hash: the password we verified is no longer the current one.
+      if (!locked[0] || locked[0].password_hash !== user.password_hash) {
+        throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+      }
+      if (locked[0].status !== 'active') throw new AuthError(`Account is ${locked[0].status}`, 'auth.account_frozen');
+      const live = await tx<
+        Array<{ id: string }>
+      >`SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()`;
+      if (!live[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+      await tx`UPDATE users SET password_hash = ${nextHash}, updated_at = now() WHERE id = ${userId}`;
+      const revoked = await tx<
+        Array<{ id: string }>
+      >`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false AND id <> ${sessionId} RETURNING id`;
+      await recordSuccess(tx, userId, 'password');
+      return revoked.map((r) => r.id);
+    });
+    for (const id of revokedIds) await syncNavigatorSessionClosed(this.sql, id);
+    this.log.warn({ userId, sessionId, otherSessionsRevoked: revokedIds.length }, 'auth.password_changed');
+  }
+
+  /**
+   * Signed-out reset, step 1. Same answer for every address. No session, no hash change.
+   * The one-time code goes to the mail port only.
+   */
+  async requestPasswordReset(input: { email: string }): Promise<{ accepted: true }> {
+    return requestPasswordReset(this.resetDeps(), input);
+  }
+
+  /**
+   * Signed-out reset, step 2. A correct proof replaces the hash and ends every
+   * session. This call does not sign the person in.
+   */
+  async completePasswordReset(input: { email: string; code: string; newPassword: string }): Promise<void> {
+    const result = await completePasswordReset(this.resetDeps(), input);
+    if (result.sessionsRevoked > 0) await syncNavigatorSessionsClosedForUser(this.sql, result.userId);
+    this.log.warn({ userId: result.userId, sessionsRevoked: result.sessionsRevoked }, 'auth.password_reset');
+  }
+
   async getSessionOwnership(sessionId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {
     const rows = await this.sql<
       Array<{ id: string; user_id: string; revoked: boolean }>
@@ -555,7 +888,7 @@ export class AuthService {
     });
   }
 
-  async startTotpEnrolment(userId: string): Promise<{ secret: string; uri: string; recoveryCodes: string[] }> {
+  async startTotpEnrolment(userId: string, actor: FactorActor): Promise<{ secret: string; uri: string; recoveryCodes: string[] }> {
     if (!this.totpSecretKey) {
       throw new AuthError(
         'IDENTITY_TOTP_SECRET_KEY is not set to a 32-byte key (base64 or hex) — cannot enrol TOTP',
@@ -563,10 +896,13 @@ export class AuthService {
       );
     }
     const rows = await this.sql<
-      Array<{ email: string; totp_secret: string | null }>
-    >`SELECT email, totp_secret FROM users WHERE id = ${userId}`;
+      Array<{ email: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT email, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
+    // Gate first (a refused caller learns nothing about TOTP state), then the
+    // already-enrolled conflict. Unlocked: nothing is written here.
+    checkMayAddFactor(user, actor);
     if (user.totp_secret) throw new AuthError('Two-factor is already enrolled', 'auth.mfa_already_enrolled');
     const secret = generateSecret();
     const recoveryCodes = generateRecoveryCodes();
@@ -578,7 +914,7 @@ export class AuthService {
     return { secret, uri: totpUri(secret, user.email), recoveryCodes };
   }
 
-  async confirmTotpEnrolment(userId: string, secret: string, code: string): Promise<void> {
+  async confirmTotpEnrolment(userId: string, actor: FactorActor, secret: string, code: string): Promise<void> {
     const matched = matchTotpStep(secret, code);
     if (matched === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
     if (!this.totpSecretKey) {
@@ -587,13 +923,17 @@ export class AuthService {
         'auth.totp_key_missing',
       );
     }
-    const pending = await this.pendingTotp.takeIfSecretHash(userId, hashToken(secret));
-    if (!pending) {
-      throw new AuthError('TOTP enrolment session expired or secret mismatch — start enrolment again', 'auth.mfa_invalid');
-    }
+    // Same transaction, same row lock as the write: "has no factor" cannot change
+    // between the check and the UPDATE (a parallel first-factor enrolment waits).
     const sealed = encryptTotpSecret(this.totpSecretKey, secret);
-    await this
-      .sql`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${this.sql.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL`;
+    await transaction(this.sql, async (tx) => {
+      await assertMayAddFactor(tx, userId, actor, true);
+      const pending = await this.pendingTotp.takeIfSecretHash(userId, hashToken(secret));
+      if (!pending) {
+        throw new AuthError('TOTP enrolment session expired or secret mismatch — start enrolment again', 'auth.mfa_invalid');
+      }
+      await tx`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${tx.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL`;
+    });
     await this.rank.awardXp({
       userId,
       sourceModule: 'identity',
@@ -603,19 +943,24 @@ export class AuthService {
     });
   }
 
-  async startWebauthnRegistration(userId: string): Promise<RegistrationOptionsJSON> {
+  async startWebauthnRegistration(userId: string, actor: FactorActor): Promise<RegistrationOptionsJSON> {
     const rows = await this.sql<
-      Array<{ email: string; handle: string; webauthn_creds: StoredWebAuthnCredential[] }>
-    >`SELECT email, handle, webauthn_creds FROM users WHERE id = ${userId}`;
+      Array<{ email: string; handle: string; totp_secret: string | null; webauthn_creds: StoredWebAuthnCredential[] }>
+    >`SELECT email, handle, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
+    checkMayAddFactor(user, actor);
     const existing = asCredentialList(user.webauthn_creds);
     const challenge = generateChallenge();
     await this.challenges.put('registration', challenge, userId);
     return createRegistrationOptions(this.webauthn, { id: userId, name: user.email, displayName: user.handle }, existing, challenge);
   }
 
-  async confirmWebauthnRegistration(userId: string, response: RegistrationResponseJSON): Promise<{ credentialId: string }> {
+  async confirmWebauthnRegistration(
+    userId: string,
+    actor: FactorActor,
+    response: RegistrationResponseJSON,
+  ): Promise<{ credentialId: string }> {
     const rows = await this.sql<
       Array<{ webauthn_creds: StoredWebAuthnCredential[] }>
     >`SELECT webauthn_creds FROM users WHERE id = ${userId}`;
@@ -635,10 +980,12 @@ export class AuthService {
     }
     // Re-read under a row lock so this enrolment and a login's counter write in
     // this service cannot overwrite each other's credential list. The writers in
-    // enroll-passkey.ts, verify-passkey.ts and unenroll-passkey.ts do not take
-    // this lock yet, so the guarantee holds only between locked writers.
+    // enroll-passkey.ts, verify-passkey.ts and unenroll-passkey.ts take the same
+    // lock, so the guarantee holds between all of them.
     const existingCount = await transaction(this.sql, async (tx) => {
-      const locked = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
+      // Locks the user row and applies the factor rule in the same transaction as the write.
+      await assertMayAddFactor(tx, userId, actor, true);
+      const locked = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId}`;
       if (!locked[0]) throw new AuthError('User not found', 'auth.not_found');
       const existing = asCredentialList(locked[0].webauthn_creds);
       if (existing.some((c) => c.credentialId === stored.credentialId)) {
@@ -701,9 +1048,8 @@ export class AuthService {
    * Runs in one transaction under `SELECT … FOR UPDATE` on the user row, so two
    * concurrent assertions (or a locked enrolment racing a login) cannot read the
    * same counter and both succeed, and cannot overwrite each other's credential
-   * list. The unlocked writers in enroll-passkey.ts, verify-passkey.ts and
-   * unenroll-passkey.ts are outside this guarantee until they take the same
-   * lock. `refuse` throws the caller's own AuthError for any refusal.
+   * list. The writers in enroll-passkey.ts, verify-passkey.ts and
+   * unenroll-passkey.ts take the same lock. `refuse` throws the caller's own AuthError for any refusal.
    */
   private async verifyAssertionAndAdvanceCounter(
     userId: string,
@@ -749,7 +1095,8 @@ export class AuthService {
       .slice(0, published);
   }
 
-  async removeWebauthnCredential(userId: string, credentialId: string): Promise<boolean> {
+  async removeWebauthnCredential(userId: string, actor: FactorActor, credentialId: string): Promise<boolean> {
+    assertMayRemoveFactor(actor);
     const target = normalizeCredId(credentialId);
     return transaction(this.sql, async (tx) => {
       const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
@@ -830,7 +1177,17 @@ export class AuthService {
   async exchangeApiKey(
     key: string,
     requestOrigin?: string | null,
-  ): Promise<{ accessToken: string; expiresAt: Date; userId: string; keyId: string; scopes: string[]; mode: 'live' | 'sandbox' }> {
+  ): Promise<{
+    accessToken: string;
+    expiresAt: Date;
+    userId: string;
+    keyId: string;
+    scopes: string[];
+    mode: 'live' | 'sandbox';
+    requireSignature?: boolean;
+    requireNonEmptyIpAllowlist?: boolean;
+    ipAllowlist?: string[];
+  }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     if (!apiKeyOriginAllowed(verified.domainWhitelist, requestOrigin)) {
@@ -911,6 +1268,30 @@ export class AuthService {
     const user = rows[0];
     if (!user) return null;
     return { userId: user.id, status: user.status, kycTier: await this.kycTier(user.id) };
+  }
+
+  /**
+   * The caller's own handle, for `identity.me`. Null only when the account row
+   * is gone, which a live session should not be able to reach.
+   */
+  async handleOf(userId: string): Promise<string | null> {
+    const rows = await this.sql<Array<{ handle: string }>>`SELECT handle FROM users WHERE id = ${userId} LIMIT 1`;
+    return rows[0]?.handle ?? null;
+  }
+
+  /**
+   * Exact handle match for pay-by-@handle. `handle` is citext, so `=` is
+   * case-insensitive and there is no LIKE, prefix or list path here.
+   *
+   * Only `active` accounts come back. Frozen, closed and missing rows are the
+   * same null: the caller must not learn which handles belong to restricted
+   * accounts. Returns the stored handle and nothing else about the account.
+   */
+  async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string } | null> {
+    const rows = await this.sql<Array<{ id: string; handle: string }>>`
+      SELECT id, handle FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
+    const row = rows[0];
+    return row ? { userId: row.id, handle: row.handle } : null;
   }
 
   async submitKyc(input: { userId: string; tier: SubmittableKycTier; jurisdiction: string; providerRef?: string }): Promise<KycRecordView> {
@@ -1060,14 +1441,10 @@ export class AuthService {
       if (!user.totp_secret) {
         throw new AuthError('Enrol two-factor authentication before withdrawing', 'auth.mfa_not_enrolled');
       }
-      const secret = this.openTotpSecretColumn(user.totp_secret!);
-      const matched = matchTotpStep(secret, input.totpCode!);
-      if (matched !== null) {
-        await this.consumeTotpCode(input.userId, secret, input.totpCode!);
-      } else {
-        const redeemed = await this.tryRedeemRecoveryCode(input.userId, input.totpCode!);
-        if (!redeemed) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
-      }
+      // Same reserve-then-verify as login; the counter is shared with login's MFA step.
+      await this.reserve(input.userId, 'mfa');
+      await this.verifyMfaCode(input.userId, user.totp_secret, input.totpCode!);
+      await recordSuccess(this.sql, input.userId, 'mfa');
     } else {
       if (asCredentialList(user.webauthn_creds).length === 0) {
         throw new AuthError('Enrol a security key before withdrawing with passkey step-up', 'auth.webauthn_not_enrolled');

@@ -28,12 +28,27 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'auth.sub_account_denied': 'error.forbidden',
   'auth.sub_account_revoked': 'error.forbidden',
   'auth.sub_account_limit': 'error.forbidden',
+  'auth.privileged_enrolment_requires_invite': 'error.forbidden',
   'auth.mfa_not_enrolled': 'error.forbidden',
   'auth.webauthn_not_enrolled': 'error.forbidden',
 };
 
+/**
+ * Sentences for codes that have no catalog row yet (`auth.changePassword`). They live here, in
+ * one place, until a catalog PR moves them into `@intafaced/i18n`. `auth.invalid_credentials`
+ * stays unkeyed on purpose (it is pinned to echo its key, same as login), and
+ * `auth.mfa_required` already aliases a catalog row.
+ */
+const LOCAL_COPY: Readonly<Record<string, string>> = {
+  'auth.password_unchanged': 'Choose a new password that is different from your current one.',
+  'auth.password_policy': 'Choose a password of at least 12 characters and at most 72 bytes, and not one character repeated.',
+  'auth.reset_proof_invalid': 'That reset code is not valid. Request a new one.',
+  'auth.reset_unwired': 'Password reset is not available yet.',
+};
+
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {
   const alias = typeof key === 'string' && Object.hasOwn(CATALOG_ALIAS, key) ? CATALOG_ALIAS[key] : undefined;
+  if (typeof key === 'string' && Object.hasOwn(LOCAL_COPY, key)) return copyWithoutInsuredClaim(LOCAL_COPY[key]!);
   const lookup = typeof alias === 'string' ? alias : typeof key === 'string' ? key : '';
   // The catalog object inherits constructor / toString / __proto__. Passing the
   // key string is the echo; if that lookup throws or yields native source, keep the key.

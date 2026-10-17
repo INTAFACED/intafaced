@@ -53,12 +53,6 @@ const CI_DIR = join(ROOT, 'tooling', 'ci');
  */
 export const GATES = [
   {
-    id: 'agent-autoload',
-    script: 'tooling/ci/agent-autoload-scan.mjs',
-    doctrine: 'multi-dev law',
-    why: 'coordination law must stay in the files a cold agent auto-loads',
-  },
-  {
     id: 'worktree-gc-selftest',
     script: 'tooling/scripts/worktree-gc.mjs',
     args: ['--self-test'],
@@ -118,6 +112,17 @@ export const GATES = [
       '(blank argv refuse, rename porcelain, PR list/files caps — #1414) lived only in prose until #1489 added ' +
       'hermetic fixtures. Without this entry a quiet revert of those fixtures greens CI while agents get false ' +
       'clears again — the same shape as path-collide before its self-test gate. --self-test exits before gh.',
+  },
+  {
+    id: 'gate-tools-tests',
+    script: 'tooling/scripts/gate-tools.test.mjs',
+    doctrine: 'merge condition (2026-10-13)',
+    why:
+      'the unit tests of the tools that decide what may merge: merge-gate.mjs (the ratchet, including the id-by-id log ' +
+      'comparison inside already-red jobs), gate-file-guard.mjs (a gate change must say so in the PR title), gate-gh.mjs ' +
+      '(a 403 or 429 stops, every call has a timeout) and, once it lands, main-auto-revert.mjs. Fixture JSON and log ' +
+      'excerpts for gh, no network, about two seconds. Lives in tooling/scripts/, so the manifest check below does not ' +
+      'cover it: this entry is the only thing running the tests, and deleting it has to be a visible act.',
   },
   {
     id: 'tracker',

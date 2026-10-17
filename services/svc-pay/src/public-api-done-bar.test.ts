@@ -81,7 +81,7 @@ function stubPay(): PayService {
     getPayment: async () => {
       throw new PayError('unused', 'pay.payment_not_found');
     },
-    listPayments: async () => [],
+    listPayments: async () => ({ items: [], nextCursor: null }),
     clearingBalance: async () => parseAmount('0'),
     merchantBalance: async () => parseAmount('0'),
     createPayment: async (input: { railAdapter: string }) =>
@@ -127,7 +127,7 @@ describe('D26-P1-P7 Done bar — surface + webhooks + sandbox', () => {
 
   it('sandbox create → mode=sandbox; live naming sandbox refused; webhook deliver+enable', async () => {
     const store = new MemoryMerchantWebhookStore();
-    const webhooks = new MerchantWebhookService(store, { disableAfterFailures: 1, maxAttempts: 4 });
+    const webhooks = new MerchantWebhookService(store, { allowLocalHttp: true, disableAfterFailures: 1, maxAttempts: 4 });
     app = Fastify({ logger: false });
     await registerPublicPayRest(app, {
       edgeSecret: SECRET,

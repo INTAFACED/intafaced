@@ -3,12 +3,7 @@ import { z } from 'zod';
 import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import { LedgerError } from '@intafaced/ledger-client';
 import { DualControlError } from './ledger/dual-control.js';
-import {
-  ActionApprovalConsumeError,
-  ledgerActionPayloadHash,
-  readApprovalIds,
-  type ActionApprovalConsumer,
-} from './ledger/action-approval-consume.js';
+import { ActionApprovalConsumeError, consumeLedgerApproval, type ActionApprovalConsumer } from './ledger/action-approval-consume.js';
 import type { LedgerService } from './service.js';
 
 /**
@@ -209,15 +204,9 @@ export function registerOperatorHttp(
     '/operator/freeze',
     guarded(async (operator, body) => {
       const parsed = freezeSchema.parse(body);
-      const ids = readApprovalIds(parsed);
       const prior = await ledger.freezeState();
-      const consumed = await approvals.consume({
-        approvalId: ids.approvalId,
-        operationId: ids.operationId,
-        payloadHash: ledgerActionPayloadHash('ledger.freeze', { reason: parsed.reason }),
-        targetService: 'svc-ledger',
-        targetId: 'posting_freeze',
-        expectedVersion: prior.changedAtPrecise,
+      const consumed = await consumeLedgerApproval(approvals, parsed, 'ledger.freeze', 'posting_freeze', prior.changedAtPrecise, {
+        reason: parsed.reason,
       });
       const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
       app.log.warn(
@@ -229,27 +218,19 @@ export function registerOperatorHttp(
   );
 
   /**
-   * A thaw carries only the actor. "Why it is frozen" is meaningless once it is
-   * not, and `writeFreeze` clears the reason for exactly that argument — so
-   * there is no reason field to require here.
+   * A thaw names two people. The confirming id comes from the consumed
+   * approval, not from a typed-in string. One actor string leaves the freeze
+   * where it is. There is no reason field: a successful thaw clears it.
    */
   app.post(
     '/operator/unfreeze',
     guarded(async (operator, body) => {
       const parsed = thawSchema.parse(body ?? {});
-      const ids = readApprovalIds(parsed);
       const prior = await ledger.freezeState();
-      const consumed = await approvals.consume({
-        approvalId: ids.approvalId,
-        operationId: ids.operationId,
-        payloadHash: ledgerActionPayloadHash('ledger.unfreeze', {}),
-        targetService: 'svc-ledger',
-        targetId: 'posting_unfreeze',
-        expectedVersion: prior.changedAtPrecise,
-      });
+      const consumed = await consumeLedgerApproval(approvals, parsed, 'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {});
       const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
       app.log.warn({ actor: operator.userId, confirmOperatorId }, 'LEDGER THAW requested by operator — value movement resumes');
-      return { ...shape(await ledger.unfreeze(operator.userId)), confirmOperatorId };
+      return { ...shape(await ledger.unfreeze(operator.userId, confirmOperatorId)), confirmOperatorId };
     }),
   );
 
@@ -271,16 +252,8 @@ export function registerOperatorHttp(
     '/operator/reconcile',
     guarded(async (operator, body) => {
       const parsed = reconcileSchema.parse(body ?? {});
-      const ids = readApprovalIds(parsed);
       const prior = await ledger.freezeState();
-      const consumed = await approvals.consume({
-        approvalId: ids.approvalId,
-        operationId: ids.operationId,
-        payloadHash: ledgerActionPayloadHash('ledger.reconcile', {}),
-        targetService: 'svc-ledger',
-        targetId: 'posting_reconcile',
-        expectedVersion: prior.changedAtPrecise,
-      });
+      const consumed = await consumeLedgerApproval(approvals, parsed, 'ledger.reconcile', 'posting_reconcile', prior.changedAtPrecise, {});
       const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
       app.log.info({ actor: operator.userId, confirmOperatorId }, 'LEDGER RECONCILE requested by operator');
       const report = await ledger.reconcile();

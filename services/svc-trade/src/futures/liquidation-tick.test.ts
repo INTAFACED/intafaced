@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { parseAmount as amt, type AccountRef, type Amount, type Balance, type PostRequest } from '@intafaced/ledger-client';
+import { LedgerError, parseAmount as amt, type AccountRef, type Amount, type Balance, type PostRequest } from '@intafaced/ledger-client';
 import {
   memoryLiquidationAttemptStore,
   runLiquidationTick,
@@ -58,7 +58,14 @@ function recordingLedger(opts?: { insuranceAvailable?: Amount }) {
         return { id: `tx-${posts.length}`, idempotencyKey: req.idempotencyKey } as never;
       },
       async balance(ref: AccountRef): Promise<Balance> {
-        const amount = ref.ownerType === 'house' && ref.ownerId === 'insurance-fund' ? insuranceAvailable : 0n;
+        // A position's collateral pot: ample, so the tick plans against the row's own margin (the ledger-pot
+        // divergence guard takes min(row, pot)). The guard itself is proven in liquidation-rung-machine.test.ts ("divergence guard: the plan is taken against min(row margin, ledger pot)").
+        const amount =
+          ref.ownerType === 'house' && ref.ownerId === 'insurance-fund'
+            ? insuranceAvailable
+            : ref.kind === 'collateral'
+              ? amt('1000000')
+              : 0n;
         return { account: ref, accountId: `${ref.ownerType}:${ref.ownerId}`, amount };
       },
     },
@@ -352,6 +359,125 @@ describe('runLiquidationTick', () => {
  * not merely that an outcome string changed — a refusal that still moves money
  * is not a refusal.
  */
+describe('runLiquidationTick — one position cannot stop the others', () => {
+  const rowFor = (positionId: string): LiquidationPositionRow => ({ ...underwaterLong(), positionId });
+
+  it('a throwing post on the first position leaves the next two liquidated and reports one errored item', async () => {
+    const { ledger, posts } = recordingLedger();
+    const closed: string[] = [];
+    const result = await runLiquidationTick({
+      marks: fixedMark('80'),
+      positions: {
+        async listOpen() {
+          return [rowFor('pos-a'), rowFor('pos-b'), rowFor('pos-c')];
+        },
+      },
+      closer: {
+        async markLiquidated(id) {
+          closed.push(id);
+        },
+      },
+      attempts: memoryLiquidationAttemptStore(),
+      acceptedMarks: memoryAcceptedMarkStore(),
+      ledger: {
+        ...ledger,
+        async post(req: PostRequest) {
+          if (req.idempotencyKey.includes('pos-a'))
+            throw new LedgerError('refused: key reused with a different body', 'ledger.idempotency_conflict');
+          return ledger.post(req);
+        },
+      },
+      ladder: deepFullCloseLadder(),
+    });
+
+    expect(closed).toEqual(['pos-b', 'pos-c']);
+    expect(posts.map((p) => p.idempotencyKey).join(' ')).not.toContain('pos-a');
+    expect(result.scanned).toBe(3);
+    expect(result.liquidated).toBe(2);
+    expect(result.errored).toBe(1);
+    const errored = result.items.filter((i) => i.outcome === 'errored');
+    expect(errored).toEqual([
+      {
+        positionId: 'pos-a',
+        outcome: 'errored',
+        reason: 'ledger.idempotency_conflict',
+        summary: 'refused: key reused with a different body',
+      },
+    ]);
+  });
+
+  it('an error with no code reports trade.liquidation_tick_error', async () => {
+    const { ledger } = recordingLedger();
+    const result = await runLiquidationTick({
+      marks: fixedMark('80'),
+      positions: {
+        async listOpen() {
+          return [rowFor('pos-a')];
+        },
+      },
+      closer: { async markLiquidated() {} },
+      attempts: {
+        ...memoryLiquidationAttemptStore(),
+        async isDone() {
+          throw new Error('attempt store unreachable');
+        },
+      },
+      acceptedMarks: memoryAcceptedMarkStore(),
+      ledger,
+      ladder: deepFullCloseLadder(),
+    });
+    expect(result.errored).toBe(1);
+    expect(result.items[0]).toMatchObject({
+      outcome: 'errored',
+      reason: 'trade.liquidation_tick_error',
+      summary: 'attempt store unreachable',
+    });
+  });
+});
+
+describe('runLiquidationTick — a parked rung is counted', () => {
+  it('a claim that exists while the position is still open is skipped_already and counted as parked', async () => {
+    const attempts = memoryLiquidationAttemptStore();
+    await attempts.tryClaim('liq:pos-1'); // a worker claimed, then died before closing
+    const { ledger, posts } = recordingLedger();
+    const result = await runLiquidationTick({
+      marks: fixedMark('80'),
+      positions: {
+        async listOpen() {
+          return [underwaterLong()];
+        },
+      },
+      closer: { async markLiquidated() {} },
+      attempts,
+      acceptedMarks: memoryAcceptedMarkStore(),
+      ledger,
+      ladder: deepFullCloseLadder(),
+    });
+    expect(result.parked).toBe(1);
+    expect(result.liquidated).toBe(0);
+    expect(result.items[0]).toMatchObject({ positionId: 'pos-1', outcome: 'skipped_already' });
+    expect(posts).toHaveLength(0);
+  });
+
+  it('a tick with nothing parked reports parked: 0', async () => {
+    const { ledger } = recordingLedger();
+    const result = await runLiquidationTick({
+      marks: fixedMark('80'),
+      positions: {
+        async listOpen() {
+          return [underwaterLong()];
+        },
+      },
+      closer: { async markLiquidated() {} },
+      attempts: memoryLiquidationAttemptStore(),
+      acceptedMarks: memoryAcceptedMarkStore(),
+      ledger,
+      ladder: deepFullCloseLadder(),
+    });
+    expect(result.parked).toBe(0);
+  });
+});
+
 describe('runLiquidationTick — mark gates', () => {
   const AT = new Date('2026-08-06T12:00:00.000Z');
 

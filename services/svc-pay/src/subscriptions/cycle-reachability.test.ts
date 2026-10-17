@@ -121,7 +121,7 @@ async function mountTrpc(subs: Partial<Record<keyof SubscriptionService, unknown
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
   });
   await app.ready();
@@ -312,7 +312,7 @@ describe('the subscription cycle surface is mounted and reachable', () => {
       signedHeaders(principal({ sub: STRANGER, userId: STRANGER })),
     );
 
-    expect(statusCode).toBe(403);
+    expect(statusCode).toBe(404);
     expect(pauseSubscription).not.toHaveBeenCalled();
     await app.close();
   });

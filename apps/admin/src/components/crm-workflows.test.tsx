@@ -54,12 +54,20 @@ describe('follow-ups queue', () => {
     expect(sortTasks(rows, NOW).map((row) => row.id)).toEqual(['late5', 'late2', 'soon', 'later', 'done']);
   });
 
-  it('words due dates plainly', () => {
-    expect(dueText({ status: 'pending', dueAt: due(-2 * day - 1000) }, NOW)).toEqual({ text: '2 days overdue', overdue: true });
-    expect(dueText({ status: 'pending', dueAt: due(-day - 1000) }, NOW)?.text).toBe('1 day overdue');
-    expect(dueText({ status: 'pending', dueAt: due(-3 * 3600000) }, NOW)?.text).toBe('3 hours overdue');
-    expect(dueText({ status: 'pending', dueAt: due(3 * day + 60000) }, NOW)).toEqual({ text: 'due in 3 days', overdue: false });
-    expect(dueText({ status: 'completed', dueAt: due(-day) }, NOW)).toBeNull();
+  it('words due dates plainly, in local calendar days (never hours) and in the same words as the list and the open enquiry', () => {
+    // NOW is 08:00 UTC. Pin the clock zone so "yesterday" means the same day everywhere this runs.
+    const zone = process.env.TZ;
+    process.env.TZ = 'UTC';
+    try {
+      expect(dueText({ status: 'pending', dueAt: due(-2 * day - 1000) }, NOW)).toEqual({ text: '2 days overdue', overdue: true });
+      expect(dueText({ status: 'pending', dueAt: due(-day - 1000) }, NOW)?.text).toBe('1 day overdue');
+      expect(dueText({ status: 'pending', dueAt: due(-3 * 3600000) }, NOW)?.text).toBe('Overdue today');
+      expect(dueText({ status: 'pending', dueAt: due(3 * day + 60000) }, NOW)).toEqual({ text: 'Due in 3 days', overdue: false });
+      expect(dueText({ status: 'completed', dueAt: due(-day) }, NOW)).toBeNull();
+    } finally {
+      if (zone === undefined) delete process.env.TZ;
+      else process.env.TZ = zone;
+    }
   });
 
   it('shows who the follow-up is for and flags overdue', () => {
@@ -288,24 +296,30 @@ describe('plain wording', () => {
     for (const text of Object.values(statusText)) expect(text).not.toMatch(/dispatch|gateway|durable|queue/i);
   });
 
-  it('shows a message with its plain kind, and its text when the API returns it', () => {
+  it('shows a message with its plain kind, and the text the founder wrote when it is stored', () => {
     const base = {
       id: 'm1',
       opportunityId: 'o1',
       submissionId: 's1',
       kind: 'call_invitation',
+      staffText: null,
       actorUserId: 'u1',
       status: 'pending',
       createdAt: '2026-10-13T05:00:00Z',
       notification: null,
-    };
-    const without = renderToStaticMarkup(<MessageItem message={base as never} owners={owners} />);
+    } as const;
+    const without = renderToStaticMarkup(<MessageItem message={base} owners={owners} />);
     expect(without).toContain('Call invitation');
     expect(without).not.toContain('call_invitation');
     expect(without).not.toContain('adm-message-text');
     const withText = renderToStaticMarkup(
-      <MessageItem message={{ ...base, staffText: 'Could you join a call on Friday?' } as never} owners={owners} />,
+      <MessageItem message={{ ...base, staffText: 'Could you join a call on Friday?' }} owners={owners} />,
     );
     expect(withText).toContain('Could you join a call on Friday?');
+    expect(withText).toContain('adm-message-text');
+    // Text is shown as text, never as markup.
+    const hostile = renderToStaticMarkup(<MessageItem message={{ ...base, staffText: '<img src=x onerror=alert(1)>' }} owners={owners} />);
+    expect(hostile).not.toContain('<img');
+    expect(hostile).toContain('&lt;img src=x onerror=alert(1)&gt;');
   });
 });

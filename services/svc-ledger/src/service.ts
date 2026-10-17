@@ -1,5 +1,13 @@
 import type { Sql, TransactionSql } from 'postgres';
-import { LedgerError, type AccountRef, type Balance, type LedgerClient, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
+import {
+  LedgerError,
+  type AccountRef,
+  type IdempotencyConflictOptions,
+  type Balance,
+  type LedgerClient,
+  type LedgerTx,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import type { EventBus, Payload } from '@intafaced/events';
 import { PostgresLedger, type LedgerTxOutboxRow } from './ledger/postgres-ledger.js';
 import {
@@ -11,7 +19,7 @@ import {
   type FreezeOutboxRow,
   type FreezeState,
 } from './ledger/freeze.js';
-import type { HistoryEntry, HistoryRange } from './ledger/history.js';
+import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
 import { runReconciliation, type ReconciliationReport } from './ledger/reconcile.js';
 import { withMoneySpan, withSpan } from './tracing.js';
 
@@ -33,9 +41,16 @@ export class LedgerService implements LedgerClient {
   constructor(
     private readonly sql: Sql,
     private readonly bus: EventBus,
-    options: { postingEnabled?: boolean } = {},
+    options: { postingEnabled?: boolean } & IdempotencyConflictOptions = {},
   ) {
-    this.engine = new PostgresLedger(sql);
+    this.engine = new PostgresLedger(sql, {
+      ...(options.idempotencyConflict ? { idempotencyConflict: options.idempotencyConflict } : {}),
+      onIdempotencyMismatch:
+        options.onIdempotencyMismatch ??
+        ((info) =>
+          // One greppable line per mismatch: the alert for "a job re-ran under a booked key with a different body".
+          console.warn(JSON.stringify({ level: 'warn', service: 'svc-ledger', event: 'ledger.idempotency_mismatch', ...info }))),
+    });
     this.bootPostingEnabled = options.postingEnabled ?? true;
   }
 
@@ -87,6 +102,11 @@ export class LedgerService implements LedgerClient {
     return this.engine.history(ref, range);
   }
 
+  /** Paged sibling of `history`. A read; same no-span reasoning. */
+  historyPage(input: HistoryPageInput): Promise<HistoryPage> {
+    return this.engine.historyPage(input);
+  }
+
   getTx(txId: string): Promise<LedgerTx | null> {
     return this.engine.getTx(txId);
   }
@@ -134,8 +154,14 @@ export class LedgerService implements LedgerClient {
     return state;
   }
 
-  async unfreeze(actor: string): Promise<FreezeState> {
-    const { state } = await writeFreeze(this.sql, { frozen: false, actor });
+  /**
+   * Thaw posting. `actor` alone does not clear a freeze. `confirmOperatorId`
+   * is the other person, taken from a consumed approval, and must be distinct
+   * from `actor` and from the actor who froze the book. An already-open book
+   * stays a no-op so a second clear does not rewrite the row.
+   */
+  async unfreeze(actor: string, confirmOperatorId?: string | null): Promise<FreezeState> {
+    const { state } = await writeFreeze(this.sql, { frozen: false, actor, confirmOperatorId });
     await this.publishUnpublishedFreezeOutbox();
     return state;
   }

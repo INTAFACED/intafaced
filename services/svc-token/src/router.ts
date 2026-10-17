@@ -4,10 +4,9 @@ import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '
 import { hasScope } from '@intafaced/auth';
 import {
   ActionApprovalConsumeError,
-  type ActionApprovalConsumer,
-  readApprovalIds,
-  tokenActionPayloadHash,
+  consumeTokenApproval,
   unwiredApprovalConsumer,
+  type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { DualControlError, requireDualControl } from './dual-control.js';
 import { TokenError, type BuybackRunResult, type TokenService, type YieldRunResult } from './token-service.js';
@@ -130,6 +129,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.proposal_not_allowed':
       case 'token.already_voted':
         return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+      // 429: the request is fine, the epoch clock is not ready. The service's own
+      // message says how long to wait (database clock, no secrets), so it is passed
+      // through instead of the dotted-key copy.
+      case 'token.epoch_too_early':
+        return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
       // 409: the request is well-formed, but the revenue window (or the run id)
       // is already spoken for. This is the refusal that used to arrive as a raw
       // PG 23505 — an opaque INTERNAL_SERVER_ERROR, *after* the burn had already
@@ -509,18 +513,16 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
-          const ids = readApprovalIds(input);
-          const consumed = await approvals.consume({
-            approvalId: ids.approvalId,
-            operationId: ids.operationId,
-            payloadHash: tokenActionPayloadHash('token.revenue.distribute', {
+          const consumed = await consumeTokenApproval(
+            approvals,
+            input,
+            'token.revenue.distribute',
+            {
               windowId: input.windowId,
               sources: stableJoined(input.sources.map((s) => [s.module, s.amount] as const)),
-            }),
-            targetService: 'svc-token',
-            targetId: 'token.revenue.distribute',
-            expectedVersion: input.windowId,
-          });
+            },
+            input.windowId,
+          );
           const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
           const result = await token.distributeRevenue({
             windowId: input.windowId,
@@ -586,21 +588,19 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
               message: 'revenueWindow.from must be strictly before revenueWindow.to',
             });
           }
-          const ids = readApprovalIds(input);
-          const consumed = await approvals.consume({
-            approvalId: ids.approvalId,
-            operationId: ids.operationId,
-            payloadHash: tokenActionPayloadHash('token.buyback.record', {
+          const consumed = await consumeTokenApproval(
+            approvals,
+            input,
+            'token.buyback.record',
+            {
               runId: input.runId,
               from: input.revenueWindow.from,
               to: input.revenueWindow.to,
               tokensBought: input.tokensBought,
               revenueTotal: stableJoined(Object.entries(input.revenueTotal)),
-            }),
-            targetService: 'svc-token',
-            targetId: 'token.buyback.record',
-            expectedVersion: input.runId,
-          });
+            },
+            input.runId,
+          );
           const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
           const result = await token.recordBuyback({
             runId: input.runId,

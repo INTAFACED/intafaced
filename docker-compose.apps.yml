@@ -37,12 +37,32 @@ x-app: &app
     target: runtime
   restart: unless-stopped
 
+# STAGING / PRODUCTION: a service started with APP_ENV other than dev/test refuses to boot on dev
+# material (packages/config/src/production-posture.ts): any `dev-only-` secret from .env.example, the
+# Anvil keys and chain 31337, and the published `svc_<name>` database passwords. Before running with
+# APP_ENV=staging or prod:
+#   - replace every dev-only- value in .env;
+#   - set SVC_<NAME>_DB_PASSWORD for every service (incl. SVC_CONNECT_LAKE_DB_PASSWORD; URL-safe
+#     characters only) AND rotate the matching roles in the database, because the init SQL creates
+#     them with the dev password: ALTER ROLE svc_<name> PASSWORD '...' (otherwise: auth error 28P01);
+#   - set WEBAUTHN_RP_ID and an https WEBAUTHN_ORIGIN (or WEBAUTHN_ENABLED=off) for svc-identity;
+#   - set INTERNAL_SERVICE_BODY_BIND=require in .env. REQUIRED: every service that holds INTERNAL_SERVICE_SECRET
+#     refuses to boot (config.s2s_body_bind_not_required) without it, because the default accept-both
+#     leaves signed service calls replayable against any body for 300 seconds.
+# Local runs keep the defaults.
 x-service-env: &service-env
   # Production Node, dev application environment. They are different questions:
   # NODE_ENV picks the optimised runtime paths, APP_ENV picks the policy —
   # svc-identity only hard-requires argon2 when APP_ENV is `prod` (§4.1).
+  #
+  # APP_ENV has NO DEFAULT (#4610). This file is the real-deploy unit (staging
+  # runs it), and a `:-dev` fallback turned a host that forgot APP_ENV into an
+  # EXPLICIT `dev`, which the local-test guard (`isExplicitDevOrTest`, #4606)
+  # trusts: fake sanctions list, `local-test:` approvals, screening off. Compose
+  # now refuses to start. Local dev gets `dev` from `.env` (copy .env.example,
+  # which sets APP_ENV=dev); the shell environment still wins over `.env`.
   NODE_ENV: production
-  APP_ENV: ${APP_ENV:-dev}
+  APP_ENV: ${APP_ENV:?APP_ENV must be set to dev, test, staging or prod}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LAUNCH_DROP: ${LAUNCH_DROP:-0}
   # Service names inside the compose network, and the CONTAINER ports — not the
@@ -66,7 +86,9 @@ x-edge-secret: &edge-secret
 x-internal-secret: &internal-secret
   INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?missing — copy .env.example to .env. Every service must share ONE value or service-to-service calls return 401.}
   # Host pin for S2S body-bind (internalServiceEnvSchema default accept-both).
-  # Do not default require — v1 callers 401 until the fleet finishes v2.
+  # The compose default stays accept-both so a local run (APP_ENV=dev) needs no setup, and the pin tests hold it
+  # there. It is NOT a production value: with APP_ENV=staging/prod a service holding INTERNAL_SERVICE_SECRET refuses
+  # to boot unless the host .env says INTERNAL_SERVICE_BODY_BIND=require (packages/config/src/production-posture.ts).
   INTERNAL_SERVICE_BODY_BIND: ${INTERNAL_SERVICE_BODY_BIND:-accept-both}
 
 # `/health`, never `/ready` — the script explains why at length.
@@ -123,7 +145,7 @@ services:
       <<: [*service-env, *internal-secret]
       SERVICE_NAME: svc-ledger
       HTTP_PORT: '4001'
-      DATABASE_URL: postgres://svc_ledger:svc_ledger@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_ledger:${SVC_LEDGER_DB_PASSWORD:-svc_ledger}@postgres:5432/intafaced
       # svc-ledger merges `authEnvSchema` for its OPERATOR surface
       # (operator-http.ts), so this is required at boot with no default — and it
       # was never set here. The service crash-looped on `JWT_ACCESS_SECRET:
@@ -150,6 +172,9 @@ services:
       # Owner-published reconcile cadence — pass-through, no compose default.
       # Blank refuses boot. Host may set 60 explicitly. Never invent 60.
       RECONCILE_CRON_MINUTES: ${RECONCILE_CRON_MINUTES:-}
+      # detect = answer a reused key's different body with the original and log ledger.idempotency_mismatch;
+      # refuse = 409 ledger.idempotency_conflict. Stays detect until the jobs that rebuild bodies on re-run are fixed.
+      LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4001']
     healthcheck: *healthcheck
@@ -242,10 +267,6 @@ services:
       # when set. Unset omits the key so unresolved region stays fall-open.
       # Do not default true — `:-true` would refuse XX on every compose boot.
       INTAFACED_REGION_FAIL_CLOSED:
-      # Embeddable ramp widget. Unset → ops.infra_licence_unset. White-label is CSS.
-      INFRA_LICENCE:
-      INFRA_WIDGET_ACCENT:
-      INFRA_WIDGET_CSS:
       EDGE_RATE_LIMIT_ENABLED: ${EDGE_RATE_LIMIT_ENABLED:-true}
       # Per-replica throttle pair: no git default — blank refuses (never 300 /
       # never 60000). Owner may set 300 and 60000 explicitly. Same `:?` shape as
@@ -279,7 +300,7 @@ services:
       QUANT_URL: http://svc-quant:4021
       OPS_URL: http://svc-ops:4022
       # connect.data-lake TSDB + retention owner env — blank retention refuses persist.
-      CONNECT_DATA_LAKE_TSDB_URL: postgres://svc_connect_lake:svc_connect_lake@postgres:5432/intafaced
+      CONNECT_DATA_LAKE_TSDB_URL: postgres://svc_connect_lake:${SVC_CONNECT_LAKE_DB_PASSWORD:-svc_connect_lake}@postgres:5432/intafaced
       CONNECT_DATA_LAKE_RETENTION_DAYS: ${CONNECT_DATA_LAKE_RETENTION_DAYS:-}
     ports: ['4000:4000']
     healthcheck: *healthcheck
@@ -298,7 +319,7 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-identity
       HTTP_PORT: '4002'
-      DATABASE_URL: postgres://svc_identity:svc_identity@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_identity:${SVC_IDENTITY_DB_PASSWORD:-svc_identity}@postgres:5432/intafaced
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?missing — copy .env.example to .env}
       JWT_ISSUER: ${JWT_ISSUER:-intafaced}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
@@ -324,7 +345,24 @@ services:
       # real domain. Do not invent a production registrable domain here.
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-INTAFACED}
-      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:3000}
+      # Local compose serves the customer app on :8090 and the founder console on
+      # :3100, so those are the origins a browser passkey ceremony will report.
+      # `localhost` only: a passkey cannot be bound to 127.0.0.1 (an IP is not a
+      # valid RP ID). STAGING / PRODUCTION: this default is a localhost, non-https
+      # origin and identity's WebAuthn posture check refuses to boot on it with
+      # APP_ENV staging/prod, so a real host must set WEBAUTHN_RP_ID and an https
+      # WEBAUTHN_ORIGIN (or WEBAUTHN_ENABLED=off). Nothing here is accepted in prod.
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:8090,http://localhost:3100}
+      # Founder pair + single-use enrolment invites. Pass-through only, NO default:
+      # blank = founder controls unconfigured and enrolment closed (the refuse-closed
+      # state), exactly as when the variables are unset. Values come from the local
+      # founder seed (`pnpm local:founder`) or the operator's own .env; see
+      # docs/RUNNING.md "Founder access on the local Docker stack". The outreach
+      # overlay re-declares the pair as required and wins over these lines.
+      IDENTITY_FOUNDER_NITRO_USER_ID: ${IDENTITY_FOUNDER_NITRO_USER_ID:-}
+      IDENTITY_FOUNDER_PHANTOM_USER_ID: ${IDENTITY_FOUNDER_PHANTOM_USER_ID:-}
+      IDENTITY_FOUNDER_INVITE_HASHES: ${IDENTITY_FOUNDER_INVITE_HASHES:-}
+      IDENTITY_FOUNDER_INVITE_EXPIRES_AT: ${IDENTITY_FOUNDER_INVITE_EXPIRES_AT:-}
       # D26-P0-02 owner-published accrual tiers — pass-through, no compose default.
       IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON: ${IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON:-}
       # M01 DMA broker/desk/shift law — pass-through, no compose default, no invented tree.
@@ -335,6 +373,9 @@ services:
       # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
       # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
       IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # API-key HMAC secret at rest. Pass-through only — no compose default, no invented key.
+      # Host sets API_KEY_SIGNING_ENC_KEY. Blank stays refuse-closed. Prod and staging boot refuse if missing.
+      API_KEY_SIGNING_ENC_KEY: ${API_KEY_SIGNING_ENC_KEY:-}
       # Live-partition cap — pass-through, no compose default. Blank stays refuse-closed.
       # Host must set IDENTITY_MAX_SUB_ACCOUNTS (explicit 25 allowed). Never invent 25.
       IDENTITY_MAX_SUB_ACCOUNTS: ${IDENTITY_MAX_SUB_ACCOUNTS:-}
@@ -358,7 +399,7 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-token
       HTTP_PORT: '4003'
-      DATABASE_URL: postgres://svc_token:svc_token@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_token:${SVC_TOKEN_DB_PASSWORD:-svc_token}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       TOKEN_ASSET_ID: ${TOKEN_ASSET_ID:-IFC}
       # Access-token life + iss/aud (authEnvSchema / identity defaults). Host
@@ -376,6 +417,9 @@ services:
       # BUYBACK_SYMBOL / BUYBACK_QUOTE_ASSET stay blank — refuse-closed, never invent a listing.
       EMISSIONS_ENABLED: ${EMISSIONS_ENABLED:-true}
       EMISSIONS_AUTO_TICK: ${EMISSIONS_AUTO_TICK:-false}
+      # Epoch length: owner-present 1 day (Nitro, 2026-10-14). Time gate between NEW epochs; not the reward.
+      EMISSIONS_EPOCH_MS: ${EMISSIONS_EPOCH_MS:-86400000}
+      # Auto-tick poll only; blank = poll min(epoch length, 60s).
       EMISSIONS_TICK_MS: ${EMISSIONS_TICK_MS:-}
       YIELD_JOB_ENABLED: ${YIELD_JOB_ENABLED:-false}
       BUYBACK_JOB_ENABLED: ${BUYBACK_JOB_ENABLED:-false}
@@ -503,7 +547,7 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-trade
       HTTP_PORT: '4004'
-      DATABASE_URL: postgres://svc_trade:svc_trade@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_trade:${SVC_TRADE_DB_PASSWORD:-svc_trade}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       IDENTITY_URL: http://svc-identity:4002
       MATCHING_URL: http://svc-matching:4005
@@ -669,6 +713,12 @@ services:
       # Host `.env` can pin cadence. No invented market list.
       TRADE_RECONCILE_JOBS_ENABLED: ${TRADE_RECONCILE_JOBS_ENABLED:-false}
       TRADE_RECONCILE_JOBS_INTERVAL_MS: ${TRADE_RECONCILE_JOBS_INTERVAL_MS:-60000}
+      # Lost order.hold reply (TRD-0540). Default ON. Reads order.hold:<orderId>
+      # for rows left in hold_unknown. Does not release a hold it has not seen.
+      TRADE_HOLD_UNKNOWN_SWEEP_ENABLED: ${TRADE_HOLD_UNKNOWN_SWEEP_ENABLED:-true}
+      TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS: ${TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS:-60000}
+      # Market, IOC, and FOK rows older than this are released, not submitted.
+      TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS: ${TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS:-30000}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4004']
     healthcheck: *healthcheck
@@ -788,7 +838,7 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-pay
       HTTP_PORT: '4006'
-      DATABASE_URL: postgres://svc_pay:svc_pay@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_pay:${SVC_PAY_DB_PASSWORD:-svc_pay}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       IDENTITY_URL: http://svc-identity:4002
       # Both are `z.string().min(32)` with no default. A forged delivery on the
@@ -816,6 +866,10 @@ services:
       PAY_CHECKOUT_SESSION_TTL_SECONDS: ${PAY_CHECKOUT_SESSION_TTL_SECONDS:?missing — copy .env.example to .env}
       PAY_PUBLIC_BASE_PATH: ${PAY_PUBLIC_BASE_PATH:-/api/pay}
       PAY_ALLOW_SANDBOX_RAILS: ${PAY_ALLOW_SANDBOX_RAILS:-false}
+      # Authorized-capture reconciler. Default off: the job refuses and moves
+      # nothing. `required` finishes payments whose ledger capture key already
+      # exists, and does not post again. env.ts default is the same `off`.
+      PAY_CAPTURE_RECONCILE: ${PAY_CAPTURE_RECONCILE:-off}
       PAY_DEFAULT_FEE_BPS: ${PAY_DEFAULT_FEE_BPS:-}
       # Open-session cap + operator risk band. env.ts already names these;
       # blank risk band refuses — never invent `low`. Open-session cap: no git
@@ -932,7 +986,7 @@ services:
       SERVICE_NAME: svc-blueprint
       # 4011: the code default is 4008, which svc-agents already holds.
       HTTP_PORT: '4011'
-      DATABASE_URL: postgres://svc_blueprint:svc_blueprint@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_blueprint:${SVC_BLUEPRINT_DB_PASSWORD:-svc_blueprint}@postgres:5432/intafaced
       # Empty pass-through. Blank host env is unset — env.ts defaults `http`.
       # Never invent `mock` here; mock is explicit only (host `.env`).
       BLUEPRINT_ENGINE_MODE: ${BLUEPRINT_ENGINE_MODE:-}
@@ -980,7 +1034,7 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-bank
       HTTP_PORT: '4009'
-      DATABASE_URL: postgres://svc_bank:svc_bank@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_bank:${SVC_BANK_DB_PASSWORD:-svc_bank}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       # Identity affiliate accrue/payout after loan house fees. env.ts is
       # optional with no localhost default; unset is a noop port. Fleet
@@ -1028,6 +1082,11 @@ services:
       # rather than inventing 24. Zero is a real choice (no wait). Dest-elapsed
       # uses the dest row's updated_at — compose must not invent a number.
       BANK_OFFRAMP_COOLING_HOURS: ${BANK_OFFRAMP_COOLING_HOURS:-}
+      # Money-out step-up (off | required). `off` leaves every door as it was.
+      # `required` makes sends to other people, standing orders to them, business
+      # payments, card unfreeze/issue need a same-person identity approval. Flip it
+      # only when the customer app ships the step-up sheet. Any other value refuses boot.
+      BANK_STEP_UP_MONEY_OUT: ${BANK_STEP_UP_MONEY_OUT:-off}
       # Standing-order + auto-invest runners. env.ts already names these;
       # without compose pass-through a host `.env` never reaches the container.
       # Defaults match env.ts (`true`) — an operator stop is host `.env` plus
@@ -1120,7 +1179,7 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-agents
       HTTP_PORT: '4008'
-      DATABASE_URL: postgres://svc_agents:svc_agents@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_agents:${SVC_AGENTS_DB_PASSWORD:-svc_agents}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       # Affiliate accrue + payout after usage feeCharge. env.ts is optional with
       # no localhost default (unset = noop). Compose pins identity on the fleet
@@ -1206,7 +1265,7 @@ services:
       <<: [*service-env, *edge-secret]
       SERVICE_NAME: svc-notify
       HTTP_PORT: '4015'
-      DATABASE_URL: postgres://svc_notify:svc_notify@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_notify:${SVC_NOTIFY_DB_PASSWORD:-svc_notify}@postgres:5432/intafaced
       # Same public ticker surface svc-bank already uses for loan marks (#1586).
       # Without this, price watches stay dark forever in the compose stack even
       # though trade is up and the live MarkSource factory is wired in code.
@@ -1253,7 +1312,7 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-support
       HTTP_PORT: '4017'
-      DATABASE_URL: postgres://svc_support:svc_support@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_support:${SVC_SUPPORT_DB_PASSWORD:-svc_support}@postgres:5432/intafaced
       # Read-only dependency. No LEDGER_URL, and there never will be one: this
       # mountain moves no value (§0.6) and a refund is a request it files, not a
       # transaction it posts.
@@ -1299,7 +1358,7 @@ services:
       SERVICE_NAME: svc-market
       # 4018: every port from 4000 to 4017 is already claimed above.
       HTTP_PORT: '4018'
-      DATABASE_URL: postgres://svc_market:svc_market@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_market:${SVC_MARKET_DB_PASSWORD:-svc_market}@postgres:5432/intafaced
       TOKEN_URL: http://svc-token:4003
       # Class M money door (D26-P1-M1). Without this, env.ts defaults to
       # localhost:4001 which is unreachable inside the compose network — purchase
@@ -1502,7 +1561,7 @@ services:
       SERVICE_NAME: svc-academy
       # 4016: every port from 4000 to 4015 is already claimed above.
       HTTP_PORT: '4016'
-      DATABASE_URL: postgres://svc_academy:svc_academy@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_academy:${SVC_ACADEMY_DB_PASSWORD:-svc_academy}@postgres:5432/intafaced
       TOKEN_URL: http://svc-token:4003
       IDENTITY_URL: http://svc-identity:4002
       # Access-token lifetime / iss / aud (authEnvSchema + identity compose defaults).
@@ -1575,7 +1634,14 @@ services:
       SERVICE_NAME: svc-mining-pool
       HTTP_PORT: '4023'
       LEDGER_URL: http://svc-ledger:4001
+      # Role svc_mining_pool and schema mining_pool come from postgres-init.
+      # The drizzle files are applied by migrate-all. Without this URL the
+      # fleet never creates windows/shares (workspace-sync).
+      DATABASE_URL: postgres://svc_mining_pool:${SVC_MINING_POOL_DB_PASSWORD:-svc_mining_pool}@postgres:5432/intafaced
     expose: ['4023']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: *needs-schema
 
   # ── Protocol Plane (§17.4) ─────────────────────────────────────
 
@@ -1611,7 +1677,7 @@ services:
       SERVICE_NAME: svc-protocol
       # 4012: the code default is 4004, which svc-trade already holds.
       HTTP_PORT: '4012'
-      DATABASE_URL: postgres://svc_protocol:svc_protocol@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_protocol:${SVC_PROTOCOL_DB_PASSWORD:-svc_protocol}@postgres:5432/intafaced
       # No :-31337: unset must not echo Anvil as live. env.ts refuses blank.
       PROTOCOL_CHAIN_ID: ${PROTOCOL_CHAIN_ID:-}
       # No :-http://evm:8545: unset must not invent a live RPC. env.ts refuses
@@ -1667,7 +1733,7 @@ services:
       SERVICE_NAME: svc-indexer
       # 4013: every port from 4000 to 4012 is already taken above.
       HTTP_PORT: '4013'
-      DATABASE_URL: postgres://svc_indexer:svc_indexer@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_indexer:${SVC_INDEXER_DB_PASSWORD:-svc_indexer}@postgres:5432/intafaced
       # Matches PROTOCOL_CHAIN_ID — the two services describe one chain.
       # No :-31337: unset must not echo Anvil as live. env.ts refuses blank.
       INDEXER_CHAIN_ID: ${PROTOCOL_CHAIN_ID:-}
@@ -1754,6 +1820,13 @@ services:
     # 8090 because that is the port every existing doc already claims. Making
     # the docs true is cheaper than correcting all of them.
     ports: ['8090:80']
+    # Origins the browser CSP must allow beyond this site; all optional, empty by
+    # default (see apps/customer/csp-origins.envsh). An invalid value stops the
+    # container at start.
+    environment:
+      CUSTOMER_LIVEKIT_ORIGIN: ${CUSTOMER_LIVEKIT_ORIGIN:-}
+      CUSTOMER_STORAGE_ORIGIN: ${CUSTOMER_STORAGE_ORIGIN:-}
+      CUSTOMER_MEDIA_ORIGINS: ${CUSTOMER_MEDIA_ORIGINS:-}
     # nginx proxies /api to the edge and /ws to the socket by SERVICE NAME, so
     # both must be resolvable on this network — the browser stays same-origin
     # and never learns a port.
@@ -1837,12 +1910,22 @@ services:
     command: ['pnpm', '--filter', '@intafaced/admin', 'start']
     environment:
       NODE_ENV: production
-      APP_ENV: ${APP_ENV:-dev}
+      # No default — see x-service-env (#4610).
+      APP_ENV: ${APP_ENV:?APP_ENV must be set to dev, test, staging or prod}
       # The console reports the drop it is told about, per request (§11).
       LAUNCH_DROP: ${LAUNCH_DROP:-0}
       HOSTNAME: 0.0.0.0
       HEALTHCHECK_PORT: '3100'
       HEALTHCHECK_PATH: /
+      # Founder sign-in. Pass-through only, NO default: blank refuses every login
+      # with `admin.session_unconfigured` (fail closed). ADMIN_ORIGIN is the exact
+      # origin the browser uses (local: http://localhost:3100, accepted only while
+      # APP_ENV is dev/test; staging and prod need https). ADMIN_SESSION_SECRET is
+      # a 32-byte base64url key; generate with
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+      # The outreach overlay re-declares both as required and wins over these lines.
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-}
       # The control plane this console reaches (§14.6). Container port 4000, not
       # the host's — the console calls the edge across the compose network.
       EDGE_URL: ${EDGE_URL:-http://svc-edge:4000}

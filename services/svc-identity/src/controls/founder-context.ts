@@ -1,6 +1,6 @@
 import {
   createEdgeContext,
-  rawBodyOf,
+  inboundRawBodyOf,
   verifyServiceHeaders,
   SERVICE_HEADER,
   type EdgeContextOptions,
@@ -55,7 +55,14 @@ export function configuredIdentityOperationOwners(options: IdentityContextOption
   };
 }
 
-/** Preserve exact bytes for delegated reads and owner operation decisions. */
+/**
+ * Preserve exact bytes for delegated reads and owner operation decisions.
+ *
+ * The generic path (`regular`) binds the request body for EVERY procedure, not
+ * just the three named below: `createEdgeContext` now reads the tRPC adapter's
+ * wire string off `req.body` and defaults to `require`. The branches below differ
+ * only in WHICH secret verifies (owner / authority keys), not in body binding.
+ */
 export function createIdentityRequestContext(options: IdentityContextOptions) {
   const regular = createEdgeContext(options);
   return (req: EdgeRequest & { url: string; body?: unknown }) => {
@@ -74,15 +81,28 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
     if ((reader === 'svc-ws' || reader === 'svc-edge') && procedures.includes('accountControls.currentAuthority')) {
       if (procedures.some((name) => name !== 'accountControls.currentAuthority')) return { ...context, service: null };
       const secret = identityAuthorityReadSecret(options, reader);
-      const rawBody = typeof req.body === 'string' ? { retained: true as const, bytes: Buffer.from(req.body, 'utf8') } : rawBodyOf(req);
+      const rawBody = inboundRawBodyOf(req);
       return { ...context, service: secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null };
+    }
+    const signedExchange = new Set(['apiKeys.exchange', 'exchangeApiKeyForProduct', 'exchangeApiKeyForAccount', 'attribution.exchange']);
+    if (procedures.some((name) => signedExchange.has(name))) {
+      // The signed `request` field is the edge's observation of the merchant call.
+      // Only svc-edge, with the dedicated authority key, may present it. A mixed
+      // batch or any other caller leaves service null so the field is refused.
+      if (!procedures.every((name) => signedExchange.has(name)) || reader !== 'svc-edge') {
+        return { ...context, service: null };
+      }
+      const secret = identityAuthorityReadSecret(options, 'svc-edge');
+      const rawBody = inboundRawBodyOf(req);
+      const service = secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null;
+      return { ...context, service };
     }
     if (procedures.includes('operationAdmission.decide')) {
       // Owner keys authorize only this procedure, never a mixed service batch.
       if (procedures.some((name) => name !== 'operationAdmission.decide')) return { ...context, service: null };
       const owner = req.headers[SERVICE_HEADER];
       const secret = owner === 'svc-trade' || owner === 'svc-pay' ? ownerSecret(options, owner) : null;
-      const rawBody = typeof req.body === 'string' ? { retained: true as const, bytes: Buffer.from(req.body, 'utf8') } : rawBodyOf(req);
+      const rawBody = inboundRawBodyOf(req);
       const service = secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null;
       return { ...context, service };
     }
@@ -97,7 +117,7 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
     // The tRPC Fastify adapter replaces the shared JSON parser and preserves
     // incoming UTF-8 text in req.body. Bind that exact text, never reserialize
     // an already-parsed object. Other body shapes must have retained bytes.
-    const rawBody = typeof req.body === 'string' ? { retained: true as const, bytes: Buffer.from(req.body, 'utf8') } : rawBodyOf(req);
+    const rawBody = inboundRawBodyOf(req);
     const service = options.internalSecret
       ? verifyServiceHeaders(req.headers, options.internalSecret, { mode: 'require', rawBody }).service
       : null;

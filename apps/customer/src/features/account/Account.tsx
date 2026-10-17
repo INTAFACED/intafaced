@@ -22,6 +22,11 @@ import {
 } from './subaccount-guards';
 import './subaccount.css';
 import { RankPerks } from './RankPerks';
+import { CopyButton } from '../../screens/account/CopyButton';
+import { useIdentity } from '../../screens/pay/identity-state';
+import { featureById } from '../../app/feature-registry';
+import { stamp } from '../../screens/money/time';
+import { usePreferences } from '../../shared/preferences';
 
 type Original = {
   owner: string;
@@ -47,6 +52,10 @@ const emptyJournal: SubaccountJournal = { records: [], failed: false };
 export function Account() {
   const { api, userId } = useSession();
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
+  const identity = useIdentity(api, userId);
+  const { timeZone } = usePreferences();
+  // Strategy subaccounts are a blocked feature (feature-registry.ts): the cards show and refuse honestly; only a row marked hidden would drop them.
+  const showSubaccounts = featureById('strategy-subaccounts')?.status !== 'hidden';
   const [limit, setLimit] = useState(50),
     [label, setLabel] = useState(''),
     [purpose, setPurpose] = useState('');
@@ -301,6 +310,17 @@ export function Account() {
   return (
     <div className="subaccounts" lang={languageFor('title')}>
       <Page title={t('title')} description={t('description')}>
+        {identity.status === 'handles' && (
+          <section className="subaccounts__identity" aria-label={t('handle')}>
+            <div>
+              <span className="muted">{t('handle')}</span>
+              <p className="subaccounts__ref" lang="zxx">
+                @{identity.handle}
+              </p>
+            </div>
+            <CopyButton value={`@${identity.handle}`} label={t('copyHandle')} />
+          </section>
+        )}
         <section className="subaccounts__identity" aria-label={t('owner')}>
           <div>
             <span className="muted">{t('owner')}</span>
@@ -308,315 +328,312 @@ export function Account() {
               {userId}
             </p>
           </div>
-          <div className="actions">
-            <a className="text-link subaccounts__support" href="/verification">
-              {t('verification')}
-            </a>
-            <a className="text-link subaccounts__support" href="/uc/safe">
-              {t('security')}
-            </a>
-          </div>
+          {userId && <CopyButton value={userId} label={t('copyId')} />}
         </section>
         <RankPerks />
-        <div className="subaccounts__columns">
-          <section className="subaccounts__list" aria-labelledby="subaccount-list-heading">
-            <header className="subaccounts__heading">
-              <h2 id="subaccount-list-heading">{t('list')}</h2>
-              <Button className="subaccounts__jump" disabled={blocked('create')} onClick={jump}>
-                {t('new')}
-              </Button>
-              <Button className="subaccounts__refresh" variant="secondary" onClick={reload}>
-                {t('refresh')}
-              </Button>
-            </header>
-            <div className="subaccounts__boundary">
-              <Copy k="boundary" />
-              <Copy k="window" params={{ limit }} />
-            </div>
-            {resource.status === 'loading' ? (
-              <Loading />
-            ) : resource.status === 'failed' ? (
-              <div lang="und">
-                <Failure result={resource.failure} retry={reload} />
-              </div>
-            ) : resource.data.length === 0 ? (
-              <EmptyState title={t('empty')}>{t('emptyBody')}</EmptyState>
-            ) : (
-              <>
-                <ul className="subaccounts__rows" aria-label={t('list')}>
-                  {resource.data.map((row) => (
-                    <li className="subaccounts__row" key={row.id}>
-                      <div className="subaccounts__details">
-                        <strong lang="und">{row.label}</strong>
-                        {row.purpose !== null && (
-                          <p className="muted" lang="und">
-                            {row.purpose}
-                          </p>
-                        )}
-                        <span className="subaccounts__ref muted" lang="zxx">
-                          {row.id}
-                        </span>
-                        <time className="subaccounts__ref muted" dateTime={row.createdAt} lang={requestedLocale}>
-                          {t('created', { time: new Date(row.createdAt).toLocaleDateString(requestedLocale) })}
-                        </time>
-                      </div>
-                      <span className={`subaccounts__status${row.revoked ? '' : ' subaccounts__status--active'}`}>
-                        {t(row.revoked ? 'revoked' : 'active')}
-                      </span>
-                      {row.revoked ? (
-                        <span className="subaccounts__status">{t('noAction')}</span>
-                      ) : (
-                        <Button
-                          variant="secondary"
-                          aria-label={t('reviewTarget', { id: row.id })}
-                          disabled={blocked('revoke', row.id)}
-                          onClick={() => open('revoke', row)}
-                        >
-                          {t('reviewRevoke')}
-                        </Button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-                {resource.data.length === limit && (
-                  <div className="stack">
-                    {limit < 200 ? (
-                      <Button variant="secondary" onClick={() => setLimit(200)}>
-                        {t('expand')}
-                      </Button>
-                    ) : (
-                      <p className="muted">{t('maximum')}</p>
-                    )}
+        {showSubaccounts && (
+          <>
+            <div className="subaccounts__columns">
+              <section className="subaccounts__list" aria-labelledby="subaccount-list-heading">
+                <header className="subaccounts__heading">
+                  <h2 id="subaccount-list-heading">{t('list')}</h2>
+                  <Button className="subaccounts__jump" disabled={blocked('create')} onClick={jump}>
+                    {t('new')}
+                  </Button>
+                  <Button className="subaccounts__refresh" variant="secondary" onClick={reload}>
+                    {t('refresh')}
+                  </Button>
+                </header>
+                <div className="subaccounts__boundary">
+                  <Copy k="boundary" />
+                  <Copy k="window" params={{ limit }} />
+                </div>
+                {resource.status === 'loading' ? (
+                  <Loading />
+                ) : resource.status === 'failed' ? (
+                  <div lang="und">
+                    <Failure result={resource.failure} retry={reload} />
                   </div>
+                ) : resource.data.length === 0 ? (
+                  <EmptyState title={t('empty')}>{t('emptyBody')}</EmptyState>
+                ) : (
+                  <>
+                    <ul className="subaccounts__rows" aria-label={t('list')}>
+                      {resource.data.map((row) => (
+                        <li className="subaccounts__row" key={row.id}>
+                          <div className="subaccounts__details">
+                            <strong lang="und">{row.label}</strong>
+                            {row.purpose !== null && (
+                              <p className="muted" lang="und">
+                                {row.purpose}
+                              </p>
+                            )}
+                            <span className="subaccounts__ref muted" lang="zxx">
+                              {row.id}
+                            </span>
+                            <time className="subaccounts__ref muted" dateTime={row.createdAt} lang={requestedLocale}>
+                              {t('created', { time: stamp(row.createdAt, timeZone) })}
+                            </time>
+                          </div>
+                          <span className={`subaccounts__status${row.revoked ? '' : ' subaccounts__status--active'}`}>
+                            {t(row.revoked ? 'revoked' : 'active')}
+                          </span>
+                          {row.revoked ? (
+                            <span className="subaccounts__status">{t('noAction')}</span>
+                          ) : (
+                            <Button
+                              variant="secondary"
+                              aria-label={t('reviewTarget', { id: row.id })}
+                              disabled={blocked('revoke', row.id)}
+                              onClick={() => open('revoke', row)}
+                            >
+                              {t('reviewRevoke')}
+                            </Button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    {resource.data.length === limit && (
+                      <div className="stack">
+                        {limit < 200 ? (
+                          <Button variant="secondary" onClick={() => setLimit(200)}>
+                            {t('expand')}
+                          </Button>
+                        ) : (
+                          <p className="muted">{t('maximum')}</p>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
-              </>
+              </section>
+              <section className="subaccounts__create" aria-labelledby="subaccount-create-heading">
+                <header>
+                  <h2 id="subaccount-create-heading">{t('createTitle')}</h2>
+                  <p className="muted">{t('createBody')}</p>
+                </header>
+                <form ref={form} onSubmit={reviewCreate}>
+                  <Field
+                    label={t('label')}
+                    name="subaccount-label"
+                    required
+                    maxLength={64}
+                    value={privateVisible ? label : ''}
+                    lang="und"
+                    autoComplete="off"
+                    onChange={(event) => setLabel(event.target.value)}
+                  />
+                  <Field
+                    label={t('purpose')}
+                    name="subaccount-purpose"
+                    maxLength={200}
+                    value={privateVisible ? purpose : ''}
+                    lang="und"
+                    autoComplete="off"
+                    onChange={(event) => setPurpose(event.target.value)}
+                  />
+                  <Button type="submit" disabled={blocked('create')}>
+                    {t('reviewCreate')}
+                  </Button>
+                  <p className="muted">{t('reviewHint')}</p>
+                </form>
+              </section>
+            </div>
+            {(problem || journal.failed) && (
+              <p className="notice" role="status">
+                {t(problem ?? 'storage')}
+              </p>
             )}
-          </section>
-          <section className="subaccounts__create" aria-labelledby="subaccount-create-heading">
-            <header>
-              <h2 id="subaccount-create-heading">{t('createTitle')}</h2>
-              <p className="muted">{t('createBody')}</p>
-            </header>
-            <form ref={form} onSubmit={reviewCreate}>
-              <Field
-                label={t('label')}
-                name="subaccount-label"
-                required
-                maxLength={64}
-                value={privateVisible ? label : ''}
-                lang="und"
-                autoComplete="off"
-                onChange={(event) => setLabel(event.target.value)}
-              />
-              <Field
-                label={t('purpose')}
-                name="subaccount-purpose"
-                maxLength={200}
-                value={privateVisible ? purpose : ''}
-                lang="und"
-                autoComplete="off"
-                onChange={(event) => setPurpose(event.target.value)}
-              />
-              <Button type="submit" disabled={blocked('create')}>
-                {t('reviewCreate')}
-              </Button>
-              <p className="muted">{t('reviewHint')}</p>
-            </form>
-          </section>
-        </div>
-        {(problem || journal.failed) && (
-          <p className="notice" role="status">
-            {t(problem ?? 'storage')}
-          </p>
-        )}
-        {preflightFailure && (
-          <div lang="und">
-            <Failure result={preflightFailure} retry={reload} />
-          </div>
-        )}
-        <p className="subaccounts__announcement" role="status" aria-live="polite" aria-atomic="true">
-          {busy
-            ? t('sending')
-            : visibleReceipts.length
-              ? t(
-                  visibleReceipts.at(-1)!.finalized
-                    ? 'finalized'
-                    : visibleReceipts.at(-1)!.retained
-                      ? 'retained'
-                      : visibleReceipts.at(-1)!.result === 'created'
-                        ? 'createdReceipt'
-                        : visibleReceipts.at(-1)!.result === 'revoked'
-                          ? 'revokedReceipt'
-                          : visibleReceipts.at(-1)!.result === 'noChange'
-                            ? 'noChangeBody'
-                            : 'refusedBody',
-                )
-              : unknowns.length
-                ? t(unknowns.at(-1)!.kind === 'create' ? 'unknownCreate' : 'unknownRevoke')
-                : ''}
-        </p>
-        {(unknowns.length > 0 || visibleReceipts.length > 0) && (
-          <section className="subaccounts__requests" aria-label={t('originalRequests')}>
-            <h2>{t('originalRequests')}</h2>
-            {unknowns.map((record) => {
-              const intent = intents[record.requestId],
-                ownIntent = intent && sameActor(intent) ? intent : null;
-              const sending = busy && ownIntent === active;
-              return (
-                <article className="subaccounts__request" key={record.requestId}>
-                  <h2>{t(sending ? 'sending' : record.kind === 'create' ? 'unknownCreate' : 'unknownRevoke')}</h2>
-                  {!sending && (
-                    <p role="status" className="muted">
-                      {t(record.kind === 'create' ? 'unknownCreateBody' : 'unknownRevokeBody')}
-                    </p>
-                  )}
-                  {ownIntent ? (
-                    <div>
-                      <strong lang="und">{ownIntent.label}</strong>
-                      {ownIntent.purpose && (
-                        <p className="muted" lang="und">
-                          {ownIntent.purpose}
+            {preflightFailure && (
+              <div lang="und">
+                <Failure result={preflightFailure} retry={reload} />
+              </div>
+            )}
+            <p className="subaccounts__announcement" role="status" aria-live="polite" aria-atomic="true">
+              {busy
+                ? t('sending')
+                : visibleReceipts.length
+                  ? t(
+                      visibleReceipts.at(-1)!.finalized
+                        ? 'finalized'
+                        : visibleReceipts.at(-1)!.retained
+                          ? 'retained'
+                          : visibleReceipts.at(-1)!.result === 'created'
+                            ? 'createdReceipt'
+                            : visibleReceipts.at(-1)!.result === 'revoked'
+                              ? 'revokedReceipt'
+                              : visibleReceipts.at(-1)!.result === 'noChange'
+                                ? 'noChangeBody'
+                                : 'refusedBody',
+                    )
+                  : unknowns.length
+                    ? t(unknowns.at(-1)!.kind === 'create' ? 'unknownCreate' : 'unknownRevoke')
+                    : ''}
+            </p>
+            {(unknowns.length > 0 || visibleReceipts.length > 0) && (
+              <section className="subaccounts__requests" aria-label={t('originalRequests')}>
+                <h2>{t('originalRequests')}</h2>
+                {unknowns.map((record) => {
+                  const intent = intents[record.requestId],
+                    ownIntent = intent && sameActor(intent) ? intent : null;
+                  const sending = busy && ownIntent === active;
+                  return (
+                    <article className="subaccounts__request" key={record.requestId}>
+                      <h2>{t(sending ? 'sending' : record.kind === 'create' ? 'unknownCreate' : 'unknownRevoke')}</h2>
+                      {!sending && (
+                        <p role="status" className="muted">
+                          {t(record.kind === 'create' ? 'unknownCreateBody' : 'unknownRevokeBody')}
                         </p>
                       )}
-                    </div>
-                  ) : (
-                    <p className="muted">{t('memoryLost')}</p>
+                      {ownIntent ? (
+                        <div>
+                          <strong lang="und">{ownIntent.label}</strong>
+                          {ownIntent.purpose && (
+                            <p className="muted" lang="und">
+                              {ownIntent.purpose}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="muted">{t('memoryLost')}</p>
+                      )}
+                      <dl>
+                        {record.target && (
+                          <div>
+                            <dt>{t('target')}</dt>
+                            <dd className="subaccounts__ref" lang="zxx">
+                              {record.target}
+                            </dd>
+                          </div>
+                        )}
+                        <div>
+                          <dt>{t('request')}</dt>
+                          <dd className="subaccounts__ref" lang="zxx">
+                            {record.requestId}
+                          </dd>
+                        </div>
+                      </dl>
+                      <p className="muted">{t('referenceBoundary')}</p>
+                      <p className="muted">{t('lookup')}</p>
+                      <div className="actions">
+                        <Button variant="secondary" onClick={reload}>
+                          {t('records')}
+                        </Button>
+                        <a className="text-link subaccounts__support" href="/support">
+                          {t('support')}
+                        </a>
+                      </div>
+                    </article>
+                  );
+                })}
+                {visibleReceipts.map((receipt) => (
+                  <article className="subaccounts__request" key={receipt.record.requestId}>
+                    <h2>
+                      {t(
+                        receipt.result === 'noChange'
+                          ? 'noChangeTitle'
+                          : receipt.result === 'refused'
+                            ? 'refused'
+                            : receipt.result === 'created'
+                              ? 'createdReceipt'
+                              : 'revokedReceipt',
+                      )}
+                    </h2>
+                    <p role="status">
+                      {t(
+                        receipt.result === 'noChange'
+                          ? 'noChangeBody'
+                          : receipt.result === 'refused'
+                            ? 'refusedBody'
+                            : receipt.result === 'created'
+                              ? 'createdReceipt'
+                              : 'revokedReceipt',
+                      )}
+                    </p>
+                    <strong lang="und">{receipt.original.label}</strong>
+                    {receipt.original.purpose && (
+                      <p lang="und" className="muted">
+                        {receipt.original.purpose}
+                      </p>
+                    )}
+                    <dl>
+                      {(receipt.id || receipt.record.target) && (
+                        <div>
+                          <dt>{t('target')}</dt>
+                          <dd className="subaccounts__ref" lang="zxx">
+                            {receipt.id ?? receipt.record.target}
+                          </dd>
+                        </div>
+                      )}
+                      <div>
+                        <dt>{t('request')}</dt>
+                        <dd className="subaccounts__ref" lang="zxx">
+                          {receipt.record.requestId}
+                        </dd>
+                      </div>
+                    </dl>
+                    {!receipt.answer.ok && (
+                      <div className="stack">
+                        <p lang="und">{receipt.answer.message}</p>
+                        <p className="subaccounts__ref" lang="zxx">
+                          HTTP {receipt.answer.status} · {receipt.answer.code}
+                        </p>
+                      </div>
+                    )}
+                    <p className="muted">{t('separate')}</p>
+                    {receipt.retained && (
+                      <>
+                        <p role="status">{t('retained')}</p>
+                        <p className="muted">{t('retainedBody')}</p>
+                        <div className="actions">
+                          <Button variant="secondary" disabled={busy} onClick={() => void finalize(receipt)}>
+                            {t('finalize')}
+                          </Button>
+                          <a className="text-link subaccounts__support" href="/support">
+                            {t('support')}
+                          </a>
+                        </div>
+                      </>
+                    )}
+                    {receipt.finalized && <p role="status">{t('finalized')}</p>}
+                  </article>
+                ))}
+              </section>
+            )}
+            {visibleReview && (
+              <Dialog title={t(visibleReview.kind === 'create' ? 'createReview' : 'revokeReview')} onClose={close}>
+                <div className="stack subaccounts__review" lang={languageFor('title')}>
+                  <strong lang="und">{visibleReview.label}</strong>
+                  {visibleReview.purpose && (
+                    <p className="muted" lang="und">
+                      {visibleReview.purpose}
+                    </p>
                   )}
                   <dl>
-                    {record.target && (
+                    <div>
+                      <dt>{t('owner')}</dt>
+                      <dd className="subaccounts__ref" lang="zxx">
+                        {visibleReview.owner}
+                      </dd>
+                    </div>
+                    {visibleReview.row && (
                       <div>
                         <dt>{t('target')}</dt>
                         <dd className="subaccounts__ref" lang="zxx">
-                          {record.target}
+                          {visibleReview.row.id}
                         </dd>
                       </div>
                     )}
-                    <div>
-                      <dt>{t('request')}</dt>
-                      <dd className="subaccounts__ref" lang="zxx">
-                        {record.requestId}
-                      </dd>
-                    </div>
                   </dl>
-                  <p className="muted">{t('referenceBoundary')}</p>
-                  <p className="muted">{t('lookup')}</p>
-                  <div className="actions">
-                    <Button variant="secondary" onClick={reload}>
-                      {t('records')}
-                    </Button>
-                    <a className="text-link subaccounts__support" href="/support">
-                      {t('support')}
-                    </a>
-                  </div>
-                </article>
-              );
-            })}
-            {visibleReceipts.map((receipt) => (
-              <article className="subaccounts__request" key={receipt.record.requestId}>
-                <h2>
-                  {t(
-                    receipt.result === 'noChange'
-                      ? 'noChangeTitle'
-                      : receipt.result === 'refused'
-                        ? 'refused'
-                        : receipt.result === 'created'
-                          ? 'createdReceipt'
-                          : 'revokedReceipt',
-                  )}
-                </h2>
-                <p role="status">
-                  {t(
-                    receipt.result === 'noChange'
-                      ? 'noChangeBody'
-                      : receipt.result === 'refused'
-                        ? 'refusedBody'
-                        : receipt.result === 'created'
-                          ? 'createdReceipt'
-                          : 'revokedReceipt',
-                  )}
-                </p>
-                <strong lang="und">{receipt.original.label}</strong>
-                {receipt.original.purpose && (
-                  <p lang="und" className="muted">
-                    {receipt.original.purpose}
-                  </p>
-                )}
-                <dl>
-                  {(receipt.id || receipt.record.target) && (
-                    <div>
-                      <dt>{t('target')}</dt>
-                      <dd className="subaccounts__ref" lang="zxx">
-                        {receipt.id ?? receipt.record.target}
-                      </dd>
-                    </div>
-                  )}
-                  <div>
-                    <dt>{t('request')}</dt>
-                    <dd className="subaccounts__ref" lang="zxx">
-                      {receipt.record.requestId}
-                    </dd>
-                  </div>
-                </dl>
-                {!receipt.answer.ok && (
-                  <div className="stack">
-                    <p lang="und">{receipt.answer.message}</p>
-                    <p className="subaccounts__ref" lang="zxx">
-                      HTTP {receipt.answer.status} · {receipt.answer.code}
-                    </p>
-                  </div>
-                )}
-                <p className="muted">{t('separate')}</p>
-                {receipt.retained && (
-                  <>
-                    <p role="status">{t('retained')}</p>
-                    <p className="muted">{t('retainedBody')}</p>
-                    <div className="actions">
-                      <Button variant="secondary" disabled={busy} onClick={() => void finalize(receipt)}>
-                        {t('finalize')}
-                      </Button>
-                      <a className="text-link subaccounts__support" href="/support">
-                        {t('support')}
-                      </a>
-                    </div>
-                  </>
-                )}
-                {receipt.finalized && <p role="status">{t('finalized')}</p>}
-              </article>
-            ))}
-          </section>
-        )}
-        {visibleReview && (
-          <Dialog title={t(visibleReview.kind === 'create' ? 'createReview' : 'revokeReview')} onClose={close}>
-            <div className="stack subaccounts__review" lang={languageFor('title')}>
-              <strong lang="und">{visibleReview.label}</strong>
-              {visibleReview.purpose && (
-                <p className="muted" lang="und">
-                  {visibleReview.purpose}
-                </p>
-              )}
-              <dl>
-                <div>
-                  <dt>{t('owner')}</dt>
-                  <dd className="subaccounts__ref" lang="zxx">
-                    {visibleReview.owner}
-                  </dd>
+                  <p className="muted">{t(visibleReview.kind === 'create' ? 'createConsequence' : 'revokeConsequence')}</p>
+                  <p className="muted">{t(visibleReview.kind === 'create' ? 'createUnknownConsequence' : 'revokeUnknownConsequence')}</p>
+                  <Button disabled={busy} onClick={() => void dispatch(visibleReview)}>
+                    {t(visibleReview.kind === 'create' ? 'create' : 'revoke')}
+                  </Button>
                 </div>
-                {visibleReview.row && (
-                  <div>
-                    <dt>{t('target')}</dt>
-                    <dd className="subaccounts__ref" lang="zxx">
-                      {visibleReview.row.id}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-              <p className="muted">{t(visibleReview.kind === 'create' ? 'createConsequence' : 'revokeConsequence')}</p>
-              <p className="muted">{t(visibleReview.kind === 'create' ? 'createUnknownConsequence' : 'revokeUnknownConsequence')}</p>
-              <Button disabled={busy} onClick={() => void dispatch(visibleReview)}>
-                {t(visibleReview.kind === 'create' ? 'create' : 'revoke')}
-              </Button>
-            </div>
-          </Dialog>
+              </Dialog>
+            )}
+          </>
         )}
       </Page>
     </div>

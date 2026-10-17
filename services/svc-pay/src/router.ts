@@ -1,15 +1,40 @@
 import { z } from 'zod';
+import type { Sql } from 'postgres';
 import { AuthError, requireMfa } from '@intafaced/auth';
-import { router, scopedProcedure, publicProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  payMerchantFailureSchema,
+  payPageSchema,
+  payPaymentListInputSchema,
+  payPricingSnapshotViewSchema,
+  paySettlementLineSchema,
+  paySettlementLinesInputSchema,
+  payPayoutDestinationItemSchema,
+  payPayoutDestinationListInputSchema,
+  payPayoutLifecycleInputSchema,
+  payPayoutLifecycleSchema,
+  payRefundGetInputSchema,
+  payRefundItemSchema,
+  payRefundListInputSchema,
+  paySettlementListInputSchema,
+  payStatementListInputSchema,
+  payStatementPageSchema,
+  router,
+  scopedProcedure,
+  publicProcedure,
+  TRPCError,
+} from '@intafaced/contracts';
+import { merchantPortalExtensions } from './merchant-portal/router.js';
 import { credentialAuthority } from './payment-authority.js';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, LedgerError, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
   consumePayApproval,
+  readApprovalIds,
   type ActionApprovalConsumer,
   unwiredApprovalConsumer,
 } from './action-approval-consume.js';
+import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { PayError, type PayService } from './payment-service.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
@@ -21,7 +46,13 @@ import type { UserMoneyService, WithdrawalRecord } from './user-money-service.js
 import type { RailRegistry } from './rails/registry.js';
 import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
-import { assertMerchantAreaAccess, type MerchantAreaFence } from './merchant-ownership.js';
+import { PayGuardRefusal } from './seams/guards.js';
+import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
+import { allowMerchantRead, type MerchantReadAudience } from './merchant-read-access.js';
+import { logPaymentFactsReadFailure } from './payment-facts-log.js';
+import { projectPricingSnapshot, projectTeamHistoryEvent } from './team-read-projection.js';
+import type { MerchantReadPermission, MerchantTeamRead } from './merchant-team-read.js';
+import { merchantNameInputSchema } from './merchant-names.js';
 import { areaForSurface, type PayfacSurface } from './payfac-permissions.js';
 import { assertRoutingInputsPresent, RoutingInputError } from './routing-inputs.js';
 import {
@@ -35,7 +66,13 @@ import { evaluateFraud } from './fraud/evaluate.js';
 import { describeFraudPolicy } from './fraud/fraud-policy.js';
 import { describeRoutingPolicy } from './routing/routing-policy.js';
 import { defaultFraudReviewQueue, FraudReviewError } from './fraud/review-queue.js';
-import { defaultDisputeCaseStore, DisputeCaseError } from './fraud/dispute-case.js';
+import {
+  defaultDisputeCaseStore,
+  DisputeCaseError,
+  refuseChargebackUncovered,
+  type ChargebackLedgerRefuse,
+  type DisputeCaseStore,
+} from './fraud/dispute-case.js';
 import { describeCmsPluginStatus } from './plugins/cms-status.js';
 import { describePluginsPolicy } from './plugins/plugins-policy.js';
 import {
@@ -81,6 +118,10 @@ const paymentView = z.object({
   capturedAmount: amountSchema,
   refundedAmount: amountSchema,
   createdAt: z.string().datetime({ offset: true }),
+  /** Stored when the fee was decided. Null when no snapshot row exists. Never recomputed. */
+  pricingSnapshot: payPricingSnapshotViewSchema.nullable(),
+  /** Catalog code and sentence. Null when the payment has not failed. */
+  failure: payMerchantFailureSchema.nullable(),
 });
 
 const settlementView = z.object({
@@ -94,6 +135,15 @@ const settlementView = z.object({
   payoutMethod: z.string().nullable(),
   payoutRef: z.string().nullable(),
   status: z.enum(['pending', 'posted', 'paid_out', 'failed']),
+});
+
+const settlementDetailView = settlementView.extend({
+  createdAt: z.string().datetime({ offset: true }).nullable(),
+  sentAt: z.string().datetime({ offset: true }).nullable(),
+  settledAt: z.string().datetime({ offset: true }).nullable(),
+  failedAt: z.string().datetime({ offset: true }).nullable(),
+  failure: payMerchantFailureSchema.nullable(),
+  pricingSnapshot: payPricingSnapshotViewSchema.nullable(),
 });
 
 /**
@@ -143,6 +193,7 @@ const withdrawalView = z.object({
 
 type PaymentViewOut = z.infer<typeof paymentView>;
 type SettlementViewOut = z.infer<typeof settlementView>;
+type SettlementDetailOut = z.infer<typeof settlementDetailView>;
 type WithdrawalViewOut = z.infer<typeof withdrawalView>;
 
 /**
@@ -154,9 +205,10 @@ type WithdrawalViewOut = z.infer<typeof withdrawalView>;
  * exactly one merchant per user. Self-action is ownership. Parent action is
  * area (`payment`, `payment.refund`, `settlement`, `settlement.payout`, …).
  *
- * WHY FORBIDDEN AND NOT NOT_FOUND — same call, same reasoning, as svc-bank's
- * `assertSelf`. NOT_FOUND leaks less because it never confirms the id exists,
- * but every id here is a v4 uuid the caller already holds.
+ * WHY NOT_FOUND AND NOT FORBIDDEN — a distinct "exists but not yours" answer
+ * is an existence oracle, so a foreign id is refused exactly like a missing one
+ * (merchant-ownership.ts `merchantNotFound` / `refuseAsMissing`). The real
+ * reason is operator-only (isolation-log.ts). Do not reintroduce FORBIDDEN here.
  */
 export function createPayRouter(
   pay: PayService,
@@ -165,6 +217,10 @@ export function createPayRouter(
   trees: MerchantAreaFence | null = null,
   destinations: MerchantPayoutDestinations = assertOnlyPayoutDestinations(),
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
+  teamReads: MerchantTeamRead | null = null,
+  disputeCases: DisputeCaseStore = defaultDisputeCaseStore,
+  /** Portal profile, onboarding, and analytics. Absent in unit stubs that do not pass a database. */
+  portalSql: Sql | null = null,
 ) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -176,6 +232,77 @@ export function createPayRouter(
 
   const assertAccess = (principalUserId: string | undefined, merchantId: string, surface: PayfacSurface) =>
     assertMerchantAreaAccess(pay, principalUserId, merchantId, areaForSurface(surface), trees);
+
+  /**
+   * Reads: the owner (or a PayFac area grant), or an active team member whose
+   * role holds the read. Writes stay on `assertAccess` alone.
+   */
+  const assertRead = (
+    principalUserId: string | undefined,
+    merchantId: string,
+    surface: PayfacSurface,
+    permission: MerchantReadPermission,
+  ) =>
+    allowMerchantRead({
+      ownerCheck: () => assertAccess(principalUserId, merchantId, surface),
+      team: teamReads,
+      userId: principalUserId,
+      merchantId,
+      permission,
+    });
+
+  /** Fence on a payment's merchant; somebody else's payment id reads as a payment that does not exist. */
+  const assertPaymentAccess = (principalUserId: string | undefined, paymentId: string, merchantId: string, surface: PayfacSurface) =>
+    refuseAsMissing(
+      assertAccess(principalUserId, merchantId, surface),
+      () => new PayError(`Payment ${paymentId} not found`, 'pay.payment_not_found'),
+    );
+  const assertSettlementAccess = (principalUserId: string | undefined, settlementId: string, merchantId: string, surface: PayfacSurface) =>
+    refuseAsMissing(
+      assertAccess(principalUserId, merchantId, surface),
+      () => new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found'),
+    );
+  const assertPaymentRead = (principalUserId: string | undefined, paymentId: string, merchantId: string) =>
+    refuseAsMissing(
+      assertRead(principalUserId, merchantId, 'trpc.payment.get', 'payments.read'),
+      () => new PayError(`Payment ${paymentId} not found`, 'pay.payment_not_found'),
+    );
+  const assertSettlementRead = (principalUserId: string | undefined, settlementId: string, merchantId: string) =>
+    refuseAsMissing(
+      assertRead(principalUserId, merchantId, 'trpc.settlement.get', 'settlements.read'),
+      () => new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found'),
+    );
+
+  const paymentOut = async (
+    view: Awaited<ReturnType<PayService['getPayment']>>,
+    audience: MerchantReadAudience,
+    afterCommit: boolean,
+  ): Promise<PaymentViewOut> => {
+    let facts: { pricingSnapshot: { fee: string } | null; failure: PaymentViewOut['failure'] } = {
+      pricingSnapshot: null,
+      failure: null,
+    };
+    try {
+      facts = (await pay.paymentFacts?.(view.id)) ?? facts;
+    } catch (err) {
+      // The mutation has committed. A facts read must not turn that into an error
+      // the client will retry.
+      if (!afterCommit) throw err;
+      logPaymentFactsReadFailure(view.id);
+    }
+    return {
+      ...toPaymentOut(view),
+      pricingSnapshot: projectPricingSnapshot(facts.pricingSnapshot, audience),
+      failure: facts.failure,
+    };
+  };
+
+  const settlementDetailOut = (row: Parameters<typeof toSettlementDetail>[0], audience: MerchantReadAudience): SettlementDetailOut => {
+    const detail = toSettlementDetail(row);
+    return { ...detail, pricingSnapshot: projectPricingSnapshot(detail.pricingSnapshot, audience) };
+  };
+
+  const portal = portalSql && teamReads ? merchantPortalExtensions({ sql: portalSql, pay, trees, team: teamReads, approvals }) : null;
 
   return router({
     health: publicProcedure
@@ -313,6 +440,7 @@ export function createPayRouter(
       ),
 
     merchant: router({
+      ...(portal?.merchant ?? {}),
       /**
        * Ownership: userId is always the authenticated principal. Body userId
        * was dropped so a caller with pay:write cannot create a merchant under
@@ -324,6 +452,9 @@ export function createPayRouter(
             mode: z.enum(['gateway', 'psp', 'payfac']).default('gateway'),
             pricing: z.object({ feeBps: z.number().int().min(0).max(10_000) }),
             settlementPrefs: z.record(z.unknown()).optional(),
+            /** Optional names (0071). Stored once, for the signed-in principal's own merchant only. */
+            displayName: merchantNameInputSchema.optional(),
+            legalName: merchantNameInputSchema.optional(),
           }),
         )
         .output(z.object({ id: z.string().uuid(), userId: z.string().uuid(), mode: z.string(), feeBps: z.number().nullable() }))
@@ -420,6 +551,12 @@ export function createPayRouter(
        * Identity action-bound approval is the second person. Typed-in
        * `confirmOperatorId` is attribution at most. MFA is still required locally
        * (`admin:compliance` is not INTERACTIVE_ONLY). Missing approval ids refuse.
+       *
+       * The approval hash is the live identity hash. A proposal filed against
+       * an older identity does not consume. The proposer reads
+       * `kyb.decisionBinding` and sends the same fields to identity
+       * (`kybDecisionPayloadHash`). The consume runs under the merchant row
+       * lock, after that identity still matches, and before the status write.
        */
       decideKyb: scopedProcedure('admin:compliance', { module: 'pay' })
         .input(
@@ -442,11 +579,30 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             requireMfa(ctx.principal);
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.merchant_decide_kyb', {
+            readApprovalIds(input);
+            if (!portalSql) {
+              throw new PayError('KYB decide cannot bind the merchant profile', 'pay.kyb_profile_unbound');
+            }
+            const binding = await loadKybDecisionBinding(portalSql, input.merchantId);
+            if (!binding) throw new PayError(`Merchant ${input.merchantId} not found`, 'pay.merchant_not_found');
+            let confirmOperatorId = '';
+            const merchant = await pay.decideKyb({
               merchantId: input.merchantId,
               decision: input.decision,
+              identityHash: binding.identityHash,
+              beforeWrite: async () => {
+                confirmOperatorId = await consumePayApproval(
+                  approvals,
+                  input,
+                  PAY_MERCHANT_DECIDE_KYB,
+                  kybApprovalFields({
+                    merchantId: binding.merchantId,
+                    decision: input.decision,
+                    identityHash: binding.identityHash,
+                  }),
+                );
+              },
             });
-            const merchant = await pay.decideKyb({ merchantId: input.merchantId, decision: input.decision });
             return { id: merchant.id, kybStatus: merchant.kybStatus, kybRef: merchant.kybRef, confirmOperatorId };
           }),
         ),
@@ -545,28 +701,37 @@ export function createPayRouter(
              * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().min(1).max(300).optional(),
+            search: z.string().trim().min(1).max(200).optional(),
+            assetId: z.string().trim().min(1).max(16).optional(),
+            from: z.string().datetime({ offset: true }).optional(),
+            to: z.string().datetime({ offset: true }).optional(),
+            active: z.boolean().optional(),
           }),
         )
         .output(
-          z.array(
-            z.object({
-              id: z.string().uuid(),
-              prefix: z.string(),
-              label: z.string(),
-              amount: amountSchema.nullable(),
-              currency: z.string().nullable(),
-              active: z.boolean(),
-              expiresAt: z.string().nullable(),
-              maxUses: z.number().int().nullable(),
-              uses: z.number().int(),
-              createdAt: z.string(),
-            }),
-          ),
+          z.object({
+            items: z.array(
+              z.object({
+                id: z.string().uuid(),
+                prefix: z.string(),
+                label: z.string(),
+                amount: amountSchema.nullable(),
+                currency: z.string().nullable(),
+                active: z.boolean(),
+                expiresAt: z.string().nullable(),
+                maxUses: z.number().int().nullable(),
+                uses: z.number().int(),
+                createdAt: z.string(),
+              }),
+            ),
+            nextCursor: z.string().nullable(),
+          }),
         )
         .query(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.listLinks');
-            return pay.listPaymentLinks(input.merchantId, input.limit);
+            return pay.listPaymentLinks(input.merchantId, input);
           }),
         ),
 
@@ -581,8 +746,9 @@ export function createPayRouter(
         ),
 
       /**
-       * What we owe this merchant but have not settled, and what they can
-       * already spend. Both read from the LEDGER, not from svc-pay's tables —
+       * What we owe this merchant but have not settled, and the settled proceeds
+       * they can pay out. Not the owner's trading balance. Both read from the
+       * LEDGER, not from svc-pay's tables —
        * the two are independent on purpose, which is what makes reconciliation
        * meaningful (Doctrine §0.6).
        */
@@ -598,7 +764,44 @@ export function createPayRouter(
             };
           }),
         ),
+
+      /**
+       * Saved destinations for this merchant. Masked. Screening and a default
+       * flag are not stored, so those fields are the literals `not_recorded`
+       * and `unset`. There is no set-default and no remove: changing a
+       * destination is still the owner's direct overwrite.
+       */
+      payoutDestinations: router({
+        list: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payPayoutDestinationListInputSchema)
+          .output(payPageSchema(payPayoutDestinationItemSchema))
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.list', 'settlements.read');
+              return pay.listPayoutDestinations(input);
+            }),
+          ),
+      }),
+
+      /**
+       * Ledger statement. Needs both the payment read and the settlement read:
+       * one page shows captures and payouts. Reserve is `not_booked`.
+       */
+      statement: router({
+        list: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payStatementListInputSchema)
+          .output(payStatementPageSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
+              return pay.listStatement(input);
+            }),
+          ),
+      }),
     }),
+
+    ...(portal ? { merchantAnalytics: portal.merchantAnalytics } : {}),
 
     payment: router({
       create: scopedProcedure('pay:write', { module: 'pay' })
@@ -620,13 +823,15 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.payment.create');
-            return toPaymentOut(
+            return paymentOut(
               await pay.createPayment({
                 ...input,
                 profileId: input.profileId ?? null,
                 amount: parseAmount(input.amount),
                 identityAuthority: credentialAuthority(ctx.principal),
               }),
+              'owner',
+              true,
             );
           }),
         ),
@@ -637,8 +842,12 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
-            await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.authorize');
-            return toPaymentOut(await pay.authorize(input.paymentId, { identityAuthority: credentialAuthority(ctx.principal) }));
+            await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.authorize');
+            return paymentOut(
+              await pay.authorize(input.paymentId, { identityAuthority: credentialAuthority(ctx.principal) }),
+              'owner',
+              true,
+            );
           }),
         ),
 
@@ -648,27 +857,40 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
-            await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.capture');
-            return toPaymentOut(
+            await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.capture');
+            return paymentOut(
               await pay.capture(input.paymentId, {
                 ...(input.amount === undefined ? {} : { amount: parseAmount(input.amount) }),
                 identityAuthority: credentialAuthority(ctx.principal),
               }),
+              'owner',
+              true,
             );
           }),
         ),
 
       /** Its own scope. Refunding is not the same authority as taking payment. */
       refund: scopedProcedure('pay:refund', { module: 'pay' })
-        .input(z.object({ paymentId: z.string().uuid(), amount: amountSchema, refundId: z.string().optional() }))
+        // refundId is the caller's idempotency key. Without it the service invented
+        // `${paymentId}:${count + 1}`, so a client retry of a PARTIAL refund that had
+        // already succeeded booked a second refund. A retry must carry the same id.
+        .input(
+          z.object({
+            paymentId: z.string().uuid(),
+            amount: amountSchema,
+            refundId: z
+              .string()
+              .min(1)
+              .max(200)
+              .refine((id) => id.trim().length > 0, 'refundId must not be blank'),
+          }),
+        )
         .output(paymentView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
-            await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.refund');
-            return toPaymentOut(
-              await pay.refund(input.paymentId, parseAmount(input.amount), input.refundId ? { refundId: input.refundId } : {}),
-            );
+            await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.refund');
+            return paymentOut(await pay.refund(input.paymentId, parseAmount(input.amount), { refundId: input.refundId }), 'owner', true);
           }),
         ),
 
@@ -682,29 +904,27 @@ export function createPayRouter(
             // is the RESPONSE, and it must come before the return, not after
             // the caller has the object.
             const payment = await pay.getPayment(input.paymentId);
-            await assertAccess(ctx.principal.userId, payment.merchantId, 'trpc.payment.get');
-            return toPaymentOut(payment);
+            const audience = await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
+            return paymentOut(payment, audience, false);
           }),
         ),
 
       /** Durable status list for the merchant — projection of `payments.status`. */
       list: scopedProcedure('pay:read', { module: 'pay' })
-        .input(
-          z.object({
-            merchantId: z.string().uuid(),
-            status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']).optional(),
-            /**
-             * Page size. Optional so omit reaches `pay.payment_list_limit_unset`
-             * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          }),
-        )
-        .output(z.array(paymentView))
+        .input(payPaymentListInputSchema)
+        .output(payPageSchema(paymentView))
         .query(({ ctx, input }) =>
           wrap(async () => {
-            await assertAccess(ctx.principal.userId, input.merchantId, 'trpc.payment.list');
-            return (await pay.listPayments(input)).map(toPaymentOut);
+            const audience = await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
+            const page = await pay.listPayments(input);
+            return {
+              items: page.items.map((item) => ({
+                ...toPaymentOut(item),
+                pricingSnapshot: projectPricingSnapshot(item.pricingSnapshot, audience),
+                failure: item.failure,
+              })),
+              nextCursor: page.nextCursor,
+            };
           }),
         ),
 
@@ -722,13 +942,25 @@ export function createPayRouter(
         )
         .output(
           z.array(
-            z.object({
-              id: z.string().uuid(),
-              event: z.string(),
-              payload: z.record(z.unknown()),
-              railEventId: z.string().nullable(),
-              ts: z.string().datetime({ offset: true }),
-            }),
+            z.union([
+              z.object({
+                id: z.string().uuid(),
+                event: z.string(),
+                payload: z.record(z.unknown()),
+                railEventId: z.string().nullable(),
+                ts: z.string().datetime({ offset: true }),
+              }),
+              z
+                .object({
+                  id: z.string().uuid(),
+                  event: z.string(),
+                  ts: z.string().datetime({ offset: true }),
+                  amount: amountSchema.nullable(),
+                  assetId: assetIdSchema.nullable(),
+                  failure: payMerchantFailureSchema.nullable(),
+                })
+                .strict(),
+            ]),
           ),
         )
         .query(({ ctx, input }) =>
@@ -737,17 +969,49 @@ export function createPayRouter(
             // event log is never touched for a caller who does not own it.
             // `payment_events` carries instrument metadata, customer refs and
             // rail references, so this is the more sensitive of the two reads.
+            // A team role gets the allowlisted projection. The owner keeps the payload.
             const payment = await pay.getPayment(input.paymentId);
-            await assertAccess(ctx.principal.userId, payment.merchantId, 'trpc.payment.history');
-            return (await pay.history(input.paymentId, input.limit)).map((e) => ({
-              id: e.id,
-              event: e.event,
-              payload: e.payload,
-              railEventId: e.railEventId,
-              ts: e.ts.toISOString(),
-            }));
+            const audience = await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
+            const events = await pay.history(input.paymentId, input.limit);
+            if (audience === 'owner') {
+              return events.map((e) => ({
+                id: e.id,
+                event: e.event,
+                payload: e.payload,
+                railEventId: e.railEventId,
+                ts: e.ts.toISOString(),
+              }));
+            }
+            return events.map((e) => projectTeamHistoryEvent(e));
           }),
         ),
+
+      /** Account-wide refund projection. The write stays on `payment.refund`. */
+      refunds: router({
+        list: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payRefundListInputSchema)
+          .output(payPageSchema(payRefundItemSchema))
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.payment.refunds.list', 'payments.read');
+              return pay.listRefunds(input);
+            }),
+          ),
+
+        get: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payRefundGetInputSchema)
+          .output(payRefundItemSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              const located = await pay.locateRefund(input.refundEventId);
+              await refuseAsMissing(
+                assertRead(ctx.principal.userId, located.merchantId, 'trpc.payment.refunds.get', 'payments.read'),
+                () => new PayError(`Refund ${input.refundEventId} not found`, 'pay.refund_not_found'),
+              );
+              return pay.readRefund(input.refundEventId);
+            }),
+          ),
+      }),
     }),
 
     settlement: router({
@@ -774,7 +1038,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
-            await assertAccess(ctx.principal?.userId, settlement.merchantId, 'trpc.settlement.payout');
+            await assertSettlementAccess(ctx.principal?.userId, input.settlementId, settlement.merchantId, 'trpc.settlement.payout');
             return toSettlementOut(
               await pay.payoutSettlement({
                 ...input,
@@ -786,14 +1050,16 @@ export function createPayRouter(
 
       get: scopedProcedure('pay:read', { module: 'pay' })
         .input(z.object({ settlementId: z.string().uuid() }))
-        .output(settlementView)
+        .output(settlementDetailView)
         .query(({ ctx, input }) =>
           wrap(async () => {
             // A settlement names gross, fees and net for a window — another
             // merchant's revenue and the rate we charge them.
-            const settlement = await pay.getSettlement(input.settlementId);
-            await assertAccess(ctx.principal.userId, settlement.merchantId, 'trpc.settlement.get');
-            return toSettlementOut(settlement);
+            const settlement = pay.readSettlement
+              ? await pay.readSettlement(input.settlementId)
+              : await pay.getSettlement(input.settlementId);
+            const audience = await assertSettlementRead(ctx.principal.userId, input.settlementId, settlement.merchantId);
+            return settlementDetailOut(settlement, audience);
           }),
         ),
 
@@ -801,22 +1067,35 @@ export function createPayRouter(
        * Merchant fleet list (ops truth). Read-only — no freeze, no payout.
        */
       list: scopedProcedure('pay:read', { module: 'pay' })
-        .input(
-          z.object({
-            merchantId: z.string().uuid(),
-            status: z.enum(['pending', 'posted', 'paid_out', 'failed']).optional(),
-            /**
-             * Page size. Optional so omit reaches `pay.settlement_list_limit_unset`
-             * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          }),
-        )
-        .output(z.array(settlementView))
+        .input(paySettlementListInputSchema)
+        .output(payPageSchema(settlementDetailView))
         .query(({ ctx, input }) =>
           wrap(async () => {
-            await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list');
-            return (await pay.listSettlements(input)).map(toSettlementOut);
+            const audience = await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
+            const page = await pay.listSettlements(input);
+            return { items: page.items.map((item) => settlementDetailOut(item, audience)), nextCursor: page.nextCursor };
+          }),
+        ),
+
+      /** Payments included in one settlement, oldest first. */
+      lines: scopedProcedure('pay:read', { module: 'pay' })
+        .input(paySettlementLinesInputSchema)
+        .output(payPageSchema(paySettlementLineSchema))
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            const settlement = await pay.getSettlement(input.settlementId);
+            await assertSettlementRead(ctx.principal.userId, input.settlementId, settlement.merchantId);
+            const page = await pay.listSettlementLines(input);
+            return {
+              items: page.items.map((line) => ({
+                paymentId: line.paymentId,
+                amount: line.amount === null ? null : formatAmount(line.amount),
+                assetId: line.assetId,
+                createdAt: line.createdAt.toISOString(),
+                includedAmountKnown: line.includedAmountKnown,
+              })),
+              nextCursor: page.nextCursor,
+            };
           }),
         ),
 
@@ -830,8 +1109,25 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
-            await assertAccess(ctx.principal?.userId, settlement.merchantId, 'trpc.settlement.release');
+            await assertSettlementAccess(ctx.principal?.userId, input.settlementId, settlement.merchantId, 'trpc.settlement.release');
             return toSettlementOut(await pay.releasePendingSettlement(input));
+          }),
+        ),
+
+      /**
+       * Composed payout timeline. `status` is derived from the events.
+       * When the status column is ahead of the recorded timestamps, one
+       * synthetic event (`timeKnown: false`) floors that status. The read
+       * never reports a status lower than the column.
+       */
+      lifecycle: scopedProcedure('pay:read', { module: 'pay' })
+        .input(payPayoutLifecycleInputSchema)
+        .output(payPayoutLifecycleSchema)
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            const settlement = await pay.getSettlement(input.settlementId);
+            await assertSettlementRead(ctx.principal.userId, input.settlementId, settlement.merchantId);
+            return pay.readPayoutLifecycle(input.settlementId);
           }),
         ),
     }),
@@ -1232,18 +1528,32 @@ export function createPayRouter(
             // Lightweight router fixtures may omit the money port; production
             // PayService posts via ledger-client. No port → named refuse, never
             // a hardcoded `posted`.
-            const posted =
-              typeof pay.openChargeback === 'function'
-                ? await pay.openChargeback({
-                    disputeId: input.disputeId,
-                    paymentId: input.paymentId,
-                    merchantId: input.merchantId,
-                    amount: input.amount,
-                    assetId: input.assetId,
-                  })
-                : undefined;
+            let ledgerRefuse: ChargebackLedgerRefuse | undefined;
+            let posted: { txId: string } | undefined;
+            if (typeof pay.openChargeback === 'function') {
+              try {
+                posted = await pay.openChargeback({
+                  disputeId: input.disputeId,
+                  paymentId: input.paymentId,
+                  merchantId: input.merchantId,
+                  amount: input.amount,
+                  assetId: input.assetId,
+                });
+              } catch (e) {
+                // The ledger refused for funds (money moved since the plan). A named error, NOT a recorded case: the case
+                // store keeps its first answer, so a recorded refusal would be returned for a later retry that does post.
+                if (e instanceof LedgerError && e.code === 'ledger.insufficient_funds') {
+                  throw new TRPCError({
+                    code: 'PRECONDITION_FAILED',
+                    message: 'pay.chargeback_uncovered: clearing and available cannot cover the chargeback right now; nothing was booked',
+                    cause: e,
+                  });
+                }
+                throw e;
+              }
+            }
             const ledgerPost = posted?.txId?.trim() ? { txId: posted.txId.trim() } : undefined;
-            const c = defaultDisputeCaseStore.open({
+            const c = await disputeCases.open({
               disputeId: input.disputeId,
               paymentId: input.paymentId,
               merchantId: input.merchantId,
@@ -1252,6 +1562,7 @@ export function createPayRouter(
               reasonCode: input.reasonCode,
               paymentMarkedDisputed: marked,
               ledgerPost,
+              ledgerRefuse,
             });
             return {
               disputeId: c.disputeId,
@@ -1267,6 +1578,8 @@ export function createPayRouter(
             if (e instanceof DualControlError || e instanceof ActionApprovalConsumeError) {
               throw new TRPCError({ code: 'PRECONDITION_FAILED', message: e.message, cause: e });
             }
+            // A redelivered open for another amount is a state conflict (retrying cannot fix it), not a malformed request.
+            if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') throw toTrpcError(e);
             if (e instanceof DisputeCaseError || e instanceof PayError) {
               throw new TRPCError({
                 code: 'BAD_REQUEST',
@@ -1292,7 +1605,7 @@ export function createPayRouter(
             const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.fraud_contest_dispute', {
               disputeId: input.disputeId,
             });
-            const c = defaultDisputeCaseStore.contest(input.disputeId);
+            const c = await disputeCases.contest(input.disputeId);
             return {
               disputeId: c.disputeId,
               status: c.status,
@@ -1315,8 +1628,8 @@ export function createPayRouter(
 
       getDispute: scopedProcedure('pay:read', { module: 'pay' })
         .input(z.object({ disputeId: z.string().min(1) }))
-        .query(({ input }) => {
-          const c = defaultDisputeCaseStore.get(input.disputeId);
+        .query(async ({ input }) => {
+          const c = await disputeCases.get(input.disputeId);
           if (!c) {
             throw new TRPCError({ code: 'NOT_FOUND', message: `pay.dispute_not_found: ${input.disputeId}` });
           }
@@ -1593,7 +1906,7 @@ export function createPayRouter(
 
 export type PayRouter = ReturnType<typeof createPayRouter>;
 
-function toPaymentOut(view: Awaited<ReturnType<PayService['getPayment']>>): PaymentViewOut {
+function toPaymentOut(view: Awaited<ReturnType<PayService['getPayment']>>): Omit<PaymentViewOut, 'failure' | 'pricingSnapshot'> {
   return {
     id: view.id,
     merchantId: view.merchantId,
@@ -1645,6 +1958,31 @@ function toWithdrawalOut(row: WithdrawalRecord): WithdrawalViewOut {
   };
 }
 
+function toSettlementDetail(
+  row: Awaited<ReturnType<PayService['getSettlement']>> & {
+    createdAt?: Date;
+    sentAt?: Date | null;
+    settledAt?: Date | null;
+    failedAt?: Date | null;
+    failure?: SettlementDetailOut['failure'];
+    pricingSnapshot?: SettlementDetailOut['pricingSnapshot'];
+  },
+): SettlementDetailOut {
+  const at = (value: Date | string | null | undefined): string | null => {
+    if (value == null) return null;
+    return value instanceof Date ? value.toISOString() : value;
+  };
+  return {
+    ...toSettlementOut(row),
+    createdAt: at(row.createdAt),
+    sentAt: at(row.sentAt),
+    settledAt: at(row.settledAt),
+    failedAt: at(row.failedAt),
+    failure: row.failure ?? null,
+    pricingSnapshot: row.pricingSnapshot ?? null,
+  };
+}
+
 function toSettlementOut(row: Awaited<ReturnType<PayService['getSettlement']>>): SettlementViewOut {
   return {
     id: row.id,
@@ -1670,6 +2008,14 @@ function toSettlementOut(row: Awaited<ReturnType<PayService['getSettlement']>>):
  * a day guessing.
  */
 function toTrpcError(err: unknown): unknown {
+  /**
+   * A guard seam refused (seams/guards.ts). Typed, so it never falls into the
+   * PayError default below (BAD_REQUEST reads as "fix your request"). The
+   * message is the code only: composeGuards already stripped any internals.
+   */
+  if (err instanceof PayGuardRefusal) {
+    return new TRPCError({ code: err.kind === 'unavailable' ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN', message: err.code, cause: err });
+  }
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
@@ -1720,6 +2066,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.profile_not_found':
       case 'pay.link_not_found':
       case 'pay.settlement_not_found':
+      case 'pay.refund_not_found':
       case 'pay.checkout_session_not_found':
         return 'NOT_FOUND' as const;
       case 'pay.link_expired':
@@ -1737,12 +2084,15 @@ function toTrpcError(err: unknown): unknown {
         return 'CONFLICT' as const;
       /** The caller is anonymous and opening rows in our database. */
       case 'pay.checkout_busy':
+      /** One statement scan per merchant, and at most two on this process. A further call is refused. */
+      case 'pay.statement_busy':
         return 'TOO_MANY_REQUESTS' as const;
       case 'pay.routing_input_missing':
         return 'BAD_REQUEST' as const;
       case 'pay.routing_no_rail':
       case 'pay.rail_outcome_unknown':
       case 'pay.ledger_outcome_unknown':
+      case 'pay.settlement_book_unrecognised':
       case 'pay.identity_admission_unavailable':
       case 'pay.payout_destination_missing':
       case 'pay.payout_admission_missing':
@@ -1755,6 +2105,12 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.payment_history_limit_unset':
       case 'pay.payment_link_list_limit_unset':
       case 'pay.settlement_list_limit_unset':
+      case 'pay.destination_list_limit_unset':
+      case 'pay.refund_list_limit_unset':
+      case 'pay.statement_list_limit_unset':
+      case 'pay.statement_range_required':
+      case 'pay.statement_range_too_wide':
+      case 'pay.statement_too_large':
       case 'pay.withdrawal_list_limit_unset':
       case 'pay.webhook_delivery_list_limit_unset':
       case 'pay.webhook_endpoint_list_limit_unset':
@@ -1764,6 +2120,9 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.subscription_cycle_list_limit_unset':
       case 'pay.due_subscriptions_batch_limit_unset':
       case 'pay.due_webhook_deliveries_batch_limit_unset':
+      case 'pay.capture_reconcile_disabled':
+      case 'pay.capture_reconcile_batch_limit_unset':
+      case 'pay.kyb_profile_unbound':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':
@@ -1774,8 +2133,10 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.refund_in_flight':
       case 'pay.refund_id_spent':
       case 'pay.refund_id_conflict':
+      case 'pay.chargeback_plan_conflict':
       case 'pay.settlement_in_flight':
       case 'pay.settlement_desynced':
+      case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':
         return 'CONFLICT' as const;
       case 'pay.withdrawal_not_found':
@@ -1798,6 +2159,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.kyb_required':
         return 'FORBIDDEN' as const;
       case 'pay.kyb_invalid':
+      case 'pay.kyb_identity_changed':
         return 'CONFLICT' as const;
       default:
         return 'BAD_REQUEST' as const;

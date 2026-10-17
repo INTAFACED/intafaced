@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createOpenGate, draftOf } from './crm-open-gate';
+import { createOpenGate, draftOf, followRecord, formAfterDiscard, rebaseActionFields, type ActionFields } from './crm-open-gate';
 
 type Record = { id: string; owner: string; stage: string; description: string };
 const records: { [id: string]: Record } = {
@@ -104,5 +104,93 @@ describe('open gate (M2: phone back button)', () => {
     expect(gate.settle(gate.begin(), 'A', false, false)).toEqual({ apply: true, changedRecord: false, showMobileDetail: false });
     // Tapping a row for the enquiry already selected still opens the phone detail.
     expect(gate.settle(gate.begin(), 'A', false)).toEqual({ apply: true, changedRecord: false, showMobileDetail: true });
+  });
+});
+
+describe('next-action fields after a same-enquiry refresh (M1: stale editor)', () => {
+  const loaded = { description: 'Review enquiry', due: '2026-10-14' };
+  const untouched: ActionFields = {
+    editDescription: loaded.description,
+    editDue: loaded.due,
+    actionDescription: loaded.description,
+    actionDue: loaded.due,
+  };
+  /** What the console derives from the fields: Save enabled, and the unsaved-edits flag. */
+  const unsaved = (fields: ActionFields, record: { description: string; due: string }) => ({
+    saveEnabled: fields.editDescription.trim() !== record.description || fields.editDue !== record.due,
+    dirty:
+      fields.editDescription.trim() !== record.description ||
+      fields.editDue !== record.due ||
+      fields.actionDescription !== record.description ||
+      fields.actionDue !== record.due,
+  });
+
+  it('Tasks-tab completion creates "Call Friday": the editor follows, Save is disabled and stale text is never re-sent', () => {
+    const next = { description: 'Call Friday', due: '2026-10-16' };
+    const fields = rebaseActionFields(untouched, loaded, next);
+    expect(fields).toEqual({
+      editDescription: 'Call Friday',
+      editDue: '2026-10-16',
+      actionDescription: 'Call Friday',
+      actionDue: '2026-10-16',
+    });
+    expect(unsaved(fields, next)).toEqual({ saveEnabled: false, dirty: false });
+    expect(JSON.stringify(fields)).not.toContain('Review enquiry');
+  });
+
+  it('keeps a field the founder typed into and follows the ones they did not touch', () => {
+    const next = { description: 'Call Friday', due: '2026-10-16' };
+    const typed = { ...untouched, editDescription: 'Chase the quote' };
+    const fields = rebaseActionFields(typed, loaded, next);
+    expect(fields.editDescription).toBe('Chase the quote');
+    expect(fields.editDue).toBe('2026-10-16');
+    expect(fields.actionDescription).toBe('Call Friday');
+    expect(unsaved(fields, next).saveEnabled).toBe(true);
+  });
+
+  it("a stage-form follow-up the founder typed survives saving the header's next action", () => {
+    // The founder typed a follow-up in the stage form, then saved the header editor: the saved value becomes the record's.
+    const saved = { description: 'Send contract', due: '2026-10-15' };
+    const fields = rebaseActionFields(
+      { editDescription: 'Send contract', editDue: '2026-10-15', actionDescription: 'Book demo', actionDue: '2026-10-20' },
+      loaded,
+      saved,
+    );
+    expect(fields.actionDescription).toBe('Book demo');
+    expect(fields.actionDue).toBe('2026-10-20');
+    expect(unsaved(fields, saved)).toEqual({ saveEnabled: false, dirty: true });
+  });
+
+  it('a change of the same record that changes nothing leaves every field as it is', () => {
+    expect(rebaseActionFields(untouched, loaded, loaded)).toEqual(untouched);
+  });
+
+  it('whitespace-only edits do not enable Save', () => {
+    const fields = { ...untouched, editDescription: 'Review enquiry  ' };
+    expect(unsaved(fields, loaded)).toEqual({ saveEnabled: false, dirty: false });
+  });
+
+  it('followRecord reads as an updater: typed text wins over the record, untouched text follows it', () => {
+    expect(followRecord('a', 'a', 'b')).toBe('b');
+    expect(followRecord('typed', 'a', 'b')).toBe('typed');
+  });
+});
+
+describe('what Discard puts back', () => {
+  it('uses the record as it is now and its revision, so a save made while the question was open is not undone', () => {
+    const before = { opportunity: { ...toDetail(records.A!).opportunity, id: 'A', revision: 1 } };
+    const saved = {
+      opportunity: {
+        ...before.opportunity,
+        revision: 2,
+        nextAction: { description: 'Send the term sheet', dueAt: '2026-10-21T09:00:00Z' },
+      },
+    };
+    expect(formAfterDiscard(before, String).base).toEqual({ id: 'A', revision: 1 });
+    const after = formAfterDiscard(saved, String);
+    expect(after.base).toEqual({ id: 'A', revision: 2 });
+    expect(after.actionDescription).toBe('Send the term sheet');
+    expect(after.editDescription).toBe('Send the term sheet');
+    expect(after.editDue).toBe(after.actionDue);
   });
 });

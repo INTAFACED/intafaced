@@ -74,6 +74,16 @@ export type BankErrorCode =
   | 'bank.repayment_id_required'
   /** Draw refused because the loan is not in `pending` — the ordering guard. */
   | 'bank.loan_not_drawable'
+  /**
+   * Abandon refused: the last post attempt on this pending loan is inside the
+   * in-flight bound, so the ledger could still commit it. Wait, then retry.
+   */
+  | 'bank.loan_attempt_too_recent'
+  /**
+   * Recovery will not re-post a collateral lock the ledger definitely refused.
+   * Abandon the pending loan, or have the borrower open a new one.
+   */
+  | 'bank.loan_collateral_rejected'
   /** The requested principal puts the loan over the product's opening LTV. */
   | 'bank.ltv_exceeded'
   /**
@@ -132,6 +142,12 @@ export type BankErrorCode =
   | 'bank.mark_unusable'
   /** No mark at all for an asset the position holds. Never valued at zero. */
   | 'bank.mark_missing'
+  /**
+   * `portfolio.summary` needs market prices and svc-trade's tickers could not be
+   * read (down, slow, or an unreadable answer). The total is refused whole: a
+   * sum that quietly omitted the coins it could not price would be a wrong number.
+   */
+  | 'bank.prices_unavailable'
   /**
    * Loan health has no price. The health slot stays empty.
    * The missing piece is price. A stored last mark is not a substitute.
@@ -193,8 +209,10 @@ export type BankErrorCode =
    * A settlement re-drive disagreed with the amount its row was claimed for.
    *
    * The ledger's business key is the authorisation, not the amount, and a reused
-   * key returns the original transaction without comparing bodies — correct for a
-   * re-drive, silently wrong for a disagreement. Refused rather than reconciled,
+   * key returned the original transaction without comparing bodies — correct for a
+   * re-drive, silently wrong for a disagreement. (The ledger now compares: in `refuse`
+   * mode it answers `ledger.idempotency_conflict`; in `detect` mode it still returns the
+   * original and logs `ledger.idempotency_mismatch`, so this check stays.) Refused rather than reconciled,
    * because the alternative reports a capture the ledger never saw and reverses
    * a remainder computed from it.
    */
@@ -281,6 +299,16 @@ export type BankErrorCode =
   | 'bank.withdraw_destination_missing'
   /** Dest user has no primary space — refuse before ledger-client posts. */
   | 'bank.dest_user_missing'
+  /**
+   * The recipient cannot be credited. Identity says they are frozen, closed, or
+   * unknown, and bank says only that — one code, one message, no state named, so
+   * it matches identity's uniform `{ found: false }`. Refused before any posting.
+   */
+  | 'bank.recipient_cannot_receive'
+  /** Identity could not answer the recipient check (outage, timeout, bad reply). Nothing posted; retry with the same id. */
+  | 'bank.recipient_check_unavailable'
+  /** No IDENTITY_URL: this deployment cannot check recipients, so it refuses to credit another user. A deployment gap, not an outage. */
+  | 'bank.recipient_check_unset'
   /** Same (rail, railRef), (user, clientRef), or offramp id already booked with different facts. */
   | 'bank.ramp_conflict'
   /**
@@ -407,7 +435,19 @@ export type BankErrorCode =
    * id is retried or `recover-loan-repayments` re-drives it, so a new event
    * cannot collect the same principal twice.
    */
-  | 'bank.ledger_outcome_unknown';
+  | 'bank.ledger_outcome_unknown'
+  /**
+   * Money-out step-up (BANK_STEP_UP_MONEY_OUT=required). This door needs a fresh
+   * same-person approval from identity: none was sent, it is spent, expired,
+   * another user's, or for another session. The client asks the user again.
+   */
+  | 'bank.step_up_required'
+  /** The approval was for a different payload (amount, payee, asset, id, cadence...). Ask again. */
+  | 'bank.step_up_mismatch'
+  /** The approval was already spent on a different operation. Ask again. */
+  | 'bank.step_up_used'
+  /** Identity could not answer, or is not wired. Nothing was posted; fail closed. */
+  | 'bank.step_up_unavailable';
 
 export class BankError extends Error {
   constructor(

@@ -1,0 +1,329 @@
+/*
+ * Home, Pro (UI-SPEC §5.2). Only --if-* tokens: no colour values live here.
+ *
+ * The whole file is in `@layer components` (critic H1: unlayered CSS beats the kit's utilities whatever its
+ * specificity). The order is declared again so it holds in any bundle order. The markets table brings its own
+ * `.mkt-*` styles (screens/trade/markets/markets.css); this file frames it.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .if-home-pro {
+    width: calc(100% - 48px);
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 24px 0 64px;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .if-home-pro * {
+    box-sizing: border-box;
+  }
+  .if-home-pro :where(a) {
+    color: inherit;
+    text-decoration: none;
+  }
+  .if-home-pro :focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .if-home-pro :where(h1, h2, p, ul) {
+    margin: 0;
+    padding: 0;
+  }
+  .if-home-pro .if-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  /* Summary strip: total and change, stat cells, actions at the right end. 96 px high. */
+  .hp-summary {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    min-height: 96px;
+    padding: 12px 24px;
+    border-radius: 16px;
+    background: var(--if-panel);
+  }
+  .hp-summary--block {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .hp-total {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    min-width: 0;
+  }
+  .hp-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 20px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .hp-eye {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--if-fg-2);
+    cursor: pointer;
+    transition: color var(--if-t-fast) var(--if-ease);
+  }
+  .hp-eye:hover {
+    color: var(--if-fg);
+  }
+  .hp-total__figure {
+    display: flex;
+    align-items: center;
+    height: 40px;
+  }
+  .hp-total__change {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    min-height: 20px;
+    margin-top: 2px;
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .hp-total__change [data-slot='change-text'],
+  .hp-total__change [data-slot='change-text'] > * {
+    line-height: 20px;
+  }
+  /* The kit aligns the glyph and the words on a baseline, which makes the line 22 px: the skeleton is 20. */
+  .hp-total__change [data-slot='change-text'] {
+    align-items: center;
+    height: 20px;
+  }
+  .hp-total__note {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .hp-total > .hp-total__note {
+    margin-top: 2px;
+  }
+
+  .hp-stats {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    align-self: stretch;
+    min-width: 0;
+  }
+  .hp-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-self: stretch;
+    justify-content: center;
+    padding: 0 32px;
+    border-left: 1px solid var(--if-line);
+  }
+  .hp-stat__label {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .hp-stat__value {
+    font: 500 16px/24px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+  .hp-stat__link {
+    text-decoration: underline;
+    text-decoration-color: var(--if-line);
+    text-underline-offset: 4px;
+    transition: text-decoration-color var(--if-t-fast) var(--if-ease);
+  }
+  .hp-stat__link:hover {
+    text-decoration-color: currentColor;
+  }
+  .hp-actions {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  /* Panels: assets and markets */
+  .hp-panel {
+    margin-top: 24px;
+    padding: 8px 24px 16px;
+    border-radius: 16px;
+    background: var(--if-panel);
+  }
+  .hp-panel__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    height: 48px;
+  }
+  .hp-panel__head h2 {
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .hp-panel__aside {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+  .hp-fresh {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .hp-link {
+    font: 500 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+    transition: color var(--if-t-fast) var(--if-ease);
+  }
+  .hp-link:hover {
+    color: var(--if-fg);
+  }
+  /* The table's skeletons are the kit's panel colour, which is this panel's colour too. A kit utility beats a layered
+     rule, so only !important puts them on the field colour (critic M4). */
+  .hp-markets [data-slot='skeleton'] {
+    background: var(--if-field) !important;
+  }
+  .hp-summary--block .hp-actions {
+    margin-left: 0;
+  }
+  .hp-tabs {
+    margin-bottom: 8px;
+  }
+  .hp-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 4px 0;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
+  /* Assets table: asset, amount, value, today, trade. Header 40, rows 48. */
+  .hp-assets__row {
+    display: grid;
+    grid-template-columns: minmax(200px, 1.6fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(100px, 0.8fr) 104px;
+    align-items: center;
+    column-gap: 16px;
+    height: 48px;
+    border-radius: 8px;
+    transition: background var(--if-t-fast) var(--if-ease);
+  }
+  .hp-assets__row:not(.hp-assets__row--head):hover {
+    background: var(--if-hover);
+  }
+  .hp-assets__row--head {
+    height: 40px;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .hp-assets__cell {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    font: 400 14px/20px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+  .hp-assets__row--head .hp-assets__cell {
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .hp-assets__cell--num {
+    justify-content: flex-end;
+    text-align: right;
+  }
+  .hp-assets__cell--action {
+    justify-content: flex-end;
+  }
+  .hp-assets__asset {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    border-radius: 8px;
+  }
+  .hp-assets__ticker {
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .hp-assets__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
+  @media (max-width: 1279px) {
+    .hp-summary {
+      flex-wrap: wrap;
+      gap: 16px 32px;
+    }
+    .hp-stats {
+      flex: none;
+    }
+  }
+  @media (max-width: 1023px) {
+    .hp-summary {
+      align-items: flex-start;
+    }
+    .hp-actions {
+      width: 100%;
+      margin-left: 0;
+    }
+    .hp-stats {
+      width: 100%;
+    }
+    .hp-stat:first-child {
+      border-left: 0;
+      padding-left: 0;
+    }
+  }
+  @media (max-width: 767px) {
+    .if-home-pro {
+      width: calc(100% - 32px);
+      padding-top: 16px;
+    }
+    .hp-summary,
+    .hp-panel {
+      padding-left: 16px;
+      padding-right: 16px;
+    }
+    .hp-stat {
+      padding: 0 16px;
+    }
+    .hp-assets__row {
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.8fr);
+    }
+    .hp-assets__cell--amount,
+    .hp-assets__cell--trade {
+      display: none;
+    }
+    .hp-panel__aside .hp-fresh {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hp-assets__row,
+    .hp-eye,
+    .hp-link,
+    .hp-stat__link {
+      transition: none;
+    }
+  }
+}

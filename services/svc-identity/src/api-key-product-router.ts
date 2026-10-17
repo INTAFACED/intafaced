@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { ApiKeyProductError } from './auth/api-key-product.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { bindApiKeyProductScope, requestProductAls } from './auth/auth-service-product.js';
+import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyWithProductScope } from './auth/mint-api-key-product.js';
 import { unbindApiKeyProductScope } from './auth/unbind-api-key-product.js';
 import type { ApiKeyMinter } from './auth/mint-api-key-ip.js';
@@ -20,6 +21,9 @@ type ProductExchanger = ApiKeyMinter & {
     keyId: string;
     scopes: string[];
     mode: 'live' | 'sandbox';
+    requireSignature?: boolean;
+    requireNonEmptyIpAllowlist?: boolean;
+    ipAllowlist?: string[];
   }>;
 };
 
@@ -32,7 +36,15 @@ function toProductTrpc(err: unknown): never {
   }
   if (err instanceof AuthError) {
     const message = userCopy(err.code);
-    if (err.code === 'auth.invalid_credentials' || err.code === 'auth.domain_not_allowed') {
+    if (
+      err.code === 'auth.invalid_credentials' ||
+      err.code === 'auth.domain_not_allowed' ||
+      err.code === 'auth.request_unsigned' ||
+      err.code === 'auth.request_stale' ||
+      err.code === 'auth.request_tampered' ||
+      err.code === 'auth.request_replay' ||
+      err.code === 'auth.ip_allowlist_required'
+    ) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     }
     if (err.code === 'auth.account_frozen' || err.code === 'auth.sub_account_denied' || err.code === 'auth.delegate_cannot_grant') {
@@ -113,7 +125,13 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
      * Bound keys must name a listed product. Empty list stays open.
      */
     exchangeApiKeyForProduct: publicProcedure
-      .input(z.object({ key: z.string().min(8).max(200), product: z.string().min(1).max(64) }))
+      .input(
+        z.object({
+          key: z.string().min(8).max(200),
+          product: z.string().min(1).max(64),
+          request: requestSignWireSchema.optional(),
+        }),
+      )
       .output(
         z.object({
           accessToken: z.string(),
@@ -123,12 +141,18 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
           scopes: z.array(z.string()),
           mode: z.enum(['live', 'sandbox']),
           product: z.string(),
+          requireSignature: z.boolean().optional(),
+          requireNonEmptyIpAllowlist: z.boolean().optional(),
+          ipAllowlist: z.array(z.string()).optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         try {
+          assertEdgeSignedRequest(ctx.service, input.request);
           const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
-          const result = await requestProductAls.run(input.product, () => minter.exchangeApiKey(input.key, clientOrigin));
+          const result = await requestProductAls.run(input.product, () =>
+            requestSignAls.run(input.request, () => minter.exchangeApiKey(input.key, clientOrigin)),
+          );
           return {
             accessToken: result.accessToken,
             expiresAt: result.expiresAt.toISOString(),
@@ -137,6 +161,9 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
             scopes: result.scopes,
             mode: result.mode,
             product: input.product,
+            ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
+            ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
+            ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
           };
         } catch (err) {
           toProductTrpc(err);

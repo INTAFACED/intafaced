@@ -1,7 +1,8 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import { PersonalPay } from './PersonalPay';
 import { P2P } from './P2P';
-import { BusinessPay } from './BusinessPay';
+import { BusinessPay, BusinessHomeSection } from './BusinessPay';
+import { MerchantPortal } from './portal/MerchantPortal';
+import { parsePortalRoute } from './portal/routes';
 import { Checkout } from './Checkout';
 import type { PayBusinessAuthority } from './pay-api';
 import { payCopy } from './copy';
@@ -40,8 +41,15 @@ function PayRooms({ path }: { path: string }) {
   )
     return <P2P key={path} path={path} />;
   if (current === '/pay' && authority) return <BusinessPay path="/pay/merchant" authority={authority} />;
-  if (['/pay', '/pay/send', '/pay/receive', '/pay/request', '/pay/bills', '/pay/global'].includes(current))
-    return <PersonalPay key={path} path={path} />;
+  if (parsePortalRoute(path))
+    return (
+      <MerchantPortal
+        key={path}
+        path={path}
+        authority={authority}
+        legacyHome={authority ? <BusinessHomeSection authority={authority} /> : null}
+      />
+    );
   return <BusinessPay key={path} path={path} authority={authority} />;
 }
 export type { PayBusinessAuthority } from './pay-api';

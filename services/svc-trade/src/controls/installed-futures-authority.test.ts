@@ -10,7 +10,9 @@ describe('Installed futures policies preserve live admission authority', () => {
   afterEach(() => vi.unstubAllEnvs());
   it('forwards the exact original principal through all three installed open wrappers', async () => {
     for (const key of ['TRADE_MAX_ORDER', 'TRADE_MAX_POSITION', 'TRADE_MAX_LOSS']) vi.stubEnv(key, '100');
-    vi.stubEnv('TRADE_COLLATERAL_HAIRCUT_BPS', '');
+    // A published 0 is the owner's zero. Blank refuses in the haircut credit tests
+    // and never reaches this principal-forwarding open.
+    vi.stubEnv('TRADE_COLLATERAL_HAIRCUT_BPS', '0');
     const received: Array<Principal | undefined> = [];
     class Owner {
       async open(input: OpenPositionInput, principal?: Principal) {

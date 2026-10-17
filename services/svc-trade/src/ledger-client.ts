@@ -34,6 +34,17 @@ installCollateralHaircut();
  * Auth is body-bound (L2-6): serialize once, sign those bytes, send the same
  * string. v1 service-only signatures were replayable against any post body.
  */
+function isTxByKeyBody(value: unknown): value is {
+  found?: unknown;
+  txId?: unknown;
+  hash?: unknown;
+  postedAt?: unknown;
+  module?: unknown;
+  reason?: unknown;
+} {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
 export function createLedgerClient(baseUrl: string, internalSecret: string): LedgerClient {
   const authHeaders = (payload: string) => serviceAuthHeadersForBody('svc-trade', internalSecret, payload);
 
@@ -107,8 +118,39 @@ export function createLedgerClient(baseUrl: string, internalSecret: string): Led
       throw new Error('getTx is not exposed over the internal ledger API — query svc-ledger directly');
     },
 
-    async getTxByKey(): Promise<LedgerTx | null> {
-      throw new Error('getTxByKey is not exposed over the internal ledger API — query svc-ledger directly');
+    /**
+     * Existence check by idempotency key. Convert settle asks "was this release /
+     * hold / fill already booked?" before it posts; this used to throw here, so
+     * every Convert accept came back as a 500. The ledger answers with the
+     * identifying fields only; entries stay in svc-ledger.
+     */
+    async getTxByKey(idempotencyKey: string): Promise<LedgerTx | null> {
+      const result = await call<unknown>('/trpc/txByKey', { idempotencyKey });
+      if (!isTxByKeyBody(result)) throw new Error('ledger txByKey returned an unreadable body');
+      if (result.found === false) return null;
+      if (result.found !== true) throw new Error('ledger txByKey returned an unreadable body');
+      if (typeof result.txId !== 'string' || result.txId.length === 0) {
+        throw new Error('ledger txByKey found a transaction without a txId');
+      }
+      if (
+        typeof result.hash !== 'string' ||
+        typeof result.postedAt !== 'string' ||
+        typeof result.module !== 'string' ||
+        typeof result.reason !== 'string'
+      ) {
+        throw new Error('ledger txByKey found a transaction with an unreadable body');
+      }
+      return {
+        id: result.txId,
+        idempotencyKey,
+        module: result.module,
+        reason: result.reason,
+        meta: {},
+        postedAt: new Date(result.postedAt),
+        hash: result.hash,
+        previousHash: null,
+        entries: [],
+      };
     },
   };
 }

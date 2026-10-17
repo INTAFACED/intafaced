@@ -9,6 +9,8 @@ import {
 } from './controls/founder-controls-router.js';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
+import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
+import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import {
   AuthError,
   assertDelegateCannotGrant,
@@ -22,6 +24,7 @@ import {
   type KycRecordView,
 } from './auth/auth-service.js';
 import type { RankService } from './rank/rank-service.js';
+import { HANDLE_LOOKUP_RATE_LIMITED, HandleLookupLimiter, normaliseHandleQuery, type HandleLookupLimiterPort } from './handle-lookup.js';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import {
   AFFILIATE_PAYOUT_RESIDUAL,
@@ -60,6 +63,7 @@ import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { userCopy } from './user-copy.js';
+import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -242,11 +246,22 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.invalid_credentials':
     case 'auth.mfa_invalid':
     case 'auth.domain_not_allowed':
+    case 'auth.request_unsigned':
+    case 'auth.request_stale':
+    case 'auth.request_tampered':
+    case 'auth.request_replay':
+    case 'auth.ip_allowlist_required':
       // Deliberately the same shape as a wrong password: never confirm which
       // half of the credential was right (including "key ok, origin wrong").
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.mfa_required':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
+    case 'auth.too_many_attempts':
+      // Per-account lockout (attempt-lockout.ts): retrying now cannot help, retrying later can.
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
+    case 'auth.privileged_enrolment_requires_invite':
+      // Retrying cannot help: this identity's first factor needs an invite.
+      return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.mfa_not_enrolled':
     case 'auth.webauthn_not_enrolled':
       // FORBIDDEN, not UNAUTHORIZED: retrying with a code cannot help. The
@@ -271,10 +286,20 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'CONFLICT', message, cause: err });
     case 'auth.account_frozen':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    case 'auth.invite_invalid':
+    case 'auth.invite_expired':
+    case 'auth.founder_enrolment_closed':
+      // Founder enrolment (auth.registerFounder). Retrying the same call cannot help; the client
+      // branches on `intafacedCode` for the copy of each.
+      return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    case 'auth.invite_used':
+      return new TRPCError({ code: 'CONFLICT', message, cause: err });
     case 'auth.not_found':
       return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     case 'auth.sub_account_required':
     case 'auth.sub_account_same':
+    case 'auth.password_unchanged':
+    case 'auth.password_policy':
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.sub_account_denied':
     case 'auth.sub_account_revoked':
@@ -291,6 +316,12 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.session_denied':
     case 'auth.session_revoked':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+    case 'auth.reset_proof_invalid':
+      // Same sentence for a wrong, expired, spent, or unknown-email proof.
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    case 'auth.reset_unwired':
+      // No mail port or no owner-published lifetime. Same answer for every address.
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
   }
 }
 
@@ -367,7 +398,19 @@ export function createIdentityRouter(
      * `identity.registration_open_unset`. Explicit false → closed. Never invent true.
      */
     registrationOpen?: boolean;
+    /**
+     * Founder enrolment (`auth.registerFounder`, `auth.founderEnrolmentStatus`).
+     * `invites` is the parsed IDENTITY_FOUNDER_INVITE_HASHES + _EXPIRES_AT; absent
+     * means enrolment is closed. Independent of `registrationOpen`. `now` is a test clock.
+     */
+    founderEnrolment?: { invites?: FounderEnrolmentConfig | undefined; now?: () => Date };
     webauthnEnabled?: boolean;
+    /**
+     * Founder pair (user ids). These identities may not self-enrol a FIRST
+     * second factor on a password-only session (`auth.privileged_enrolment_requires_invite`).
+     * Unset → only `admin:*`-scoped principals count as privileged.
+     */
+    privilegedUserIds?: readonly string[];
     referral?: ReferralService;
     /** Share tokens (ops.social-promotion). Token → referrer; hits; revoke. */
     share?: ShareService;
@@ -409,9 +452,19 @@ export function createIdentityRouter(
      * (no silent enroll). Wired in index.ts against SqlWaitlistStore.
      */
     waitlist?: WaitlistService;
+    /**
+     * Per-caller budget for `users.resolveHandle`. Defaults to 30 per minute,
+     * process-local. Injected so tests can pin the clock and a shared store can
+     * replace it later.
+     */
+    handleLookupLimiter?: HandleLookupLimiterPort;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
+  const founderInvites = options.founderEnrolment?.invites;
+  const founderNow = options.founderEnrolment?.now ?? (() => new Date());
+  const privilegedUserIds = options.privilegedUserIds ?? [];
+  const toFactorError = (err: unknown): TRPCError => factorGateTrpcError(err) ?? toTrpcError(err);
   const referral = options.referral;
   const share = options.share;
   const freeze = options.freeze;
@@ -421,6 +474,7 @@ export function createIdentityRouter(
   const kycDocs = options.kycDocs;
   const bindKycProviderRef = options.bindKycProviderRef;
   const waitlist = options.waitlist;
+  const handleLookupLimiter = options.handleLookupLimiter ?? new HandleLookupLimiter();
 
   function requireReferral(): ReferralService {
     if (!referral) {
@@ -508,6 +562,57 @@ export function createIdentityRouter(
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-identity') }))
       .query(() => ({ ok: true, service: 'svc-identity' as const })),
 
+    /**
+     * The caller's own handle (Receive screen, account menu). Self-only: the
+     * user id comes from the session, there is no input.
+     */
+    me: protectedProcedure.output(z.object({ userId: z.string().uuid(), handle: z.string() })).query(async ({ ctx }) => {
+      const handle = await auth.handleOf(ctx.principal.userId);
+      if (handle === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+      return { userId: ctx.principal.userId, handle };
+    }),
+
+    users: router({
+      /**
+       * Pay by exact @handle: show the sender who they are about to pay.
+       *
+       * Returns the least that lets a sender confirm the right person: the
+       * stored handle, the user id the transfer needs, and `self`. No display
+       * name (today it is a copy of the handle, never user-set), no email,
+       * phone or legal name.
+       *
+       * No enumeration: exact case-insensitive match only; malformed, unknown,
+       * frozen and closed handles all answer `{ found: false }`; a per-caller
+       * budget (30/min) refuses bulk probing with 429. Sessions only: an API
+       * key may not probe the handle space.
+       */
+      resolveHandle: protectedProcedure
+        .input(z.object({ handle: z.string().max(64) }))
+        .output(
+          z.discriminatedUnion('found', [
+            z.object({ found: z.literal(false) }),
+            z.object({ found: z.literal(true), userId: z.string().uuid(), handle: z.string(), self: z.boolean() }),
+          ]),
+        )
+        .query(async ({ ctx, input }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Handle lookup needs a signed-in session' });
+          }
+          if (!(await handleLookupLimiter.tryTake(ctx.principal.userId))) {
+            throw new TRPCError({
+              code: 'TOO_MANY_REQUESTS',
+              message: `Too many lookups. Try again in a minute. [${HANDLE_LOOKUP_RATE_LIMITED}]`,
+              cause: Object.assign(new Error('handle lookup rate limited'), { code: HANDLE_LOOKUP_RATE_LIMITED }),
+            });
+          }
+          const handle = normaliseHandleQuery(input.handle);
+          if (handle === null) return { found: false as const };
+          const hit = await auth.findActiveByHandle(handle);
+          if (!hit) return { found: false as const };
+          return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
+        }),
+    }),
+
     auth: router({
       register: publicProcedure
         .input(
@@ -542,6 +647,47 @@ export function createIdentityRouter(
             if (referrerId) {
               await requireReferral().attribute({ userId: session.userId, referrerId });
             }
+            return { ...session, expiresAt: session.expiresAt.toISOString() };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Is the founder enrolment door open? True only while the founder pair is not
+       * pinned, invites are configured, the expiry has not passed and one is unspent.
+       * Public and input-free; reveals nothing else.
+       */
+      founderEnrolmentStatus: publicProcedure.output(z.object({ open: z.boolean() })).query(async () => {
+        try {
+          return { open: await auth.founderEnrolmentOpen(founderInvites, founderNow()) };
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+      /**
+       * Founder enrolment: an invite-gated, single-use `register`. Independent of
+       * REGISTRATION_OPEN, so public sign-up stays closed. Refuses forever once the
+       * founder pair is pinned. Same handle/email/password rules as `register`;
+       * the session it returns is a password session (mfa false) that may enrol
+       * its first factor (the account is not privileged until pinned).
+       * Errors (`intafacedCode`): auth.invite_invalid, auth.invite_used,
+       * auth.invite_expired, auth.founder_enrolment_closed, plus handle/email taken.
+       */
+      registerFounder: publicProcedure
+        .input(
+          z.object({
+            invite: z.string().min(1).max(100),
+            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
+            email: z.string().email(),
+            password: z.string().min(12).max(200),
+          }),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input }) => {
+          try {
+            const session = await auth.registerFounder({ ...input, ip: requestIpAls.getStore() }, founderInvites, founderNow());
             return { ...session, expiresAt: session.expiresAt.toISOString() };
           } catch (err) {
             throw toTrpcError(err);
@@ -583,6 +729,73 @@ export function createIdentityRouter(
       logoutAll: protectedProcedure.output(z.object({ revoked: z.number() })).mutation(async ({ ctx }) => ({
         revoked: await auth.logoutAll(ctx.principal.userId),
       })),
+
+      /**
+       * Change the signed-in user's password. User sessions only (an API key or
+       * sub-account is refused), the current password is required, and an account
+       * with any second factor also needs an `mfa` session. Revokes every OTHER
+       * session; the caller's stays. Rules: auth-service `changePassword`.
+       */
+      changePassword: protectedProcedure
+        .input(z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().max(200) }))
+        .output(z.object({ ok: z.literal(true) }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            await auth.changePassword({
+              userId: ctx.principal.userId,
+              sessionId: ctx.principal.sid,
+              actor: factorActor(ctx.principal, privilegedUserIds),
+              currentPassword: input.currentPassword,
+              newPassword: input.newPassword,
+            });
+            return { ok: true as const };
+          } catch (err) {
+            // A typo in the current password is not an expired session. Every 401 makes the
+            // apps sign the person out, so this door answers 403 (code stays in `cause`).
+            if (err instanceof AuthError && err.code === 'auth.invalid_credentials') {
+              throw new TRPCError({ code: 'FORBIDDEN', message: userCopy(err.code), cause: err });
+            }
+            throw toFactorError(err);
+          }
+        }),
+
+      /**
+       * Signed-out password reset, step 1 (D-38). Same answer whether or not
+       * the email is registered. The one-time code is mailed, never returned.
+       * The password hash does not change here.
+       */
+      requestPasswordReset: publicProcedure
+        .input(z.object({ email: z.string().trim().email().max(320) }))
+        .output(z.object({ accepted: z.literal(true) }))
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.requestPasswordReset({ email: input.email });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Signed-out password reset, step 2. A correct proof replaces the hash
+       * and ends the old sessions. This does not sign the caller in.
+       */
+      completePasswordReset: publicProcedure
+        .input(
+          z.object({
+            email: z.string().trim().email().max(320),
+            code: z.string().trim().min(1).max(200),
+            newPassword: z.string().max(200),
+          }),
+        )
+        .output(z.object({ ok: z.literal(true) }))
+        .mutation(async ({ input }) => {
+          try {
+            await auth.completePasswordReset(input);
+            return { ok: true as const };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
 
       /**
        * THE STEP-UP CHALLENGE.
@@ -661,9 +874,9 @@ export function createIdentityRouter(
         .output(z.object({ secret: z.string(), uri: z.string(), recoveryCodes: z.array(z.string()) }))
         .mutation(async ({ ctx }) => {
           try {
-            return await auth.startTotpEnrolment(ctx.principal.userId);
+            return await auth.startTotpEnrolment(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
           } catch (err) {
-            throw toTrpcError(err);
+            throw toFactorError(err);
           }
         }),
 
@@ -672,10 +885,10 @@ export function createIdentityRouter(
         .output(z.object({ ok: z.literal(true) }))
         .mutation(async ({ ctx, input }) => {
           try {
-            await auth.confirmTotpEnrolment(ctx.principal.userId, input.secret, input.code);
+            await auth.confirmTotpEnrolment(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), input.secret, input.code);
             return { ok: true as const };
           } catch (err) {
-            throw toTrpcError(err);
+            throw toFactorError(err);
           }
         }),
     }),
@@ -691,9 +904,9 @@ export function createIdentityRouter(
       registerOptions: protectedProcedure.mutation(async ({ ctx }) => {
         if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
         try {
-          return await auth.startWebauthnRegistration(ctx.principal.userId);
+          return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
         } catch (err) {
-          throw toTrpcError(err);
+          throw toFactorError(err);
         }
       }),
 
@@ -715,9 +928,9 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
-            return await auth.confirmWebauthnRegistration(ctx.principal.userId, input);
+            return await auth.confirmWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), input);
           } catch (err) {
-            throw toTrpcError(err);
+            throw toFactorError(err);
           }
         }),
 
@@ -790,10 +1003,14 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
-            const removed = await auth.removeWebauthnCredential(ctx.principal.userId, input.credentialId);
+            const removed = await auth.removeWebauthnCredential(
+              ctx.principal.userId,
+              factorActor(ctx.principal, privilegedUserIds),
+              input.credentialId,
+            );
             return { removed };
           } catch (err) {
-            throw toTrpcError(err);
+            throw toFactorError(err);
           }
         }),
     }),
@@ -1208,7 +1425,7 @@ export function createIdentityRouter(
        * This is what makes identity.apikeys real — create alone is not enough.
        */
       exchange: publicProcedure
-        .input(z.object({ key: z.string().min(8).max(200) }))
+        .input(z.object({ key: z.string().min(8).max(200), request: requestSignWireSchema.optional() }))
         .output(
           z.object({
             accessToken: z.string(),
@@ -1217,14 +1434,18 @@ export function createIdentityRouter(
             keyId: z.string().uuid(),
             scopes: z.array(z.string()),
             mode: z.enum(['live', 'sandbox']),
+            requireSignature: z.boolean().optional(),
+            requireNonEmptyIpAllowlist: z.boolean().optional(),
+            ipAllowlist: z.array(z.string()).optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
           try {
             // Origin is read from the trusted edge request, never from the body.
             // A non-empty domain_whitelist refuses foreign or missing origins.
+            assertEdgeSignedRequest(ctx.service, input.request);
             const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
-            const result = await auth.exchangeApiKey(input.key, clientOrigin);
+            const result = await requestSignAls.run(input.request, () => auth.exchangeApiKey(input.key, clientOrigin));
             return {
               accessToken: result.accessToken,
               expiresAt: result.expiresAt.toISOString(),
@@ -1232,6 +1453,9 @@ export function createIdentityRouter(
               keyId: result.keyId,
               scopes: result.scopes,
               mode: result.mode,
+              ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
+              ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
+              ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
             };
           } catch (err) {
             throw toTrpcError(err);

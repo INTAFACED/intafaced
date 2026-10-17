@@ -6,8 +6,9 @@ import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
 import { PlaceDoor } from './auth/place-door.js';
+import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
-import { assertProdTotpKey } from './auth/totp-crypto.js';
+import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
 import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
@@ -47,6 +48,8 @@ import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
+import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
+import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -92,6 +95,9 @@ if (env.APP_ENV === 'prod') {
   // TOTP secrets must not sit base32-plaintext in prod; refuse boot without key.
   assertProdTotpKey(env);
 }
+// Request-signing secrets must not sit plaintext in prod or staging.
+assertSigningEncKey(env);
+const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -102,6 +108,29 @@ const sql = postgres(env.DATABASE_URL, {
 
 await sql`SELECT 1 FROM users LIMIT 1`.catch(() => {
   throw new Error('identity schema is missing — run migrations before starting svc-identity');
+});
+// Code-before-migration must fail here, not on the first login (0027 per-account lockout counters).
+await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: auth_attempts (with consecutive_failures) is missing — apply drizzle/0027_auth_attempt_lockouts.sql before starting svc-identity',
+  );
+});
+
+// Same for 0028: registerFounder would otherwise fail on the first invite, not at boot.
+await sql`SELECT hash FROM founder_invites_used LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: founder_invites_used is missing — apply drizzle/0028_founder_invites_used.sql before starting svc-identity',
+  );
+});
+await sql`SELECT require_signature FROM api_keys LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: api_keys.require_signature is missing — apply drizzle/0030_api_keys_request_sign.sql before starting svc-identity',
+  );
+});
+await sql`SELECT code_hash FROM password_reset_proofs LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: password_reset_proofs is missing — apply drizzle/0031_password_reset_proofs.sql before starting svc-identity',
+  );
 });
 
 const bus = await JetStreamEventBus.connect({
@@ -151,12 +180,14 @@ const auth = new AuthService(
   undefined,
   env.IDENTITY_MAX_SUB_ACCOUNTS,
 );
+// Lifetime can be published without a mail port. With either one missing, every
+// reset request refuses auth.reset_unwired. No mailer is installed in this
+// process: svc-notify is a different module, and this service does not invent one.
+auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 
 const placeDoor = new PlaceDoor(sql);
-const founderControls = new FounderControls(
-  sql,
-  parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID),
-);
+const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
+const founderControls = new FounderControls(sql, founderPair);
 await founderControls.bootstrap();
 
 const referral = new ReferralService(sql);
@@ -197,9 +228,13 @@ installDisabledMintRefuse(auth, sql);
 installPasskeyMintRefuse(auth, sql);
 installFourEyes();
 installApiKeyAttribution(auth);
+installApiKeyRequestSignExchange(auth, sql, signingEncKey);
 
 const actionApprovals = new ActionApprovalService(new SqlActionApprovalStore(sql), {
   ttlSeconds: env.IDENTITY_ACTION_APPROVAL_TTL_SECONDS,
+  // Founder-only action types (pay, matching, ledger, bank, token, ...) re-check both parties against the live founder
+  // entitlement at approve and again at consume. Unconfigured founder controls answer false, so those types refuse closed.
+  founders: { isFounder: (userId) => founderControls.isLiveFounder(userId) },
 });
 installPrivilegedDualControl(auth, actionApprovals);
 installFreezeDualControl(freeze, actionApprovals);
@@ -208,6 +243,7 @@ installLimitFeeTierDualControl(rank, sql, actionApprovals);
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
     referral,
     share,
@@ -219,11 +255,13 @@ export const appRouter = mergeRouters(
     waitlist,
     actionApprovals,
     founderControls,
+    privilegedUserIds: founderPair ?? [],
   }),
   createApiKeyIpRouter(sql, auth),
+  createApiKeyRequestSignRouter(sql, signingEncKey),
   createApiKeyOriginRouter(sql, auth),
   createApiKeyAccountRouter(sql, auth),
-  createApiKeyRotateRouter(sql, auth),
+  createApiKeyRotateRouter(sql, auth, signingEncKey),
   createApiKeyExpireRouter(sql),
   createApiKeyRevokeAllRouter(sql),
   createSessionRevokeAllRouter(sql),
@@ -237,18 +275,28 @@ export const appRouter = mergeRouters(
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createOrgRouter(sql, dmaHierarchyLaw),
-  createEnrollPasskeyRouter(sql, {
-    rpId: env.WEBAUTHN_RP_ID,
-    rpName: env.WEBAUTHN_RP_NAME,
-    origin: env.WEBAUTHN_ORIGIN,
-  }),
+  createEnrollPasskeyRouter(
+    sql,
+    {
+      rpId: env.WEBAUTHN_RP_ID,
+      rpName: env.WEBAUTHN_RP_NAME,
+      origin: env.WEBAUTHN_ORIGIN,
+    },
+    founderPair ?? [],
+  ),
   createVerifyPasskeyRouter(sql, {
     rpId: env.WEBAUTHN_RP_ID,
     rpName: env.WEBAUTHN_RP_NAME,
     origin: env.WEBAUTHN_ORIGIN,
   }),
   createUnenrollPasskeyRouter(sql),
-  createActionApprovalRouter(actionApprovals),
+  createActionApprovalRouter(actionApprovals, {
+    privilegedUserIds: founderPair ?? [],
+    // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
+    verifyFactor: async (input) => {
+      await auth.stepUp(input);
+    },
+  }),
 );
 export type AppRouter = typeof appRouter;
 
@@ -262,9 +310,16 @@ const identityRequestContext = createIdentityRequestContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  // The tRPC door has no v1 callers (every outbound client signs v2), so it is
+  // `require` whatever INTERNAL_SERVICE_BODY_BIND says: that fleet knob exists
+  // for the raw /internal routes that still need a migration window, and letting
+  // it downgrade this door would re-open unbound-signature replay on
+  // rank.awardXp and the other serviceProcedures.
+  bodyBindMode: 'require',
 });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+auth.useLogger(app.log);
 
 app.addHook('onRequest', (req, _reply, done) => {
   const rawIp = req.headers['x-forwarded-for'] ?? req.headers['x-real-ip'];

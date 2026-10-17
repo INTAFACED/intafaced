@@ -143,6 +143,8 @@ export const tokens = { color, font, space, radius, border, blur, shadow, motion
  */
 export const CSS_VARS = {
   '--if-base': color.base,
+  /** Alias for the redesign kit's name (theme/tokens.ts). Points at `--if-base`, so the black exists once per file. */
+  '--if-bg': 'var(--if-base)',
   '--if-surface': color.surface,
   '--if-surface-raised': color.surfaceRaised,
   '--if-surface-overlay': color.surfaceOverlay,

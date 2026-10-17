@@ -1,6 +1,8 @@
+import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { payAmountStringSchema, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { PERMISSION_AREAS, SubMerchantError, type SubMerchantService } from './submerchants.js';
+import { readSubMerchantSummary } from './merchant-portal/summary.js';
 
 /**
  * THE PAYFAC SURFACE (§6.1) — sub-merchant trees and the permissions over them.
@@ -18,7 +20,8 @@ import { PERMISSION_AREAS, SubMerchantError, type SubMerchantService } from './s
  *      there is nothing to forge; a caller who is not a merchant is refused
  *      before any tree is walked.
  *   3. The service's subtree fence and permission check, which throw
- *      `pay.submerchant_out_of_scope` / `pay.submerchant_permission_denied`.
+ *      `pay.merchant_not_found` (outside the tree reads exactly like a missing
+ *      id) / `pay.submerchant_permission_denied` (inside the tree, no grant).
  *
  * Step 2 is the one that would be easy to get wrong. `pay:write` is a MERCHANT'S
  * scope, held by every merchant on the platform — so if the merchant node came
@@ -57,6 +60,60 @@ const subMerchantView = z.object({
   depth: z.number().int(),
   createdAt: z.string().datetime({ offset: true }),
 });
+
+const summaryPayment = z
+  .object({
+    id: z.string().uuid(),
+    status: z.string(),
+    amount: payAmountStringSchema,
+    assetId: z.string(),
+    createdAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+
+const subMerchantSummaryView = subMerchantView
+  .extend({
+    displayName: z.string().nullable(),
+    legalName: z.string().nullable(),
+    /** Null when the caller does not hold `payment`. Empty items means none in the window. */
+    volume: z
+      .object({
+        window: z.object({ kind: z.literal('preset'), preset: z.literal('rolling_30d') }).strict(),
+        items: z.array(
+          z
+            .object({
+              assetCode: z.string(),
+              volume: payAmountStringSchema,
+              count: z.number().int().min(0),
+            })
+            .strict(),
+        ),
+      })
+      .strict()
+      .nullable(),
+    recentPayments: z
+      .object({
+        items: z.array(summaryPayment),
+        nextCursor: z.string().nullable(),
+      })
+      .strict()
+      .nullable(),
+    /** Null when the caller does not hold `permission`. Implicit root authority is not listed. */
+    grants: z
+      .object({
+        items: z.array(
+          z
+            .object({
+              area: z.string(),
+              granteeMerchantId: z.string().uuid(),
+            })
+            .strict(),
+        ),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
 
 const grantView = z.object({
   granteeMerchantId: z.string().uuid(),
@@ -123,6 +180,10 @@ const CALLER_FAULT: Readonly<Record<string, 'FORBIDDEN' | 'BAD_REQUEST' | 'NOT_F
   'pay.submerchant_permission_list_limit_unset': 'PRECONDITION_FAILED',
   'pay.submerchant_permission_history_limit_unset': 'PRECONDITION_FAILED',
   'pay.identity_admission_unavailable': 'PRECONDITION_FAILED',
+  'pay.submerchant_summary_limit_unset': 'PRECONDITION_FAILED',
+  'pay.submerchant_summary_grants_limit_unset': 'PRECONDITION_FAILED',
+  'pay.list_cursor_invalid': 'BAD_REQUEST',
+  'pay.submerchant_summary_unavailable': 'PRECONDITION_FAILED',
 };
 
 function toTrpcError(err: unknown): unknown {
@@ -133,7 +194,7 @@ function toTrpcError(err: unknown): unknown {
   return err;
 }
 
-export function createSubMerchantRouter(subMerchants: SubMerchantService, merchants: ActorMerchantLookup) {
+export function createSubMerchantRouter(subMerchants: SubMerchantService, merchants: ActorMerchantLookup, sql?: Sql) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
       return await fn();
@@ -246,6 +307,33 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
             const actorMerchantId = await actor(ctx.principal?.userId);
             const record = await subMerchants.getSubMerchant(actorMerchantId, input.merchantId);
             return { ...record, createdAt: record.createdAt.toISOString() };
+          }),
+        ),
+
+      /**
+       * Child summary for `/pay/network/:child`. Same subtree fence as `get`.
+       * Volume and recent payments are present only with `payment`. Grants are
+       * present only with `permission`. A missing area is null.
+       */
+      summary: scopedProcedure('pay:read', { module: 'pay' })
+        .input(
+          z
+            .object({
+              merchantId: z.string().uuid(),
+              recentPaymentsLimit: z.number().int().min(1).max(200).optional(),
+              grantsLimit: z.number().int().min(1).max(200).optional(),
+              recentPaymentsCursor: z.string().min(1).max(300).optional(),
+            })
+            .strict(),
+        )
+        .output(subMerchantSummaryView)
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            if (!sql) {
+              throw new SubMerchantError('Sub-merchant summary has no database', 'pay.submerchant_summary_unavailable');
+            }
+            const actorMerchantId = await actor(ctx.principal?.userId);
+            return readSubMerchantSummary(sql, subMerchants, actorMerchantId, input);
           }),
         ),
     }),

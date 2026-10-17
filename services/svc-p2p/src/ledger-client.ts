@@ -1,18 +1,40 @@
 import {
-  formatAmount,
+  createHttpLedgerClient,
   parseAmount,
   InsufficientFundsError,
   type AccountRef,
-  type Balance,
+  type HttpLedgerOptions,
   type LedgerClient,
-  type LedgerTx,
-  type PostRequest,
-  rehydrateLedgerHttpError,
 } from '@intafaced/ledger-client';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 
 /**
- * HTTP client for svc-ledger.
+ * Budgets for svc-ledger calls.
+ *
+ * `post` of `escrowLock` runs while a p2p transaction is open (`ensureEscrowed`: the trade row is locked FOR UPDATE and
+ * Postgres sees the connection as idle-in-transaction while p2p waits on HTTP; this service's own pool sets no idle
+ * bound, so the 60s `createDb` default in packages/db is the budget to stay under). The release and refund posts in
+ * `settle`, and the reads (`escrowIntegrity`), run outside a transaction.
+ *
+ *   - post: 15s per attempt and NO retry. This is not the svc-pay budget on purpose. p2p counts every remote
+ *     invocation: `claimEscrowLockAttempt` commits an intent row BEFORE each dispatch, and a definitive funds refusal only
+ *     voids a trade when that was the first and only attempt (a timed-out earlier attempt may still post). A retry inside
+ *     the client would be a second invocation the service never claimed, so a timed-out first attempt that later lands
+ *     could be followed by a retry's funds refusal and the trade voided with its escrow locked. The sweep re-drives with
+ *     a claim instead, which is the existing retry.
+ *   - reads (`balance`, `balances`, `getTx`, `getTxByKey`): 3s per attempt, 1 retry, 5s for the whole call. A read is
+ *     idempotent, so it may retry.
+ *
+ * Worst case for the lock transaction: 15s for the post, plus, only when the ledger refused for funds, one identity
+ * `balance` read of at most 5s = 20s. Under the 60s bound with 40s left for SQL.
+ *
+ * `options.timeoutMs` replaces the per-attempt budget of both clients (a read stays capped by its 5s deadline).
+ */
+const POST_TIMEOUT_MS = 15_000;
+const READ_BUDGET = { timeoutMs: 3_000, retries: 1, deadlineMs: 5_000 } as const;
+
+/**
+ * HTTP client for svc-ledger: the shared client, signed as `svc-p2p`.
  *
  * §2: services never touch another service's tables. Every unit of P2P escrow
  * goes over this client into svc-ledger, which owns the balance graph —
@@ -22,64 +44,38 @@ import { serviceAuthHeadersForBody } from '@intafaced/contracts';
  * conformance suite proves equivalent to svc-ledger's Postgres engine (§4.4).
  * That equivalence is why the escrow money paths can be tortured in tests
  * without a network and still mean something.
+ *
+ * Service credentials (§2): svc-ledger's `post` is a `serviceProcedure`, so this client must prove which service it is.
+ * The signature covers a timestamp and the body (L2-6): the shared transport signs the exact bytes it sends, once per
+ * attempt, so a captured header stops working after the skew window and cannot be replayed against another body.
  */
 export function createLedgerClient(baseUrl: string, internalSecret: string, options: { timeoutMs?: number } = {}): LedgerClient {
   // Transport budget only: neither an escrow deadline nor a ledger outcome.
   // Node timers overflow above this bound; never silently disable the budget.
-  const timeoutMs = options.timeoutMs === undefined ? 15_000 : options.timeoutMs;
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
+  const { timeoutMs } = options;
+  if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647)) {
     throw new RangeError('P2P ledger HTTP timeoutMs must be a positive integer at most 2147483647');
   }
+  const shared: Pick<HttpLedgerOptions, 'baseUrl' | 'sign' | 'fetch'> = {
+    baseUrl,
+    sign: (payload) => serviceAuthHeadersForBody('svc-p2p', internalSecret, payload),
+    // Resolved per call, not captured at construction: whatever instruments or replaces the global `fetch` after this
+    // client is built (telemetry, a test door) still sees every ledger call.
+    fetch: (input, init) => globalThis.fetch(input, init),
+  };
+  const reader = createHttpLedgerClient({ ...shared, ...READ_BUDGET, timeoutMs: timeoutMs ?? READ_BUDGET.timeoutMs });
+
+  const unknown = () => new Error('svc-ledger incomplete or inconsistent funds refusal; outcome unknown');
+
   /**
-   * Service credentials, per call (§2).
+   * Rehydrate a typed funds failure so p2p-service's void-on-failed-lock runs in production (MemoryLedger tests already
+   * throw InsufficientFundsError). A funds refusal is only DEFINITIVE when the wire body is complete and consistent and
+   * the ledger agrees on the credited account; anything less is an unknown outcome, never a refusal.
    *
-   * svc-ledger's `post` is a `serviceProcedure` now, so this client must prove
-   * which service it is. It previously sent `content-type` and nothing else —
-   * there was no credential to check even before `post` began checking.
-   *
-   * Signed per request rather than once at construction, because the signature
-   * covers a timestamp: a captured header stops working after the skew window
-   * instead of being a permanent bearer token.
-   *
-   * It also covers the body (L2-6). Identity plus a timestamp left a captured
-   * signature replayable against ANY body for 300 seconds — on this path, any
-   * escrow lock or release.
+   * `request` is the WIRE body the shared transport sent (`entries[].amount` are decimal strings), not the original
+   * `PostRequest`.
    */
-  const authHeaders = (payload: string) => serviceAuthHeadersForBody('svc-p2p', internalSecret, payload);
-
-  const url = baseUrl.replace(/\/$/, '');
-
-  async function call<T>(path: string, body: unknown, fundsRequest?: PostRequest): Promise<T> {
-    // Serialised ONCE, and the same string is both signed and sent. Signing
-    // `JSON.stringify(body)` and then handing `body` to fetch to re-serialise
-    // would digest bytes the server never sees; it presents as a 401 that
-    // reproduces only under whatever key order the two calls happened to differ on.
-    const payload = JSON.stringify(body);
-
-    const response = await fetch(`${url}${path}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders(payload) },
-      body: payload,
-      // The signal remains active while response.text/json reads the body.
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      // Rehydrate typed funds failure so p2p-service void-on-failed-lock runs
-      // in production (MemoryLedger tests already throw InsufficientFundsError).
-      const error = rehydrateLedgerHttpError(path, response.status, detail);
-      if (error instanceof InsufficientFundsError && fundsRequest) {
-        throw await definitiveFundsRefusal(detail, fundsRequest);
-      }
-      throw error;
-    }
-
-    return (await response.json()) as T;
-  }
-
-  async function definitiveFundsRefusal(detail: string, request: PostRequest): Promise<InsufficientFundsError> {
-    const unknown = () => new Error('svc-ledger incomplete or inconsistent funds refusal; outcome unknown');
+  async function definitiveFundsRefusal(detail: string, request: unknown): Promise<InsufficientFundsError> {
     let raw: unknown;
     try {
       raw = JSON.parse(detail);
@@ -119,118 +115,51 @@ export function createLedgerClient(baseUrl: string, internalSecret: string, opti
         throw unknown();
       }
     }
-    const credits = request.entries.filter(
-      (entry) => entry.direction === 'credit' && entry.account.assetId === assetId && entry.amount === needed,
-    );
+    const entries = (request as { entries?: unknown } | null)?.entries;
+    if (!Array.isArray(entries)) throw unknown();
+    const credits = entries.filter((entry: { direction?: unknown; account?: { assetId?: unknown }; amount?: unknown }) => {
+      if (entry?.direction !== 'credit' || entry.account?.assetId !== assetId || typeof entry.amount !== 'string') return false;
+      try {
+        return parseAmount(entry.amount) === needed;
+      } catch {
+        return false;
+      }
+    });
     if (credits.length !== 1) throw unknown();
     // Account IDs are opaque. The published balance read is side-effect-free;
     // only identity is compared, never its current amount as no-effect proof.
-    let identity: unknown;
+    let identity: Awaited<ReturnType<LedgerClient['balance']>>;
     try {
-      identity = await call<unknown>('/trpc/balance', credits[0]!.account);
+      identity = await reader.balance((credits[0] as { account: AccountRef }).account);
     } catch {
       throw unknown();
     }
-    if (
-      !identity ||
-      typeof identity !== 'object' ||
-      Array.isArray(identity) ||
-      typeof (identity as Record<string, unknown>).accountId !== 'string' ||
-      (identity as Record<string, unknown>).accountId !== accountId
-    )
-      throw unknown();
-    // Validate the existing read envelope without treating the amount as post evidence.
-    const currentAmount = (identity as Record<string, unknown>).amount;
-    if (typeof currentAmount !== 'string') throw unknown();
-    try {
-      parseAmount(currentAmount);
-    } catch {
-      throw unknown();
-    }
-    // Explicit '' is the published absent-account identity, only when this read agrees.
+    // The shared read already validated the existing read envelope (string id, parseable amount) without treating the
+    // amount as post evidence; only identity is compared. Explicit '' is the published absent-account identity, only
+    // when this read agrees.
+    if (identity.accountId !== accountId) throw unknown();
     return new InsufficientFundsError(accountId, assetId, requested, availableBalance);
   }
 
+  const writer = createHttpLedgerClient({
+    ...shared,
+    timeoutMs: timeoutMs ?? POST_TIMEOUT_MS,
+    retries: 0,
+    mapError: async (error, { path, detail, body }) => {
+      if (path !== '/trpc/post' || !(error instanceof InsufficientFundsError)) return error;
+      try {
+        return await definitiveFundsRefusal(detail, body);
+      } catch (refusal) {
+        return refusal instanceof Error ? refusal : unknown();
+      }
+    },
+  });
+
   return {
-    async post(request: PostRequest): Promise<LedgerTx> {
-      // Amounts cross the wire as decimal strings — never as JS numbers, and
-      // never as bigint (which JSON cannot represent).
-      const wire = {
-        idempotencyKey: request.idempotencyKey,
-        module: request.module,
-        reason: request.reason,
-        meta: request.meta ?? {},
-        correlationId: request.correlationId,
-        entries: request.entries.map((e) => ({
-          account: e.account,
-          direction: e.direction,
-          amount: formatAmount(e.amount),
-        })),
-      };
-
-      const acknowledgement = await call<unknown>('/trpc/post', wire, request);
-      if (!acknowledgement || typeof acknowledgement !== 'object' || Array.isArray(acknowledgement)) {
-        throw new Error('svc-ledger invalid post acknowledgement; outcome unknown');
-      }
-      const { txId, hash, postedAt } = acknowledgement as Record<string, unknown>;
-      if (typeof txId !== 'string' || !txId.trim() || typeof hash !== 'string' || !hash.trim() || typeof postedAt !== 'string') {
-        throw new Error('svc-ledger invalid post acknowledgement; outcome unknown');
-      }
-      // handleS2sPost publishes Date.toISOString(). Reject normalized impossible
-      // dates and arbitrary Date.parse strings, without inventing ID/hash formats.
-      const serverTimestamp = new Date(postedAt);
-      if (!Number.isFinite(serverTimestamp.getTime()) || serverTimestamp.toISOString() !== postedAt) {
-        throw new Error('svc-ledger invalid post acknowledgement; outcome unknown');
-      }
-
-      return {
-        id: txId,
-        idempotencyKey: request.idempotencyKey,
-        module: request.module,
-        reason: request.reason,
-        meta: request.meta ?? {},
-        postedAt: serverTimestamp,
-        hash,
-        previousHash: null,
-        entries: [],
-      };
-    },
-
-    async balance(ref: AccountRef): Promise<Balance> {
-      const result = await call<{ accountId: string; amount: string }>('/trpc/balance', ref);
-      return { account: ref, accountId: result.accountId, amount: parseAmount(result.amount) };
-    },
-
-    async balances(ownerType: AccountRef['ownerType'], ownerId: string): Promise<Balance[]> {
-      const result = await call<Array<{ accountId: string; assetId: string; kind: string; amount: string }>>('/trpc/balances', {
-        ownerType,
-        ownerId,
-      });
-
-      return result.map((b) => ({
-        account: { ownerType, ownerId, assetId: b.assetId, kind: b.kind as AccountRef['kind'] },
-        accountId: b.accountId,
-        amount: parseAmount(b.amount),
-      }));
-    },
-
-    /**
-     * Not exposed over the internal ledger API.
-     *
-     * svc-p2p never needs it, and that is a design property rather than a
-     * limitation: "did the escrow lock post?" is answered by *calling
-     * `escrowLock` again*. The recipe's business key
-     * (`p2p.escrow.lock:<tradeId>`) makes the retry return the original
-     * transaction if it did, and fail on funds if it did not. Asking the ledger
-     * a question is a round trip that can itself fail; re-driving the operation
-     * converges either way.
-     */
-    async getTx(): Promise<LedgerTx | null> {
-      throw new Error('getTx is not exposed over the internal ledger API — query svc-ledger directly');
-    },
-
-    async getTxByKey(): Promise<LedgerTx | null> {
-      throw new Error('getTxByKey is not exposed over the internal ledger API — re-drive the idempotent recipe instead');
-    },
+    post: (request) => writer.post(request),
+    balance: (ref) => reader.balance(ref),
+    balances: (ownerType, ownerId) => reader.balances(ownerType, ownerId),
+    getTx: (txId) => reader.getTx(txId),
+    getTxByKey: (idempotencyKey) => reader.getTxByKey(idempotencyKey),
   };
 }

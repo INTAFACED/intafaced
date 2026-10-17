@@ -6,42 +6,42 @@ import type { Principal } from '@intafaced/auth';
  * Yield-bearing / staked / lending-idle posted as IM refuses — that is a
  * separate product. Posted margin is not a loan.
  *
- * Hitch: wrap `PositionService.open` so the mill runs BEFORE
- * `recipes.futuresMarginLock`. Live boot: ledger-client.ts loads this mill.
- * router.ts / position-service.ts / margin-mode.ts / matching not recut.
+ * The credit check itself lives in PositionService.open, after the idempotent
+ * replay and on the margin that open already computed. This wrapper only
+ * refuses a loan, a non-cash collateral class, and a blank or invalid haircut
+ * before that open runs. Live boot: ledger-client.ts loads this mill.
  */
-import { parseOwnerIntegerEnv } from '../owner-int-env.js';
 import { FuturesError, PositionService, type OpenPositionInput } from './position-service.js';
 import { UNSUPPORTED_COLLATERAL_CLASS, checkCollateralClassForMargin, type MarginModeRefuseCode } from './margin-mode.js';
+import {
+  HAIRCUT_CREDIT_SHORT,
+  HAIRCUT_UNSET,
+  readOwnerHaircutBps,
+  requireOwnerHaircutBps,
+  type OpenCreditDecision,
+} from './haircut-credit.js';
 
-export const HAIRCUT_UNSET = 'trade.haircut_unset' as const;
+export {
+  HAIRCUT_CREDIT_SHORT,
+  HAIRCUT_UNSET,
+  collateralCredit,
+  decideOpenCredit,
+  readOwnerHaircutBps,
+  requireOwnerHaircutBps,
+} from './haircut-credit.js';
+export type { OpenCreditDecision } from './haircut-credit.js';
+
 export const MARGIN_IS_NOT_A_LOAN = 'trade.margin_is_not_a_loan' as const;
 
-export type HaircutRefuseCode = typeof HAIRCUT_UNSET | typeof MARGIN_IS_NOT_A_LOAN | MarginModeRefuseCode;
+export type HaircutRefuseCode = typeof HAIRCUT_UNSET | typeof HAIRCUT_CREDIT_SHORT | typeof MARGIN_IS_NOT_A_LOAN | MarginModeRefuseCode;
 
 export type HaircutCheck =
-  | { readonly ok: true; readonly haircutBps: number | null }
-  | { readonly ok: false; readonly code: HaircutRefuseCode; readonly reason: string };
-
-export function readOwnerHaircutBps(env: NodeJS.ProcessEnv = process.env): unknown {
-  return env.TRADE_COLLATERAL_HAIRCUT_BPS;
-}
+  { readonly ok: true; readonly haircutBps: number } | { readonly ok: false; readonly code: HaircutRefuseCode; readonly reason: string };
 
 function present(raw: unknown): boolean {
   if (raw === undefined || raw === null) return false;
   if (typeof raw === 'string' && raw.trim() === '') return false;
   return true;
-}
-
-/** Owner integer bps. Blank / non-integer / negative refuses — never invent 0 or 10. */
-export function requireOwnerHaircutBps(raw: unknown): number {
-  const n = parseOwnerIntegerEnv(typeof raw === 'number' || typeof raw === 'string' ? raw : String(raw));
-  if (n == null || n < 0) {
-    throw Object.assign(new Error('TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut'), {
-      code: HAIRCUT_UNSET,
-    });
-  }
-  return n;
 }
 
 export interface PostedMarginCollateralInput {
@@ -69,7 +69,11 @@ export function checkPostedMarginCollateral(input: PostedMarginCollateralInput):
 
   const supplied = present(input.haircutBps) ? input.haircutBps : readOwnerHaircutBps();
   if (!present(supplied)) {
-    return { ok: true, haircutBps: null };
+    return {
+      ok: false,
+      code: HAIRCUT_UNSET,
+      reason: 'TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut',
+    };
   }
   try {
     return { ok: true, haircutBps: requireOwnerHaircutBps(supplied) };
@@ -88,7 +92,7 @@ type OpenWithCollateral = OpenPositionInput & {
   readonly asLoan?: boolean;
 };
 
-function refuseOpen(check: Extract<HaircutCheck, { ok: false }>): never {
+function refuseOpen(check: { readonly code: HaircutRefuseCode; readonly reason: string }): never {
   throw new FuturesError(check.reason, check.code, 400);
 }
 

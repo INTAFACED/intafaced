@@ -41,7 +41,8 @@ import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-marg
 import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen } from './margin-mode.js';
 import { planClose } from './close-planner.js';
 import { planLiquidation } from './liquidation-planner.js';
-import type { MarkRequest, MarkSource } from './liquidation-tick.js';
+import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
+import { FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
 import {
   DEFAULT_FUTURES_MARK_POLICY,
   acceptableForEntry,
@@ -55,7 +56,9 @@ import { PROFIT_SOURCE_UNCONFIGURED, checkProfitBound, type ProfitSource } from 
 import { INSURANCE_UNDERFUNDED, checkInsuranceBound } from './insurance-bound.js';
 import { breakerBasis, readAcceptedMark, type PreviousMark } from './accepted-mark.js';
 import { TradeError } from '../spot/types.js';
+import { PRETRADE_LIMIT_HTTP_STATUS, checkOpenAdmission } from './pretrade-limits.js';
 import { assertDatedFuturesTradable } from './dated-futures.js';
+import { HAIRCUT_CREDIT_SHORT, HAIRCUT_UNSET, decideOpenCredit, readOwnerHaircutBps, requireOwnerHaircutBps } from './haircut-credit.js';
 
 /**
  * How long one close waits for another close of the SAME position.
@@ -75,6 +78,12 @@ const PG_LOCK_NOT_AVAILABLE = '55P03';
 
 function isLockTimeout(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === PG_LOCK_NOT_AVAILABLE;
+}
+
+/** Same truthy set as env.ts. Unset, blank, and "false" stay off. */
+function publishedFlagOn(raw: string | undefined): boolean {
+  if (raw == null) return false;
+  return ['1', 'true', 'on', 'yes'].includes(raw.trim().toLowerCase());
 }
 
 /**
@@ -169,6 +178,18 @@ export const MARGIN_BELOW_INITIAL = 'trade.margin_below_initial';
 export const MARGIN_WOULD_LIQUIDATE = 'trade.margin_would_liquidate';
 /** A previous ledger-backed adjustment must finish before a different one starts. */
 export const MARGIN_ADJUSTMENT_IN_PROGRESS = 'trade.margin_adjustment_in_progress';
+/**
+ * A liquidation rung is live (planned or posted) on this position: its loss is booked or
+ * about to be, and the row has not caught up. Refused with 409, retryable once the rung
+ * has applied (a tick, normally). See `assertLiquidationHold`.
+ */
+export const LIQUIDATION_IN_PROGRESS = 'trade.liquidation_in_progress';
+/**
+ * The position is PARKED: its latest liquidation rung was abandoned (loss booked, row not
+ * reconciled) or an old-style claim row exists. An operator must reconcile it first
+ * (`docs/runbooks/liquidation-rung-ops.md` section 2). Only adding margin is allowed.
+ */
+export const POSITION_UNDER_REVIEW = 'trade.position_under_review';
 
 /** Blank / non-integer / out of 1..500 listClosed limit refuse. Never invent 100. */
 export const TRADE_LIST_CLOSED_LIMIT_UNSET = 'trade.list_closed_limit_unset' as const;
@@ -236,6 +257,15 @@ export interface PositionServiceDeps {
   assertAdlDisclosureAcked?: (userId: string) => Promise<void>;
   /** Test-only crash seam after the external ledger accepts, before DB finalize. */
   afterMarginLedgerPost?: (request: string) => Promise<void>;
+  /**
+   * The published liquidation ladder (the same `depth` source and `policy` the liquidation
+   * tick uses). When `policy` is set, the "would this be liquidatable" gate on a margin
+   * outflow (`reduceIsolatedMargin`, `setLeverage`) uses the ladder's depth-tiered
+   * maintenance, so a withdrawal cannot leave a position the ladder would liquidate on the
+   * next tick. Omitted, or `policy` unset (production today: owner D3 numbers are unset):
+   * the equity-only gate (`planLiquidation`, equity <= 0) applies, as before.
+   */
+  ladder?: { depth: DepthNotionalSource; policy?: FuturesLadderPolicy };
 }
 
 /** Why a position is frozen waiting for a mark — futures-namespaced refuse codes. */
@@ -303,6 +333,86 @@ export class PositionService {
       throw new FuturesError('listing leverage cap is unset — refusing to invent a production leverage limit', LEVERAGE_CAP_UNSET, 503);
     }
     return this.maxLeverage;
+  }
+
+  /**
+   * New exposure needs both switches. Trading on with the liquidation job off
+   * would open positions nothing is scheduled to close. Reduce and close do
+   * not call this. A replay of an already-admitted open returns before it.
+   */
+  private refuseIfFuturesExposureOff(): void {
+    const off: string[] = [];
+    if (!publishedFlagOn(process.env.TRADE_FUTURES_ENABLED)) off.push('TRADE_FUTURES_ENABLED');
+    if (!publishedFlagOn(process.env.TRADE_FUTURES_JOBS_ENABLED)) off.push('TRADE_FUTURES_JOBS_ENABLED');
+    if (off.length === 0) return;
+    const verb = off.length === 1 ? 'is' : 'are';
+    throw new FuturesError(`futures exposure cannot increase while ${off.join(' and ')} ${verb} off`, 'trade.futures_disabled', 403);
+  }
+
+  /**
+   * credit(available + Σ margin_current) must cover Σ margin_initial + the new
+   * requirement. One read of each. A shortfall or a failed read refuses and
+   * posts nothing. `additionalInitialMargin` is the new open's IM, or the IM
+   * delta when setLeverage is raising margin.
+   */
+  private async assertAggregateHaircutCredit(input: {
+    userId: string;
+    asset: string;
+    additionalInitialMargin: Amount;
+    available?: Amount;
+  }): Promise<void> {
+    let haircutBps: number;
+    try {
+      haircutBps = requireOwnerHaircutBps(readOwnerHaircutBps());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut';
+      throw new FuturesError(message, HAIRCUT_UNSET, 400);
+    }
+
+    let rows: ReadonlyArray<{ margin_initial: string; margin_current: string | null }>;
+    try {
+      rows = await this.sql<{ margin_initial: string; margin_current: string | null }[]>`
+        SELECT margin_initial, margin_current
+        FROM trade.positions
+        WHERE user_id = ${input.userId}
+          AND margin_asset = ${input.asset}
+          AND status IN ('open', 'closing')
+      `;
+    } catch (err) {
+      if (err instanceof FuturesError) throw err;
+      throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+    }
+
+    let available = input.available;
+    if (available === undefined) {
+      try {
+        available = (await this.ledger.balance(userAvailable(input.userId, input.asset))).amount;
+      } catch (err) {
+        if (err instanceof FuturesError) throw err;
+        throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+      }
+    }
+
+    let sumCurrent = 0n;
+    let sumInitial = 0n;
+    try {
+      for (const row of rows) {
+        const initial = parseAmount(String(row.margin_initial));
+        const current = parseAmount(String(row.margin_current ?? row.margin_initial));
+        sumInitial += initial;
+        if (current > 0n) sumCurrent += current;
+      }
+    } catch (err) {
+      if (err instanceof FuturesError) throw err;
+      throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+    }
+
+    const decision = decideOpenCredit({
+      postedCash: (available + sumCurrent) as Amount,
+      initialMargin: (sumInitial + input.additionalInitialMargin) as Amount,
+      haircutBps,
+    });
+    if (!decision.ok) throw new FuturesError(decision.reason, HAIRCUT_CREDIT_SHORT, 400);
   }
 
   /**
@@ -396,6 +506,106 @@ export class PositionService {
       throw new FuturesError('margin adjustment intent is missing or changed', 'trade.idempotency_conflict', 409);
     }
     return record.status === 'completed' ? record.result : null;
+  }
+
+  /**
+   * LIQUIDATION SERIALISATION — a trader may not move the money a liquidation is moving.
+   *
+   * Call it INSIDE the transaction, AFTER the position row is locked (`FOR UPDATE OF p`).
+   * That order is the whole point: the liquidation tick's `begin` and `apply` take the same
+   * row lock before they touch `trade.liquidation_rungs`, so for one position exactly one of
+   * "the trader's mutation" and "a rung becoming live" wins. Either this mutation commits
+   * first (and `begin` then sees a changed row and plans nothing), or the rung is already
+   * live here and the mutation refuses. Every writer takes the position row FIRST and reads
+   * (never locks) the rung table, so there is no lock-order cycle.
+   *
+   * WHY THE RULE EXISTS. A rung books its loss against the position's collateral pot. A
+   * withdrawal, a leverage change that releases margin or a voluntary close that lands
+   * between the plan and the post shrinks that pot, and the ledger then refuses the loss; the
+   * closing-rung amendment makes the INSURANCE FUND pay for money the trader just took out.
+   * Refusing the outflow at the source removes that fraud path (see
+   * `docs/adr/2026-10-14-liquidation-shortfall-insurance-leg.md`).
+   *
+   *   · A LIVE rung (planned/posted): `close`, `reduceIsolatedMargin` and `setLeverage` are
+   *     refused with 409 `trade.liquidation_in_progress`. `addIsolatedMargin` is refused only
+   *     while the live rung is a CLOSING one: a partial rung applies a DELTA to the row, so
+   *     margin added meanwhile survives it; a closing rung would strand it in the pot.
+   *   · A PARKED position (latest rung abandoned, or an old-style `liquidation_attempts` claim
+   *     on a still-open position): `close`, `reduceIsolatedMargin` and `setLeverage` are
+   *     refused with 409 `trade.position_under_review`. The row is not reconciled with a loss
+   *     that is already booked, so any outflow would compound the difference. Adding margin is
+   *     the only thing allowed (it cannot hurt the books); the operator resolves the park per
+   *     the runbook, section 2.
+   *
+   * FUNDING IS NOT BLOCKED. A payee is owed; the rung's amendment path absorbs the race.
+   */
+  private async assertLiquidationHold(
+    tx: TransactionSql,
+    positionId: string,
+    operation: 'close' | 'reduce_margin' | 'set_leverage' | 'add_margin',
+  ): Promise<void> {
+    const [hold] = await tx<{ live_kind: 'partial' | 'closing' | null; latest_state: string | null; claimed: boolean }[]>`
+      SELECT
+        (SELECT r.kind FROM trade.liquidation_rungs r
+          WHERE r.position_id = ${positionId} AND r.state IN ('planned', 'posted') LIMIT 1) AS live_kind,
+        (SELECT r.state FROM trade.liquidation_rungs r
+          WHERE r.position_id = ${positionId} ORDER BY r.created_at DESC, r.rung_id DESC LIMIT 1) AS latest_state,
+        EXISTS (SELECT 1 FROM trade.liquidation_attempts a WHERE a.liquidation_id = ${defaultLiquidationId(positionId)}) AS claimed
+    `;
+    if (!hold) return;
+    if (hold.live_kind !== null && !(operation === 'add_margin' && hold.live_kind === 'partial')) {
+      throw new FuturesError(
+        `a liquidation of this position is in progress (${hold.live_kind} rung) — retry in a moment`,
+        LIQUIDATION_IN_PROGRESS,
+        409,
+      );
+    }
+    if (operation !== 'add_margin' && (hold.latest_state === 'abandoned' || hold.claimed)) {
+      throw new FuturesError(
+        'this position is under review after a liquidation that could not be reconciled — only adding margin is allowed until support resolves it',
+        POSITION_UNDER_REVIEW,
+        409,
+      );
+    }
+  }
+
+  /**
+   * Would this isolated margin leave the position liquidatable at this mark?
+   *
+   * With a published ladder policy: the ladder's own rung (depth-tiered maintenance), so the
+   * gate and the liquidation tick cannot disagree. Without one: equity <= 0 only (the old
+   * `planLiquidation` gate; no maintenance number is invented).
+   */
+  private async wouldBeLiquidatable(row: PositionRow, margin: Amount, markPrice: Amount, gateId: string): Promise<boolean> {
+    const position = {
+      positionId: row.id,
+      userId: row.user_id,
+      side: row.side,
+      size: parseAmount(row.size),
+      entryPrice: parseAmount(row.entry_price),
+      margin,
+      marginAsset: row.margin_asset,
+    };
+    const ladder = this.deps.ladder;
+    if (ladder?.policy) {
+      const depthNotional = await ladder.depth
+        .depthNotional({ marketId: row.market_id, side: row.side, symbol: row.symbol })
+        .catch(() => null);
+      if (depthNotional == null || depthNotional <= 0n) {
+        throw new FuturesError(
+          `no readable ${row.side === 'long' ? 'bid' : 'ask'} depth to rate this position against — refusing to release margin blind`,
+          'trade.depth_unknown',
+          503,
+        );
+      }
+      try {
+        return planLadderRung({ position, markPrice, depthNotional, policy: ladder.policy }).action === 'liquidate';
+      } catch (err) {
+        if (err instanceof FuturesLadderError) throw new FuturesError(err.message, err.code, 503);
+        throw err;
+      }
+    }
+    return planLiquidation({ liquidationId: gateId, position, markPrice: formatAmount(markPrice) }).liquidate;
   }
 
   /**
@@ -694,6 +904,8 @@ export class PositionService {
       return this.executeAdmittedPosition(input, evidence);
     }
 
+    this.refuseIfFuturesExposureOff();
+
     if (m.kind !== 'futures') {
       throw new FuturesError(`market ${input.symbol} is ${m.kind}, not futures`, 'trade.not_futures_market', 400);
     }
@@ -782,8 +994,32 @@ export class PositionService {
       entryPrice,
       leverage,
     });
+    await this.assertAggregateHaircutCredit({
+      userId: input.userId,
+      asset: m.quote_asset,
+      additionalInitialMargin: margin,
+    });
     if (!principal || principal.userId !== input.userId) throw new TradingControlError('auth.credential_denied');
     if (!this.deps.accountAdmission) throw new TradingControlError('authority.unavailable');
+    // Owner pre-trade limits (#4725), before the margin lock. A retry of an
+    // already-admitted open returned above and is never newly refused.
+    const limitRefusal = await checkOpenAdmission({
+      sql: this.sql,
+      userId: input.userId,
+      marketId: m.id,
+      quoteAsset: m.quote_asset,
+      side: input.side,
+      size: input.size,
+      entryPrice,
+      positionMode: (input as { positionMode?: unknown }).positionMode,
+      markFor: async (marketId, symbol) => (await this.markFor(marketId, symbol, at, null)).price,
+    });
+    if (limitRefusal)
+      throw new FuturesError(
+        limitRefusal.message,
+        limitRefusal.code,
+        limitRefusal.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS,
+      );
     const evidence = businessPayload({
       request: input,
       market: { id: m.id, symbol: m.symbol, quote_asset: m.quote_asset },
@@ -986,6 +1222,7 @@ export class PositionService {
         }
         const replay = await this.completedMarginAdjustment(tx, row.id, adjustmentId, request);
         if (replay) return replay;
+        await this.assertLiquidationHold(tx, row.id, 'set_leverage');
 
         const currentLeverage = parseAmount(row.leverage);
         if (currentLeverage === input.leverage) {
@@ -1003,27 +1240,22 @@ export class PositionService {
         const currentMargin = parseAmount(row.margin_current ?? row.margin_initial);
         const target = initialMargin({ size, entryPrice, leverage: input.leverage });
 
-        const at = this.now();
-        const mark = await this.markFor(row.market_id, row.symbol, at, size);
-        const wouldLiq = planLiquidation({
-          liquidationId: `re-leverage-gate:${row.id}`,
-          position: {
-            positionId: row.id,
-            userId: input.userId,
-            side: row.side,
-            size,
-            entryPrice,
-            margin: target,
-            marginAsset: row.margin_asset,
-          },
-          markPrice: formatAmount(mark.price),
-        });
-        if (wouldLiq.liquidate) {
-          throw new FuturesError(
-            `refusing leverage ${formatAmount(input.leverage)}x — new isolated margin would already be in liquidation at the current mark`,
-            LEVERAGE_WOULD_LIQUIDATE,
-            400,
-          );
+        /**
+         * THE LIQUIDATION GATE GUARDS AN OUTFLOW ONLY. Raising leverage releases margin (target below what
+         * the position holds) and must leave something the ladder would not liquidate. Lowering leverage
+         * ADDS margin: it can only improve the position, so it is never refused by this gate, by a dark
+         * mark, or by an unreadable book (`trade.depth_unknown`). The mark is not even read for an inflow.
+         */
+        if (target < currentMargin) {
+          const at = this.now();
+          const mark = await this.markFor(row.market_id, row.symbol, at, size);
+          if (await this.wouldBeLiquidatable(row, target, mark.price, `re-leverage-gate:${row.id}`)) {
+            throw new FuturesError(
+              `refusing leverage ${formatAmount(input.leverage)}x — new isolated margin would already be in liquidation at the current mark`,
+              LEVERAGE_WOULD_LIQUIDATE,
+              400,
+            );
+          }
         }
 
         if (input.leverage > currentLeverage) {
@@ -1051,14 +1283,27 @@ export class PositionService {
         const seq = (Number.isFinite(prevSeq) && prevSeq >= 1 ? prevSeq : 1) + 1;
 
         if (delta > 0n) {
-          const available = await this.ledger.balance(userAvailable(input.userId, row.margin_asset));
-          if (available.amount < delta) {
+          this.refuseIfFuturesExposureOff();
+          let availableAmount: Amount;
+          try {
+            availableAmount = (await this.ledger.balance(userAvailable(input.userId, row.margin_asset))).amount;
+          } catch (err) {
+            if (err instanceof FuturesError) throw err;
+            throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+          }
+          if (availableAmount < delta) {
             throw new FuturesError(
-              `need ${formatAmount(delta)} ${row.margin_asset} extra isolated margin, have ${formatAmount(available.amount)}`,
+              `need ${formatAmount(delta)} ${row.margin_asset} extra isolated margin, have ${formatAmount(availableAmount)}`,
               LEVERAGE_INSUFFICIENT_MARGIN,
               400,
             );
           }
+          await this.assertAggregateHaircutCredit({
+            userId: input.userId,
+            asset: row.margin_asset,
+            additionalInitialMargin: delta,
+            available: availableAmount,
+          });
           ledgerAttempted = true;
           await this.ledger.post(
             recipes.futuresMarginAdd({
@@ -1191,6 +1436,7 @@ export class PositionService {
         }
         const replay = await this.completedMarginAdjustment(tx, row.id, adjustmentId, request);
         if (replay) return replay;
+        await this.assertLiquidationHold(tx, row.id, 'add_margin');
 
         const currentMargin = parseAmount(row.margin_current ?? row.margin_initial);
         const nextMargin = currentMargin + input.amount;
@@ -1322,6 +1568,7 @@ export class PositionService {
         }
         const replay = await this.completedMarginAdjustment(tx, row.id, adjustmentId, request);
         if (replay) return replay;
+        await this.assertLiquidationHold(tx, row.id, 'reduce_margin');
 
         const currentMargin = parseAmount(row.margin_current ?? row.margin_initial);
         const initial = parseAmount(row.margin_initial);
@@ -1334,24 +1581,9 @@ export class PositionService {
           );
         }
 
-        const size = parseAmount(row.size);
-        const entryPrice = parseAmount(row.entry_price);
         const at = this.now();
-        const mark = await this.markFor(row.market_id, row.symbol, at, size);
-        const wouldLiq = planLiquidation({
-          liquidationId: `margin-reduce-gate:${row.id}`,
-          position: {
-            positionId: row.id,
-            userId: input.userId,
-            side: row.side,
-            size,
-            entryPrice,
-            margin: nextMargin,
-            marginAsset: row.margin_asset,
-          },
-          markPrice: formatAmount(mark.price),
-        });
-        if (wouldLiq.liquidate) {
+        const mark = await this.markFor(row.market_id, row.symbol, at, parseAmount(row.size));
+        if (await this.wouldBeLiquidatable(row, nextMargin, mark.price, `margin-reduce-gate:${row.id}`)) {
           throw new FuturesError(
             `refusing isolated margin reduce — remaining collateral would already be in liquidation at the current mark`,
             MARGIN_WOULD_LIQUIDATE,
@@ -1466,7 +1698,9 @@ export class PositionService {
    * the ledger is a different system, so a commit that fails after the posts
    * succeeded leaves the row open with the money already moved, and the retry
    * must not pay again. It does not: the ledger returns the original
-   * transaction.
+   * transaction for the SAME body. A retry whose body differs (the live mark or margin moved)
+   * is a mismatch: logged in the ledger's `detect` mode, refused 409 in `refuse` mode.
+   * Freezing the close plan before the first post is the open item for that flip.
    *
    * Neither mechanism subsumes the other, so reverting either one is caught by
    * `position-close-concurrency.test.ts`.
@@ -1515,6 +1749,9 @@ export class PositionService {
         if (row.status !== 'open' && row.status !== 'closing') {
           throw new FuturesError(`position is ${row.status}`, 'trade.position_not_open', 400);
         }
+        // Under the row lock, before the mark read and before anything posts: a trader may not
+        // close out from under a live rung or a parked position (see `assertLiquidationHold`).
+        await this.assertLiquidationHold(tx, row.id, 'close');
 
         /**
          * THE STAKE, TAKEN OFF THE LOCKED ROW.
@@ -1824,4 +2061,44 @@ function presentPosition(row: PositionRow, extras?: { markPrice?: string | null;
     marginMode: row.margin_mode,
     percentage: null,
   };
+}
+
+/**
+ * Stored futures entry is the size-weighted average of opening fills.
+ * A reducing fill leaves that price. A caller-supplied price is not stored.
+ */
+export function storedEntryAfterFill(
+  position: { readonly size: Amount; readonly entryPrice: Amount },
+  fill: { readonly effect: 'open' | 'reduce'; readonly qty: Amount; readonly price: Amount },
+): { size: Amount; entryPrice: Amount } {
+  if (fill.qty <= 0n) {
+    throw new FuturesError(`fill qty must be greater than zero, got ${formatAmount(fill.qty)}`, 'trade.size_invalid', 400);
+  }
+  if (fill.effect === 'reduce') {
+    if (fill.qty > position.size) {
+      throw new FuturesError('a reducing fill is larger than the position', 'trade.size_invalid', 400);
+    }
+    return { size: (position.size - fill.qty) as Amount, entryPrice: position.entryPrice };
+  }
+  if (fill.price <= 0n) {
+    throw new FuturesError('an opening fill needs a positive price', 'trade.invalid_price', 400);
+  }
+  const newSize = (position.size + fill.qty) as Amount;
+  if (position.size === 0n) return { size: newSize, entryPrice: fill.price };
+  const entry = ((position.size * position.entryPrice + fill.qty * fill.price) / newSize) as Amount;
+  return { size: newSize, entryPrice: entry };
+}
+
+export function entryFromOpeningFills(
+  fills: readonly { readonly qty: Amount; readonly price: Amount }[],
+  callerPrice?: Amount,
+): { size: Amount; entryPrice: Amount } {
+  if (callerPrice != null && fills.length === 0) {
+    throw new FuturesError('a caller-supplied price is not stored as the entry', 'trade.invalid_price', 400);
+  }
+  let position: { size: Amount; entryPrice: Amount } = { size: 0n as Amount, entryPrice: 0n as Amount };
+  for (const fill of fills) {
+    position = storedEntryAfterFill(position, { effect: 'open', qty: fill.qty, price: fill.price });
+  }
+  return position;
 }

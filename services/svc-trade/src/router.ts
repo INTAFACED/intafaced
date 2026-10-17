@@ -162,7 +162,7 @@ const orderOutput = z.object({
   qty: decimal,
   filled: decimal,
   remaining: decimal,
-  status: z.enum(['pending', 'open', 'filled', 'cancelled', 'rejected', 'expired', 'recovery_required']),
+  status: z.enum(['pending', 'open', 'filled', 'cancelled', 'rejected', 'expired', 'recovery_required', 'hold_unknown']),
   timeInForce: timeInForceSchema,
   /** What is locked in the ledger for this order — the asset and the amount posted. */
   holdAsset: z.string(),
@@ -551,7 +551,10 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
           z.object({
             symbol: z.string().min(3),
             side: orderSideSchema,
-            qty: decimal,
+            /** Base amount. Exactly one of `qty` or `quoteQty`; the service refuses both or neither. */
+            qty: decimal.optional(),
+            /** Spend in the quote asset ("spend 100 USDT"), buy only; never charges more than this. */
+            quoteQty: decimal.optional(),
           }),
         )
         .output(convertQuoteOutput)
@@ -560,7 +563,8 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
             trade.convertQuote(ctx.principal, {
               symbol: input.symbol,
               side: input.side,
-              qty: parseAmount(input.qty),
+              qty: input.qty === undefined ? undefined : parseAmount(input.qty),
+              quoteQty: input.quoteQty === undefined ? undefined : parseAmount(input.quoteQty),
             }),
           ),
         ),

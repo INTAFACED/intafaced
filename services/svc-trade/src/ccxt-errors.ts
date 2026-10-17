@@ -144,6 +144,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.lifecycle_transition_partial': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.lifecycle_transition_unknown': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.lifecycle_recovery_required': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** Hold reply lost and the idempotency read did not answer. Same key retries. Not a cancel. */
+  'trade.hold_unknown': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** Hold reply lost and the idempotency read showed no hold. Same key may place again. */
+  'trade.hold_not_booked': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.product_disabled': { ccxt: 'OnMaintenance', status: 503 },
   'trade.matching_market_missing': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.matching_unavailable': { ccxt: 'ExchangeNotAvailable', status: 503 },
@@ -294,6 +298,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
 
   // ── Cannot be filled at all right now ─────────────────────────
   'trade.convert_no_liquidity': { ccxt: 'OrderNotFillable', status: 400 },
+  /** House inventory short at settle — customer hold already released; re-quote. */
+  'trade.convert_liquidity_unavailable': { ccxt: 'OrderNotFillable', status: 400 },
   'trade.convert_insufficient_depth': { ccxt: 'OrderNotFillable', status: 400 },
   'trade.convert_bad_depth': { ccxt: 'OrderNotFillable', status: 400 },
   /** Quote went stale between quote and accept — re-quote and try again. */
@@ -308,6 +314,14 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.convert_quote_ttl_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /** Owner market-buy cap unpublished — refuse-closed, not invent 200. */
   'trade.slippage_cap_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /**
+   * Owner pre-trade limits (#4725). The order is well-formed but breaches a
+   * published risk limit: InvalidOrder, 422, not retryable unchanged. Shrink
+   * the order (or wait for the position / loss to recover) and resubmit.
+   */
+  'trade.limit_max_order': { ccxt: 'InvalidOrder', status: 422 },
+  'trade.limit_max_position': { ccxt: 'InvalidOrder', status: 422 },
+  'trade.limit_max_loss': { ccxt: 'InvalidOrder', status: 422 },
   /** Owner MM seed half-spread/step unpublished — refuse-closed, not invent 10. */
   'trade.mm_seed_bps_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**

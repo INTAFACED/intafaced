@@ -22,6 +22,8 @@ export {
   CHARGEBACK_LEDGER_SOCKET_ID,
   CHARGEBACK_LEDGER_UNCOVERED_CODE,
   refuseChargebackLedgerPost,
+  refuseChargebackPlanConflict,
+  CHARGEBACK_LEDGER_PLAN_CONFLICT_CODE,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
   type ChargebackLedgerRefuseCode,
@@ -35,7 +37,11 @@ export {
   type DisputeCaseStatus,
   type DisputeCaseStore,
   type OpenDisputeCaseInput,
+  type RailResolutionInput,
+  type RailResolutionOutcome,
 } from './dispute-case.js';
+
+export { PostgresDisputeCaseStore } from './dispute-case-store.js';
 
 export {
   defaultFraudReviewQueue,

@@ -66,7 +66,7 @@ export function registerKillParentDoor(app: FastifyInstance, deps: KillParentDoo
   app.post('/execution/oms/kill-parent', async (req, reply) => {
     const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
-    const ctx = deps.edgeContext({ headers: req.headers, id: String(req.id) });
+    const ctx = deps.edgeContext(req);
     const body = (req.body ?? {}) as KillParentDoorBody;
     return reply.send(await handleKillParentDoor(body, ctx.principal?.userId, deps));
   });

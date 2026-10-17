@@ -65,6 +65,13 @@ export class TokenError extends Error {
        */
       | 'token.stake_ledger_mismatch'
       | 'token.epoch_closed'
+      /**
+       * A NEW epoch was requested sooner than one epoch length (`EMISSIONS_EPOCH_MS`,
+       * default 1 day) after the previous epoch was claimed. Resuming an already
+       * claimed, unclosed epoch is never refused with this. `retryAfterMs` says
+       * how long to wait.
+       */
+      | 'token.epoch_too_early'
       | 'token.supply_exhausted'
       | 'token.nothing_to_distribute'
       /**
@@ -148,6 +155,8 @@ export class TokenError extends Error {
        * Grant / listing close tallied but did not execute. Value does not move.
        */
       | 'token.governance_execute_unwired',
+    /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'TokenError';
@@ -272,6 +281,32 @@ export interface TokenServiceOptions {
    * Owner for-threshold in bps of (for+against). Missing → same refuse.
    */
   governanceThresholdBps?: number;
+  /**
+   * Emission epoch length in ms — the minimum gap between one epoch being
+   * claimed and the next NEW epoch starting (`token.epoch_too_early`). Default
+   * one day (owner-present, Nitro's pick 2026-10-14). `0` switches the gate off:
+   * for tests that walk many epochs in a row, never for a deployment (env.ts
+   * only accepts positive integers). Reward, cap and halving are not set here.
+   */
+  emissionEpochMs?: number;
+}
+
+/** One day. Epoch length is owner-decided (2026-10-14); reward / cap / halving stay unset. */
+export const DEFAULT_EMISSION_EPOCH_MS = 86_400_000;
+
+/** "1d 2h 3m 4s" — whole units, largest non-zero first, for refusal copy. */
+function describeDuration(ms: number): string {
+  const total = Math.max(1, Math.ceil(ms / 1000));
+  const units: Array<[string, number]> = [
+    ['d', Math.floor(total / 86_400)],
+    ['h', Math.floor((total % 86_400) / 3_600)],
+    ['m', Math.floor((total % 3_600) / 60)],
+    ['s', total % 60],
+  ];
+  return units
+    .filter(([, n]) => n > 0)
+    .map(([u, n]) => `${n}${u}`)
+    .join(' ');
 }
 
 /** One frozen line of a yield window's plan: who is owed what, and whether it has posted. */
@@ -320,12 +355,16 @@ function feeScheduleBlank(raw: unknown): boolean {
   return false;
 }
 
+/** A non-fresh pending buyback claim is released only after this long (DB clock): longer than the ledger client's 25 s post deadline plus the ledger's 15 s lock wait, so a late burn has landed or died. */
+const BUYBACK_QUIET_SECONDS = 120;
+
 export class TokenService {
   private readonly assetId: string;
   private readonly feeScheduleTtlMs: number;
   private readonly loadParamsFromDb: boolean;
   private feeScheduleCache: { schedule: FeeDiscountSchedule; loadedAt: number } | null = null;
   private buybackParamsCache: { params: BuybackParams; loadedAt: number } | null = null;
+  private readonly emissionEpochMs: number;
   private emissionParamsCache: { params: EmissionParams; loadedAt: number } | null = null;
 
   constructor(
@@ -337,6 +376,10 @@ export class TokenService {
     this.assetId = options.assetId ?? 'IFC';
     this.feeScheduleTtlMs = options.feeScheduleTtlMs ?? 60_000;
     this.loadParamsFromDb = options.loadParamsFromDb !== false;
+    this.emissionEpochMs = options.emissionEpochMs ?? DEFAULT_EMISSION_EPOCH_MS;
+    if (!Number.isSafeInteger(this.emissionEpochMs) || this.emissionEpochMs < 0) {
+      throw new Error('TokenService emissionEpochMs must be a non-negative integer (0 = gate off, tests only)');
+    }
     if (!this.loadParamsFromDb) {
       if (!options.emission || !options.buyback) {
         throw new Error('TokenService test mode requires emission and buyback overrides when loadParamsFromDb is false');
@@ -1477,24 +1520,33 @@ export class TokenService {
    * Pending claim, no market-buy on the book.
    *
    * A fresh insert from this call posted nothing — release so the window is
-   * not held hostage. A retry of an older pending row may sit on top of a
-   * landed `token.burn:` from the pre-refuse path; deleting that claim would
-   * hide the burn. Live HTTP `getTxByKey` throws (S2S has no such door) — that
-   * must stay `token.buyback_tokens_unmoved`, never a 500, and unknown ≠ absent.
+   * not held hostage. A retry of an older pending row is released only when
+   * `getTxByKey` says the burn key is absent AND the row is older than
+   * BUYBACK_QUIET_SECONDS on the database clock. "Absent now" alone is not
+   * "never": the burn from the earlier attempt can still be queued behind the
+   * ledger's chain-tip lock after the client gave up (25 s deadline; the
+   * ledger's own statement timeout is 15 s), and deleting the claim then frees
+   * the revenue window while a late burn lands — a later run could burn the
+   * same window again. `getTxByKey` answers null only for a key the ledger says
+   * it has not booked (the read-only `txByKey` door); when it cannot answer
+   * (ledger down, malformed, inconsistent) it throws — that must stay
+   * `token.buyback_tokens_unmoved`, never a 500, and unknown ≠ absent.
    */
   private async refuseUnbookedBuyback(claimedId: string, runId: string, tokensBought: Amount, opts: { fresh: boolean }): Promise<never> {
-    let burnKnownAbsent = opts.fresh;
-    if (!burnKnownAbsent) {
+    let release = opts.fresh;
+    if (!release) {
       try {
         const burnTx = await this.ledger.getTxByKey(`token.burn:${this.assetId}:${runId}`);
-        burnKnownAbsent = burnTx === null;
+        release = burnTx === null;
       } catch {
-        burnKnownAbsent = false;
+        release = false;
       }
     }
-    if (burnKnownAbsent) {
+    if (release) {
       await this.sql`
-        DELETE FROM token.buyback_runs WHERE id = ${claimedId} AND status = 'pending'
+        DELETE FROM token.buyback_runs
+        WHERE id = ${claimedId} AND status = 'pending'
+          AND (${opts.fresh} OR created_at < now() - make_interval(secs => ${BUYBACK_QUIET_SECONDS}))
       `;
     }
     throw new TokenError(
@@ -1675,7 +1727,7 @@ export class TokenService {
    * svc-token is the ONLY minter. svc-mining-pool (Phase 5) requests an epoch
    * allocation from here; it never mints. The epoch row is the dedupe: a closed
    * epoch cannot be minted twice, and the ledger's idempotency key on
-   * `token.emission:<epoch>` is the backstop if this check is ever bypassed.
+   * `token.emission:<assetId>:<epoch>` is the backstop if this check is ever bypassed.
    */
   async mintEpoch(epoch: number, destination = rewardsEngine(this.assetId)): Promise<{ epoch: number; minted: Amount }> {
     return withMoneySpan('token.mintEpoch', { operation: 'emission', epoch }, async () => this.mintEpochInner(epoch, destination));
@@ -1808,9 +1860,46 @@ export class TokenService {
           );
         }
 
+        /**
+         * TIME GATE — a NEW epoch may not start sooner than one epoch length
+         * after the previous one was claimed.
+         *
+         * Placed after the resume branch above (a claimed-but-unclosed epoch is a
+         * retry of the SAME epoch and is never refused here) and after the supply
+         * checks (an exhausted schedule should say so, not "wait"). It runs under
+         * the per-asset advisory lock taken at the top of this transaction, so two
+         * concurrent callers are serialised: the second sees the first's row.
+         *
+         * The clock is the DATABASE's: `created_at` is stamped with
+         * `clock_timestamp()` below and the elapsed time is measured with
+         * `clock_timestamp()` here, so app-server clock skew and restarts cannot
+         * move the gate. `clock_timestamp()` rather than `now()` because `now()` is
+         * the transaction start, which predates a wait on the advisory lock.
+         */
+        if (this.emissionEpochMs > 0) {
+          const [last] = await tx<Array<{ epoch: number; elapsed_ms: number | string }>>`
+            SELECT epoch, (EXTRACT(EPOCH FROM (clock_timestamp() - created_at)) * 1000)::float8 AS elapsed_ms
+              FROM token.emission_epochs
+             ORDER BY created_at DESC, epoch DESC
+             LIMIT 1
+          `;
+          if (last) {
+            const elapsedMs = Number(last.elapsed_ms);
+            const remainingMs = Math.ceil(this.emissionEpochMs - elapsedMs);
+            if (remainingMs > 0) {
+              throw new TokenError(
+                `Epoch ${epoch} cannot start yet: epochs are ${describeDuration(this.emissionEpochMs)} long and epoch ${last.epoch} ` +
+                  `was claimed ${describeDuration(Math.max(0, elapsedMs))} ago — wait ${describeDuration(remainingMs)} more`,
+                'token.epoch_too_early',
+                remainingMs,
+              );
+            }
+          }
+        }
+
         await tx`
-          INSERT INTO token.emission_epochs (epoch, scheduled_amount, mined_amount, closed)
-          VALUES (${epoch}, ${formatAmount(reward)}::numeric, ${formatAmount(reward)}::numeric, false)
+          INSERT INTO token.emission_epochs (epoch, scheduled_amount, mined_amount, closed, created_at)
+          VALUES (${epoch}, ${formatAmount(reward)}::numeric, ${formatAmount(reward)}::numeric, false, clock_timestamp())
         `;
 
         return { reward };
