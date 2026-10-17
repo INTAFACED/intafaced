@@ -36,7 +36,10 @@ export type CopyErrorCode =
   | 'trade.copy_flatten_refused'
   | 'trade.copy_flatten_drift'
   | 'trade.copy_flatten_unavailable'
-  | 'trade.copy_flatten_partial';
+  | 'trade.copy_flatten_partial'
+  | 'trade.copy_disclosure_unpublished'
+  | 'trade.copy_disclosure_required'
+  | 'trade.copy_disclosure_version_stale';
 
 export class CopyError extends Error {
   constructor(

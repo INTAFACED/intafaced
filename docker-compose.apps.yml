@@ -699,6 +699,8 @@ services:
       # Published JSON lives in `.env.example`. Blank host still refuse-closed.
       TRADE_COPY_FEE_SHARE_LAW: ${TRADE_COPY_FEE_SHARE_LAW:-}
       TRADE_COPY_JURISDICTION_LAW: ${TRADE_COPY_JURISDICTION_LAW:-}
+      # TRD-0773 disclosure wording. Empty = unpublished. Compose does not invent text.
+      TRADE_COPY_DISCLOSURE_LAW: ${TRADE_COPY_DISCLOSURE_LAW:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}
