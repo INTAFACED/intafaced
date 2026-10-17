@@ -3,7 +3,7 @@ import { Button } from '@intafaced/ui';
 import { PaySection } from '../../components';
 import { isUuid } from '../model';
 import { Gate, HaltBanner, Money, MoneyLines, PortalFailure, PortalLoading } from '../components';
-import { isComingSoon, portalRefusal } from '../refusal';
+import { isNotLive, portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt } from '../hooks';
@@ -23,11 +23,13 @@ import { uiCopy } from '../ui/copy';
 import { ExportButton, ListBody, shortDay, TestBanner, useListQuery, useTestMode } from './common';
 import { mc } from './copy';
 import { bpsPercent, statementTies } from './model';
+import { railWords } from './destination';
 import { LifecycleTrail } from './Trail';
 import type { Settlement, SettlementStatus } from '../schemas';
 import { settlementStatuses } from '../schemas';
 import type { SettlementLine } from './schemas';
 
+type FullSnapshot = Extract<NonNullable<Settlement['pricingSnapshot']>, { ruleId: string }>;
 export const settlementHref = (id: string) => `/pay/settlements/${encodeURIComponent(id)}`;
 
 type Words = ReturnType<typeof mc.useCopy>['t'];
@@ -64,8 +66,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
   const readAt = useReadAt(list.state.status === 'ready', list.state);
   const items = list.state.status === 'ready' ? list.state.items : [];
   const assets = [...new Set(items.map((s) => s.assetId))].sort();
-  const count = (c: { n: number; more: boolean } | undefined) =>
-    c ? (c.more ? t('countNewest', { n: c.n }) : String(c.n)) : '—';
+  const count = (c: { n: number; more: boolean } | undefined) => (c ? (c.more ? t('mnCountNewest', { n: c.n }) : String(c.n)) : '—');
   const c = counts.resource.status === 'ready' ? counts.resource.data : undefined;
   const snap = snapshot.resource.status === 'ready' ? snapshot.resource.data : null;
   return (
@@ -78,27 +79,27 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
         tiles={[
           {
             label: t('settleGross'),
-            period: t('period30'),
+            period: t('mnPeriod30'),
             href: '/pay/settlements?date=30d',
             value: snap ? <MoneyLines items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.gross }))} /> : '—',
           },
           {
             label: t('settleFees'),
-            period: t('period30'),
+            period: t('mnPeriod30'),
             href: '/pay/settlements?date=30d',
             value: snap ? <MoneyLines items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.fees }))} /> : '—',
           },
           {
             label: t('settleNet'),
-            period: t('period30'),
+            period: t('mnPeriod30'),
             href: '/pay/settlements?date=30d',
             value: snap ? <MoneyLines items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.net }))} /> : '—',
           },
-          { label: t('settleReady'), period: t('periodNow'), href: '/pay/settlements?status=posted', value: count(c?.posted) },
-          { label: t('settlePending'), period: t('periodNow'), href: '/pay/settlements?status=pending', value: count(c?.pending) },
+          { label: t('settleReady'), period: t('mnPeriodNow'), href: '/pay/settlements?status=posted', value: count(c?.posted) },
+          { label: t('settlePending'), period: t('mnPeriodNow'), href: '/pay/settlements?status=pending', value: count(c?.pending) },
           {
             label: t('settleFailed'),
-            period: t('periodNow'),
+            period: t('mnPeriodNow'),
             href: '/pay/settlements?status=failed',
             value: count(c?.failed),
             tone: c && c.failed.n > 0 ? 'attention' : undefined,
@@ -126,13 +127,23 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
                 'settlements-this-page.csv',
                 buildCsv(
                   ['settlement_id', 'created', 'asset', 'gross', 'fees', 'net', 'status', 'payout_method', 'payout_reference'],
-                  items.map((s) => [s.id, s.createdAt ?? '', s.assetId, s.gross, s.fees, s.net, s.status, s.payoutMethod ?? '', s.payoutRef ?? '']),
+                  items.map((s) => [
+                    s.id,
+                    s.createdAt ?? '',
+                    s.assetId,
+                    s.gross,
+                    s.fees,
+                    s.net,
+                    s.status,
+                    s.payoutMethod ?? '',
+                    s.payoutRef ?? '',
+                  ]),
                   { generatedAt: new Date().toISOString(), asOf: readAt ?? '' },
                 ),
               )
             }
           >
-            {t('exportThisPage')}
+            {t('mnExportPage')}
           </Button>
         }
       />
@@ -184,7 +195,15 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
 const layerWords = { global: 'feeLayerGlobal', tier: 'feeLayerTier', merchant: 'feeLayerMerchant' } as const;
 
 /** `/pay/settlements/:id`: what came in, the fees as they were recorded, and where the money went. */
-export function SettlementDetailPage({ portal, merchantId, settlementId }: { portal: PortalApi; merchantId: string; settlementId: string }) {
+export function SettlementDetailPage({
+  portal,
+  merchantId,
+  settlementId,
+}: {
+  portal: PortalApi;
+  merchantId: string;
+  settlementId: string;
+}) {
   const { t } = mc.useCopy();
   const locale = uiCopy.useCopy().requestedLocale;
   const test = useTestMode();
@@ -200,7 +219,8 @@ export function SettlementDetailPage({ portal, merchantId, settlementId }: { por
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
   const readAt = useReadAt(settlement.resource.status === 'ready', settlement.resource);
   const lines = useServerList(
-    (_f, cursor, signal) => (valid ? portal.settlementLines(settlementId, cursor, signal) : Promise.resolve(portalRefusal('rSettlementNotFound'))),
+    (_f, cursor, signal) =>
+      valid ? portal.settlementLines(settlementId, cursor, signal) : Promise.resolve(portalRefusal('rSettlementNotFound')),
     { id: settlementId },
     (l: SettlementLine) => l.paymentId,
   );
@@ -217,7 +237,7 @@ export function SettlementDetailPage({ portal, merchantId, settlementId }: { por
         {(s) => {
           const ties = statementTies(s);
           const snap = s.pricingSnapshot ?? null;
-          const full = snap && 'ruleId' in snap ? snap : null;
+          const full = snap && 'ruleId' in snap ? (snap as FullSnapshot) : null;
           const events = [
             ...(s.createdAt ? [{ at: s.createdAt, title: t('stlEvCreated') }] : []),
             ...(s.sentAt ? [{ at: s.sentAt, title: t('stlEvSent') }] : []),
@@ -228,10 +248,10 @@ export function SettlementDetailPage({ portal, merchantId, settlementId }: { por
           return (
             <>
               <DetailHeader
-                back={{ href: '/pay/settlements', label: t('backSettlements') }}
+                back={{ href: '/pay/settlements', label: t('mnBackSettlements') }}
                 title={
                   <>
-                    <Money value={s.net} asset={s.assetId} /> {t('netWord')}
+                    <Money value={s.net} asset={s.assetId} /> {t('mnNet')}
                   </>
                 }
                 status={<StatusChip entity="settlement" value={s.status} />}
@@ -278,11 +298,17 @@ export function SettlementDetailPage({ portal, merchantId, settlementId }: { por
                   )}
                   <div>
                     <dt>{t('stlMethod')}</dt>
-                    <dd>{s.payoutMethod ?? <span className="muted">{t('notPaidYet')}</span>}</dd>
+                    <dd>{s.payoutMethod ? railWords(t, s.payoutMethod) : <span className="muted">{t('notPaidYet')}</span>}</dd>
                   </div>
                   <div>
                     <dt>{t('stlReference')}</dt>
-                    <dd>{s.payoutRef ? <CopyReference value={s.payoutRef} what={t('stlReference')} /> : <span className="muted">{t('notPaidYet')}</span>}</dd>
+                    <dd>
+                      {s.payoutRef ? (
+                        <CopyReference value={s.payoutRef} what={t('stlReference')} />
+                      ) : (
+                        <span className="muted">{t('notPaidYet')}</span>
+                      )}
+                    </dd>
                   </div>
                   <div>
                     <dt>{t('stlId')}</dt>
@@ -372,7 +398,7 @@ export function SettlementDetailPage({ portal, merchantId, settlementId }: { por
                   <LifecycleTrail lifecycle={lc.data} approvals={[]} me={portal.userId} names={new Map()} />
                 ) : events.length > 0 ? (
                   <Timeline label={t('stlLifecycleTitle')} items={events} />
-                ) : isComingSoon(lc.failure) ? (
+                ) : isNotLive(lc.failure) ? (
                   <p className="muted">{t('stlLifecycleNone')}</p>
                 ) : (
                   <PortalFailure result={lc.failure} retry={lifecycle.reload} />
@@ -389,27 +415,36 @@ export function SettlementDetailPage({ portal, merchantId, settlementId }: { por
                   rowKey={(l) => l.paymentId}
                   href={(l) => `/pay/payments/${encodeURIComponent(l.paymentId)}`}
                   columns={[
-                    { header: t('colPayment'), cell: (l) => t('paymentName', { when: shortDay(l.createdAt, locale) }) },
+                    { header: t('mnColPayment'), cell: (l) => t('paymentName', { when: shortDay(l.createdAt, locale) }) },
                     {
                       header: t('colAmount'),
                       cell: (l) =>
-                        l.amount !== null ? <MoneyText value={l.amount} asset={l.assetId} test={test} /> : <span className="muted">{t('lineNotRecorded')}</span>,
+                        l.amount !== null ? (
+                          <MoneyText value={l.amount} asset={l.assetId} test={test} />
+                        ) : (
+                          <span className="muted">{t('lineNotRecorded')}</span>
+                        ),
                     },
-                    { header: t('colAdded'), cell: (l) => <DateTime value={l.createdAt} /> },
+                    { header: t('mnColAdded'), cell: (l) => <DateTime value={l.createdAt} /> },
                   ]}
                   card={(l) => ({
                     title: t('paymentName', { when: shortDay(l.createdAt, locale) }),
                     time: <DateTime value={l.createdAt} />,
-                    amount: l.amount !== null ? <MoneyText value={l.amount} asset={l.assetId} test={test} /> : <span className="muted">{t('lineNotRecorded')}</span>,
+                    amount:
+                      l.amount !== null ? (
+                        <MoneyText value={l.amount} asset={l.assetId} test={test} />
+                      ) : (
+                        <span className="muted">{t('lineNotRecorded')}</span>
+                      ),
                   })}
                 />
               </PaySection>
 
               <RelatedLinks
                 links={[
-                  { href: `/pay/payouts/${encodeURIComponent(s.id)}`, label: t('relPayout') },
-                  { href: '/pay/payments', label: t('relPayments') },
-                  { href: '/pay/pricing', label: t('relPricing') },
+                  { href: `/pay/payouts/${encodeURIComponent(s.id)}`, label: t('mnRelPayout') },
+                  { href: '/pay/payments', label: t('mnRelPayments') },
+                  { href: '/pay/pricing', label: t('mnRelPricing') },
                 ]}
               />
               <AuditPanel who={null} at={s.settledAt ?? s.sentAt ?? s.createdAt ?? null} />

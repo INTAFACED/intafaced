@@ -2,7 +2,7 @@ import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, EmptyState } from '@intafaced/ui';
 import { PaySection } from '../../components';
 import { Gate, HaltBanner, Money, PortalFailure, PortalLoading, SpanText } from '../components';
-import { isComingSoon, portalRefusal } from '../refusal';
+import { isNotLive, portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
 import { useMemberNames, useNow, useReadAt } from '../hooks';
@@ -23,7 +23,7 @@ import { useServerList } from '../ui/useServerList';
 import { ApprovalDecision, CancelRequest, useApprovalDestination } from './Approvals';
 import { ExportButton, LinkButton, ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } from './common';
 import { mc } from './copy';
-import { describeDestination } from './destination';
+import { describeDestination, railWords } from './destination';
 import {
   approvalsBySettlement,
   latestApproval,
@@ -51,7 +51,10 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
   const filters = useListFilters();
   const query = useListQuery(filters);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
-  const pending = useResource((s) => portal.approvalPage(merchantId, { status: 'pending' }, undefined, s), `money:approvals-pending:${merchantId}`);
+  const pending = useResource(
+    (s) => portal.approvalPage(merchantId, { status: 'pending' }, undefined, s),
+    `money:approvals-pending:${merchantId}`,
+  );
   const counts = useResource(async (s) => {
     const reads = await Promise.all(PAYOUT_STATUSES.map((status) => portal.payoutPage({ status }, undefined, s, 25)));
     const bad = reads.find((r) => !r.ok);
@@ -72,26 +75,29 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
         cursor,
         signal,
       );
-      if (direct.ok || !isComingSoon(direct)) return direct;
-      const derived = await portal.settlementPage(merchantId, { status: f.status, assetId: f.assetId, from: f.from, to: f.to, search: f.search }, cursor, signal);
+      if (direct.ok || !isNotLive(direct)) return direct;
+      const derived = await portal.settlementPage(
+        merchantId,
+        { status: f.status, assetId: f.assetId, from: f.from, to: f.to, search: f.search },
+        cursor,
+        signal,
+      );
       if (!derived.ok) return derived;
       return {
         ok: true as const,
         data: {
-          items: derived.data.items.map(
-            (s): PayoutItem => ({
-              id: s.id,
-              window: s.window,
-              assetId: s.assetId,
-              gross: s.gross,
-              fees: s.fees,
-              net: s.net,
-              status: s.status,
-              payoutMethod: s.payoutMethod,
-              payoutReference: s.payoutRef,
-              createdAt: s.createdAt ?? new Date(0).toISOString(),
-            }),
-          ),
+          items: derived.data.items.map((s): PayoutItem => ({
+            id: s.id,
+            window: s.window,
+            assetId: s.assetId,
+            gross: s.gross,
+            fees: s.fees,
+            net: s.net,
+            status: s.status,
+            payoutMethod: s.payoutMethod,
+            payoutReference: s.payoutRef,
+            createdAt: s.createdAt ?? new Date(0).toISOString(),
+          })),
           nextCursor: derived.data.nextCursor,
         },
       };
@@ -105,7 +111,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
   const p = pending.resource.status === 'ready' ? pending.resource.data : null;
   const approvals = p ? approvalsBySettlement('items' in p ? p.items : p) : null;
   const c = counts.resource.status === 'ready' ? counts.resource.data : undefined;
-  const count = (x: { n: number; more: boolean } | undefined) => (x ? (x.more ? t('countNewest', { n: x.n }) : String(x.n)) : '—');
+  const count = (x: { n: number; more: boolean } | undefined) => (x ? (x.more ? t('mnCountNewest', { n: x.n }) : String(x.n)) : '—');
   const waitingN = p ? ('items' in p ? p.items : p).length : null;
   return (
     <div className="stack">
@@ -115,23 +121,23 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
       <KpiStrip
         label={t('payTiles')}
         tiles={[
-          { label: t('payReady'), period: t('periodNow'), href: '/pay/payouts?status=posted', value: count(c?.posted) },
+          { label: t('payReady'), period: t('mnPeriodNow'), href: '/pay/payouts?status=posted', value: count(c?.posted) },
           {
             label: t('payWaiting'),
-            period: t('periodNow'),
+            period: t('mnPeriodNow'),
             href: '/pay/approvals?status=pending',
             value: waitingN === null ? '—' : String(waitingN),
             tone: waitingN ? 'attention' : undefined,
           },
-          { label: t('payPaid'), period: t('periodNewest'), href: '/pay/payouts?status=paid_out', value: count(c?.paid_out) },
+          { label: t('payPaid'), period: t('mnPeriodNewest'), href: '/pay/payouts?status=paid_out', value: count(c?.paid_out) },
           {
             label: t('payFailed'),
-            period: t('periodNow'),
+            period: t('mnPeriodNow'),
             href: '/pay/payouts?status=failed',
             value: count(c?.failed),
             tone: c && c.failed.n > 0 ? 'attention' : undefined,
           },
-          { label: t('payNotReady'), period: t('periodNow'), href: '/pay/payouts?status=pending', value: count(c?.pending) },
+          { label: t('payNotReady'), period: t('mnPeriodNow'), href: '/pay/payouts?status=pending', value: count(c?.pending) },
         ]}
       />
       <FilterRow
@@ -161,7 +167,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
               )
             }
           >
-            {t('exportThisPage')}
+            {t('mnExportPage')}
           </Button>
         }
       />
@@ -197,13 +203,19 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
               return (
                 <>
                   <StatusChip entity="payout" value={payoutRowState(r, approvals)} />
-                  {w && r.status === 'posted' && <small className="pay-cell-note">{w === 'intafaced' ? t('waitingIntafaced') : t('waitingTeam')}</small>}
+                  {w && r.status === 'posted' && (
+                    <small className="pay-cell-note">{w === 'intafaced' ? t('waitingIntafaced') : t('waitingTeam')}</small>
+                  )}
                 </>
               );
             },
           },
-          { header: t('colCreated'), cell: (r) => <DateTime value={r.createdAt} /> },
-          { header: t('colTransaction'), cell: (r) => (r.payoutReference ? <span className="pp-mono">{r.payoutReference}</span> : <span className="muted">{t('notPaidYet')}</span>) },
+          { header: t('mnColCreated'), cell: (r) => <DateTime value={r.createdAt} /> },
+          {
+            header: t('colTransaction'),
+            cell: (r) =>
+              r.payoutReference ? <span className="pp-mono">{r.payoutReference}</span> : <span className="muted">{t('notPaidYet')}</span>,
+          },
         ]}
         card={(r) => ({
           title: payoutName(t, locale, r, approvals?.get(r.id)),
@@ -241,7 +253,9 @@ export function PayoutDetailPage({
   );
   const approvals = useResource(async (s) => {
     const page = await portal.approvalPage(merchantId, {}, undefined, s);
-    return page.ok ? { ok: true as const, data: ('items' in page.data ? page.data.items : page.data).filter((a) => a.settlementId === payoutId) } : page;
+    return page.ok
+      ? { ok: true as const, data: ('items' in page.data ? page.data.items : page.data).filter((a) => a.settlementId === payoutId) }
+      : page;
   }, `money:payout-approvals:${payoutId}`);
   const usage = useResource((s) => portal.usage(merchantId, s), `money:usage:${merchantId}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
@@ -307,7 +321,8 @@ export function PayoutDetailView({
       <HaltBanner resource={halts} scopes={['payout']} />
       <Gate resource={settlement} retry={reload} rows={5}>
         {(s) => {
-          const trail = approvals.status === 'ready' ? [...approvals.data].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)) : [];
+          const trail =
+            approvals.status === 'ready' ? [...approvals.data].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)) : [];
           const latest = approvals.status === 'ready' ? latestApproval(approvals.data, s.id) : null;
           const state: PayoutState = payoutState(s, latest, approvals.status === 'ready');
           const lc = lifecycle.status === 'ready' ? lifecycle.data : null;
@@ -321,15 +336,11 @@ export function PayoutDetailView({
               <LinkButton variant="primary" href={`/pay/payouts/new?settlement=${encodeURIComponent(s.id)}`}>
                 {t('pdoRequest')}
               </LinkButton>
-            ) : state === 'awaiting_approval' ? (
-              <LinkButton variant="primary" href="/pay/approvals?status=pending">
-                {t('pdoReview')}
-              </LinkButton>
             ) : undefined;
           return (
             <>
               <DetailHeader
-                back={{ href: '/pay/payouts', label: t('backPayouts') }}
+                back={{ href: '/pay/payouts', label: t('mnBackPayouts') }}
                 title={<Money value={s.net} asset={s.assetId} />}
                 status={<StatusChip entity="payout" value={state} />}
                 subtitle={payoutName(t, locale, { createdAt: s.createdAt ?? s.settledAt ?? s.sentAt ?? new Date(0).toISOString() }, latest)}
@@ -357,10 +368,14 @@ export function PayoutDetailView({
                     [t('apvTo'), dest ?? <span className="muted">{t('apvToUnknown')}</span>],
                     ...(lc?.fee != null ? ([[t('pdoFee'), <MoneyText value={lc.fee} asset={s.assetId} test={test} />]] as const) : []),
                     [t('pdoScreening'), <NotConfigured>{t('pdoScreeningNone')}</NotConfigured>],
-                    [t('payoutMethod'), s.payoutMethod ?? <span className="muted">{t('notPaidYet')}</span>],
+                    [t('payoutMethod'), s.payoutMethod ? railWords(t, s.payoutMethod) : <span className="muted">{t('notPaidYet')}</span>],
                     [
                       t('colTransaction'),
-                      s.payoutRef ? <CopyReference value={s.payoutRef} what={t('colTransaction')} /> : <span className="muted">{t('notPaidYet')}</span>,
+                      s.payoutRef ? (
+                        <CopyReference value={s.payoutRef} what={t('colTransaction')} />
+                      ) : (
+                        <span className="muted">{t('notPaidYet')}</span>
+                      ),
                     ],
                     [t('stlId'), <CopyReference value={s.id} what={t('stlId')} />],
                   ]}
@@ -372,7 +387,7 @@ export function PayoutDetailView({
                   <PortalLoading rows={3} />
                 ) : lifecycle.status === 'ready' ? (
                   <LifecycleTrail lifecycle={lifecycle.data} approvals={trail} me={me} names={names} />
-                ) : approvals.status === 'failed' && !isComingSoon(approvals.failure) ? (
+                ) : approvals.status === 'failed' && !isNotLive(approvals.failure) ? (
                   <PortalFailure result={approvals.failure} retry={reload} />
                 ) : (
                   <Trail events={fallbackEvents(t, s, trail, me, names)} />
@@ -391,7 +406,7 @@ export function PayoutDetailView({
                           </strong>
                           <StatusChip entity="approval" value={a.status} />
                           <small className="muted">
-                            {t('requestedBy')} {whoIs(a.makerUserId, me, names, t('you'))} · <DateTime value={a.createdAt} />
+                            {t('requestedBy')} {whoIs(a.makerUserId, me, names, t('mnMe'))} · <DateTime value={a.createdAt} />
                           </small>
                           {a.status === 'pending' && (
                             <span className="pp-agechip">
@@ -422,13 +437,19 @@ export function PayoutDetailView({
 
               <RelatedLinks
                 links={[
-                  { href: settlementHref(s.id), label: t('relSettlement') },
-                  { href: '/pay/approvals', label: t('relApprovals') },
-                  { href: '/pay/payouts/destinations', label: t('relDestinations') },
+                  { href: settlementHref(s.id), label: t('mnRelSettlement') },
+                  { href: '/pay/approvals', label: t('mnRelApprovals') },
+                  { href: '/pay/payouts/destinations', label: t('mnRelDestinations') },
                 ]}
               />
               <AuditPanel
-                who={latest?.checkerUserId ? whoIs(latest.checkerUserId, me, names, t('you')) : latest ? whoIs(latest.makerUserId, me, names, t('you')) : null}
+                who={
+                  latest?.checkerUserId
+                    ? whoIs(latest.checkerUserId, me, names, t('mnMe'))
+                    : latest
+                      ? whoIs(latest.makerUserId, me, names, t('mnMe'))
+                      : null
+                }
                 at={latest?.decidedAt ?? latest?.createdAt ?? null}
               />
             </>
@@ -465,4 +486,3 @@ function PayoutCap({ usage, assetId, test, retry }: { usage: Resource<Usage>; as
     </>
   );
 }
-export { payoutHeadroom, EmptyState };

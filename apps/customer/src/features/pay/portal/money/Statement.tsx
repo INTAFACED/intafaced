@@ -22,7 +22,8 @@ export const kindWords = (t: Words, kind: string) =>
   (KNOWN_KINDS as readonly string[]).includes(kind) ? t(`stmKind_${kind}` as 'stmKind_fee') : t('stmKind_other');
 export const accountWords = (t: Words, account: string) =>
   (KNOWN_ACCOUNTS as readonly string[]).includes(account) ? t(`stmAccount_${account}` as 'stmAccount_clearing') : t('stmAccount_other');
-const runningOf = (l: StatementLine) => (l.account === 'clearing' ? l.runningClearing : l.account === 'proceeds' ? l.runningProceeds : null);
+const runningOf = (l: StatementLine) =>
+  l.account === 'clearing' ? l.runningClearing : l.account === 'proceeds' ? l.runningProceeds : null;
 
 /** The signed amount of one line, in words a merchant reads: "+ 12.50 USDT" in, "− 3.00 USDT" out. */
 export function SignedAmount({ line, test }: { line: Pick<StatementLine, 'amount' | 'assetId' | 'direction' | 'account'>; test: boolean }) {
@@ -37,9 +38,9 @@ export function SignedAmount({ line, test }: { line: Pick<StatementLine, 'amount
 
 export function statementColumns(t: Words, test: boolean, showRunning: boolean) {
   return [
-    { header: t('colWhen'), cell: (l: StatementLine) => <DateTime value={l.at} /> },
+    { header: t('mnColWhen'), cell: (l: StatementLine) => <DateTime value={l.at} /> },
     {
-      header: t('colWhat'),
+      header: t('mnColWhat'),
       cell: (l: StatementLine) => (
         <>
           {kindWords(t, l.kind)}
@@ -60,12 +61,12 @@ export function statementColumns(t: Words, test: boolean, showRunning: boolean) 
         </>
       ),
     },
-    { header: t('colAccount'), cell: (l: StatementLine) => accountWords(t, l.account) },
+    { header: t('mnColAccount'), cell: (l: StatementLine) => accountWords(t, l.account) },
     { header: t('colAmount'), cell: (l: StatementLine) => <SignedAmount line={l} test={test} /> },
     ...(showRunning
       ? [
           {
-            header: t('colBalanceAfter'),
+            header: t('mnColBalanceAfter'),
             cell: (l: StatementLine) => {
               const v = runningOf(l);
               return v == null ? '—' : <MoneyText value={v} asset={l.assetId} />;
@@ -113,7 +114,9 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
   );
   const items = list.state.status === 'ready' ? list.state.items : [];
   const running = runningView(items);
-  const assets = [...new Set((meta?.page.tieOut?.accounts ?? []).map((a) => a.assetId).concat(filters.asset ? [filters.asset] : []))].sort();
+  const assets = [
+    ...new Set((meta?.page.tieOut?.accounts ?? []).map((a) => a.assetId).concat(filters.asset ? [filters.asset] : [])),
+  ].sort();
   const asset = filters.asset || (assets.length === 1 ? assets[0]! : '');
   const tie = tieView(meta?.page.tieOut, asset);
   const tieRow = meta?.page.tieOut?.accounts.find((a) => a.assetId === asset);

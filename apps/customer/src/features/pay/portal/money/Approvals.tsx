@@ -19,16 +19,7 @@ import { useServerList } from '../ui/useServerList';
 import { ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } from './common';
 import { mc } from './copy';
 import { describeDestination } from './destination';
-import {
-  ageOf,
-  decisionBlock,
-  decisionLanded,
-  expiresToday,
-  isCheckedPending,
-  minReasonOk,
-  waitingFrom,
-  type RoleLike,
-} from './model';
+import { ageOf, decisionBlock, decisionLanded, expiresToday, isCheckedPending, minReasonOk, waitingFrom, type RoleLike } from './model';
 
 export const payoutHref = (settlementId: string) => `/pay/payouts/${encodeURIComponent(settlementId)}`;
 const noNames: ReadonlyMap<string, string> = new Map();
@@ -51,7 +42,10 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
   const filters = useListFilters();
   const query = useListQuery(filters);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
-  const pending = useResource((s) => portal.approvalPage(merchantId, { status: 'pending' }, undefined, s), `money:approvals-pending:${merchantId}`);
+  const pending = useResource(
+    (s) => portal.approvalPage(merchantId, { status: 'pending' }, undefined, s),
+    `money:approvals-pending:${merchantId}`,
+  );
   const list = useServerList(
     (f, cursor, signal) => portal.approvalPage(merchantId, { status: f.status, search: f.search, from: f.from, to: f.to }, cursor, signal),
     { status: query.status ?? '', search: query.search ?? '', from: query.from ?? '', to: query.to ?? '' },
@@ -63,7 +57,7 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
   const p = pending.resource.status === 'ready' ? pending.resource.data : null;
   const open = p ? ('items' in p ? p.items : p) : null;
   const more = p && 'items' in p ? p.nextCursor !== null : false;
-  const count = (n: number) => (more ? t('countNewest', { n }) : String(n));
+  const count = (n: number) => (more ? t('mnCountNewest', { n }) : String(n));
   const oldest = open?.length ? open.reduce((a, b) => (Date.parse(a.createdAt) <= Date.parse(b.createdAt) ? a : b)) : null;
   const minePending = open ? open.filter((a) => me !== null && a.makerUserId === me).length : null;
   const expiring = open ? open.filter((a) => expiresToday(a, now)).length : null;
@@ -88,22 +82,27 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
         tiles={[
           {
             label: t('apvWaiting'),
-            period: t('periodNow'),
+            period: t('mnPeriodNow'),
             href: '/pay/approvals?status=pending',
             value: open ? count(open.length) : '—',
             tone: open && open.length > 0 ? 'attention' : undefined,
           },
           {
             label: t('apvOldest'),
-            period: t('periodNow'),
+            period: t('mnPeriodNow'),
             href: '/pay/approvals?status=pending',
             value: oldest ? <SpanText ms={ageOf(oldest, now)} /> : '—',
             note: oldest ? undefined : t('apvOldestNone'),
           },
-          { label: t('apvExpiring'), period: t('periodToday'), href: '/pay/approvals?status=pending', value: expiring === null ? '—' : String(expiring) },
+          {
+            label: t('apvExpiring'),
+            period: t('mnPeriodToday'),
+            href: '/pay/approvals?status=pending',
+            value: expiring === null ? '—' : String(expiring),
+          },
           {
             label: t('apvYours'),
-            period: t('periodNow'),
+            period: t('mnPeriodNow'),
             href: '/pay/approvals?status=pending',
             value: minePending === null ? '—' : String(minePending),
             note: t('apvYoursNote'),
@@ -132,9 +131,9 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
             )
           }
         >
-          {t('exportThisPage')}
+          {t('mnExportPage')}
         </Button>
-        <small className="muted">{t('exportThisPageNote')}</small>
+        <small className="muted">{t('mnExportPageNote')}</small>
       </div>
       <ListBody
         state={list.state}
@@ -171,7 +170,7 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
             ),
           },
           { header: t('colAmount'), cell: (a) => <MoneyText value={a.amount} asset={a.assetCode} test={test} /> },
-          { header: t('requestedBy'), cell: (a) => whoIs(a.makerUserId, me, names, t('you')) },
+          { header: t('requestedBy'), cell: (a) => whoIs(a.makerUserId, me, names, t('mnMe')) },
           {
             header: t('colStatus'),
             cell: (a) => (
@@ -186,7 +185,14 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
         ]}
         card={(a) => ({
           title: name(a),
-          time: a.status === 'pending' ? <>{t('ageWaiting')} <SpanText ms={ageOf(a, now)} /> · {destination(a) ?? ''}</> : <DateTime value={a.createdAt} />,
+          time:
+            a.status === 'pending' ? (
+              <>
+                {t('ageWaiting')} <SpanText ms={ageOf(a, now)} /> · {destination(a) ?? ''}
+              </>
+            ) : (
+              <DateTime value={a.createdAt} />
+            ),
           amount: <MoneyText value={a.amount} asset={a.assetCode} test={test} />,
           status: <StatusChip entity="approval" value={a.status} />,
         })}
@@ -255,7 +261,7 @@ export function ApprovalDecision({
       </div>
       <div>
         <dt>{t('requestedBy')}</dt>
-        <dd>{whoIs(approval.makerUserId, me, names, t('you'))}</dd>
+        <dd>{whoIs(approval.makerUserId, me, names, t('mnMe'))}</dd>
       </div>
       <div>
         <dt>{t('fingerprint')}</dt>
@@ -271,7 +277,7 @@ export function ApprovalDecision({
     <div className="form-stack pp-form pp-decision">
       {isCheckedPending(approval) && (
         <p className="pp-callout" role="note">
-          {t('checkedBanner', { who: whoIs(approval.checkerUserId!, me, names, t('you')) })}
+          {t('checkedBanner', { who: whoIs(approval.checkerUserId!, me, names, t('mnMe')) })}
         </p>
       )}
       <label className="field">

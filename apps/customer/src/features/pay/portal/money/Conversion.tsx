@@ -8,7 +8,6 @@ import { Facts, Gate, HaltBanner, PortalFailure, PortalLoading, SelectField, Tes
 import type { PortalApi } from '../api';
 import { useNow, useReadAt, useUrlParam } from '../hooks';
 import { isUuid, newRequestId } from '../model';
-import { isComingSoon, portalRefusal } from '../refusal';
 import { useUnsavedForm } from '../useUnsavedForm';
 import type { Settlement } from '../schemas';
 import { CopyReference } from '../ui/CopyReference';
@@ -22,7 +21,7 @@ import { RelatedLinks } from '../ui/RelatedLinks';
 import { ToneChip, type StatusTone } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
 import { uiCopy } from '../ui/copy';
-import { ListBody, LinkButton, NamedBlocker, shortDay } from './common';
+import { ListBody, LinkButton, localRefusal, NamedBlocker, shortDay } from './common';
 import { mc } from './copy';
 import { conversionStatuses, type ConversionOrder, type ConversionQuote } from './schemas';
 import { settlementName } from './Settlements';
@@ -80,7 +79,7 @@ export function Conversion({ portal, merchantId }: { portal: PortalApi; merchant
   const all = r.status === 'ready' ? r.data : [];
   const shown = status ? all.filter((o) => o.status === status) : all;
   const inFlight = all.filter((o) => ['quoted', 'intent_committed', 'placing', 'placed', 'partially_filled'].includes(o.status)).length;
-  const count = (n: number) => (all.length >= 50 ? t('countNewest', { n }) : String(n));
+  const count = (n: number) => (all.length >= 50 ? t('mnCountNewest', { n }) : String(n));
   return (
     <div className="stack">
       <TestNotice />
@@ -93,12 +92,27 @@ export function Conversion({ portal, merchantId }: { portal: PortalApi; merchant
           <KpiStrip
             label={t('cvTiles')}
             tiles={[
-              { label: t('cvTotal'), period: t('periodNewest'), href: '/pay/conversion', value: r.status === 'ready' ? count(all.length) : '—' },
-              { label: t('cvFilled'), period: t('periodNewest'), href: '/pay/conversion?status=filled', value: r.status === 'ready' ? count(all.filter((o) => o.status === 'filled').length) : '—' },
-              { label: t('cvInFlight'), period: t('periodNow'), href: '/pay/conversion?status=placing', value: r.status === 'ready' ? String(inFlight) : '—' },
+              {
+                label: t('cvTotal'),
+                period: t('mnPeriodNewest'),
+                href: '/pay/conversion',
+                value: r.status === 'ready' ? count(all.length) : '—',
+              },
+              {
+                label: t('cvFilled'),
+                period: t('mnPeriodNewest'),
+                href: '/pay/conversion?status=filled',
+                value: r.status === 'ready' ? count(all.filter((o) => o.status === 'filled').length) : '—',
+              },
+              {
+                label: t('cvInFlight'),
+                period: t('mnPeriodNow'),
+                href: '/pay/conversion?status=placing',
+                value: r.status === 'ready' ? String(inFlight) : '—',
+              },
               {
                 label: t('cvFailed'),
-                period: t('periodNewest'),
+                period: t('mnPeriodNewest'),
                 href: '/pay/conversion?status=failed',
                 value: r.status === 'ready' ? count(all.filter((o) => o.status === 'failed' || o.status === 'reversed').length) : '—',
               },
@@ -109,10 +123,10 @@ export function Conversion({ portal, merchantId }: { portal: PortalApi; merchant
               label={t('colStatus')}
               value={status}
               onChange={setStatus}
-              options={[['', t('allStatuses')], ...conversionStatuses.map((s) => [s, t(`cvStatus_${s}` as 'cvStatus_filled')] as const)]}
+              options={[['', t('cvAllStatuses')], ...conversionStatuses.map((s) => [s, t(`cvStatus_${s}` as 'cvStatus_filled')] as const)]}
             />
             <p className="muted pp-count" role="status">
-              {t('countNewest', { n: shown.length })}
+              {t('mnCountNewest', { n: shown.length })}
             </p>
           </div>
           {r.status === 'loading' ? (
@@ -125,12 +139,19 @@ export function Conversion({ portal, merchantId }: { portal: PortalApi; merchant
               retry={orders.reload}
               onMore={() => undefined}
               filtered={{ active: Boolean(status), clear: () => setStatus('') }}
-              empty={{ title: t('cvEmptyTitle'), body: t('cvEmptyBody'), action: <LinkButton href="/pay/conversion/new">{t('cvNew')}</LinkButton> }}
+              empty={{
+                title: t('cvEmptyTitle'),
+                body: t('cvEmptyBody'),
+                action: <LinkButton href="/pay/conversion/new">{t('cvNew')}</LinkButton>,
+              }}
               label={t('cvTable')}
               rowKey={(o) => o.conversionId}
               href={(o) => orderHref(o.conversionId)}
               columns={[
-                { header: t('colConversion'), cell: (o) => t('cvName', { from: o.fromAsset, to: o.toAsset, when: shortDay(o.createdAt, locale) }) },
+                {
+                  header: t('mnColConversion'),
+                  cell: (o) => t('cvName', { from: o.fromAsset, to: o.toAsset, when: shortDay(o.createdAt, locale) }),
+                },
                 { header: t('cvFrom'), cell: (o) => <MoneyText value={o.fromAmount} asset={o.fromAsset} test /> },
                 { header: t('cvGot'), cell: (o) => <MoneyText value={o.filledToAmount} asset={o.toAsset} test /> },
                 { header: t('colStatus'), cell: (o) => <ConversionChip status={o.status} /> },
@@ -161,9 +182,13 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
   const [quote, setQuote] = useState<{ q: ConversionQuote; requestId: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<{ off: boolean; message: string } | null>(null);
-  const settlements = useResource((s) => portal.settlementPage(merchantId, { status: 'posted' }, undefined, s), `money:conv-settlements:${merchantId}`);
-  useUnsavedForm(amount.trim() !== '' && quote === null, t('unsavedLeave'));
-  const usd: Settlement[] = settlements.resource.status === 'ready' ? settlements.resource.data.items.filter((s) => s.assetId === 'USD') : [];
+  const settlements = useResource(
+    (s) => portal.settlementPage(merchantId, { status: 'posted' }, undefined, s),
+    `money:conv-settlements:${merchantId}`,
+  );
+  useUnsavedForm(amount.trim() !== '' && quote === null, t('mnUnsaved'));
+  const usd: Settlement[] =
+    settlements.resource.status === 'ready' ? settlements.resource.data.items.filter((s) => s.assetId === 'USD') : [];
   const settlement = usd.find((s) => s.id === picked) ?? null;
   const valid = /^\d+(\.\d{1,18})?$/.test(amount.trim()) && /[1-9]/.test(amount);
   const over = settlement && valid ? parseAmount(amount.trim()) > parseAmount(settlement.net) : false;
@@ -193,7 +218,10 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                         setPicked(v);
                         setQuote(null);
                       }}
-                      options={[['', t('pnChoose')], ...usd.map((s) => [s.id, `${settlementName(t, locale, s)} · ${s.net} ${s.assetId}`] as const)]}
+                      options={[
+                        ['', t('pnChoose')],
+                        ...usd.map((s) => [s.id, `${settlementName(t, locale, s)} · ${s.net} ${s.assetId}`] as const),
+                      ]}
                     />
                     <Field
                       label={`${t('cvAmount')} (USD) *`}
@@ -312,7 +340,7 @@ export function ConversionDetail({ portal, orderId }: { portal: PortalApi; order
   const locale = uiCopy.useCopy().requestedLocale;
   const valid = isUuid(orderId);
   const order = useResource(
-    (s) => (valid ? portal.conversionGet(orderId, s) : Promise.resolve(portalRefusal('rConversionNotFound'))),
+    (s) => (valid ? portal.conversionGet(orderId, s) : Promise.resolve(localRefusal(t('rConversionNotFound')))),
     `money:conversion:${orderId}`,
   );
   const readAt = useReadAt(order.resource.status === 'ready', order.resource);
@@ -328,13 +356,13 @@ export function ConversionDetail({ portal, orderId }: { portal: PortalApi; order
           {(o) => (
             <>
               <DetailHeader
-                back={{ href: '/pay/conversion', label: t('backConversion') }}
+                back={{ href: '/pay/conversion', label: t('mnBackConversion') }}
                 title={<MoneyText value={o.fromAmount} asset={o.fromAsset} test />}
                 status={<ConversionChip status={o.status} />}
                 subtitle={t('cvName', { from: o.fromAsset, to: o.toAsset, when: shortDay(o.createdAt, locale) })}
                 action={
                   <Button variant="secondary" onClick={order.reload}>
-                    {t('refresh')}
+                    {t('cvRefresh')}
                   </Button>
                 }
               />
@@ -359,7 +387,7 @@ export function ConversionDetail({ portal, orderId }: { portal: PortalApi; order
                   ]}
                 />
               </PaySection>
-              <RelatedLinks links={[{ href: `/pay/settlements/${encodeURIComponent(o.settlementId)}`, label: t('relSettlement') }]} />
+              <RelatedLinks links={[{ href: `/pay/settlements/${encodeURIComponent(o.settlementId)}`, label: t('mnRelSettlement') }]} />
             </>
           )}
         </Gate>

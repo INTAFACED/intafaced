@@ -36,11 +36,15 @@ export function lifecycleEvents(
   names: ReadonlyMap<string, string>,
 ): TrailEvent[] {
   const byId = new Map(approvals.map((a) => [a.approvalId, a]));
-  const you = t('you');
+  const you = t('mnMe');
   const events: TrailEvent[] = lifecycle.events.map((e) => {
     const a = e.approvalId ? byId.get(e.approvalId) : undefined;
     const person =
-      e.kind === 'approval.requested' ? a?.makerUserId : e.kind === 'approval.approved' || e.kind === 'approval.rejected' ? a?.checkerUserId : null;
+      e.kind === 'approval.requested'
+        ? a?.makerUserId
+        : e.kind === 'approval.approved' || e.kind === 'approval.rejected'
+          ? a?.checkerUserId
+          : null;
     return {
       key: e.id,
       at: e.at,
@@ -65,12 +69,18 @@ export function fallbackEvents(
   me: string | null,
   names: ReadonlyMap<string, string>,
 ): TrailEvent[] {
-  const you = t('you');
+  const you = t('mnMe');
   const out: TrailEvent[] = [];
   if (settlement.createdAt) out.push({ key: 'created', at: settlement.createdAt, kind: 'settlement.opened' });
   for (const a of approvals) {
     const to = a.destinationMasked ? describeDestination(t, a.destinationKind ?? '', a.destinationMasked, a.railId ?? '') : null;
-    out.push({ key: `${a.approvalId}:req`, at: a.createdAt, kind: 'approval.requested', who: whoIs(a.makerUserId, me, names, you), destination: to });
+    out.push({
+      key: `${a.approvalId}:req`,
+      at: a.createdAt,
+      kind: 'approval.requested',
+      who: whoIs(a.makerUserId, me, names, you),
+      destination: to,
+    });
     if (a.status === 'approved' || a.status === 'consumed')
       out.push({
         key: `${a.approvalId}:ok`,
@@ -90,7 +100,14 @@ export function fallbackEvents(
   }
   if (settlement.sentAt) out.push({ key: 'sent', at: settlement.sentAt, kind: 'rail.sent' });
   if (settlement.settledAt) out.push({ key: 'paid', at: settlement.settledAt, kind: 'rail.confirmed', terminal: true });
-  if (settlement.failedAt) out.push({ key: 'failed', at: settlement.failedAt, kind: 'rail.refused', failure: settlement.failure?.message ?? null, terminal: true });
+  if (settlement.failedAt)
+    out.push({
+      key: 'failed',
+      at: settlement.failedAt,
+      kind: 'rail.refused',
+      failure: settlement.failure?.message ?? null,
+      terminal: true,
+    });
   return orderTrail(out, settlement.status === 'paid_out' ? 'paid_out' : settlement.status === 'failed' ? 'failed' : 'other');
 }
 
@@ -136,7 +153,11 @@ export function LifecycleTrail({
           {lifecycle.failure.message}
         </p>
       )}
-      {lifecycle.events.length === 0 ? <p className="muted">{t('trailNone')}</p> : <Trail events={lifecycleEvents(t, lifecycle, approvals, me, names)} />}
+      {lifecycle.events.length === 0 ? (
+        <p className="muted">{t('trailNone')}</p>
+      ) : (
+        <Trail events={lifecycleEvents(t, lifecycle, approvals, me, names)} />
+      )}
     </>
   );
 }

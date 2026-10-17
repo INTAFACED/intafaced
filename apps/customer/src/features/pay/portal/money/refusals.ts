@@ -1,5 +1,6 @@
 import type { ApiResult } from '../../../../shared/api';
 import { knownRefusalCodes, registerNotLive, registerRefusals } from '../refusal';
+import { reason } from '../chrome/copy';
 import { mc } from './copy';
 
 /**
@@ -47,10 +48,18 @@ registerRefusals(
 );
 
 /** The codes that mean conversion is switched off for this account (the service starts with it off). */
-export const CONVERSION_OFF = ['pay.conversion_venue_unconfigured', 'pay.conversion_unavailable', 'pay.conversion_slippage_unconfigured'] as const;
-registerNotLive(CONVERSION_OFF);
+export const CONVERSION_OFF = [
+  'pay.conversion_venue_unconfigured',
+  'pay.conversion_unavailable',
+  'pay.conversion_slippage_unconfigured',
+] as const;
+registerNotLive(Object.fromEntries(CONVERSION_OFF.map((code) => [code, () => reason('reasonService')])));
 
 export function isConversionOff(result: Extract<ApiResult<unknown>, { ok: false }>): boolean {
   const code = result.code?.startsWith('pay.') ? result.code : (/^(pay\.[a-z0-9_]+)/.exec(result.message)?.[1] ?? result.code ?? '');
-  return (CONVERSION_OFF as readonly string[]).includes(code) || code === 'pay.not_built' || (result.reason === 'not_mounted' && !code.startsWith('pay.'));
+  return (
+    (CONVERSION_OFF as readonly string[]).includes(code) ||
+    code === 'pay.not_built' ||
+    (result.reason === 'not_mounted' && !code.startsWith('pay.'))
+  );
 }

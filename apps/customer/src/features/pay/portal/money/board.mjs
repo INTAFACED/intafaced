@@ -13,10 +13,10 @@ export const board = [
   ['P32', 'Destinations', '/pay/payouts/destinations', false],
   ['P08', 'Refunds', '/pay/refunds', true],
   ['P09', 'Issue a refund', '/pay/refunds/new', false],
-  ['P10', 'Refund detail', '/pay/refunds/TEST-refund-1', false],
+  ['P10', 'Refund detail', '/pay/refunds/cc100001-0000-4000-8000-000000000101', false],
   ['P33', 'Conversion', '/pay/conversion', false],
   ['P34', 'New conversion', '/pay/conversion/new', false],
-  ['P35', 'Conversion detail', '/pay/conversion/TEST-order-1', false],
+  ['P35', 'Conversion detail', '/pay/conversion/ee100001-0000-4000-8000-000000000001', false],
   ['P36', 'Pricing', '/pay/pricing', false],
   ['P37', 'Limits', '/pay/limits', false],
 ];

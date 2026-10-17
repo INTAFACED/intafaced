@@ -9,7 +9,7 @@ import { Facts, Gate, Money, NotConfigured, PortalFailure, PortalLoading, Select
 import { mc as portalCopy } from './copy';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt } from '../hooks';
-import { isComingSoon } from '../refusal';
+import { isNotLive } from '../refusal';
 import { DateTime } from '../ui/DateTime';
 import { Freshness } from '../ui/Freshness';
 import { KpiStrip } from '../ui/Kpi';
@@ -29,10 +29,8 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
   const readAt = useReadAt(control.resource.status === 'ready', control.resource);
   // Viewers and developers see the fee that was charged and nothing about the spread or which rule produced it.
   const feeOnly = access.status === 'ready' && access.pricingVisibility === 'fee_only';
-  const tierName =
-    tiers.resource.status === 'ready' && tiers.resource.data.status === 'configured'
-      ? (tiers.resource.data.tiers.find((x) => x.id === tiers.resource.data.ownTierId)?.name ?? null)
-      : null;
+  const tierData = tiers.resource.status === 'ready' ? tiers.resource.data : null;
+  const tierName = tierData?.status === 'configured' ? (tierData.tiers.find((x) => x.id === tierData.ownTierId)?.name ?? null) : null;
   return (
     <div className="stack">
       <TestBanner />
@@ -41,7 +39,6 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
           const rules = profile.pricing ?? [];
           const assets = pricingAssets(profile.pricing);
           const first = rules[0]?.bands[0] ?? null;
-          const reserve = profile.reserve?.rollingReserveBps ?? null;
           return (
             <>
               <Freshness asOf={readAt} />
@@ -50,21 +47,21 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                 tiles={[
                   {
                     label: t('colTier'),
-                    period: t('periodNow'),
+                    period: t('mnPeriodNow'),
                     href: '/pay/limits',
                     value: tierName ?? <NotConfigured>{t('tierNotAssigned')}</NotConfigured>,
                   },
                   {
                     label: t('priceRate'),
-                    period: t('periodNow'),
+                    period: t('mnPeriodNow'),
                     href: '/pay/pricing',
                     value: first ? bpsPercent(first.feeBps) : <NotConfigured />,
                     note: first && rules.length > 1 ? t('priceRateNote') : undefined,
                   },
-                  { label: t('priceAssets'), period: t('periodNow'), href: '/pay/pricing', value: String(assets.length) },
+                  { label: t('priceAssets'), period: t('mnPeriodNow'), href: '/pay/pricing', value: String(assets.length) },
                   {
                     label: t('priceSince'),
-                    period: t('periodNow'),
+                    period: t('mnPeriodNow'),
                     href: '/pay/pricing',
                     value: profile.updatedAt ? <DateTime value={profile.updatedAt} /> : <span className="muted">{t('notRecorded')}</span>,
                   },
@@ -81,7 +78,15 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                         downloadText(
                           'pricing-schedule.csv',
                           buildCsv(
-                            ['asset', 'applies_from', 'from_amount', 'fee_bps', 'flat_fee', ...(feeOnly ? [] : ['conversion_spread_bps']), 'rounding_goes_to'],
+                            [
+                              'asset',
+                              'applies_from',
+                              'from_amount',
+                              'fee_bps',
+                              'flat_fee',
+                              ...(feeOnly ? [] : ['conversion_spread_bps']),
+                              'rounding_goes_to',
+                            ],
                             rules.flatMap((r) =>
                               r.bands.map((b) => [
                                 r.assetCode,
@@ -126,7 +131,7 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
 
               <FeeCalculator portal={portal} merchantId={merchantId} assets={assets} feeOnly={feeOnly} />
 
-              <PaySection title={t('historyTitle')} description={t('historyBody')}>
+              <PaySection title={t('priceHistoryTitle')} description={t('historyBody')}>
                 <HistoryTable history={history.resource} retry={history.reload} />
               </PaySection>
             </>
@@ -141,8 +146,8 @@ function HistoryTable({ history, retry }: { history: ReturnType<typeof useResour
   const { t } = portalCopy.useCopy();
   if (history.status === 'loading') return <PortalLoading rows={2} />;
   if (history.status === 'failed')
-    return isComingSoon(history.failure) ? (
-      <NamedBlocker title={t('historyTitle')} why="reasonHistory" needs="merchantControl.pricing.history">
+    return isNotLive(history.failure) ? (
+      <NamedBlocker title={t('priceHistoryTitle')} why="reasonHistory" needs="merchantControl.pricing.history">
         {t('historyBlocked')}
       </NamedBlocker>
     ) : (
@@ -150,7 +155,10 @@ function HistoryTable({ history, retry }: { history: ReturnType<typeof useResour
     );
   if (history.data.status === 'not_configured') return <p className="muted">{t('historyNone')}</p>;
   return (
-    <DataTable label={t('historyTitle')} headers={[t('colAsset'), t('historyApplies'), t('historyRate'), t('historyFrom'), t('historyUntil')]}>
+    <DataTable
+      label={t('priceHistoryTitle')}
+      headers={[t('colAsset'), t('historyApplies'), t('historyRate'), t('historyFrom'), t('historyUntil')]}
+    >
       {history.data.events.map((e) => (
         <tr key={e.ruleId}>
           <th scope="row">{e.assetCode}</th>
@@ -216,7 +224,17 @@ function RuleTable({ rule, feeOnly }: { rule: PricingRule; feeOnly: boolean }) {
   );
 }
 
-export function FeeCalculator({ portal, merchantId, assets, feeOnly = false }: { portal: PortalApi; merchantId: string; assets: string[]; feeOnly?: boolean }) {
+export function FeeCalculator({
+  portal,
+  merchantId,
+  assets,
+  feeOnly = false,
+}: {
+  portal: PortalApi;
+  merchantId: string;
+  assets: string[];
+  feeOnly?: boolean;
+}) {
   const { t } = portalCopy.useCopy();
   const [asset, setAsset] = useState(assets[0] ?? '');
   const [amount, setAmount] = useState('');
@@ -313,7 +331,10 @@ export function FeeCalculator({ portal, merchantId, assets, feeOnly = false }: {
                       [t('calcApplied'), t(`layer_${outcome.result.data.appliedLayer}` as 'layer_global')],
                       [t('calcBand'), <Money value={outcome.result.data.bandFrom} asset={outcome.asset} />],
                       [t('calcMonthSoFar'), <Money value={outcome.result.data.monthlyVolumeBefore} asset={outcome.asset} />],
-                      [t('roundingLabel'), t(outcome.result.data.roundingBeneficiary === 'platform' ? 'roundingPlatform' : 'roundingMerchant')],
+                      [
+                        t('roundingLabel'),
+                        t(outcome.result.data.roundingBeneficiary === 'platform' ? 'roundingPlatform' : 'roundingMerchant'),
+                      ],
                     ] as const)),
               ]}
             />

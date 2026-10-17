@@ -1,5 +1,5 @@
 import { formatAmount, parseAmount } from '../../../../shared/money';
-import { dec, toFixedString } from '../../../../data/decimal';
+import { dec, roundScaled, toFixedString } from '../../../../data/decimal';
 import type { StatementLine, StatementPage } from './schemas';
 import type {
   Approval,
@@ -218,7 +218,7 @@ export function pricingAssets(rules: readonly PricingRule[] | null): string[] {
 /** A decimal string rounded to `places` for a headline figure (half up, by integer arithmetic). Never a JS number. */
 export function roundedDecimal(value: string, places: number): string {
   const scaled = dec(value);
-  return scaled === null ? '0' : toFixedString(scaled, places);
+  return scaled === null ? '0' : toFixedString(roundScaled(scaled, places), places);
 }
 
 /** True when the exact amount has digits beyond `places`, so a compact figure would hide something. */
@@ -279,11 +279,15 @@ export type RunningView = { shown: true } | { shown: false; reason: 'no_opening'
  * A running balance is drawn only when every line in view followed ledger order. One ambiguous or opening-less line
  * hides the column for the whole range, and the reason is said in words.
  */
-export function runningView(lines: readonly Pick<StatementLine, 'runningOrder' | 'runningReason' | 'runningClearing' | 'runningProceeds'>[]): RunningView {
+export function runningView(
+  lines: readonly Pick<StatementLine, 'runningOrder' | 'runningReason' | 'runningClearing' | 'runningProceeds'>[],
+): RunningView {
   if (lines.length === 0) return { shown: false, reason: 'none' };
   const bad = lines.find((l) => l.runningOrder !== 'clear' || l.runningReason);
   if (bad) return { shown: false, reason: bad.runningReason === 'no_opening' ? 'no_opening' : 'order_ambiguous' };
-  return lines.every((l) => l.runningClearing != null || l.runningProceeds != null) ? { shown: true } : { shown: false, reason: 'no_opening' };
+  return lines.every((l) => l.runningClearing != null || l.runningProceeds != null)
+    ? { shown: true }
+    : { shown: false, reason: 'no_opening' };
 }
 
 /**

@@ -5,7 +5,7 @@ import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
 import { Facts, Gate, HaltBanner, NotConfigured, PortalFailure, PortalLoading } from '../components';
 import { useUnsavedForm } from '../useUnsavedForm';
-import { isComingSoon } from '../refusal';
+import { isNotLive } from '../refusal';
 import type { PortalApi } from '../api';
 import { useNow, useUrlParam } from '../hooks';
 import { activeHalts } from '../model';
@@ -41,9 +41,12 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   const destinations = useResource((s) => portal.destinationPage(merchantId, undefined, s), `money:destinations:${merchantId}`);
   const usage = useResource((s) => portal.usage(merchantId, s), `money:usage:${merchantId}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
-  const pending = useResource((s) => portal.approvalPage(merchantId, { status: 'pending' }, undefined, s), `money:approvals-pending:${merchantId}`);
+  const pending = useResource(
+    (s) => portal.approvalPage(merchantId, { status: 'pending' }, undefined, s),
+    `money:approvals-pending:${merchantId}`,
+  );
   const [done, setDone] = useState<PayoutOutcome | null>(null);
-  useUnsavedForm(Boolean(destPicked) && !done, t('unsavedLeave'));
+  useUnsavedForm(Boolean(destPicked) && !done, t('mnUnsaved'));
   const reload = () => {
     ready.reload();
     destinations.reload();
@@ -71,11 +74,14 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
       <TestBanner />
       <Gate resource={ready.resource} retry={reload} rows={3}>
         {(page) => {
-          const waiting = pending.resource.status === 'ready' ? approvalsBySettlement('items' in pending.resource.data ? pending.resource.data.items : pending.resource.data) : null;
+          const waiting =
+            pending.resource.status === 'ready'
+              ? approvalsBySettlement('items' in pending.resource.data ? pending.resource.data.items : pending.resource.data)
+              : null;
           const payable = page.items.filter((s) => !(waiting?.get(s.id)?.status === 'pending'));
           const settlement: Settlement | null = payable.find((s) => s.id === picked) ?? null;
           const dests: DestinationItem[] | null = destinations.resource.status === 'ready' ? destinations.resource.data.items : null;
-          const destMissing = destinations.resource.status === 'failed' && isComingSoon(destinations.resource.failure);
+          const destMissing = destinations.resource.status === 'failed' && isNotLive(destinations.resource.failure);
           const dest = dests?.find((d) => d.id === destPicked) ?? (dests && dests.length === 1 ? dests[0]! : null);
           const headroom = settlement && usage.resource.status === 'ready' ? payoutHeadroom(usage.resource.data, settlement.assetId) : null;
           const paused =
@@ -105,10 +111,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
           return (
             <>
               {payable.length === 0 ? (
-                <EmptyState
-                  title={t('pnNoneTitle')}
-                  action={<LinkButton href="/pay/settlements">{t('pnNoneAction')}</LinkButton>}
-                >
+                <EmptyState title={t('pnNoneTitle')} action={<LinkButton href="/pay/settlements">{t('pnNoneAction')}</LinkButton>}>
                   {t('pnNoneBody')}
                 </EmptyState>
               ) : (
@@ -128,7 +131,11 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                     {destinations.resource.status === 'loading' ? (
                       <PortalLoading rows={1} />
                     ) : destMissing ? (
-                      <NamedBlocker title={t('pnStep2')} why="reasonLists" needs="merchant.payoutDestinations.list (feat/pay-portal-be-reads-money)">
+                      <NamedBlocker
+                        title={t('pnStep2')}
+                        why="reasonLists"
+                        needs="merchant.payoutDestinations.list (feat/pay-portal-be-reads-money)"
+                      >
                         {t('pnDestBlocked')}
                       </NamedBlocker>
                     ) : destinations.resource.status === 'failed' ? (
@@ -227,11 +234,13 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                         ) : undefined
                       }
                       perform={async () => {
-                        if (!settlement || !dest) return { ok: false as const, reason: 'error' as const, code: 'portal.local', message: t('pnPickDestination') };
+                        if (!settlement || !dest)
+                          return { ok: false as const, reason: 'error' as const, code: 'portal.local', message: t('pnPickDestination') };
                         const asked = await portal.requestPayoutApproval({ merchantId, settlementId: settlement.id, railId: dest.railId });
                         if (asked.ok) return { ok: true as const, data: { route: 'approval' as const, id: asked.data.settlementId } };
                         // Below the approval limit the service says no approval is needed; the same reviewed payout is then sent directly.
-                        if (asked.code !== 'pay.approval_not_required') return asked;
+                        if (asked.code !== 'pay.approval_not_required' && !asked.message.startsWith('pay.approval_not_required'))
+                          return asked;
                         const sent = await portal.sendPayout({ settlementId: settlement.id, railId: dest.railId });
                         return sent.ok ? { ok: true as const, data: { route: 'sent' as const, id: sent.data.id } } : sent;
                       }}

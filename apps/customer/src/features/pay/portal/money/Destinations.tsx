@@ -5,7 +5,7 @@ import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
 import { PortalFailure, PortalLoading, SelectField } from '../components';
 import type { PortalApi } from '../api';
-import { isComingSoon } from '../refusal';
+import { isNotLive } from '../refusal';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { DateTime } from '../ui/DateTime';
 import { Freshness } from '../ui/Freshness';
@@ -33,11 +33,19 @@ export function referenceProblem(kind: 'crypto' | 'bank', ref: string): 'empty' 
 /** `/pay/payouts/destinations`: where your payouts can go. Full numbers and addresses are never shown again once saved. */
 export function Destinations({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
-  const list = useServerList((_f, cursor, signal) => portal.destinationPage(merchantId, cursor, signal), { m: merchantId }, (d: DestinationItem) => d.id);
+  const list = useServerList(
+    (_f, cursor, signal) => portal.destinationPage(merchantId, cursor, signal),
+    { m: merchantId },
+    (d: DestinationItem) => d.id,
+  );
   const readAt = useReadAt(list.state.status === 'ready', list.state);
   const rows = list.state.status === 'ready' ? list.state.items : [];
-  const lastUsed = rows.map((d) => d.lastUsedAt).filter((x): x is string => Boolean(x)).sort().at(-1);
-  const count = list.state.status === 'ready' ? (list.state.hasMore ? t('countNewest', { n: rows.length }) : String(rows.length)) : '—';
+  const lastUsed = rows
+    .map((d) => d.lastUsedAt)
+    .filter((x): x is string => Boolean(x))
+    .sort()
+    .at(-1);
+  const count = list.state.status === 'ready' ? (list.state.hasMore ? t('mnCountNewest', { n: rows.length }) : String(rows.length)) : '—';
   return (
     <div className="stack">
       <TestBanner />
@@ -45,15 +53,15 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
       <KpiStrip
         label={t('dstTiles')}
         tiles={[
-          { label: t('dstCount'), period: t('periodNow'), href: '/pay/payouts/destinations', value: count },
-          { label: t('dstDefault'), period: t('periodNow'), href: '/pay/payouts/destinations', value: t('notSetUp') },
+          { label: t('dstCount'), period: t('mnPeriodNow'), href: '/pay/payouts/destinations', value: count },
+          { label: t('dstDefault'), period: t('mnPeriodNow'), href: '/pay/payouts/destinations', value: t('mnNotSetUp') },
           {
             label: t('dstLastUsed'),
-            period: t('periodNow'),
+            period: t('mnPeriodNow'),
             href: '/pay/payouts?status=paid_out',
             value: lastUsed ? <DateTime value={lastUsed} /> : '—',
           },
-          { label: t('dstScreening'), period: t('periodNow'), href: '/pay/payouts/destinations', value: t('notRecorded') },
+          { label: t('dstScreening'), period: t('mnPeriodNow'), href: '/pay/payouts/destinations', value: t('notRecorded') },
         ]}
       />
       <ListBody
@@ -69,16 +77,19 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
           </NamedBlocker>
         }
         columns={[
-          { header: t('colDestination'), cell: (d) => describeDestination(t, d.kind, d.destinationMasked, d.railId) },
-          { header: t('dstDefault'), cell: () => <span className="muted">{t('notSetUp')}</span> },
+          { header: t('mnColDestination'), cell: (d) => describeDestination(t, d.kind, d.destinationMasked, d.railId) },
+          { header: t('dstDefault'), cell: () => <span className="muted">{t('mnNotSetUp')}</span> },
           { header: t('dstScreening'), cell: () => <span className="muted">{t('notRecorded')}</span> },
-          { header: t('colAdded'), cell: (d) => <DateTime value={d.createdAt} /> },
-          { header: t('dstLastUsed'), cell: (d) => (d.lastUsedAt ? <DateTime value={d.lastUsedAt} /> : <span className="muted">{t('never')}</span>) },
+          { header: t('mnColAdded'), cell: (d) => <DateTime value={d.createdAt} /> },
+          {
+            header: t('dstLastUsed'),
+            cell: (d) => (d.lastUsedAt ? <DateTime value={d.lastUsedAt} /> : <span className="muted">{t('mnNever')}</span>),
+          },
         ]}
         card={(d) => ({
           title: describeDestination(t, d.kind, d.destinationMasked, d.railId),
           time: <DateTime value={d.createdAt} />,
-          status: <span className="muted">{d.lastUsedAt ? <DateTime value={d.lastUsedAt} /> : t('never')}</span>,
+          status: <span className="muted">{d.lastUsedAt ? <DateTime value={d.lastUsedAt} /> : t('mnNever')}</span>,
         })}
       />
       <AddDestination portal={portal} merchantId={merchantId} onAdded={list.reload} />
@@ -97,20 +108,27 @@ function AddDestination({ portal, merchantId, onAdded }: { portal: PortalApi; me
   const [ref, setRef] = useState('');
   const [tried, setTried] = useState(false);
   const [saved, setSaved] = useState(false);
-  useUnsavedForm(ref.trim() !== '' && !saved, t('unsavedLeave'));
+  useUnsavedForm(ref.trim() !== '' && !saved, t('mnUnsaved'));
   const owner = can('owner');
-  const options =
-    rails.resource.status === 'ready' ? rails.resource.data.filter((r) => r.capabilities.includes('payout') && r.usable) : [];
+  const options = rails.resource.status === 'ready' ? rails.resource.data.filter((r) => r.capabilities.includes('payout') && r.usable) : [];
   const rail = options.find((r) => r.id === railId) ?? (options.length === 1 ? options[0]! : null);
   const kind = rail ? destinationKindOfRail(rail.id) : null;
   const problem = kind ? referenceProblem(kind, ref) : null;
-  const why = !owner ? t('dstOwnerOnly') : !rail ? t('dstPickRail') : problem ? t(problem === 'empty' ? 'dstRefEmpty' : problem === 'crypto' ? 'dstRefCrypto' : 'dstRefBank') : null;
+  const why = !owner
+    ? t('dstOwnerOnly')
+    : !rail
+      ? t('dstPickRail')
+      : problem
+        ? t(problem === 'empty' ? 'dstRefEmpty' : problem === 'crypto' ? 'dstRefCrypto' : 'dstRefBank')
+        : null;
   return (
     <PaySection title={t('dstAddTitle')} description={t('dstAddBody')}>
       {rails.resource.status === 'loading' ? (
         <PortalLoading rows={1} />
       ) : rails.resource.status === 'failed' ? (
-        isComingSoon(rails.resource.failure) ? null : <PortalFailure result={rails.resource.failure} retry={rails.reload} />
+        isNotLive(rails.resource.failure) ? null : (
+          <PortalFailure result={rails.resource.failure} retry={rails.reload} />
+        )
       ) : options.length === 0 ? (
         <p className="muted">{t('dstNoRails')}</p>
       ) : (
@@ -130,7 +148,9 @@ function AddDestination({ portal, merchantId, onAdded }: { portal: PortalApi; me
             }}
             onBlur={() => setTried(true)}
             hint={t('dstRefHint')}
-            error={tried && problem ? t(problem === 'empty' ? 'dstRefEmpty' : problem === 'crypto' ? 'dstRefCrypto' : 'dstRefBank') : undefined}
+            error={
+              tried && problem ? t(problem === 'empty' ? 'dstRefEmpty' : problem === 'crypto' ? 'dstRefCrypto' : 'dstRefBank') : undefined
+            }
             autoComplete="off"
             spellCheck={false}
           />

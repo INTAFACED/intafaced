@@ -171,10 +171,7 @@ export const tierListSchema = z.discriminatedUnion('status', [
         name: z.string(),
         archetype: z.string().optional(),
         caps: z.array(capSchema),
-        reserve: z
-          .object({ rollingReserveBps: z.number().nullable(), holdDays: z.number().nullable() })
-          .nullable()
-          .optional(),
+        reserve: z.object({ rollingReserveBps: z.number().nullable(), holdDays: z.number().nullable() }).nullable().optional(),
         version: z.string().optional(),
       }),
     ),

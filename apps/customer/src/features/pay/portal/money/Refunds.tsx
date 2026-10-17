@@ -6,7 +6,7 @@ import { PaySection } from '../../components';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import { MerchantRefund } from '../../MerchantRefund';
 import { Facts, Gate, Money, MoneyLines, PortalFailure, PortalLoading } from '../components';
-import { isComingSoon, portalRefusal } from '../refusal';
+import { isNotLive } from '../refusal';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt, useUrlParam } from '../hooks';
@@ -26,7 +26,7 @@ import { ToneChip, type StatusTone } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
 import { uiCopy } from '../ui/copy';
 import { useServerList } from '../ui/useServerList';
-import { ExportButton, LinkButton, ListBody, NamedBlocker, shortDay, TestBanner, useListQuery, useTestMode } from './common';
+import { ExportButton, LinkButton, ListBody, localRefusal, NamedBlocker, shortDay, TestBanner, useListQuery, useTestMode } from './common';
 import { mc } from './copy';
 import { refundableAmount, refundRate } from './model';
 import { refundStatuses, type RefundItem } from './schemas';
@@ -44,7 +44,13 @@ export function RefundChip({ status }: { status: RefundItem['status'] }) {
 const sourceWords = (t: Words, source: RefundItem['source']) =>
   source === 'clearing' ? t('rfSource_clearing') : source === 'settled' ? t('rfSource_settled') : t('rfSource_unknown');
 const potWords = (t: Words, pot: NonNullable<RefundItem['ledgerEffect']>['pot']) =>
-  pot === 'clearing' ? t('rfPot_clearing') : pot === 'merchantProceeds' ? t('rfPot_merchantProceeds') : pot === 'userAvailable' ? t('rfPot_userAvailable') : t('rfPot_unknown');
+  pot === 'clearing'
+    ? t('rfPot_clearing')
+    : pot === 'merchantProceeds'
+      ? t('rfPot_merchantProceeds')
+      : pot === 'userAvailable'
+        ? t('rfPot_userAvailable')
+        : t('rfPot_unknown');
 
 /** `/pay/refunds`: every refund on the account. A refund starts from a payment, never from typing an id. */
 export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
@@ -61,7 +67,19 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
   );
   const list = useServerList(
     (f, cursor, signal) =>
-      portal.refundPage(merchantId, { status: f.status, assetId: f.assetId, from: f.from, to: f.to, search: f.search, ...(f.paymentId ? { paymentId: f.paymentId } : {}) }, cursor, signal),
+      portal.refundPage(
+        merchantId,
+        {
+          status: f.status,
+          assetId: f.assetId,
+          from: f.from,
+          to: f.to,
+          search: f.search,
+          ...(f.paymentId ? { paymentId: f.paymentId } : {}),
+        },
+        cursor,
+        signal,
+      ),
     {
       status: query.status ?? '',
       assetId: query.assetId ?? '',
@@ -95,25 +113,25 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
         tiles={[
           {
             label: t('rfCount'),
-            period: t('period30'),
+            period: t('mnPeriod30'),
             href: '/pay/refunds?date=30d',
-            value: n ? (n.nextCursor ? t('countNewest', { n: n.items.length }) : String(n.items.length)) : '—',
+            value: n ? (n.nextCursor ? t('mnCountNewest', { n: n.items.length }) : String(n.items.length)) : '—',
           },
           {
             label: t('rfRefunded'),
-            period: t('period30'),
+            period: t('mnPeriod30'),
             href: '/pay/refunds?date=30d',
             value: snap ? <MoneyLines items={snap.refunded} /> : '—',
           },
           {
             label: t('rfCaptured'),
-            period: t('period30'),
+            period: t('mnPeriod30'),
             href: '/pay/payments?date=30d',
             value: snap ? <MoneyLines items={snap.captured} /> : '—',
           },
           {
             label: t('rfRate'),
-            period: t('period30'),
+            period: t('mnPeriod30'),
             href: '/pay/refunds?date=30d',
             value: rate ?? '—',
             note: rate ? (asset ? asset : undefined) : asset ? t('rfRateNone') : t('rfRatePickAsset'),
@@ -160,7 +178,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
                 )
               }
             >
-              {t('exportThisPage')}
+              {t('mnExportPage')}
             </Button>
           }
         />
@@ -188,11 +206,11 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
         rowKey={(r) => r.id}
         href={(r) => refundHref(r.id)}
         columns={[
-          { header: t('colRefund'), cell: (r) => t('refundName', { when: shortDay(r.createdAt, locale) }) },
+          { header: t('mnColRefund'), cell: (r) => t('refundName', { when: shortDay(r.createdAt, locale) }) },
           { header: t('colAmount'), cell: (r) => <MoneyText value={r.amount} asset={r.assetId} test={test} /> },
           { header: t('colStatus'), cell: (r) => <RefundChip status={r.status} /> },
           { header: t('rfFrom'), cell: (r) => sourceWords(t, r.source ?? null) },
-          { header: t('colCreated'), cell: (r) => <DateTime value={r.createdAt} /> },
+          { header: t('mnColCreated'), cell: (r) => <DateTime value={r.createdAt} /> },
         ]}
         card={(r) => ({
           title: t('refundName', { when: shortDay(r.createdAt, locale) }),
@@ -214,12 +232,12 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
   const test = useTestMode();
   const valid = isUuid(refundId);
   const refund = useResource(
-    (s) => (valid ? portal.refundGet(refundId, s) : Promise.resolve(portalRefusal('rRefundNotFound'))),
+    (s) => (valid ? portal.refundGet(refundId, s) : Promise.resolve(localRefusal(t('rRefundNotFound')))),
     `money:refund:${refundId}`,
   );
   const readAt = useReadAt(refund.resource.status === 'ready', refund.resource);
   const r = refund.resource;
-  if (r.status === 'failed' && isComingSoon(r.failure))
+  if (r.status === 'failed' && isNotLive(r.failure))
     return (
       <div className="stack">
         <a className="text-link" href="/pay/refunds">
@@ -264,7 +282,7 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
                       x.ledgerEffect?.recorded ? potWords(t, x.ledgerEffect.pot) : <span className="muted">{t('rfLedgerNone')}</span>,
                     ],
                     [t('rfReason'), x.reason ? x.reason : <span className="muted">{t('rfReasonNone')}</span>],
-                    [t('colCreated'), <DateTime value={x.createdAt} />],
+                    [t('mnColCreated'), <DateTime value={x.createdAt} />],
                     [t('rfReference'), <CopyReference value={x.refundId} what={t('rfReference')} />],
                   ]}
                 />
@@ -290,7 +308,15 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
 // ---- new ------------------------------------------------------------------------------------------------
 
 /** `/pay/refunds/new`: choose the payment, see what can still go back, then refund it. `?payment=` starts at step two. */
-export function RefundNew({ portal, merchantId, authority }: { portal: PortalApi; merchantId: string; authority: PayBusinessAuthority | null }) {
+export function RefundNew({
+  portal,
+  merchantId,
+  authority,
+}: {
+  portal: PortalApi;
+  merchantId: string;
+  authority: PayBusinessAuthority | null;
+}) {
   const { t } = mc.useCopy();
   const [paymentId, setPaymentId] = useUrlParam('payment', '');
   return (
@@ -315,7 +341,8 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
   const [search, setSearch] = useState('');
   const [typed, setTyped] = useState('');
   const found = useResource((s) => portal.refundablePayments(merchantId, search, s), `money:refundable:${merchantId}:${search}`);
-  const refundable = (p: Payment) => ['captured', 'settled', 'refunded'].includes(p.status) && refundableAmount(p.capturedAmount, p.refundedAmount) !== '0';
+  const refundable = (p: Payment) =>
+    ['captured', 'settled', 'refunded'].includes(p.status) && refundableAmount(p.capturedAmount, p.refundedAmount) !== '0';
   return (
     <PaySection title={t('rnStep1')} description={t('rnStep1Body')}>
       <form
@@ -344,10 +371,13 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
           {found.resource.data.items.filter(refundable).map((p) => (
             <li key={p.id} className="pp-approval">
               <div className="pp-approval-head">
-                <strong>{p.customerRef?.trim() || p.description?.trim() || t('paymentName', { when: shortDay(p.createdAt, locale) })}</strong>
+                <strong>
+                  {p.customerRef?.trim() || p.description?.trim() || t('paymentName', { when: shortDay(p.createdAt, locale) })}
+                </strong>
                 <MoneyText value={p.capturedAmount} asset={p.assetId} test={test} />
                 <small className="muted">
-                  {t('rnRefundable')} <MoneyText value={refundableAmount(p.capturedAmount, p.refundedAmount)} asset={p.assetId} test={test} />
+                  {t('rnRefundable')}{' '}
+                  <MoneyText value={refundableAmount(p.capturedAmount, p.refundedAmount)} asset={p.assetId} test={test} />
                 </small>
                 <DateTime value={p.createdAt} />
               </div>
@@ -389,7 +419,12 @@ function RefundStep({
               <>
                 <Facts
                   items={[
-                    [t('colPayment'), <a className="text-link" href={`/pay/payments/${encodeURIComponent(p.id)}`}>{p.customerRef?.trim() || p.description?.trim() || t('rnOpenPayment')}</a>],
+                    [
+                      t('mnColPayment'),
+                      <a className="text-link" href={`/pay/payments/${encodeURIComponent(p.id)}`}>
+                        {p.customerRef?.trim() || p.description?.trim() || t('rnOpenPayment')}
+                      </a>,
+                    ],
                     [t('rnCaptured'), <MoneyText value={p.capturedAmount} asset={p.assetId} test={test} />],
                     [t('rnAlready'), <MoneyText value={p.refundedAmount} asset={p.assetId} test={test} />],
                     [t('rnRefundable'), <MoneyText value={left} asset={p.assetId} test={test} />],

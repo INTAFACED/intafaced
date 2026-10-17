@@ -1,10 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Button, EmptyState } from '@intafaced/ui';
-import { useMerchantAccess } from '../access/MerchantAccess';
+import { useMerchantAccess, useOptionalMerchantAccess } from '../access/MerchantAccess';
 import { PortalFailure, PortalLoading, TestTag } from '../components';
 import type { ListState } from '../hooks';
 import { newRequestId } from '../model';
-import { isComingSoon, refusalText } from '../refusal';
+import { isNotLive, refusalText } from '../refusal';
 import { EntityList, type EntityCard, type EntityColumn } from '../ui/EntityList';
 import { dateRange, type ListFilters } from '../ui/FilterRow';
 import type { PortalApi } from '../api';
@@ -33,8 +33,8 @@ export function LinkButton({
 
 /** True when the account runs on test money: its business is not yet approved, so every figure is practice. */
 export function useTestMode(): boolean {
-  const { access } = useMerchantAccess();
-  return access.status === 'ready' && access.kybStatus !== null && access.kybStatus !== 'approved';
+  const access = useOptionalMerchantAccess()?.access;
+  return access?.status === 'ready' && access.kybStatus !== null && access.kybStatus !== 'approved';
 }
 
 export function TestBanner() {
@@ -42,7 +42,7 @@ export function TestBanner() {
   if (!useTestMode()) return null;
   return (
     <p className="pp-callout" role="note">
-      <TestTag /> {t('testBanner')}
+      <TestTag /> {t('mnTestBanner')}
     </p>
   );
 }
@@ -110,18 +110,19 @@ export function ListBody<T>({
 }) {
   const { t } = mc.useCopy();
   if (state.status === 'loading') return <PortalLoading rows={4} />;
-  if (state.status === 'failed') return blocked && isComingSoon(state.failure) ? <>{blocked}</> : <PortalFailure result={state.failure} retry={retry} />;
+  if (state.status === 'failed')
+    return blocked && isNotLive(state.failure) ? <>{blocked}</> : <PortalFailure result={state.failure} retry={retry} />;
   if (state.items.length === 0)
     return filtered?.active ? (
       <EmptyState
-        title={t('noMatchTitle')}
+        title={t('mnNoMatchTitle')}
         action={
           <Button variant="secondary" onClick={filtered.clear}>
             {t('clearFilters')}
           </Button>
         }
       >
-        {t('noMatchBody')}
+        {t('mnNoMatchBody')}
       </EmptyState>
     ) : (
       <EmptyState title={empty.title} action={empty.action}>
@@ -183,7 +184,7 @@ export function ExportButton({
       <Button
         variant="secondary"
         disabled={!allowed || state === 'busy'}
-        title={allowed ? undefined : t('exportNotAllowed')}
+        title={allowed ? undefined : t('mnExportNotAllowed')}
         onClick={async () => {
           setState('busy');
           const result = await portal.moneyExportCreate({
@@ -199,15 +200,15 @@ export function ExportButton({
           setState(result.ok ? 'started' : { message: refusalText(result) });
         }}
       >
-        {state === 'busy' ? t('exportStarting') : t('exportThisView')}
+        {state === 'busy' ? t('mnExportStarting') : t('mnExportView')}
       </Button>
       {fallback}
       <span role="status">
         {state === 'started' && (
           <>
-            {t('exportStarted')}{' '}
+            {t('mnExportStarted')}{' '}
             <a className="text-link" href="/pay/reports/exports">
-              {t('exportOpenReports')}
+              {t('mnExportReports')}
             </a>
           </>
         )}
@@ -217,7 +218,7 @@ export function ExportButton({
           {state.message}
         </span>
       )}
-      {!allowed && <small className="muted">{t('exportNotAllowed')}</small>}
+      {!allowed && <small className="muted">{t('mnExportNotAllowed')}</small>}
     </div>
   );
 }
@@ -243,4 +244,9 @@ export function payoutName(
 export function shortDay(value: string, locale: string): string {
   const d = new Date(value);
   return Number.isFinite(d.getTime()) ? d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }) : value;
+}
+
+/** A refusal this page words itself (an address that cannot be right), shaped like a service refusal. */
+export function localRefusal(message: string): Extract<ApiResult<never>, { ok: false }> {
+  return { ok: false, reason: 'error', code: 'portal.local', message };
 }

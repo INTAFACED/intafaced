@@ -2,7 +2,7 @@ import { EmptyState, HeroNumber, SegmentedControl } from '@intafaced/ui';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { Gate, HaltBanner, PortalFailure, PortalLoading } from '../components';
-import { isComingSoon } from '../refusal';
+import { isNotLive } from '../refusal';
 import type { PortalApi } from '../api';
 import { useNow, useUrlParam } from '../hooks';
 import { EntityList } from '../ui/EntityList';
@@ -61,10 +61,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
           const assets = data.balances.map((b) => b.assetCode);
           if (assets.length === 0)
             return (
-              <EmptyState
-                title={t('balEmptyTitle')}
-                action={<LinkButton href="/pay/links/new">{t('balEmptyAction')}</LinkButton>}
-              >
+              <EmptyState title={t('balEmptyTitle')} action={<LinkButton href="/pay/links/new">{t('balEmptyAction')}</LinkButton>}>
                 {t('balEmptyBody')}
               </EmptyState>
             );
@@ -74,7 +71,9 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
           const posted = onTheWay.resource.status === 'ready' ? onTheWay.resource.data.items.filter((p) => p.status === 'posted') : null;
           const pendingApprovals = waiting.resource.status === 'ready' ? waiting.resource.data : null;
           const waitingCount = pendingApprovals ? ('items' in pendingApprovals ? pendingApprovals.items : pendingApprovals).length : null;
-          const approvalMap = pendingApprovals ? approvalsBySettlement('items' in pendingApprovals ? pendingApprovals.items : pendingApprovals) : null;
+          const approvalMap = pendingApprovals
+            ? approvalsBySettlement('items' in pendingApprovals ? pendingApprovals.items : pendingApprovals)
+            : null;
           const waitingMore = pendingApprovals && 'items' in pendingApprovals ? pendingApprovals.nextCursor !== null : false;
           const reserveBps = control.resource.status === 'ready' ? (control.resource.data.reserve?.rollingReserveBps ?? null) : null;
           const reserveDays = control.resource.status === 'ready' ? (control.resource.data.reserve?.holdDays ?? null) : null;
@@ -116,31 +115,45 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
               <KpiStrip
                 label={t('balTiles')}
                 tiles={[
-                  { label: t('balAvailable'), period: t('periodNow'), href: `/pay/money/activity?${q}`, value: <MoneyText value={balance.available} asset={asset} test={test} /> },
-                  { label: t('balPending'), period: t('periodNow'), href: `/pay/money/activity?${q}`, value: <MoneyText value={balance.clearing} asset={asset} test={test} /> },
+                  {
+                    label: t('balAvailable'),
+                    period: t('mnPeriodNow'),
+                    href: `/pay/money/activity?${q}`,
+                    value: <MoneyText value={balance.available} asset={asset} test={test} />,
+                  },
+                  {
+                    label: t('balPending'),
+                    period: t('mnPeriodNow'),
+                    href: `/pay/money/activity?${q}`,
+                    value: <MoneyText value={balance.clearing} asset={asset} test={test} />,
+                  },
                   {
                     label: t('balCaptured'),
-                    period: t('periodToday'),
+                    period: t('mnPeriodToday'),
                     href: `/pay/payments?date=today&${q}`,
                     value: capturedToday ? <MoneyText value={capturedToday} asset={asset} test={test} /> : '—',
                   },
                   {
                     label: t('balRefunded'),
-                    period: t('periodToday'),
+                    period: t('mnPeriodToday'),
                     href: `/pay/refunds?date=today&${q}`,
                     value: refundedToday ? <MoneyText value={refundedToday} asset={asset} test={test} /> : '—',
                   },
                   {
                     label: t('balReady'),
-                    period: t('periodNow'),
+                    period: t('mnPeriodNow'),
                     href: '/pay/payouts?status=posted',
-                    value: posted ? (onTheWay.resource.status === 'ready' && onTheWay.resource.data.more ? t('countNewest', { n: posted.length }) : String(posted.length)) : '—',
+                    value: posted
+                      ? onTheWay.resource.status === 'ready' && onTheWay.resource.data.more
+                        ? t('mnCountNewest', { n: posted.length })
+                        : String(posted.length)
+                      : '—',
                   },
                   {
                     label: t('balWaiting'),
-                    period: t('periodNow'),
+                    period: t('mnPeriodNow'),
                     href: '/pay/approvals?status=pending',
-                    value: waitingCount === null ? '—' : waitingMore ? t('countNewest', { n: waitingCount }) : String(waitingCount),
+                    value: waitingCount === null ? '—' : waitingMore ? t('mnCountNewest', { n: waitingCount }) : String(waitingCount),
                     tone: waitingCount ? 'attention' : undefined,
                   },
                 ]}
@@ -256,7 +269,7 @@ function RecentMovements({ portal, merchantId, asset, test }: { portal: PortalAp
       {r.status === 'loading' ? (
         <PortalLoading rows={3} />
       ) : r.status === 'failed' ? (
-        isComingSoon(r.failure) ? (
+        isNotLive(r.failure) ? (
           <NamedBlocker title={t('balMovementsTitle')} why="reasonLists" needs="merchant.statement.list (feat/pay-portal-be-reads-money)">
             {t('balMovementsBlocked')}
           </NamedBlocker>

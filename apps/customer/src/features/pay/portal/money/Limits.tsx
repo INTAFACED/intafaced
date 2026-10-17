@@ -8,7 +8,7 @@ import { Facts, NotConfigured, PortalFailure, PortalLoading, UsageBar } from '..
 import type { PortalApi } from '../api';
 import { useReadAt } from '../hooks';
 import { newRequestId } from '../model';
-import { isComingSoon } from '../refusal';
+import { isNotLive } from '../refusal';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { capKinds } from '../schemas';
 import { DateTime } from '../ui/DateTime';
@@ -51,10 +51,8 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
     .map((r) => r.resetsAt)
     .filter((x): x is string => x !== null)
     .sort()[0];
-  const tierName =
-    tiers.resource.status === 'ready' && tiers.resource.data.status === 'configured'
-      ? (tiers.resource.data.tiers.find((x) => x.id === tiers.resource.data.ownTierId)?.name ?? null)
-      : null;
+  const tierData = tiers.resource.status === 'ready' ? tiers.resource.data : null;
+  const tierName = tierData?.status === 'configured' ? (tierData.tiers.find((x) => x.id === tierData.ownTierId)?.name ?? null) : null;
   return (
     <div className="stack">
       <TestBanner />
@@ -64,14 +62,20 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
         tiles={[
           {
             label: t('colTier'),
-            period: t('periodNow'),
+            period: t('mnPeriodNow'),
             href: '/pay/pricing',
             value: tierName ?? <NotConfigured>{t('tierNotAssigned')}</NotConfigured>,
           },
-          { label: t('kpiLimitsSet'), period: t('periodNow'), href: '/pay/limits', value: `${configured.length} / ${capKinds.length}`, note: t('kpiLimitsSetNote') },
+          {
+            label: t('kpiLimitsSet'),
+            period: t('mnPeriodNow'),
+            href: '/pay/limits',
+            value: `${configured.length} / ${capKinds.length}`,
+            note: t('kpiLimitsSetNote'),
+          },
           {
             label: t('kpiClosest'),
-            period: t('periodNow'),
+            period: t('mnPeriodNow'),
             href: '/pay/limits',
             value: close ? `${Math.round(close.pct!)}%` : '—',
             note: close ? kindName(t, close.kind) : t('kpiClosestNone'),
@@ -79,7 +83,7 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
           },
           {
             label: t('kpiNextReset'),
-            period: t('periodNow'),
+            period: t('mnPeriodNow'),
             href: '/pay/limits',
             value: nextReset ? <DateTime value={nextReset} /> : '—',
           },
@@ -106,7 +110,15 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
         {t('tierLadderBody')}
       </NamedBlocker>
 
-      <RequestIncrease portal={portal} merchantId={merchantId} rows={configured} open={open.resource} tiers={tiers.resource} reload={reload} test={test} />
+      <RequestIncrease
+        portal={portal}
+        merchantId={merchantId}
+        rows={configured}
+        open={open.resource}
+        tiers={tiers.resource}
+        reload={reload}
+        test={test}
+      />
     </div>
   );
 }
@@ -136,7 +148,13 @@ function LimitItem({ row, test }: { row: LimitRow; test: boolean }) {
                     [t('capUsed'), countCap ? row.used : <MoneyText value={row.used} asset={row.assetCode ?? ''} test={test} />],
                     [
                       t('capRemaining'),
-                      row.remaining === null ? '—' : countCap ? row.remaining : <MoneyText value={row.remaining} asset={row.assetCode ?? ''} test={test} />,
+                      row.remaining === null ? (
+                        '—'
+                      ) : countCap ? (
+                        row.remaining
+                      ) : (
+                        <MoneyText value={row.remaining} asset={row.assetCode ?? ''} test={test} />
+                      ),
                     ],
                     [t('capResets'), row.resetsAt ? <DateTime value={row.resetsAt} /> : '—'],
                   ] as const)
@@ -152,7 +170,10 @@ function LimitItem({ row, test }: { row: LimitRow; test: boolean }) {
 const keyOf = (r: Pick<LimitRow, 'kind' | 'assetCode'>) => `${r.kind}:${r.assetCode ?? ''}`;
 
 /** Caps the merchant typed, checked against what they have now. An ask only counts if it is more than today's limit. */
-export function askCaps(rows: readonly LimitRow[], typed: Record<string, string>): { caps: Cap[]; problem: 'none' | 'format' | 'notMore' | null } {
+export function askCaps(
+  rows: readonly LimitRow[],
+  typed: Record<string, string>,
+): { caps: Cap[]; problem: 'none' | 'format' | 'notMore' | null } {
   const caps: Cap[] = [];
   let problem: 'format' | 'notMore' | null = null;
   for (const row of rows) {
@@ -195,9 +216,8 @@ function RequestIncrease({
   const requestId = useRef(newRequestId());
   const [sent, setSent] = useState(false);
   const dirty = !sent && (reason.trim() !== '' || Object.values(typed).some((v) => v.trim() !== ''));
-  useUnsavedForm(dirty, t('unsavedLeave'));
-  const mayAsk =
-    access.status === 'ready' && ['owner', 'admin', 'finance'].includes(access.role) && access.sessionInteractive !== false;
+  useUnsavedForm(dirty, t('mnUnsaved'));
+  const mayAsk = access.status === 'ready' && ['owner', 'admin', 'finance'].includes(access.role) && access.sessionInteractive !== false;
   const check = askCaps(rows, typed);
   const reasonOk = reason.trim().length >= 3 && reason.trim().length <= 500;
   const why = !mayAsk
@@ -217,7 +237,7 @@ function RequestIncrease({
       {open.status === 'loading' ? (
         <PortalLoading rows={2} />
       ) : open.status === 'failed' ? (
-        isComingSoon(open.failure) ? (
+        isNotLive(open.failure) ? (
           <NamedBlocker title={t('lrTitle')} why="reasonActions" needs="merchantControl.limits.open">
             {t('lrBlocked')}
           </NamedBlocker>
@@ -257,14 +277,17 @@ function RequestIncrease({
             review={
               <dl className="pp-facts">
                 {check.caps.map((cap) => {
-                  const row = rows.find((r) => keyOf(r) === (cap.kind === 'beneficiaries_per_day' ? `${cap.kind}:` : `${cap.kind}:${cap.assetCode}`));
+                  const row = rows.find(
+                    (r) => keyOf(r) === (cap.kind === 'beneficiaries_per_day' ? `${cap.kind}:` : `${cap.kind}:${cap.assetCode}`),
+                  );
                   return (
                     <div key={cap.kind + ('assetCode' in cap ? cap.assetCode : '')}>
                       <dt>{kindName(t, cap.kind)}</dt>
                       <dd>
                         {'assetCode' in cap ? (
                           <>
-                            <MoneyText value={row?.limit ?? '0'} asset={cap.assetCode} test={test} /> → <MoneyText value={cap.limit} asset={cap.assetCode} test={test} />
+                            <MoneyText value={row?.limit ?? '0'} asset={cap.assetCode} test={test} /> →{' '}
+                            <MoneyText value={cap.limit} asset={cap.assetCode} test={test} />
                           </>
                         ) : (
                           `${row?.limit ?? ''} → ${cap.limit}`
@@ -279,7 +302,9 @@ function RequestIncrease({
                 </div>
               </dl>
             }
-            perform={() => portal.limitRequestIncrease({ merchantId, requestId: requestId.current, caps: check.caps, reason: reason.trim() })}
+            perform={() =>
+              portal.limitRequestIncrease({ merchantId, requestId: requestId.current, caps: check.caps, reason: reason.trim() })
+            }
             onConfirmed={() => {
               setSent(true);
               setTyped({});
