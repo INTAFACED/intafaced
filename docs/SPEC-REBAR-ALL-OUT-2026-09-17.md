@@ -22,7 +22,7 @@ You are the Rebar mill owner in **this chat only**. Files are memory.
 5. Width: **3–6** path-disjoint **services** (not cards). Floor 3 while ≥3 services have `OPEN`. **Never 1** while another service has `OPEN` (FAILURES #9). Matching’s many cards are **one seat**.
 6. One service per PR. `pnpm wt`. `graphify query "<symbol>" --budget 400`. No `vendor/`. After edits: `GRAPHIFY_MAX_WORKERS=1 graphify update .`. Do not mill `graphify-out` as product.
 7. Class M → fail-first + doubt-driven before merge.
-8. **You merge.** Squash to `main`, never push `main`. Do not wait for CI. GraphQL `--admin` blocked → REST squash (FAILURES #6). `--delete-branch` on merge. Never merge Dependabot, partner, or non-mill PRs. Auth: `GH_TOKEN` from `~/.grok/agent-auth/github_token` — never print.
+8. **You merge.** Squash to `main`, never push `main`. Merging follows [`AGENTS.md`](../AGENTS.md); never delete branches. Never merge Dependabot, partner, or non-mill PRs. Auth: `GH_TOKEN` from `~/.grok/agent-auth/github_token` — never print.
 9. No frontend. No `svc-chain`. No ccxt. No hand-rolled FIX/SBE/Greeks. Blank owner env → refuse. **Do not** change compose `INTERNAL_SERVICE_BODY_BIND:-accept-both` (pin tests are law).
 10. Nitro has **no** check, click, merge, or terminal step after start. STATUS is written for the mill and the next agent.
 11. Desk close-out only trees **this mill** created (`spec-rebar-*` / writer branch prefix). Never `wt:gc` the world.
@@ -311,16 +311,16 @@ Branch prefix for this mill: `rebar/` (example `rebar/h1-fix-compose`). One serv
 
 ```
 export GH_TOKEN="$(tr -d '\n\r ' < /Users/Nitro/.grok/agent-auth/github_token)"
-gh pr merge <N> --squash --delete-branch
+gh pr merge <N> --squash   # branch is kept (AGENTS.md)
 ```
 
 If GraphQL “checks expected”: REST `PUT /repos/Phantom-X-007/intafaced/pulls/<N>/merge` with `merge_method=squash`. Then delete the remote head if still present.
 
-Never: wait for CI green · ask Nitro to merge · merge `#dependabot` · merge a partner PR · `git push origin main` · `git branch -D` (remote delete is `--delete-branch` only).
+Never: ask Nitro to merge · merge `#dependabot` · merge a partner PR · `git push origin main` · `git branch -D`.
 
 **Cleanup same turn, last merge:**
 
-1. `git -C /Users/Nitro/projects/Sovereign worktree remove --force` each mill tree (`rebar/*`, `spec-rebar-*`).
+1. `git -C /Users/Nitro/projects/Sovereign worktree remove <path>` (never `--force`) each mill tree (`rebar/*`, `spec-rebar-*`).
 2. `scheduler_delete` the mill watchdog.
 3. Delete `docs/ops/boom/REBAR-LOCK.json`.
 4. Write `REBAR-STATUS.md` `FINISHED` + merged PR list + remaining SOCKET names.
@@ -344,7 +344,7 @@ Any fail → STATUS stays `RUNNING` or `STUCK`. Do not write `FINISHED`.
 | --------------------------- | ---------------------------------------------- |
 | “Open STATUS” was homework  | Nitro zero steps. File is mill/next-agent only |
 | Merge mentioned, not gated  | FINISHED illegal while mill PRs open           |
-| No branch prefix / delete   | `rebar/` + squash `--delete-branch`            |
+| No branch prefix / delete   | `rebar/` + squash, branch kept                 |
 | Cleanup optional            | §19 checklist is the gate                      |
 | Spec stuck on dirty door    | first mill PR lands spec+queue+STATUS          |
 | Merge Dependabot / partners | banned                                         |

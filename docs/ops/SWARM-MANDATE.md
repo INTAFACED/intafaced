@@ -63,9 +63,9 @@ When `freeProduct=0`, **do not** burn the night on tip-bump stamp PRs (R07/R01/P
 | **P2**   | Partner unblock        | Exact CI fail extract; one NEW comment only; never merge partners                         | dual-edit / merge Denon·Shehzad     |
 | **P3**   | Tracker                | Deepen thin specs **or** implement Stage-1 from implementable TRK                         | stamp mill; invent money-class      |
 | **P4**   | Integrity              | Invent re-scan only if shell code changed; P-WS only if partner matrix changed            | cycle stamp with no delta           |
-| **P5**   | Hygiene                | Claims truth; merge when done                                                             | R07 peace rows for unchanged board  |
+| **P5**   | Hygiene                | Claims truth; merge per AGENTS.md                                                         | R07 peace rows for unchanged board  |
 
-**Night/AFK after freeProduct=0:** P1→P5 above. Merge when done. **Not** invent depth UI. **Not** R07 cycle spam.
+**Night/AFK after freeProduct=0:** P1→P5 above. Merge per AGENTS.md. **Not** invent depth UI. **Not** R07 cycle spam.
 
 ### Allowed vs forbidden when freeProduct=0
 
@@ -75,7 +75,7 @@ When `freeProduct=0`, **do not** burn the night on tip-bump stamp PRs (R07/R01/P
 | P2 exact partner CI fail comments                         | Merging Denon/Shehzad PRs                               |
 | P3 code-grounded TRK research deepen                      | Dual-edit partner open PR paths                         |
 | P4 invent/P-WS **only if** code or partner matrix changed | Invent/P-WS stamp with no Board-Delta                   |
-| P5 claims truth + merge when done                         | freeProduct=0 as session kill **or** as license to spam |
+| P5 claims truth + merge per AGENTS.md                     | freeProduct=0 as session kill **or** as license to spam |
 
 ### Machine enforcement (not a banner)
 
@@ -122,14 +122,14 @@ When the primary board finish is met but the session continues (AFK / “never s
 **Finished work is never held back for CI cost.** No PR caps, no CI-spend cooling window, no spend override flags. GitHub rate-limit cooldowns and access restrictions still apply; see [`AGENT_PROTOCOL.md`](../../tooling/agent-protocol/AGENT_PROTOCOL.md) §3.
 GitHub is the **merge seal**, not the chat log.
 
-| Rule                    | Detail                                                                                                                                                                                |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Verify the change**   | Agents run relevant local checks and review the actual behavior. Full-suite CI and `pnpm verify` are informational; required protection checks still apply. Do not wait for CI green. |
-| **No coordination PRs** | Forbidden: R07 / peace / cycle N / FREEZE-only / claims-only / “board unchanged” PRs. Files stay local until a real product/law delta.                                                |
-| **One concern per PR**  | One service per PR (CONTRIBUTING §15.1) — **reviewability**. Do not fatten a PR to save runs; that reason is gone.                                                                    |
-| **Open path**           | `pnpm pr -- …`.                                                                                                                                                                       |
-| **Push path**           | `.githooks/pre-push` runs `format:check` and refuses direct push to `main`.                                                                                                           |
-| **Stamp mill**          | Stopped by `value-gate`, on **content**. Never by a volume number.                                                                                                                    |
+| Rule                    | Detail                                                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **Verify the change**   | Agents run relevant local checks and review the actual behavior. Then follow the merge rule in AGENTS.md.                              |
+| **No coordination PRs** | Forbidden: R07 / peace / cycle N / FREEZE-only / claims-only / “board unchanged” PRs. Files stay local until a real product/law delta. |
+| **One concern per PR**  | One service per PR (CONTRIBUTING §15.1) — **reviewability**. Do not fatten a PR to save runs; that reason is gone.                     |
+| **Open path**           | `pnpm pr -- …`.                                                                                                                        |
+| **Push path**           | `.githooks/pre-push` runs `format:check` and refuses direct push to `main`.                                                            |
+| **Stamp mill**          | Stopped by `value-gate`, on **content**. Never by a volume number.                                                                     |
 
 **Cold resume (no third file):** regenerate + read [`FREEZE-LIVE.md`](./FREEZE-LIVE.md) · [`../COORDINATION-TRUTH-LAYERS.md`](../COORDINATION-TRUTH-LAYERS.md) § Agent cold-start · human inbox [`../BOARD-CLEAR-HUMAN-BLOCKERS.md`](../BOARD-CLEAR-HUMAN-BLOCKERS.md).
 
