@@ -8,9 +8,11 @@ import type { MerchantAddress } from './merchant-portal/fields.js';
  *
  * `merchant.decideKyb` and `kyb.decide` consume with this hash. The proposal
  * filed with identity is the same hash: `kybDecisionPayloadHash` of these
- * fields. They are the decision, the merchant's `profile_version`, and a hash
- * of legal name, address, statement descriptor, and industry. An approval
- * reviewed against an older identity does not match, so it is not consumed.
+ * fields. They are the decision and a hash of legal name, address, statement
+ * descriptor, and industry. Profile version is not part of the binding:
+ * identity cannot change while KYB is pending, and a website or support-email
+ * edit must not invalidate an approval. An approval reviewed against an older
+ * identity does not match, so it is not consumed.
  */
 export const PAY_MERCHANT_DECIDE_KYB = 'pay.merchant_decide_kyb';
 export const PAY_KYB_DECIDE = 'pay.kyb_decide';
@@ -24,13 +26,12 @@ export interface KybIdentity {
 
 export interface KybDecisionBinding {
   merchantId: string;
-  profileVersion: string;
+  identity: KybIdentity;
   identityHash: string;
   fields(decision: 'approved' | 'rejected'): Record<string, string>;
 }
 
 interface IdentityRow {
-  profile_version: string;
   legal_name: string | null;
   statement_descriptor: string | null;
   industry: string | null;
@@ -85,14 +86,12 @@ export function kybIdentityHash(identity: KybIdentity): string {
 export function kybDecisionFields(input: {
   merchantId: string;
   decision: 'approved' | 'rejected';
-  profileVersion: string;
   identityHash: string;
 }): Record<string, string> {
   return {
     decision: input.decision,
     identityHash: input.identityHash,
     merchantId: input.merchantId,
-    profileVersion: input.profileVersion,
   };
 }
 
@@ -106,7 +105,6 @@ export function kybDecisionFields(input: {
 export function kybApprovalFields(input: {
   merchantId: string;
   decision: 'approved' | 'rejected';
-  profileVersion: string;
   identityHash: string;
   reason?: string;
 }): Record<string, string> {
@@ -119,31 +117,46 @@ export function kybDecisionPayloadHash(actionType: string, fields: Record<string
   return payActionPayloadHash(actionType, fields);
 }
 
-export function kybBindingMatches(
-  live: { profileVersion: string; identityHash: string },
-  expected: { profileVersion: string; identityHash: string },
-): boolean {
-  return live.profileVersion === expected.profileVersion && changeHashesEqual(live.identityHash, expected.identityHash);
+export function kybBindingMatches(live: { identityHash: string }, expected: { identityHash: string }): boolean {
+  return changeHashesEqual(live.identityHash, expected.identityHash);
+}
+
+/** Wire view of a binding: the identity fields the hash covers, and the hash. */
+export function kybDecisionBindingView(binding: KybDecisionBinding): {
+  merchantId: string;
+  legalName: string | null;
+  address: KybIdentity['address'];
+  statementDescriptor: string | null;
+  industry: string | null;
+  identityHash: string;
+} {
+  return {
+    merchantId: binding.merchantId,
+    legalName: binding.identity.legalName,
+    address: binding.identity.address,
+    statementDescriptor: binding.identity.statementDescriptor,
+    industry: binding.identity.industry,
+    identityHash: binding.identityHash,
+  };
 }
 
 export async function loadKybDecisionBinding(sql: Sql, merchantId: string): Promise<KybDecisionBinding | null> {
   const rows = await sql<IdentityRow[]>`
-    SELECT profile_version::text AS profile_version,
-           legal_name, statement_descriptor, industry,
+    SELECT legal_name, statement_descriptor, industry,
            address_line1, address_line2, address_city, address_region,
            address_postal_code, address_country
       FROM pay.merchants
      WHERE id = ${merchantId}`;
   const row = rows[0];
   if (!row) return null;
-  const identityHash = kybIdentityHash(kybIdentityOf(row));
-  const profileVersion = row.profile_version;
+  const identity = kybIdentityOf(row);
+  const identityHash = kybIdentityHash(identity);
   return {
     merchantId,
-    profileVersion,
+    identity,
     identityHash,
     fields(decision) {
-      return kybApprovalFields({ merchantId, decision, profileVersion, identityHash });
+      return kybApprovalFields({ merchantId, decision, identityHash });
     },
   };
 }

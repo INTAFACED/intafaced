@@ -45,8 +45,8 @@ import { MerchantProfileService } from './profile.js';
  * Profile writes are owner or admin, and only from an interactive session.
  * A PayFac parent that can read a child cannot write that child's profile.
  * While KYB is `none` or `rejected`, one interactive owner or admin applies
- * sensitive identity fields directly. While KYB is `pending`, a sensitive edit
- * is refused. After approval, `businessProfile.review` (`admin:compliance`)
+ * sensitive identity fields directly. While KYB is `pending`, a request that
+ * names any sensitive identity field is refused entirely. After approval, `businessProfile.review` (`admin:compliance`)
  * applies them, the same operator class as `merchant.decideKyb`. Review checks
  * that the request is `pending_review` and that the presented change hash
  * matches, before it consumes the founder approval.

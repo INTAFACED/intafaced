@@ -543,9 +543,11 @@ export function createPayRouter(
        * `confirmOperatorId` is attribution at most. MFA is still required locally
        * (`admin:compliance` is not INTERACTIVE_ONLY). Missing approval ids refuse.
        *
-       * The approval hash includes the live profile version and identity hash.
-       * A proposal filed against an older identity does not consume. The same
-       * fields are what a proposer sends to identity (`kybDecisionPayloadHash`).
+       * The approval hash is the live identity hash. A proposal filed against
+       * an older identity does not consume. The proposer reads
+       * `kyb.decisionBinding` and sends the same fields to identity
+       * (`kybDecisionPayloadHash`). The consume runs under the merchant row
+       * lock, after that identity still matches, and before the status write.
        */
       decideKyb: scopedProcedure('admin:compliance', { module: 'pay' })
         .input(
@@ -574,22 +576,23 @@ export function createPayRouter(
             }
             const binding = await loadKybDecisionBinding(portalSql, input.merchantId);
             if (!binding) throw new PayError(`Merchant ${input.merchantId} not found`, 'pay.merchant_not_found');
-            const confirmOperatorId = await consumePayApproval(
-              approvals,
-              input,
-              PAY_MERCHANT_DECIDE_KYB,
-              kybApprovalFields({
-                merchantId: binding.merchantId,
-                decision: input.decision,
-                profileVersion: binding.profileVersion,
-                identityHash: binding.identityHash,
-              }),
-            );
+            let confirmOperatorId = '';
             const merchant = await pay.decideKyb({
               merchantId: input.merchantId,
               decision: input.decision,
-              profileVersion: binding.profileVersion,
               identityHash: binding.identityHash,
+              beforeWrite: async () => {
+                confirmOperatorId = await consumePayApproval(
+                  approvals,
+                  input,
+                  PAY_MERCHANT_DECIDE_KYB,
+                  kybApprovalFields({
+                    merchantId: binding.merchantId,
+                    decision: input.decision,
+                    identityHash: binding.identityHash,
+                  }),
+                );
+              },
             });
             return { id: merchant.id, kybStatus: merchant.kybStatus, kybRef: merchant.kybRef, confirmOperatorId };
           }),

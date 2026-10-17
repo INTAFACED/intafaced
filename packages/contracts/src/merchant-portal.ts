@@ -94,6 +94,24 @@ export const merchantBusinessProfileSchema = z
   .strict();
 export type MerchantBusinessProfile = z.infer<typeof merchantBusinessProfileSchema>;
 
+/**
+ * Identity a compliance proposer reads before filing a KYB approval.
+ * `identityHash` is the only binding. Website, support email, display name,
+ * and the profile version are absent: those edits must not invalidate an
+ * approval of this identity.
+ */
+export const kybDecisionBindingSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    legalName: z.string().nullable(),
+    address: merchantAddressSchema.nullable(),
+    statementDescriptor: z.string().nullable(),
+    industry: z.string().nullable(),
+    identityHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  })
+  .strict();
+export type KybDecisionBindingView = z.infer<typeof kybDecisionBindingSchema>;
+
 const profileField = z.string().nullable().optional();
 
 export const merchantBusinessProfileSubmitInputSchema = z

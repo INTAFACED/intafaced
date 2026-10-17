@@ -154,7 +154,7 @@ export type PayErrorCode =
   /** KYB transition refused (wrong status, or stub decide blocked under live-only). */
   | 'pay.kyb_invalid'
   | 'pay.kyb_operator_required'
-  /** The approval was reviewed against a different profile version or identity. */
+  /** The approval was reviewed against a different merchant identity. */
   | 'pay.kyb_identity_changed'
   /** decideKyb has no database, so it cannot bind the approval to the live identity. */
   | 'pay.kyb_profile_unbound'
@@ -1346,12 +1346,17 @@ export class PayService {
   async decideKyb(input: {
     merchantId: string;
     decision: 'approved' | 'rejected';
-    profileVersion?: string;
-    identityHash?: string;
+    identityHash: string;
+    /**
+     * Runs under the merchant row lock after the live identity matches
+     * `identityHash`, and before the status write. The KYB routers consume
+     * the founder approval here so a mismatch refuses without consuming it.
+     */
+    beforeWrite?: () => Promise<void>;
   }): Promise<MerchantRecord> {
     return this.writeKybDecision(input.merchantId, input.decision, {
-      profileVersion: input.profileVersion,
       identityHash: input.identityHash,
+      beforeWrite: input.beforeWrite,
     });
   }
 
@@ -1373,7 +1378,7 @@ export class PayService {
   private async writeKybDecision(
     merchantId: string,
     decision: 'approved' | 'rejected',
-    binding?: { profileVersion?: string; identityHash?: string },
+    binding?: { identityHash: string; beforeWrite?: () => Promise<void> },
   ): Promise<MerchantRecord> {
     return transaction(this.sql, async (tx) => {
       const rows = await tx<MerchantRow[]>`
@@ -1383,21 +1388,17 @@ export class PayService {
       const row = rows[0];
       if (!row) throw new PayError(`Merchant ${merchantId} not found`, 'pay.merchant_not_found');
       const merchant = toMerchant(row);
-      if (binding?.profileVersion !== undefined || binding?.identityHash !== undefined) {
-        const live = await loadKybDecisionBinding(tx, merchantId);
-        if (
-          !live ||
-          binding.profileVersion === undefined ||
-          binding.identityHash === undefined ||
-          !kybBindingMatches(live, { profileVersion: binding.profileVersion, identityHash: binding.identityHash })
-        ) {
-          throw new PayError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
-        }
-      }
       if (merchant.kybStatus !== 'pending') {
         throw new PayError(`Merchant KYB must be pending to decide (is ${merchant.kybStatus})`, 'pay.kyb_invalid', {
           kybStatus: merchant.kybStatus,
         });
+      }
+      if (binding) {
+        const live = await loadKybDecisionBinding(tx, merchantId);
+        if (!live || !binding.identityHash || !kybBindingMatches(live, { identityHash: binding.identityHash })) {
+          throw new PayError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
+        }
+        if (binding.beforeWrite) await binding.beforeWrite();
       }
       const [updated] = await tx<MerchantRow[]>`
         UPDATE pay.merchants

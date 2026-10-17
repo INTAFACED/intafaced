@@ -167,7 +167,10 @@ function stubService(): Stub {
     getMerchant: record('getMerchant', merchant),
     getMerchantByUserId: record('getMerchantByUserId', merchant),
     submitKyb: record('submitKyb', () => ({ ...merchant(), kybStatus: 'pending' as const, kybRef: 'dossier-1' })),
-    decideKyb: record('decideKyb', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
+    decideKyb: record('decideKyb', ((input: { beforeWrite?: () => Promise<void> }) => {
+      const consume = input.beforeWrite?.() ?? Promise.resolve();
+      return consume.then(() => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' }));
+    }) as unknown as () => ReturnType<typeof merchant>),
     decideKybStub: record('decideKybStub', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
     listPayments: record('listPayments', () => ({
       items: [{ ...paymentView({ status: 'captured', capturedAmount: amt('100') }), pricingSnapshot: null, failure: null }],

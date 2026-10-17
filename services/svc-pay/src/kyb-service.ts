@@ -198,7 +198,7 @@ export class KybService {
     );
   }
 
-  /** Live profile version and identity hash for the KYB approval payload. Null when the merchant is missing. */
+  /** Identity fields and hash a compliance proposer files into the KYB approval. Null when the merchant is missing. */
   async decisionBinding(merchantId: string): Promise<KybDecisionBinding | null> {
     return loadKybDecisionBinding(this.sql, merchantId);
   }
@@ -206,8 +206,8 @@ export class KybService {
   /**
    * Operator decide — works under live-only. This is the digital KYB path the
    * stub points at when it refuses. Scope belongs on the router (`admin:compliance`).
-   * When `profileVersion` and `identityHash` are set, the locked row must still
-   * be that identity or the decision is refused.
+   * `identityHash` is required. Under the merchant row lock, the live identity
+   * must still be that hash or the decision is refused before `beforeWrite`.
    */
   async decide(input: {
     merchantId: string;
@@ -215,8 +215,9 @@ export class KybService {
     reason: string;
     actorId: string;
     actorScope: string;
-    profileVersion?: string;
-    identityHash?: string;
+    identityHash: string;
+    /** Runs after the locked identity matches, before the status write. */
+    beforeWrite?: () => Promise<void>;
   }): Promise<{ changed: boolean; kybStatus: KybStatus; event: KybEventRecord | null }> {
     const reason = requireReason(input.reason, 'pay.kyb_reason_required');
     if (reason.length < 3) {
@@ -237,17 +238,11 @@ export class KybService {
             kybStatus: merchant.kyb_status,
           });
         }
-        if (input.profileVersion !== undefined || input.identityHash !== undefined) {
-          const live = await loadKybDecisionBinding(tx, input.merchantId);
-          if (
-            !live ||
-            input.profileVersion === undefined ||
-            input.identityHash === undefined ||
-            !kybBindingMatches(live, { profileVersion: input.profileVersion, identityHash: input.identityHash })
-          ) {
-            throw new KybError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
-          }
+        const live = await loadKybDecisionBinding(tx, input.merchantId);
+        if (!live || !input.identityHash || !kybBindingMatches(live, { identityHash: input.identityHash })) {
+          throw new KybError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
         }
+        if (input.beforeWrite) await input.beforeWrite();
 
         const [updated] = await tx<Array<{ id: string }>>`
           UPDATE pay.merchants
