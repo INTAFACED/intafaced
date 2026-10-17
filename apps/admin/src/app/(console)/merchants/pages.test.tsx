@@ -126,6 +126,9 @@ const globalMetrics = {
   railHealth: [
     { railId: 'card', ok: true, detail: null },
     { railId: 'sepa', ok: false, detail: 'timeout' },
+    { railId: 'crypto-native', ok: false, detail: null },
+    { railId: 'card-sandbox', ok: false, detail: '' },
+    { railId: 'bank-payout', ok: false, detail: 'bank-payout has nothing configured.' },
   ],
 };
 const snapshot = {
@@ -265,6 +268,13 @@ describe('dashboard', () => {
     expect(out).toContain('href="/merchants/all?kyb=pending"');
     expect(out).toContain('Onboarding funnel');
     expect(out).toContain('rail down');
+    expect(out).toContain('Crypto transfers (TEST sandbox)');
+    expect(out).toContain('Cards (TEST sandbox)');
+    expect(out).toContain('Bank payouts');
+    expect(out).toContain('bank-payout has nothing configured.');
+    // Both down rails that sent no reason say so, in words, instead of a dash.
+    expect(out.match(/The rail did not report a reason\./g)?.length).toBe(2);
+    expect(out).toContain('timeout');
     expect(out).toContain('Show as a table');
     expect(out).not.toMatch(/NaN|undefined|\[object/);
   });
@@ -279,7 +289,7 @@ describe('dashboard', () => {
   it('says "not built yet" when the procedure is a stub, and invents no number', async () => {
     services({});
     const out = html(await MerchantsHome({ searchParams: sp() }));
-    expect(out).toContain('Not built yet');
+    expect(out).toContain('Not switched on here');
     expect(out).toContain('founderAdmin.metrics.global');
     expect(out).not.toContain('0.00');
   });
@@ -432,7 +442,7 @@ describe('all merchants', () => {
 
   it('shows not-built and a refused filter in words', async () => {
     services({});
-    expect(html(await AllMerchants({ searchParams: sp() }))).toContain('Not built yet');
+    expect(html(await AllMerchants({ searchParams: sp() }))).toContain('Not switched on here');
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) =>
@@ -536,6 +546,62 @@ describe('merchant drill-down', () => {
     expect(out).toContain('Acme Trading Ltd');
   });
 
+  describe('fee story', () => {
+    const rule = (layer: 'global' | 'tier' | 'merchant', feeBps: number, flatFee: string | null = null) => ({
+      layer,
+      scopeId: layer === 'global' ? null : 'x',
+      assetCode: 'USDT',
+      bands: [{ fromAmount: '0', feeBps, flatFee }],
+      spreadBps: null,
+      roundingBeneficiary: 'platform',
+    });
+    const drilldown = (pricing: unknown) => ({
+      'founderAdmin.merchants.drilldown': {
+        merchantId: MID,
+        displayName: 'Acme Shop',
+        legalName: 'Acme Trading Ltd',
+        status: 'active',
+        metrics: snapshot,
+        control: { merchantId: MID, tierId: null, archetypeId: null, caps: null, pricing, reserve: null, version: '1', updatedAt: null },
+        halts: { readable: true, autoTrip: { enabled: false, consecutiveFailures: null }, states: [] },
+        pendingApprovals: [],
+        pendingLimitRequests: [],
+        recentAudit: [],
+        auditTruncated: false,
+        operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
+      },
+    });
+
+    it('shows the rule in force as a percent with a TEST chip, never as basis points, and says no payment has settled', async () => {
+      services({ ...base, ...drilldown([rule('global', 250), rule('merchant', 150)]) });
+      const out = html(await page());
+      expect(out).toContain('1.5%');
+      expect(out).not.toContain('2.5%');
+      expect(out).toContain('this merchant’s own rule');
+      expect(out).toContain('>TEST<');
+      expect(out).not.toMatch(/bps|No snapshot/);
+      expect(out).toContain('Fee is worked out when a payment settles; none has settled.');
+    });
+
+    it('drops the settlement sentence once a payment has settled', async () => {
+      services({
+        'founderAdmin.metrics.merchant': { ...snapshot, statusMix: [{ status: 'settled', count: 2 }] },
+        'founderAdmin.metrics.merchantSeries': series,
+        ...drilldown([rule('global', 250)]),
+      });
+      const out = html(await page());
+      expect(out).toContain('2.5%');
+      expect(out).not.toContain('none has settled');
+    });
+
+    it('says plainly that no rule exists rather than inventing a fee', async () => {
+      services({ ...base, ...drilldown(null) });
+      const out = html(await page());
+      expect(out).toContain('No fee rule is set for this merchant, its tier or globally, so payments refuse.');
+      expect(out).not.toContain('none has settled');
+    });
+  });
+
   it('shows caps unreadable for a pending ask whose caps are not a cap, and still shows the merchant', async () => {
     services({
       ...base,
@@ -595,11 +661,11 @@ describe('merchant drill-down', () => {
     services(base);
     const notes = html(await page({ tab: 'notes' }));
     expect(notes).toContain('founderAdmin.ops.notes.list');
-    expect(notes).toContain('Not built yet');
+    expect(notes).toContain('Not switched on here');
     expect(notes).not.toContain('Notes are not built yet');
     const controls = html(await page({ tab: 'controls' }));
     expect(controls).toContain('founderAdmin.control.merchant.get');
-    expect(controls).toContain('Not built yet');
+    expect(controls).toContain('Not switched on here');
     expect(html(await page({ tab: 'approvals' }))).toContain('founderAdmin.approvals.list');
     expect(html(await page({ tab: 'halts' }))).toContain('payHalts.operatorStatus');
   });
@@ -632,7 +698,7 @@ describe('merchant drill-down', () => {
   it('a tab whose figures are not built shows that, even when another read succeeded', async () => {
     services({ 'founderAdmin.metrics.merchantSeries': series });
     const out = html(await page({ tab: 'payments' }));
-    expect(out).toContain('Not built yet');
+    expect(out).toContain('Not switched on here');
   });
 });
 
@@ -1159,7 +1225,7 @@ describe('founder approvals queue', () => {
   it('a stub is "not built yet", a dead service is an error with a retry, an unknown shape is "could not be read"', async () => {
     services({});
     const stub = html(await page());
-    expect(stub).toContain('Not built yet');
+    expect(stub).toContain('Not switched on here');
     expect(stub).toContain('founderAdmin.approvals.list');
     expect(stub).not.toContain('Waiting for founders');
     vi.stubGlobal(
@@ -1217,7 +1283,7 @@ describe('registries', () => {
 
   it('a registry that is not mounted says so', async () => {
     services({});
-    expect(html(await list('wallet-routes'))).toContain('Not built yet');
+    expect(html(await list('wallet-routes'))).toContain('Not switched on here');
   });
 
   it('an unknown registry kind is not found', async () => {
@@ -1231,7 +1297,7 @@ describe('registries', () => {
     const out = html(await RegistryNew({ params: Promise.resolve({ kind: 'venues' }) }));
     expect(out).toContain('<label for="rf-venueId">');
     expect(out).toContain('aria-describedby="rf-venueId-hint"');
-    expect(out).toContain('Live (not allowed yet)');
+    expect(out).toContain('Live (not allowed)');
     expect(out).toContain('Review change');
     expect(out).toContain('never stored here');
     const fieldIds = [...out.matchAll(/id="rf-([A-Za-z]+)"/g)].map((m) => m[1]!);
@@ -1272,7 +1338,7 @@ describe('treasury and halts', () => {
   it('shows the not-built state for both reads while the procedures are stubs', async () => {
     services({});
     const out = html(await Treasury());
-    expect(out.match(/Not built yet/g)?.length).toBe(5);
+    expect(out.match(/Not switched on here/g)?.length).toBe(5);
     expect(out).toContain('founderAdmin.treasury.exposure');
     expect(out).toContain('payHalts.history');
     expect(out).toContain('payHalts.operatorStatus');

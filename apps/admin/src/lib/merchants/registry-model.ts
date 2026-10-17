@@ -532,7 +532,7 @@ export interface PlainRefusal {
 
 const COPY: Record<string, PlainRefusal> = {
   'registries.live_mode_refused': {
-    title: 'Live venues are not allowed yet',
+    title: 'Live venues are not allowed',
     body: 'Only disabled and testnet venues can be saved. Live trading stays off until Nitro and Phantom switch it on.',
     next: 'Choose testnet or disabled and review again.',
   },

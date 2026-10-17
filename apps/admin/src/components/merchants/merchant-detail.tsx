@@ -11,6 +11,8 @@ import { CopyButton } from './copy-button';
 import { NotesPanel } from '@/components/founder-ops/notes-panel';
 import type { NotePage } from '@/lib/founder-ops/notes';
 import type { PayCallResult } from '@/lib/merchants/pay-call';
+import { feeLines, FEE_NOT_CONFIGURED, FEE_WORKED_OUT_AT_SETTLEMENT, hasSettledPayment } from '@/lib/merchants/fee-story';
+import { Chip } from '@/components/chip';
 import { AutoTripCard, haltAppliesToMerchant, HaltHistoryTable, HaltStatesTable, PendingClearsPanel } from './halts-panels';
 import { AsOf, Amounts, Card, FailureState, KpiTile, PageHead, shortId, StateBlock, UNNAMED_MERCHANT } from './ui';
 
@@ -93,6 +95,7 @@ export function MerchantDetailView({
   query = {},
   currentUserId,
   now = new Date(),
+  testData = false,
 }: {
   merchantId: string;
   data: MerchantDetailData;
@@ -107,6 +110,8 @@ export function MerchantDetailView({
   /** The signed-in founder, so rows they took part in say they cannot sign them. */
   currentUserId?: string | undefined;
   now?: Date;
+  /** True outside production. The fee shown is then a test value, whatever the rule says. */
+  testData?: boolean;
 }) {
   const href = (next: Partial<{ tab: DetailTab; window: MetricPreset; asset: string }>) => {
     const q = new URLSearchParams();
@@ -180,7 +185,9 @@ export function MerchantDetailView({
           </a>
         ))}
       </nav>
-      {tab === 'overview' ? <Overview data={data} asset={asset} today={today} here={here} assetHref={(a) => href({ asset: a })} /> : null}
+      {tab === 'overview' ? (
+        <Overview data={data} asset={asset} today={today} here={here} testData={testData} assetHref={(a) => href({ asset: a })} />
+      ) : null}
       {tab === 'payments' ? <Payments metrics={data.metrics} here={here} /> : null}
       {tab === 'settlements' ? <Settlements metrics={data.metrics} here={here} /> : null}
       {tab === 'notes' ? (
@@ -236,13 +243,51 @@ function UnreadableLimitAsks({ drilldown }: { drilldown: MerchantDetailData['dri
   );
 }
 
+/** The fee this merchant pays, from the pricing rule in force, in percent. One story with the merchant portal. */
+function FeeCard({ data, here, testData }: { data: MerchantDetailData; here: string; testData: boolean }) {
+  const { drilldown, metrics } = data;
+  const settled = metrics.kind === 'ok' ? hasSettledPayment(metrics.data.statusMix) : null;
+  return (
+    <Card id="fee" title="Fee" sub="The pricing rule in force for this merchant, as a percent of each payment.">
+      {drilldown.kind !== 'ok' ? (
+        <FailureState failure={drilldown} what="The fee rule" retryHref={here} />
+      ) : (
+        (() => {
+          const lines = feeLines(drilldown.data.control.pricing);
+          if (lines.length === 0) return <p className="mp-warn">{FEE_NOT_CONFIGURED}</p>;
+          return (
+            <>
+              <ul data-testid="fee-lines">
+                {lines.map((line) => (
+                  <li key={line.assetCode}>
+                    <strong className="mp-num">{line.percent}</strong>
+                    {line.flat ? ` plus ${line.flat}` : ''} on {line.assetCode} payments, from {line.layerWords}.{' '}
+                    {testData ? (
+                      <Chip tone="info" title="A test value in a non-production environment. It is not INTAFACED pricing.">
+                        TEST
+                      </Chip>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+              {settled === false ? <p className="mp-muted">{FEE_WORKED_OUT_AT_SETTLEMENT}</p> : null}
+            </>
+          );
+        })()
+      )}
+    </Card>
+  );
+}
+
 function Overview({
   data,
   asset,
   today,
   here,
   assetHref,
+  testData = false,
 }: {
+  testData?: boolean;
   data: MerchantDetailData;
   asset?: string | undefined;
   today: string;
@@ -274,6 +319,8 @@ function Overview({
           </div>
         )}
       </MetricsGate>
+
+      <FeeCard data={data} here={here} testData={testData} />
 
       <Card
         id="series"

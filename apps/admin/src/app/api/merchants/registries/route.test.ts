@@ -393,7 +393,7 @@ describe('POST as a signed-in founder', () => {
     const res = await POST(post({ action: 'save', registry: 'venue', change: venueChange }, authed()));
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.refusal).toMatchObject({ title: 'Live venues are not allowed yet', requestId: 'req-9' });
+    expect(body.refusal).toMatchObject({ title: 'Live venues are not allowed', requestId: 'req-9' });
   });
 
   it('a registry that is not mounted on this deployment is a clear "not switched on", status 501', async () => {
