@@ -92,7 +92,14 @@ export function EndpointView({
             [t('colReference'), <CopyReference key="id" value={endpoint.id} what={t('colReference')} />],
             [t('colFailuresInRow'), String(endpoint.consecutiveFailures)],
             [t('colLastDelivered'), mine?.lastDeliveredAt ? <DateTime key="l" value={mine.lastDeliveredAt} /> : t('noneYet')],
-            ...(endpoint.status === 'disabled' ? ([[t('colWhyOff'), endpoint.disabledReason ? t('whyOff', { reason: endpoint.disabledReason.replaceAll('_', ' ') }) : t('whyOffUnknown')]] as const) : []),
+            ...(endpoint.status === 'disabled'
+              ? ([
+                  [
+                    t('colWhyOff'),
+                    endpoint.disabledReason ? t('whyOff', { reason: endpoint.disabledReason.replaceAll('_', ' ') }) : t('whyOffUnknown'),
+                  ],
+                ] as const)
+              : []),
             ...(mine
               ? ([
                   [t('deliveredTile'), String(mine.deliveries.delivered)],
@@ -146,12 +153,24 @@ export function EndpointView({
       <PaySection title={t('deliveriesTitle')} description={t('endpointDeliveriesBody')}>
         <DeliveryList api={api} canManage={canManage} endpointId={endpoint.id} />
       </PaySection>
-      <RelatedLinks links={[{ href: `/pay/developer/deliveries?endpoint=${encodeURIComponent(endpoint.id)}`, label: t('allDeliveriesFor') }]} />
+      <RelatedLinks
+        links={[{ href: `/pay/developer/deliveries?endpoint=${encodeURIComponent(endpoint.id)}`, label: t('allDeliveriesFor') }]}
+      />
     </div>
   );
 }
 
-function ChangeAddress({ api, endpoint, canManage, onDone }: { api: Pick<SettingsBApi, 'endpointUpdate'>; endpoint: EndpointRow; canManage: boolean; onDone: () => void }) {
+function ChangeAddress({
+  api,
+  endpoint,
+  canManage,
+  onDone,
+}: {
+  api: Pick<SettingsBApi, 'endpointUpdate'>;
+  endpoint: EndpointRow;
+  canManage: boolean;
+  onDone: () => void;
+}) {
   const { t } = c.useCopy();
   // Starts empty on purpose: the saved address may hold a private token in its query string, which is never printed.
   const [url, setUrl] = useState('');
@@ -191,7 +210,17 @@ function ChangeAddress({ api, endpoint, canManage, onDone }: { api: Pick<Setting
   );
 }
 
-function RotateEndpointSecret({ api, endpointId, canManage, onSecret }: { api: Pick<SettingsBApi, 'endpointRotate'>; endpointId: string; canManage: boolean; onSecret: (secret: string) => void }) {
+function RotateEndpointSecret({
+  api,
+  endpointId,
+  canManage,
+  onSecret,
+}: {
+  api: Pick<SettingsBApi, 'endpointRotate'>;
+  endpointId: string;
+  canManage: boolean;
+  onSecret: (secret: string) => void;
+}) {
   const { t } = c.useCopy();
   // One id per review: if the reply is lost and the request is sent again, the secret is not rotated twice.
   const [requestId, setRequestId] = useState(newRequestId);

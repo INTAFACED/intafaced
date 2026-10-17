@@ -10,7 +10,19 @@ import { parsePortalRoute } from '../../routes';
 import type { SettingsBApi } from '../b-client';
 import { Covers, JobActions, JobChip, RequestForm } from './Exports';
 import { ReportsView } from './Reports';
-import { canDelete, columnLabel, columnsFor, formatBytes, hasDateRange, isBuilding, kindColumns, rangeParts, statusesFor, windowOf, windowProblem } from './model';
+import {
+  canDelete,
+  columnLabel,
+  columnsFor,
+  formatBytes,
+  hasDateRange,
+  isBuilding,
+  kindColumns,
+  rangeParts,
+  statusesFor,
+  windowOf,
+  windowProblem,
+} from './model';
 import { exportKinds, type ExportJob } from './schemas';
 
 // TEST DATA only.
@@ -118,16 +130,26 @@ describe('request form', () => {
     expect(renderToString(<RequestForm api={api} role="owner" onRequested={() => {}} initialKind="fees" />)).not.toContain('>captured<');
   });
   it('tells a viewer why the pricing level is missing', () => {
-    expect(renderToString(<RequestForm api={api} role="viewer" onRequested={() => {}} initialKind="fees" />)).toContain('not the pricing level');
+    expect(renderToString(<RequestForm api={api} role="viewer" onRequested={() => {}} initialKind="fees" />)).toContain(
+      'not the pricing level',
+    );
   });
   it('shows no date range for balances', () => {
-    expect(renderToString(<RequestForm api={api} role="owner" onRequested={() => {}} initialKind="ledger_statement" />)).toContain('has no date range');
+    expect(renderToString(<RequestForm api={api} role="owner" onRequested={() => {}} initialKind="ledger_statement" />)).toContain(
+      'has no date range',
+    );
   });
 });
 
 describe('files', () => {
   it('names every status in words', () => {
-    for (const [status, word] of [['queued', 'Waiting'], ['running', 'Building'], ['ready', 'Ready'], ['failed', 'Failed'], ['expired', 'Deleted']] as const)
+    for (const [status, word] of [
+      ['queued', 'Waiting'],
+      ['running', 'Building'],
+      ['ready', 'Ready'],
+      ['failed', 'Failed'],
+      ['expired', 'Deleted'],
+    ] as const)
       expect(renderToString(<JobChip status={status} />)).toContain(word);
   });
   it('offers Download for a ready file and Delete file with a confirm, but not Download for a failed one', () => {

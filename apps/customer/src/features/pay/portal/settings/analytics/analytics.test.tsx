@@ -10,7 +10,19 @@ import { parsePortalRoute } from '../../routes';
 import { AnalyticsView } from './Analytics';
 import { useAnalyticsState } from './Controls';
 import { FeesView } from './Fees';
-import { assetsOf, barsFor, busiest, feeTotals, periodsWithSales, readAll, sumByAsset, totalCount, windowFor, MAX_PAGES, type Point } from './model';
+import {
+  assetsOf,
+  barsFor,
+  busiest,
+  feeTotals,
+  periodsWithSales,
+  readAll,
+  sumByAsset,
+  totalCount,
+  windowFor,
+  MAX_PAGES,
+  type Point,
+} from './model';
 
 // TEST DATA only.
 const NOW = Date.parse('2026-10-17T04:00:00.000Z');
@@ -46,7 +58,10 @@ describe('the period', () => {
     expect(windowFor('30d', NOW, { from: '', to: '' })?.from).toBe('2026-09-18T00:00:00.000Z');
   });
   it('takes custom days as typed, the last day included, and refuses an incomplete or backwards pair', () => {
-    expect(windowFor('custom', NOW, { from: '2026-10-01', to: '2026-10-07' })).toEqual({ from: '2026-10-01T00:00:00.000Z', to: '2026-10-08T00:00:00.000Z' });
+    expect(windowFor('custom', NOW, { from: '2026-10-01', to: '2026-10-07' })).toEqual({
+      from: '2026-10-01T00:00:00.000Z',
+      to: '2026-10-08T00:00:00.000Z',
+    });
     expect(windowFor('custom', NOW, { from: '2026-10-08', to: '2026-10-07' })).toBeNull();
     expect(windowFor('custom', NOW, { from: '2026-10-01', to: '' })).toBeNull();
   });
@@ -145,7 +160,9 @@ describe('volume page', () => {
     expect(renderToString(<Volume resource={null} />)).toContain('Pick a first and last day');
   });
   it('shows the refusal in words when the read fails', () => {
-    const out = renderToString(<Volume resource={{ status: 'failed', failure: { ok: false, reason: 'forbidden', message: 'x', code: '' } as never }} />);
+    const out = renderToString(
+      <Volume resource={{ status: 'failed', failure: { ok: false, reason: 'forbidden', message: 'x', code: '' } as never }} />,
+    );
     expect(out).not.toContain('pp-kpi');
     expect(out).toMatch(/not allowed|allowed/i);
   });
@@ -170,7 +187,12 @@ describe('fees page', () => {
   });
   it('names why the whole page is off when the fee summary is not switched on', () => {
     const out = renderToString(
-      <FeesPage resource={{ status: 'failed', failure: { ok: false, reason: 'not_mounted', message: 'pay.not_built', code: 'pay.not_built' } as never }} />,
+      <FeesPage
+        resource={{
+          status: 'failed',
+          failure: { ok: false, reason: 'not_mounted', message: 'pay.not_built', code: 'pay.not_built' } as never,
+        }}
+      />,
     );
     expect(out).toContain('Fee analytics are not switched on yet');
     expect(out).toContain('Not connected yet');

@@ -299,14 +299,14 @@ test('customers: search, cursor pagination, and a customer detail', async ({ pag
 
 test('exports: request, watch it build, download it', async ({ page }) => {
   const { mock } = await setup(page);
-  await signIn(page, '/pay/exports');
+  await signIn(page, '/pay/reports/exports');
   await snap(page, '16-exports');
-  await page.getByLabel('Kind *').selectOption('settlements');
-  await page.getByRole('button', { name: 'Request export' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Review: Request export' });
+  await page.locator('#request select').first().selectOption('settlements');
+  await page.getByRole('button', { name: 'Request a report', exact: true }).last().click();
+  const dialog = page.getByRole('dialog', { name: 'Review: Request a report' });
   await expect(dialog.getByText('Settlements')).toBeVisible();
   await dialog.getByRole('button', { name: /^Confirm/ }).click();
-  const jobs = page.getByRole('region', { name: 'Your exports' });
+  const jobs = page.getByRole('region', { name: 'Your report files' });
   await expect(jobs.getByRole('row', { name: /Settlements.*(Waiting|Building)/ })).toBeVisible();
   const request = mock.calls.find((c) => c.procedure === 'merchantOps.exports.create').input;
   expect(request.requestId).toMatch(/^[0-9a-f-]{36}$/);

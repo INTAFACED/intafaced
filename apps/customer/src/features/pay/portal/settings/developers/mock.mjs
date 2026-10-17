@@ -11,18 +11,66 @@ export function createDevelopersMock(ctx) {
     keys: quiet
       ? []
       : [
-          { id: 'TEST-key-1', name: 'TEST Checkout system', prefix: 'test_ab12', scopes: ['pay:read', 'pay:write'], lastUsedAt: iso(now - 3600_000), revoked: false, mode: 'sandbox' },
-          { id: 'TEST-key-2', name: 'TEST Reporting', prefix: 'test_cd34', scopes: ['pay:read'], lastUsedAt: null, revoked: false, mode: 'sandbox' },
-          { id: 'TEST-key-3', name: 'TEST Old script', prefix: 'test_ef56', scopes: ['pay:read'], lastUsedAt: iso(now - 40 * DAY), revoked: true, mode: 'sandbox' },
+          {
+            id: 'TEST-key-1',
+            name: 'TEST Checkout system',
+            prefix: 'test_ab12',
+            scopes: ['pay:read', 'pay:write'],
+            lastUsedAt: iso(now - 3600_000),
+            revoked: false,
+            mode: 'sandbox',
+          },
+          {
+            id: 'TEST-key-2',
+            name: 'TEST Reporting',
+            prefix: 'test_cd34',
+            scopes: ['pay:read'],
+            lastUsedAt: null,
+            revoked: false,
+            mode: 'sandbox',
+          },
+          {
+            id: 'TEST-key-3',
+            name: 'TEST Old script',
+            prefix: 'test_ef56',
+            scopes: ['pay:read'],
+            lastUsedAt: iso(now - 40 * DAY),
+            revoked: true,
+            mode: 'sandbox',
+          },
         ],
     ips: new Map(),
     signing: new Map(),
     endpoints: quiet
       ? []
       : [
-          { id: 'TEST-endpoint-1', url: 'https://receiver.example/events', status: 'active', disabledReason: null, consecutiveFailures: 0, createdAt: iso(now - 30 * DAY), updatedAt: iso(now - 2 * DAY) },
-          { id: 'TEST-endpoint-2', url: 'https://old-receiver.example/hook', status: 'disabled', disabledReason: 'disabled_by_merchant', consecutiveFailures: 5, createdAt: iso(now - 60 * DAY), updatedAt: iso(now - 20 * DAY) },
-          { id: 'TEST-endpoint-3', url: 'https://flaky.example/in', status: 'active', disabledReason: null, consecutiveFailures: 3, createdAt: iso(now - 10 * DAY), updatedAt: iso(now - 1 * DAY) },
+          {
+            id: 'TEST-endpoint-1',
+            url: 'https://receiver.example/events?token=TEST-secret-in-URL',
+            status: 'active',
+            disabledReason: null,
+            consecutiveFailures: 0,
+            createdAt: iso(now - 30 * DAY),
+            updatedAt: iso(now - 2 * DAY),
+          },
+          {
+            id: 'TEST-endpoint-2',
+            url: 'https://old-receiver.example/hook',
+            status: 'disabled',
+            disabledReason: 'disabled_by_merchant',
+            consecutiveFailures: 5,
+            createdAt: iso(now - 60 * DAY),
+            updatedAt: iso(now - 20 * DAY),
+          },
+          {
+            id: 'TEST-endpoint-3',
+            url: 'https://flaky.example/in',
+            status: 'active',
+            disabledReason: null,
+            consecutiveFailures: 3,
+            createdAt: iso(now - 10 * DAY),
+            updatedAt: iso(now - 1 * DAY),
+          },
         ],
     deliveries: quiet
       ? []
@@ -52,7 +100,15 @@ export function createDevelopersMock(ctx) {
           return ok(route, dev.keys);
         case 'apiKeys.create': {
           const id = `TEST-key-${dev.keys.length + 1}`;
-          dev.keys.unshift({ id, name: input.name, prefix: `test_${id.slice(-2)}ff`, scopes: input.scopes, lastUsedAt: null, revoked: false, mode: 'sandbox' });
+          dev.keys.unshift({
+            id,
+            name: input.name,
+            prefix: `test_${id.slice(-2)}ff`,
+            scopes: input.scopes,
+            lastUsedAt: null,
+            revoked: false,
+            mode: 'sandbox',
+          });
           return ok(route, { id, key: `test_TEST-NOT-A-REAL-KEY-${id}`, prefix: `test_${id.slice(-2)}ff`, mode: 'sandbox' });
         }
         case 'apiKeys.revoke': {
@@ -64,7 +120,10 @@ export function createDevelopersMock(ctx) {
         case 'setApiKeyRequestSigning': {
           if (!dev.keys.some((k) => k.id === input.keyId)) return refuse(route, 404, 'auth.not_found');
           const first = input.requireSignature && !dev.signing.get(input.keyId)?.requireSignature;
-          dev.signing.set(input.keyId, { requireSignature: input.requireSignature, requireNonEmptyIpAllowlist: input.requireNonEmptyIpAllowlist });
+          dev.signing.set(input.keyId, {
+            requireSignature: input.requireSignature,
+            requireNonEmptyIpAllowlist: input.requireNonEmptyIpAllowlist,
+          });
           return ok(route, { id: input.keyId, ...dev.signing.get(input.keyId), signingSecret: first ? 'ifs_TEST-signing-secret' : null });
         }
         case 'rotateSigningSecret':
@@ -80,14 +139,23 @@ export function createDevelopersMock(ctx) {
         }
         case 'merchantOps.webhooks.list': {
           const rows = dev.endpoints.filter(
-            (e) => (!input.status || e.status === input.status) && (!input.search || e.id === input.search || e.url.startsWith(input.search)),
+            (e) =>
+              (!input.status || e.status === input.status) && (!input.search || e.id === input.search || e.url.startsWith(input.search)),
           );
           return ok(route, page(rows, input));
         }
         case 'merchantOps.webhooks.create': {
           if (!canManage()) return refuse(route, 403, 'pay.team_role_forbidden');
           if (!input.url.startsWith('https://')) return refuse(route, 400, 'pay.webhook_url_invalid');
-          const endpoint = { id: `TEST-endpoint-${dev.endpoints.length + 1}`, url: input.url, status: 'active', disabledReason: null, consecutiveFailures: 0, createdAt: iso(Date.now()), updatedAt: iso(Date.now()) };
+          const endpoint = {
+            id: `TEST-endpoint-${dev.endpoints.length + 1}`,
+            url: input.url,
+            status: 'active',
+            disabledReason: null,
+            consecutiveFailures: 0,
+            createdAt: iso(Date.now()),
+            updatedAt: iso(Date.now()),
+          };
           dev.endpoints.unshift(endpoint);
           return ok(route, { endpoint, secret: secret(endpoint.id) });
         }
@@ -137,7 +205,12 @@ export function createDevelopersMock(ctx) {
               endpointId: e.id,
               status: e.status,
               consecutiveFailures: e.consecutiveFailures,
-              deliveries: { pending: count(e.id, 'pending'), delivered: count(e.id, 'delivered'), failed: count(e.id, 'failed'), dead: count(e.id, 'dead') },
+              deliveries: {
+                pending: count(e.id, 'pending'),
+                delivered: count(e.id, 'delivered'),
+                failed: count(e.id, 'failed'),
+                dead: count(e.id, 'dead'),
+              },
               lastDeliveredAt: dev.deliveries.find((d) => d.endpointId === e.id && d.deliveredAt)?.deliveredAt ?? null,
             })),
           });

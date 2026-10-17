@@ -16,7 +16,8 @@ function clientFor(scenario = 'active', role = 'owner'): { api: SettingsBApi; ct
     const href = new URL(String(url), 'http://stand-in.test');
     const procedure = decodeURIComponent(href.pathname.split('/trpc/')[1] ?? '');
     const method = init?.method ?? 'GET';
-    const input = method === 'GET' ? (JSON.parse(href.searchParams.get('input') ?? 'null') ?? {}) : init?.body ? JSON.parse(String(init.body)) : {};
+    const input =
+      method === 'GET' ? (JSON.parse(href.searchParams.get('input') ?? 'null') ?? {}) : init?.body ? JSON.parse(String(init.body)) : {};
     const route = {
       fulfill: async (r: { status?: number; body: string }) => {
         out = { status: r.status ?? 200, body: r.body };
@@ -62,7 +63,10 @@ const calls: Record<string, Call> = {
   analyticsFees: (a) => a.analyticsFees({ ...q, bucket: 'week' }),
 };
 // reportPeople reads the team list, which the shared stand-in answers; analyticsDailySeries reads the shared metrics series.
-const sharedElsewhere = { reportPeople: 'answered by the shared team stand-in', analyticsDailySeries: 'answered by the shared metrics stand-in' };
+const sharedElsewhere = {
+  reportPeople: 'answered by the shared team stand-in',
+  analyticsDailySeries: 'answered by the shared metrics stand-in',
+};
 
 describe('the developers, reports and analytics client against the stand-in', () => {
   it.each(Object.entries(calls))('%s parses what the stand-in sends', async (_name, call) => {

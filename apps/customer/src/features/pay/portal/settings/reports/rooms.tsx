@@ -14,7 +14,11 @@ const link = (href: string, label: string, variant: 'primary' | 'secondary' = 's
 
 export const reportsRooms: RoomTable = {
   reports: {
-    header: () => ({ title: c.t('reportsTitle'), purpose: c.t('reportsPurpose'), action: link('/pay/reports/exports#request', c.t('requestAction'), 'primary') }),
+    header: () => ({
+      title: c.t('reportsTitle'),
+      purpose: c.t('reportsPurpose'),
+      action: link('/pay/reports/exports#request', c.t('requestAction'), 'primary'),
+    }),
     render: () => <WithAccount>{({ role }) => <ReportsRoom role={role} />}</WithAccount>,
   },
   'report-exports': {

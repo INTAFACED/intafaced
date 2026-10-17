@@ -85,8 +85,16 @@ function KeyPanel({ api, apiKey, reload }: { api: SettingsBApi; apiKey: ApiKey; 
         </p>
       ) : (
         <>
-          <SigningSettings api={api} keyId={apiKey.id} onSecret={(secret) => setRevealed({ title: t('signingSecretTitle'), secret, what: t('signingSecretWhat') })} />
-          <RotateSecret api={api} keyId={apiKey.id} onSecret={(secret) => setRevealed({ title: t('signingSecretNewTitle'), secret, what: t('signingSecretWhat') })} />
+          <SigningSettings
+            api={api}
+            keyId={apiKey.id}
+            onSecret={(secret) => setRevealed({ title: t('signingSecretTitle'), secret, what: t('signingSecretWhat') })}
+          />
+          <RotateSecret
+            api={api}
+            keyId={apiKey.id}
+            onSecret={(secret) => setRevealed({ title: t('signingSecretNewTitle'), secret, what: t('signingSecretWhat') })}
+          />
           <AllowedIps api={api} keyId={apiKey.id} />
         </>
       )}
@@ -94,7 +102,15 @@ function KeyPanel({ api, apiKey, reload }: { api: SettingsBApi; apiKey: ApiKey; 
   );
 }
 
-export function SigningSettings({ api, keyId, onSecret }: { api: Pick<SettingsBApi, 'signingSet'>; keyId: string; onSecret: (secret: string) => void }) {
+export function SigningSettings({
+  api,
+  keyId,
+  onSecret,
+}: {
+  api: Pick<SettingsBApi, 'signingSet'>;
+  keyId: string;
+  onSecret: (secret: string) => void;
+}) {
   const { t } = c.useCopy();
   const [sign, setSign] = useState(false);
   const [needIp, setNeedIp] = useState(false);
@@ -169,7 +185,15 @@ export function SigningSettings({ api, keyId, onSecret }: { api: Pick<SettingsBA
   );
 }
 
-export function RotateSecret({ api, keyId, onSecret }: { api: Pick<SettingsBApi, 'signingRotate'>; keyId: string; onSecret: (secret: string) => void }) {
+export function RotateSecret({
+  api,
+  keyId,
+  onSecret,
+}: {
+  api: Pick<SettingsBApi, 'signingRotate'>;
+  keyId: string;
+  onSecret: (secret: string) => void;
+}) {
   const { t } = c.useCopy();
   return (
     <PaySection title={t('rotateTitle')} description={t('rotateBody')}>
@@ -200,7 +224,13 @@ export function AllowedIps({ api, keyId }: { api: Pick<SettingsBApi, 'ipsBind' |
       <div className="form-stack pp-form">
         <label className="field">
           <span>{t('ipsLabel')}</span>
-          <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} aria-invalid={Boolean(bad)} placeholder="203.0.113.10" />
+          <textarea
+            rows={3}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            aria-invalid={Boolean(bad)}
+            placeholder="203.0.113.10"
+          />
           <small className={bad ? 'error-text' : undefined}>{bad ? t('errIp', { ip: bad }) : t('ipsHint')}</small>
         </label>
         <PortalReview
@@ -225,7 +255,12 @@ export function AllowedIps({ api, keyId }: { api: Pick<SettingsBApi, 'ipsBind' |
           perform={() => api.ipsBind(keyId, list)}
           onConfirmed={(result) => setSaved(result.ipAllowlist)}
         />
-        <Field label={t('ipsRemoveLabel')} value={one} onChange={(e) => setOne(e.target.value)} error={oneBad ? t('errIp', { ip: one }) : undefined} />
+        <Field
+          label={t('ipsRemoveLabel')}
+          value={one}
+          onChange={(e) => setOne(e.target.value)}
+          error={oneBad ? t('errIp', { ip: one }) : undefined}
+        />
         <PortalReview
           title={t('ipsRemove')}
           description={t('ipsRemoveReview')}

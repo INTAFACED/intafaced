@@ -11,9 +11,12 @@ export const exportJobSchema = z.object({
   jobId: z.string(),
   // An unknown kind from a newer service is kept as text rather than failing the whole list.
   kind: z.string(),
-  filters: z
-    .object({ from: z.string().optional(), to: z.string().optional(), status: z.string().optional(), assetId: z.string().optional() })
-    ,
+  filters: z.object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    status: z.string().optional(),
+    assetId: z.string().optional(),
+  }),
   columns: z.array(z.string()).optional(),
   status: z.enum(exportStatuses),
   failureCode: z.string().nullish(),

@@ -14,10 +14,25 @@ import { analyticsCopy as c } from './copy';
 import { AnalyticsControls, useAnalyticsState, type AnalyticsState } from './Controls';
 import { assetsOf, barsFor, busiest, periodsWithSales, readAll, sumByAsset, totalCount, type Point } from './model';
 
-type Loaded = { points: Point[]; complete: boolean; freshness: { asOf: string | null; lagSeconds: number | null }; source: 'analytics' | 'daily' };
+type Loaded = {
+  points: Point[];
+  complete: boolean;
+  freshness: { asOf: string | null; lagSeconds: number | null };
+  source: 'analytics' | 'daily';
+};
 
 /** Captured volume over time: today, 7 or 30 days, or your own dates; by day or week; for one asset or all of them. */
-export function Analytics({ api, merchantId, test = false, now = Date.now() }: { api: SettingsBApi; merchantId: string; test?: boolean; now?: number }) {
+export function Analytics({
+  api,
+  merchantId,
+  test = false,
+  now = Date.now(),
+}: {
+  api: SettingsBApi;
+  merchantId: string;
+  test?: boolean;
+  now?: number;
+}) {
   const state = useAnalyticsState(now);
   const w = state.window;
   const key = `analytics:volume:${merchantId}:${w?.from}:${w?.to}:${state.bucket}:${state.asset}`;
@@ -25,7 +40,11 @@ export function Analytics({ api, merchantId, test = false, now = Date.now() }: {
     if (!w) return { ok: false, reason: 'error', message: '', code: 'portal.local' } as ApiResult<Loaded>;
     const q = { merchantId, from: w.from, to: w.to, bucket: state.bucket, ...(state.asset ? { assetId: state.asset } : {}) };
     const read = await readAll((cursor) => api.analyticsVolume(q, cursor, signal));
-    if (read.ok) return { ok: true, data: { points: read.data.items, complete: read.data.complete, freshness: read.data.freshness, source: 'analytics' } };
+    if (read.ok)
+      return {
+        ok: true,
+        data: { points: read.data.items, complete: read.data.complete, freshness: read.data.freshness, source: 'analytics' },
+      };
     // Where the fuller read is not switched on, the daily capture totals the account already has still answer.
     if (!isNotLive(read)) return read;
     const daily = await api.analyticsDailySeries(merchantId, w.from, w.to, signal);
@@ -38,7 +57,17 @@ export function Analytics({ api, merchantId, test = false, now = Date.now() }: {
   return <AnalyticsView state={state} resource={w ? data.resource : null} reload={data.reload} test={test} />;
 }
 
-export function AnalyticsView({ state, resource, reload, test }: { state: AnalyticsState; resource: Resource<Loaded> | null; reload: () => void; test: boolean }) {
+export function AnalyticsView({
+  state,
+  resource,
+  reload,
+  test,
+}: {
+  state: AnalyticsState;
+  resource: Resource<Loaded> | null;
+  reload: () => void;
+  test: boolean;
+}) {
   const { t } = c.useCopy();
   const loaded = resource?.status === 'ready' ? resource.data : null;
   const assets = loaded ? assetsOf(loaded.points) : [];
@@ -74,7 +103,9 @@ function VolumeBody({ data, state, test }: { data: Loaded; state: AnalyticsState
   const sums = sumByAsset(points, (p) => p.volume);
   const count = totalCount(points);
   const best = busiest(points);
-  const filter = state.window ? `date=custom&from=${state.window.from.slice(0, 10)}&to=${new Date(Date.parse(state.window.to) - 1).toISOString().slice(0, 10)}` : '';
+  const filter = state.window
+    ? `date=custom&from=${state.window.from.slice(0, 10)}&to=${new Date(Date.parse(state.window.to) - 1).toISOString().slice(0, 10)}`
+    : '';
   const link = (path: string) => `/pay/${path}?${filter}${state.asset ? `&asset=${encodeURIComponent(state.asset)}` : ''}`;
   const open = data.complete;
   return (
@@ -103,8 +134,20 @@ function VolumeBody({ data, state, test }: { data: Loaded; state: AnalyticsState
             ),
             note: open ? t('volumeNote') : t('noTotalCut'),
           },
-          { label: t('tilePayments'), period, href: link('payments'), value: open ? (count ?? '—') : '—', ...(count === null ? { note: t('noCountDaily') } : {}) },
-          { label: t('tileBusiest'), period, href: link('payments'), value: best ? best.period : '—', ...(best ? { note: t('capturesCount', { n: best.count }) } : {}) },
+          {
+            label: t('tilePayments'),
+            period,
+            href: link('payments'),
+            value: open ? (count ?? '—') : '—',
+            ...(count === null ? { note: t('noCountDaily') } : {}),
+          },
+          {
+            label: t('tileBusiest'),
+            period,
+            href: link('payments'),
+            value: best ? best.period : '—',
+            ...(best ? { note: t('capturesCount', { n: best.count }) } : {}),
+          },
           { label: t('tileActive'), period, href: link('payments'), value: open ? periodsWithSales(points) : '—' },
         ]}
       />
@@ -147,15 +190,33 @@ export function Bars({ points, asset }: { points: readonly Point[]; asset: strin
   const last = bars[bars.length - 1];
   return (
     <figure className="pp-chart">
-      <svg viewBox={`0 0 100 ${H}`} preserveAspectRatio="none" role="img" aria-label={t('chartAlt', { asset, n: bars.length, from: first?.period ?? '', to: last?.period ?? '' })}>
+      <svg
+        viewBox={`0 0 100 ${H}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={t('chartAlt', { asset, n: bars.length, from: first?.period ?? '', to: last?.period ?? '' })}
+      >
         {bars.map((b, i) => (
-          <rect key={b.period} className="pp-bar" x={i * w + w * 0.1} width={w * 0.8} y={H - b.h} height={b.h} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+          <rect
+            key={b.period}
+            className="pp-bar"
+            x={i * w + w * 0.1}
+            width={w * 0.8}
+            y={H - b.h}
+            height={b.h}
+            onMouseEnter={() => setHover(i)}
+            onMouseLeave={() => setHover(null)}
+          >
             <title>{`${b.period}: ${b.volume} ${asset}`}</title>
           </rect>
         ))}
       </svg>
       <figcaption className="muted">
-        {hover !== null && bars[hover] ? `${bars[hover]!.period} · ${bars[hover]!.volume} ${asset}` : first && last ? `${first.period} – ${last.period}` : ''}
+        {hover !== null && bars[hover]
+          ? `${bars[hover]!.period} · ${bars[hover]!.volume} ${asset}`
+          : first && last
+            ? `${first.period} – ${last.period}`
+            : ''}
       </figcaption>
     </figure>
   );

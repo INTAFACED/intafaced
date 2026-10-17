@@ -114,7 +114,8 @@ const en = {
   whoMayChange: 'A key belongs to the person who made it, and only that person can change these settings.',
   keyIsRevoked: 'This key is revoked, so its settings cannot be changed.',
   signedTitle: 'Signed requests',
-  signedBody: 'When on, every call with this key must carry a signature made with a secret only you hold. A stolen key alone is then no use.',
+  signedBody:
+    'When on, every call with this key must carry a signature made with a secret only you hold. A stolen key alone is then no use.',
   settingNotReadable: 'We cannot show what is saved for this key yet. Saving applies exactly what you choose here.',
   requireSigned: 'Require signed requests',
   requireSignedHint: 'Calls without a valid signature are refused.',
@@ -158,7 +159,8 @@ const en = {
   recipeStep1: 'Take the HTTP method in capitals, and the path including any query string.',
   recipeStep2: 'Take the current time as unix seconds, and make a random nonce of 8 to 128 letters, numbers, dashes or underscores.',
   recipeStep3: 'Take the SHA-256 of the request body as lowercase hex (of nothing, if there is no body).',
-  recipeStep4: 'Join these with new lines: the version INTAFACED-REQ-V1, method, path, time, nonce and body hash. Sign that text with HMAC-SHA256 and your signing secret, as hex.',
+  recipeStep4:
+    'Join these with new lines: the version INTAFACED-REQ-V1, method, path, time, nonce and body hash. Sign that text with HMAC-SHA256 and your signing secret, as hex.',
   recipeStep5: 'Send the time, nonce and signature in the three x-intafaced-request headers shown in the sample.',
   recipeCanonical: 'Text that is signed',
   recipeWindow: 'A signature is accepted for 5 minutes either side of the time you signed, and each nonce works once.',
@@ -298,7 +300,8 @@ const en = {
   docsEventsLink: 'Manage your endpoints',
   docsSdkTitle: 'Libraries',
   docsSdkCardTitle: 'Libraries are not published yet',
-  docsSdkBody: 'Official libraries for TypeScript and Python exist but are not published. Until INTAFACED decides to publish them, call the API directly using the steps above.',
+  docsSdkBody:
+    'Official libraries for TypeScript and Python exist but are not published. Until INTAFACED decides to publish them, call the API directly using the steps above.',
 } as const;
 export const developersCopy = defineCopy('pay.portal.settings.developers', en);
 /** The wording as written, for the copy lint. */
@@ -309,7 +312,8 @@ registerRefusals({
   'pay.webhook_url_invalid': () => 'That address was refused. Use a public https:// address that is not private or internal.',
   'pay.webhook_endpoint_not_found': () => 'That endpoint was not found. It may have been removed.',
   'pay.webhook_delivery_not_found': () => 'That delivery was not found.',
-  'pay.webhook_step_up_required': () => 'Changing a webhook needs a verified sign-in session. Sign in again with your passkey or code, then retry.',
+  'pay.webhook_step_up_required': () =>
+    'Changing a webhook needs a verified sign-in session. Sign in again with your passkey or code, then retry.',
   'pay.webhook_retry_unconfigured': () => 'Sending again is not switched on for your account yet. INTAFACED has to set a limit first.',
   'pay.webhook_retry_rate_limited': () => 'You have sent too many events again for now. Wait a little and try again.',
   'pay.webhook_retry_not_failed': () => 'Only a failed delivery can be sent again. This one is no longer failed.',

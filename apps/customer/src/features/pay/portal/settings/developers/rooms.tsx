@@ -26,7 +26,11 @@ type Words = { title: string; purpose: string; action?: ReactNode };
 const words: Record<string, () => Words> = {
   'developer-keys': () => ({ title: c.t('keysTitle'), purpose: c.t('keysPurpose'), action: link('#create', c.t('createKeyAction')) }),
   'developer-signing': () => ({ title: c.t('signingTitle'), purpose: c.t('signingPurpose') }),
-  'developer-webhooks': () => ({ title: c.t('endpointsTitle'), purpose: c.t('endpointsPurpose'), action: link('#add', c.t('addEndpoint')) }),
+  'developer-webhooks': () => ({
+    title: c.t('endpointsTitle'),
+    purpose: c.t('endpointsPurpose'),
+    action: link('#add', c.t('addEndpoint')),
+  }),
   'developer-endpoint': () => ({ title: c.t('endpointTitle'), purpose: c.t('endpointPurpose') }),
   'developer-deliveries': () => ({ title: c.t('deliveriesTitle'), purpose: c.t('deliveriesPurpose') }),
   'developer-sandbox': () => ({ title: c.t('sandboxTitle'), purpose: c.t('sandboxPurpose') }),
@@ -47,7 +51,10 @@ function Live({ children }: { children: (api: SettingsBApi) => ReactNode }) {
   return <>{children(useSettingsBApi())}</>;
 }
 
-const def = (room: PortalRoom, body: (route: PortalRoute, api: SettingsBApi, ctx: { role: string; scopes: readonly string[] }) => ReactNode): RoomDef => ({
+const def = (
+  room: PortalRoom,
+  body: (route: PortalRoute, api: SettingsBApi, ctx: { role: string; scopes: readonly string[] }) => ReactNode,
+): RoomDef => ({
   header: () => words[room]!(),
   here: '/pay/developer/keys',
   render: (route, { authority }) => (
@@ -68,7 +75,9 @@ export const developersRooms: RoomTable = {
   'developer-endpoint': def('developer-endpoint', (route, api, { role }) => (
     <EndpointPage api={api} endpointId={route.param ?? ''} canManage={canManageWebhooks(role)} />
   )),
-  'developer-deliveries': def('developer-deliveries', (_r, api, { role }) => <DeliveryList api={api} canManage={canManageWebhooks(role)} />),
+  'developer-deliveries': def('developer-deliveries', (_r, api, { role }) => (
+    <DeliveryList api={api} canManage={canManageWebhooks(role)} />
+  )),
   'developer-sandbox': def('developer-sandbox', (_r, api) => <Sandbox api={api} />),
   'developer-docs': def('developer-docs', () => <Docs />),
 };

@@ -7,20 +7,22 @@ export type ExportFilter = { kind?: string; status?: string; from?: string; to?:
 
 export const reportsApi = ({ query, mutate }: SettingsBTools) => ({
   reportJobs: async (cursor: string | undefined, f: ExportFilter, signal?: AbortSignal) =>
-    pagedResult(await query(
-      'merchantOps.exports.list',
-      {
-        limit: 25,
-        ...(cursor ? { cursor } : {}),
-        ...(f.kind ? { kind: f.kind } : {}),
-        ...(f.status ? { status: f.status } : {}),
-        ...(f.from ? { from: f.from } : {}),
-        ...(f.to ? { to: f.to } : {}),
-        ...(f.search ? { search: f.search } : {}),
-      },
-      tolerantPage(s.exportJobSchema),
-      signal,
-    )),
+    pagedResult(
+      await query(
+        'merchantOps.exports.list',
+        {
+          limit: 25,
+          ...(cursor ? { cursor } : {}),
+          ...(f.kind ? { kind: f.kind } : {}),
+          ...(f.status ? { status: f.status } : {}),
+          ...(f.from ? { from: f.from } : {}),
+          ...(f.to ? { to: f.to } : {}),
+          ...(f.search ? { search: f.search } : {}),
+        },
+        tolerantPage(s.exportJobSchema),
+        signal,
+      ),
+    ),
   reportRequest: (input: {
     requestId: string;
     kind: string;

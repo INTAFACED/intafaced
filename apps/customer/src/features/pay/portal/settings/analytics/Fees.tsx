@@ -25,7 +25,17 @@ type Loaded = {
 };
 
 /** What your payments cost: gross, fees taken, net and refunds, by day or week. The rate is shown only when INTAFACED has stored it. */
-export function Fees({ api, merchantId, test = false, now = Date.now() }: { api: SettingsBApi; merchantId: string; test?: boolean; now?: number }) {
+export function Fees({
+  api,
+  merchantId,
+  test = false,
+  now = Date.now(),
+}: {
+  api: SettingsBApi;
+  merchantId: string;
+  test?: boolean;
+  now?: number;
+}) {
   const state = useAnalyticsState(now);
   const w = state.window;
   const key = `analytics:fees:${merchantId}:${w?.from}:${w?.to}:${state.bucket}:${state.asset}`;
@@ -44,12 +54,31 @@ export function Fees({ api, merchantId, test = false, now = Date.now() }: { api:
       }),
     );
     if (!read.ok) return read;
-    return { ok: true, data: { points: read.data.items, complete: read.data.complete, freshness: read.data.freshness, effectiveRate: rate, conversionCost: conversion } };
+    return {
+      ok: true,
+      data: {
+        points: read.data.items,
+        complete: read.data.complete,
+        freshness: read.data.freshness,
+        effectiveRate: rate,
+        conversionCost: conversion,
+      },
+    };
   }, key);
   return <FeesView state={state} resource={w ? data.resource : null} reload={data.reload} test={test} />;
 }
 
-export function FeesView({ state, resource, reload, test }: { state: AnalyticsState; resource: Resource<Loaded> | null; reload: () => void; test: boolean }) {
+export function FeesView({
+  state,
+  resource,
+  reload,
+  test,
+}: {
+  state: AnalyticsState;
+  resource: Resource<Loaded> | null;
+  reload: () => void;
+  test: boolean;
+}) {
   const { t } = c.useCopy();
   const loaded = resource?.status === 'ready' ? resource.data : null;
   return (
@@ -88,7 +117,9 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
     );
   const totals = feeTotals(points);
   const period = state.preset === 'custom' ? t('yourDates') : t(`period_${state.preset}`);
-  const filter = state.window ? `date=custom&from=${state.window.from.slice(0, 10)}&to=${new Date(Date.parse(state.window.to) - 1).toISOString().slice(0, 10)}` : '';
+  const filter = state.window
+    ? `date=custom&from=${state.window.from.slice(0, 10)}&to=${new Date(Date.parse(state.window.to) - 1).toISOString().slice(0, 10)}`
+    : '';
   const href = `/pay/settlements?${filter}${state.asset ? `&asset=${encodeURIComponent(state.asset)}` : ''}`;
   const lines = (rows: Array<{ assetCode: string; total: string }>) => (
     <span className="pp-stack">

@@ -36,7 +36,13 @@ const settlementStatuses = ['pending', 'posted', 'paid_out', 'failed'] as const;
 const disputeStatuses = ['open', 'contested', 'accepted', 'won', 'lost'] as const;
 /** The status filter each kind accepts. Null means the kind has no status filter, so none is offered. */
 export function statusesFor(kind: ExportKind): readonly string[] | null {
-  return kind === 'payments' ? paymentStatuses : kind === 'settlements' || kind === 'payouts' ? settlementStatuses : kind === 'disputes' ? disputeStatuses : null;
+  return kind === 'payments'
+    ? paymentStatuses
+    : kind === 'settlements' || kind === 'payouts'
+      ? settlementStatuses
+      : kind === 'disputes'
+        ? disputeStatuses
+        : null;
 }
 /** Which filters a kind accepts, so the form shows only controls that do something. */
 export const hasAssetFilter = (_kind: ExportKind) => true;
@@ -77,7 +83,12 @@ export function windowOf(from: string, to: string): { from?: string; to?: string
 export const windowProblem = (from: string, to: string) => Boolean(from && to && from > to);
 
 /** What a job covers, for a list: the days (end shown as the last included day), the status and the asset. */
-export function rangeParts(job: Pick<ExportJob, 'filters'>): { from: string | null; to: string | null; status: string | null; asset: string | null } {
+export function rangeParts(job: Pick<ExportJob, 'filters'>): {
+  from: string | null;
+  to: string | null;
+  status: string | null;
+  asset: string | null;
+} {
   const to = job.filters.to ? new Date(Date.parse(job.filters.to) - 1).toISOString().slice(0, 10) : null;
   return { from: job.filters.from?.slice(0, 10) ?? null, to, status: job.filters.status ?? null, asset: job.filters.assetId ?? null };
 }

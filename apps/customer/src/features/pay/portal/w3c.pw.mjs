@@ -243,18 +243,18 @@ test('merchant money: snapshot balances, separate assets and honest statement ga
   expect(mock.calls.some((call) => call.procedure === 'merchantMetrics.snapshot')).toBe(true);
 });
 
-test('reports: only supported catalog kinds and the reused export form receives the selected kind', async ({ page }) => {
+test('reports: the catalog opens the request form on the selected kind', async ({ page }) => {
   await setup(page);
   await signIn(page, '/pay/reports');
-  await expect(page.getByRole('heading', { name: 'Available report types' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Available reports' })).toBeVisible();
   await snap(page, 'P52-reports');
   await axe(page);
   await phone(page, 'P52-reports');
   await page
-    .getByRole('row', { name: /Settlements Settlement windows/ })
-    .getByRole('link', { name: 'Request report' })
+    .getByRole('row', { name: /Settlements Each settlement/ })
+    .getByRole('link', { name: 'Open' })
     .click();
-  await expect(page.getByRole('heading', { name: 'Export jobs', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Report files', level: 1 })).toBeVisible();
   await expect(page.locator('#request select').first()).toHaveValue('settlements');
   await snap(page, 'P53-export-jobs-phone');
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -284,7 +284,7 @@ test('stored light preference: app policy stays dark, all W3c routes remain acce
     ['P24', '/pay/money', 'Merchant balances'],
     ['P25', '/pay/money/activity', 'Balance activity'],
     ['P52', '/pay/reports', 'Reports'],
-    ['P53', '/pay/reports/exports', 'Export jobs'],
+    ['P53', '/pay/reports/exports', 'Report files'],
   ]) {
     await go(page, path);
     await expect(page.getByRole('heading', { name: title, level: 1, exact: true })).toBeVisible();

@@ -17,12 +17,14 @@ export const developersApi = ({ query, mutate, identityQuery, identityMutate }: 
   ipsUnbind: (keyId: string, ip: string) => identityMutate('unbindApiKeyIpAllowlist', { keyId, ip }, s.ipListSchema),
   // ---- webhooks (merchantOps.webhooks.*) ----
   endpointsList: async (cursor: string | undefined, status: string, search: string, signal?: AbortSignal) =>
-    pagedResult(await query(
-      'merchantOps.webhooks.list',
-      { limit: 25, ...(cursor ? { cursor } : {}), ...(status ? { status } : {}), ...(search ? { search } : {}) },
-      tolerantPage(s.endpointSchema),
-      signal,
-    )),
+    pagedResult(
+      await query(
+        'merchantOps.webhooks.list',
+        { limit: 25, ...(cursor ? { cursor } : {}), ...(status ? { status } : {}), ...(search ? { search } : {}) },
+        tolerantPage(s.endpointSchema),
+        signal,
+      ),
+    ),
   endpointCreate: (url: string) => mutate('merchantOps.webhooks.create', { url }, s.createdEndpointSchema),
   endpointUpdate: (endpointId: string, url: string) => mutate('merchantOps.webhooks.update', { endpointId, url }, s.endpointSchema),
   endpointDisable: (endpointId: string) => mutate('merchantOps.webhooks.disable', { endpointId }, s.endpointSchema),
@@ -33,19 +35,21 @@ export const developersApi = ({ query, mutate, identityQuery, identityMutate }: 
     filter: { endpointId?: string; status?: string; from?: string; to?: string },
     signal?: AbortSignal,
   ) =>
-    pagedResult(await query(
-      'merchantOps.webhooks.deliveries.list',
-      {
-        limit: 25,
-        ...(cursor ? { cursor } : {}),
-        ...(filter.endpointId ? { endpointId: filter.endpointId } : {}),
-        ...(filter.status ? { status: filter.status } : {}),
-        ...(filter.from ? { from: filter.from } : {}),
-        ...(filter.to ? { to: filter.to } : {}),
-      },
-      tolerantPage(s.deliverySchema),
-      signal,
-    )),
+    pagedResult(
+      await query(
+        'merchantOps.webhooks.deliveries.list',
+        {
+          limit: 25,
+          ...(cursor ? { cursor } : {}),
+          ...(filter.endpointId ? { endpointId: filter.endpointId } : {}),
+          ...(filter.status ? { status: filter.status } : {}),
+          ...(filter.from ? { from: filter.from } : {}),
+          ...(filter.to ? { to: filter.to } : {}),
+        },
+        tolerantPage(s.deliverySchema),
+        signal,
+      ),
+    ),
   deliveryRetry: (deliveryId: string, requestId: string) =>
     mutate('merchantOps.webhooks.deliveries.retry', { deliveryId, requestId }, s.retriedSchema),
   webhookHealth: (signal?: AbortSignal) => query('merchantOps.webhooks.health', {}, s.healthSchema, signal),

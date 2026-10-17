@@ -34,7 +34,9 @@ const files = (dir: string): string[] =>
 const own = ['developers', 'reports', 'analytics'].flatMap((d) => files(join(root, d))).filter((f) => !/\.test\./.test(f));
 
 describe('copy for the developers, reports and analytics pages', () => {
-  const entries = Object.entries(catalogs).flatMap(([ns, messages]) => Object.entries(messages).map(([key, text]) => [`${ns}.${key}`, text] as const));
+  const entries = Object.entries(catalogs).flatMap(([ns, messages]) =>
+    Object.entries(messages).map(([key, text]) => [`${ns}.${key}`, text] as const),
+  );
   it('has words', () => expect(entries.length).toBeGreaterThan(300));
   it('uses no engineer words', () => {
     const offenders: string[] = [];
@@ -48,18 +50,30 @@ describe('copy for the developers, reports and analytics pages', () => {
     const text = own.map((f) => readFileSync(f, 'utf8')).join('\n');
     const prefixes = [...text.matchAll(/`([A-Za-z0-9_]+)\$\{/g)].map((m) => m[1]!);
     const used = (key: string) => new RegExp(`['"\`]${key}['"\`]`).test(text) || prefixes.some((p) => key.startsWith(p));
-    const dead = Object.entries(catalogs).flatMap(([ns, m]) => Object.keys(m).filter((k) => !used(k)).map((k) => `${ns}.${k}`));
+    const dead = Object.entries(catalogs).flatMap(([ns, m]) =>
+      Object.keys(m)
+        .filter((k) => !used(k))
+        .map((k) => `${ns}.${k}`),
+    );
     expect(dead).toEqual([]);
   });
 });
 
 describe('what these pages may call', () => {
-  const clients = ['developers/client.ts', 'reports/client.ts', 'analytics/client.ts'].map((f) => readFileSync(join(root, f), 'utf8')).join('\n');
+  const clients = ['developers/client.ts', 'reports/client.ts', 'analytics/client.ts']
+    .map((f) => readFileSync(join(root, f), 'utf8'))
+    .join('\n');
   it('names only merchant-scoped and own-key procedures', () => {
-    const names = [...clients.matchAll(/'((?:merchantOps|merchantAnalytics|merchantMetrics|apiKeys|setApiKeyRequestSigning|rotateSigningSecret|bindApiKeyIpAllowlist|unbindApiKeyIpAllowlist)[A-Za-z.]*)'/g)].map((m) => m[1]!);
+    const names = [
+      ...clients.matchAll(
+        /'((?:merchantOps|merchantAnalytics|merchantMetrics|apiKeys|setApiKeyRequestSigning|rotateSigningSecret|bindApiKeyIpAllowlist|unbindApiKeyIpAllowlist)[A-Za-z.]*)'/g,
+      ),
+    ].map((m) => m[1]!);
     expect(names.length).toBeGreaterThanOrEqual(20);
     for (const name of names)
-      expect(name).toMatch(/^(merchantOps\.(webhooks\.|exports\.|team\.list)|merchantAnalytics\.(volume|fees)|merchantMetrics\.series|apiKeys\.(list|create|revoke)|setApiKeyRequestSigning|rotateSigningSecret|bindApiKeyIpAllowlist|unbindApiKeyIpAllowlist)/);
+      expect(name).toMatch(
+        /^(merchantOps\.(webhooks\.|exports\.|team\.list)|merchantAnalytics\.(volume|fees)|merchantMetrics\.series|apiKeys\.(list|create|revoke)|setApiKeyRequestSigning|rotateSigningSecret|bindApiKeyIpAllowlist|unbindApiKeyIpAllowlist)/,
+      );
     expect(clients).not.toMatch(/admin:|operator|killswitch/i);
     expect(clients).not.toMatch(new RegExp(['founder', 'Admin'].join(''), 'i'));
   });

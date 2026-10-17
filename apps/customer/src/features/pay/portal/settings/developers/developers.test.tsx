@@ -13,7 +13,16 @@ import { DeliveryDetail } from './Deliveries';
 import { EndpointView } from './Endpoint';
 import { AddEndpoint, HealthStrip } from './Webhooks';
 import { CreateKey, KeysView } from './Keys';
-import { canManageWebhooks, ipProblem, isPrivateHost, shownEndpointUrl, signingSnippets, splitIps, verifySnippets, webhookUrlProblem } from './model';
+import {
+  canManageWebhooks,
+  ipProblem,
+  isPrivateHost,
+  shownEndpointUrl,
+  signingSnippets,
+  splitIps,
+  verifySnippets,
+  webhookUrlProblem,
+} from './model';
 import { SecretReveal } from './SecretReveal';
 import { AllowedIps, Recipe, SigningSettings } from './Signing';
 import { SandboxView } from './Sandbox';
@@ -45,7 +54,13 @@ const endpoint = (patch: Partial<Endpoint> = {}): Endpoint => ({
 const health = (): Health => ({
   asOf: '2026-10-17T03:00:00.000Z',
   endpoints: [
-    { endpointId: 'TEST-endpoint-1', status: 'active', consecutiveFailures: 2, deliveries: { pending: 1, delivered: 7, failed: 2, dead: 1 }, lastDeliveredAt: '2026-10-16T00:00:00.000Z' },
+    {
+      endpointId: 'TEST-endpoint-1',
+      status: 'active',
+      consecutiveFailures: 2,
+      deliveries: { pending: 1, delivered: 7, failed: 2, dead: 1 },
+      lastDeliveredAt: '2026-10-16T00:00:00.000Z',
+    },
   ],
 });
 const keysView = (keys: ApiKey[], scopes: string[] = ['pay:read', 'pay:write']) =>
@@ -206,7 +221,13 @@ describe('webhooks', () => {
     expect(out).not.toContain('TOP-SECRET');
     expect(out).toContain('Turn off endpoint');
     const off = renderToString(
-      <EndpointView api={api} endpoint={endpoint({ status: 'disabled', disabledReason: 'disabled_by_merchant' })} health={null} canManage reload={() => {}} />,
+      <EndpointView
+        api={api}
+        endpoint={endpoint({ status: 'disabled', disabledReason: 'disabled_by_merchant' })}
+        health={null}
+        canManage
+        reload={() => {}}
+      />,
     );
     expect(off).not.toContain('Turn off endpoint');
     expect(off).toContain('add it as a new endpoint');
@@ -238,7 +259,9 @@ describe('webhooks', () => {
 describe('test mode and the guide', () => {
   const failure = { status: 'failed' as const, failure: { ok: false, reason: 'unreachable', message: 'x', code: '' } as never };
   it('counts real things and links to the test tools', () => {
-    const out = renderToString(<SandboxView keys={ready([key(), key({ id: 'k2', revoked: true })])} health={ready(health())} reload={() => {}} />);
+    const out = renderToString(
+      <SandboxView keys={ready([key(), key({ id: 'k2', revoked: true })])} health={ready(health())} reload={() => {}} />,
+    );
     expect(out).toContain('Test keys');
     expect(out).toContain('/pay/payments?view=tools');
     expect(out).toContain('/pay/payouts?view=tools');

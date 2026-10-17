@@ -28,7 +28,17 @@ export function DeliveryChip({ status }: { status: Delivery['status'] }) {
 }
 
 /** Deliveries for every endpoint, or for one (`endpointId`). Filters are the service's own and live in the address. */
-export function DeliveryList({ api, canManage, endpointId, now = Date.now() }: { api: SettingsBApi; canManage: boolean; endpointId?: string; now?: number }) {
+export function DeliveryList({
+  api,
+  canManage,
+  endpointId,
+  now = Date.now(),
+}: {
+  api: SettingsBApi;
+  canManage: boolean;
+  endpointId?: string;
+  now?: number;
+}) {
   const { t } = c.useCopy();
   const [status, setStatus] = useUrlParam('status');
   const [date, setDate] = useUrlParam('date');
@@ -44,7 +54,11 @@ export function DeliveryList({ api, canManage, endpointId, now = Date.now() }: {
   );
   const list = useServerList<Delivery, Record<string, string>>(
     (f, cursor, signal) =>
-      api.deliveriesList(cursor, { endpointId: f.endpoint || undefined, status: f.status || undefined, from: f.from || undefined, to: f.to || undefined }, signal),
+      api.deliveriesList(
+        cursor,
+        { endpointId: f.endpoint || undefined, status: f.status || undefined, from: f.from || undefined, to: f.to || undefined },
+        signal,
+      ),
     { endpoint, status, from: range.from ?? '', to: range.to ?? '' },
     (d) => d.id,
   );
@@ -89,7 +103,11 @@ export function DeliveryList({ api, canManage, endpointId, now = Date.now() }: {
           </div>
         )}
         <p className="muted pp-count" role="status">
-          {list.state.status === 'ready' ? (list.state.hasMore ? t('newestMore', { n: shown.length }) : t('newestAll', { n: shown.length })) : ''}
+          {list.state.status === 'ready'
+            ? list.state.hasMore
+              ? t('newestMore', { n: shown.length })
+              : t('newestAll', { n: shown.length })
+            : ''}
           {filtered && (
             <>
               {' '}
@@ -142,7 +160,10 @@ export function DeliveryList({ api, canManage, endpointId, now = Date.now() }: {
                 },
                 { header: t('colStatus'), cell: (d) => <DeliveryChip status={d.status} /> },
                 { header: t('colAttempts'), cell: (d) => d.attempts },
-                { header: t('colReply'), cell: (d) => (d.lastStatusCode === null ? <span className="muted">{t('noReply')}</span> : d.lastStatusCode) },
+                {
+                  header: t('colReply'),
+                  cell: (d) => (d.lastStatusCode === null ? <span className="muted">{t('noReply')}</span> : d.lastStatusCode),
+                },
                 { header: t('colWhen'), cell: (d) => <DateTime value={d.createdAt} /> },
                 {
                   header: <span className="pp-sr">{t('colActions')}</span>,
@@ -208,7 +229,17 @@ export function DeliveryDetail({ delivery }: { delivery: Delivery }) {
   );
 }
 
-export function RetryButton({ api, delivery, canManage, onDone }: { api: Pick<SettingsBApi, 'deliveryRetry'>; delivery: Delivery; canManage: boolean; onDone: () => void }) {
+export function RetryButton({
+  api,
+  delivery,
+  canManage,
+  onDone,
+}: {
+  api: Pick<SettingsBApi, 'deliveryRetry'>;
+  delivery: Delivery;
+  canManage: boolean;
+  onDone: () => void;
+}) {
   const { t } = c.useCopy();
   // One request id per review: sending it twice (a double click, a lost reply) cannot send the event twice.
   const [requestId, setRequestId] = useState(newRequestId);
