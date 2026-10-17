@@ -34,6 +34,7 @@ const migrations = [
   '0071_pay_merchant_names.sql',
   '0073_pay_settlement_read.sql',
   '0079_pay_halt_autotrip_window.sql',
+  '0089_pay_payout_dispatched_outcome.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {

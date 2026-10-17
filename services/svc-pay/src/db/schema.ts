@@ -437,9 +437,9 @@ export const withdrawalStatusEnum = pay.enum('withdrawal_status', ['pending', 'h
  * second withdrawal.
  *
  * `attempts` is part of the ledger hold's business key, exactly as
- * `settlements.payout_attempts` is. It advances only on a rail REFUSAL — a
- * refusal reverses the hold, so the next attempt needs a fresh key, while a
- * crash-and-resume reuses its key and stays idempotent.
+ * `settlements.payout_attempts` is. It advances only when a refusal is proved
+ * for an attempt that was not already dispatched. A crash-and-resume reuses
+ * its key. A later refusal of a dispatched attempt does not advance it.
  */
 export const withdrawals = pay.table(
   'withdrawals',

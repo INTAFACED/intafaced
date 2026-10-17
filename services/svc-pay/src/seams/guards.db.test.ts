@@ -36,6 +36,7 @@ const migrations = [
   '0071_pay_merchant_names.sql',
   '0073_pay_settlement_read.sql',
   '0087_pay_payment_link_checkout.sql',
+  '0089_pay_payout_dispatched_outcome.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-seams-test-secret-at-least-32-characters';

@@ -57,6 +57,7 @@ import {
   type MerchantPayoutDestinations,
 } from './merchant-payout-destination.js';
 import { settlementLedgerPlan, type SettlementLedgerPlan } from './settlement-ledger.js';
+import { dispatchedMarker, payoutRailKey, readDispatchedKey } from './payout-dispatch.js';
 import { encodeListCursor, ListQueryError, parseListFilters, type ListFilters } from './list-page.js';
 import { safeFailure, type MerchantFailure } from './merchant-failure.js';
 import { readPricingSnapshots, type StoredPricingSnapshot } from './control/snapshots.js';
@@ -4369,10 +4370,14 @@ export class PayService {
    * reference against it. An attempt already held on the owner's user account
    * finishes on that hold so a second proceeds hold is not posted.
    *
-   * IF THIS CRASHES between the hold and the payout, the funds are in the
-   * proceeds payout hold and the settlement is still `posted`. Re-running
-   * re-posts the hold (idempotent on the settlement id), asks the rail again
-   * (idempotent on the settlement id), and finishes.
+   * IF THIS CRASHES between the hold and the dispatch marker, the funds are
+   * in the proceeds payout hold and no rail call was journalled. Re-running
+   * is an undispatched resume: a first refusal may still reverse.
+   * The marker commits after the hold and before the rail, and it stores the
+   * provider idempotency key. A resume that already has that marker treats
+   * any refusal or error as unknown: the hold stays, `payout_attempts` stays,
+   * and only `reconcileDispatchedPayout` may reverse or finalise, after it
+   * queries that same key.
    */
   async payoutSettlement(input: {
     settlementId: string;
@@ -4527,10 +4532,36 @@ export class PayService {
           let accepted = outcomes.find((outcome) => outcome.kind === 'rail_accepted')?.payload as { railRef: string } | undefined;
           let refused = outcomes.find((outcome) => outcome.kind === 'rail_refused')?.payload as
             { failureReason: string; failureCode: string } | undefined;
+          const dispatched = outcomes.find((outcome) => outcome.kind === 'dispatched');
+          // Read before this call inserts its own marker. A row already there
+          // is an earlier dispatch, same rule as a user withdrawal's firstDispatch.
+          const priorDispatched = dispatched !== undefined;
           // Only a rail call made on this attempt feeds auto-trip. A stored
           // outcome is bookkeeping for a call that already counted, or didn't.
           let freshRail: 'accepted' | 'refused' | null = null;
           if (!refused && !accepted) {
+            const instruction = {
+              settlementId: admission.business_id,
+              merchantId: admission.merchant_id,
+              amount: parseAmount(admission.net),
+              assetId: admission.asset_id,
+              window: admission.window,
+              destination: { kind: admission.destination_kind, ref: admission.destination_ref },
+            };
+            const idempotencyKey = payoutRailKey(adapter, instruction);
+            if (!idempotencyKey) {
+              throw new PayError('Payout rail does not name an idempotency key; refusing before the hold', 'pay.rail_outcome_unknown', {
+                settlementId: admission.settlement_id,
+              });
+            }
+            const storedKey = readDispatchedKey(dispatched?.payload);
+            if (priorDispatched && storedKey !== idempotencyKey) {
+              throw new PayError('Dispatched payout key does not match the rail key; hold kept', 'pay.rail_outcome_unknown', {
+                settlementId: admission.settlement_id,
+                idempotencyKey: storedKey,
+                state: 'dispatched',
+              });
+            }
             // Seam: before any hold is posted or rail asked, including crash
             // recovery. Recovery means the hold is already on the ledger (value in
             // flight); an admitted payout that has moved nothing yet is `fresh`,
@@ -4548,18 +4579,22 @@ export class PayService {
               replay: holdBooked ? { kind: 'recovery', reason: 'payout_hold_booked' } : FRESH,
             });
             await postPayLedger(this.ledger, plan.hold);
+            // The ledger hold is already durable. This transaction commits the
+            // marker, including that hold's key, before the rail is asked.
+            if (!priorDispatched) {
+              await payoutTransaction(connection, async (tx) => {
+                await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'dispatched',${tx.json(dispatchedMarker(idempotencyKey, plan.hold.idempotencyKey))}) ON CONFLICT DO NOTHING`;
+              });
+            }
+            const unknownDispatch = (message: string) =>
+              new PayError(message, 'pay.rail_outcome_unknown', {
+                settlementId: admission!.settlement_id,
+                idempotencyKey,
+                state: 'dispatched',
+              });
             let result: Awaited<ReturnType<typeof adapter.payout>>;
             try {
-              result = await withRailSpan(adapter.id, 'payout', () =>
-                adapter.payout({
-                  settlementId: admission!.business_id,
-                  merchantId: admission!.merchant_id,
-                  amount: parseAmount(admission!.net),
-                  assetId: admission!.asset_id,
-                  window: admission!.window,
-                  destination: { kind: admission!.destination_kind, ref: admission!.destination_ref },
-                }),
-              );
+              result = await withRailSpan(adapter.id, 'payout', () => adapter.payout(instruction));
             } catch (error) {
               // The hold is already on the ledger. Counting may halt the next
               // payout. It does not reverse this one or replace the throw.
@@ -4569,16 +4604,28 @@ export class PayService {
                 railId: admission.rail_id,
                 connection,
               });
+              if (priorDispatched) throw unknownDispatch('Earlier payout dispatch is unknown; original hold remains');
               throw error;
             }
             if (!result.ok) {
+              if (priorDispatched) {
+                await this.accountRailOutcome({
+                  kind: 'throw',
+                  target: { level: 'merchant', merchantId: admission.merchant_id },
+                  railId: admission.rail_id,
+                  connection,
+                });
+                throw unknownDispatch('Earlier payout dispatch is unknown; a later refusal is not proof the rail did not send');
+              }
               freshRail = 'refused';
               refused = { failureReason: result.failureReason ?? 'Rail refused', failureCode: result.failureCode ?? 'rail.failed' };
               await connection`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_refused',${connection.json(refused)})`;
             } else {
-              freshRail = 'accepted';
-              if (result.amount !== parseAmount(admission.net) || result.assetId !== admission.asset_id)
+              if (result.amount !== parseAmount(admission.net) || result.assetId !== admission.asset_id) {
+                if (priorDispatched) throw unknownDispatch('Earlier payout dispatch is unknown; rail answer does not match the hold');
                 throw new PayError('Payout rail amount or asset differs', 'pay.rail_amount_mismatch');
+              }
+              freshRail = 'accepted';
               accepted = { railRef: result.railRef };
               await connection`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_accepted',${connection.json(accepted)})`;
             }
@@ -4624,6 +4671,139 @@ export class PayService {
       await settleGuardRefusal(error);
       if (error instanceof PayoutAdmissionError) throw new PayError(error.message, error.code);
       throw error;
+    });
+  }
+
+  /**
+   * Ask the rail about a dispatched payout's original key, then reverse once
+   * or finalise once. A rail with no status query leaves the hold where it is.
+   */
+  async reconcileDispatchedPayout(settlementId: string): Promise<SettlementRecord> {
+    return withMoneySpan('pay.reconcileDispatchedPayout', { operation: 'payout', settlementId }, async () => {
+      return withPayoutLock(this.sql, settlementId, async (connection) => {
+        const settlement = await this.getSettlement(settlementId, connection);
+        if (settlement.status === 'paid_out') return settlement;
+        const admission = await loadPayoutAdmission(connection, settlement.id, settlement.payoutAttempts);
+        if (!admission) {
+          if (settlement.status === 'failed') return settlement;
+          throw new PayError('Payout has no admission to reconcile', 'pay.invalid_transition');
+        }
+        const outcomes = await connection`SELECT kind,payload FROM pay.payout_outcomes WHERE admission_id=${admission.id}`;
+        const accepted = outcomes.find((outcome) => outcome.kind === 'rail_accepted')?.payload as { railRef: string } | undefined;
+        const reversed = outcomes.some((outcome) => outcome.kind === 'reversed');
+        const settled = outcomes.some((outcome) => outcome.kind === 'settled');
+        if (reversed || settlement.status === 'failed') return this.getSettlement(settlementId, connection);
+        const proceedsPlan = settlementLedgerPlan({
+          settlementId: admission.settlement_id,
+          payoutAttempt: admission.attempt,
+          merchantId: admission.merchant_id,
+          assetId: admission.asset_id,
+          amount: parseAmount(admission.net),
+          railId: admission.rail_id,
+          destinationKind: admission.destination_kind,
+        });
+        const book = await this.recognisedPayoutBook({
+          settlementId: admission.settlement_id,
+          merchantId: admission.merchant_id,
+          merchantUserId: admission.merchant_user_id,
+          window: admission.window,
+          assetId: admission.asset_id,
+        });
+        const plan =
+          book === 'legacy'
+            ? legacyUserPayoutPlan(
+                admission.merchant_user_id,
+                admission.asset_id,
+                parseAmount(admission.net),
+                admission.rail_id,
+                proceedsPlan.withdrawalId,
+                proceedsPlan.destinationKind,
+              )
+            : proceedsPlan;
+        let railRef = accepted?.railRef;
+        if (!railRef) {
+          const dispatched = outcomes.find((outcome) => outcome.kind === 'dispatched');
+          const idempotencyKey = readDispatchedKey(dispatched?.payload);
+          if (!dispatched || !idempotencyKey) {
+            throw new PayError('Payout was not dispatched; there is no original key to query', 'pay.invalid_transition');
+          }
+          const adapter = this.rails.require(admission.rail_id, 'payout');
+          if (typeof adapter.queryPayout !== 'function') {
+            throw new PayError('Payout rail has no status query; dispatched hold stays', 'pay.rail_outcome_unknown', {
+              settlementId,
+              idempotencyKey,
+              state: 'dispatched',
+            });
+          }
+          let queried: Awaited<ReturnType<NonNullable<typeof adapter.queryPayout>>>;
+          try {
+            queried = await adapter.queryPayout(idempotencyKey);
+          } catch {
+            throw new PayError('Payout rail status query failed; dispatched hold stays', 'pay.rail_outcome_unknown', {
+              settlementId,
+              idempotencyKey,
+              state: 'dispatched',
+            });
+          }
+          if (queried.status === 'unknown') {
+            throw new PayError('Payout rail cannot say whether the original key was sent; hold stays', 'pay.rail_outcome_unknown', {
+              settlementId,
+              idempotencyKey,
+              state: 'dispatched',
+            });
+          }
+          if (queried.status === 'not_sent') {
+            const failureCode = 'rail.not_sent';
+            const failureReason = 'Rail status query confirmed the original key was not sent';
+            await postPayLedger(this.ledger, plan.reverse);
+            await payoutTransaction(connection, async (tx) => {
+              await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_refused',${tx.json({ failureReason, failureCode })}) ON CONFLICT DO NOTHING`;
+              await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'reversed','{}') ON CONFLICT DO NOTHING`;
+              await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission.attempt + 1},failed_at=now(),failure_code=${(safeFailure(failureCode) ?? { code: 'pay.failed' }).code},updated_at=now() WHERE id=${settlement.id}`;
+            });
+            await this.accountRailOutcome({
+              kind: 'failure',
+              target: { level: 'merchant', merchantId: admission.merchant_id },
+              railId: admission.rail_id,
+              failureCode,
+              eventKey: `payout:${admission.settlement_id}:${admission.attempt}`,
+              connection,
+            });
+            return this.getSettlement(settlementId, connection);
+          }
+          if (
+            (queried.amount !== null && queried.amount !== parseAmount(admission.net)) ||
+            (queried.assetId !== null && queried.assetId !== admission.asset_id) ||
+            !queried.railRef.trim()
+          ) {
+            throw new PayError('Payout rail status does not match the held payout', 'pay.rail_amount_mismatch', {
+              settlementId,
+              idempotencyKey,
+              state: 'dispatched',
+            });
+          }
+          railRef = queried.railRef;
+          await connection`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_accepted',${connection.json({ railRef })})`;
+        }
+        if (settled) return this.getSettlement(settlementId, connection);
+        await postPayLedger(this.ledger, plan.settle);
+        await payoutTransaction(connection, async (tx) => {
+          await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'settled','{}') ON CONFLICT DO NOTHING`;
+          await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission.rail_id},payout_ref=${railRef!},sent_at=COALESCE(sent_at, now()),failed_at=NULL,failure_code=NULL,updated_at=now() WHERE id=${settlement.id}`;
+        });
+        await this.accountRailOutcome({
+          kind: 'success',
+          target: { level: 'merchant', merchantId: admission.merchant_id },
+          railId: admission.rail_id,
+          connection,
+        });
+        return {
+          ...(await this.getSettlement(settlementId, connection)),
+          status: 'paid_out' as const,
+          payoutMethod: admission.rail_id,
+          payoutRef: railRef,
+        };
+      });
     });
   }
 
