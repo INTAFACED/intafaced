@@ -159,9 +159,9 @@ describe('PayFac original credential admission real PostgreSQL', { timeout: 30_0
       railId: 'card-sandbox',
     };
     if (apiKey) {
-      // Existing pay:payout guard requires MFA; ordinary API keys carry no MFA.
+      // pay:payout is interactive-only, so an API key is refused before MFA and before any payout.
       await expect(api.settlement.payout(payout)).rejects.toMatchObject({
-        message: 'Scope "pay:payout" requires two-factor authentication',
+        message: 'Scope "pay:payout" requires an interactive session and cannot be used from an API key',
       });
       expect(kinds).toEqual(['payment.create', 'payment.authorize', 'payment.capture']);
     } else {
