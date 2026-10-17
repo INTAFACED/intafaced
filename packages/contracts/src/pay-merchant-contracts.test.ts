@@ -29,6 +29,7 @@ import {
   merchantControlChangeInputSchema,
   merchantMetricsInputSchema,
   payAmountStringSchema,
+  payStatementLineSchema,
   payCapSchema,
   payHaltSetInputSchema,
   payHaltStatusSchema,
@@ -526,5 +527,48 @@ describe('pay contracts: founder cursors and destination reveal', () => {
     expect(kybDecisionBindingSchema.safeParse({ ...row, profileVersion: '1' }).success).toBe(false);
     expect(kybDecisionBindingSchema.safeParse({ ...row, website: 'https://shop.example' }).success).toBe(false);
     expect(kybDecisionBindingSchema.safeParse({ ...row, identityHash: 'not-a-hash' }).success).toBe(false);
+  });
+});
+
+describe('statement lines', () => {
+  const line = {
+    id: randomUUID(),
+    merchantId,
+    at: '2026-06-15T12:00:00.000Z',
+    assetId: 'USDT',
+    kind: 'payout' as const,
+    amount: '9.75',
+    account: 'proceeds' as const,
+    direction: 'credit' as const,
+    runningClearing: null,
+    runningProceeds: null,
+    windowNet: '-9.75',
+    runningOrder: 'clear' as const,
+    runningReason: 'no_opening' as const,
+    paymentId: null,
+    settlementId: randomUUID(),
+    ledgerTxId: randomUUID(),
+  };
+
+  it('accepts a signed window net and the three running reasons', () => {
+    expect(payStatementLineSchema.safeParse(line).success).toBe(true);
+    expect(payStatementLineSchema.safeParse({ ...line, windowNet: '0', runningReason: 'no_opening' }).success).toBe(true);
+    expect(
+      payStatementLineSchema.safeParse({
+        ...line,
+        windowNet: null,
+        runningReason: null,
+        runningOrder: 'clear',
+        runningClearing: '6',
+        runningProceeds: '0',
+      }).success,
+    ).toBe(true);
+    expect(
+      payStatementLineSchema.safeParse({ ...line, windowNet: null, runningReason: 'order_ambiguous', runningOrder: 'order_ambiguous' })
+        .success,
+    ).toBe(true);
+    expect(payStatementLineSchema.safeParse({ ...line, windowNet: '-1e2' }).success).toBe(false);
+    expect(payStatementLineSchema.safeParse({ ...line, windowNet: -9.75 }).success).toBe(false);
+    expect(payStatementLineSchema.safeParse({ ...line, runningReason: 'negative' }).success).toBe(false);
   });
 });

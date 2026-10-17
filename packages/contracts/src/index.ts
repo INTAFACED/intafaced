@@ -35,4 +35,5 @@ export * from './conversion.js';
 export * from './pay-halts.js';
 export * from './pay-merchant-reads.js';
 export * from './merchant-portal.js';
+export * from './pay-portal-reads.js';
 export * from './founder-admin.js';

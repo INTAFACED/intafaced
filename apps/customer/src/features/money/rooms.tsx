@@ -2,9 +2,11 @@ import { t as copyText, Text } from './copy';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button, DataTable, EmptyState, Failure, Field, Page } from '../../shared/ui';
-import { decimalSchema, parseAmount } from '../../shared/money';
+import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { useSession } from '../session/session';
-import { validateTransfer, type Space } from './client';
+import { usePreferences, savePreferences } from '../../shared/preferences';
+import { useResource } from '../../shared/resource';
+import { createMoneyClient, validateTransfer, type MoneyOverview, type Space } from './client';
 import {
   amount,
   funds,
@@ -1516,8 +1518,225 @@ function Business() {
     </BankPage>
   );
 }
+const bankServices = [
+  { href: '/bank/spaces', label: 'nav.spaces', note: 'overview.spaces.note' },
+  { href: '/bank/transfers', label: 'nav.transfers', note: 'overview.transfers.note' },
+  { href: '/bank/earn', label: 'nav.earn', note: 'overview.earn.note' },
+  { href: '/bank/loans', label: 'nav.loans', note: 'overview.loans.note' },
+  { href: '/bank/cards', label: 'nav.cards', note: 'overview.cards.note' },
+  { href: '/bank/ramps', label: 'nav.ramps', note: 'overview.ramps.note' },
+  { href: '/bank/analytics', label: 'nav.analytics', note: 'overview.analytics.note' },
+  { href: '/bank/business', label: 'nav.business', note: 'overview.business.note' },
+  { href: '/uc/record', label: 'index.money.activity', note: 'overview.activity.note' },
+] as const;
+/**
+ * `/bank`: the first page of the neo-bank. It shows only what the bank answers (balances and spaces, each with its own
+ * loading, failed or empty state) and opens every bank service, so a bank that is not set up yet still reads as a place.
+ */
+function BankOverview() {
+  const { api, userId, mode } = useSession();
+  const { hideBalances } = usePreferences();
+  const [limit, setLimit] = useState(50);
+  const { resource, reload } = useResource<MoneyOverview>(async (signal) => {
+    if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('index.sign.in.to.see.your.money') };
+    if (mode === 'Business')
+      return { ok: false, reason: 'not_supported', message: copyText('index.a.verified.company.ledger.owner.and.company') };
+    return { ok: true, data: await createMoneyClient(api).overview(userId, limit, signal) };
+  }, `${userId}:${mode}:bank-overview:${limit}`);
+  return (
+    <Page
+      eyebrow={copyText('rooms.money.bank')}
+      title={copyText('index.bank')}
+      description={copyText('overview.description')}
+      actions={
+        <>
+          <a className="button button--primary" href="/bank/spaces">
+            <Text k="index.create.space" />
+          </a>
+          <a className="button button--secondary" href="/bank/transfers">
+            <Text k="index.transfer" />
+          </a>
+          <a className="button button--secondary" href="/uc/withdraw">
+            <Text k="custody.withdraw" />
+          </a>
+        </>
+      }
+    >
+      <BankNavigation current="Overview" />
+      <div className="money-overview-lane">
+        <Section
+          title={copyText('index.holdings')}
+          actions={
+            <>
+              <Button variant="ghost" onClick={() => savePreferences({ hideBalances: !hideBalances })} aria-pressed={hideBalances}>
+                <Text k={hideBalances ? 'index.show.amounts' : 'index.hide.amounts'} />
+              </Button>
+              <Button variant="ghost" onClick={reload}>
+                <Text k="rooms.refresh" />
+              </Button>
+            </>
+          }
+        >
+          <ResourceView resource={resource} reload={reload}>
+            {(overview) => (
+              <>
+                {overview.balances.ok && (
+                  <p className="money-response-time">
+                    {Number.isFinite(Date.parse(overview.balances.data.datetime)) ? (
+                      <time dateTime={overview.balances.data.datetime} dir="auto">
+                        {copyText('overview.reported', { time: date(overview.balances.data.datetime) })}
+                      </time>
+                    ) : (
+                      <Text k="overview.time.unavailable" />
+                    )}
+                  </p>
+                )}
+                {!overview.balances.ok && <Failure result={overview.balances} retry={reload} />}
+                {overview.conflicts.length > 0 && (
+                  <p className="notice" role="status">
+                    <Text k="index.separate.reads.disagree.for" />
+                    {overview.conflicts.join(', ')}
+                    <Text k="index.their.available.projection.is.omitted.refresh.to" />
+                  </p>
+                )}
+                {overview.holdings.length ? (
+                  overview.holdings.map((holding) => (
+                    <a className="money-holding" href={`/portfolio/${encodeURIComponent(holding.assetId)}`} key={holding.assetId}>
+                      <span className="money-asset-mark" aria-hidden="true">
+                        {holding.assetId.slice(0, 1)}
+                      </span>
+                      <span className="money-holding-name">
+                        <strong lang="und">{holding.assetId}</strong>
+                        <small>
+                          {holding.quantity === null ? (
+                            <Text k="index.available.projection.only" />
+                          ) : (
+                            <Text k="index.user.ledger.quantity" />
+                          )}
+                        </small>
+                      </span>
+                      <span className="money-holding-values">
+                        <strong className="numeric" dir="ltr">
+                          <span className="money-quantity-value">
+                            {hideBalances ? '••••' : displayAmount(holding.quantity ?? holding.available)}
+                          </span>
+                          {!hideBalances && (
+                            <span className="money-quantity-unit" lang="und">
+                              {' '}
+                              {holding.assetId}
+                            </span>
+                          )}
+                        </strong>
+                        <dl className="money-quantity-restrictions">
+                          <div>
+                            <dt>
+                              <Text k="index.available" />
+                            </dt>
+                            <dd className="numeric" dir="ltr">
+                              {hideBalances ? '••••' : amount(holding.available, holding.assetId)}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>
+                              <Text k="index.held.restricted" />
+                            </dt>
+                            <dd className="numeric" dir="ltr">
+                              {hideBalances ? '••••' : amount(holding.held, holding.assetId)}
+                            </dd>
+                          </div>
+                        </dl>
+                      </span>
+                      <span className="money-chevron" aria-hidden="true">
+                        ↗
+                      </span>
+                    </a>
+                  ))
+                ) : overview.balances.ok ? (
+                  <NoRows title={copyText('index.no.user.ledger.accounts.returned')}>
+                    <Text k="index.an.empty.projection.is.not.a.complete" />
+                  </NoRows>
+                ) : (
+                  <div className="notice" role="status">
+                    <h3>
+                      <Text k="availability.holdings.unavailable" />
+                    </h3>
+                    <p>
+                      <Text k="availability.refresh.balances" />
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </ResourceView>
+        </Section>
+        <Section
+          title={copyText('index.your.spaces')}
+          actions={
+            <a className="text-link" href="/bank/spaces">
+              <Text k="index.manage.spaces" />
+            </a>
+          }
+        >
+          <ResourceView resource={resource} reload={reload}>
+            {(overview) =>
+              overview.spaces.ok ? (
+                <>
+                  {overview.spaces.data.length ? (
+                    overview.spaces.data.map((space) => (
+                      <a className="money-space-row" href={`/bank/spaces?space=${encodeURIComponent(space.id)}`} key={space.id}>
+                        <div>
+                          <strong lang="und">{space.name}</strong>
+                          <small>
+                            {space.kind === 'primary' ? (
+                              <Text k="index.primary.already.in.the.user.ledger.projection" />
+                            ) : (
+                              <Text k="index.named.separate.ledger.subaccount" />
+                            )}
+                          </small>
+                        </div>
+                        <div className="numeric" dir="ltr">
+                          {funds(space.balance, space.assetId)}
+                        </div>
+                      </a>
+                    ))
+                  ) : (
+                    <NoRows title={copyText('rooms.no.spaces.returned')}>
+                      <Text k="rooms.create.a.named.space.its.balance.will" />
+                    </NoRows>
+                  )}
+                  <Continuation count={overview.spaces.data.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
+                </>
+              ) : (
+                <Failure result={overview.spaces} retry={reload} />
+              )
+            }
+          </ResourceView>
+        </Section>
+      </div>
+      <Section title={copyText('overview.services')}>
+        <nav className="money-destinations" aria-label={copyText('overview.services')}>
+          {bankServices.map((service) => (
+            <a className="link-row" href={service.href} key={service.href}>
+              <span>
+                <strong>
+                  <Text k={service.label} />
+                </strong>
+                <small>
+                  <Text k={service.note} />
+                </small>
+              </span>
+              <span aria-hidden="true">↗</span>
+            </a>
+          ))}
+        </nav>
+      </Section>
+    </Page>
+  );
+}
 export function BankRoutes({ path, search, open }: { path: string; search: string; open: (spec: ActionSpec) => void }) {
   switch (path) {
+    case '/bank':
+      return <BankOverview />;
     case '/bank/spaces':
       return <Spaces open={open} search={search} />;
     case '/bank/transfers':

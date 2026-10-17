@@ -8,7 +8,16 @@ import {
   payPricingSnapshotViewSchema,
   paySettlementLineSchema,
   paySettlementLinesInputSchema,
+  payPayoutDestinationItemSchema,
+  payPayoutDestinationListInputSchema,
+  payPayoutLifecycleInputSchema,
+  payPayoutLifecycleSchema,
+  payRefundGetInputSchema,
+  payRefundItemSchema,
+  payRefundListInputSchema,
   paySettlementListInputSchema,
+  payStatementListInputSchema,
+  payStatementPageSchema,
   router,
   scopedProcedure,
   publicProcedure,
@@ -755,6 +764,41 @@ export function createPayRouter(
             };
           }),
         ),
+
+      /**
+       * Saved destinations for this merchant. Masked. Screening and a default
+       * flag are not stored, so those fields are the literals `not_recorded`
+       * and `unset`. There is no set-default and no remove: changing a
+       * destination is still the owner's direct overwrite.
+       */
+      payoutDestinations: router({
+        list: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payPayoutDestinationListInputSchema)
+          .output(payPageSchema(payPayoutDestinationItemSchema))
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.list', 'settlements.read');
+              return pay.listPayoutDestinations(input);
+            }),
+          ),
+      }),
+
+      /**
+       * Ledger statement. Needs both the payment read and the settlement read:
+       * one page shows captures and payouts. Reserve is `not_booked`.
+       */
+      statement: router({
+        list: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payStatementListInputSchema)
+          .output(payStatementPageSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
+              return pay.listStatement(input);
+            }),
+          ),
+      }),
     }),
 
     ...(portal ? { merchantAnalytics: portal.merchantAnalytics } : {}),
@@ -941,6 +985,33 @@ export function createPayRouter(
             return events.map((e) => projectTeamHistoryEvent(e));
           }),
         ),
+
+      /** Account-wide refund projection. The write stays on `payment.refund`. */
+      refunds: router({
+        list: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payRefundListInputSchema)
+          .output(payPageSchema(payRefundItemSchema))
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.payment.refunds.list', 'payments.read');
+              return pay.listRefunds(input);
+            }),
+          ),
+
+        get: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payRefundGetInputSchema)
+          .output(payRefundItemSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              const located = await pay.locateRefund(input.refundEventId);
+              await refuseAsMissing(
+                assertRead(ctx.principal.userId, located.merchantId, 'trpc.payment.refunds.get', 'payments.read'),
+                () => new PayError(`Refund ${input.refundEventId} not found`, 'pay.refund_not_found'),
+              );
+              return pay.readRefund(input.refundEventId);
+            }),
+          ),
+      }),
     }),
 
     settlement: router({
@@ -1040,6 +1111,23 @@ export function createPayRouter(
             const settlement = await pay.getSettlement(input.settlementId);
             await assertSettlementAccess(ctx.principal?.userId, input.settlementId, settlement.merchantId, 'trpc.settlement.release');
             return toSettlementOut(await pay.releasePendingSettlement(input));
+          }),
+        ),
+
+      /**
+       * Composed payout timeline. `status` is derived from the events.
+       * When the status column is ahead of the recorded timestamps, one
+       * synthetic event (`timeKnown: false`) floors that status. The read
+       * never reports a status lower than the column.
+       */
+      lifecycle: scopedProcedure('pay:read', { module: 'pay' })
+        .input(payPayoutLifecycleInputSchema)
+        .output(payPayoutLifecycleSchema)
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            const settlement = await pay.getSettlement(input.settlementId);
+            await assertSettlementRead(ctx.principal.userId, input.settlementId, settlement.merchantId);
+            return pay.readPayoutLifecycle(input.settlementId);
           }),
         ),
     }),
@@ -1978,6 +2066,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.profile_not_found':
       case 'pay.link_not_found':
       case 'pay.settlement_not_found':
+      case 'pay.refund_not_found':
       case 'pay.checkout_session_not_found':
         return 'NOT_FOUND' as const;
       case 'pay.link_expired':
@@ -1995,6 +2084,8 @@ function toTrpcError(err: unknown): unknown {
         return 'CONFLICT' as const;
       /** The caller is anonymous and opening rows in our database. */
       case 'pay.checkout_busy':
+      /** One statement scan per merchant, and at most two on this process. A further call is refused. */
+      case 'pay.statement_busy':
         return 'TOO_MANY_REQUESTS' as const;
       case 'pay.routing_input_missing':
         return 'BAD_REQUEST' as const;
@@ -2014,6 +2105,12 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.payment_history_limit_unset':
       case 'pay.payment_link_list_limit_unset':
       case 'pay.settlement_list_limit_unset':
+      case 'pay.destination_list_limit_unset':
+      case 'pay.refund_list_limit_unset':
+      case 'pay.statement_list_limit_unset':
+      case 'pay.statement_range_required':
+      case 'pay.statement_range_too_wide':
+      case 'pay.statement_too_large':
       case 'pay.withdrawal_list_limit_unset':
       case 'pay.webhook_delivery_list_limit_unset':
       case 'pay.webhook_endpoint_list_limit_unset':
