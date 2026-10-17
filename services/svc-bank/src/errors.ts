@@ -500,12 +500,36 @@ export type BankErrorCode =
   | 'bank.step_up_used'
   /** Identity could not answer, or is not wired. Nothing was posted; fail closed. */
   | 'bank.step_up_unavailable'
-  /** The customer tried to save their own user id as a recipient. */
-  | 'bank.payee_self'
-  /** The saved-recipient list is already at its cap. */
-  | 'bank.payee_limit'
-  /** A command id was reused with a different recipient or nickname. */
-  | 'bank.payee_command_conflict'
+  /** No operator row publishes a per-transfer limit, a daily limit, and a fee for this asset. */
+  | 'bank.personal_transfer_terms_unset'
+  /** A positive fee is published and bankTransfer has no fee leg. Nothing is posted. */
+  | 'bank.personal_transfer_fee_unwired'
+  | 'bank.personal_transfer_limit_exceeded'
+  | 'bank.personal_transfer_daily_limit_exceeded'
+  /** Same transfer id, different note, payee, amount, request, or reference. */
+  | 'bank.personal_transfer_conflict'
+  | 'bank.personal_transfer_not_found'
+  | 'bank.personal_note_invalid'
+  /** A personal-send reference is not printable ASCII of 1 to 64 characters. */
+  | 'bank.personal_reference_invalid'
+  | 'bank.personal_request_not_found'
+  | 'bank.personal_request_closed'
+  | 'bank.personal_request_expired'
+  | 'bank.personal_request_not_payer'
+  | 'bank.personal_request_not_payee'
+  | 'bank.personal_request_amount_mismatch'
+  /** The transfer's recipient is not the request's payee. Nothing is posted. */
+  | 'bank.personal_request_payee_mismatch'
+  | 'bank.personal_request_claim_held'
+  | 'bank.personal_request_conflict'
+  | 'bank.personal_request_self'
+  | 'bank.personal_request_list_limit_unset'
+  | 'bank.personal_request_payer_unknown'
+  | 'bank.pay_request_notify_unwired'
+  /** IDENTITY_URL is unset, so a request cannot name either person. */
+  | 'bank.party_handles_unset'
+  /** Identity did not answer a handle lookup. Nothing was created. */
+  | 'bank.party_handles_unavailable'
   /** A transfer id was reused with a different note or reference. */
   | 'bank.transfer_message_conflict'
   /** The activity id is not in this customer's history. */

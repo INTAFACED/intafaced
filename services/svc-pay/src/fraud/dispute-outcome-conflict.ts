@@ -18,6 +18,7 @@ export async function recordDisputeOutcomeConflict(
     railId: string;
     storedStatus: DisputeCaseStatus;
     outcome: RailResolutionOutcome;
+    reason?: string;
   },
 ): Promise<void> {
   const existing = await sql<Array<{ id: string }>>`
@@ -34,7 +35,7 @@ export async function recordDisputeOutcomeConflict(
     kind: DISPUTE_OUTCOME_CONFLICT_KIND,
     outcome: 'conflict',
     actorId: `rail:${input.railId}`,
-    reason: 'a later rail delivery named a different outcome for a dispute that was already closed',
+    reason: input.reason ?? 'a later rail delivery named a different outcome for a dispute that was already closed',
     before: { status: input.storedStatus },
     after: {
       disputeId: input.disputeId,

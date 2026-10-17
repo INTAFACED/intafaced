@@ -65,7 +65,7 @@ const principalOf = (userId: string, over: Partial<Principal> = {}): Principal =
   userId,
   sub: userId,
   sid: id(),
-  scopes: ['pay:read', 'pay:write'],
+  scopes: ['pay:read', 'pay:write', 'pay:onboard'],
   mfa: true,
   tier: 'full',
   expiresAt: new Date(Date.now() + 600_000),

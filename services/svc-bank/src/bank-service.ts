@@ -14,8 +14,10 @@ import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type Busines
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import { ActivityRecordService } from './activity/activity-records.js';
-import { PayeeService } from './payees/payee-service.js';
 import { StatementService } from './statements/statement-service.js';
+import { PersonalPayService } from './transfers/personal-pay.js';
+import type { PartyHandlePort } from './transfers/party-handles.js';
+import type { PersonalRequestNotices } from './transfers/request-notices.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
 
@@ -36,12 +38,12 @@ import type { RecipientStatePort } from './recipient-state.js';
 export interface BankServices {
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
+  readonly personalPay: PersonalPayService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
   readonly portfolio: PortfolioService;
   readonly activity: ActivityService;
   readonly activityRecords: ActivityRecordService;
-  readonly payees: PayeeService;
   readonly statements: StatementService;
   readonly loans: LoanService;
   readonly cards: CardService;
@@ -109,6 +111,10 @@ export interface BankServiceOptions {
   recipients?: RecipientStatePort;
   /** Merged money history: the ledger page port and the cursor secret. Unset = `bank.activity.list` refuses, never answers empty. */
   activity?: ActivityServiceOptions;
+  /** Public handles for receipts. Unset = receipts name `bank.party_handles_unset` and requests refuse. */
+  handles?: PartyHandlePort;
+  /** Inbox events for payment requests. Unset = the request is stored and the notice names `bank.pay_request_notify_unwired`. */
+  requestNotices?: PersonalRequestNotices;
   /**
    * Public handles and exact recipient lookup. Unset refuses team, approval
    * history and recipient-space reads. It does not invent a handle.
@@ -121,12 +127,19 @@ export interface BankServiceOptions {
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
   const spaces = new SpaceService(sql, ledger, options.recipients);
   const transfers = new TransferService(sql, ledger, spaces);
+  const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
+    handles: options.handles,
+    notices: options.requestNotices,
+  });
   const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
   const analytics = new SpendAnalytics(spaces, history);
   const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
   const activityRecords = new ActivityRecordService(sql);
-  const activity = new ActivityService(spaces, { ...(options.activity ?? {}), records: activityRecords });
-  const payees = new PayeeService(sql, options.directory);
+  const activity = new ActivityService(spaces, {
+    ...(options.activity ?? {}),
+    records: activityRecords,
+    transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
+  });
   const statements = new StatementService(activity, options.activity?.cursorSecret);
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
@@ -156,12 +169,12 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   return {
     spaces,
     transfers,
+    personalPay,
     earn,
     analytics,
     portfolio,
     activity,
     activityRecords,
-    payees,
     statements,
     loans,
     cards,
@@ -176,6 +189,7 @@ export { ActivityService, type ActivityServiceOptions } from './activity/activit
 export {
   SpaceService,
   TransferService,
+  PersonalPayService,
   EarnService,
   SpendAnalytics,
   LoanService,

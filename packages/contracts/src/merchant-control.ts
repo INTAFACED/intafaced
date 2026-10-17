@@ -211,10 +211,22 @@ export const merchantControlApprovalListInputSchema = z
   })
   .strict();
 
+/**
+ * Headroom still approvable today for one asset. `remaining` is an exact decimal
+ * string. Null means no daily payout limit is configured: approval refuses.
+ */
+export const dailyPayoutRemainingSchema = z
+  .object({
+    assetCode: payAssetCodeSchema,
+    remaining: payAmountStringSchema.nullable(),
+  })
+  .strict();
+
 export const merchantControlApprovalPageSchema = z
   .object({
     items: z.array(payoutApprovalSchema),
     nextCursor: z.string().nullable(),
+    dailyPayoutRemaining: z.array(dailyPayoutRemainingSchema).max(232),
   })
   .strict();
 

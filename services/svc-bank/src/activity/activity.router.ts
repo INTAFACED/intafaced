@@ -54,9 +54,9 @@ const activityItem = z.object({
   /** Present only when the ledger links the line to the user's own trade order. Omitted otherwise. */
   orderId: z.string().min(1).max(128).optional(),
   /** Transfer note both parties can read. Omitted when the transfer had none. */
-  note: z.string().max(140).optional(),
+  note: z.string().min(1).max(140).optional(),
   /** Payment reference both parties can read. */
-  reference: z.string().max(64).optional(),
+  reference: z.string().min(1).max(64).optional(),
   /** This caller's private note. */
   privateNote: z.string().max(500).optional(),
   dispute: z.object({ id: z.string().uuid(), status: z.literal('open'), reason: z.string().max(500) }).optional(),

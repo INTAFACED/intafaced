@@ -53,9 +53,13 @@ export interface ActivityItem {
    * order's lines exactly instead of guessing by time.
    */
   readonly orderId?: string;
-  /** Transfer note, visible to both parties. Absent when the transfer had none. */
+  /**
+   * Transfer note, visible to both parties. A personal send takes it from that
+   * send's record. A space-to-space transfer takes it from the transfer message.
+   * Absent when that transfer had none.
+   */
   readonly note?: string;
-  /** Payment reference, visible to both parties. */
+  /** Payment reference, visible to both parties. Same single source as the note. */
   readonly reference?: string;
   /** The caller's own note. Not shown to the other party. */
   readonly privateNote?: string;
@@ -114,13 +118,27 @@ export interface SpaceLister {
   allNamedSpaces(userId: string, assetId?: string): Promise<SpaceRecord[]>;
 }
 
+export interface TransferFact {
+  readonly note: string | null;
+  /** Payment reference on a personal send. Absent when that send had none. */
+  readonly reference?: string | null;
+  readonly counterpartyHandle: string | null;
+}
+
+/** Note and the other party's handle for personal sends this service recorded, keyed by ledger tx id. */
+export interface ActivityTransferFacts {
+  forTransfers(userId: string, txIds: readonly string[]): Promise<ReadonlyMap<string, TransferFact>>;
+}
+
 export interface ActivityServiceOptions {
   /** Unset = every call refuses `ActivityUnavailableError`. Never an empty list. */
   pages?: LedgerHistoryPages;
   /** Signs page cursors. Required with `pages`. */
   cursorSecret?: string;
   counterparties?: ActivityCounterparties;
-  /** Notes, references and disputes. Unset = those fields stay absent. A failure never hides a line. */
+  /** Note, reference and the other party's handle for personal sends. */
+  transferFacts?: ActivityTransferFacts;
+  /** Space-transfer words, private notes and disputes. Unset = those fields stay absent. A failure never hides a line. */
   records?: Pick<ActivityRecordService, 'forItems'>;
 }
 
@@ -594,24 +612,49 @@ export class ActivityService {
       };
     });
 
-    const resolver = this.options.counterparties;
     const wanted = [...new Set(items.filter((i) => i.kind === 'transfer_in' || i.kind === 'transfer_out').map((i) => i.txId))];
-    if (resolver === undefined || wanted.length === 0) return this.withRecords(userId, items);
-    let handles: ReadonlyMap<string, { handle: string }>;
-    try {
-      handles = await resolver.handlesFor(userId, wanted);
-    } catch {
-      // A handle is a nicety. Failing to find one never hides the money movement.
-      return this.withRecords(userId, items);
+    let withHandles = items;
+    const resolver = this.options.counterparties;
+    if (resolver !== undefined && wanted.length > 0) {
+      try {
+        const handles = await resolver.handlesFor(userId, wanted);
+        withHandles = items.map((i) => {
+          const h = i.kind === 'transfer_in' || i.kind === 'transfer_out' ? handles.get(i.txId) : undefined;
+          return h === undefined ? i : { ...i, counterparty: { handle: h.handle } };
+        });
+      } catch {
+        // A handle is a nicety. Failing to find one never hides the money movement.
+      }
     }
-    const withHandles = items.map((i) => {
-      const h = i.kind === 'transfer_in' || i.kind === 'transfer_out' ? handles.get(i.txId) : undefined;
-      return h === undefined ? i : { ...i, counterparty: { handle: h.handle } };
-    });
-    return this.withRecords(userId, withHandles);
+    const personalTx = new Set<string>();
+    const facts = this.options.transferFacts;
+    if (facts !== undefined && wanted.length > 0) {
+      try {
+        const recorded = await facts.forTransfers(userId, wanted);
+        withHandles = withHandles.map((i) => {
+          const fact = i.kind === 'transfer_in' || i.kind === 'transfer_out' ? recorded.get(i.txId) : undefined;
+          if (fact === undefined) return i;
+          personalTx.add(i.txId);
+          return {
+            ...i,
+            ...(fact.counterpartyHandle ? { counterparty: { handle: fact.counterpartyHandle } } : {}),
+            ...(fact.note ? { note: fact.note } : {}),
+            ...(fact.reference ? { reference: fact.reference } : {}),
+          };
+        });
+      } catch {
+        // A missing note never hides the money movement.
+      }
+    }
+    return this.withRecords(userId, withHandles, personalTx);
   }
 
-  private async withRecords(userId: string, items: ActivityItem[]): Promise<ActivityItem[]> {
+  /**
+   * A personal send already took its note and reference from `transferFacts`.
+   * A space-to-space transfer takes those two fields from `transfer_messages`.
+   * Private notes and disputes are the caller's own, on either kind of line.
+   */
+  private async withRecords(userId: string, items: ActivityItem[], personalTx: ReadonlySet<string>): Promise<ActivityItem[]> {
     const records = this.options.records;
     if (!records || items.length === 0) return items;
     let notes: ReadonlyMap<string, ActivityAnnotation>;
@@ -626,10 +669,11 @@ export class ActivityService {
     return items.map((item) => {
       const note = notes.get(item.id);
       if (!note) return item;
+      const personal = personalTx.has(item.txId);
       return {
         ...item,
-        ...(note.note ? { note: note.note } : {}),
-        ...(note.reference ? { reference: note.reference } : {}),
+        ...(!personal && note.note ? { note: note.note } : {}),
+        ...(!personal && note.reference ? { reference: note.reference } : {}),
         ...(note.privateNote ? { privateNote: note.privateNote } : {}),
         ...(note.dispute ? { dispute: note.dispute } : {}),
       };

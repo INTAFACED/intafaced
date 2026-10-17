@@ -1,37 +1,22 @@
--- Saved payees, transfer notes, private activity notes and disputes (BANKPAY 16-21).
+-- Space-to-space transfer words, private activity notes and disputes (BANKPAY 17-21).
+-- Saved recipients live in identity (recipients.list/add/remove), not here.
+-- A personal send's note and reference live on bank.personal_transfers.
 --
--- None of these tables holds a balance. A transfer note is the words both
+-- None of these tables holds a balance. A transfer message is the words both
 -- parties may read; a private note is the writer's alone. A dispute is an open
 -- case: this migration has no resolution, no refund and no invented outcome.
 --
 -- Reversal: 0039_payees_activity.down.sql
 
-CREATE TABLE IF NOT EXISTS "bank"."payees" (
-  "owner_user_id" uuid NOT NULL,
-  "payee_user_id" uuid NOT NULL,
-  "nickname"      text,
-  "added_at"      timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY ("owner_user_id", "payee_user_id"),
-  CONSTRAINT "payees_not_self" CHECK ("owner_user_id" <> "payee_user_id"),
-  CONSTRAINT "payees_nickname_len" CHECK ("nickname" IS NULL OR char_length("nickname") BETWEEN 1 AND 40)
-);
-
-CREATE INDEX IF NOT EXISTS "payees_owner_added_idx"
-  ON "bank"."payees" ("owner_user_id", "added_at" DESC);
-
-CREATE TABLE IF NOT EXISTS "bank"."payee_commands" (
-  "command_id"     text PRIMARY KEY,
-  "owner_user_id"  uuid NOT NULL,
-  "op"             text NOT NULL,
-  "payee_user_id"  uuid NOT NULL,
-  "nickname"       text,
-  "outcome"        text NOT NULL,
-  "added_at"       timestamptz,
-  "created_at"     timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT "payee_commands_op" CHECK ("op" IN ('add', 'remove')),
-  CONSTRAINT "payee_commands_outcome" CHECK ("outcome" IN ('saved', 'removed', 'absent')),
-  CONSTRAINT "payee_commands_id_len" CHECK (char_length("command_id") BETWEEN 8 AND 64)
-);
+ALTER TABLE "bank"."personal_transfers" ADD COLUMN IF NOT EXISTS "reference" text;
+ALTER TABLE "bank"."personal_transfers" DROP CONSTRAINT IF EXISTS "personal_transfers_reference_ck";
+ALTER TABLE "bank"."personal_transfers"
+  ADD CONSTRAINT "personal_transfers_reference_ck" CHECK (
+    "reference" IS NULL OR (
+      char_length("reference") BETWEEN 1 AND 64
+      AND "reference" !~ '[^ -~]'
+    )
+  );
 
 CREATE TABLE IF NOT EXISTS "bank"."transfer_messages" (
   "transfer_id"   text PRIMARY KEY,

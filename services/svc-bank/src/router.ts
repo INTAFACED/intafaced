@@ -18,8 +18,9 @@ import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { describeBusinessPolicy } from './business/business-policy.js';
 import { createActivityRouter } from './activity/activity.router.js';
-import { createPayeesRouter } from './payees/payee.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
+import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
+import { plainNote, plainReference } from './transfers/personal-pay.js';
 import { stepUpOff, type StepUpGate } from './step-up/step-up-gate.js';
 import {
   addMemberBinding,
@@ -191,11 +192,16 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.position_not_found':
       case 'bank.loan_not_found':
       case 'bank.loan_product_not_found':
+      case 'bank.personal_transfer_not_found':
+      case 'bank.personal_request_not_found':
+      case 'bank.personal_request_payer_unknown':
       case 'bank.auto_invest_not_found':
       case 'bank.business_not_found':
       case 'bank.business_approval_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
       case 'bank.not_owner':
+      case 'bank.personal_request_not_payer':
+      case 'bank.personal_request_not_payee':
         return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
       case 'bank.pool_underfunded':
       case 'bank.earn_principal_mismatch':
@@ -286,12 +292,17 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.schedule_conflict':
       case 'bank.business_payroll_conflict':
       case 'bank.business_request_conflict':
+      case 'bank.personal_transfer_conflict':
+      case 'bank.personal_request_conflict':
+      case 'bank.personal_request_closed':
+      case 'bank.personal_request_expired':
+      case 'bank.personal_request_amount_mismatch':
+      case 'bank.personal_request_payee_mismatch':
+      case 'bank.personal_request_claim_held':
       case 'bank.business_change_pending':
       case 'bank.card_issue_conflict':
       case 'bank.card_command_conflict':
       case 'bank.card_replace_conflict':
-      case 'bank.payee_limit':
-      case 'bank.payee_command_conflict':
       case 'bank.transfer_message_conflict':
       case 'bank.activity_note_conflict':
       case 'bank.activity_dispute_conflict':
@@ -353,9 +364,14 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.offramps_list_limit_unset':
       case 'bank.convert_markets_limit_unset':
       case 'bank.validation_failed':
-      case 'bank.payee_self':
       case 'bank.activity_range':
       case 'bank.statement_range':
+      case 'bank.personal_note_invalid':
+      case 'bank.personal_reference_invalid':
+      case 'bank.personal_transfer_limit_exceeded':
+      case 'bank.personal_transfer_daily_limit_exceeded':
+      case 'bank.personal_request_self':
+      case 'bank.personal_request_list_limit_unset':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
@@ -395,6 +411,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_lookup_bounded':
       case 'bank.statement_pdf_one_month':
       case 'bank.statement_too_large':
+      case 'bank.personal_transfer_terms_unset':
+      case 'bank.personal_transfer_fee_unwired':
+      case 'bank.pay_request_notify_unwired':
+      case 'bank.party_handles_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
       // Kill switches. Same 503 class as the matching HTTP job endpoints —
@@ -415,6 +435,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.recipient_check_unavailable':
       // Identity could not confirm the step-up approval; nothing was posted.
       case 'bank.step_up_unavailable':
+      case 'bank.party_handles_unavailable':
       case 'bank.business_directory_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
@@ -891,26 +912,30 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           fromSpaceId: z.string().uuid(),
           toUserId: z.string().min(1).max(64),
           amount: amountString,
-          note: z
-            .string()
-            .min(1)
-            .max(140)
-            .refine((value) => !/[\u0000-\u001F]/.test(value), 'note has a control character')
-            .optional(),
-          reference: z
-            .string()
-            .min(1)
-            .max(64)
-            .regex(/^[\x20-\x7E]+$/)
-            .optional(),
+          /** Recipient-visible plain text. Omitted means no note. */
+          note: z.string().max(140).optional(),
+          /** Printable payment reference. Omitted means none. */
+          reference: z.string().max(64).optional(),
+          /** Settles this open payment request. One payment, one request. */
+          requestId: z.string().uuid().optional(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
-      .output(z.object({ ledgerTxId: z.string(), amount: amountString }))
+      .output(
+        z.object({
+          ledgerTxId: z.string(),
+          amount: amountString,
+          note: z.string().nullable(),
+          reference: z.string().nullable(),
+          requestId: z.string().uuid().nullable(),
+        }),
+      )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
           assertSelf(ctx.principal.userId, from.userId);
+          const note = plainNote(input.note) ?? undefined;
+          const reference = plainReference(input.reference) ?? undefined;
           if (stepUpEnforced && input.toUserId !== ctx.principal.userId) {
             await requireStepUp(
               ctx.principal,
@@ -921,22 +946,93 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                 toUserId: input.toUserId,
                 assetId: from.assetId,
                 amount: input.amount,
-                note: input.note,
-                reference: input.reference,
+                ...(note ? { note } : {}),
+                ...(reference ? { reference } : {}),
+                ...(input.requestId ? { requestId: input.requestId } : {}),
               }),
               input.stepUpApprovalId,
             );
           }
-          const result = await bank.transfers.transferToUser({
+          const result = await bank.personalPay.send({
+            actorUserId: ctx.principal.userId,
             transferId: input.transferId,
             fromSpaceId: input.fromSpaceId,
             toUserId: input.toUserId,
             amount: parseAmount(input.amount),
-            note: input.note ?? null,
-            reference: input.reference ?? null,
+            note,
+            reference,
+            requestId: input.requestId ?? null,
           });
-          return { ledgerTxId: result.ledgerTxId, amount: result.amount };
+          return {
+            ledgerTxId: result.ledgerTxId,
+            amount: result.amount,
+            note: result.note,
+            reference: result.reference,
+            requestId: result.requestId,
+          };
         }),
+      ),
+
+    /** Receipt for one personal send. Parties only. A stranger gets the same not-found as a missing id. */
+    get: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ ledgerTxId: z.string().min(1).max(128) }))
+      .output(
+        z.object({
+          ledgerTxId: z.string(),
+          transferId: z.string(),
+          createdAt: z.string().datetime(),
+          fromHandle: z.string().nullable(),
+          toHandle: z.string().nullable(),
+          handlesBlocker: z.string().nullable(),
+          fee: z.null(),
+          status: z.literal('posted'),
+          amount: amountString,
+          assetId: z.string(),
+          note: z.string().nullable(),
+          reference: z.string().nullable(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const row = await bank.personalPay.get(ctx.principal.userId, input.ledgerTxId);
+          return {
+            ledgerTxId: row.ledgerTxId,
+            transferId: row.transferId,
+            createdAt: row.createdAt,
+            fromHandle: row.fromHandle,
+            toHandle: row.toHandle,
+            handlesBlocker: row.handlesBlocker,
+            fee: row.fee,
+            status: row.status,
+            amount: row.amount,
+            assetId: row.assetId,
+            note: row.note,
+            reference: row.reference,
+          };
+        }),
+      ),
+
+    /**
+     * Limits and fee for a personal send, before the review step.
+     * Refuses when nothing is published. Never fills a zero fee or a default cap.
+     */
+    quote: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ assetId: z.string().min(1).max(16), amount: amountString }))
+      .output(
+        z.object({
+          assetId: z.string(),
+          amount: amountString,
+          perTransferLimit: amountString,
+          dailyLimit: amountString,
+          spentToday: amountString,
+          fee: amountString,
+          feeBlocker: z.string().nullable(),
+          withinPerTransfer: z.boolean(),
+          withinDaily: z.boolean(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => bank.personalPay.quote(ctx.principal.userId, input.assetId, parseAmount(input.amount))),
       ),
 
     scheduleToUser: scopedProcedure('bank:write', { module: 'bank' })
@@ -3961,8 +4057,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     analytics,
     portfolio,
     activity: createActivityRouter(bank),
-    payees: createPayeesRouter(bank),
     statements: createStatementsRouter(bank),
+    personalRequest: createPersonalRequestRouter(bank, guard),
     ops,
   });
 }

@@ -66,7 +66,7 @@ const RAIL_SECRET = 'dev-only-w14-isolation-rail-secret-0123456789abcdef';
 export const EVM_DESTINATION = '0x000000000000000000000000000000000000dEaD';
 
 /** What a merchant account's interactive session carries after onboarding (pay:* is granted by onboarding). */
-export const MERCHANT_SESSION_SCOPES = [...SESSION_SCOPES, 'pay:read', 'pay:write', 'pay:refund', 'pay:payout'];
+export const MERCHANT_SESSION_SCOPES = [...SESSION_SCOPES, 'pay:read', 'pay:write', 'pay:refund', 'pay:payout', 'pay:onboard'];
 /** What a merchant's long-lived `ifc_` key may carry (pay:payout is interactive-only, see INTERACTIVE_ONLY_SCOPES). */
 export const MERCHANT_KEY_SCOPES = ['pay:read', 'pay:write', 'pay:refund'];
 export const ADMIN_SCOPES = ['admin:read', 'admin:write', 'admin:compliance'];

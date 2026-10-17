@@ -123,7 +123,8 @@ export class AuthError extends Error {
       | 'auth.request_tampered'
       | 'auth.request_replay'
       | 'auth.ip_allowlist_required'
-      | 'auth.phone_taken'
+      | 'auth.payee_email_unconfirmed'
+      | 'auth.payee_phone_unverified'
       | 'auth.payee_phone_unset',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
@@ -355,6 +356,12 @@ export class AuthService {
   private passwordResetTtlSeconds: number | undefined;
   private passwordResetMail: PasswordResetMail | undefined;
   private passwordResetNow: () => Date = () => new Date();
+  /**
+   * Optional lookup of the published owner pay grant. Unset means sessions
+   * stay on SESSION_SCOPES. A throw omits pay scopes and still issues the
+   * ordinary session.
+   */
+  private ownerPayScopeSource: ((userId: string) => Promise<readonly string[]>) | null = null;
   /** Same mail port as password reset. Unset refuses confirmation (`auth.email_confirm_unwired`). */
   private emailConfirmMail: PasswordResetMail | undefined;
   private emailConfirmTtlSeconds: number | undefined;
@@ -410,6 +417,14 @@ export class AuthService {
     this.passwordResetTtlSeconds = publishedPasswordResetTtlSeconds(seconds);
   }
 
+  /**
+   * Install the svc-pay owner-grant lookup. Identity does not decide the law;
+   * it only attaches `pay:read`, `pay:write`, and `pay:onboard` when pay returns them.
+   */
+  useOwnerPayScopeSource(source: ((userId: string) => Promise<readonly string[]>) | null): void {
+    this.ownerPayScopeSource = source;
+  }
+
   /** Test clock. Production uses the real clock. */
   usePasswordResetClock(now: () => Date): void {
     this.passwordResetNow = now;
@@ -453,8 +468,7 @@ export class AuthService {
     this.founderDirectory = directory;
   }
 
-  private async scopesFor(userId: string, mfa: boolean, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
-    const base = [...this.defaultScopes(), ...extra];
+  private async founderScopesOn(base: readonly Scope[], userId: string, mfa: boolean, query?: Sql): Promise<Scope[]> {
     let founder = false;
     try {
       founder = (await this.founderDirectory?.isFounder(userId, query)) === true;
@@ -462,6 +476,15 @@ export class AuthService {
       founder = false;
     }
     return scopesForFounderSession(base, { founder, mfa });
+  }
+
+  /**
+   * Session scopes, the owner pay grant, then founder desk scopes.
+   * The pay lookup is a network call. Do not call this inside a session transaction.
+   */
+  private async scopesFor(userId: string, mfa: boolean, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
+    const pay = await this.scopesForNewAccessToken(userId);
+    return this.founderScopesOn([...pay, ...extra], userId, mfa, query);
   }
 
   private resetDeps() {
@@ -722,6 +745,13 @@ export class AuthService {
 
   async refresh(refreshToken: string, options: { device?: string; ip?: string } = {}): Promise<SessionTokens> {
     const hash = hashToken(refreshToken);
+    // Resolve the owner grant before the row lock. A pay round trip must not
+    // sit inside the session transaction.
+    const peek = this.ownerPayScopeSource
+      ? await this.sql<Array<{ user_id: string }>>`SELECT user_id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1`
+      : [];
+    const peekedUserId = peek[0]?.user_id;
+    const peekedScopes = peekedUserId ? await this.scopesForNewAccessToken(peekedUserId) : null;
     type RefreshRow = {
       id: string;
       user_id: string;
@@ -755,7 +785,7 @@ export class AuthService {
           }
           return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
         }
-        const grace = await this.graceTokens(tx, session);
+        const grace = await this.graceTokens(tx, session, session.user_id === peekedUserId ? peekedScopes : null);
         if (grace) return { kind: 'grace', tokens: grace };
         // A rotation stamps the predecessor. Presenting that token again,
         // outside the grace window, is reuse and burns every live session.
@@ -784,7 +814,9 @@ export class AuthService {
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
-      const scopes = await this.scopesFor(session.user_id, session.mfa, [], tx);
+      // Pay was resolved before the row lock. Do not call svc-pay again inside this transaction.
+      const payScopes = session.user_id === peekedUserId && peekedScopes ? peekedScopes : this.defaultScopes();
+      const scopes = await this.founderScopesOn(payScopes, session.user_id, session.mfa, tx);
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
         { userId: session.user_id, sessionId, scopes, tier, mfa: session.mfa },
         this.tokens,
@@ -838,6 +870,7 @@ export class AuthService {
       successor_refresh: string | null;
       user_id: string;
     },
+    peekedScopes: readonly Scope[] | null,
   ): Promise<SessionTokens | null> {
     if (this.reuseGraceMs <= 0 || !session.rotated_at || !session.successor_id || !session.successor_refresh) return null;
     if (Date.now() - session.rotated_at.getTime() > this.reuseGraceMs) return null;
@@ -849,8 +882,9 @@ export class AuthService {
     const successor = rows[0];
     if (!successor || successor.revoked || successor.expires_at.getTime() < Date.now()) return null;
     const tier = await this.kycTier(successor.user_id, tx);
+    const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId: successor.user_id, sessionId: successor.id, scopes: this.defaultScopes(), tier, mfa: successor.mfa },
+      { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
       this.tokens,
     );
     return {
@@ -1492,20 +1526,26 @@ export class AuthService {
   }
 
   /**
-   * Exact email or phone, and only when that person opted in. Frozen, closed,
-   * unknown and "did not consent" are the same null. The row's email and phone
-   * are not returned.
+   * Exact email or phone, and only when that person opted in and the address
+   * is verified. Frozen, closed, unknown, unverified and "did not consent"
+   * are the same null. The row's email and phone are not returned.
    */
   async searchPayee(query: { email: string } | { phone: string }): Promise<{ userId: string; handle: string } | null> {
     const rows =
       'email' in query
         ? await this.sql<Array<{ id: string; handle: string }>>`
             SELECT id, handle FROM users
-             WHERE email = ${query.email} AND status = 'active' AND payee_email_consent = true
+             WHERE email = ${query.email}
+               AND status = 'active'
+               AND payee_email_consent = true
+               AND email_verified_at IS NOT NULL
              LIMIT 1`
         : await this.sql<Array<{ id: string; handle: string }>>`
             SELECT id, handle FROM users
-             WHERE phone = ${query.phone} AND status = 'active' AND payee_phone_consent = true
+             WHERE phone = ${query.phone}
+               AND status = 'active'
+               AND payee_phone_consent = true
+               AND phone_verified_at IS NOT NULL
              LIMIT 1`;
     const row = rows[0];
     return row ? { userId: row.id, handle: row.handle } : null;
@@ -1520,8 +1560,17 @@ export class AuthService {
     input: { emailConsent?: boolean; phoneConsent?: boolean; phone?: string | null },
   ): Promise<{ emailConsent: boolean; phoneConsent: boolean; phoneOnFile: boolean }> {
     return transaction(this.sql, async (tx) => {
-      const rows = await tx<Array<{ phone: string | null; payee_email_consent: boolean; payee_phone_consent: boolean; status: string }>>`
-        SELECT phone, payee_email_consent, payee_phone_consent, status
+      const rows = await tx<
+        Array<{
+          phone: string | null;
+          payee_email_consent: boolean;
+          payee_phone_consent: boolean;
+          status: string;
+          email_verified_at: Date | string | null;
+          phone_verified_at: Date | string | null;
+        }>
+      >`
+        SELECT phone, payee_email_consent, payee_phone_consent, status, email_verified_at, phone_verified_at
           FROM users WHERE id = ${userId} FOR UPDATE
       `;
       const row = rows[0];
@@ -1529,35 +1578,39 @@ export class AuthService {
       let phone = row.phone;
       let emailConsent = row.payee_email_consent;
       let phoneConsent = row.payee_phone_consent;
+      let phoneVerifiedAt = row.phone_verified_at;
       let phoneEvent: 'phone_set' | 'phone_cleared' | null = null;
       if (input.phone === null) {
         if (phone !== null) phoneEvent = 'phone_cleared';
         phone = null;
         phoneConsent = false;
+        phoneVerifiedAt = null;
       } else if (typeof input.phone === 'string') {
         phone = input.phone;
         phoneEvent = 'phone_set';
+        phoneConsent = false;
+        phoneVerifiedAt = null;
       }
       if (input.emailConsent !== undefined) emailConsent = input.emailConsent;
       if (input.phoneConsent !== undefined) phoneConsent = input.phoneConsent;
+      if (emailConsent && row.email_verified_at == null) {
+        throw new AuthError('Confirm your email before people can find you by it', 'auth.payee_email_unconfirmed');
+      }
+      if (phoneConsent && phoneVerifiedAt == null) {
+        throw new AuthError('Verify your phone before people can find you by it', 'auth.payee_phone_unverified');
+      }
       if (phoneConsent && phone === null) {
         throw new AuthError('Add a phone number before people can find you by it', 'auth.payee_phone_unset');
       }
-      try {
-        await tx`
-          UPDATE users
-             SET phone = ${phone},
-                 payee_email_consent = ${emailConsent},
-                 payee_phone_consent = ${phoneConsent},
-                 updated_at = now()
-           WHERE id = ${userId}
-        `;
-      } catch (err) {
-        if (isUniqueViolation(err) && /phone/i.test(uniqueConstraintName(err))) {
-          throw new AuthError('That phone number is already on an account', 'auth.phone_taken');
-        }
-        throw err;
-      }
+      await tx`
+        UPDATE users
+           SET phone = ${phone},
+               phone_verified_at = ${phoneVerifiedAt},
+               payee_email_consent = ${emailConsent},
+               payee_phone_consent = ${phoneConsent},
+               updated_at = now()
+         WHERE id = ${userId}
+      `;
       await tx`
         INSERT INTO payee_search_audit (user_id, event, email_consent, phone_consent)
         VALUES (${userId}, 'consent', ${emailConsent}, ${phoneConsent})
@@ -1952,6 +2005,32 @@ export class AuthService {
 
   private defaultScopes(): Scope[] {
     return [...SESSION_SCOPES];
+  }
+
+  /**
+   * Scopes for a newly issued access token. Ordinary session scopes, plus
+   * `pay:read`, `pay:write`, and `pay:onboard` when the published grant says so.
+   * Refund, payout, and anything else pay might return are dropped.
+   * A lookup failure leaves the ordinary session in place.
+   */
+  async scopesForNewAccessToken(userId: string): Promise<Scope[]> {
+    const base = this.defaultScopes();
+    if (!this.ownerPayScopeSource) return base;
+    let granted: readonly string[];
+    try {
+      granted = await this.ownerPayScopeSource(userId);
+    } catch (err) {
+      this.log.warn(
+        { err: err instanceof Error ? err.message : 'grant lookup failed' },
+        'owner pay scope grant lookup failed; session keeps ordinary scopes',
+      );
+      return base;
+    }
+    const extra: Scope[] = [];
+    if (granted.includes('pay:read')) extra.push('pay:read');
+    if (granted.includes('pay:write')) extra.push('pay:write');
+    if (granted.includes('pay:onboard')) extra.push('pay:onboard');
+    return [...base, ...extra];
   }
 }
 

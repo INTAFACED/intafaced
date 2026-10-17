@@ -81,6 +81,53 @@ describe('bank.statements.export', () => {
     ).rejects.toMatchObject({ code: 'bank.statement_pdf_one_month' });
   });
 
+  it('draws every row of a 120-line month on more than one page', async () => {
+    const rows: LedgerPageEntry[] = Array.from({ length: 120 }, (_, index) => ({
+      txId: `T${String(index + 1).padStart(3, '0')}Z`,
+      module: 'bank',
+      reason: 'bank.transfer.manual',
+      direction: 'credit' as const,
+      amount: '1.00',
+      postedAt: new Date('2026-10-04T00:00:00.000Z'),
+      assetId: 'USDT',
+      entryId: String(index + 1),
+    }));
+    const service = new ActivityService(
+      { allNamedSpaces: async () => [] },
+      {
+        cursorSecret: SECRET,
+        pages: {
+          async page(req: LedgerPageRequest) {
+            if (req.ownerType !== 'user') return { entries: [], nextCursor: null };
+            let start = 0;
+            if (req.cursor !== undefined) {
+              const raw = Buffer.from(req.cursor, 'base64url').toString('utf8');
+              const match = /^bankstmt\.(\d+)$/.exec(raw);
+              start = match ? Number(match[1]) : rows.length;
+            }
+            const entries = rows.slice(start, start + req.limit);
+            const next = start + entries.length;
+            const nextCursor = next < rows.length ? Buffer.from(`bankstmt.${next}`, 'utf8').toString('base64url') : null;
+            return { entries, nextCursor };
+          },
+        },
+      },
+    );
+    const file = await new StatementService(service, SECRET).export(ALICE, {
+      from: '2026-10-01T00:00:00.000Z',
+      to: '2026-10-31T23:59:59.000Z',
+      format: 'pdf',
+      now: new Date('2026-10-17T00:00:00.000Z'),
+    });
+    const bytes = Buffer.from(file.bodyBase64, 'base64');
+    const text = bytes.toString('utf8');
+    for (const row of rows) expect(text).toContain(row.txId);
+    expect(text).toMatch(/\/Count [2-9]/);
+    expect(file.rowCount).toBe(120);
+    expect(file.proof.rowCount).toBe(120);
+    expect(signStatement(SECRET, bytes)).toEqual({ sha256: file.sha256, signature: file.signature });
+  });
+
   it('refuses when the signing secret is unset', async () => {
     await expect(
       new StatementService(activity(), undefined).export(ALICE, {

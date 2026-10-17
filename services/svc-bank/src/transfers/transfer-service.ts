@@ -253,8 +253,6 @@ export class TransferService {
     fromSpaceId: string;
     toUserId: string;
     amount: Amount;
-    note?: string | null;
-    reference?: string | null;
     now?: Date;
   }): Promise<TransferResult> {
     const now = input.now ?? new Date();
@@ -275,8 +273,6 @@ export class TransferService {
           fromSpaceId: input.fromSpaceId,
           toSpaceId: dest.id,
           amount: input.amount,
-          note: input.note,
-          reference: input.reference,
           now,
         });
       },

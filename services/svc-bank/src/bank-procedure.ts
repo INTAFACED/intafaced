@@ -7,9 +7,6 @@ import { BankError, type BankErrorCode } from './errors.js';
  */
 
 const STATUS: Partial<Record<BankErrorCode, TRPCError['code']>> = {
-  'bank.payee_self': 'BAD_REQUEST',
-  'bank.payee_limit': 'CONFLICT',
-  'bank.payee_command_conflict': 'CONFLICT',
   'bank.transfer_message_conflict': 'CONFLICT',
   'bank.activity_not_found': 'NOT_FOUND',
   'bank.activity_lookup_bounded': 'PRECONDITION_FAILED',

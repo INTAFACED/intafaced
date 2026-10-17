@@ -216,6 +216,18 @@ function fixture(mode: StepUpMode = 'required') {
     ramps: {
       setWithdrawDestination: mk('ramps.setWithdrawDestination', { kind: 'crypto', ref: '0xabc' }),
     },
+    personalPay: {
+      send: vi.fn(async (input: { note?: string | null; reference?: string | null; requestId?: string | null }) => {
+        calls.push('personalPay.send');
+        return {
+          ledgerTxId: 'tx-1',
+          amount: '5',
+          note: input.note ?? null,
+          reference: input.reference ?? null,
+          requestId: input.requestId ?? null,
+        };
+      }),
+    },
   } as unknown as BankServices;
   const store = new MemoryStepUpUseStore();
   const stepUp = createStepUpGate({ mode, approvals: identity, store, clock: () => new Date(identity.now) });
@@ -236,6 +248,18 @@ describe('flag required: sends to other users', () => {
       operationKey: TRANSFER,
       fields: toUserFields,
     });
+  });
+
+  it('transfers.toUser with a note reaches personalPay and not the space-transfer path', async () => {
+    const f = fixture();
+    const fields = { ...toUserFields, note: 'October rent' };
+    const id = f.identity.approve(TO_USER, fields);
+    await expect(f.caller().transfers.toUser({ ...toUserInput, note: 'October rent', stepUpApprovalId: id })).resolves.toMatchObject({
+      ledgerTxId: 'tx-1',
+      note: 'October rent',
+      reference: null,
+    });
+    expect(f.calls).toEqual(['personalPay.send']);
   });
 
   it('adds a note and reference to the hash only when the transfer carries them', () => {
@@ -268,7 +292,7 @@ describe('flag required: sends to other users', () => {
     const id = f.identity.approve(TO_USER, toUserFields);
     await expect(f.caller().transfers.toUser({ ...toUserInput, stepUpApprovalId: id })).resolves.toMatchObject({ ledgerTxId: 'tx-1' });
     await expect(f.caller().transfers.toUser({ ...toUserInput, stepUpApprovalId: id })).resolves.toMatchObject({ ledgerTxId: 'tx-1' });
-    expect(f.calls).toEqual(['transfers.transferToUser', 'transfers.transferToUser']);
+    expect(f.calls).toEqual(['personalPay.send', 'personalPay.send']);
     expect(f.identity.consumeCalls).toBe(1);
   });
 
@@ -301,7 +325,7 @@ describe('flag required: sends to other users', () => {
     await expect(f.caller(principal({ sid: SID2 })).transfers.toUser({ ...toUserInput, stepUpApprovalId: id })).rejects.toMatchObject({
       message: expect.stringContaining('bank.step_up_required'),
     });
-    expect(f.calls).toEqual(['transfers.transferToUser']);
+    expect(f.calls).toEqual(['personalPay.send']);
   });
 
   it('a timeout talking to identity is unavailable (503), and nothing posts', async () => {
@@ -322,7 +346,7 @@ describe('flag required: sends to other users', () => {
     await expect(f.caller().transfers.toUser({ ...toUserInput, transferId: TRANSFER_2, stepUpApprovalId: id })).rejects.toMatchObject({
       message: expect.stringContaining('bank.step_up_mismatch'),
     });
-    expect(f.calls).toEqual(['transfers.transferToUser']);
+    expect(f.calls).toEqual(['personalPay.send']);
   });
 
   it('an approval spent elsewhere (consumed at identity, no use record) is refused as used', async () => {

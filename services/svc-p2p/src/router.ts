@@ -50,6 +50,20 @@ export type P2pRouterOptions = {
   blockRfq?: BlockRfqService;
   /** Identity action-bound approval. Unset → refuse-closed (no invented second person). */
   approvals?: ActionApprovalConsumer;
+  /**
+   * Public handle and member-since from identity. Unset → reputation.get names
+   * `p2p.public_profile_unwired` and returns nulls. Never a made-up handle.
+   */
+  publicProfile?: {
+    lookup(userId: string): Promise<{ handle: string; memberSince: string } | null>;
+  };
+  /**
+   * Fan-out for a new chat message. Unset → the message is stored and the
+   * response names `p2p.chat_notify_unwired`. svc-notify is a different service.
+   */
+  chatNotify?: {
+    messageSent(input: { tradeId: string; messageId: string; senderId: string; recipientIds: string[] }): Promise<void>;
+  };
 };
 
 /**
@@ -71,6 +85,27 @@ export type P2pRouterOptions = {
 /** Decimal string on the wire. Rejects anything a float could have mangled. */
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18dp');
 
+/**
+ * Shared board filters. `offers.list` stays an array for the live customer
+ * parser. `offers.page` is the cursor page. Cursor is not a list input.
+ */
+const offerListShape = {
+  asset: z.string().optional(),
+  fiatCurrency: z.string().length(3).optional(),
+  side: z.enum(['buy', 'sell']).optional(),
+  /**
+   * Page size. Optional here so omit reaches the service named refuse
+   * (`p2p.offer_list_limit_unset`) instead of a Zod "Required" that looks
+   * like a typo. Blank is not 50; pass 50 explicitly when that is the page
+   * you want.
+   */
+  limit: z.number().int().min(1).max(200).optional(),
+  methodId: z.string().min(1).max(64).optional(),
+  makerId: z.string().min(1).max(128).optional(),
+  /** Minimum fiat the offer can still trade, as an exact decimal. Float offers are left out: no reference is invented. */
+  minFiat: amountString.optional(),
+};
+
 const offerOutput = z.object({
   id: z.string().uuid(),
   makerId: z.string(),
@@ -82,6 +117,9 @@ const offerOutput = z.object({
   minAmount: amountString,
   maxAmount: amountString,
   remainingAmount: amountString,
+  totalAmount: amountString,
+  filledAmount: amountString,
+  tradesCompleted: z.number().int().nonnegative(),
   methods: z.array(z.unknown()),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
@@ -196,6 +234,16 @@ const reputationOutput = z.object({
   completionRate: z.number(),
   avgReleaseSecs: z.number().int(),
   badges: z.array(z.string()),
+  /** Null when identity has not published a public profile to this service. */
+  handle: z.string().nullable(),
+  /** ISO timestamp from identity. Null when that read is unwired or absent. */
+  memberSince: z.string().nullable(),
+  profile: z.object({
+    status: z.enum(['unwired', 'found', 'absent']),
+    code: z.enum(['p2p.public_profile_unwired', 'p2p.public_profile_found', 'p2p.public_profile_absent']),
+  }),
+  /** Released trades this person was a party to in the last 30 days. Counted here, not invented. */
+  trades30d: z.number().int().nonnegative(),
   /**
    * Merchant standing, as a counterparty may see it (TRK-p2p.merchants Stage 2).
    *
@@ -296,6 +344,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.self_trade':
       case 'p2p.trading_disabled':
       case 'p2p.not_a_moderator':
+      case 'p2p.blocked':
+      case 'p2p.contact_self':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       // Not a client auth mistake — the deployment has no human who can rule.
       // PRECONDITION_FAILED so an operator dash can alarm on the code, not on
@@ -305,6 +355,8 @@ function toTrpcError(err: unknown): TRPCError {
       // Instruments are jsonb at rest. Live offers stay refuse-closed until
       // OWNER KMS is wired. PRECONDITION_FAILED so an operator dash can alarm
       // on the code, not on a generic BAD_REQUEST that looks like a typo.
+      case 'p2p.chat_attachment_unwired':
+      case 'p2p.chat_list_limit_unset':
       case 'p2p.instrument_kms_required':
       case 'p2p.escrow_terms_unproven':
       case 'p2p.escrow_lock_uncertain':
@@ -340,6 +392,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.dispute_already_open':
       case 'p2p.dispute_already_resolved':
       case 'p2p.trade_exists':
+      case 'p2p.idempotency_conflict':
+      case 'p2p.idempotency_in_progress':
       case 'p2p.erase_blocked':
       // CONFLICT and not INTERNAL_SERVER_ERROR: nothing failed. The erase ran
       // out of a database it could honestly report on, wrote nothing, and the
@@ -347,6 +401,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.erase_raced':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.offer_not_active':
+      case 'p2p.offer_update_empty':
+      case 'p2p.offer_cursor_invalid':
+      case 'p2p.chat_text_required':
+      case 'p2p.export_range_invalid':
       case 'p2p.offer_method_unsupported':
       case 'p2p.offer_limit_exceeded':
       case 'p2p.invalid_fee_bps':
@@ -475,6 +533,8 @@ export function createP2pRouter(
   const moderatorUserIds = options.moderatorUserIds ?? [];
   const offerLimits = options.offerLimits ?? NO_OFFER_LIMITS;
   const blockRfq = options.blockRfq;
+  const publicProfile = options.publicProfile;
+  const chatNotify = options.chatNotify;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
 
   const consumeOperatorApproval = async (
@@ -528,6 +588,45 @@ export function createP2pRouter(
   };
 
   /** The caller's own id, from the verified principal. Never from an input. */
+  const presentOffer = async (offer: Awaited<ReturnType<P2pService['getOffer']>>): Promise<OfferOut> => {
+    const counts = await p2p.releasedTradeCounts([offer.id]);
+    return toOfferOut(offer, counts.get(offer.id) ?? 0);
+  };
+
+  const presentBoard = async (
+    viewerId: string,
+    input:
+      | {
+          asset?: string;
+          fiatCurrency?: string;
+          side?: 'buy' | 'sell';
+          limit?: number;
+          methodId?: string;
+          makerId?: string;
+          minFiat?: string;
+          cursor?: string | null;
+        }
+      | undefined,
+    includeCursor: boolean,
+  ) => {
+    const page = await p2p.listOfferBoard({
+      ...(input?.asset ? { asset: input.asset } : {}),
+      ...(input?.fiatCurrency ? { fiatCurrency: input.fiatCurrency } : {}),
+      ...(input?.side ? { side: input.side } : {}),
+      ...(input?.methodId ? { methodId: input.methodId } : {}),
+      ...(input?.makerId ? { makerId: input.makerId } : {}),
+      ...(input?.minFiat ? { minFiat: input.minFiat } : {}),
+      ...(includeCursor && input?.cursor ? { cursor: input.cursor } : {}),
+      limit: input?.limit,
+      viewerId,
+    });
+    const counts = await p2p.releasedTradeCounts(page.offers.map((offer) => offer.id));
+    return {
+      offers: page.offers.map((offer) => toOfferOut(offer, counts.get(offer.id) ?? 0)),
+      nextCursor: page.nextCursor,
+    };
+  };
+
   const requireUser = (ctx: { principal?: { userId?: string } | null }): string => {
     const userId = ctx.principal?.userId;
     if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'This action is about your own account, so it needs one.' });
@@ -677,72 +776,122 @@ export function createP2pRouter(
     offers: router({
       create: merchantApiProcedure('p2p:write')
         .input(
-          z.object({
-            side: z.enum(['buy', 'sell']),
-            asset: z.string().min(1).max(16),
-            fiatCurrency: z.string().length(3),
-            priceType: z.enum(['fixed', 'float']),
-            price: amountString,
-            minAmount: amountString,
-            maxAmount: amountString,
-            totalAmount: amountString.optional(),
-            /**
-             * REQUIRED, and `min(1)`. An offer with no declared methods
-             * accepts anything, so the only thing that can refuse a take on it
-             * is the seller's instrument set — a clean per-method probe of the
-             * maker. The service refuses it too; this is the message a client
-             * can act on rather than a 400 from deeper down.
-             *
-             * Each entry is a method id (string) or `{ id }` — not `{}` / null /
-             * numbers. `methodAllowed` only matches those shapes; junk would
-             * board an offer that can never be taken.
-             */
-            methods: z.array(z.union([z.string().min(1).max(64), z.object({ id: z.string().min(1).max(64) })])).min(1),
-            terms: z.string().max(4000).optional(),
-          }),
+          z
+            .object({
+              side: z.enum(['buy', 'sell']),
+              asset: z.string().min(1).max(16),
+              fiatCurrency: z.string().length(3),
+              priceType: z.enum(['fixed', 'float']),
+              price: amountString,
+              minAmount: amountString,
+              maxAmount: amountString,
+              totalAmount: amountString.optional(),
+              /**
+               * REQUIRED, and `min(1)`. An offer with no declared methods
+               * accepts anything, so the only thing that can refuse a take on it
+               * is the seller's instrument set — a clean per-method probe of the
+               * maker. The service refuses it too; this is the message a client
+               * can act on rather than a 400 from deeper down.
+               *
+               * Each entry is a method id (string) or `{ id }` — not `{}` / null /
+               * numbers. `methodAllowed` only matches those shapes; junk would
+               * board an offer that can never be taken.
+               */
+              methods: z.array(z.union([z.string().min(1).max(64), z.object({ id: z.string().min(1).max(64) })])).min(1),
+              terms: z.string().max(4000).optional(),
+              /** Client-chosen id. A retry with the same id must not publish a second offer. */
+              offerId: z.string().uuid().optional(),
+              /** Client-chosen key. Required together with offerId: at least one. */
+              idempotencyKey: z.string().min(8).max(128).optional(),
+            })
+            .refine((value) => value.offerId !== undefined || value.idempotencyKey !== undefined, {
+              message: 'p2p.idempotency_key_required',
+              path: ['idempotencyKey'],
+            }),
         )
         .output(offerOutput)
         .mutation(async () => guard(async () => refuseLiveOffersUntilOwnerKms())),
 
       list: merchantApiProcedure('p2p:read')
-        .input(
-          z
-            .object({
-              asset: z.string().optional(),
-              fiatCurrency: z.string().length(3).optional(),
-              side: z.enum(['buy', 'sell']).optional(),
-              /**
-               * Page size. Optional here so omit reaches the service named
-               * refuse (`p2p.offer_list_limit_unset`) instead of a Zod
-               * "Required" that looks like a typo. Blank is not 50; pass 50
-               * explicitly when that is the page you want.
-               */
-              limit: z.number().int().min(1).max(200).optional(),
-            })
-            .optional(),
-        )
+        .input(z.object(offerListShape).optional())
         .output(z.array(offerOutput))
-        .query(async ({ input }) => guard(async () => (await p2p.listOffers(input ?? {})).map(toOfferOut))),
+        .query(async ({ ctx, input }) => guard(async () => (await presentBoard(ctx.principal.userId, input, false)).offers)),
+
+      /** Cursor page. The live customer board still calls `offers.list` and parses an array. */
+      page: merchantApiProcedure('p2p:read')
+        .input(z.object({ ...offerListShape, cursor: z.string().max(500).nullable().optional() }).optional())
+        .output(z.object({ offers: z.array(offerOutput), nextCursor: z.string().nullable() }))
+        .query(async ({ ctx, input }) => guard(async () => presentBoard(ctx.principal.userId, input, true))),
 
       get: merchantApiProcedure('p2p:read')
         .input(z.object({ offerId: z.string().uuid() }))
         .output(offerOutput)
-        .query(async ({ input }) => guard(async () => toOfferOut(await p2p.getOffer(input.offerId)))),
+        .query(async ({ input }) => guard(async () => presentOffer(await p2p.getOffer(input.offerId)))),
 
       close: merchantApiProcedure('p2p:write')
         .input(z.object({ offerId: z.string().uuid() }))
         .output(offerOutput)
-        .mutation(async ({ ctx, input }) => guard(async () => toOfferOut(await p2p.closeOffer(input.offerId, ctx.principal.userId)))),
+        .mutation(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.closeOffer(input.offerId, ctx.principal.userId)))),
 
       pause: merchantApiProcedure('p2p:write')
         .input(z.object({ offerId: z.string().uuid() }))
         .output(offerOutput)
-        .mutation(async ({ ctx, input }) => guard(async () => toOfferOut(await p2p.pauseOffer(input.offerId, ctx.principal.userId)))),
+        .mutation(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.pauseOffer(input.offerId, ctx.principal.userId)))),
 
       resume: merchantApiProcedure('p2p:write')
         .input(z.object({ offerId: z.string().uuid() }))
         .output(offerOutput)
-        .mutation(async ({ ctx, input }) => guard(async () => toOfferOut(await p2p.resumeOffer(input.offerId, ctx.principal.userId)))),
+        .mutation(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.resumeOffer(input.offerId, ctx.principal.userId)))),
+
+      /**
+       * Edit a live offer. Open trades keep the price, size, method, fee and
+       * terms text copied onto the trade at take (`terms_snapshot`).
+       */
+      update: merchantApiProcedure('p2p:write')
+        .input(
+          z
+            .object({
+              offerId: z.string().uuid(),
+              idempotencyKey: z.string().min(8).max(128),
+              price: amountString.optional(),
+              minAmount: amountString.optional(),
+              maxAmount: amountString.optional(),
+              totalAmount: amountString.optional(),
+              methods: z
+                .array(z.union([z.string().min(1).max(64), z.object({ id: z.string().min(1).max(64) })]))
+                .min(1)
+                .optional(),
+              terms: z.string().max(4000).optional(),
+            })
+            .refine(
+              (value) =>
+                value.price !== undefined ||
+                value.minAmount !== undefined ||
+                value.maxAmount !== undefined ||
+                value.totalAmount !== undefined ||
+                value.methods !== undefined ||
+                value.terms !== undefined,
+              { message: 'p2p.offer_update_empty' },
+            ),
+        )
+        .output(offerOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            presentOffer(
+              await p2p.updateOffer({
+                offerId: input.offerId,
+                makerId: ctx.principal.userId,
+                idempotencyKey: input.idempotencyKey,
+                ...(input.price !== undefined ? { price: parseAmount(input.price) } : {}),
+                ...(input.minAmount !== undefined ? { minAmt: parseAmount(input.minAmount) } : {}),
+                ...(input.maxAmount !== undefined ? { maxAmt: parseAmount(input.maxAmount) } : {}),
+                ...(input.totalAmount !== undefined ? { totalAmt: parseAmount(input.totalAmount) } : {}),
+                ...(input.methods !== undefined ? { methods: input.methods } : {}),
+                ...(input.terms !== undefined ? { terms: input.terms } : {}),
+              }),
+            ),
+          ),
+        ),
     }),
 
     trades: router({
@@ -822,6 +971,57 @@ export function createP2pRouter(
         )
         .output(z.array(tradeOutput))
         .query(async ({ ctx, input }) => guard(async () => (await p2p.listTrades(ctx.principal.userId, input?.limit)).map(toTradeOut))),
+
+      /**
+       * What a take would lock, before it locks anything. Exact decimals from
+       * the offer and the published fee. No row is written.
+       */
+      quote: merchantApiProcedure('p2p:read')
+        .input(
+          z.object({
+            offerId: z.string().uuid(),
+            amount: amountString,
+            method: z.string().min(1).max(64),
+          }),
+        )
+        .output(
+          z.object({
+            amount: amountString,
+            price: amountString,
+            fiatAmount: amountString,
+            feeBps: z.number().int().nonnegative(),
+            fee: amountString,
+            netAmount: amountString,
+            reservationExpiresAt: z.string(),
+          }),
+        )
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const quoted = await p2p.quoteTake({
+              offerId: input.offerId,
+              takerId: ctx.principal.userId,
+              amount: parseAmount(input.amount),
+              method: input.method,
+            });
+            return {
+              amount: formatAmount(quoted.amount),
+              price: formatAmount(quoted.price),
+              fiatAmount: formatAmount(quoted.fiatAmount),
+              feeBps: quoted.feeBps,
+              fee: formatAmount(quoted.fee),
+              netAmount: formatAmount(quoted.netAmount),
+              reservationExpiresAt: quoted.reservationExpiresAt.toISOString(),
+            };
+          }),
+        ),
+
+      /** The caller's own trades in a time range, as CSV. No other person's rows. */
+      export: merchantApiProcedure('p2p:read')
+        .input(z.object({ from: z.string().min(1), to: z.string().min(1) }))
+        .output(z.object({ csv: z.string(), rows: z.number().int().nonnegative() }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => p2p.exportTrades({ userId: ctx.principal.userId, from: input.from, to: input.to })),
+        ),
 
       /**
        * WHERE TO SEND THE MONEY. The only path to a seller's account details.
@@ -1504,6 +1704,36 @@ export function createP2pRouter(
         ),
 
       /**
+       * The caller's own disputes. `disputes.list` stays moderator-only.
+       * Evidence is the caller's own submissions, same rule as `disputes.get`.
+       */
+      mine: merchantApiProcedure('p2p:read')
+        .input(
+          z
+            .object({
+              status: z.enum(['open', 'resolved']).optional(),
+              limit: z.number().int().min(1).max(200).optional(),
+              cursor: z.string().max(200).nullable().optional(),
+            })
+            .optional(),
+        )
+        .output(z.object({ disputes: z.array(disputeOutput), nextCursor: z.string().nullable() }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const page = await p2p.listMyDisputes({
+              userId: ctx.principal.userId,
+              ...(input?.status ? { status: input.status } : {}),
+              ...(input?.limit ? { limit: input.limit } : {}),
+              ...(input?.cursor ? { cursor: input.cursor } : {}),
+            });
+            return {
+              disputes: page.disputes.map((row) => toDisputeOut(row, ctx.principal.userId)),
+              nextCursor: page.nextCursor,
+            };
+          }),
+        ),
+
+      /**
        * OPERATOR COUNTS for the queue — open / overdue / escalated / neverSeen.
        *
        * `/internal/moderation-backlog` already serves this to service callers.
@@ -1655,6 +1885,217 @@ export function createP2pRouter(
         ),
     }),
 
+    chat: router({
+      messages: router({
+        list: merchantApiProcedure('p2p:read')
+          .input(
+            z.object({
+              tradeId: z.string().uuid(),
+              cursor: z.string().uuid().nullable().optional(),
+              limit: z.number().int().min(1).max(200).optional(),
+            }),
+          )
+          .output(
+            z.object({
+              messages: z.array(
+                z.object({
+                  id: z.string().uuid(),
+                  tradeId: z.string().uuid(),
+                  senderId: z.string(),
+                  clientId: z.string(),
+                  text: z.string(),
+                  createdAt: z.string(),
+                }),
+              ),
+              nextCursor: z.string().nullable(),
+              unread: z.number().int().nonnegative(),
+            }),
+          )
+          .query(async ({ ctx, input }) =>
+            guard(async () => {
+              const page = await p2p.listChatMessages({
+                tradeId: input.tradeId,
+                viewerId: ctx.principal.userId,
+                asModerator: isModerator(ctx.principal, moderatorUserIds),
+                cursor: input.cursor ?? null,
+                limit: input.limit,
+              });
+              return {
+                messages: page.messages.map((message) => ({
+                  id: message.id,
+                  tradeId: message.tradeId,
+                  senderId: message.senderId,
+                  clientId: message.clientId,
+                  text: message.text,
+                  createdAt: message.createdAt.toISOString(),
+                })),
+                nextCursor: page.nextCursor,
+                unread: page.unread,
+              };
+            }),
+          ),
+
+        send: merchantApiProcedure('p2p:read')
+          .input(
+            z.object({
+              tradeId: z.string().uuid(),
+              text: z.string().min(1).max(2000),
+              clientId: z.string().min(1).max(128),
+              /** No object store is wired. Any attachment refuses before a row is written. */
+              attachment: z.unknown().optional(),
+            }),
+          )
+          .output(
+            z.object({
+              id: z.string().uuid(),
+              tradeId: z.string().uuid(),
+              senderId: z.string(),
+              clientId: z.string(),
+              text: z.string(),
+              createdAt: z.string(),
+              created: z.boolean(),
+              notify: z.object({
+                delivered: z.boolean(),
+                code: z.enum(['p2p.chat_notify_delivered', 'p2p.chat_notify_unwired', 'p2p.chat_notify_failed']),
+              }),
+            }),
+          )
+          .mutation(async ({ ctx, input }) =>
+            guard(async () => {
+              const moderator = isModerator(ctx.principal, moderatorUserIds);
+              if (!ctx.principal.scopes.includes('p2p:write')) {
+                const disputeOpen = moderator && (await p2p.disputeOpen(input.tradeId));
+                if (!disputeOpen) {
+                  throw new TRPCError({
+                    code: 'FORBIDDEN',
+                    message: 'Sending in a trade chat requires p2p:write.',
+                  });
+                }
+              }
+              const sent = await p2p.sendChatMessage({
+                tradeId: input.tradeId,
+                senderId: ctx.principal.userId,
+                clientId: input.clientId,
+                text: input.text,
+                asModerator: isModerator(ctx.principal, moderatorUserIds),
+                ...(input.attachment !== undefined ? { attachment: input.attachment } : {}),
+              });
+              let notify: { delivered: boolean; code: 'p2p.chat_notify_delivered' | 'p2p.chat_notify_unwired' | 'p2p.chat_notify_failed' } =
+                { delivered: false, code: 'p2p.chat_notify_unwired' };
+              if (!sent.created) {
+                notify = { delivered: false, code: 'p2p.chat_notify_unwired' };
+              } else if (!chatNotify) {
+                notify = { delivered: false, code: 'p2p.chat_notify_unwired' };
+              } else {
+                const trade = await p2p.getTrade(input.tradeId);
+                const recipientIds = [trade.buyerId, trade.sellerId].filter((id) => id !== ctx.principal.userId);
+                try {
+                  await chatNotify.messageSent({
+                    tradeId: input.tradeId,
+                    messageId: sent.message.id,
+                    senderId: ctx.principal.userId,
+                    recipientIds,
+                  });
+                  notify = { delivered: true, code: 'p2p.chat_notify_delivered' };
+                } catch {
+                  notify = { delivered: false, code: 'p2p.chat_notify_failed' };
+                }
+              }
+              return {
+                id: sent.message.id,
+                tradeId: sent.message.tradeId,
+                senderId: sent.message.senderId,
+                clientId: sent.message.clientId,
+                text: sent.message.text,
+                createdAt: sent.message.createdAt.toISOString(),
+                created: sent.created,
+                notify,
+              };
+            }),
+          ),
+      }),
+
+      unread: merchantApiProcedure('p2p:read')
+        .input(z.object({ tradeId: z.string().uuid() }))
+        .output(z.object({ tradeId: z.string().uuid(), unread: z.number().int().nonnegative() }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => ({
+            tradeId: input.tradeId,
+            unread: await p2p.unreadChat({
+              tradeId: input.tradeId,
+              viewerId: ctx.principal.userId,
+              asModerator: isModerator(ctx.principal, moderatorUserIds),
+            }),
+          })),
+        ),
+    }),
+
+    contacts: router({
+      list: merchantApiProcedure('p2p:read')
+        .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
+        .query(async ({ ctx }) => guard(async () => p2p.listContacts(ctx.principal.userId))),
+
+      follow: merchantApiProcedure('p2p:write')
+        .input(z.object({ peerId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) }))
+        .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            p2p.setContact({
+              ownerId: ctx.principal.userId,
+              peerId: input.peerId,
+              kind: 'follow',
+              present: true,
+              idempotencyKey: input.idempotencyKey,
+            }),
+          ),
+        ),
+
+      unfollow: merchantApiProcedure('p2p:write')
+        .input(z.object({ peerId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) }))
+        .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            p2p.setContact({
+              ownerId: ctx.principal.userId,
+              peerId: input.peerId,
+              kind: 'follow',
+              present: false,
+              idempotencyKey: input.idempotencyKey,
+            }),
+          ),
+        ),
+
+      block: merchantApiProcedure('p2p:write')
+        .input(z.object({ peerId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) }))
+        .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            p2p.setContact({
+              ownerId: ctx.principal.userId,
+              peerId: input.peerId,
+              kind: 'block',
+              present: true,
+              idempotencyKey: input.idempotencyKey,
+            }),
+          ),
+        ),
+
+      unblock: merchantApiProcedure('p2p:write')
+        .input(z.object({ peerId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) }))
+        .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            p2p.setContact({
+              ownerId: ctx.principal.userId,
+              peerId: input.peerId,
+              kind: 'block',
+              present: false,
+              idempotencyKey: input.idempotencyKey,
+            }),
+          ),
+        ),
+    }),
+
     reputation: router({
       /**
        * §6.2 → §4.1. The numbers a counterparty sees before they trade with
@@ -1668,7 +2109,34 @@ export function createP2pRouter(
           guard(async () => {
             const r = await p2p.reputationOf(input.userId);
             const record = merchants ? await merchants.get(input.userId) : null;
-            return reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants)));
+            const door = reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants)));
+            const trades30d = await p2p.tradesInWindow(input.userId);
+            if (!publicProfile) {
+              return {
+                ...door,
+                handle: null,
+                memberSince: null,
+                profile: { status: 'unwired' as const, code: 'p2p.public_profile_unwired' as const },
+                trades30d,
+              };
+            }
+            const found = await publicProfile.lookup(input.userId);
+            if (!found) {
+              return {
+                ...door,
+                handle: null,
+                memberSince: null,
+                profile: { status: 'absent' as const, code: 'p2p.public_profile_absent' as const },
+                trades30d,
+              };
+            }
+            return {
+              ...door,
+              handle: found.handle,
+              memberSince: found.memberSince,
+              profile: { status: 'found' as const, code: 'p2p.public_profile_found' as const },
+              trades30d,
+            };
           }),
         ),
     }),
@@ -1878,7 +2346,7 @@ function requireErasure(erasure: P2pErasure | undefined): P2pErasure {
   return erasure;
 }
 
-function toOfferOut(offer: Awaited<ReturnType<P2pService['getOffer']>>): OfferOut {
+function toOfferOut(offer: Awaited<ReturnType<P2pService['getOffer']>>, tradesCompleted: number): OfferOut {
   return {
     id: offer.id,
     makerId: offer.makerId,
@@ -1890,11 +2358,18 @@ function toOfferOut(offer: Awaited<ReturnType<P2pService['getOffer']>>): OfferOu
     minAmount: formatAmount(offer.minAmt),
     maxAmount: formatAmount(offer.maxAmt),
     remainingAmount: formatAmount(offer.remainingAmt),
+    totalAmount: formatAmount(offer.totalAmt),
+    filledAmount: formatAmount(subAmount(offer.totalAmt, offer.remainingAmt)),
+    tradesCompleted,
     methods: offer.methods,
     terms: offer.terms,
     status: offer.status,
     createdAt: offer.createdAt.toISOString(),
   };
+}
+
+function subAmount(total: bigint, remaining: bigint): bigint {
+  return total - remaining;
 }
 
 function toEvidenceOut(entry: DisputeRecord['evidence'][number]): z.infer<typeof evidenceOutput> {

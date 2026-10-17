@@ -26,8 +26,10 @@ import {
   paySettlementListInputSchema,
   payStatementListInputSchema,
   payStatementPageSchema,
+  merchantStarterFeeSchema,
   router,
   scopedProcedure,
+  anyScopeProcedure,
   publicProcedure,
   TRPCError,
 } from '@intafaced/contracts';
@@ -44,6 +46,7 @@ import {
 } from './action-approval-consume.js';
 import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { PayError, type PayService } from './payment-service.js';
+import type { MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
@@ -230,6 +233,8 @@ export function createPayRouter(
   disputeCases: DisputeCaseStore = defaultDisputeCaseStore,
   /** Portal profile, onboarding, and analytics. Absent in unit stubs that do not pass a database. */
   portalSql: Sql | null = null,
+  /** Local-test starter fee. Null means the product fee is not set yet. */
+  starterFee: MerchantStarterFee | null = null,
 ) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -454,8 +459,10 @@ export function createPayRouter(
        * Ownership: userId is always the authenticated principal. Body userId
        * was dropped so a caller with pay:write cannot create a merchant under
        * another account (full audit L2-1).
+       * Door is pay:onboard. Client mode and pricing are ignored: the server
+       * starter fee and gateway mode are the only account this door opens.
        */
-      create: scopedProcedure('pay:write', { module: 'pay' })
+      create: scopedProcedure('pay:onboard', { module: 'pay' })
         .input(
           z.object({
             mode: z.enum(['gateway', 'psp', 'payfac']).default('gateway'),
@@ -471,7 +478,20 @@ export function createPayRouter(
           wrap(async () => {
             const userId = ctx.principal?.userId;
             if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-            const merchant = await pay.createMerchant({ ...input, userId });
+            if (!starterFee) {
+              throw new PayError(
+                'The starter fee is not published. An account cannot be opened until it is.',
+                'pay.starter_fee_unpublished',
+              );
+            }
+            const merchant = await pay.createMerchant({
+              userId,
+              mode: 'gateway',
+              pricing: { feeBps: starterFee.bps },
+              settlementPrefs: input.settlementPrefs,
+              displayName: input.displayName,
+              legalName: input.legalName,
+            });
             return { id: merchant.id, userId: merchant.userId, mode: merchant.mode, feeBps: merchant.pricing.feeBps ?? null };
           }),
         ),
@@ -499,7 +519,7 @@ export function createPayRouter(
         ),
 
       /** Current merchant for the principal — null when not yet onboarded. */
-      me: scopedProcedure('pay:read', { module: 'pay' })
+      me: anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' })
         .output(
           z
             .object({
@@ -510,6 +530,8 @@ export function createPayRouter(
               kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
               kybRef: z.string().nullable(),
               feeBps: z.number().nullable(),
+              /** Null when the starter fee is not set. `local_test` is not INTAFACED pricing. */
+              starterFee: merchantStarterFeeSchema.nullable(),
             })
             .nullable(),
         )
@@ -527,15 +549,24 @@ export function createPayRouter(
               kybStatus: merchant.kybStatus,
               kybRef: merchant.kybRef,
               feeBps: merchant.pricing.feeBps ?? null,
+              starterFee,
             };
           }),
         ),
 
       /**
+       * The published starter fee, including for a caller who has no merchant yet.
+       * Null means the fee is not configured.
+       */
+      starterFee: anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' })
+        .output(z.object({ starterFee: merchantStarterFeeSchema.nullable() }))
+        .query(() => ({ starterFee })),
+
+      /**
        * KYB stub submit — dossier reference only. Does not invent a partner decision.
        * Digital KYB vendors are `pay.psp`.
        */
-      submitKyb: scopedProcedure('pay:write', { module: 'pay' })
+      submitKyb: scopedProcedure('pay:onboard', { module: 'pay' })
         .input(z.object({ merchantId: z.string().uuid(), kybRef: z.string().min(1).max(128) }))
         .output(
           z.object({
@@ -1400,41 +1431,44 @@ export function createPayRouter(
               .optional(),
           }),
         )
-        .mutation(({ input }) => {
-          try {
-            const decision = evaluateFraud({
-              merchantId: input.merchantId,
-              amount: input.amount,
-              assetId: input.assetId,
-              recentPaymentCount: input.recentPaymentCount,
-              recentVolume: input.recentVolume,
-              baselineAmount: input.baselineAmount,
-              thresholds: input.thresholds,
-              blocklists: input.blocklists,
-              enabled: input.enabled,
-            });
-            const c = defaultFraudReviewQueue.enqueue({
-              id: input.id,
-              merchantId: input.merchantId,
-              amount: input.amount,
-              assetId: input.assetId,
-              paymentId: input.paymentId ?? null,
-              decision,
-            });
-            return {
-              id: c.id,
-              status: c.status,
-              merchantId: c.merchantId,
-              paymentId: c.paymentId,
-              reasons: c.decision.reasons.map((r) => ({ ruleId: r.ruleId, detail: r.detail })),
-            };
-          } catch (e) {
-            if (e instanceof FraudReviewError) {
-              throw new TRPCError({ code: 'BAD_REQUEST', message: `${e.code}: ${e.message}`, cause: e });
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.fraud.enqueueReview');
+            try {
+              const decision = evaluateFraud({
+                merchantId: input.merchantId,
+                amount: input.amount,
+                assetId: input.assetId,
+                recentPaymentCount: input.recentPaymentCount,
+                recentVolume: input.recentVolume,
+                baselineAmount: input.baselineAmount,
+                thresholds: input.thresholds,
+                blocklists: input.blocklists,
+                enabled: input.enabled,
+              });
+              const c = defaultFraudReviewQueue.enqueue({
+                id: input.id,
+                merchantId: input.merchantId,
+                amount: input.amount,
+                assetId: input.assetId,
+                paymentId: input.paymentId ?? null,
+                decision,
+              });
+              return {
+                id: c.id,
+                status: c.status,
+                merchantId: c.merchantId,
+                paymentId: c.paymentId,
+                reasons: c.decision.reasons.map((r) => ({ ruleId: r.ruleId, detail: r.detail })),
+              };
+            } catch (e) {
+              if (e instanceof FraudReviewError) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: `${e.code}: ${e.message}`, cause: e });
+              }
+              throw e;
             }
-            throw e;
-          }
-        }),
+          }),
+        ),
 
       listOpenReviews: scopedProcedure('admin:treasury', { module: 'pay' })
         .input(
@@ -1601,7 +1635,14 @@ export function createPayRouter(
               throw new TRPCError({ code: 'PRECONDITION_FAILED', message: e.message, cause: e });
             }
             // A redelivered open for another amount is a state conflict (retrying cannot fix it), not a malformed request.
-            if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') throw toTrpcError(e);
+            if (
+              e instanceof PayError &&
+              (e.code === 'pay.chargeback_plan_conflict' ||
+                e.code === 'pay.chargeback_shortfall_unfunded' ||
+                e.code === 'pay.chargeback_ledger_failed')
+            ) {
+              throw toTrpcError(e);
+            }
             if (e instanceof DisputeCaseError || e instanceof PayError) {
               throw new TRPCError({
                 code: 'BAD_REQUEST',
@@ -1650,27 +1691,29 @@ export function createPayRouter(
 
       getDispute: scopedProcedure('pay:read', { module: 'pay' })
         .input(z.object({ disputeId: z.string().min(1) }))
-        .query(async ({ input }) => {
-          const c = await disputeCases.get(input.disputeId);
-          if (!c) {
-            throw new TRPCError({ code: 'NOT_FOUND', message: `pay.dispute_not_found: ${input.disputeId}` });
-          }
-          return {
-            disputeId: c.disputeId,
-            paymentId: c.paymentId,
-            merchantId: c.merchantId,
-            amount: c.amount,
-            assetId: c.assetId,
-            reasonCode: c.reasonCode,
-            status: c.status,
-            ledgerWire: c.ledgerWire,
-            ledgerTxId: c.ledgerTxId,
-            ledgerRefuseCode: c.ledgerRefuse?.code ?? null,
-            ledgerSocket: c.ledgerRefuse?.socket ?? null,
-            openedAt: c.openedAt,
-            closedAt: c.closedAt,
-          };
-        }),
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            const missing = () => new PayError('Dispute not found', 'pay.dispute_not_found');
+            const c = await disputeCases.get(input.disputeId);
+            if (!c) throw missing();
+            await refuseAsMissing(assertRead(ctx.principal?.userId, c.merchantId, 'trpc.fraud.getDispute', 'payments.read'), missing);
+            return {
+              disputeId: c.disputeId,
+              paymentId: c.paymentId,
+              merchantId: c.merchantId,
+              amount: c.amount,
+              assetId: c.assetId,
+              reasonCode: c.reasonCode,
+              status: c.status,
+              ledgerWire: c.ledgerWire,
+              ledgerTxId: c.ledgerTxId,
+              ledgerRefuseCode: c.ledgerRefuse?.code ?? null,
+              ledgerSocket: c.ledgerRefuse?.socket ?? null,
+              openedAt: c.openedAt,
+              closedAt: c.closedAt,
+            };
+          }),
+        ),
     }),
 
     /**
@@ -2087,6 +2130,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.payout_destination_not_found':
       case 'pay.payment_not_found':
       case 'pay.profile_not_found':
+      case 'pay.dispute_not_found':
       case 'pay.link_not_found':
       case 'pay.settlement_not_found':
       case 'pay.refund_not_found':
@@ -2104,6 +2148,7 @@ function toTrpcError(err: unknown): unknown {
        */
       case 'pay.link_exhausted':
       case 'pay.checkout_session_closed':
+      case 'pay.merchant_parent_present':
         return 'CONFLICT' as const;
       /** The caller is anonymous and opening rows in our database. */
       case 'pay.checkout_busy':
@@ -2120,6 +2165,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.payout_destination_missing':
       case 'pay.payout_admission_missing':
       case 'pay.fee_bps_unset':
+      case 'pay.starter_fee_unpublished':
       case 'pay.link_ttl_unset':
       case 'pay.link_max_ttl_unset':
       case 'pay.checkout_session_ttl_unset':
@@ -2146,6 +2192,9 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.capture_reconcile_disabled':
       case 'pay.capture_reconcile_batch_limit_unset':
       case 'pay.kyb_profile_unbound':
+      case 'pay.chargeback_shortfall_unfunded':
+      case 'pay.chargeback_ledger_failed':
+      case 'pay.chargeback_outcome_busy':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':

@@ -339,8 +339,8 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     case 'auth.email_confirm_rate_limited':
       return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
-    case 'auth.phone_taken':
-      return new TRPCError({ code: 'CONFLICT', message, cause: err });
+    case 'auth.payee_email_unconfirmed':
+    case 'auth.payee_phone_unverified':
     case 'auth.payee_phone_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
   }
@@ -723,9 +723,14 @@ export function createIdentityRouter(
           if (ctx.principal.kid) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search settings need a signed-in session' });
           }
-          const phone = input.phone === undefined || input.phone === null ? input.phone : normalisePayeePhone(input.phone);
-          if (phone === null) {
-            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Phone numbers are stored as E.164 [identity.payee_phone_invalid]' });
+          let phone: string | null | undefined;
+          if (input.phone === undefined) phone = undefined;
+          else if (input.phone === null) phone = null;
+          else {
+            phone = normalisePayeePhone(input.phone);
+            if (phone === null) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'Phone numbers are stored as E.164 [identity.payee_phone_invalid]' });
+            }
           }
           try {
             return await auth.setPayeeSearchConsent(ctx.principal.userId, {

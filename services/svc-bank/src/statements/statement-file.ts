@@ -67,22 +67,43 @@ function pdfText(value: string): string {
   return bytes.join('');
 }
 
-/** One page of Courier text. Enough for a monthly statement the customer can open. */
+/** Body lines on one page, besides the "Page i of n" line. About 55 lines of Courier fit a letter page. */
+const PDF_BODY_LINES = 54;
+
+/**
+ * One page object and one content stream per page. Every line is drawn.
+ * The header lines are the first lines of `lines`, so they land on page 1.
+ * A file never drops a row: the caller refuses with `bank.statement_too_large`
+ * before asking for a PDF it will not draw.
+ */
 export function statementPdf(lines: readonly string[]): Buffer {
-  const commands = ['BT', '/F1 9 Tf', '40 760 Td', '12 TL'];
-  lines.slice(0, 55).forEach((line, index) => {
-    if (index === 0) commands.push(`(${pdfText(line)}) Tj`);
-    else commands.push(`T* (${pdfText(line)}) Tj`);
-  });
-  commands.push('ET');
-  const stream = commands.join('\n');
+  const pageCount = Math.max(1, Math.ceil(lines.length / PDF_BODY_LINES));
+  const streams: string[] = [];
+  for (let page = 0; page < pageCount; page += 1) {
+    const chunk = lines.slice(page * PDF_BODY_LINES, (page + 1) * PDF_BODY_LINES);
+    const drawn = [`Page ${page + 1} of ${pageCount}`, ...chunk];
+    const commands = ['BT', '/F1 9 Tf', '40 760 Td', '12 TL'];
+    drawn.forEach((line, index) => {
+      if (index === 0) commands.push(`(${pdfText(line)}) Tj`);
+      else commands.push(`T* (${pdfText(line)}) Tj`);
+    });
+    commands.push('ET');
+    streams.push(commands.join('\n'));
+  }
+  const fontObject = 3 + pageCount * 2;
   const objects = [
     '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n',
-    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n',
-    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n',
-    `4 0 obj << /Length ${Buffer.byteLength(stream, 'utf8')} >> stream\n${stream}\nendstream\nendobj\n`,
-    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Courier >> endobj\n',
+    `2 0 obj << /Type /Pages /Kids [${streams.map((_, index) => `${3 + index * 2} 0 R`).join(' ')}] /Count ${pageCount} >> endobj\n`,
   ];
+  streams.forEach((stream, index) => {
+    const pageObject = 3 + index * 2;
+    const contentsObject = pageObject + 1;
+    objects.push(
+      `${pageObject} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentsObject} 0 R /Resources << /Font << /F1 ${fontObject} 0 R >> >> >> endobj\n`,
+    );
+    objects.push(`${contentsObject} 0 obj << /Length ${Buffer.byteLength(stream, 'utf8')} >> stream\n${stream}\nendstream\nendobj\n`);
+  });
+  objects.push(`${fontObject} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Courier >> endobj\n`);
   let body = '%PDF-1.4\n';
   const offsets = [0];
   for (const object of objects) {
