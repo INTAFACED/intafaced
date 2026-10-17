@@ -37,6 +37,8 @@ import { createApiKeyAttributionRouter } from './api-key-attribution-router.js';
 import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
+import { createOperatorOpsRouter } from './ops/ops-router.js';
+import { createPreferencesRouter } from './preferences/preferences-router.js';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
 import { OperationIdentityDecisions } from './controls/operation-identity-decisions.js';
 import { createOperationIdentityRouter } from './controls/operation-identity-router.js';
@@ -253,6 +255,7 @@ const founderControls = new FounderControls(sql, founderPair, {
 });
 await founderControls.bootstrap();
 auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
+auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 
 const referral = new ReferralService(sql);
 const share = new ShareService(sql);
@@ -350,6 +353,8 @@ export const appRouter = mergeRouters(
   createApiKeyAttributionRouter(auth),
   createDisableUserRouter(founderControls),
   createFounderControlsRouter(founderControls),
+  createOperatorOpsRouter(sql),
+  createPreferencesRouter(sql),
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),

@@ -141,9 +141,8 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
  *      and `support:ops` onto an API key, and a session that held
  *      `admin:compliance` or `market:ops` could do the same. A long-lived key
  *      then bypasses the founder MFA and session model. Desk scopes stay on
- *      the interactive session. `admin:read` and `support:ops` are issued
- *      before MFA; their second factor, where a procedure needs one, stays a
- *      local `requireMfa` — being interactive-only is not the same as
+ *      the interactive session. A procedure that needs a second factor calls
+ *      `requireMfa` itself — being interactive-only is not the same as
  *      requiring 2FA.
  *   3. `pay:onboard` (#4897). It does not move money. It is interactive-only
  *      so it can never sit on an API key. Main's `requireScope` treated every
@@ -170,10 +169,10 @@ export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = [
 /**
  * Interactive-only scopes that also require a second factor on the session.
  *
- * A subset of `INTERACTIVE_ONLY_SCOPES`. The desk scopes that a founder holds
- * before MFA (`admin:read`, `support:ops`) and the ones whose procedures call
- * `requireMfa` themselves (`admin:write`, `admin:compliance`, `market:ops`)
- * are interactive-only — refused on an API key — and are not in this list.
+ * A subset of `INTERACTIVE_ONLY_SCOPES`. Founder desk scopes are interactive-only
+ * (refused on an API key) and are not in this list. Whether a live founder
+ * session receives one is `IDENTITY_FOUNDER_SESSION_SCOPES`, and only after MFA.
+ * Procedures that need a second factor call `requireMfa` themselves.
  * `pay:onboard` is in this list because #4897 put it on the list `requireScope`
  * used as the 2FA gate.
  */
@@ -317,21 +316,86 @@ export type SessionScope = (typeof SESSION_SCOPE_LIST)[number];
 export const SESSION_SCOPES: readonly SessionScope[] = SESSION_SCOPE_LIST;
 
 /**
- * Staff permissions a live founder session carries so the founder console can
- * call support, notify, kill and ledger freeze as that founder.
+ * Operator scopes a live founder session may receive, and only these.
  *
- * They are not in `SESSION_SCOPES`: an ordinary account must not receive them.
- * `admin:write` and `admin:treasury` are added only after MFA. None of them may
- * be copied onto an API key (`assertDelegatableScopes`).
+ * The lead publishes the subset in `IDENTITY_FOUNDER_SESSION_SCOPES`. Blank
+ * grants nothing. `admin:treasury`, `trade:withdraw`, `bank:card` and every
+ * `pay:` scope are absent on purpose: they move money or spend a card, and a
+ * founder session must not grow them from this list. `academy:read`,
+ * `agents:read`, `bank:read` and `token:read` are already in `SESSION_SCOPES`.
+ *
+ * Granted only to a live founder on an interactive MFA session that is not an
+ * API key and not a sub-account. Re-read the config on every refresh.
+ * `assertDelegatableScopes` refuses every name here, so a founder cannot copy
+ * one onto a key.
  */
-export const FOUNDER_DESK_SCOPES = ['support:ops', 'admin:read', 'admin:write', 'admin:treasury'] as const satisfies readonly Scope[];
+export const FOUNDER_SESSION_SCOPE_ALLOWLIST = [
+  'admin:read',
+  'admin:write',
+  'admin:compliance',
+  'market:ops',
+  'support:ops',
+] as const satisfies readonly Scope[];
 
-export function scopesForFounderSession(base: readonly Scope[], opts: { readonly founder: boolean; readonly mfa: boolean }): Scope[] {
-  if (!opts.founder) return [...base];
-  const grant: Scope[] = ['support:ops', 'admin:read'];
-  if (opts.mfa) grant.push('admin:write', 'admin:treasury');
+/** Same set. Kept so the key-delegation refusal has one name. */
+export const FOUNDER_DESK_SCOPES = FOUNDER_SESSION_SCOPE_ALLOWLIST;
+
+export const FOUNDER_SCOPE_INVALID = 'identity.founder_scope_invalid' as const;
+
+export class FounderScopeInvalidError extends Error {
+  readonly code = FOUNDER_SCOPE_INVALID;
+  constructor(name: string) {
+    super(`${FOUNDER_SCOPE_INVALID}: ${name || '(blank)'}`);
+    this.name = 'FounderScopeInvalidError';
+  }
+}
+
+/**
+ * Parse the founder-session scope config. Blank or unset grants nothing.
+ * A name outside the allowlist, an unknown scope, a blank segment or a
+ * duplicate refuses. Boot calls this so a bad value never starts the process.
+ */
+export function parseFounderSessionScopes(raw: string | undefined | null): readonly Scope[] {
+  if (raw === undefined || raw === null) return [];
+  const text = raw.trim();
+  if (text === '') return [];
+  const out: Scope[] = [];
+  for (const part of text.split(',')) {
+    const name = part.trim();
+    if (name === '' || !(FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(name) || out.includes(name as Scope)) {
+      throw new FounderScopeInvalidError(name);
+    }
+    out.push(name as Scope);
+  }
+  return out;
+}
+
+/** What env stores: the parsed grant and the exact config string that was hashed. */
+export function founderSessionScopesFromEnv(raw: string | undefined | null): {
+  readonly scopes: readonly Scope[];
+  readonly configValue: string;
+} {
+  const configValue = (raw ?? '').trim();
+  return { scopes: parseFounderSessionScopes(configValue), configValue };
+}
+
+export function scopesForFounderSession(
+  base: readonly Scope[],
+  opts: {
+    readonly founder: boolean;
+    readonly mfa: boolean;
+    readonly apiKey?: boolean;
+    readonly subAccount?: boolean;
+    /** Absent or empty grants nothing. Names outside the allowlist are dropped. */
+    readonly configured?: readonly Scope[];
+  },
+): Scope[] {
   const out = [...base];
-  for (const scope of grant) if (!out.includes(scope)) out.push(scope);
+  if (!opts.founder || !opts.mfa || opts.apiKey === true || opts.subAccount === true) return out;
+  for (const scope of opts.configured ?? []) {
+    if (!(FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(scope)) continue;
+    if (!out.includes(scope)) out.push(scope);
+  }
   return out;
 }
 
@@ -392,12 +456,10 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // criterion to decide with — a human supplies the decision (§8 "mine alone").
   'market:ops': 'Operator scope — vetting a vendor application is a human decision',
 
-  // Operator scopes. Not in SESSION_SCOPES. The four founder desk scopes
-  // (`support:ops`, `admin:read`, `admin:write`, `admin:treasury`) are added
-  // only to a live founder's interactive session by `scopesForFounderSession`.
-  // `admin:compliance` never is: it approves KYC records, so a session carrying
-  // it could verify itself to `institutional` and walk into every custodial
-  // module in the OS.
+  // Operator scopes. Not in SESSION_SCOPES. The allowlist in
+  // FOUNDER_SESSION_SCOPE_ALLOWLIST is added only when the lead configures it,
+  // and only onto a live founder's interactive MFA session, by
+  // `scopesForFounderSession`. `admin:treasury` is not on that list.
   'admin:read': 'Operator scope',
   'admin:write': 'Operator scope',
   'admin:treasury': 'Operator scope, and interactive-only (§9)',
