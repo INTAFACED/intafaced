@@ -287,12 +287,15 @@ describe('Guest notification durable boundary (isolated PostgreSQL)', () => {
       CREATE TRIGGER inject_guest_crash BEFORE UPDATE ON notify.guest_notifications FOR EACH ROW EXECUTE FUNCTION notify.inject_guest_crash();`);
     try {
       const input = request();
-      const options = { timeoutMs: 100, leaseMs: 120 };
+      // Budgets are 10x+ the original 100/120/130 ms so a slow first loopback gateway call under CI load still reaches
+      // the injected write failure. The claim transaction must finish within leaseMs - timeoutMs (see
+      // src/guests/service.ts, the `remaining < deliveryTimeoutMs` check), so the lease is 3x the delivery timeout.
+      const options = { timeoutMs: 1000, leaseMs: 3000 };
       await expect(new GuestNotificationService(db.sql, wire.email, options).send(input)).rejects.toMatchObject({
         code: 'guest.storage_unavailable',
       });
       expect(await new GuestNotificationService(db.sql, wire.email, options).send(input)).toMatchObject({ status: 'attempting' });
-      await new Promise((resolve) => setTimeout(resolve, 130));
+      await new Promise((resolve) => setTimeout(resolve, 3100));
       expect(await new GuestNotificationService(db.sql, wire.email, options).send(input)).toMatchObject({
         status: 'unresolved',
         code: 'guest.acceptance_unknown',

@@ -19,8 +19,8 @@ export type MarketKind = 'spot' | 'futures' | 'options';
 export type MarketStatus = 'pending' | 'active' | 'halted' | 'delisted';
 export type OrderSide = 'buy' | 'sell';
 export type OrderType = 'market' | 'limit';
-export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'GTD' | 'GTT';
-export type OrderStatus = 'pending' | 'open' | 'filled' | 'cancelled' | 'rejected' | 'expired' | 'recovery_required';
+export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'MOC' | 'GTD' | 'GTT';
+export type OrderStatus = 'pending' | 'open' | 'filled' | 'cancelled' | 'rejected' | 'expired' | 'recovery_required' | 'hold_unknown';
 export type RecoveryReason = 'SUBMIT_UNKNOWN' | 'CANCEL_UNKNOWN' | 'AMEND_UNKNOWN' | 'RECONCILIATION_REQUIRED';
 export type AmendPriority = 'retained' | 'lost';
 export type Liquidity = 'maker' | 'taker';
@@ -277,6 +277,17 @@ export type TradeErrorCode =
   | 'trade.lifecycle_transition_partial'
   | 'trade.lifecycle_transition_unknown'
   | 'trade.lifecycle_recovery_required'
+  /**
+   * `order.hold` did not answer, and a read of `order.hold:<orderId>` did not
+   * answer either. The row is `hold_unknown`. Retry the same clientOrderId.
+   * Do not treat this as a cancel.
+   */
+  | 'trade.hold_unknown'
+  /**
+   * The lost `order.hold` reply was read back and the hold was not booked.
+   * The intent row is gone. The same clientOrderId may be placed again.
+   */
+  | 'trade.hold_not_booked'
   | 'trade.product_disabled'
   | 'trade.matching_market_missing'
   | 'trade.matching_unavailable'
@@ -347,6 +358,8 @@ export type TradeErrorCode =
    * listing-row maker_bps/taker_bps (10/20) and never invented bps.
    */
   | 'trade.fee_schedule_blank'
+  /** A product's own maker/taker rate is unpublished. The spot rate is not charged in its place. */
+  | 'trade.fee_product_unpublished'
   /**
    * Forex/commodity production listing or place without settlement law
    * (D26-P1-T7 / §13 `socket.forex-settlement` — needs D26-P0-05 + fiat rails).
@@ -435,6 +448,11 @@ export type TradeErrorCode =
    * out of 1–5000. Never invent 200.
    */
   | 'trade.slippage_cap_unset'
+  /**
+   * Market sell or flatten with no owner protection floor. Preview and place
+   * both refuse. Never `orderable: true` with a null protection price.
+   */
+  | 'trade.protection_unset'
   /**
    * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
    * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.

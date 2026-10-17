@@ -25,6 +25,14 @@ import { HttpPrivateBookPort } from './private/book.js';
 import { leaseRangeFromEnv } from './private/cod.js';
 import { HttpTradeCancelPort } from './private/cod-cancel.js';
 import { createWebSocketGateway } from './ws/gateway.js';
+import { customerOriginsFromEnv } from './customer-origin.js';
+import { CandleHub } from './mux/candle-hub.js';
+import { createMuxGateway, type MuxGateway } from './mux/gateway.js';
+import { MUX_IDLE_UNSET, resolveMuxIdleMs } from './mux/idle.js';
+import { MuxPoller } from './mux/poller.js';
+import { HubMarketResolver } from './mux/resolver.js';
+import { HttpCandleSource, HttpMarketDirectory, HttpTickerSource } from './mux/sources.js';
+import { TickerHub } from './mux/ticker-hub.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { registerTapeLabelDoor } from './tape-label-http.js';
 
@@ -139,6 +147,7 @@ const hub = new DepthHub(
     highWaterBytes: env.WS_HIGH_WATER_BYTES,
     maxLagTicks: env.WS_MAX_LAG_TICKS,
     maxConnections: env.WS_MAX_CONNECTIONS,
+    muxMaxConnections: env.WS_MUX_MAX_SEATS,
     marketsRefreshMs: env.WS_MARKETS_REFRESH_MS,
     registry,
     onMatchingAvailabilityChange: (available) => {
@@ -169,11 +178,91 @@ const tradeHub = new TradeHub(
     highWaterBytes: env.WS_HIGH_WATER_BYTES,
     maxLagTicks: env.WS_MAX_LAG_TICKS,
     maxConnections: env.WS_MAX_CONNECTIONS,
+    muxMaxConnections: env.WS_MUX_MAX_SEATS,
     recentLimit: env.WS_TRADE_RECENT_LIMIT,
     ensureKnownMarket: (marketId) => hub.ensureKnownMarket(marketId),
   },
   app.log,
 );
+
+/**
+ * The multiplexed door (`GET /stream` with no `market`): book + trades ride the
+ * hubs above; tickers and candles have hubs of their own, fed by svc-trade's
+ * public REST (`TRADE_URL`, no credential) only while somebody is subscribed.
+ */
+const marketDirectory = new HttpMarketDirectory({
+  baseUrl: env.TRADE_URL,
+  marketsLimit: env.WS_MARKETS_LIST_LIMIT,
+  ttlMs: env.WS_MARKETS_REFRESH_MS,
+  log: app.log,
+});
+
+const tickerHub = new TickerHub(
+  {
+    highWaterBytes: env.WS_HIGH_WATER_BYTES,
+    maxLagTicks: env.WS_MAX_LAG_TICKS,
+    maxConnections: env.WS_MUX_MAX_SEATS,
+    throttleMs: env.WS_TICKER_THROTTLE_MS,
+    onDemand: () => void muxPoller.demandTickers(),
+  },
+  app.log,
+);
+
+const candleHub = new CandleHub(
+  {
+    highWaterBytes: env.WS_HIGH_WATER_BYTES,
+    maxLagTicks: env.WS_MAX_LAG_TICKS,
+    maxConnections: env.WS_MUX_MAX_SEATS,
+    retainMs: env.WS_CANDLE_POLL_MS,
+    onDemand: (marketId, interval) => void muxPoller.demandCandle(marketId, interval),
+  },
+  app.log,
+);
+
+const muxPoller = new MuxPoller(
+  {
+    tickers: tickerHub,
+    candles: candleHub,
+    tickerSource: new HttpTickerSource({ baseUrl: env.TRADE_URL, marketsLimit: env.WS_MARKETS_LIST_LIMIT, log: app.log }),
+    candleSource: new HttpCandleSource({ baseUrl: env.TRADE_URL, log: app.log }),
+    directory: marketDirectory,
+  },
+  { tickerPollMs: env.WS_TICKER_POLL_MS, candlePollMs: env.WS_CANDLE_POLL_MS, flushMs: 250 },
+  app.log,
+);
+
+/**
+ * Blank `WS_MUX_IDLE_MS` does not borrow `WS_HEARTBEAT_MS`: that timer is a
+ * ping cadence, not an idle timeout for a socket with no subscription. With
+ * no connection idle setting in this service, the multiplexed door stays down
+ * and `?market=` keeps its own seats.
+ */
+const muxIdleMs = resolveMuxIdleMs(env.WS_MUX_IDLE_MS, undefined);
+let muxGateway: MuxGateway | null = null;
+if (muxIdleMs === undefined) {
+  app.log.error(
+    { code: MUX_IDLE_UNSET },
+    'svc-ws: multiplexed door not started — WS_MUX_IDLE_MS is blank and no connection idle setting exists',
+  );
+} else {
+  muxGateway = createMuxGateway({
+    session: {
+      depth: hub,
+      trades: tradeHub,
+      tickers: tickerHub,
+      candles: candleHub,
+      resolver: new HubMarketResolver(hub, marketDirectory),
+      maxSubscriptions: env.WS_MUX_MAX_SUBSCRIPTIONS,
+      maxOpsPerSecond: env.WS_MUX_MAX_OPS_PER_SECOND,
+      highWaterBytes: env.WS_HIGH_WATER_BYTES,
+      idleMs: muxIdleMs,
+      log: app.log,
+    },
+    maxConnections: env.WS_MAX_CONNECTIONS,
+    heartbeatMs: env.WS_HEARTBEAT_MS,
+    log: app.log,
+  });
+}
 
 const privateTokens =
   env.JWT_ACCESS_SECRET === undefined
@@ -344,6 +433,7 @@ registerRoutes(app, {
   tradeHub,
   privateHub: privateOrderHub,
   dropCopyHub,
+  ...(muxGateway ? { mux: { gateway: muxGateway, tickerHub, candleHub } } : {}),
   source,
   depthLimit: env.WS_DEPTH_LIMIT,
   serviceName: env.SERVICE_NAME,
@@ -389,10 +479,13 @@ const gateway = createWebSocketGateway({
   hub,
   tradeHub,
   l3Hub,
+  ...(muxGateway ? { mux: muxGateway } : {}),
   heartbeatMs: env.WS_HEARTBEAT_MS,
   log: app.log,
   enabled: isEnabled,
 });
+
+const customerOrigins = customerOriginsFromEnv(env);
 
 const privateGateway = createPrivateWebSocketGateway({
   server: app.server,
@@ -406,6 +499,7 @@ const privateGateway = createPrivateWebSocketGateway({
   codRange: leaseRangeFromEnv(env.WS_COD_MIN_LEASE_MS, env.WS_COD_MAX_LEASE_MS),
   tradeCancel: new HttpTradeCancelPort({ baseUrl: env.TRADE_URL }),
   authority,
+  customerOrigins,
 });
 
 const dropCopyGateway = createDropCopyWebSocketGateway({
@@ -416,9 +510,11 @@ const dropCopyGateway = createDropCopyWebSocketGateway({
   enabled: isEnabled,
   tokens: privateTokens,
   authority,
+  customerOrigins,
 });
 
 poller.start();
+muxPoller.start();
 
 app.log.info(
   {
@@ -451,6 +547,7 @@ registerSignalShutdown(
     },
     stopPoller() {
       poller.stop();
+      muxPoller.stop();
     },
     stopBus() {
       return busLifecycle.stop();

@@ -6,6 +6,7 @@ import { useResource, type Resource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { amount, date, Section } from './components';
+import { WithdrawForm } from './WithdrawForm';
 import { withdrawalCopy } from './withdrawal-copy';
 import {
   createWithdrawalReads,
@@ -296,9 +297,12 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
   const current = () => mounted.current && context.current();
   const requested = requestedWithdrawal(search);
   if (!context.current()) return <p role="status">{t('changed')}</p>;
+  // The address bar names no withdrawal: this is the Withdraw page itself. The form leads; records and Find sit below it.
+  const listing = requested.ok && !requested.id;
   return (
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
       <div className="withdrawal-page">
+        {listing && <WithdrawForm />}
         {!requested.ok ? (
           <Lookup current={current} invalid />
         ) : requested.id ? (
@@ -306,11 +310,19 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
         ) : (
           <List current={current} />
         )}
-        <Section title={t('unavailable')} description={t('unavailableNote')}>
-          <a className="text-link withdrawal-back" href="/portfolio">
-            {t('back')} ↗
-          </a>
-        </Section>
+        {listing ? (
+          <p>
+            <a className="text-link withdrawal-back" href="/portfolio">
+              {t('back')} ↗
+            </a>
+          </p>
+        ) : (
+          <Section title={t('unavailable')} description={t('unavailableNote')}>
+            <a className="text-link withdrawal-back" href="/portfolio">
+              {t('back')} ↗
+            </a>
+          </Section>
+        )}
       </div>
     </Page>
   );

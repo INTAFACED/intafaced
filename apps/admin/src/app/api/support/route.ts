@@ -3,17 +3,22 @@ import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { explainRefusal } from '@/lib/desk/refusal-copy';
-import { isTicketId } from '@/lib/support/model';
-import { claimTicket, loadQueue, loadTicket } from '@/lib/support/server';
+import { isTicketId, readActionRequest, type SupportActionRequest } from '@/lib/support/model';
+import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY, explainSupportFailure } from '@/lib/support/refusal';
+import { claimTicket, loadKb, loadQueue, loadTicket, loadTicketExtras, runSupportAction } from '@/lib/support/server';
+import type { FounderCallFailure } from '@/lib/desk/founder-call';
 
 /**
- * Support desk BFF: the operator queue, one ticket, and claiming a ticket.
+ * Support desk BFF: the operator queue, one ticket (with its case file and rating), the help articles, and the desk's
+ * writes: claim, reply, set status, escalate, publish and unpublish an article.
  *
  * Runs as the signed-in founder: svc-support takes the operator id from the verified session, so a claim is recorded
  * against the founder who made it and cannot be made on anyone else's behalf. Every procedure is `support:ops`; if
  * founder sign-in does not carry it, svc-support answers 403 and the desk says that (admin-BACKEND-NEEDS.md).
  *
- * There is no unclaim or reassign: svc-support has none. That is why a claim needs a second click in the page.
+ * There is no unclaim or reassign: svc-support has none. That is why a claim needs a second click in the page. Every other
+ * write needs one too: a reply cannot be unsent, a closed ticket stays closed, an escalation's case file is immutable, and
+ * a published article changes what customers read. No write here moves money, and none needs a second approver.
  */
 
 export const dynamic = 'force-dynamic';
@@ -32,6 +37,12 @@ export async function GET(request: Request) {
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicket(session, id), { headers: NO_STORE });
   }
+  if (url.searchParams.get('view') === 'extras') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadTicketExtras(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'kb') return Response.json(await loadKb(session), { headers: NO_STORE });
   return Response.json(await loadQueue(session), { headers: NO_STORE });
 }
 
@@ -47,7 +58,8 @@ export async function POST(request: Request) {
   } catch (error) {
     return adminSessionErrorResponse(error instanceof AdminSessionError ? error : new AdminSessionError('admin.json_required', 400));
   }
-  if (raw.action !== 'claim' || !isTicketId(raw.ticketId)) {
+  if (raw.action !== 'claim') return writeAction(session, raw);
+  if (!isTicketId(raw.ticketId)) {
     return Response.json(
       {
         ok: false,
@@ -83,9 +95,9 @@ export async function POST(request: Request) {
       result.kind === 'forbidden'
         ? {
             ...base,
-            title: 'Your session does not hold the support-staff permission',
-            body: 'svc-support only lets staff with support:ops claim tickets, and founder sign-in does not carry it yet.',
-            next: 'Nothing was changed. See the back-end needs note.',
+            title: SUPPORT_OPS_FORBIDDEN,
+            body: SUPPORT_OPS_FORBIDDEN_BODY,
+            next: 'Nothing was changed. This control works once the permission is granted.',
           }
         : { ...base, body: result.refusal.message !== '' ? result.refusal.message : base.body };
     return Response.json({ ok: false, refusal: view }, { status: 409, headers: NO_STORE });
@@ -94,4 +106,62 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, refusal: explainRefusal(null, 503, result.uncertain) }, { status: 502, headers: NO_STORE });
   }
   return Response.json({ ok: false, refusal: explainRefusal(null, 502, true) }, { status: 502, headers: NO_STORE });
+}
+
+type Session = Exclude<Awaited<ReturnType<typeof adminBffSession>>, Response>;
+
+const INVALID = {
+  ok: false,
+  refusal: {
+    title: 'That request was not accepted',
+    body: 'It did not name a known action with valid fields, so nothing was sent.',
+    next: 'Check the fields and try again.',
+    code: 'admin.request_invalid',
+    changed: 'no',
+  },
+} as const;
+
+const targetOf = (request: SupportActionRequest) => ('ticketId' in request ? request.ticketId : request.id);
+
+function statusOf(failure: FounderCallFailure<unknown>): number {
+  if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
+  if (failure.kind === 'refused') return 409;
+  return 502;
+}
+
+async function writeAction(session: Session, raw: Record<string, unknown>) {
+  const request = readActionRequest(raw);
+  if (!request) return Response.json(INVALID, { status: 400, headers: NO_STORE });
+  const result = await runSupportAction(session, request);
+  // The audit line names who did what to which ticket or article. It never carries the words the founder wrote.
+  console.warn(
+    JSON.stringify({
+      audit: `admin.support_${request.action}`,
+      at: new Date().toISOString(),
+      founder: session.session.userId,
+      target: targetOf(request),
+      outcome: result.kind,
+    }),
+  );
+  if (result.kind !== 'ok') {
+    return Response.json({ ok: false, refusal: explainSupportFailure(result) }, { status: statusOf(result), headers: NO_STORE });
+  }
+  return Response.json({ ok: true, action: request.action, summary: summaryOf(request, result.data) }, { headers: NO_STORE });
+}
+
+/** What svc-support says happened, in a sentence, taken from its own answer and not from what was sent. */
+function summaryOf(request: SupportActionRequest, data: unknown): string {
+  const d = data as Record<string, unknown>;
+  switch (request.action) {
+    case 'reply':
+      return 'svc-support recorded your reply on the ticket.';
+    case 'status':
+      return `svc-support says the ticket is now ${String(d.status)}.`;
+    case 'escalate':
+      return `svc-support filed the case file with ${Array.isArray(d.citations) ? d.citations.length : 'its'} citations.`;
+    case 'kb_publish':
+      return `svc-support says ${String(d.id)} is published at revision ${String(d.revision)}.`;
+    case 'kb_unpublish':
+      return `svc-support says ${String(d.id)} is hidden from customers. Its revision is now ${String(d.revision)}; quote it to publish it again.`;
+  }
 }

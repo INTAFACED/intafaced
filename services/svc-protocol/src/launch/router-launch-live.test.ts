@@ -93,6 +93,7 @@ describe.skipIf(!reachable)('launch through the router, on a real chain', () => 
       relay: new SessionRelay(chain),
       relayEnabled: () => true,
       ammFactoryAddress: () => ZERO,
+      swapSlippageBps: () => null,
     }).createCaller(anonymous());
   }, 60_000);
 

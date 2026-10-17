@@ -13,6 +13,7 @@ import {
   type NotifyService,
 } from './notify-service.js';
 import type { DeliveryRecord } from './channel-store.js';
+import { providerHealth } from './provider-health.js';
 import type { Notification } from './store.js';
 import { CHANNEL_IDS, OUT_OF_APP_CHANNELS } from './channels/channel.js';
 import { renderInboxCopy } from './channels/render.js';
@@ -111,7 +112,12 @@ const operatorDeliveryOutput = deliveryOutput.extend({
  * (`notify.operator_deliveries_limit_unset`) instead of a Zod "Required".
  * Blank is not 50; pass 50 explicitly when that is the page you want.
  */
-const operatorDeliveriesInput = z.object({ limit: z.number().int().min(1).max(200).optional() }).optional();
+const operatorDeliveriesInput = z
+  .object({
+    limit: z.number().int().min(1).max(200).optional(),
+    status: z.enum(['pending', 'accepted', 'refused', 'failed', 'abandoned']).optional(),
+  })
+  .optional();
 
 const targetOutput = z.object({
   channel: outOfAppChannelSchema,
@@ -240,9 +246,9 @@ function operatorDeliveryToWire(d: DeliveryRecord) {
   };
 }
 
-async function loadOperatorDeliveries(notify: NotifyService, limit: number | undefined) {
+async function loadOperatorDeliveries(notify: NotifyService, limit: number | undefined, status?: DeliveryRecord['status']) {
   try {
-    return (await notify.operatorDeliveryOutcomes(limit)).map(operatorDeliveryToWire);
+    return (await notify.operatorDeliveryOutcomes(limit, status)).map(operatorDeliveryToWire);
   } catch (err) {
     if (err instanceof NotifyOperatorDeliveriesLimitUnsetError) {
       throw new TRPCError({
@@ -590,13 +596,61 @@ export function createNotifyRouter(
       operatorDeliveries: scopedProcedure('admin:read', { module: 'notify' })
         .input(operatorDeliveriesInput)
         .output(z.array(operatorDeliveryOutput))
-        .query(async ({ input }) => loadOperatorDeliveries(notify, input?.limit)),
+        .query(async ({ input }) => loadOperatorDeliveries(notify, input?.limit, input?.status)),
+
+      operatorDeliveryAggregates: scopedProcedure('admin:read', { module: 'notify' })
+        .output(
+          z.object({
+            asOf: z.string(),
+            total: z.number().int(),
+            byStatus: z.object({
+              pending: z.number().int(),
+              accepted: z.number().int(),
+              refused: z.number().int(),
+              failed: z.number().int(),
+              abandoned: z.number().int(),
+            }),
+            byChannel: z.record(z.number().int()),
+          }),
+        )
+        .query(async () => {
+          try {
+            return await notify.operatorDeliveryAggregates();
+          } catch (err) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: err instanceof Error ? err.message : 'notify.delivery_store_unconfigured',
+            });
+          }
+        }),
+
+      operatorProviderHealth: scopedProcedure('admin:read', { module: 'notify' })
+        .output(
+          z.object({
+            email: z.object({
+              channel: z.literal('email'),
+              configured: z.boolean(),
+              probed: z.literal(false),
+              code: z.string(),
+              reason: z.string(),
+            }),
+            push: z.object({
+              channel: z.literal('push'),
+              configured: z.boolean(),
+              probed: z.literal(false),
+              code: z.string(),
+              reason: z.string(),
+            }),
+            delivered: z.object({ observed: z.literal(false), code: z.literal('notify.delivered_unobserved'), reason: z.string() }),
+          }),
+        )
+        .query(() => providerHealth(process.env)),
 
       ops: router({
         deliveries: scopedProcedure('admin:read', { module: 'notify' })
           .input(operatorDeliveriesInput)
           .output(z.array(operatorDeliveryOutput))
-          .query(async ({ input }) => loadOperatorDeliveries(notify, input?.limit)),
+          .query(async ({ input }) => loadOperatorDeliveries(notify, input?.limit, input?.status)),
       }),
 
       /** Out-of-app mute prefs. Critical severity never respects mute (dispatch law). */

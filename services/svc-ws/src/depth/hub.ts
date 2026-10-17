@@ -129,6 +129,12 @@ export interface DepthHubOptions {
   /** Owner-published lag ticks. Unset = unpublished; attach refuses. Never invent 20. */
   readonly maxLagTicks: number | undefined;
   readonly maxConnections: number | undefined;
+  /**
+   * Seat pool for multiplexed subscriptions, separate from `maxConnections`
+   * (the pool the original `?market=` sockets use). Unset refuses a multiplexed
+   * attach `ws.close.mux_max_seats_unset`. Never counted against the market door.
+   */
+  readonly muxMaxConnections?: number | undefined;
   /** How long a cached market list is trusted before a miss may refetch it. */
   readonly marketsRefreshMs: number;
   /**
@@ -176,6 +182,8 @@ export interface HubLogger {
 interface Subscription {
   readonly marketId: string;
   readonly sink: DepthSink;
+  /** Holds a multiplexed seat (counted against `muxMaxConnections`, not `maxConnections`). */
+  readonly mux: boolean;
   /** Non-null until the snapshot has been sent. Deltas queue here, in order. */
   pending: DepthDelta[] | null;
   /** Consecutive ticks spent above the high-water mark. */
@@ -206,7 +214,9 @@ const NO_LOG: HubLogger = { info: () => undefined, warn: () => undefined };
 export class DepthHub {
   readonly #source: DepthSource;
   readonly #registry: MarketRegistry;
-  readonly #options: Required<Omit<DepthHubOptions, 'registry' | 'onMatchingAvailabilityChange' | 'onMatchingTradingChange'>>;
+  readonly #options: Required<
+    Omit<DepthHubOptions, 'registry' | 'muxMaxConnections' | 'onMatchingAvailabilityChange' | 'onMatchingTradingChange'>
+  >;
   readonly #onMatchingAvailabilityChange?: (available: boolean) => void;
   readonly #onMatchingTradingChange?: (
     marketId: string,
@@ -214,6 +224,7 @@ export class DepthHub {
     confirmedOpen?: MatchingTradingResumeEvidence,
   ) => void;
   readonly #log: HubLogger;
+  readonly #muxMax: number | undefined;
 
   readonly #subscriptions = new Set<Subscription>();
   readonly #books = new Map<string, DepthBook>();
@@ -244,7 +255,8 @@ export class DepthHub {
   readonly #trading = new Map<string, DepthMatchingTradingCode>();
 
   constructor(source: DepthSource, options: DepthHubOptions, log: HubLogger = NO_LOG) {
-    const { registry, onMatchingAvailabilityChange, onMatchingTradingChange, ...rest } = options;
+    const { registry, onMatchingAvailabilityChange, onMatchingTradingChange, muxMaxConnections, ...rest } = options;
+    this.#muxMax = muxMaxConnections;
     this.#source = source;
     this.#registry = registry ?? source;
     this.#options = { maxPendingDeltas: 512, clock: Date.now, ...rest };
@@ -255,6 +267,21 @@ export class DepthHub {
 
   get connections(): number {
     return this.#subscriptions.size;
+  }
+
+  /** Seats held by multiplexed subscriptions (a separate pool from `maxConnections`). */
+  get muxConnections(): number {
+    return this.#seats(true);
+  }
+
+  get muxMaxConnections(): number | undefined {
+    return this.#muxMax;
+  }
+
+  #seats(mux: boolean): number {
+    let n = 0;
+    for (const sub of this.#subscriptions) if (sub.mux === mux) n += 1;
+    return n;
   }
 
   /** Per-hub seat ceiling (same bound attach enforces). Not process-wide. Unset = unpublished. */
@@ -327,7 +354,8 @@ export class DepthHub {
    * closed with 1013). Callers that open real sockets must terminate on null —
    * same fail-closed shape as the private hub (no half-open with zero frames).
    */
-  attach(marketId: string, sink: DepthSink): (() => void) | null {
+  attach(marketId: string, sink: DepthSink, options: { readonly mux?: boolean } = {}): (() => void) | null {
+    const mux = options.mux === true;
     if (!isPublishedDepthLimit(this.#options.depthLimit)) {
       sink.close(CLOSE_POLICY, resolveWsCopy(WS_COPY.depthLimitUnset));
       return null;
@@ -340,17 +368,17 @@ export class DepthHub {
       sink.close(CLOSE_POLICY, resolveWsCopy(WS_COPY.maxLagTicksUnset));
       return null;
     }
-    const max = this.#options.maxConnections;
+    const max = mux ? this.#muxMax : this.#options.maxConnections;
     if (!isPublishedConnectionCeiling(max)) {
-      sink.close(CLOSE_POLICY, resolveWsCopy(WS_COPY.maxConnectionsUnset));
+      sink.close(CLOSE_POLICY, resolveWsCopy(mux ? WS_COPY.muxMaxSeatsUnset : WS_COPY.maxConnectionsUnset));
       return null;
     }
-    if (this.#subscriptions.size >= max) {
+    if (this.#seats(mux) >= max) {
       sink.close(CLOSE_TRY_LATER, resolveWsCopy(WS_COPY.atCapacity));
       return null;
     }
 
-    const sub: Subscription = { marketId, sink, pending: [], lagTicks: 0, lagging: false, closed: false };
+    const sub: Subscription = { marketId, sink, mux, pending: [], lagTicks: 0, lagging: false, closed: false };
     this.#subscriptions.add(sub);
     void this.#open(sub);
 
@@ -732,6 +760,51 @@ export class DepthHub {
   /** The current book for a market, if one is being maintained. */
   bookFor(marketId: string): DepthBook | undefined {
     return this.#books.get(marketId);
+  }
+
+  /**
+   * A client asked for a fresh snapshot (the multiplexed door's `resync` verb).
+   * It rides the same repair the lag sweep uses — a full `snapshot` of the
+   * hub's CURRENT book — so it cannot disagree with the deltas that follow it:
+   * both are written synchronously from the same book, and the next delta's
+   * `fromSequence` is that snapshot's `sequence`.
+   *
+   *   · `pending`  the connect snapshot has not been written yet; it is the repair.
+   *   · `deferred` the socket is over the high-water mark; the lag sweep repairs
+   *                it on the first tick it has drained (a snapshot queued behind
+   *                an unread backlog would make the backlog worse).
+   *   · `absent`   no proven book. Nothing is invented; the client already knows.
+   */
+  resync(sink: DepthSink): 'sent' | 'pending' | 'deferred' | 'absent' | 'not_subscribed' {
+    let sub: Subscription | undefined;
+    for (const candidate of this.#subscriptions) {
+      if (!candidate.closed && candidate.sink === sink) {
+        sub = candidate;
+        break;
+      }
+    }
+    if (!sub) return 'not_subscribed';
+    if (sub.pending !== null) return 'pending';
+    if (this.isEngineUnavailable(sub.marketId)) {
+      this.#write(sub, depthEngineUnavailableFrame(sub.marketId));
+      return 'sent';
+    }
+    const trading = this.#trading.get(sub.marketId);
+    if (trading !== undefined) {
+      this.#write(sub, depthMatchingTradingFrame(sub.marketId, trading));
+      return 'sent';
+    }
+    const book = this.#books.get(sub.marketId);
+    if (!book || !bookHasRestingDepth(book)) return 'absent';
+    if (isPublishedHighWaterBytes(this.#options.highWaterBytes) && sub.sink.bufferedBytes > this.#options.highWaterBytes) {
+      sub.lagging = true;
+      return 'deferred';
+    }
+    sub.lagging = false;
+    sub.lagTicks = 0;
+    this.#repairs += 1;
+    this.#write(sub, JSON.stringify(toSnapshot(book)));
+    return 'sent';
   }
 
   /** Matching answered (including 404 no-book). Clears engine-down for this id. */

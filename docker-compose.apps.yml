@@ -175,6 +175,24 @@ services:
       # detect = answer a reused key's different body with the original and log ledger.idempotency_mismatch;
       # refuse = 409 ledger.idempotency_conflict. Stays detect until the jobs that rebuild bodies on re-run are fixed.
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
+      # OPS-0001 caller binding. Default report: the shared INTERNAL_SERVICE_SECRET
+      # still posts. Every shared-secret post is counted as unbound, and a
+      # recipe or module outside the claim is counted too. The warning is
+      # rate-limited, so a quiet log is not a zero count. Set enforce only when
+      # unbound is 0 for every posting service and allowlist violations are 0
+      # for a full business cycle. Per-service secrets are optional
+      # pass-through (empty = unset). A pull with no new .env keys must keep
+      # booting. Do not use :? here.
+      # See services/svc-ledger/CALLER-BINDING.md before setting enforce.
+      LEDGER_CALLER_BINDING: ${LEDGER_CALLER_BINDING:-report}
+      LEDGER_CALLER_SECRET_SVC_AGENTS: ${LEDGER_CALLER_SECRET_SVC_AGENTS:-}
+      LEDGER_CALLER_SECRET_SVC_BANK: ${LEDGER_CALLER_SECRET_SVC_BANK:-}
+      LEDGER_CALLER_SECRET_SVC_IDENTITY: ${LEDGER_CALLER_SECRET_SVC_IDENTITY:-}
+      LEDGER_CALLER_SECRET_SVC_MARKET: ${LEDGER_CALLER_SECRET_SVC_MARKET:-}
+      LEDGER_CALLER_SECRET_SVC_P2P: ${LEDGER_CALLER_SECRET_SVC_P2P:-}
+      LEDGER_CALLER_SECRET_SVC_PAY: ${LEDGER_CALLER_SECRET_SVC_PAY:-}
+      LEDGER_CALLER_SECRET_SVC_TOKEN: ${LEDGER_CALLER_SECRET_SVC_TOKEN:-}
+      LEDGER_CALLER_SECRET_SVC_TRADE: ${LEDGER_CALLER_SECRET_SVC_TRADE:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4001']
     healthcheck: *healthcheck
@@ -279,6 +297,8 @@ services:
       EDGE_BODY_LIMIT_BYTES: ${EDGE_BODY_LIMIT_BYTES:-}
       EDGE_KILL_STATE_PATH: ${EDGE_KILL_STATE_PATH:-.data/edge-kill-state.json}
       UPSTREAM_TIMEOUT_MS: ${UPSTREAM_TIMEOUT_MS:-15000}
+      # Customer page origins. Blank → dev default outside staging/prod. Same name on svc-ws.
+      EDGE_ALLOWED_ORIGINS: ${EDGE_ALLOWED_ORIGINS:-}
       IDENTITY_URL: http://svc-identity:4002
       TRADE_URL: http://svc-trade:4004
       TOKEN_URL: http://svc-token:4003
@@ -330,6 +350,8 @@ services:
       # Host `.env` can pin session refresh life; do not raise the compose
       # default above 2592000.
       JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
+      # Two-tab refresh grace. Default 10 seconds. 0 disables it. Ceiling 120.
+      REFRESH_REUSE_GRACE_SECONDS: ${REFRESH_REUSE_GRACE_SECONDS:-10}
       # Registration open? §11 drop sequence. Empty pass-through — blank refuses
       # identity.registration_open_unset. Owner-explicit true is allowed. Never invent true.
       REGISTRATION_OPEN: ${REGISTRATION_OPEN:-}
@@ -469,6 +491,14 @@ services:
       # Public rulebook version (M00 / R-A7). EMPTY default — do not invent a
       # string. Blank → GET /rulebook unpublished. Host `.env` can pin.
       MATCHING_RULEBOOK_VERSION: ${MATCHING_RULEBOOK_VERSION:-}
+      # Operators who may propose and approve venue actions (open, halt, ...).
+      # Comma-separated identity user ids, at least two distinct; whitespace is
+      # trimmed. EMPTY pass-through, no invented ids: blank or one id REFUSES
+      # BOOT with a FATAL message (services/svc-matching/src/env.ts), so a lost
+      # host `.env` entry stops the container instead of leaving markets with no
+      # reachable halt. Host `.env` publishes it. `docker compose config` stays
+      # valid because the variable has an empty default.
+      MATCHING_OPERATOR_IDS: ${MATCHING_OPERATOR_IDS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4005']
     volumes:
@@ -713,6 +743,12 @@ services:
       # Host `.env` can pin cadence. No invented market list.
       TRADE_RECONCILE_JOBS_ENABLED: ${TRADE_RECONCILE_JOBS_ENABLED:-false}
       TRADE_RECONCILE_JOBS_INTERVAL_MS: ${TRADE_RECONCILE_JOBS_INTERVAL_MS:-60000}
+      # Lost order.hold reply (TRD-0540). Default ON. Reads order.hold:<orderId>
+      # for rows left in hold_unknown. Does not release a hold it has not seen.
+      TRADE_HOLD_UNKNOWN_SWEEP_ENABLED: ${TRADE_HOLD_UNKNOWN_SWEEP_ENABLED:-true}
+      TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS: ${TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS:-60000}
+      # Market, IOC, and FOK rows older than this are released, not submitted.
+      TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS: ${TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS:-30000}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4004']
     healthcheck: *healthcheck
@@ -754,6 +790,8 @@ services:
       INTAFACED_SBE_JAVA: ${INTAFACED_SBE_JAVA:-/app/sbe-codec.jar}
       # 4014: 4013 is svc-indexer, and everything below it is taken.
       HTTP_PORT: '4014'
+      # Same customer origins as svc-edge. Blank → dev default, or closed in staging/prod.
+      EDGE_ALLOWED_ORIGINS: ${EDGE_ALLOWED_ORIGINS:-}
       MATCHING_URL: http://svc-matching:4005
       # WHICH MARKETS EXIST, as opposed to which ones have traded.
       #
@@ -777,6 +815,13 @@ services:
       # refuse-closed (ws.max_connections_unset). Host may set 5000 explicitly.
       # Never invent 5000.
       WS_MAX_CONNECTIONS: ${WS_MAX_CONNECTIONS:-}
+      # Multiplexed subscription seats, separate from the ?market= pool.
+      # Blank refuses the attach (ws.close.mux_max_seats_unset). Never invent a size.
+      WS_MUX_MAX_SEATS: ${WS_MUX_MAX_SEATS:-}
+      # Idle multiplexed sockets that hold no subscription. Blank does not
+      # invent a timeout: this service has no connection idle setting, so the
+      # multiplexed door stays unmounted. Never invent a duration.
+      WS_MUX_IDLE_MS: ${WS_MUX_IDLE_MS:-}
       # Host can pin ping cadence. Default matches env.ts (30_000). Without
       # this name, a host `.env` never reaches the container.
       WS_HEARTBEAT_MS: ${WS_HEARTBEAT_MS:-30000}
@@ -1112,6 +1157,12 @@ services:
       # default. Blank refuses boot. Host may set 500 explicitly. Never invent
       # 500. Sweep stays OFF above — this is not turning it on. No APY/LTV/mids.
       LOAN_SWEEP_BATCH_SIZE: ${LOAN_SWEEP_BATCH_SIZE:-}
+      # Unknown loan/earn recovery. Interval default matches the trade
+      # hold-unknown sweep (60000). Batch default matches sweepHoldUnknown (50).
+      # `${VAR-default}` keeps a blank host value so the process can disable
+      # with a startup warning. `:-` would fill the blank back in.
+      BANK_RECOVERY_JOBS_INTERVAL_MS: ${BANK_RECOVERY_JOBS_INTERVAL_MS-60000}
+      BANK_RECOVERY_JOBS_BATCH_LIMIT: ${BANK_RECOVERY_JOBS_BATCH_LIMIT-50}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4009']
     healthcheck: *healthcheck
@@ -1687,6 +1738,9 @@ services:
       PROTOCOL_IMPLEMENTATION_ADDRESS: ${PROTOCOL_IMPLEMENTATION_ADDRESS:-}
       PROTOCOL_TOKEN_FACTORY_ADDRESS: ${PROTOCOL_TOKEN_FACTORY_ADDRESS:-}
       PROTOCOL_AMM_FACTORY_ADDRESS: ${PROTOCOL_AMM_FACTORY_ADDRESS:-}
+      # No default bps. Blank stays unset; the swap path refuses
+      # protocol.swap_slippage_unset. Never invent 50 (or any other tolerance).
+      PROTOCOL_SWAP_SLIPPAGE_BPS: ${PROTOCOL_SWAP_SLIPPAGE_BPS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4012']
     extra_hosts:
@@ -1941,6 +1995,12 @@ services:
       ANALYTICS_REPLICA_IDENTITY_URL:
       ANALYTICS_REPLICA_CONFIGURED:
       ANALYTICS_REPLICA_LAG_SECONDS:
+      # HSTS stage, read per request (not baked into the image) and validated at boot (`config.hsts_invalid`): max-age seconds
+      # 0..63072000 and includeSubDomains true|false. Default is the gentle one day, host-only. Above one day needs
+      # production posture; includeSubDomains is refused on the registrable domain. There is no preload setting by design:
+      # docs/adr/2026-10-14-hsts-staged-ramp-no-preload.md.
+      HSTS_MAX_AGE_SECONDS: ${ADMIN_HSTS_MAX_AGE_SECONDS:-86400}
+      HSTS_INCLUDE_SUBDOMAINS: ${ADMIN_HSTS_INCLUDE_SUBDOMAINS:-false}
     ports: ['3100:3100']
     healthcheck: *healthcheck
 

@@ -3,6 +3,11 @@ import { GET as warehouseGet, POST as warehousePost } from './analytics/warehous
 import { GET as killSwitchGet, POST as killSwitchPost } from './kill-switch/route.js';
 import { GET as ledgerFreezeGet, POST as ledgerFreezePost } from './ledger-freeze/route.js';
 import { GET as operatorToolsGet, POST as operatorToolsPost } from './operator-tools/route.js';
+import { GET as bankOpsGet } from './bank-ops/route.js';
+import { GET as p2pOpsGet } from './p2p-ops/route.js';
+import { GET as academyOpsGet, POST as academyOpsPost } from './academy-ops/route.js';
+import { GET as moreOpsGet, POST as moreOpsPost } from './more-ops/route.js';
+import { GET as protocolOpsGet } from './protocol-ops/route.js';
 import { ADMIN_COOKIE, founderCookie, sealFounderSession, type FounderSession } from '../../lib/founder-session.js';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -22,6 +27,13 @@ const routes = [
   ['POST /api/ledger-freeze', ledgerFreezePost, 'POST'],
   ['GET /api/operator-tools', operatorToolsGet, 'GET'],
   ['POST /api/operator-tools', operatorToolsPost, 'POST'],
+  ['GET /api/bank-ops', bankOpsGet, 'GET'],
+  ['GET /api/p2p-ops', p2pOpsGet, 'GET'],
+  ['GET /api/academy-ops', academyOpsGet, 'GET'],
+  ['POST /api/academy-ops', academyOpsPost, 'POST'],
+  ['GET /api/more-ops', moreOpsGet, 'GET'],
+  ['POST /api/more-ops', moreOpsPost, 'POST'],
+  ['GET /api/protocol-ops', protocolOpsGet, 'GET'],
 ] as const;
 
 function configure() {

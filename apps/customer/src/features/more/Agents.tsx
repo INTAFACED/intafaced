@@ -10,6 +10,9 @@ import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, DataTable, Field, Panel, Tabs } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
 import { Campaigns } from './Campaigns';
+import { AgentsCatalogue } from './AgentsCatalogue';
+import { agentsCatalogueCopy } from './agents-catalogue-copy';
+import { SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
 const uuid = z.string().uuid();
 const routeSchema = z.object({
@@ -109,7 +112,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     { userId } = useSession(),
     preferences = usePreferences(),
     action = useAction('agents');
-  const [tab, setTab] = useState('Sessions'),
+  const [tab, setTab] = useState('Catalogue'),
     [agent, setAgent] = useState('navigator'),
     [activeRecord, setActive] = useState<z.infer<typeof sessionSchema> | null>(null),
     [task, setTask] = useState(''),
@@ -278,8 +281,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
   return (
     <div className="more-grid agents-room">
       <Tabs
-        items={['Sessions', 'Activity', 'Coach', 'Product boundaries', 'Campaigns']}
+        items={['Catalogue', 'Sessions', 'Activity', 'Coach', 'Product boundaries', 'Campaigns']}
         labels={{
+          Catalogue: agentsCatalogueCopy.t('tabCatalogue'),
           Sessions: copyText('agents.sessions'),
           Activity: copyText('agents.activity'),
           Coach: copyText('agents.coach'),
@@ -290,7 +294,17 @@ export function Agents({ paper = false }: { paper?: boolean }) {
         onChange={setTab}
         label={copyText('agents.agent.sections')}
       />
-      {tab === 'Sessions' ? (
+      {tab === 'Catalogue' ? (
+        <AgentsCatalogue
+          log={log.resource}
+          reload={log.reload}
+          onSession={(id) => {
+            setAgent(id);
+            setTab('Sessions');
+          }}
+          onCoach={() => setTab('Coach')}
+        />
+      ) : tab === 'Sessions' ? (
         <>
           <div className="agent-session-journey">
             <Panel title={sessionCopy.t('records')} role="region" aria-label={sessionCopy.t('records')}>
@@ -421,12 +435,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
           <div className="more-columns">
             <div>
               <Panel title={copyText('agents.agent.permissions')}>
-                <Select
-                  label={copyText('agents.product.agent')}
-                  value={agent}
-                  onChange={setAgent}
-                  options={['navigator', 'support', 'scanner', 'merchant', 'copy-intel']}
-                />
+                <Select label={copyText('agents.product.agent')} value={agent} onChange={setAgent} options={SESSION_AGENT_IDS} />
                 <Read resource={guard.resource} retry={guard.reload} empty={copyText('agents.this.agent.is.not.registered.in.the')}>
                   {(g) =>
                     g ? (
@@ -479,30 +488,33 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                               confirm: () => copyText('agents.open.agent.session'),
                               success: () => copyText('agents.agent.session.opened'),
                               content: () => (
-                                <Details
-                                  items={[
-                                    [copyText('agents.agent'), <span lang="zxx">{g.agentId}</span>],
-                                    [
-                                      copyText('agents.maximum.spend'),
-                                      copyText('agents.maximum.per.session', { amount: cap, asset: selectedRoute.assetId }),
-                                    ],
-                                    [
-                                      copyText('agents.input.rate'),
-                                      copyText('agents.million.tokens', {
-                                        amount: selectedRoute.inputPerMillion,
-                                        asset: selectedRoute.assetId,
-                                      }),
-                                    ],
-                                    [
-                                      copyText('agents.output.rate'),
-                                      copyText('agents.million.tokens', {
-                                        amount: selectedRoute.outputPerMillion,
-                                        asset: selectedRoute.assetId,
-                                      }),
-                                    ],
-                                    [copyText('agents.tool.authority'), g.tools.map((t) => `${t.name}: ${t.mode}`).join('\n')],
-                                  ]}
-                                />
+                                <>
+                                  <p role="note">{agentsCatalogueCopy.t('costOpenNotice')}</p>
+                                  <Details
+                                    items={[
+                                      [copyText('agents.agent'), <span lang="zxx">{g.agentId}</span>],
+                                      [
+                                        copyText('agents.maximum.spend'),
+                                        copyText('agents.maximum.per.session', { amount: cap, asset: selectedRoute.assetId }),
+                                      ],
+                                      [
+                                        copyText('agents.input.rate'),
+                                        copyText('agents.million.tokens', {
+                                          amount: selectedRoute.inputPerMillion,
+                                          asset: selectedRoute.assetId,
+                                        }),
+                                      ],
+                                      [
+                                        copyText('agents.output.rate'),
+                                        copyText('agents.million.tokens', {
+                                          amount: selectedRoute.outputPerMillion,
+                                          asset: selectedRoute.assetId,
+                                        }),
+                                      ],
+                                      [copyText('agents.tool.authority'), g.tools.map((t) => `${t.name}: ${t.mode}`).join('\n')],
+                                    ]}
+                                  />
+                                </>
                               ),
                               run: async (canDispatch) => {
                                 if (!contextMatches(expected)) return changed();
@@ -614,19 +626,28 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         confirm: () => copyText('agents.run.engine.request'),
                         success: () => copyText('agents.engine.response.received'),
                         content: () => (
-                          <Details
-                            items={[
-                              [copyText('agents.task'), <span lang="zxx">{selectedRoute.task}</span>],
-                              [copyText('agents.request'), <span lang="und">{ask}</span>],
-                              [
-                                copyText('agents.spend.ceiling'),
-                                cap == null
-                                  ? copyText('agents.a.spend.cap.or.its.fee.asset')
-                                  : copyText('agents.for.the.entire.session', { amount: cap, asset: selectedRoute.assetId }),
-                              ],
-                              [copyText('agents.output.cap'), Math.min(defs.limits.maxOutputTokensPerCall, selectedRoute.maxOutputTokens)],
-                            ]}
-                          />
+                          <>
+                            <p role="note">
+                              <strong>{agentsCatalogueCopy.t('costTitle')}.</strong> {agentsCatalogueCopy.t('costNotice')}{' '}
+                              {agentsCatalogueCopy.t('sandboxNotice')}
+                            </p>
+                            <Details
+                              items={[
+                                [copyText('agents.task'), <span lang="zxx">{selectedRoute.task}</span>],
+                                [copyText('agents.request'), <span lang="und">{ask}</span>],
+                                [
+                                  copyText('agents.spend.ceiling'),
+                                  cap == null
+                                    ? copyText('agents.a.spend.cap.or.its.fee.asset')
+                                    : copyText('agents.for.the.entire.session', { amount: cap, asset: selectedRoute.assetId }),
+                                ],
+                                [
+                                  copyText('agents.output.cap'),
+                                  Math.min(defs.limits.maxOutputTokensPerCall, selectedRoute.maxOutputTokens),
+                                ],
+                              ]}
+                            />
+                          </>
                         ),
                         reference: requestId,
                         run: async (canDispatch) => {

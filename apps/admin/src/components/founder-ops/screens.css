@@ -53,3 +53,48 @@
   padding: 6px 10px;
   color: var(--if-text-muted);
 }
+.mp-idcell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.mp-wrap {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.mp-notes {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.mp-note {
+  border: 1px solid var(--if-border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: grid;
+  gap: 8px;
+  background: var(--if-surface);
+}
+.mp-note > .mp-btn {
+  justify-self: start;
+}
+.mp-note[data-retracted='true'] {
+  opacity: 0.7;
+}
+.mp-note__meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--if-text-muted);
+}
+.mp-note__body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mp-table time,
+.mp-table .mp-right {
+  white-space: nowrap;
+}

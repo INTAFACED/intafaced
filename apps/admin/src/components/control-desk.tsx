@@ -98,6 +98,11 @@ export interface ControlDeskProps {
   readonly consequence: string;
   /** Label for the disabled button shown beside the reason when the control is off. */
   readonly blockedButtonLabel: string;
+  /**
+   * Why the REQUEST FORM cannot send yet (a target still to be typed), or null. Unlike `blockedReason` it leaves the workbench
+   * alone, so the other founder can still approve and run a request made elsewhere.
+   */
+  readonly formHold?: string | null;
   readonly onChanged: () => void;
   readonly children?: ReactNode;
 }
@@ -109,6 +114,7 @@ export function ControlDesk({
   action,
   consequence,
   blockedButtonLabel,
+  formHold = null,
   onChanged,
   children,
 }: ControlDeskProps) {
@@ -122,7 +128,7 @@ export function ControlDesk({
   const request = action ? action.build(reason.trim()) : null;
   const phrase = request ? confirmPhrase(request) : '';
   const gate: Gate = action
-    ? requestGate({ reason, needsReason: action.needsReason, confirm, phrase, blockedReason, busy })
+    ? requestGate({ reason, needsReason: action.needsReason, confirm, phrase, blockedReason: blockedReason ?? formHold, busy })
     : { ok: false, why: blockedReason ?? 'No request is possible right now.' };
 
   async function submit() {

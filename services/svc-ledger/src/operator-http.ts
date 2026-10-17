@@ -100,6 +100,11 @@ export interface FreezeSnapshot {
   readonly reason: string | null;
   readonly actor: string | null;
   readonly changedAt: string;
+  /**
+   * The row's `changedAtPrecise`. Freeze and unfreeze approvals are bound to
+   * this version. Absent only when the store did not return one — never guessed.
+   */
+  readonly version?: string;
 }
 
 /**
@@ -174,6 +179,15 @@ export function registerOperatorHttp(
         if (err instanceof LedgerError && err.code === 'ledger.freeze_attributed') {
           return reply.code(409).send({ message: err.message, code: err.code });
         }
+        // Another reconciliation holds the single-flight lock: nothing ran, nothing changed.
+        if (err instanceof LedgerError && err.code === 'ledger.reconcile_in_progress') {
+          return reply.code(409).send({ message: err.message, code: err.code });
+        }
+        // The proof could not reach a verdict (timeout, lost connection). The book is NOT frozen by
+        // this and NOT verified: not a 400 the operator would read as a bad request, not an `ok: false`.
+        if (err instanceof LedgerError && err.code === 'ledger.reconcile_incomplete') {
+          return reply.code(503).send({ message: err.message, code: err.code });
+        }
         const message = err instanceof Error ? err.message : 'operator request failed';
         // 400 rather than 500: everything reachable here is either a validation
         // failure or a constraint the database refused, and both are the
@@ -182,11 +196,18 @@ export function registerOperatorHttp(
       }
     };
 
-  const shape = (state: { frozen: boolean; reason: string | null; actor: string | null; changedAt: Date }): FreezeSnapshot => ({
+  const shape = (state: {
+    frozen: boolean;
+    reason: string | null;
+    actor: string | null;
+    changedAt: Date;
+    changedAtPrecise?: string;
+  }): FreezeSnapshot => ({
     frozen: state.frozen,
     reason: state.reason,
     actor: state.actor,
     changedAt: state.changedAt.toISOString(),
+    ...(typeof state.changedAtPrecise === 'string' && state.changedAtPrecise.length > 0 ? { version: state.changedAtPrecise } : {}),
   });
 
   /**
@@ -218,9 +239,9 @@ export function registerOperatorHttp(
   );
 
   /**
-   * A thaw carries only the actor. "Why it is frozen" is meaningless once it is
-   * not, and `writeFreeze` clears the reason for exactly that argument — so
-   * there is no reason field to require here.
+   * A thaw names two people. The confirming id comes from the consumed
+   * approval, not from a typed-in string. One actor string leaves the freeze
+   * where it is. There is no reason field: a successful thaw clears it.
    */
   app.post(
     '/operator/unfreeze',
@@ -230,7 +251,7 @@ export function registerOperatorHttp(
       const consumed = await consumeLedgerApproval(approvals, parsed, 'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {});
       const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
       app.log.warn({ actor: operator.userId, confirmOperatorId }, 'LEDGER THAW requested by operator — value movement resumes');
-      return { ...shape(await ledger.unfreeze(operator.userId)), confirmOperatorId };
+      return { ...shape(await ledger.unfreeze(operator.userId, confirmOperatorId)), confirmOperatorId };
     }),
   );
 

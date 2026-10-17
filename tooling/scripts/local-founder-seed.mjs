@@ -328,15 +328,21 @@ export function init({ root, env, now = new Date(), rand = randomBytes, force = 
   log(`The invites expire at ${invites.expiresAt} (${INVITE_TTL_HOURS} h). Next: start the stack, then run "enrol". See docs/RUNNING.md.`);
 }
 
-export async function enrol({ root, env, now = () => new Date(), fetchImpl = fetch, log = console.log }) {
-  const p = paths(root);
-  assertLocalOnly({ env, dotenvText: readDotenv(p.dotenv), needEdge: true });
-  if (!existsSync(p.env) || !existsSync(p.secrets))
-    throw new GuardError(`refusing: run "init" first (${ENV_FILE} / ${FOUNDER_VAULT_PATH} missing).`);
-  const edge = (env.INTAFACED_LOCAL_EDGE_URL ?? DEFAULT_EDGE_URL).replace(/\/$/, '');
-  const secrets = JSON.parse(readFileSync(p.secrets, 'utf8'));
-  const save = () => writePrivate(p.secrets, `${JSON.stringify(secrets, null, 2)}\n`, { overwrite: true });
-
+/**
+ * Register each founder through `auth.registerFounder` and enrol TOTP.
+ * Mutates `founders` in place and calls `save` after every secret is learned.
+ * Callers pass an edge they have already guarded. This function does not choose
+ * a vault path and does not write the Docker env file.
+ */
+export async function enrolFounderAccounts({
+  edge,
+  founders,
+  save,
+  now = () => new Date(),
+  fetchImpl = fetch,
+  log = console.log,
+  vaultLabel = FOUNDER_VAULT_PATH,
+}) {
   const startEnrolment = async (f, accessToken) => {
     const started = await call(edge, 'totp.enrol', {}, accessToken, fetchImpl);
     // Persist BEFORE confirming: a crash between the two must not lose the only copy of the secret.
@@ -348,7 +354,7 @@ export async function enrol({ root, env, now = () => new Date(), fetchImpl = fet
   const confirm = (f, accessToken) =>
     call(edge, 'totp.confirm', { secret: f.totpSecret, code: totpNow(f.totpSecret, now()) }, accessToken, fetchImpl);
 
-  for (const f of secrets.founders) {
+  for (const f of founders) {
     if (f.userId && f.totpConfirmed === true) continue; // fully enrolled on an earlier run
     let session;
     if (f.userId) {
@@ -361,10 +367,13 @@ export async function enrol({ root, env, now = () => new Date(), fetchImpl = fet
         session = await call(edge, 'auth.login', { identifier: f.handle, password: f.password }, null, fetchImpl);
       } catch (err) {
         if (!(err instanceof TrpcError) || err.intafacedCode !== 'auth.mfa_required') throw err;
-        if (!f.totpSecret)
-          throw new Error(
-            `${f.key} already has an authenticator on the server but its secret is not in ${FOUNDER_VAULT_PATH}; wipe the database (pnpm platform:reset) and run init --force --force-new-db`,
-          );
+        if (!f.totpSecret) {
+          const recovery =
+            vaultLabel === FOUNDER_VAULT_PATH
+              ? 'wipe the database (pnpm platform:reset) and run init --force --force-new-db'
+              : 'recreate the local test stack database before enrolling this pair again';
+          throw new Error(`${f.key} already has an authenticator on the server but its secret is not in ${vaultLabel}; ${recovery}`);
+        }
         f.totpConfirmed = true;
         save();
         log(`${f.key}: authenticator (TOTP) was already enrolled`);
@@ -396,6 +405,17 @@ export async function enrol({ root, env, now = () => new Date(), fetchImpl = fet
     save();
     log(`${f.key}: authenticator (TOTP) enrolled`);
   }
+}
+
+export async function enrol({ root, env, now = () => new Date(), fetchImpl = fetch, log = console.log }) {
+  const p = paths(root);
+  assertLocalOnly({ env, dotenvText: readDotenv(p.dotenv), needEdge: true });
+  if (!existsSync(p.env) || !existsSync(p.secrets))
+    throw new GuardError(`refusing: run "init" first (${ENV_FILE} / ${FOUNDER_VAULT_PATH} missing).`);
+  const edge = (env.INTAFACED_LOCAL_EDGE_URL ?? DEFAULT_EDGE_URL).replace(/\/$/, '');
+  const secrets = JSON.parse(readFileSync(p.secrets, 'utf8'));
+  const save = () => writePrivate(p.secrets, `${JSON.stringify(secrets, null, 2)}\n`, { overwrite: true });
+  await enrolFounderAccounts({ edge, founders: secrets.founders, save, now, fetchImpl, log });
 
   const pair = Object.fromEntries(FOUNDERS.map((f) => [f.idVar, secrets.founders.find((s) => s.key === f.key).userId]));
   writePrivate(p.env, upsertEnv(readFileSync(p.env, 'utf8'), pair), { overwrite: true });

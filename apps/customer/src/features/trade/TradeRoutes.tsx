@@ -8,6 +8,8 @@ import { hiddenFeatureFor } from '../../app/feature-registry';
 import { useResource } from '../../shared/resource';
 import { createTradeApi } from './trade-api';
 import { TradingTools } from './TradingTools';
+import { BotsRoom } from '../../screens/trade/copybots/BotsRoom';
+import { CopyRoom } from '../../screens/trade/copybots/CopyRoom';
 import './trade.css';
 
 const modes = ['Spot', 'Margin', 'Futures', 'Options', 'Copy', 'Bots', 'Execution', 'Quote desk'];
@@ -61,6 +63,9 @@ export function TradeRoutes({ path }: { path: string }) {
     if (activeMode === 'Spot') navigate('/trade', true);
   }, [activeMode]);
   if (activeMode === 'Spot') return null;
+  // Copy and Bots are complete rooms of their own (screens/trade/copybots); they bring their own mode row.
+  if (activeMode === 'Copy') return <CopyRoom path={path} />;
+  if (activeMode === 'Bots') return <BotsRoom path={path} />;
   return (
     <div
       className="trade-root"

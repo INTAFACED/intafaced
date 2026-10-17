@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import type {
   CreateTicketInput,
@@ -13,9 +14,11 @@ import type {
   SupportTicketStatus,
 } from '@intafaced/contracts';
 import { DarkAccountState, type AccountStateSource } from './account-state.js';
+import { MemoryStaffBook, type StaffBook, type StaffMember, type StaffRole } from './desk-staff.js';
 import { IDENTITY_GROUNDING_UNWIRED, IdentityGroundingUnwiredError } from './identity-grounding-honesty.js';
 import { buildCaseFile, citeAccountState, citeComment, citeKbArticle, groundingFor } from './case-file.js';
-import { assertKbArticle, getKb, KbCatalogError, searchKb, toPublicKb } from './kb-catalog.js';
+import { UNCONFIGURED_ATTACHMENTS, decodeAttachmentBody, missingAttachmentKey, type AttachmentDesk } from './attachments.js';
+import { assertKbArticle, assertKbTopic, getKb, KbCatalogError, relatedPublished, searchKb, toPublicKb } from './kb-catalog.js';
 import { isTerminal } from './lifecycle.js';
 import {
   OperatorQueueLimitUnsetError,
@@ -27,13 +30,14 @@ import {
   type QueueResult,
 } from './operator-queue.js';
 import { SUPPORT_SETTLE_REFUSE, checkSupportSettlement, type SupportForbiddenSettlementAct } from './settlement-refuse.js';
-import { MemorySupportStore, type SupportStore } from './store.js';
+import { MemorySupportStore, type AttachmentMeta, type KbFeedbackVote, type SupportStore, type TicketRating } from './store.js';
 import { withSupportSpan } from './tracing.js';
 
 export class SupportError extends Error {
   constructor(
     message: string,
     readonly code: string,
+    readonly missingKey?: string,
   ) {
     super(message);
     this.name = 'SupportError';
@@ -169,7 +173,30 @@ export class SupportService implements SupportContract {
      * without svc-identity reports "not read" rather than nothing at all.
      */
     private readonly accounts: AccountStateSource = new DarkAccountState(),
+    /** Production leaves this blank. Attach then refuses with the missing key. */
+    private readonly attachments: AttachmentDesk = UNCONFIGURED_ATTACHMENTS,
+    private readonly staff: StaffBook = new MemoryStaffBook(),
   ) {}
+
+  private async withIdempotency<T>(key: string, fingerprint: string, run: () => Promise<T>): Promise<T> {
+    let phase: 'new' | 'replay';
+    try {
+      phase = await this.staff.begin(key, fingerprint);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'support.idempotency_conflict') {
+        throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+      }
+      throw err;
+    }
+    if (phase === 'replay') {
+      const prior = await this.staff.read<T>(key);
+      if (!prior) throw new SupportError('that command is still in progress', 'support.idempotency_conflict');
+      return prior;
+    }
+    const value = await run();
+    await this.staff.save(key, value);
+    return value;
+  }
 
   async createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket> {
     return withSupportSpan('support.createTicket', { op: 'createTicket' }, async (span) => {
@@ -509,9 +536,18 @@ export class SupportService implements SupportContract {
    * Operator publish. Bumps revision. Stale baseRevision refuses.
    * `baseRevision` 0 creates a new published row at revision 1.
    */
-  async publishKb(input: { id: string; titleKey: string; bodyKey: string; baseRevision: number }): Promise<SupportKbArticle> {
+  async publishKb(input: {
+    id: string;
+    titleKey: string;
+    bodyKey: string;
+    baseRevision: number;
+    category?: string | null;
+    tags?: readonly string[] | null;
+  }): Promise<SupportKbArticle> {
+    let topic: { category: string | null; tags: string[] | null };
     try {
       assertKbArticle({ id: input.id, titleKey: input.titleKey, bodyKey: input.bodyKey });
+      topic = assertKbTopic({ category: input.category, tags: input.tags });
     } catch (err) {
       if (err instanceof KbCatalogError) throw new SupportError(err.message, err.code);
       throw err;
@@ -522,6 +558,8 @@ export class SupportService implements SupportContract {
       bodyKey: input.bodyKey,
       baseRevision: input.baseRevision,
       published: true,
+      category: topic.category,
+      tags: topic.tags,
     });
     if (result.status === 'refuse') {
       if (result.reason === 'revision_stale') {
@@ -582,6 +620,225 @@ export class SupportService implements SupportContract {
       span.setAttribute('intafaced.support.assignee_id', input.operatorId);
       return result.ticket;
     });
+  }
+
+  /** Whole-queue counts. Zero means the desk has that many rows, not a missing read. */
+  async queueMetrics(): Promise<{
+    asOf: string;
+    total: number;
+    open: number;
+    pending: number;
+    resolved: number;
+    closed: number;
+    unassigned: number;
+    claimed: number;
+  }> {
+    const tickets = await this.store.listAll();
+    const counts = { open: 0, pending: 0, resolved: 0, closed: 0, unassigned: 0, claimed: 0 };
+    for (const ticket of tickets) {
+      counts[ticket.status] += 1;
+      if ((ticket.status === 'open' || ticket.status === 'pending') && ticket.assigneeId === null) counts.unassigned += 1;
+      if ((ticket.status === 'open' || ticket.status === 'pending') && ticket.assigneeId !== null) counts.claimed += 1;
+    }
+    return { asOf: new Date().toISOString(), total: tickets.length, ...counts };
+  }
+
+  async listStaff(): Promise<StaffMember[]> {
+    return this.staff.list();
+  }
+
+  async appointStaff(input: { actorId: string; userId: string; role: StaffRole; idempotencyKey: string }): Promise<StaffMember> {
+    return this.withIdempotency(`appoint:${input.idempotencyKey}`, `${input.actorId}:${input.userId}:${input.role}`, async () => {
+      const existing = await this.staff.list();
+      const actor = await this.staff.get(input.actorId);
+      if (existing.length === 0) {
+        if (input.role !== 'lead') throw new SupportError('the first staff appointment must be a lead', 'support.staff_bootstrap');
+      } else if (actor?.role !== 'lead') {
+        throw new SupportError('only a lead can appoint staff', 'support.not_lead');
+      }
+      return this.staff.appoint({ userId: input.userId, role: input.role, by: input.actorId, at: new Date().toISOString() });
+    });
+  }
+
+  async unclaim(input: { operatorId: string; ticketId: string; idempotencyKey: string }): Promise<SupportTicket> {
+    return this.withIdempotency(`unclaim:${input.idempotencyKey}`, `${input.operatorId}:${input.ticketId}`, async () => {
+      const result = await this.store.releaseTicket({ ticketId: input.ticketId, operatorId: input.operatorId });
+      if (result.status === 'refuse') throw new SupportError(`unclaim refused: ${result.reason}`, `support.release.${result.reason}`);
+      return result.ticket;
+    });
+  }
+
+  /**
+   * Owner close. The lifecycle table decides whether `closed` is legal from
+   * the current status. A replay returns the first ticket and writes no
+   * second audit row.
+   */
+  async close(input: { userId: string; ticketId: string; clientRequestId: string }): Promise<SupportTicket> {
+    return withSupportSpan('support.close', { op: 'close', ticketId: input.ticketId }, async () => {
+      this.requireClientRequestId(input.clientRequestId);
+      const result = await this.store.closeByOwner(input);
+      if (result.status === 'refuse') {
+        if (result.reason === 'not_found') throw ticketNotFound();
+        if (result.reason === 'settle') throw new SupportError('support cannot settle', SUPPORT_SETTLE_REFUSE);
+        throw new SupportError(
+          `status change refused: ${result.reason}`,
+          `support.transition_${result.reason === 'same_status' ? 'same_status' : 'illegal'}`,
+        );
+      }
+      return result.ticket;
+    });
+  }
+
+  /** Assign or reassign. Only a lead, and only onto someone already on the staff list. */
+  async assignTo(input: { operatorId: string; assigneeId: string; ticketId: string; idempotencyKey: string }): Promise<SupportTicket> {
+    return this.withIdempotency(`assign:${input.idempotencyKey}`, `${input.operatorId}:${input.assigneeId}:${input.ticketId}`, async () => {
+      const actor = await this.staff.get(input.operatorId);
+      if (actor?.role !== 'lead') throw new SupportError('only a lead can assign a ticket', 'support.not_lead');
+      const target = await this.staff.get(input.assigneeId);
+      if (!target) throw new SupportError('assignee is not desk staff', 'support.not_staff');
+      const result = await this.store.assignTicket({
+        ticketId: input.ticketId,
+        operatorId: input.operatorId,
+        assigneeId: input.assigneeId,
+      });
+      if (result.status === 'refuse') throw new SupportError(`assign refused: ${result.reason}`, `support.assign.${result.reason}`);
+      return result.ticket;
+    });
+  }
+
+  /** Owner rating. Once per ticket. Replay of the same key returns the first rating. */
+  async rate(input: {
+    userId: string;
+    ticketId: string;
+    score: number;
+    note?: string | null;
+    clientRequestId: string;
+  }): Promise<TicketRating> {
+    return withSupportSpan('support.rate', { op: 'rate', ticketId: input.ticketId }, async () => {
+      this.requireClientRequestId(input.clientRequestId);
+      const result = await this.store.rateByOwner(input);
+      if (result.status === 'refuse') {
+        if (result.reason === 'not_found') throw ticketNotFound();
+        if (result.reason === 'already_rated') throw new SupportError('ticket already rated', 'support.already_rated');
+        if (result.reason === 'score') throw new SupportError('rating score out of range', 'support.rate_score_out_of_range');
+        if (result.reason === 'note') throw new SupportError('rating note too long', 'support.rate_note_too_long');
+        throw new SupportError('rating refused for this status', 'support.rate_status_refused');
+      }
+      return result.rating;
+    });
+  }
+
+  /** Owner reads their rating. Operators with support:ops read any ticket. */
+  async rating(input: { userId: string; ticketId: string; asOperator?: boolean }): Promise<TicketRating | null> {
+    return withSupportSpan('support.rating', { op: 'rating', ticketId: input.ticketId }, async () => {
+      const result = await this.store.readRating({
+        userId: input.userId,
+        ticketId: input.ticketId,
+        asOperator: input.asOperator === true,
+      });
+      if (result.status === 'refuse') throw ticketNotFound();
+      return result.rating;
+    });
+  }
+
+  /**
+   * Owner attach. With no store, scanner, or size and type limits, refuses
+   * `support.attachments_unconfigured` and stores nothing. A file is written
+   * only after the scanner returns clean.
+   */
+  async attach(input: {
+    userId: string;
+    ticketId: string;
+    clientRequestId: string;
+    contentType: string;
+    bodyBase64: string;
+  }): Promise<AttachmentMeta> {
+    return withSupportSpan('support.attach', { op: 'attach', ticketId: input.ticketId }, async () => {
+      this.requireClientRequestId(input.clientRequestId);
+      const missing = missingAttachmentKey(this.attachments);
+      if (missing) {
+        throw new SupportError('attachments are not configured', 'support.attachments_unconfigured', missing);
+      }
+      const replay = await this.store.readReceipt('support.attach', input.userId, input.clientRequestId);
+      if (replay && typeof replay === 'object' && replay !== null && 'attachment' in replay) {
+        return (replay as { attachment: AttachmentMeta }).attachment;
+      }
+
+      const bytes = decodeAttachmentBody(input.bodyBase64);
+      if (!bytes) throw new SupportError('attachment body is not base64', 'support.attachment_body_invalid');
+      const maxBytes = this.attachments.maxBytes!;
+      if (bytes.byteLength > maxBytes) {
+        throw new SupportError('attachment exceeds the configured size', 'support.attachment_too_large');
+      }
+      const allowed = this.attachments.allowedTypes!;
+      if (!allowed.includes(input.contentType)) {
+        throw new SupportError('attachment type is not in the configured list', 'support.attachment_type_refused');
+      }
+      const verdict = await this.attachments.scanner!.scan(bytes);
+      if (verdict !== 'clean') {
+        throw new SupportError('attachment did not pass the scanner', 'support.attachment_scan_refused');
+      }
+
+      const id = randomUUID();
+      const storeKey = `${input.ticketId}/${id}`;
+      const recorded = await this.store.recordAttachment({
+        id,
+        userId: input.userId,
+        ticketId: input.ticketId,
+        clientRequestId: input.clientRequestId,
+        storeKey,
+        contentType: input.contentType,
+        byteLength: bytes.byteLength,
+      });
+      if (recorded.status === 'refuse') throw ticketNotFound();
+      if (!recorded.replay) {
+        await this.attachments.store!.put({ key: storeKey, bytes, contentType: input.contentType });
+      }
+      return recorded.attachment;
+    });
+  }
+
+  /** Owner reads their attachment metadata. An operator reads one only on a ticket they are assigned. */
+  async attachment(input: { userId: string; attachmentId: string; asOperator?: boolean }): Promise<AttachmentMeta> {
+    return withSupportSpan('support.attachment', { op: 'attachment' }, async () => {
+      const result = await this.store.readAttachment({
+        userId: input.userId,
+        attachmentId: input.attachmentId,
+        asOperator: input.asOperator === true,
+      });
+      if (result.status === 'refuse') throw ticketNotFound();
+      return result.attachment;
+    });
+  }
+
+  /** One vote per account per published version. A repeat returns the first vote and updates nothing. */
+  async kbFeedback(input: { userId: string; id: string; helpful: boolean; clientRequestId: string }): Promise<KbFeedbackVote> {
+    return withSupportSpan('support.kbFeedback', { op: 'kbFeedback' }, async () => {
+      this.requireClientRequestId(input.clientRequestId);
+      const result = await this.store.recordKbFeedback({
+        userId: input.userId,
+        articleId: input.id,
+        helpful: input.helpful,
+        clientRequestId: input.clientRequestId,
+      });
+      if (result.status === 'refuse') throw new SupportError('article is not published', 'support.kb.not_published');
+      return result.vote;
+    });
+  }
+
+  /** Published articles sharing a category or tag. Never the article itself. */
+  async kbRelated(input: { id: string }): Promise<SupportKbArticle[]> {
+    return withSupportSpan('support.kbRelated', { op: 'kbRelated' }, async () => {
+      const catalog = await this.store.listPublishedKb();
+      return relatedPublished(input.id, catalog);
+    });
+  }
+
+  private requireClientRequestId(clientRequestId: string): void {
+    const key = clientRequestId?.trim() ?? '';
+    if (!key || key.length > 200) {
+      throw new SupportError('client request id is required', 'support.client_request_id_required');
+    }
   }
 }
 

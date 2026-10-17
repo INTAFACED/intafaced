@@ -310,8 +310,11 @@ export function holdFor(market: Market, side: OrderSide, price: Amount, qty: Amo
  * what was held — the funding invariant survives even if the book moves between
  * this read and the submission, because a book that moved up simply fills less.
  *
- * A market SELL needs none of this: it holds base quantity, which is known
- * exactly whatever the price does.
+ * A market SELL holds base quantity, which is known exactly, but it still
+ * needs a price floor. `sellProtectionPriceFor` is that floor: best bid minus
+ * the same owner cap, rounded up onto the tick so the engine cannot print
+ * worse than the cap. No cap, or no bid, is a typed refusal — never an
+ * unbounded market sell.
  */
 /**
  * Owner market-buy hold cap. Blank / unset / non-integer / out of 1–5000
@@ -336,4 +339,31 @@ export function protectionPriceFor(market: Market, bestAsk: Amount | null, slipp
   const capped = bestAsk + mulBps(bestAsk, cap, 'ceil');
   const remainder = capped % market.tickSize;
   return remainder === 0n ? capped : capped + (market.tickSize - remainder);
+}
+
+/**
+ * The price a market SELL (and a flatten that would sell) may not print below.
+ *
+ * The owner cap is the same `TRADE_MARKET_SLIPPAGE_CAP_BPS` a market buy is
+ * funded with. Unpublished is `trade.protection_unset`, not a null protection
+ * price and not an orderable preview. No bid is `trade.no_reference_price`.
+ * The deduction is floored and the result is rounded UP to the tick, so the
+ * floor is never worse than bid minus the cap.
+ */
+export function sellProtectionPriceFor(market: Market, bestBid: Amount | null, slippageCapBps: number | null | undefined): Amount {
+  if (slippageCapBps == null || !Number.isInteger(slippageCapBps) || slippageCapBps < 1 || slippageCapBps > 5000) {
+    throw new TradeError(
+      'market sell has no owner protection floor (TRADE_MARKET_SLIPPAGE_CAP_BPS unset) — refuse rather than send an unbounded sell',
+      'trade.protection_unset',
+    );
+  }
+  if (bestBid === null || bestBid <= 0n) {
+    throw new TradeError(`${market.symbol} has no bid to floor a market sell against — place a limit order`, 'trade.no_reference_price');
+  }
+  const slipped = bestBid - mulBps(bestBid, slippageCapBps, 'floor');
+  if (slipped <= 0n) {
+    throw new TradeError(`${market.symbol} market-sell floor would be non-positive — place a limit order`, 'trade.protection_unset');
+  }
+  const remainder = slipped % market.tickSize;
+  return remainder === 0n ? slipped : slipped + (market.tickSize - remainder);
 }

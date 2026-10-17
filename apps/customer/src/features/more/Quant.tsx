@@ -1,14 +1,15 @@
 import { QuantMemoryNotice } from './QuantMemoryNotice';
 import { t as copyText, Text } from './copy';
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useApi } from '../session/session';
+import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea, useAction } from './common';
 import { preservePaperHref } from './trade-context';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
+import { refusalCopy } from '../../data/refusals';
 import {
   historicalResultSchema,
   matchesHistoricalRequest,
@@ -17,8 +18,13 @@ import {
   type HistoricalSnapshot,
 } from './quant-analysis';
 import { QuantHistoricalRecord } from './QuantHistoricalRecord';
+import { QuantLibrary } from './QuantLibrary';
+import { QuantLibraryClosed, QuantSaveOff } from './QuantSaveOff';
+import { emptyDraft, readDraft, readsSharedLibrary, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
 import './quant-analysis.css';
+/** A service sometimes answers with its own refusal code; customers read the plain sentence for it instead. */
+const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
 const stamp = z.object({
   environment: z.enum(['paper', 'backtest', 'shadow']),
   kind: z.enum(['paper', 'simulated']),
@@ -51,15 +57,17 @@ const runSchema = stamp.extend({
 });
 export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'backtest'; paper?: boolean }) {
   const api = useApi(),
+    { userId } = useSession(),
     action = useAction(`quant-${mode}`);
+  const [draftStart] = useState(() => (mode === 'studio' ? (readDraft(userId ?? null) ?? emptyDraft()) : emptyDraft()));
   const [language, setLanguage] = useState('javascript'),
     [source, setSource] = useState(''),
-    [cash, setCash] = useState(''),
-    [name, setName] = useState(''),
-    [blocks, setBlocks] = useState<{ side: 'buy' | 'sell'; symbol: string; qty: string }[]>([{ side: 'buy', symbol: '', qty: '' }]),
-    [drawdown, setDrawdown] = useState(''),
-    [notional, setNotional] = useState(''),
-    [kill, setKill] = useState(''),
+    [cash, setCash] = useState(draftStart.cash),
+    [name, setName] = useState(draftStart.name),
+    [blocks, setBlocks] = useState<{ side: 'buy' | 'sell'; symbol: string; qty: string }[]>(draftStart.blocks),
+    [drawdown, setDrawdown] = useState(draftStart.drawdown),
+    [notional, setNotional] = useState(draftStart.notional),
+    [kill, setKill] = useState(draftStart.kill),
     [limit, setLimit] = useState(50),
     [result, setResult] = useState<z.infer<typeof runSchema> | null>(null),
     [bt, setBt] = useState<HistoricalSnapshot | null>(null),
@@ -115,14 +123,15 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
   );
   const saved = useResource(
     (signal) =>
-      mode === 'studio' || mode === 'backtest'
+      readsSharedLibrary(mode)
         ? api.query('quant', 'studio.list', { limit }, z.object({ strategies: z.array(strategy) }), { signal })
         : Promise.resolve({ ok: true as const, data: { strategies: [] } }),
     `quant-saved:${mode}:${limit}`,
   );
   const validCash = signedDecimalSchema.safeParse(cash).success;
-  const validRisk = [drawdown, notional, kill].every((v) => signedDecimalSchema.safeParse(v).success);
-  const validBlocks = blocks.every((b) => Boolean(b.symbol.trim()) && decimalSchema.safeParse(b.qty).success && parseAmount(b.qty) > 0n);
+  useEffect(() => {
+    if (mode === 'studio') writeDraft(userId ?? null, { name, cash, blocks, drawdown, notional, kill });
+  }, [mode, userId, name, cash, blocks, drawdown, notional, kill]);
   return (
     <div className="more-grid">
       <div className="more-toolbar">
@@ -149,10 +158,9 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
             <Read resource={capabilities.resource} retry={capabilities.reload}>
               {(c) => (
                 <p className="muted">
-                  <Text k="quant.isolate" />
-                  <span lang="zxx">{c.isolate}</span>
-                  <Text k="quant.trade.only.vault" />
-                  <span lang="zxx">{c.venueVault}</span>.{c.refuse && <span lang="zxx"> {c.refuse}.</span>}
+                  <Text k={c.isolate === 'wired' ? 'quant.isolate' : 'quant.runner.off'} />{' '}
+                  <Text k={c.venueVault === 'trade-only' ? 'quant.trade.only.vault' : 'quant.exchange.off'} />
+                  {c.refuse && <span lang="zxx"> {RAW_CODE.test(c.refuse) ? refusalCopy(c.refuse).body : c.refuse}</span>}
                 </p>
               )}
             </Read>
@@ -274,64 +282,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
       ) : mode === 'studio' ? (
         <div className="more-columns">
           <Panel title={copyText('quant.build.a.strategy')}>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                action.stage({
-                  title: () => copyText('quant.review.strategy'),
-                  confirm: () => copyText('quant.save.strategy'),
-                  success: () => copyText('quant.strategy.saved.in.the.deployment.catalogue'),
-                  content: () => (
-                    <Details
-                      items={[
-                        [copyText('quant.name'), <span lang="und">{name}</span>],
-                        [
-                          copyText('quant.blocks'),
-                          <span lang="zxx">{blocks.map((b) => `${b.side} ${b.qty} ${b.symbol}`).join('\n')}</span>,
-                        ],
-                        [copyText('quant.simulation.cash'), cash],
-                        [copyText('quant.max.drawdown'), drawdown],
-                        [copyText('quant.max.notional'), notional],
-                        [copyText('quant.kill.threshold'), kill],
-                      ]}
-                    />
-                  ),
-                  run: () =>
-                    api.mutate(
-                      'quant',
-                      'studio.save',
-                      {
-                        name: name.trim(),
-                        blocks,
-                        risk: { maxDrawdown: drawdown, maxNotional: notional, kill },
-                        cash,
-                        environment: 'paper',
-                        presentedAs: 'paper',
-                      },
-                      strategy.refine(
-                        (data) =>
-                          data.environment === 'paper' &&
-                          data.kind === 'paper' &&
-                          data.claimLabel === 'Paper — not live performance' &&
-                          data.name === name.trim() &&
-                          parseAmount(data.cash) === parseAmount(cash) &&
-                          data.blocks.length === blocks.length &&
-                          data.blocks.every(
-                            (block, index) =>
-                              block.side === blocks[index]!.side &&
-                              block.symbol === blocks[index]!.symbol.trim() &&
-                              parseAmount(block.qty) === parseAmount(blocks[index]!.qty),
-                          ) &&
-                          parseAmount(data.risk.maxDrawdown) === parseAmount(drawdown) &&
-                          parseAmount(data.risk.maxNotional) === parseAmount(notional) &&
-                          parseAmount(data.risk.kill) === parseAmount(kill),
-                        'The saved strategy does not match the reviewed simulation inputs',
-                      ),
-                    ),
-                  done: saved.reload,
-                });
-              }}
-            >
+            <form onSubmit={(e) => e.preventDefault()}>
               <Field label={copyText('quant.strategy.name')} value={name} onChange={(e) => setName(e.target.value)} maxLength={128} />
               <Field
                 label={copyText('quant.simulated.starting.cash')}
@@ -389,24 +340,10 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 value={kill}
                 onChange={(e) => setKill(e.target.value)}
               />
-              <Button type="submit" disabled={action.disabled || !name.trim() || !validCash || !validRisk || !validBlocks}>
-                <Text k="quant.review.strategy" />
-              </Button>
+              <QuantSaveOff />
             </form>
           </Panel>
-          <Saved
-            resource={saved}
-            limit={limit}
-            setLimit={setLimit}
-            onPick={(s) => {
-              setName(s.name);
-              setCash(s.cash);
-              setBlocks(s.blocks);
-              setDrawdown(s.risk.maxDrawdown);
-              setNotional(s.risk.maxNotional);
-              setKill(s.risk.kill);
-            }}
-          />
+          <QuantLibraryClosed />
         </div>
       ) : (
         <div lang={languageFor('draft')} dir={directionFor('draft')}>
@@ -470,7 +407,11 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                   <summary>
                     <Copy k="catalogue" />
                   </summary>
-                  <Saved resource={saved} limit={limit} setLimit={setLimit} onPick={(s) => setStrategyId(s.id)} />
+                  {readsSharedLibrary(mode) ? (
+                    <Saved resource={saved} limit={limit} setLimit={setLimit} onPick={(s) => setStrategyId(s.id)} />
+                  ) : (
+                    <QuantLibraryClosed />
+                  )}
                 </details>
                 <p className="muted">
                   <Copy k="utc" />
@@ -659,34 +600,17 @@ function Saved({
   onPick: (s: z.infer<typeof strategy>) => void;
 }) {
   return (
-    <Panel title={copyText('quant.deployment.strategy.catalogue')}>
-      <p className="muted">
-        <Text k="quant.this.service.stores.a.shared.in.process" />
-      </p>
-      <Read resource={resource.resource} retry={resource.reload} empty={copyText('quant.no.strategies.are.saved')}>
-        {(data) => (
-          <>
-            <div className="more-grid">
-              {data.strategies.map((s) => (
-                <article key={s.id}>
-                  <h3 lang="und">{s.name}</h3>
-                  <small>
-                    <span lang="und">{s.claimLabel}</span> · <span lang="zxx">{s.id}</span>
-                  </small>
-                  <pre className="more-body" lang="und">
-                    {s.source}
-                  </pre>
-                  <Button variant="secondary" onClick={() => onPick(s)}>
-                    <Text k="quant.use" />
-                    <span lang="und">{s.name}</span>
-                  </Button>
-                </article>
-              ))}
-            </div>
-            <Limit count={data.strategies.length} limit={limit} cap={50} onChange={setLimit} />
-          </>
-        )}
-      </Read>
-    </Panel>
+    <Read resource={resource.resource} retry={resource.reload} empty={copyText('quant.no.strategies.are.saved')}>
+      {(data) => (
+        <QuantLibrary
+          strategies={data.strategies}
+          onPick={(picked) => {
+            const full = data.strategies.find((row) => row.id === picked.id);
+            if (full) onPick(full);
+          }}
+          footer={<Limit count={data.strategies.length} limit={limit} cap={50} onChange={setLimit} />}
+        />
+      )}
+    </Read>
   );
 }

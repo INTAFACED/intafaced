@@ -2,10 +2,15 @@
  * INTAFACED customer-app design tokens (UI-SPEC §2). The only file in the
  * redesign that may contain a hex colour.
  *
- * Every value is PROVISIONAL until measured from okx.com CSS (UI-SPEC §2).
- * When the measuring run lands, edit the values here, run
- * `pnpm exec tsx src/theme/generate.ts` in packages/ui, and commit both files:
- * screens do not change because they only use token names.
+ * Provenance: values were measured from okx.com on 2026-10-13 (1440x900, Chromium, logged out) and live in
+ * MEASURED-TOKENS.md (intafaced-evidence/living-world-2026-10-13). The "MT" citations below are section and
+ * line numbers in that file. Where a value is NOT measured it says "derived" or "DESIGN.md" instead.
+ *
+ * Authority: DESIGN.md (named-look, v0.1) wins when it conflicts with a measured value. Black, lime and
+ * Inter agree in both. The conflicts that remain are listed in packages/ui docs (docs/ui-kit.md, "Known conflicts").
+ *
+ * To change a value: edit it here, run `pnpm exec tsx src/theme/generate.ts` in packages/ui, and commit both
+ * files. Screens do not change because they only use token names.
  *
  * `tokens.css` is generated from this file; `tokens.test.ts` fails if the two
  * drift. The older orange tokens in `../tokens.ts` (used by apps/admin) are a
@@ -14,19 +19,27 @@
 
 /** Colour tokens. Key = `--if-<key>` and the Tailwind colour name. */
 export const colors = {
+  /** MT §1 L20: page background; L21: desk panels paint black. */
   bg: '#000000',
+  /** MT §1 L24: card colour on markets and price pages (desk panels are `bg`, see L21). */
   panel: '#121212',
+  /** MT §1 L27: white at 13% on black. */
   field: '#212121',
+  /** MT §1 L26: table row hover and selected list row. */
   hover: '#1D1D1D',
+  /** MT §1 L29: raised converter row. */
   raised: '#2C2C2C',
   'pill-active': '#383838',
+  /** MT §1 L22: the 3 px gutters between desk panels. */
   line: '#2E2E2E',
   'line-strong': '#383838',
   /** Outlined cards. */
   'line-stronger': '#4D4D4D',
   /** Border of menus and popovers: white at 13%, OKX's own hairline. */
   'line-popup': 'rgba(255, 255, 255, 0.13)',
+  /** MT §3 L57. DESIGN.md says #F5F5F5; kept white (recorded conflict C1). */
   fg: '#FFFFFF',
+  /** MT §3 L60: table headers and labels. DESIGN.md says #A3A3A3 (recorded conflict C1). */
   'fg-2': '#909090',
   'fg-3': '#6C6C6C',
   /** Disabled text only. */
@@ -39,10 +52,12 @@ export const colors = {
   menu: '#343434',
   tooltip: '#4D4D4D',
   popover: '#171717',
+  /** MT §4 L72: trading up. */
   up: '#25A750',
   /** Gains as text on black. Same as `up` by default; split out so red-up mode can lighten it. */
   'up-text': '#25A750',
   'on-up': '#0B0B0B',
+  /** MT §4 L73: trading down. */
   down: '#CA3F64',
   'down-text': '#E0567A',
   /** Text on a `down` fill (sell button). */
@@ -54,14 +69,17 @@ export const colors = {
   'down-hover': '#B43255',
   /** 20% depth bars in the order book (M2). */
   'up-bg-soft': '#072110',
+  /** Error text and borders on black (kit addition, MT §4 declared status colours: danger #FF5D73, text #F57A8A). */
+  error: '#FF5D73',
+  'error-text': '#F57A8A',
   lime: '#C8F64A',
   'lime-hover': '#D4FA6E',
   'lime-press': '#B5E03A',
   'on-lime': '#0B0B0B',
   'lime-soft': 'rgba(200, 246, 74, 0.16)',
-  /** Warning surface (OKX measured). */
+  /** MT §4 L87: declared status warning surface. */
   warn: '#F5A915',
-  /** Warning text on black. */
+  /** Warning text on black (MT §4 L87). */
   'warn-text': '#FFC452',
   scrim: 'rgba(0, 0, 0, 0.68)',
   'ma-1': '#FFA726',
@@ -169,6 +187,28 @@ export const sizes = {
   'nav-menu-item-h': '56px',
   'container-max': '1224px',
   gutter: '24px',
+  /** Kit density, comfortable: 44 px control height. DESIGN.md "main controls are 44px targets"; OKX declares lg 44 too (MT §8 L159). */
+  'ctl-h': '44px',
+  /** Kit density, dense (pro desk): 32 px control height, OKX declared sm (MT §8 L159). */
+  'ctl-h-dense': '32px',
+  /** Table row, comfortable. DESIGN.md 44 px target; the measured 60 px markets row stays as `row-h` for two-line list rows (conflict C3). */
+  'table-row-h': '44px',
+  /** Table row, dense. Derived (OKX declared control sm 32), not measured. */
+  'table-row-h-dense': '32px',
+  /** Table header row, comfortable: MT §9 L172 (39 px). */
+  'table-head-h': '39px',
+  /** Table header row, dense: MT §9 L173 (28 px list column header). */
+  'table-head-h-dense': '28px',
+} as const;
+
+/**
+ * Names kept alive for older code by pointing at a current token (never a second value).
+ * `--if-base` is the legacy src/tokens.ts name for the page background; `--if-bg` is the one the kit reads.
+ * The legacy stylesheet (src/tokens.css) points the other way, so whichever file loads last, both names
+ * resolve to the same black and there is no reference cycle.
+ */
+export const aliases = {
+  base: 'var(--if-bg)',
 } as const;
 
 /** Control heights in px (UI-SPEC §2.4). */
@@ -178,6 +218,7 @@ export const controlHeights = [28, 32, 40, 48, 56] as const;
 export function cssVars(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(colors)) out[`--if-${k}`] = v;
+  for (const [k, v] of Object.entries(aliases)) out[`--if-${k}`] = v;
   out['--if-font-ui'] = fonts.ui;
   out['--if-font-mono'] = fonts.mono;
   for (const [k, t] of Object.entries(textStyles)) {
@@ -213,7 +254,7 @@ export function renderTokensCss(): string {
  * INTAFACED customer-app design tokens (UI-SPEC section 2).
  * GENERATED from src/theme/tokens.ts by src/theme/generate.ts.
  * Do not edit by hand: theme/tokens.test.ts fails if the two drift.
- * Values are PROVISIONAL until measured from okx.com CSS.
+ * Values are measured from okx.com (MEASURED-TOKENS.md) unless tokens.ts says otherwise.
  */
 
 :root {

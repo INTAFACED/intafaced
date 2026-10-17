@@ -62,6 +62,14 @@ async function network(context, options = {}) {
       state.allPosts.push(procedure);
       if (procedure !== 'auth.login' && procedure !== 'auth.refresh' && procedure !== 'auth.logout') state.posts.push(procedure);
     }
+    // Models the HttpOnly `ifc_rt` cookie: sign-in sets it, logout clears it, and a bare refresh without it is session_invalid.
+    if (procedure === 'auth.refresh' && !state.cookie)
+      return route.fulfill({
+        status: 401,
+        json: { error: { message: 'Session not found', data: { intafacedCode: 'auth.session_invalid' } } },
+      });
+    if (procedure === 'auth.login') state.cookie = true;
+    if (procedure === 'auth.logout') state.cookie = false;
     if (procedure === 'auth.login' || procedure === 'auth.refresh')
       return reply(route, {
         userId: state.owner,
@@ -514,7 +522,7 @@ test('public support and recovery links reach actual auth return without any Hel
   await page.goto(address('kb-account-access', 1));
   await expect(ready(page)).toBeVisible();
   await page.getByRole('link', { name: 'Account recovery →', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Password recovery is not connected', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Get back into your account', exact: true })).toBeVisible();
   await page.goBack();
   await page.getByRole('link', { name: 'View your support tickets →', exact: true }).click();
   await page.getByRole('link', { name: 'Sign in', exact: true }).click();

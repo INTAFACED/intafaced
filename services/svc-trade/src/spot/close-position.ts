@@ -6,6 +6,7 @@ import { mul } from '@intafaced/ledger-client/money';
 import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import { env } from '../env.js';
+import { classifyHoldPostError } from './hold-outcome.js';
 import { orderIdFor } from './ids.js';
 import { closePositionOnMatching, type MatchingCloseRequest } from './matching-close.js';
 import type { EngineSubmitResult, MatchingClient } from './matching-client.js';
@@ -45,6 +46,7 @@ type CloseHost = {
   readonly sql: Sql;
   readonly ledger: LedgerClient;
   readonly matching: MatchingClient;
+  readonly slippageCapBps: number | null;
   readonly spotEnabled: boolean;
   readonly futuresEnabled: boolean;
   readonly optionsSettlementAssetLaw: string;
@@ -67,9 +69,9 @@ export function sumBuyFillNotional(fills: readonly { readonly price: string; rea
 }
 
 /**
- * A definite ledger refusal deletes the intent row. A timeout or any other
- * unknown reply keeps the row and the hold for recovery. S02 owns the sweep.
- * #4832's classifyHoldPostError replaces this function once both are on main.
+ * Unit tests in close-position.flatten-hold and slice-futures-amounts still
+ * call this. The close catch does not: it uses classifyHoldPostError, and a
+ * close never writes hold_unknown.
  */
 const DEFINITE_HOLD_REFUSAL_CODES = new Set([
   'ledger.insufficient_funds',
@@ -122,6 +124,13 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
   const orderId = orderIdFor(userId, market.id, input.clientOrderId);
   const existing = await host.findOrder(orderId);
   if (existing) return existing;
+
+  if (host.slippageCapBps == null || !Number.isInteger(host.slippageCapBps) || host.slippageCapBps < 1 || host.slippageCapBps > 5000) {
+    throw new TradeError(
+      'flatten has no owner protection floor (TRADE_MARKET_SLIPPAGE_CAP_BPS unset) — refuse rather than send an unbounded close',
+      'trade.protection_unset',
+    );
+  }
 
   const lifecycleProof = await host.assertLifecycleAction(market, 'PLACE');
   const request: MatchingCloseRequest = {
@@ -177,16 +186,20 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
         withLedgerAttribution(recipes.orderHold({ orderId, userId, assetId: hold.assetId, amount: hold.amount }), attribution),
       );
     } catch (err) {
-      if (closeHoldFailureAction(err) === 'delete_intent') {
+      const outcome = classifyHoldPostError(err);
+      if (outcome === 'refused' || outcome === 'unsent') {
         await host.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
-      } else {
-        await host.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
+        throw err;
       }
+      await host.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
       throw err;
     }
   }
 
-  await host.sql`UPDATE trade.orders SET status = 'open', updated_at = now() WHERE id = ${orderId} AND status = 'pending'`;
+  await host.sql`
+    UPDATE trade.orders SET status = 'open', updated_at = now()
+     WHERE id = ${orderId} AND status = 'pending'
+  `;
 
   try {
     await host.applySubmitResult(market, orderId, result);

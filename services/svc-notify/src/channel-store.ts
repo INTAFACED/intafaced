@@ -263,7 +263,9 @@ export interface DeliveryStore {
    * Callers must gate with an admin scope; this store method has no auth.
    * Caps at `limit` so an ops console cannot pull the entire history by accident.
    */
-  listRecent(limit: number): Promise<DeliveryRecord[]>;
+  listRecent(limit: number, status?: DeliveryStatus): Promise<DeliveryRecord[]>;
+  /** Counts of every delivery row. Not a page. */
+  aggregate(): Promise<{ total: number; byStatus: Record<DeliveryStatus, number>; byChannel: Record<string, number> }>;
   /**
    * The caller's finished delivery rows, newest first.
    * Pending is omitted. Postgres joins `notifications` on `userId`.
@@ -473,10 +475,23 @@ export class MemoryDeliveryStore implements DeliveryStore {
     return [...this.byId.values()].filter((r) => r.notificationId === notificationId).sort((a, b) => a.channel.localeCompare(b.channel));
   }
 
-  async listRecent(limit: number): Promise<DeliveryRecord[]> {
+  async listRecent(limit: number, status?: DeliveryStatus): Promise<DeliveryRecord[]> {
     const cap = Math.max(0, Math.min(Math.floor(limit), 500));
     if (cap === 0) return [];
-    return [...this.byId.values()].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || a.id.localeCompare(b.id)).slice(0, cap);
+    return [...this.byId.values()]
+      .filter((row) => status === undefined || row.status === status)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || a.id.localeCompare(b.id))
+      .slice(0, cap);
+  }
+
+  async aggregate(): Promise<{ total: number; byStatus: Record<DeliveryStatus, number>; byChannel: Record<string, number> }> {
+    const byStatus: Record<DeliveryStatus, number> = { pending: 0, accepted: 0, refused: 0, failed: 0, abandoned: 0 };
+    const byChannel: Record<string, number> = {};
+    for (const row of this.byId.values()) {
+      byStatus[row.status] += 1;
+      byChannel[row.channel] = (byChannel[row.channel] ?? 0) + 1;
+    }
+    return { total: this.byId.size, byStatus, byChannel };
   }
 
   async listOwnedRecent(query: OwnedRecentQuery): Promise<DeliveryRecord[]> {
@@ -884,15 +899,35 @@ export class PostgresDeliveryStore implements DeliveryStore {
     return rows.map(fromDeliveryPg);
   }
 
-  async listRecent(limit: number): Promise<DeliveryRecord[]> {
+  async listRecent(limit: number, status?: DeliveryStatus): Promise<DeliveryRecord[]> {
     const cap = Math.max(0, Math.min(Math.floor(limit), 500));
     if (cap === 0) return [];
     const rows = await this.sql<DeliveryPgRow[]>`
       SELECT id, notification_id, channel, status, attempts, attempted_at, accepted_at, lease_until, refusal_code, detail, reference, created_at, updated_at FROM notify.deliveries
+       WHERE ${status === undefined ? this.sql`TRUE` : this.sql`status = ${status}`}
        ORDER BY updated_at DESC, id ASC
        LIMIT ${cap}
     `;
     return rows.map(fromDeliveryPg);
+  }
+
+  async aggregate(): Promise<{ total: number; byStatus: Record<DeliveryStatus, number>; byChannel: Record<string, number> }> {
+    const byStatus: Record<DeliveryStatus, number> = { pending: 0, accepted: 0, refused: 0, failed: 0, abandoned: 0 };
+    const statusRows = await this.sql<Array<{ status: DeliveryStatus; n: string }>>`
+      SELECT status, count(*)::text AS n FROM notify.deliveries GROUP BY status
+    `;
+    for (const row of statusRows) byStatus[row.status] = Number(row.n);
+    const channelRows = await this.sql<Array<{ channel: string; n: string }>>`
+      SELECT channel, count(*)::text AS n FROM notify.deliveries GROUP BY channel
+    `;
+    const byChannel: Record<string, number> = {};
+    let total = 0;
+    for (const row of channelRows) {
+      const n = Number(row.n);
+      byChannel[row.channel] = n;
+      total += n;
+    }
+    return { total, byStatus, byChannel };
   }
 
   async reapExhausted(maxAttempts: number, opts: ReapExhaustedOptions = {}): Promise<number> {

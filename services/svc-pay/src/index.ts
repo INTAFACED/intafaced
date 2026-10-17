@@ -247,6 +247,7 @@ const pay = new PayService(sql, ledger, rails, {
   checkoutSessionTtlSeconds: env.PAY_CHECKOUT_SESSION_TTL_SECONDS,
   linkDefaultTtlDays: env.PAY_LINK_DEFAULT_TTL_DAYS,
   linkMaxTtlDays: env.PAY_LINK_MAX_TTL_DAYS,
+  checkoutPublicBasePath: env.PAY_PUBLIC_BASE_PATH,
   maxOpenSessionsPerLink: env.PAY_CHECKOUT_MAX_OPEN_SESSIONS,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
@@ -434,6 +435,7 @@ export const appRouter = mergeRouters(
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
     disputes: disputeCases,
+    pay,
     evidence: {
       uploadEnabled: disputeEvidenceUploadEnabled(process.env),
       scanEnabled: disputeEvidenceScanEnabled(process.env),

@@ -34,6 +34,11 @@ export type RefusalKind =
   | 'priceInvalid'
   | 'belowMinimum'
   | 'selfTrade'
+  | 'orderTypeUnsupported'
+  | 'postOnlyWouldCross'
+  | 'fokUnfillable'
+  | 'tifInvalid'
+  | 'ordersPaused'
   | 'accountOnHold'
   | 'notFound'
   | 'duplicate'
@@ -90,6 +95,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.price_not_accepted': 'priceMoved',
   'trade.convert_quote_expired': 'quoteExpired',
   'trade.convert_insufficient_depth': 'insufficientDepth',
+  'trade.matching_market_missing': 'noBook',
   // A size the screen should never send (both or neither of qty and quoteQty): an internal mistake, not the customer's.
   'trade.convert_invalid_qty': 'quoteFailed',
 
@@ -110,6 +116,15 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.outside_collar': 'priceInvalid',
   'trade.missing_collar': 'priceInvalid',
   'trade.self_trade': 'selfTrade',
+  'trade.order_type_unsupported': 'orderTypeUnsupported',
+  'trade.post_only_would_cross': 'postOnlyWouldCross',
+  post_only_would_cross: 'postOnlyWouldCross',
+  'trade.fok_unfillable': 'fokUnfillable',
+  fok_unfillable: 'fokUnfillable',
+  'trade.invalid_tif': 'tifInvalid',
+  'trade.orders_paused': 'ordersPaused',
+  'trade.below_min_notional': 'belowMinimum',
+  'trade.below_min_qty': 'belowMinimum',
 
   'trade.market_not_found': 'notFound',
   'bank.space_not_found': 'notFound',

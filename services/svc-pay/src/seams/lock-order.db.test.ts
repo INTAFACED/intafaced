@@ -157,7 +157,10 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     const results = await Promise.allSettled(jobs);
     expect(results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason)).toEqual([]);
     expect(Number(await used())).toBe(50);
-  });
+    // Same budget as beforeEach: creating the second merchant and admitting both
+    // sides holds treasury locks until the test returns. A 5s abort leaves those
+    // transactions running and the next test deadlocks with them.
+  }, 30_000);
   /** One user-money withdrawal admission by the merchant's owner, every statement recorded in order. */
   async function withdraw(amount: string, seen: string[] = []): Promise<string[]> {
     const guards = buildPayGuards({ sql, ledger });
@@ -186,8 +189,12 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     return seen;
   }
 
-  it('an owner withdrawal takes the treasury lock and does not count a merchant payout cap', async () => {
-    const statements = await withdraw('10');
+  it('an owner withdrawal takes the treasury lock, then screening with no result refuses it before any cap count', async () => {
+    const statements: string[] = [];
+    await expect(withdraw('10', statements)).rejects.toMatchObject({
+      code: 'pay.guard_screening_unavailable',
+      kind: 'unavailable',
+    });
     expect(statements.some((s) => s.includes('pg_advisory_xact_lock'))).toBe(true);
     expect(statements.some((s) => s.includes('pay.control_cap_usage'))).toBe(false);
     expect(await used()).toBeUndefined();
@@ -219,7 +226,10 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
       );
     const jobs = Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? payout(i) : withdraw('10').then(() => undefined)));
     const results = await Promise.allSettled(jobs);
-    expect(results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason)).toEqual([]);
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    // The five withdrawals have no screening result, so they refuse. The five payout admissions still finish.
+    expect(rejected).toHaveLength(5);
+    for (const result of rejected) expect(result.reason).toMatchObject({ code: 'pay.guard_screening_unavailable' });
     // Five payout admissions of 10. The interleaved withdrawals are personal and do not count.
     expect(Number(await used())).toBe(50);
   });

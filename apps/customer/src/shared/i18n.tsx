@@ -151,6 +151,13 @@ export function customerCopyCoverage(locale: UiLocale) {
     return { namespace, total: keys.length, translated: keys.length - missing.length, missing };
   });
 }
+/** Every registered catalog with its written text per language. For tests that guard customer wording; the UI never calls it. */
+export function registeredCopy(): Array<{ namespace: string; messages: Record<string, Partial<Record<string, string>>> }> {
+  return [...registered].map(([namespace, catalogs]) => ({
+    namespace,
+    messages: catalogs as Record<string, Partial<Record<string, string>>>,
+  }));
+}
 export function renderedUiLanguage(locale: UiLocale): UiLocale {
   return locale === 'en' || customerCopyCoverage(locale).some((row) => row.translated > 0) ? locale : 'en';
 }

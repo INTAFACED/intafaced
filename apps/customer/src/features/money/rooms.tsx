@@ -29,7 +29,7 @@ import { bankReads, bankWrites, type poolSchema, type positionSchema } from './c
 import type { ApiResult } from '../../shared/api';
 import { earnCopy } from './earn-copy';
 import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote } from './LoanHealth';
-import { loanCopy } from './loan-copy';
+import { loanCopy, loanStatusLabel } from './loan-copy';
 import { MoneyActivity } from './activity';
 import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstruction } from './ScheduleHistory';
 import { standingCopy } from './standing-copy';
@@ -40,6 +40,7 @@ import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
+import { categoryLabel } from './analytics-copy';
 import { RecipientPicker } from './RecipientPicker';
 import { BusinessBank } from './BusinessBank';
 import { businessCopy } from './business-copy';
@@ -254,7 +255,12 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
                             <dt>
                               <Text k="rooms.space.reference" />
                             </dt>
-                            <dd>{space.id}</dd>
+                            <dd>
+                              <details>
+                                <summary>{spaceCopy.t('details')}</summary>
+                                <span lang="zxx">{space.id}</span>
+                              </details>
+                            </dd>
                           </div>
                         </dl>
                         <SpaceActions space={space} open={open} />
@@ -1104,7 +1110,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                           <Text k="rooms.loan" />
                         </h3>
                         <p>
-                          {loan.status}
+                          {loanStatusLabel(loan.status)}
                           {loan.marginCalledAt && copyText('rooms.margin.called', { value1: date(loan.marginCalledAt) })}
                         </p>
                       </div>
@@ -1150,7 +1156,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             fields: [positiveMoney(loan.debtAssetId)],
                             facts: [
                               [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
                               [loanCopy.t('debtAsset'), loan.debtAssetId],
                               [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                               [copyText('rooms.principal.at.last.read'), amount(loan.outstandingPrincipal, loan.debtAssetId)],
@@ -1174,7 +1180,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             fields: [positiveMoney(loan.collateralAssetId)],
                             facts: [
                               [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
                               [loanCopy.t('debtAsset'), loan.debtAssetId],
                               [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                             ],
@@ -1200,7 +1206,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             fields: [positiveMoney(loan.collateralAssetId)],
                             facts: [
                               [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
                               [loanCopy.t('debtAsset'), loan.debtAssetId],
                               [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                               [copyText('rooms.collateral.at.last.read'), amount(loan.collateral, loan.collateralAssetId)],
@@ -1226,7 +1232,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             preflight: currentLoanPreflight(api, loan, 'close', limit),
                             facts: [
                               [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
                               [loanCopy.t('debtAsset'), loan.debtAssetId],
                               [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                               [copyText('rooms.collateral.at.last.read'), amount(loan.collateral, loan.collateralAssetId)],
@@ -1391,7 +1397,7 @@ function Analytics() {
                 {Object.entries(summary.outflowByCategory).length ? (
                   Object.entries(summary.outflowByCategory).map(([category, quantity]) => (
                     <div className="money-space-row" key={category}>
-                      <span>{category}</span>
+                      <span>{categoryLabel(category)}</span>
                       <strong className="numeric">{funds(quantity, summary.assetId)}</strong>
                     </div>
                   ))

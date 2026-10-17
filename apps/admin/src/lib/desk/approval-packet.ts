@@ -25,7 +25,18 @@ const VERSION = /^[\x20-\x7e]{1,128}$/;
 export type DeskRequest =
   | { readonly kind: 'edge.kill'; readonly module: ModuleId; readonly disabled: boolean; readonly reason: string }
   | { readonly kind: 'ledger.freeze'; readonly reason: string; readonly version: string }
-  | { readonly kind: 'ledger.unfreeze'; readonly version: string };
+  | { readonly kind: 'ledger.unfreeze'; readonly version: string }
+  | { readonly kind: 'market.vendor.vet'; readonly vendorId: string; readonly decision: VendorDecision; readonly reason: string }
+  | { readonly kind: 'academy.ambassador.freeze'; readonly userId: string; readonly reason: string }
+  | { readonly kind: 'academy.ambassador.unfreeze'; readonly userId: string }
+  | { readonly kind: 'academy.ambassador.appoint'; readonly userId: string }
+  | { readonly kind: 'academy.residency.decide'; readonly id: string; readonly decision: ResidencyDecision };
+
+export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
+export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
+export const RESIDENCY_DECISIONS = ['accepted', 'rejected'] as const;
+export type ResidencyDecision = (typeof RESIDENCY_DECISIONS)[number];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export type DeskRequestKind = DeskRequest['kind'];
 
@@ -66,6 +77,35 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'kind,version') return null;
     if (typeof raw.version !== 'string' || !VERSION.test(raw.version)) return null;
     return { kind: 'ledger.unfreeze', version: raw.version };
+  }
+  if (raw.kind === 'market.vendor.vet') {
+    if (keys !== 'decision,kind,reason,vendorId') return null;
+    if (typeof raw.vendorId !== 'string' || !UUID.test(raw.vendorId) || !validReason(raw.reason)) return null;
+    if (typeof raw.decision !== 'string' || !(VENDOR_DECISIONS as readonly string[]).includes(raw.decision)) return null;
+    return { kind: 'market.vendor.vet', vendorId: raw.vendorId, decision: raw.decision as VendorDecision, reason: raw.reason };
+  }
+  if (raw.kind === 'academy.ambassador.freeze') {
+    if (keys !== 'kind,reason,userId') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validReason(raw.reason)) return null;
+    return { kind: 'academy.ambassador.freeze', userId: raw.userId, reason: raw.reason };
+  }
+  if (raw.kind === 'academy.ambassador.unfreeze') {
+    if (keys !== 'kind,userId') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId)) return null;
+    return { kind: 'academy.ambassador.unfreeze', userId: raw.userId };
+  }
+  if (raw.kind === 'academy.ambassador.appoint') {
+    if (keys !== 'kind,userId') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId)) return null;
+    return { kind: 'academy.ambassador.appoint', userId: raw.userId };
+  }
+  // The service binds only the application id and the decision to the approval, so no free-text note rides along: a note could
+  // be changed after the second founder approved and nothing would notice.
+  if (raw.kind === 'academy.residency.decide') {
+    if (keys !== 'decision,id,kind') return null;
+    if (typeof raw.id !== 'string' || !UUID.test(raw.id)) return null;
+    if (typeof raw.decision !== 'string' || !(RESIDENCY_DECISIONS as readonly string[]).includes(raw.decision)) return null;
+    return { kind: 'academy.residency.decide', id: raw.id, decision: raw.decision as ResidencyDecision };
   }
   return null;
 }
@@ -142,6 +182,16 @@ export function confirmPhrase(request: DeskRequest): string {
       return 'FREEZE LEDGER';
     case 'ledger.unfreeze':
       return 'UNFREEZE LEDGER';
+    case 'market.vendor.vet':
+      return `${request.decision === 'approved' ? 'APPROVE' : request.decision === 'rejected' ? 'REJECT' : 'SUSPEND'} VENDOR ${request.vendorId.slice(0, 8)}`;
+    case 'academy.ambassador.freeze':
+      return `FREEZE AMBASSADOR ${request.userId.slice(0, 8)}`;
+    case 'academy.ambassador.unfreeze':
+      return `UNFREEZE AMBASSADOR ${request.userId.slice(0, 8)}`;
+    case 'academy.ambassador.appoint':
+      return `APPOINT AMBASSADOR ${request.userId.slice(0, 8)}`;
+    case 'academy.residency.decide':
+      return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} RESIDENCY ${request.id.slice(0, 8)}`;
   }
 }
 
@@ -156,11 +206,35 @@ export function describeRequest(request: DeskRequest): string {
       return 'Freeze the ledger: ALL value movement on the platform stops until it is unfrozen.';
     case 'ledger.unfreeze':
       return 'Unfreeze the ledger: value movement resumes platform-wide.';
+    case 'market.vendor.vet':
+      return request.decision === 'approved'
+        ? `Approve market vendor ${request.vendorId}: they may be listed and sell in the market.`
+        : request.decision === 'rejected'
+          ? `Reject the market vendor application ${request.vendorId}: they are not listed.`
+          : `Suspend market vendor ${request.vendorId}: they are taken out of the market.`;
+    case 'academy.ambassador.freeze':
+      return `Freeze Academy ambassador ${request.userId}: they stop holding the ambassador role until it is lifted.`;
+    case 'academy.ambassador.unfreeze':
+      return `Lift the freeze on Academy ambassador ${request.userId}: they hold the ambassador role again.`;
+    case 'academy.ambassador.appoint':
+      return `Appoint ${request.userId} as an Academy ambassador: they hold the ambassador role and its badge. This is a status only; it pays nothing.`;
+    case 'academy.residency.decide':
+      return request.decision === 'accepted'
+        ? `Accept residency application ${request.id}: the application is recorded as accepted.`
+        : `Reject residency application ${request.id}: the application is recorded as rejected.`;
   }
 }
 
 export function requestReason(request: DeskRequest): string | null {
-  return request.kind === 'ledger.unfreeze' ? null : request.reason;
+  switch (request.kind) {
+    case 'ledger.unfreeze':
+    case 'academy.ambassador.unfreeze':
+    case 'academy.ambassador.appoint':
+    case 'academy.residency.decide':
+      return null;
+    default:
+      return request.reason;
+  }
 }
 
 /** True when this packet's approval is already past the time identity gave it. Advisory: identity is the authority. */

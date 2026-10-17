@@ -93,6 +93,33 @@ export function deposit(input: DepositInput): PostRequest {
   };
 }
 
+export interface DepositReverseInput extends DepositInput {
+  /** One reversal per deposit. A second post for this id returns the first. */
+  depositId: string;
+}
+
+/**
+ * The chain rewrote the block a deposit was credited from.
+ *
+ * Inverse of `deposit`: the amount leaves the user's available balance and
+ * the rail boundary. A new journal row, not an edit of the credit.
+ */
+export function depositReverse(input: DepositReverseInput): PostRequest {
+  requirePositive('deposit reversal amount', input.amount);
+  const depositId = input.depositId.trim();
+  if (!depositId) throw new InvalidEntryError('deposit reversal requires a deposit id');
+  return {
+    idempotencyKey: `deposit.reverse:${depositId}`,
+    module: 'ledger',
+    reason: 'deposit.reversed',
+    meta: { rail: input.rail, railRef: input.railRef, depositId },
+    entries: [
+      debit(railBoundary(input.rail, input.assetId), input.amount),
+      credit(userAvailable(input.userId, input.assetId), input.amount),
+    ],
+  };
+}
+
 export interface WithdrawInput {
   userId: string;
   assetId: string;
@@ -1184,6 +1211,7 @@ export {
 
 export const recipes = {
   deposit,
+  depositReverse,
   marketMakerSeedFund,
   withdrawHold,
   withdrawSettle,

@@ -119,6 +119,12 @@ const schema = baseEnvSchema
        */
       EDGE_KILL_STATE_PATH: z.string().default('.data/edge-kill-state.json'),
 
+      /** Compliance queue restart file. Empty keeps the queue in process memory. */
+      EDGE_COMPLIANCE_QUEUE_PATH: z.string().default('.data/edge-compliance-queue.json'),
+
+      /** Last successful ledger reconcile proxied by this edge. */
+      EDGE_RECONCILE_LAST_PATH: z.string().default('.data/edge-reconcile-last.json'),
+
       /**
        * Request throttle (see `hardening.ts`). On by default: the front door
        * proxies to svc-identity, so "off" means unlimited password attempts.
