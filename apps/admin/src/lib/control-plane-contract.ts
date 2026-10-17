@@ -40,8 +40,6 @@ export interface ToggleResult {
   readonly intent?: ToggleInput;
 }
 export const EMPTY_SNAPSHOT: KillSwitchSnapshot = { disabledModules: [], reasons: {}, audit: [] };
-export const MODULE_WRITE_UNAVAILABLE =
-  'Module writes require a real operator session and an identity-issued approval with original operation context. Those prerequisites are unavailable in this desk. Read access does not grant write access.';
 export function record(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

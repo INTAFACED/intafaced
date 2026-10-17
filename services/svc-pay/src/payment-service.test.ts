@@ -20,6 +20,7 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { PayService, PayError, type PaymentView } from './payment-service.js';
+import { loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { REFERENCE_RAIL_ROUTING_PROFILES, type RailRoutingProfile } from './routing/decide.js';
 import { memoryPayoutDestinations, MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
@@ -89,6 +90,8 @@ const migrations = [
   '0051_pay_control_pricing.sql',
   // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
   '0071_pay_merchant_names.sql',
+  // decideKyb reads the identity columns to bind the approval hash.
+  '0082_pay_merchant_business_profile.sql',
   '0073_pay_settlement_read.sql',
   // dispute.opened records a rail due date. Evidence metadata is the parent of the byte table.
   '0065_pay_merchant_dispute_responses.sql',
@@ -4260,6 +4263,12 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
   // ── M1 pay.gateway Done bar: KYB stub + durable payment list ───────────────
 
   describe('merchant KYB stub + payment list', () => {
+    async function identityHashOf(merchantId: string): Promise<string> {
+      const binding = await loadKybDecisionBinding(sql, merchantId);
+      if (!binding) throw new Error(`merchant ${merchantId} has no KYB binding`);
+      return binding.identityHash;
+    }
+
     it('submits KYB then decideKybStub approves under allow-sandbox', async () => {
       const m = await merchant();
       expect(m.kybStatus).toBe('none');
@@ -4328,7 +4337,11 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         code: 'pay.kyb_operator_required',
       });
 
-      const rejected = await livePay.decideKyb({ merchantId: m.id, decision: 'rejected' });
+      const rejected = await livePay.decideKyb({
+        merchantId: m.id,
+        decision: 'rejected',
+        identityHash: await identityHashOf(m.id),
+      });
       expect(rejected.kybStatus).toBe('rejected');
       await expect(livePay.createPayment(createArgs)).rejects.toMatchObject({ code: 'pay.kyb_required' });
       await expect(livePay.openCheckoutSession(openArgs)).rejects.toMatchObject({
@@ -4336,7 +4349,11 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       });
 
       await livePay.submitKyb({ merchantId: m.id, kybRef: 'case-live-ops-2' });
-      const approved = await livePay.decideKyb({ merchantId: m.id, decision: 'approved' });
+      const approved = await livePay.decideKyb({
+        merchantId: m.id,
+        decision: 'approved',
+        identityHash: await identityHashOf(m.id),
+      });
       expect(approved.kybStatus).toBe('approved');
       expect(approved.kybRef).toBe('case-live-ops-2');
 
@@ -4361,7 +4378,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       ).rejects.toMatchObject({ code: 'pay.kyb_required' });
 
       await livePay.submitKyb({ merchantId: m.id, kybRef: 'case-p10' });
-      await livePay.decideKyb({ merchantId: m.id, decision: 'approved' });
+      await livePay.decideKyb({ merchantId: m.id, decision: 'approved', identityHash: await identityHashOf(m.id) });
       const payment = await livePay.createPayment({
         merchantId: m.id,
         amount: amt('10'),
