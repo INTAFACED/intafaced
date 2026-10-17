@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo } from 'react';
 import { z } from 'zod';
-import { classOf, useDataEnv, useSource, type Decimal, type Loadable, type PortfolioSummary } from '../../data';
+import { classOf, useDataEnv, useSource, type Decimal, type Holding, type Loadable, type PortfolioSummary } from '../../data';
 import { dec, decOrNull, ratio, sub, sumOf, type Scaled } from '../../data/decimal';
 import { portfolioSource, type DataEnv } from '../../data/queries';
 import { balancesFetcher } from '../../data/fetchers';
@@ -209,6 +209,51 @@ export function useMoneyPortfolio(): Loadable<MoneyView> {
   const fallback = server.status === 'error' || (server.status === 'refused' && server.code === SERVER_SUMMARY_MISSING);
   const derived = useSource(useMemo(() => (fallback ? portfolioSource(env) : constantSource(WAITING)), [env, fallback]));
   return useMemo(() => (fallback ? mapLoadable(derived, fromDerived) : mapLoadable(server, fromServer)), [fallback, derived, server]);
+}
+
+// ── Home's view of the same total ────────────────────────────────────────────
+
+/** A holding as Home lists it: no spendable / in-orders split (Home never shows it, and the server summary does not give it). */
+export type HomeHolding = Omit<Holding, 'available' | 'inOrders'>;
+/** What Home reads: the same figures as `PortfolioSummary`, with holdings in the shape either source can fill. */
+export type HomePortfolio = Omit<PortfolioSummary, 'holdings'> & { holdings: HomeHolding[] };
+
+/** Re-shape the Money screen's view so Home shows exactly the numbers Money shows. */
+export function toHomePortfolio(view: MoneyView): HomePortfolio {
+  return {
+    totalUsd: view.totalUsd,
+    change24hUsd: view.change24hUsd,
+    change24hPct: view.change24hPct,
+    cashUsd: view.cashUsd,
+    cryptoUsd: view.cryptoUsd,
+    holdings: view.rows.map((row) => ({
+      asset: row.asset,
+      class: row.class,
+      total: row.amount,
+      usdValue: row.usdValue,
+      usdChange24h: row.usdChange24h,
+      share: row.share,
+      priceSymbol: row.priceSymbol,
+    })),
+    unpriced: view.unpriced,
+    source: view.source,
+    asOf: view.asOf,
+    windowStart: view.windowStart,
+  };
+}
+
+/**
+ * Home's portfolio: the same source as the Money screen (the bank's own valuation, which counts named accounts), so the
+ * two screens show one total. Only when the bank cannot give it does this use the data layer's derivation, and then
+ * `source` is 'derived' so the screen says "from price moves".
+ */
+export function useHomePortfolio(): Loadable<HomePortfolio> {
+  const money = useMoneyPortfolio();
+  return useMemo(
+    () =>
+      money.status === 'ready' ? { status: 'ready', data: toHomePortfolio(money.data), asOf: money.asOf } : (money as Loadable<never>),
+    [money],
+  );
 }
 
 // ── named accounts ("Spaces" on the server) ──────────────────────────────────

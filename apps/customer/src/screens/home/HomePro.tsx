@@ -28,12 +28,12 @@ import {
   toFixedString,
   useFavorites,
   useMarkets,
-  usePortfolio,
+  useHomePortfolio,
   useSparklines,
   useTickers,
-  type Holding,
+  type HomeHolding,
   type Loadable,
-  type PortfolioSummary,
+  type HomePortfolio,
 } from './deps';
 import { InfoTip } from './InfoTip';
 import { IN_PANEL, STATE_IN_COLUMN } from './panel';
@@ -53,7 +53,7 @@ const ASSET_ROWS = 8;
 /** One request asks for this many open orders; a full page is shown as "100+". */
 const ORDERS_PAGE = 100;
 /** The pair the Trade button opens for an asset, as the desk's address. Cash (USDT, USDC) has no market to open. */
-const deskFor = (holding: Holding) => (holding.priceSymbol ? `/trade/spot/${normalizePair(holding.priceSymbol)}` : null);
+const deskFor = (holding: HomeHolding) => (holding.priceSymbol ? `/trade/spot/${normalizePair(holding.priceSymbol)}` : null);
 
 type ActionLabel = 'Buy' | 'Sell' | 'Convert' | 'Send' | 'Receive';
 /** Same addresses as the Simple pills. Only the ones the registry shows are drawn. */
@@ -82,7 +82,7 @@ function cents(value: string | null): string | null {
 }
 
 /** Today's change of one holding as a ratio of what it was worth a day ago; unknown when either figure is. */
-function changeRatio(holding: Holding): string | null {
+function changeRatio(holding: HomeHolding): string | null {
   const value = dec(holding.usdValue);
   const change = dec(holding.usdChange24h);
   if (value === null || change === null) return null;
@@ -187,7 +187,7 @@ function Summary({
   hidden,
   actionMode,
 }: {
-  portfolio: Loadable<PortfolioSummary>;
+  portfolio: Loadable<HomePortfolio>;
   orders: OpenOrders;
   hidden: boolean;
   actionMode: ActionMode;
@@ -351,7 +351,7 @@ function AssetsSkeleton() {
   );
 }
 
-function Assets({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>; hidden: boolean }) {
+function Assets({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hidden: boolean }) {
   const copy = homeCopy.useCopy();
   const { t: tp } = proCopy.useCopy();
   const holdings = portfolio.status === 'ready' ? portfolio.data.holdings : [];
@@ -572,7 +572,7 @@ function MarketsPanel() {
 export function HomePro() {
   const { t } = homeCopy.useCopy();
   const { hideBalances } = usePreferences();
-  const portfolio = usePortfolio();
+  const portfolio = useHomePortfolio();
   const orders = useOpenOrders();
   const markets = useMarkets();
 
