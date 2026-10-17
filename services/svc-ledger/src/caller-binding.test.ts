@@ -1,13 +1,19 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
-import { formatAmount, parseAmount as amt, recipes, type PostRequest } from '@intafaced/ledger-client';
-import { LEDGER_POST_ALLOWLIST } from './caller-allowlist.js';
-import { callerBindingViolationCount, resetCallerBindingViolations } from './caller-binding.js';
+import { formatAmount, parseAmount as amt, recipes, type PostRequest, type RecipeName } from '@intafaced/ledger-client';
+import {
+  CALLER_SECRET_ENV_NAMES,
+  LEDGER_CALLER_SERVICES,
+  LEDGER_POST_ALLOWLIST,
+  callerSecretEnvName,
+  type LedgerCallerService,
+} from './caller-allowlist.js';
+import { callerBindingCounts, callerBindingViolationCount, resetCallerBindingViolations } from './caller-binding.js';
 import { createLedgerRouter } from './router.js';
 import { registerS2sHttp } from './s2s-http.js';
 import type { LedgerService } from './service.js';
@@ -18,11 +24,13 @@ const SHARED = 'ledger-shared-internal-secret-32chars!';
 const TRADE_SECRET = 'ledger-caller-secret-svc-trade-32ch!';
 const PAY_SECRET = 'ledger-caller-secret-svc-pay-32chars!';
 const AGENTS_SECRET = 'ledger-caller-secret-svc-agents-32ch!';
+const BANK_SECRET = 'ledger-caller-secret-svc-bank-32ch!';
 
 const SECRETS = {
   'svc-trade': TRADE_SECRET,
   'svc-pay': PAY_SECRET,
   'svc-agents': AGENTS_SECRET,
+  'svc-bank': BANK_SECRET,
 };
 
 function toWire(req: PostRequest) {
@@ -40,6 +48,19 @@ function toWire(req: PostRequest) {
 }
 
 const orderHold = toWire(recipes.orderHold({ orderId: 'order-bind', userId: USER, assetId: 'USDT', amount: amt('10') }));
+
+function interestOnlyRepay() {
+  return toWire(
+    recipes.loanRepay({
+      loanId: 'ln-bind',
+      userId: USER,
+      debtAssetId: 'USDT',
+      principal: 0n,
+      interest: amt('1'),
+      sequence: 1,
+    }),
+  );
+}
 
 function feeCharge(module: string) {
   return toWire(
@@ -113,7 +134,57 @@ describe('ledger post allowlist cites real callers', () => {
     const granted = Object.values(LEDGER_POST_ALLOWLIST).flatMap((grants) => Object.keys(grants));
     expect(granted).not.toContain('subAccountTransfer');
   });
+
+  it('names one secret env var per allowlisted service', () => {
+    expect([...CALLER_SECRET_ENV_NAMES].sort()).toEqual(LEDGER_CALLER_SERVICES.map((service) => callerSecretEnvName(service)).sort());
+  });
+
+  it('grants every production recipes.<name>( pair', () => {
+    const pairs = new Set<string>();
+    const servicesDir = join(ROOT, 'services');
+    for (const service of readdirSync(servicesDir)) {
+      if (!service.startsWith('svc-') || service === 'svc-ledger') continue;
+      const src = join(servicesDir, service, 'src');
+      if (!existsSync(src)) continue;
+      for (const file of productionSources(src)) {
+        const text = readFileSync(file, 'utf8');
+        for (const match of text.matchAll(/recipes\.([A-Za-z0-9_]+)\(/g)) {
+          const recipe = match[1];
+          if (recipe) pairs.add(`${service} ${recipe}`);
+        }
+      }
+    }
+
+    expect(pairs.size).toBe(67);
+    const services = new Set([...pairs].map((pair) => pair.split(' ')[0]));
+    expect(services.size).toBe(8);
+    for (const pair of pairs) {
+      const [service, recipe] = pair.split(' ');
+      expect(service && recipe && granted(service, recipe), pair).toBe(true);
+    }
+  });
 });
+
+function productionSources(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'test' || entry.name === '__tests__' || entry.name === 'scripts') continue;
+      out.push(...productionSources(path));
+      continue;
+    }
+    if (!entry.name.endsWith('.ts') || entry.name.endsWith('.test.ts') || entry.name.endsWith('.spec.ts')) continue;
+    out.push(path);
+  }
+  return out;
+}
+
+function granted(service: string, recipe: string): boolean {
+  if (!Object.hasOwn(LEDGER_POST_ALLOWLIST, service)) return false;
+  const grants = LEDGER_POST_ALLOWLIST[service as LedgerCallerService];
+  return Object.hasOwn(grants, recipe as RecipeName);
+}
 
 describe('POST /trpc/post caller binding', () => {
   it('posts an allowed pair when the key id matches that service secret', async () => {
@@ -204,13 +275,54 @@ describe('POST /trpc/post caller binding', () => {
   it('still posts a shared-secret call for an allowed claim while the mode is report', async () => {
     const posted = { value: false };
     const app = await mount({ mode: 'report', posted });
-    const before = callerBindingViolationCount();
 
     const res = await send(app, 'svc-trade', SHARED, orderHold);
 
     expect(res.statusCode).toBe(200);
     expect(posted.value).toBe(true);
+    expect(callerBindingCounts()).toEqual([{ reason: 'unbound', service: 'svc-trade', count: 1 }]);
+    await app.close();
+  });
+
+  it('warns once and counts three legacy posts from the same claimed service', async () => {
+    const posted = { value: false };
+    const lines: string[] = [];
+    const app = await mount({ mode: 'report', posted, lines });
+
+    for (let i = 0; i < 3; i += 1) {
+      const res = await send(app, 'svc-trade', SHARED, orderHold);
+      expect(res.statusCode).toBe(200);
+    }
+
+    expect(posted.value).toBe(true);
+    const warns = lines.join('').match(/ledger caller binding violation/g) ?? [];
+    expect(warns).toHaveLength(1);
+    expect(callerBindingCounts()).toEqual([{ reason: 'unbound', service: 'svc-trade', count: 3 }]);
+    await app.close();
+  });
+
+  it('posts an interest-only loan repayment from bound svc-bank in enforce', async () => {
+    const posted = { value: false };
+    const app = await mount({ mode: 'enforce', posted });
+    const before = callerBindingViolationCount();
+
+    const res = await send(app, 'svc-bank', BANK_SECRET, interestOnlyRepay());
+
+    expect(res.statusCode).toBe(200);
+    expect(posted.value).toBe(true);
     expect(callerBindingViolationCount()).toBe(before);
+    await app.close();
+  });
+
+  it('refuses that interest-only repayment from bound svc-pay in enforce', async () => {
+    const posted = { value: false };
+    const app = await mount({ mode: 'enforce', posted });
+
+    const res = await send(app, 'svc-pay', PAY_SECRET, interestOnlyRepay());
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('ledger.caller_forbidden');
+    expect(posted.value).toBe(false);
     await app.close();
   });
 });
@@ -284,5 +396,67 @@ describe('LEDGER_CALLER_BINDING boot default', () => {
 
   it('refuses a per-service secret shorter than 32 characters', async () => {
     await expect(load({ LEDGER_CALLER_SECRET_SVC_TRADE: 'too-short' })).rejects.toThrow(/LEDGER_CALLER_SECRET_SVC_TRADE/);
+  });
+
+  it('refuses a per-service secret equal to INTERNAL_SERVICE_SECRET', async () => {
+    const err = await load({ LEDGER_CALLER_SECRET_SVC_PAY: `  ${SHARED}  ` }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(err).toBeInstanceOf(Error);
+    const message = err instanceof Error ? err.message : '';
+    expect(message).toMatch(/LEDGER_CALLER_SECRET_SVC_PAY/);
+    expect(message).toMatch(/INTERNAL_SERVICE_SECRET/);
+    expect(message).not.toContain(SHARED);
+  });
+
+  it('refuses two per-service secrets that trim to the same value', async () => {
+    const dup = 'ledger-caller-secret-duplicated-32ch!';
+    const err = await load({
+      LEDGER_CALLER_SECRET_SVC_PAY: dup,
+      LEDGER_CALLER_SECRET_SVC_TRADE: `  ${dup}`,
+    }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(err).toBeInstanceOf(Error);
+    const message = err instanceof Error ? err.message : '';
+    expect(message).toMatch(/LEDGER_CALLER_SECRET_SVC_PAY/);
+    expect(message).toMatch(/LEDGER_CALLER_SECRET_SVC_TRADE/);
+    expect(message).not.toContain(dup);
+  });
+
+  it('boots when per-service secrets differ from each other and from the shared secret', async () => {
+    const parsed = await load({
+      LEDGER_CALLER_SECRET_SVC_PAY: PAY_SECRET,
+      LEDGER_CALLER_SECRET_SVC_TRADE: TRADE_SECRET,
+    });
+    expect(parsed.LEDGER_CALLER_SECRET_SVC_PAY).toBe(PAY_SECRET);
+    expect(parsed.LEDGER_CALLER_SECRET_SVC_TRADE).toBe(TRADE_SECRET);
+  });
+});
+
+describe('registerS2sHttp refuses secrets that void the binding', () => {
+  it('refuses a dedicated secret equal to the shared secret', () => {
+    const app = Fastify();
+    expect(() => registerS2sHttp(app, stub({ value: false }), SHARED, { callerSecrets: { 'svc-pay': ` ${SHARED} ` } })).toThrow(
+      /LEDGER_CALLER_SECRET_SVC_PAY must not equal INTERNAL_SERVICE_SECRET/,
+    );
+  });
+
+  it('refuses two dedicated secrets that are equal', () => {
+    const app = Fastify();
+    const dup = 'ledger-caller-secret-duplicated-32ch!';
+    expect(() =>
+      registerS2sHttp(app, stub({ value: false }), SHARED, {
+        callerSecrets: { 'svc-pay': dup, 'svc-trade': dup },
+      }),
+    ).toThrow(/LEDGER_CALLER_SECRET_SVC_TRADE must not equal LEDGER_CALLER_SECRET_SVC_PAY/);
+  });
+
+  it('boots when the dedicated secrets are distinct', async () => {
+    const app = Fastify();
+    expect(() => registerS2sHttp(app, stub({ value: false }), SHARED, { callerSecrets: SECRETS })).not.toThrow();
+    await app.close();
   });
 });

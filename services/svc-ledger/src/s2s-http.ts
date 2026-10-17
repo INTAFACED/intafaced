@@ -32,7 +32,10 @@ import {
   CALLER_UNBOUND,
   authenticatePostCaller,
   applyCallerBinding,
+  callerBindingCount,
+  callerBindingWarnAllowed,
   callerSecretsFromEnv,
+  callerSecretsFromRecord,
   readCallerBindingMode,
   type CallerBindingMode,
   type CallerBindingOptions,
@@ -406,11 +409,15 @@ export interface S2sHttpOptions {
 export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, internalSecret: string, options: S2sHttpOptions = {}): void {
   const mode = options.bodyBind ?? DEFAULT_SERVICE_BODY_BIND_MODE;
   const bindingMode = options.callerBinding ?? readCallerBindingMode();
-  const callerSecrets = options.callerSecrets ? new Map(Object.entries(options.callerSecrets)) : callerSecretsFromEnv();
+  const callerSecrets = options.callerSecrets
+    ? callerSecretsFromRecord(options.callerSecrets, internalSecret)
+    : callerSecretsFromEnv(process.env, internalSecret);
   const bindingOptions: CallerBindingOptions = {
     mode: bindingMode,
     onViolation: (violation) => {
       options.onCallerViolation?.(violation);
+      if (violation.reason === 'unbound' && !callerBindingWarnAllowed(violation.service)) return;
+      const count = callerBindingCount(violation.reason, violation.service);
       app.log.warn(
         {
           event: 'ledger.caller_binding',
@@ -420,8 +427,9 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
           module: violation.module,
           recipe: violation.recipe,
           mode: bindingMode,
+          count,
         },
-        'ledger caller binding violation',
+        `ledger caller binding violation count=${count}`,
       );
     },
   };

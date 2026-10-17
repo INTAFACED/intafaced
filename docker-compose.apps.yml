@@ -176,9 +176,13 @@ services:
       # refuse = 409 ledger.idempotency_conflict. Stays detect until the jobs that rebuild bodies on re-run are fixed.
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
       # OPS-0001 caller binding. Default report: the shared INTERNAL_SERVICE_SECRET
-      # still posts, and a mismatched caller is logged. enforce refuses those
-      # posts. Per-service secrets are optional pass-through (empty = unset).
-      # A pull with no new .env keys must keep booting. Do not use :? here.
+      # still posts. Every shared-secret post is counted as unbound, and a
+      # recipe or module outside the claim is counted too. The warning is
+      # rate-limited, so a quiet log is not a zero count. Set enforce only when
+      # unbound is 0 for every posting service and allowlist violations are 0
+      # for a full business cycle. Per-service secrets are optional
+      # pass-through (empty = unset). A pull with no new .env keys must keep
+      # booting. Do not use :? here.
       # See services/svc-ledger/CALLER-BINDING.md before setting enforce.
       LEDGER_CALLER_BINDING: ${LEDGER_CALLER_BINDING:-report}
       LEDGER_CALLER_SECRET_SVC_AGENTS: ${LEDGER_CALLER_SECRET_SVC_AGENTS:-}

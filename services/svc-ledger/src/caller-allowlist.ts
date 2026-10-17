@@ -125,15 +125,55 @@ export function callerSecretEnvName(service: string): string {
   return `LEDGER_CALLER_SECRET_${service.toUpperCase().replace(/-/g, '_')}`;
 }
 
-export const CALLER_SECRET_ENV_NAMES = LEDGER_CALLER_SERVICES.map((service) => callerSecretEnvName(service));
+/**
+ * Dedicated-secret env names, as a tuple so each field stays typed on the
+ * ledger env object. The test checks this list against `LEDGER_CALLER_SERVICES`.
+ */
+export const CALLER_SECRET_ENV_NAMES = [
+  'LEDGER_CALLER_SECRET_SVC_AGENTS',
+  'LEDGER_CALLER_SECRET_SVC_BANK',
+  'LEDGER_CALLER_SECRET_SVC_IDENTITY',
+  'LEDGER_CALLER_SECRET_SVC_MARKET',
+  'LEDGER_CALLER_SECRET_SVC_P2P',
+  'LEDGER_CALLER_SECRET_SVC_PAY',
+  'LEDGER_CALLER_SECRET_SVC_TOKEN',
+  'LEDGER_CALLER_SECRET_SVC_TRADE',
+] as const;
+
+export type CallerSecretEnvName = (typeof CALLER_SECRET_ENV_NAMES)[number];
+
+/**
+ * A dedicated secret that copies `INTERNAL_SERVICE_SECRET`, or another
+ * service's secret, makes the binding meaningless. Refuse boot. The message
+ * names the env var and never the value.
+ */
+export function assertDistinctCallerSecrets(namedSecrets: readonly (readonly [string, string])[], sharedSecret: string): void {
+  const shared = sharedSecret.trim();
+  const seen = new Map<string, string>();
+  for (const [envName, raw] of namedSecrets) {
+    if (typeof raw !== 'string') continue;
+    const secret = raw.trim();
+    if (secret.length === 0) continue;
+    if (secret === shared) {
+      throw new Error(`${envName} must not equal INTERNAL_SERVICE_SECRET`);
+    }
+    const prior = seen.get(secret);
+    if (prior !== undefined) {
+      throw new Error(`${envName} must not equal ${prior}`);
+    }
+    seen.set(secret, envName);
+  }
+}
 
 export function grantFor(service: string, recipe: RecipeName): RecipeGrant | undefined {
-  const grants = LEDGER_POST_ALLOWLIST[service as LedgerCallerService] as Grants | undefined;
-  return grants?.[recipe];
+  if (!Object.hasOwn(LEDGER_POST_ALLOWLIST, service)) return undefined;
+  const grants = LEDGER_POST_ALLOWLIST[service as LedgerCallerService] as Grants;
+  if (!Object.hasOwn(grants, recipe)) return undefined;
+  return grants[recipe];
 }
 
 export function modulesFor(service: string): ReadonlySet<string> {
-  const grants = LEDGER_POST_ALLOWLIST[service as LedgerCallerService] as Grants | undefined;
-  if (!grants) return new Set();
-  return new Set(Object.values(grants).map((grant) => grant.module));
+  if (!Object.hasOwn(LEDGER_POST_ALLOWLIST, service)) return new Set();
+  const grants = LEDGER_POST_ALLOWLIST[service as LedgerCallerService] as Grants;
+  return new Set(Object.values(grants).flatMap((grant) => (grant ? [grant.module] : [])));
 }

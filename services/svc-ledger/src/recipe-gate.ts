@@ -1029,16 +1029,12 @@ export function unsampledRecipeNames(): readonly RecipeName[] {
   return (Object.keys(recipes) as RecipeName[]).filter((name) => !SAMPLED_RECIPES.has(name)).sort();
 }
 
-/**
- * Which registry recipe this body is, or null when the legs are not one.
- * Fee, reward, and sweep matchers run first, same order as the gate: their
- * module or reason is caller-chosen, so they are not a single catalog key.
- */
-export function identifyRecipePost(input: WirePost): RecipeName | null {
-  if (matchesFeeCharge(input)) return 'feeCharge';
-  if (matchesRewardPay(input)) return 'rewardPay';
-  if (matchesFeeSweep(input)) return 'sweepFeesToRewards';
+/** Samples the catalog was built from. Tests use this to check candidate names. */
+export function recipeGateSamples(): readonly { readonly name: RecipeName; readonly post: PostRequest }[] {
+  return samplePosts();
+}
 
+function catalogRecipe(input: WirePost): RecipeName | null {
   const spec = RECIPE_CATALOG.get(`${input.module}::${input.reason}`);
   if (!spec) return null;
   if (input.entries.length < spec.minLegs) return null;
@@ -1049,7 +1045,24 @@ export function identifyRecipePost(input: WirePost): RecipeName | null {
   return null;
 }
 
+/**
+ * Every recipe this body matches.
+ *
+ * Fee, reward, and sweep can share a shape with a catalog recipe (an
+ * interest-only loan repayment is also the feeCharge shape). The first hit
+ * is not the only name the caller may have been granted.
+ */
+export function recipeCandidates(input: WirePost): RecipeName[] {
+  const found: RecipeName[] = [];
+  if (matchesFeeCharge(input)) found.push('feeCharge');
+  if (matchesRewardPay(input)) found.push('rewardPay');
+  if (matchesFeeSweep(input)) found.push('sweepFeesToRewards');
+  const catalog = catalogRecipe(input);
+  if (catalog !== null && !found.includes(catalog)) found.push(catalog);
+  return found;
+}
+
 export function assertKnownRecipePost(input: WirePost): void {
-  if (identifyRecipePost(input)) return;
+  if (recipeCandidates(input).length > 0) return;
   throw recipeError(input.module, input.reason);
 }

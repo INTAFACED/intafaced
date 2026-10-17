@@ -1,7 +1,7 @@
 import { LedgerError, type RecipeName } from '@intafaced/ledger-client';
 import { SERVICE_HEADER, headerValue, verifyServiceHeaders, type ServiceVerifyOptions } from '@intafaced/contracts';
-import { grantFor, modulesFor, LEDGER_CALLER_SERVICES, callerSecretEnvName } from './caller-allowlist.js';
-import { identifyRecipePost } from './recipe-gate.js';
+import { assertDistinctCallerSecrets, grantFor, modulesFor, LEDGER_CALLER_SERVICES, callerSecretEnvName } from './caller-allowlist.js';
+import { recipeCandidates } from './recipe-gate.js';
 
 /**
  * OPS-0001. The key id is `x-intafaced-service` (the header callers already
@@ -11,9 +11,10 @@ import { identifyRecipePost } from './recipe-gate.js';
  * any other service's header.
  *
  * `LEDGER_CALLER_BINDING=report` (the default) still accepts the shared secret
- * and still posts. It counts and logs a body whose recipe or module is outside
- * the claimed service's allowlist. `enforce` refuses the shared secret and
- * refuses a bound caller outside its allowlist.
+ * and still posts. Every shared-secret post is counted as unbound, under the
+ * name the caller claimed. A body outside that claim is counted as well.
+ * `enforce` refuses the shared secret and refuses a bound caller outside its
+ * allowlist.
  */
 
 export const CALLER_BINDING_MODES = ['report', 'enforce'] as const;
@@ -52,16 +53,60 @@ type WirePost = {
   }[];
 };
 
-const violationCounts = new Map<string, number>();
+export interface CallerBindingCount {
+  readonly reason: BindingViolation['reason'];
+  readonly service: string | null;
+  readonly count: number;
+}
+
+const countRows = new Map<string, CallerBindingCount>();
+const WARN_INTERVAL_MS = 60_000;
+const lastWarnAt = new Map<string, number>();
+
+function countKey(reason: BindingViolation['reason'], service: string | null): string {
+  return `${reason}\0${service ?? ''}`;
+}
 
 export function resetCallerBindingViolations(): void {
-  violationCounts.clear();
+  countRows.clear();
+  lastWarnAt.clear();
 }
 
 export function callerBindingViolationCount(): number {
   let total = 0;
-  for (const count of violationCounts.values()) total += count;
+  for (const row of countRows.values()) total += row.count;
   return total;
+}
+
+/** Counts by reason and claimed or bound service. This is the enforce signal. */
+export function callerBindingCounts(): readonly CallerBindingCount[] {
+  return [...countRows.values()];
+}
+
+export function callerBindingCount(reason: BindingViolation['reason'], service: string | null): number {
+  return countRows.get(countKey(reason, service))?.count ?? 0;
+}
+
+/**
+ * First warning for a claimed service, then at most one per minute.
+ * The count itself is not limited.
+ */
+export function callerBindingWarnAllowed(service: string | null, now = Date.now()): boolean {
+  const key = service ?? '';
+  const previous = lastWarnAt.get(key);
+  if (previous !== undefined && now - previous < WARN_INTERVAL_MS) return false;
+  lastWarnAt.set(key, now);
+  return true;
+}
+
+function addCallerBindingCount(violation: BindingViolation): void {
+  const key = countKey(violation.reason, violation.service);
+  const existing = countRows.get(key);
+  countRows.set(key, {
+    reason: violation.reason,
+    service: violation.service,
+    count: (existing?.count ?? 0) + 1,
+  });
 }
 
 export function readCallerBindingMode(env: NodeJS.ProcessEnv = process.env): CallerBindingMode {
@@ -72,8 +117,9 @@ export function readCallerBindingMode(env: NodeJS.ProcessEnv = process.env): Cal
 }
 
 /** Secrets configured for allowlisted callers. Blank values are unset. A short value refuses. */
-export function callerSecretsFromEnv(env: NodeJS.ProcessEnv = process.env): Map<string, string> {
+export function callerSecretsFromEnv(env: NodeJS.ProcessEnv, sharedSecret: string): Map<string, string> {
   const secrets = new Map<string, string>();
+  const named: Array<readonly [string, string]> = [];
   for (const service of LEDGER_CALLER_SERVICES) {
     const name = callerSecretEnvName(service);
     const raw = env[name];
@@ -84,8 +130,19 @@ export function callerSecretsFromEnv(env: NodeJS.ProcessEnv = process.env): Map<
       throw new Error(`${name} must be at least ${MIN_SECRET_LENGTH} characters`);
     }
     secrets.set(service, secret);
+    named.push([name, secret]);
   }
+  assertDistinctCallerSecrets(named, sharedSecret);
   return secrets;
+}
+
+/** Same distinctness rule for secrets passed into `registerS2sHttp` instead of env. */
+export function callerSecretsFromRecord(record: Readonly<Record<string, string>>, sharedSecret: string): Map<string, string> {
+  assertDistinctCallerSecrets(
+    Object.entries(record).map(([service, secret]) => [callerSecretEnvName(service), secret]),
+    sharedSecret,
+  );
+  return new Map(Object.entries(record));
 }
 
 function violationMessage(violation: BindingViolation): string {
@@ -112,10 +169,12 @@ function fail(
 /**
  * Allowlist decision for one post body.
  *
+ * A body can match more than one recipe. The post is allowed when any
+ * candidate is granted to this caller and the body module is that grant's
+ * module. A refusal names the first candidate.
+ *
  * A legacy (shared-secret) caller is judged by the service name it claimed.
- * That name is not proven. Report mode still uses it so an honest caller is
- * quiet and a claim that does not match the body is visible. Enforce mode
- * never accepts a legacy caller: there is no verified identity.
+ * That name is not proven. Enforce mode never accepts a legacy caller.
  */
 export function judgeCallerPost(
   caller: PostCaller,
@@ -129,29 +188,57 @@ export function judgeCallerPost(
   const service = caller.kind === 'bound' ? caller.service : caller.claimed;
   if (!service) return fail(CALLER_UNBOUND, 'unbound', null, body.module, null);
 
-  const recipe = identifyRecipePost(body);
-  if (recipe) {
-    const grant = grantFor(service, recipe);
-    if (!grant) return fail(CALLER_FORBIDDEN, 'recipe', service, body.module, recipe);
-    if (body.module !== grant.module) return fail(CALLER_FORBIDDEN, 'module', service, body.module, recipe);
-    return { ok: true, recipe };
+  const candidates = recipeCandidates(body);
+  if (candidates.length === 0) {
+    if (!modulesFor(service).has(body.module)) {
+      return fail(CALLER_FORBIDDEN, 'module', service, body.module, null);
+    }
+    return { ok: true, recipe: null };
   }
 
-  if (!modulesFor(service).has(body.module)) {
-    return fail(CALLER_FORBIDDEN, 'module', service, body.module, null);
+  let firstForbidden: { ok: false; violation: BindingViolation } | undefined;
+  for (const recipe of candidates) {
+    const grant = grantFor(service, recipe);
+    if (!grant) {
+      firstForbidden ??= fail(CALLER_FORBIDDEN, 'recipe', service, body.module, recipe);
+      continue;
+    }
+    if (body.module !== grant.module) {
+      firstForbidden ??= fail(CALLER_FORBIDDEN, 'module', service, body.module, recipe);
+      continue;
+    }
+    return { ok: true, recipe };
   }
-  return { ok: true, recipe: null };
+  return firstForbidden ?? fail(CALLER_FORBIDDEN, 'recipe', service, body.module, candidates[0] ?? null);
 }
 
 export function applyCallerBinding(caller: PostCaller, body: WirePost, options: CallerBindingOptions = {}): void {
   const mode = options.mode ?? readCallerBindingMode();
   const judgment = judgeCallerPost(caller, body, mode);
-  if (judgment.ok) return;
+  const observations: BindingViolation[] = [];
 
-  const key = `${judgment.violation.reason}:${judgment.violation.service ?? ''}:${judgment.violation.module}:${judgment.violation.recipe ?? ''}`;
-  violationCounts.set(key, (violationCounts.get(key) ?? 0) + 1);
-  options.onViolation?.(judgment.violation);
-  if (mode === 'enforce') throw new LedgerError(violationMessage(judgment.violation), judgment.violation.code);
+  // Report mode must show what enforce would refuse. A shared-secret post is
+  // unbound even when the claimed service is allowed to send this body.
+  if (mode === 'report' && caller.kind === 'legacy') {
+    const alreadyUnbound = !judgment.ok && judgment.violation.reason === 'unbound';
+    if (!alreadyUnbound) {
+      observations.push({
+        code: CALLER_UNBOUND,
+        reason: 'unbound',
+        service: caller.claimed,
+        module: body.module,
+        recipe: null,
+      });
+    }
+  }
+  if (!judgment.ok) observations.push(judgment.violation);
+  if (observations.length === 0) return;
+
+  for (const violation of observations) {
+    addCallerBindingCount(violation);
+    options.onViolation?.(violation);
+  }
+  if (!judgment.ok && mode === 'enforce') throw new LedgerError(violationMessage(judgment.violation), judgment.violation.code);
 }
 
 /**
@@ -172,6 +259,15 @@ export function authenticatePostCaller(
   if (dedicated) {
     const bound = verifyServiceHeaders(headers, dedicated, verify);
     if (bound.service) return { kind: 'bound', service: bound.service };
+    // A dedicated secret that matched the signature and then failed the body,
+    // or a call that is already stale, must not be reported as the shared
+    // secret's bad-signature.
+    if (bound.rejected === 'stale' || bound.rejected === 'body-mismatch') {
+      throw new LedgerError(
+        `Service credentials are required on the internal ledger API (§2): ${bound.rejected}`,
+        'ledger.unauthenticated',
+      );
+    }
   }
 
   const shared = verifyServiceHeaders(headers, sharedSecret, verify);

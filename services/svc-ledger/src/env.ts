@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
-import { CALLER_SECRET_ENV_NAMES } from './caller-allowlist.js';
+import { assertDistinctCallerSecrets, CALLER_SECRET_ENV_NAMES, type CallerSecretEnvName } from './caller-allowlist.js';
 
 function blankToUndefined(value: unknown): unknown {
   if (typeof value !== 'string') return value;
@@ -8,9 +8,20 @@ function blankToUndefined(value: unknown): unknown {
   return trimmed === '' ? undefined : trimmed;
 }
 
-const callerSecretFields = Object.fromEntries(
-  CALLER_SECRET_ENV_NAMES.map((name) => [name, z.preprocess(blankToUndefined, z.string().min(32).optional())]),
-);
+function callerSecretSchema() {
+  return z.preprocess(blankToUndefined, z.string().min(32).optional());
+}
+
+type CallerSecretShape = {
+  [K in CallerSecretEnvName]: ReturnType<typeof callerSecretSchema>;
+};
+
+/** One schema per tuple entry, so the parsed env keeps each secret's key name. */
+function callerSecretFields(): CallerSecretShape {
+  const fields = {} as CallerSecretShape;
+  for (const name of CALLER_SECRET_ENV_NAMES) fields[name] = callerSecretSchema();
+  return fields;
+}
 
 // svc-ledger SERVES the internal money plane, so it must be able to
 // authenticate the services calling it. No default: a ledger that cannot tell
@@ -41,9 +52,11 @@ const schema = serviceEnvSchema
 
       /**
        * OPS-0001. `report` (default) still accepts the shared internal secret and
-       * still posts a mismatched caller, after logging it. `enforce` refuses
-       * that post. Blank is report, so a local stack that never set this keeps
-       * posting after a pull.
+       * still posts. Each shared-secret post is counted as unbound. `enforce`
+       * refuses that post. Set enforce only when the unbound count is 0 for
+       * every posting service and allowlist violations are 0 for a full business
+       * cycle. A quiet warning log is not that signal. Blank is report, so a
+       * local stack that never set this keeps posting after a pull.
        */
       LEDGER_CALLER_BINDING: z.preprocess(blankToUndefined, z.enum(['report', 'enforce']).default('report')),
 
@@ -53,7 +66,7 @@ const schema = serviceEnvSchema
        * Blank or unset means that caller has no dedicated secret yet. Do not
        * invent one here.
        */
-      ...callerSecretFields,
+      ...callerSecretFields(),
 
       /**
        * Reconciliation cadence in minutes. §4.2 specifies hourly snapshots.
@@ -85,7 +98,22 @@ const schema = serviceEnvSchema
        */
       IDENTITY_URL: z.string().url().optional(),
     }),
-  );
+  )
+  .superRefine((parsed, ctx) => {
+    const named: Array<readonly [string, string]> = [];
+    for (const name of CALLER_SECRET_ENV_NAMES) {
+      const value = parsed[name];
+      if (typeof value === 'string' && value.length > 0) named.push([name, value]);
+    }
+    try {
+      assertDistinctCallerSecrets(named, parsed.INTERNAL_SERVICE_SECRET);
+    } catch (err) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: err instanceof Error ? err.message : 'dedicated caller secret is not distinct',
+      });
+    }
+  });
 
 export const env = loadEnv(schema);
 export type Env = typeof env;
