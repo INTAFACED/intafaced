@@ -269,7 +269,7 @@ function Overview({
                   <Amounts rows={m.conversionVolume} empty="None" />
                 )
               }
-              period="No conversion order reader yet"
+              period="No conversion order reader"
             />
           </div>
         )}

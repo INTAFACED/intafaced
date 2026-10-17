@@ -27,7 +27,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'DETAIL',
     'Inspect the requested payout and its approval context before opening the existing decision flow.',
     ['Requested payout', 'Maker and checker', 'Screening and masked destination', 'Decision and audit history'],
-    'The approval read has no masked destination, first founder signature or combined approval history. The existing queue retains its hash-bound two-founder decision flow.',
+    "This page is not wired to founderAdmin.approvals.list, and svc-pay has no single read of an approval's full history. The existing queue keeps its hash-bound two-founder decision flow.",
     'Open approval queue',
   ),
   screen(
@@ -150,7 +150,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Track settlement windows, fees and failed workflows across merchants.',
     ['Settlement', 'Merchant', 'Gross / fee / net', 'Status', 'Window'],
-    'svc-pay has no founder-wide settlement list or aggregate. Failed-first sorting and export need that list.',
+    'This page is not wired to founderAdmin.payouts.list, and svc-pay has no settlement aggregate, failed-first sort or export.',
   ),
   screen(
     'F36',
@@ -246,7 +246,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Review tier definitions, caps and approval requirements.',
     ['Tier and archetype', 'Caps', 'Pricing and reserve', 'Approval threshold'],
-    'svc-pay has no tier-definition or merchant-count read; no commercial values are supplied here.',
+    'This page is not wired to founderAdmin.control.tiers.list, and svc-pay has no merchant-count-per-tier read; no commercial values are supplied here.',
   ),
   screen(
     'F55',
@@ -284,7 +284,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Review effective caps, usage and merchants approaching a configured limit.',
     ['Scope', 'Cap', 'Usage', 'Headroom', 'Last changed'],
-    'svc-pay has no global usage or limit-increase read. Unconfigured limits remain unset.',
+    'This page is not wired to founderAdmin.control.limitRequests.list, and svc-pay has no global cap-usage read. Unconfigured limits remain unset.',
   ),
   screen(
     'F59',
@@ -331,7 +331,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Trace state changes to their actor, second approver and before/after values.',
     ['Action and resource', 'Actor', 'Second approver', 'Before / after', 'Reason', 'Time'],
-    'svc-pay has no founder control audit read. An absent audit read does not mean no changes occurred.',
+    'This page is not wired to founderAdmin.control.audit.list. An absent audit list here does not mean no changes occurred.',
   ),
   screen(
     'F65',
@@ -387,7 +387,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'DASH',
     'Trace fee and spread revenue to ledger-backed merchant activity.',
     ['Fee revenue', 'Spread revenue', 'Merchant breakdown', 'Daily ledger reconciliation'],
-    'svc-pay has no fee-snapshot or revenue-breakdown read.',
+    'svc-pay has no per-merchant fee-versus-spread revenue breakdown.',
   ),
   screen(
     'F71',

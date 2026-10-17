@@ -195,7 +195,7 @@ export function FounderScreenView({
           <Card
             id="records"
             title={`${screen.title} records`}
-            sub="Row count unavailable. Search, server filters, pagination and export arrive with the list reader."
+            sub="Row count unavailable. Search, server filters, pagination and export are not available: there is no list reader."
             actions={
               <button className="mp-btn" disabled title="No authoritative filtered list is available to export.">
                 Export CSV unavailable
@@ -203,7 +203,7 @@ export function FounderScreenView({
             }
           >
             <fieldset disabled className="fo-filters">
-              <legend>Search and filters · awaiting backend</legend>
+              <legend>Search and filters · not connected</legend>
               <label className="mp-field">
                 Search
                 <input className="mp-input" placeholder="ID or reference" />
@@ -266,7 +266,7 @@ export function FounderScreenView({
               </span>
             ))}
           </nav>
-          <p className="mp-footnote">Table fallback and per-asset series arrive with the analytics reader.</p>
+          <p className="mp-footnote">Table fallback and per-asset series are not available: there is no analytics reader.</p>
         </Card>
       ) : null}
       {['FORM', 'CONFIG', 'DETAIL'].includes(screen.type) && !handled && !noPointer(screen.id) ? (
