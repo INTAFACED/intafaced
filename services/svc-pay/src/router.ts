@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import {
+  payCheckoutSettingsGetInputSchema,
+  payCheckoutSettingsSchema,
   payMerchantFailureSchema,
   payPageSchema,
   payPaymentListInputSchema,
@@ -47,6 +49,7 @@ import type { RailRegistry } from './rails/registry.js';
 import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { PayGuardRefusal } from './seams/guards.js';
+import { seesFullPricing } from './merchant-ops/roles.js';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { allowMerchantRead, type MerchantReadAudience } from './merchant-read-access.js';
 import { logPaymentFactsReadFailure } from './payment-facts-log.js';
@@ -644,6 +647,30 @@ export function createPayRouter(
             return pay.createProfile(input);
           }),
         ),
+
+      /**
+       * The checkout profile the write above stored, newest row for this merchant.
+       * No row is `not_configured`. Same area as the write (`checkout.profile`).
+       * `feeRouting` is null unless the caller sees full pricing. `checkoutConfig` stays.
+       */
+      checkoutSettings: router({
+        get: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payCheckoutSettingsGetInputSchema)
+          .output(payCheckoutSettingsSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              const audience = await assertRead(
+                ctx.principal?.userId,
+                input.merchantId,
+                'trpc.merchant.checkoutSettings.get',
+                'profile.read',
+              );
+              const settings = await pay.getCheckoutSettings(input.merchantId);
+              if (settings.status !== 'configured' || seesFullPricing(audience)) return settings;
+              return { ...settings, feeRouting: null };
+            }),
+          ),
+      }),
 
       /** Hosted checkout pointer — token returned once. */
       createLink: scopedProcedure('pay:write', { module: 'pay' })
