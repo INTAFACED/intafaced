@@ -102,8 +102,8 @@ export function createWritesMock(ctx) {
             status: 'configured',
             profileId: uuid('ab', 9),
             checkoutConfig: {
-              displayName: 'TEST Coffee Co',
-              statementDescriptor: 'TEST COFFEE',
+              displayName: 'TEST Shop',
+              statementDescriptor: 'TEST SHOP',
               locale: 'en',
               methods: ['crypto', 'card'],
             },
