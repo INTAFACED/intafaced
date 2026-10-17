@@ -92,10 +92,6 @@ const en = {
   // exports
   requestTitle: 'Request an export',
   requestBody: 'Your report is prepared from your own records, then kept for you to download. It includes only your data.',
-  exportKind_settlements: 'Settlements',
-  exportKind_payouts: 'Payouts',
-  exportHint_settlements: 'Each settlement with gross, fees and net.',
-  exportHint_payouts: 'Each settlement paid out, with its payout reference.',
   download: 'Download',
   marking: 'Marking…',
   markRead: 'Mark read',

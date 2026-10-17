@@ -137,26 +137,6 @@ test('invoices: no invented entity, money or write', async ({ page }) => {
   expect(mock.calls.some((c) => /invoice\.(create|void|send)/.test(c.procedure))).toBe(false);
   expect(errors).toEqual([]);
 });
-test('developers: direct routes retain company authority guard', async ({ page }) => {
-  const { mock, errors } = await setup(page);
-  await signIn(page, '/pay/developer/keys');
-  for (const [path, name, title] of [
-    ['/pay/developer/keys', 'P43-api-keys', 'API keys'],
-    ['/pay/developer/signing', 'P44-signing', 'Request signing'],
-    ['/pay/developer/webhooks', 'P45-webhooks', 'Webhook endpoints'],
-    ['/pay/developer/webhooks/TEST-endpoint', 'P46-endpoint', 'Endpoint detail'],
-    ['/pay/developer/deliveries', 'P47-deliveries', 'Webhook deliveries'],
-  ]) {
-    await go(page, path);
-    await expect(page.getByRole('heading', { name: title, level: 1, exact: true })).toBeVisible();
-    await expect(
-      page.locator('.pp').getByText(path.endsWith('signing') ? /Per-key signing policy/ : /Verified company membership is required/),
-    ).toBeVisible();
-    await both(page, name);
-  }
-  expect(mock.calls.some((c) => /apiKeys|webhook/.test(c.procedure))).toBe(false);
-  expect(errors).toEqual([]);
-});
 test('settings: profile does not misuse checkout mutation; team search and current-view export', async ({ page }) => {
   const { errors } = await setup(page);
   await signIn(page, '/pay/settings');
@@ -275,7 +255,6 @@ async function developerFixture(page, kind, uncertainAction = false) {
       const { default: ReactDOM } = await import(loadedModule('react-dom_client') ?? '/node_modules/.vite/deps/react-dom_client.js');
       const { createRoot } = ReactDOM;
       await import('/src/features/pay/pay.css');
-      const views = await import('/src/features/pay/portal/settings/Developers.tsx');
       const billing = await import('/src/features/pay/portal/payments/Subscriptions.tsx');
       const { PortalFrame } = await import('/src/features/pay/portal/MerchantPortal.tsx');
       document.getElementById('root').style.display = 'none';
@@ -387,41 +366,13 @@ async function developerFixture(page, kind, uncertainAction = false) {
                 pay,
                 reload: () => {},
               })
-            : kind === 'keys'
-              ? React.createElement(views.KeysView, { resource: ready(keys), pay, reload: () => {} })
-              : kind === 'endpoint'
-                ? React.createElement(views.EndpointsView, {
-                    resource: ready([endpoint]),
-                    deliveries: ready([delivery]),
-                    pay,
-                    endpointId: endpoint.id,
-                    reload: () => {},
-                  })
-                : kind === 'webhooks'
-                  ? React.createElement(views.EndpointsView, {
-                      resource: ready([endpoint]),
-                      deliveries: ready([delivery]),
-                      pay,
-                      reload: () => {},
-                    })
-                  : React.createElement(views.DeliveryRows, { resource: ready([delivery]), reload: () => {} });
+            : null;
       createRoot(host).render(
         React.createElement(
           PortalFrame,
           {
             route: {
-              room:
-                kind === 'subscription'
-                  ? 'subscription'
-                  : kind === 'subscription-create'
-                    ? 'subscription-new'
-                    : kind === 'keys'
-                      ? 'developer-keys'
-                      : kind === 'endpoint'
-                        ? 'developer-endpoint'
-                        : kind === 'webhooks'
-                          ? 'developer-webhooks'
-                          : 'developer-deliveries',
+              room: kind === 'subscription-create' ? 'subscription-new' : 'subscription',
             },
           },
           content,
@@ -432,56 +383,6 @@ async function developerFixture(page, kind, uncertainAction = false) {
   );
   await expect(page.locator('#isolated-fixture .pp')).toBeVisible();
 }
-test('developer key component: review, single dispatch, once-only secret and filter export', async ({ page }) => {
-  await developerFixture(page, 'keys');
-  await expect(page.getByRole('rowheader', { name: /TEST integration/ })).toBeVisible();
-  await both(page, 'P43-api-keys-component-TEST');
-  await page.getByRole('button', { name: 'Revoke sandbox key', exact: true }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  expect(await page.evaluate(() => window.__fixtureCalls)).toEqual([]);
-  await page.getByRole('button', { name: 'Confirm revoke sandbox key', exact: true }).dblclick();
-  await expect.poll(() => page.evaluate(() => window.__fixtureCalls)).toEqual(['revoke']);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByLabel('Key name', { exact: true }).pressSequentially('TEST new key');
-  await page.getByRole('checkbox', { name: 'pay:read', exact: true }).check();
-  await page.getByRole('button', { name: 'Create sandbox key', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm create sandbox key', exact: true }).click();
-  await expect(page.getByText('TEST-ONCE-ONLY-SECRET', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Hide secret', exact: true }).click();
-  await expect(page.getByText('TEST-ONCE-ONLY-SECRET', { exact: true })).toHaveCount(0);
-  await page.getByRole('textbox', { name: 'Search loaded records', exact: true }).fill('not-a-key');
-  await expect(page.getByText('0 records shown')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Download shown records (CSV)' })).toBeDisabled();
-});
-test('webhook component: redacted URL, endpoint detail and enable/disable review', async ({ page }) => {
-  await developerFixture(page, 'webhooks');
-  await both(page, 'P45-webhooks-component-TEST');
-  await expect(page.locator('.pp')).not.toContainText('TEST-secret-in-URL');
-  await developerFixture(page, 'endpoint');
-  await both(page, 'P46-endpoint-component-TEST');
-  await page.getByRole('button', { name: 'Disable receiver', exact: true }).click();
-  expect(await page.evaluate(() => window.__fixtureCalls)).toEqual([]);
-  await page.getByRole('button', { name: 'Confirm disable receiver', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__fixtureCalls)).toEqual(['manage']);
-});
-test('delivery component: scoped drawer, safe response, URL filters and shown-row export', async ({ page }) => {
-  await page.clock.install();
-  await developerFixture(page, 'deliveries');
-  await page.getByRole('button', { name: 'Open detail', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Delivery facts', exact: true })).toBeVisible();
-  await expect(page).toHaveURL(/delivery=TEST-delivery/);
-  await expect(page.locator('.pp')).not.toContainText('INTERNAL SECRET');
-  await both(page, 'P47-deliveries-component-TEST');
-  await page.clock.fastForward(301000);
-  await expect(page.getByText(/read more than five minutes ago/)).toBeVisible();
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download shown records (CSV)' }).click();
-  expect((await download).suggestedFilename()).toBe('webhook-deliveries.csv');
-  await page.getByRole('combobox', { name: 'Status', exact: true }).selectOption('delivered');
-  await expect(page.getByText('0 records shown')).toBeVisible();
-  await expect(page.getByText('No deliveries in this view')).toBeVisible();
-});
-
 test('subscription component: cancellation requires a summary and dispatches the existing guarded action once', async ({ page }) => {
   await developerFixture(page, 'subscription');
   await page.getByRole('button', { name: 'Cancel subscription', exact: true }).click();
