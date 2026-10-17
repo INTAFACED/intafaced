@@ -48,12 +48,10 @@ export class CopyError extends Error {
   }
 }
 
-/** Stable residual — DIRECTION §8 / D26-P0-02 leader_share_bps (never invent rates). */
-export const COPY_FEE_SHARE_RESIDUAL =
-  'DIRECTION §8 / D26-P0-02 leader_share_bps is owner-only — refuse-closed (never invent fee-share rates)';
+/** Customer text when the leader fee share is unpublished. Spec id stays in the server log. */
+export const COPY_FEE_SHARE_RESIDUAL = 'Copy trading is not available yet: the leader fee share is not set.';
 
-/** Stable residual — DIRECTION §8 / D26-P0-15 served-jurisdiction list (never invent geo). */
-export const COPY_JURISDICTION_RESIDUAL =
-  'DIRECTION §8 / D26-P0-15 served-jurisdiction list is owner-only — refuse-closed (never invent geo allowlist)';
+/** Customer text when the served-region list is unpublished. */
+export const COPY_JURISDICTION_RESIDUAL = 'Copy trading is not available yet: the list of served regions is not set.';
 
-export const COPY_LAW_RESIDUAL = 'DIRECTION §8 / D26-P0-02 leader_share_bps and D26-P0-15 jurisdiction list are owner-only — refuse-closed';
+export const COPY_LAW_RESIDUAL = 'Copy trading is not available yet: the leader fee share and the list of served regions are not set.';

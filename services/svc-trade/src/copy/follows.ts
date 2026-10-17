@@ -8,6 +8,7 @@
 
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { copyNewIntentFenced, followRelationshipState, type CopyRelationshipState } from './copy-lifecycle.js';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { COPY_JURISDICTION_RESIDUAL, CopyError } from './errors.js';
 import type { CopyJurisdictionLaw } from './fee-share-law.js';
 
@@ -129,11 +130,8 @@ export function parseCopyEnvelope(input: {
  */
 export function copyRegionClosed(law: CopyJurisdictionLaw, region: string): CopyError | null {
   if (!law || law.published !== true) {
-    return new CopyError(
-      'Copy follow is refuse-closed until owner publishes DIRECTION §8 / D26-P0-15 served-jurisdiction list',
-      'trade.copy_jurisdiction_blank',
-      COPY_JURISDICTION_RESIDUAL,
-    );
+    logRefusalSpec('trade.copy_jurisdiction_blank');
+    return new CopyError(COPY_JURISDICTION_RESIDUAL, 'trade.copy_jurisdiction_blank', COPY_JURISDICTION_RESIDUAL);
   }
   const code = region.trim().toUpperCase();
   if (!code) {

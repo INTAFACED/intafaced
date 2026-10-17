@@ -27,7 +27,8 @@ describe('listProposals limit unset refuse', () => {
       expect((e as TokenError).code).toBe('token.proposal_list_limit_unset');
       expect((e as TokenError).message).toBe('Proposal list limit is unset');
       expect((e as TokenError).message).not.toMatch(/50-row|default 50/i);
-      expect(userCopy((e as TokenError).code)).toBe('token.proposal_list_limit_unset');
+      expect(userCopy((e as TokenError).code)).toBe('The proposal list size is not set.');
+      expect(userCopy((e as TokenError).code)).not.toMatch(/50/);
     }
   });
 

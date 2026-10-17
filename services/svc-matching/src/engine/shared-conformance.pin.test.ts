@@ -66,7 +66,7 @@ describe('D-S-06 shared matching conformance pins', () => {
     const inner = known?.[1] ?? '';
     const engineTif = [...inner.matchAll(/'([^']+)'/g)].flatMap((m) => (m[1] ? [m[1]] : []));
     expect(enumValues(schemas, 'timeInForceSchema')).toEqual(engineTif);
-    expect(engineTif).toEqual(['GTC', 'IOC', 'FOK', 'PO', 'GTD', 'GTT']);
+    expect(engineTif).toEqual(['GTC', 'IOC', 'FOK', 'PO', 'MOC', 'GTD', 'GTT']);
     expect(coreTif).toContain('tif is required; missing TIF is not GTC');
   });
 

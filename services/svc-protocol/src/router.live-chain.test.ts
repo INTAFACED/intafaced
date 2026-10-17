@@ -121,6 +121,7 @@ describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
       relay: new SessionRelay(chain),
       relayEnabled: () => true,
       ammFactoryAddress: () => '0x0000000000000000000000000000000000000000',
+      swapSlippageBps: () => null,
     });
     caller = router.createCaller(signedContext());
     anonCaller = router.createCaller(anonymousContext());
@@ -157,6 +158,7 @@ describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
       relay: new SessionRelay(emptyChain),
       relayEnabled: () => true,
       ammFactoryAddress: () => '0x0000000000000000000000000000000000000000',
+      swapSlippageBps: () => null,
     });
     await expect(router.createCaller(anonymousContext()).chainStatus()).resolves.toMatchObject({
       reachable: true,

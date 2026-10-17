@@ -491,6 +491,14 @@ services:
       # Public rulebook version (M00 / R-A7). EMPTY default — do not invent a
       # string. Blank → GET /rulebook unpublished. Host `.env` can pin.
       MATCHING_RULEBOOK_VERSION: ${MATCHING_RULEBOOK_VERSION:-}
+      # Operators who may propose and approve venue actions (open, halt, ...).
+      # Comma-separated identity user ids, at least two distinct; whitespace is
+      # trimmed. EMPTY pass-through, no invented ids: blank or one id REFUSES
+      # BOOT with a FATAL message (services/svc-matching/src/env.ts), so a lost
+      # host `.env` entry stops the container instead of leaving markets with no
+      # reachable halt. Host `.env` publishes it. `docker compose config` stays
+      # valid because the variable has an empty default.
+      MATCHING_OPERATOR_IDS: ${MATCHING_OPERATOR_IDS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4005']
     volumes:
@@ -1142,6 +1150,12 @@ services:
       # default. Blank refuses boot. Host may set 500 explicitly. Never invent
       # 500. Sweep stays OFF above — this is not turning it on. No APY/LTV/mids.
       LOAN_SWEEP_BATCH_SIZE: ${LOAN_SWEEP_BATCH_SIZE:-}
+      # Unknown loan/earn recovery. Interval default matches the trade
+      # hold-unknown sweep (60000). Batch default matches sweepHoldUnknown (50).
+      # `${VAR-default}` keeps a blank host value so the process can disable
+      # with a startup warning. `:-` would fill the blank back in.
+      BANK_RECOVERY_JOBS_INTERVAL_MS: ${BANK_RECOVERY_JOBS_INTERVAL_MS-60000}
+      BANK_RECOVERY_JOBS_BATCH_LIMIT: ${BANK_RECOVERY_JOBS_BATCH_LIMIT-50}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4009']
     healthcheck: *healthcheck
@@ -1717,6 +1731,9 @@ services:
       PROTOCOL_IMPLEMENTATION_ADDRESS: ${PROTOCOL_IMPLEMENTATION_ADDRESS:-}
       PROTOCOL_TOKEN_FACTORY_ADDRESS: ${PROTOCOL_TOKEN_FACTORY_ADDRESS:-}
       PROTOCOL_AMM_FACTORY_ADDRESS: ${PROTOCOL_AMM_FACTORY_ADDRESS:-}
+      # No default bps. Blank stays unset; the swap path refuses
+      # protocol.swap_slippage_unset. Never invent 50 (or any other tolerance).
+      PROTOCOL_SWAP_SLIPPAGE_BPS: ${PROTOCOL_SWAP_SLIPPAGE_BPS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4012']
     extra_hosts:

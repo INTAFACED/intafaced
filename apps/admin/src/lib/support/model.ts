@@ -1,4 +1,4 @@
-import type { QueueEntry, QueueRead, TicketStatus } from './types';
+import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
 
 /**
  * Support queue: strict readers and the metrics that can honestly be computed from one page of the queue.
@@ -93,4 +93,164 @@ export function claimGate(ticket: { status: string; assigneeId: string | null },
       : { ok: false, why: 'Another person already owns this ticket. svc-support does not allow taking it over.' };
   }
   return { ok: true };
+}
+
+/* ------------------------------------------------------------------ *
+ * Desk actions: what a founder can send, checked before the network
+ * ------------------------------------------------------------------ */
+
+export const STATUS_CHOICES: readonly TicketStatus[] = ['open', 'pending', 'resolved', 'closed'];
+
+/** svc-support's lifecycle table, copied so the page can say "not from here" before the click. The service stays the judge. */
+const TRANSITIONS: Readonly<Record<TicketStatus, readonly TicketStatus[]>> = {
+  open: ['pending', 'resolved', 'closed'],
+  pending: ['open', 'resolved', 'closed'],
+  resolved: ['open', 'closed'],
+  closed: [],
+};
+
+export function allowedNextStatuses(from: string): readonly TicketStatus[] {
+  return STATUS_CHOICES.includes(from as TicketStatus) ? TRANSITIONS[from as TicketStatus] : [];
+}
+
+export const ESCALATION_REASONS = [
+  { id: 'account_state', label: 'Account state (frozen, closed or similar)' },
+  { id: 'kyc_review', label: 'Identity verification review' },
+  { id: 'money_request', label: 'Customer asked for money to move (this only files the request; support moves nothing)' },
+  { id: 'technical', label: 'Technical problem' },
+  { id: 'other', label: 'Something else' },
+] as const;
+export type EscalationReason = (typeof ESCALATION_REASONS)[number]['id'];
+
+export const REPLY_MAX = 10_000;
+export const NOTE_MAX = 500;
+export const SUMMARY_MAX = 2_000;
+
+export type ActionGate = { readonly ok: true } | { readonly ok: false; readonly why: string };
+const GO: ActionGate = { ok: true };
+
+export function replyGate(ticket: { status: string }, body: string, busy: boolean): ActionGate {
+  if (busy) return { ok: false, why: 'A step is already in progress.' };
+  if (ticket.status === 'closed') return { ok: false, why: 'This ticket is closed, and svc-support takes no replies on a closed ticket.' };
+  if (body.trim() === '') return { ok: false, why: 'Write the reply first.' };
+  if (body.length > REPLY_MAX) return { ok: false, why: `A reply can be at most ${REPLY_MAX} characters.` };
+  return GO;
+}
+
+export function statusGate(ticket: { status: string }, next: string, note: string, busy: boolean): ActionGate {
+  if (busy) return { ok: false, why: 'A step is already in progress.' };
+  if (allowedNextStatuses(ticket.status).length === 0)
+    return { ok: false, why: `This ticket is ${ticket.status}. A closed ticket stays closed, so its status cannot change.` };
+  if (!allowedNextStatuses(ticket.status).includes(next as TicketStatus))
+    return { ok: false, why: `svc-support does not move a ticket from ${ticket.status} to ${next}.` };
+  if (note.length > NOTE_MAX) return { ok: false, why: `The reason can be at most ${NOTE_MAX} characters.` };
+  return GO;
+}
+
+export function escalateGate(ticket: { status: string }, summary: string, busy: boolean): ActionGate {
+  if (busy) return { ok: false, why: 'A step is already in progress.' };
+  if (ticket.status === 'closed') return { ok: false, why: 'This ticket is closed, and svc-support does not escalate a closed ticket.' };
+  if (summary.trim() === '') return { ok: false, why: 'Write what you concluded first. The case file keeps it.' };
+  if (summary.length > SUMMARY_MAX) return { ok: false, why: `The summary can be at most ${SUMMARY_MAX} characters.` };
+  return GO;
+}
+
+export type SupportActionRequest =
+  | { readonly action: 'reply'; readonly ticketId: string; readonly body: string }
+  | { readonly action: 'status'; readonly ticketId: string; readonly status: TicketStatus; readonly note?: string }
+  | {
+      readonly action: 'escalate';
+      readonly ticketId: string;
+      readonly reason: EscalationReason;
+      readonly summary: string;
+      readonly citedArticleIds?: readonly string[];
+    }
+  | {
+      readonly action: 'kb_publish';
+      readonly id: string;
+      readonly titleKey: string;
+      readonly bodyKey: string;
+      readonly baseRevision: number;
+      readonly category?: string;
+      readonly tags?: readonly string[];
+    }
+  | { readonly action: 'kb_unpublish'; readonly id: string; readonly baseRevision: number };
+
+const isText = (v: unknown, max: number): v is string => typeof v === 'string' && v.trim() !== '' && v.length <= max;
+const isKey = (v: unknown): v is string => isText(v, 200);
+
+/**
+ * The strict reader for an action request from the browser. Anything that is not exactly a known shape is null and
+ * nothing is sent to svc-support: a malformed request must not become a different request.
+ */
+export function readActionRequest(raw: Record<string, unknown>): SupportActionRequest | null {
+  switch (raw.action) {
+    case 'reply':
+      return isTicketId(raw.ticketId) && isText(raw.body, REPLY_MAX)
+        ? { action: 'reply', ticketId: raw.ticketId, body: raw.body.trim() }
+        : null;
+    case 'status': {
+      if (!isTicketId(raw.ticketId) || typeof raw.status !== 'string' || !STATUSES.includes(raw.status)) return null;
+      if (raw.note !== undefined && !isText(raw.note, NOTE_MAX)) return null;
+      return {
+        action: 'status',
+        ticketId: raw.ticketId,
+        status: raw.status as TicketStatus,
+        ...(raw.note === undefined ? {} : { note: raw.note.trim() }),
+      };
+    }
+    case 'escalate': {
+      if (!isTicketId(raw.ticketId) || !ESCALATION_REASONS.some((r) => r.id === raw.reason) || !isText(raw.summary, SUMMARY_MAX))
+        return null;
+      let cited: string[] | undefined;
+      if (raw.citedArticleIds !== undefined) {
+        if (!Array.isArray(raw.citedArticleIds) || raw.citedArticleIds.length > 20 || !raw.citedArticleIds.every(isKey)) return null;
+        cited = raw.citedArticleIds as string[];
+      }
+      return {
+        action: 'escalate',
+        ticketId: raw.ticketId,
+        reason: raw.reason as EscalationReason,
+        summary: raw.summary.trim(),
+        ...(cited && cited.length > 0 ? { citedArticleIds: cited } : {}),
+      };
+    }
+    case 'kb_publish': {
+      if (!isKey(raw.id) || !isKey(raw.titleKey) || !isKey(raw.bodyKey)) return null;
+      if (typeof raw.baseRevision !== 'number' || !Number.isInteger(raw.baseRevision) || raw.baseRevision < 0) return null;
+      if (raw.category !== undefined && !isKey(raw.category)) return null;
+      let tags: string[] | undefined;
+      if (raw.tags !== undefined) {
+        if (!Array.isArray(raw.tags) || raw.tags.length > 20 || !raw.tags.every(isKey)) return null;
+        tags = raw.tags as string[];
+      }
+      return {
+        action: 'kb_publish',
+        id: raw.id.trim(),
+        titleKey: raw.titleKey.trim(),
+        bodyKey: raw.bodyKey.trim(),
+        baseRevision: raw.baseRevision,
+        ...(raw.category === undefined ? {} : { category: raw.category.trim() }),
+        ...(tags && tags.length > 0 ? { tags: tags.map((t) => t.trim()) } : {}),
+      };
+    }
+    case 'kb_unpublish':
+      return isKey(raw.id) && typeof raw.baseRevision === 'number' && Number.isInteger(raw.baseRevision) && raw.baseRevision >= 1
+        ? { action: 'kb_unpublish', id: raw.id.trim(), baseRevision: raw.baseRevision }
+        : null;
+    default:
+      return null;
+  }
+}
+
+/** `ratingOps`: the rating, or null when the customer has not rated. Anything else is null here, never "no rating". */
+export function readRatingResult(raw: unknown): { readonly value: SupportRating | null } | null {
+  if (raw === null) return { value: null };
+  if (!isRecord(raw)) return null;
+  const { ticketId, userId, score, note, createdAt } = raw;
+  if (!isTicketId(ticketId) || !isTicketId(userId)) return null;
+  if (typeof score !== 'number' || !Number.isInteger(score) || score < 1 || score > 5) return null;
+  if (!(note === null || typeof note === 'string')) return null;
+  if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) return null;
+  return { value: { ticketId, userId, score, note, createdAt } };
 }

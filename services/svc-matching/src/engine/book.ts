@@ -317,7 +317,11 @@ export class OrderBook {
 
     const effective = toEffective(order);
     const viability = this.checkViability(effective);
-    if (viability) return rejected(viability);
+    if (viability) {
+      // A maker-or-cancel that would take is consumed. A retry of the same id must not rest.
+      if (effective.tif === 'MOC' && viability.code === 'moc_would_take') this.rememberAccepted(order.orderId);
+      return rejected(viability);
+    }
 
     const sequence = this.nextSequence();
     const outcome = this.execute(effective, sequence);
@@ -689,6 +693,9 @@ export class OrderBook {
     if (order.tif === 'PO' && !needsPrice) {
       return reject('invalid_tif', 'post-only requires a limit price');
     }
+    if (order.tif === 'MOC' && !needsPrice) {
+      return reject('invalid_tif', 'maker-or-cancel requires a limit price');
+    }
 
     if (order.tif === 'GTD' || order.tif === 'GTT') {
       if (order.type === 'market') {
@@ -791,6 +798,9 @@ export class OrderBook {
     if (order.tif === 'PO' && order.price !== null && this.wouldCross(order.side, order.price)) {
       return reject('post_only_would_cross', 'post-only order would take liquidity');
     }
+    if (order.tif === 'MOC' && order.price !== null && this.wouldCross(order.side, order.price)) {
+      return reject('moc_would_take', 'maker-or-cancel order would take liquidity');
+    }
 
     if (order.tif === 'FOK' && this.fillableQty(order) < order.qty) {
       return reject('fok_unfillable', 'fill-or-kill order cannot be filled in full');
@@ -876,7 +886,9 @@ export class OrderBook {
     let resting: RestingRef | null = null;
 
     if (matched.remaining > ZERO) {
-      const canRest = order.price !== null && (order.tif === 'GTC' || order.tif === 'PO' || order.tif === 'GTD' || order.tif === 'GTT');
+      const canRest =
+        order.price !== null &&
+        (order.tif === 'GTC' || order.tif === 'PO' || order.tif === 'MOC' || order.tif === 'GTD' || order.tif === 'GTT');
       if (canRest) {
         resting = this.rest(order, matched.remaining, sequence, version);
       } else {

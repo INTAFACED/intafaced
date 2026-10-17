@@ -522,7 +522,7 @@ test('public support and recovery links reach actual auth return without any Hel
   await page.goto(address('kb-account-access', 1));
   await expect(ready(page)).toBeVisible();
   await page.getByRole('link', { name: 'Account recovery →', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Password recovery is not connected', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Get back into your account', exact: true })).toBeVisible();
   await page.goBack();
   await page.getByRole('link', { name: 'View your support tickets →', exact: true }).click();
   await page.getByRole('link', { name: 'Sign in', exact: true }).click();
