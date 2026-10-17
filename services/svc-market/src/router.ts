@@ -12,6 +12,8 @@ import {
 } from './action-approval-consume.js';
 import { MARKET_OPS_SCOPE, MarketError, type VendorService } from './vendor-service.js';
 import type { CommerceService } from './commerce/commerce-service.js';
+import type { ReviewsService } from './reviews/reviews-service.js';
+import { REVIEW_MEAN_ROUNDING } from './reviews/reviews-service.js';
 import { userCopy } from './user-copy.js';
 import { createStrategyListing } from './strategy/strategy-listing.js';
 import type { PerpProposalService } from './perp-proposal-service.js';
@@ -142,7 +144,12 @@ function mapError(err: unknown): never {
     const message = userCopy(err.code);
     if (err.code === 'market.vendor_not_found') throw new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     if (err.code === 'market.vendor_already_applied') throw new TRPCError({ code: 'CONFLICT', message, cause: err });
-    if (err.code === 'market.vet_operator_required') throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    if (err.code === 'market.vet_operator_required' || err.code === 'market.ops_required') {
+      throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    }
+    if (err.code === 'market.earnings_vendor_required' || err.code === 'market.review_not_buyer') {
+      throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    }
     if (err.code === 'market.stake_required' || err.code === 'market.vendor_not_approved') {
       throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     }
@@ -175,6 +182,14 @@ function mapError(err: unknown): never {
       err.code === 'market.my_purchases_list_limit_unset' ||
       err.code === 'market.applications_list_limit_unset' ||
       err.code === 'market.history_limit_unset' ||
+      err.code === 'market.ops_sales_list_limit_unset' ||
+      err.code === 'market.ops_sales_window_unset' ||
+      err.code === 'market.ops_sales_window_too_wide' ||
+      err.code === 'market.reviews_list_limit_unset' ||
+      err.code === 'market.earnings_window_unset' ||
+      err.code === 'market.listing_taken_down' ||
+      err.code === 'market.takedown_approval_mismatch' ||
+      err.code === 'market.review_not_settled' ||
       err.code === MARKET_LISTING_PIN_UNSET ||
       err.code === MARKET_LISTING_PIN_IEEE ||
       err.code === MARKET_LISTING_SET_UNSET ||
@@ -195,7 +210,9 @@ function mapError(err: unknown): never {
       err.code === 'market.purchase_conflict' ||
       err.code === 'market.purchase_receipt_mismatch' ||
       err.code === 'market.purchase_self' ||
-      err.code === 'market.listing_not_owned'
+      err.code === 'market.listing_not_owned' ||
+      err.code === 'market.review_exists' ||
+      err.code === 'market.idempotency_conflict'
     ) {
       throw new TRPCError({ code: 'CONFLICT', message, cause: err });
     }
@@ -216,7 +233,7 @@ const listingOut = z.object({
   assetId: z.string(),
   price: z.string(),
   periodSeconds: z.number().int().positive().nullable(),
-  status: z.enum(['active', 'archived']),
+  status: z.enum(['active', 'archived', 'taken_down']),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -239,11 +256,39 @@ const purchaseOut = z.object({
   periodSeconds: z.number().int().positive().nullable(),
 });
 
+const salesRowOut = z.object({
+  vendorId: z.string().uuid(),
+  assetId: z.string(),
+  settledVolume: z.string(),
+  settledCount: z.string(),
+  commission: z.string(),
+});
+
+const reviewOut = z.object({
+  id: z.string().uuid(),
+  purchaseId: z.string().uuid(),
+  listingId: z.string().uuid(),
+  vendorId: z.string().uuid(),
+  buyerId: z.string().uuid(),
+  score: z.number().int().min(1).max(5),
+  text: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+const takedownOut = z.object({
+  listingId: z.string().uuid(),
+  status: z.literal('taken_down'),
+  reason: z.string(),
+  actorId: z.string().uuid(),
+  takenDownAt: z.string().datetime(),
+});
+
 export function createMarketRouter(
   vendors: VendorService,
   commerce?: CommerceService,
   perpProposals?: PerpProposalService,
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
+  reviews?: ReviewsService,
 ) {
   return router({
     /**
@@ -349,6 +394,86 @@ export function createMarketRouter(
           mapError(err);
         }
       }),
+
+    ops: router({
+      /**
+       * Settled volume, count, and commission per vendor and asset.
+       * Commission uses each purchase row's stored bps, floored like marketPurchase.
+       * Blank window or limit refuses. A session without market:ops never reaches this.
+       */
+      sales: scopedProcedure(MARKET_OPS_SCOPE)
+        .input(
+          z
+            .object({
+              from: z.string().max(64).optional(),
+              to: z.string().max(64).optional(),
+              vendorId: z.string().uuid().optional(),
+              limit: z.number().int().positive().max(50).optional(),
+              cursor: z.string().max(512).optional(),
+            })
+            .optional(),
+        )
+        .output(
+          z.object({
+            rows: z.array(salesRowOut),
+            refusedCount: z.string(),
+            pendingCount: z.string(),
+            nextCursor: z.string().nullable(),
+          }),
+        )
+        .query(async ({ input }) => {
+          requireCommerce(commerce);
+          try {
+            return await commerce.opsSales({
+              actorScope: MARKET_OPS_SCOPE,
+              from: input?.from,
+              to: input?.to,
+              vendorId: input?.vendorId,
+              limit: input?.limit,
+              cursor: input?.cursor,
+            });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+
+      /**
+       * Operator takedown. MFA is local because market:ops is not INTERACTIVE_ONLY.
+       * Identity approval type `market.takedown`, target id = listing id, expectedVersion `1`.
+       * Payload hash is marketActionPayloadHash('market.takedown', { listingId, reason }).
+       */
+      takedownListing: scopedProcedure(MARKET_OPS_SCOPE)
+        .input(
+          z.object({
+            listingId: z.string().uuid(),
+            reason: z.string().max(2_000),
+            approvalId: z.string().max(128).nullish(),
+            operationId: z.string().max(128).nullish(),
+            clientRequestId: z.string().max(128),
+          }),
+        )
+        .output(takedownOut)
+        .mutation(async ({ ctx, input }) => {
+          requireCommerce(commerce);
+          try {
+            requireMfa(ctx.principal!);
+            return await commerce.takedownListing(
+              {
+                actorId: ctx.principal!.userId,
+                actorScope: MARKET_OPS_SCOPE,
+                listingId: input.listingId,
+                reason: input.reason,
+                approvalId: input.approvalId,
+                operationId: input.operationId,
+                clientRequestId: input.clientRequestId,
+              },
+              approvals,
+            );
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
 
     /**
      * Take a listing slot, if the caller's stake tier has one free.
@@ -687,12 +812,35 @@ export function createMarketRouter(
      * Blank is not 50; pass 50 explicitly when that is the page you want.
      */
     listings: publicProcedure
-      .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
-      .output(z.array(listingOut))
+      .input(
+        z
+          .object({
+            q: z.string().max(120).optional(),
+            offerType: z.enum(['one_time', 'subscription']).optional(),
+            assetId: z.string().max(32).optional(),
+            sort: z.enum(['newest', 'priceAsc', 'priceDesc', 'title']).optional(),
+            limit: z.number().int().positive().max(50).optional(),
+            cursor: z.string().max(512).optional(),
+          })
+          .optional(),
+      )
+      .output(
+        z.object({
+          items: z.array(listingOut.extend({ vendorListingCount: z.number().int().nonnegative() })),
+          nextCursor: z.string().nullable(),
+        }),
+      )
       .query(async ({ input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.publicListings({ limit: input?.limit });
+          return await commerce.publicListings({
+            q: input?.q,
+            offerType: input?.offerType,
+            assetId: input?.assetId,
+            sort: input?.sort,
+            limit: input?.limit,
+            cursor: input?.cursor,
+          });
         } catch (err) {
           mapError(err);
         }
@@ -756,6 +904,113 @@ export function createMarketRouter(
         }
       }),
 
+    /**
+     * Caller's settled sales. Window is required. Commission is each row's snapshot.
+     * `sales` are the ledger postings. A non-vendor is refused. No payout batch.
+     */
+    myEarnings: scopedProcedure('market:read', { module: 'market' })
+      .input(z.object({ from: z.string().max(64).optional(), to: z.string().max(64).optional() }).optional())
+      .output(
+        z.object({
+          from: z.string().datetime(),
+          to: z.string().datetime(),
+          assets: z.array(
+            z.object({
+              assetId: z.string(),
+              gross: z.string(),
+              commission: z.string(),
+              net: z.string(),
+            }),
+          ),
+          sales: z.array(
+            z.object({
+              purchaseId: z.string().uuid(),
+              listingId: z.string().uuid(),
+              assetId: z.string(),
+              gross: z.string(),
+              commission: z.string(),
+              net: z.string(),
+              ledgerTxId: z.string().uuid(),
+              settledAt: z.string().datetime(),
+            }),
+          ),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        requireCommerce(commerce);
+        try {
+          return await commerce.myEarnings({
+            userId: ctx.principal!.userId,
+            from: input?.from,
+            to: input?.to,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    reviews: router({
+      submit: scopedProcedure('market:write', { module: 'market' })
+        .input(
+          z.object({
+            purchaseId: z.string().uuid(),
+            score: z.number(),
+            text: z.string().max(1_000).optional(),
+            clientRequestId: z.string().max(128),
+          }),
+        )
+        .output(reviewOut)
+        .mutation(async ({ ctx, input }) => {
+          requireReviews(reviews);
+          try {
+            return await reviews.submit({ buyerId: ctx.principal!.userId, ...input });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+
+      list: scopedProcedure('market:read', { module: 'market' })
+        .input(
+          z.object({
+            listingId: z.string().uuid(),
+            limit: z.number().int().positive().max(50).optional(),
+            cursor: z.string().max(512).optional(),
+          }),
+        )
+        .output(z.object({ reviews: z.array(reviewOut), nextCursor: z.string().nullable() }))
+        .query(async ({ input }) => {
+          requireReviews(reviews);
+          try {
+            return await reviews.list({
+              listingId: input.listingId,
+              limit: input.limit,
+              cursor: input.cursor,
+            });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+
+      summary: scopedProcedure('market:read', { module: 'market' })
+        .input(z.object({ vendorId: z.string().uuid() }))
+        .output(
+          z.object({
+            vendorId: z.string().uuid(),
+            count: z.string(),
+            mean: z.string().nullable(),
+            meanRounding: z.literal(REVIEW_MEAN_ROUNDING),
+          }),
+        )
+        .query(async ({ input }) => {
+          requireReviews(reviews);
+          try {
+            return await reviews.summary(input.vendorId);
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
     cancelSubscription: scopedProcedure('market:write', { module: 'market' })
       .input(z.object({ listingId: z.string().uuid() }))
       .output(
@@ -800,6 +1055,15 @@ function refuseRecurringSubscribe(): never {
     'Automatic recurring subscribe is not built — buy one period with purchase',
     'market.subscription_recurring_not_built',
   );
+}
+
+function requireReviews(reviews: ReviewsService | undefined): asserts reviews is ReviewsService {
+  if (!reviews) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'market.reviews is not wired in this process',
+    });
+  }
 }
 
 function requireCommerce(commerce: CommerceService | undefined): asserts commerce is CommerceService {

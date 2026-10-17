@@ -639,7 +639,7 @@ describe('svc-market mount — commerce scopes', () => {
       createListing: vi.fn(async () => listingRow),
       archiveListing: vi.fn(async () => ({ ...listingRow, status: 'archived' as const })),
       myListings: vi.fn(async () => [listingRow]),
-      publicListings: vi.fn(async () => [listingRow]),
+      publicListings: vi.fn(async () => ({ items: [{ ...listingRow, vendorListingCount: 1 }], nextCursor: null })),
       purchase: vi.fn(async () => ({
         id: purchaseId,
         listingId,
@@ -660,6 +660,9 @@ describe('svc-market mount — commerce scopes', () => {
       purchasesOf: vi.fn(async () => []),
       cancelSubscription: vi.fn(),
       subscriptionAccess: vi.fn(),
+      opsSales: vi.fn(),
+      takedownListing: vi.fn(),
+      myEarnings: vi.fn(),
     };
   }
 
@@ -715,8 +718,8 @@ describe('svc-market mount — commerce scopes', () => {
     await expect(
       createMarketRouter(stubVendors(), commerce as never)
         .createCaller(anonymous())
-        .listings(),
-    ).resolves.toEqual([listingRow]);
+        .listings({ limit: 50 }),
+    ).resolves.toEqual({ items: [{ ...listingRow, vendorListingCount: 1 }], nextCursor: null });
     expect(commerce.publicListings).toHaveBeenCalled();
   });
 
@@ -856,19 +859,19 @@ describe('svc-market mount — commerce scopes', () => {
 
   it('serves empty public catalogue when commerce returns [] for blank commission', async () => {
     const commerce = stubCommerce({ commissionBps: null });
-    commerce.publicListings = vi.fn(async () => []);
+    commerce.publicListings = vi.fn(async () => ({ items: [], nextCursor: null }));
     await expect(
       createMarketRouter(stubVendors(), commerce as never)
         .createCaller(anonymous())
-        .listings(),
-    ).resolves.toEqual([]);
+        .listings({ limit: 50 }),
+    ).resolves.toEqual({ items: [], nextCursor: null });
   });
 
   it('listings omit is PRECONDITION_FAILED — never invents a 50-listing page', async () => {
     const commerce = stubCommerce();
     commerce.publicListings = vi.fn(async (opts?: { limit?: number }) => {
       assertPublicListingsListLimit(opts?.limit);
-      return [listingRow];
+      return { items: [{ ...listingRow, vendorListingCount: 1 }], nextCursor: null };
     });
     const caller = createMarketRouter(stubVendors(), commerce as never).createCaller(anonymous());
     await expect(caller.listings()).rejects.toMatchObject({
@@ -879,7 +882,10 @@ describe('svc-market mount — commerce scopes', () => {
       code: 'PRECONDITION_FAILED',
       message: 'market.public_listings_list_limit_unset',
     });
-    await expect(caller.listings({ limit: 50 })).resolves.toEqual([listingRow]);
+    await expect(caller.listings({ limit: 50 })).resolves.toEqual({
+      items: [{ ...listingRow, vendorListingCount: 1 }],
+      nextCursor: null,
+    });
   });
 
   it('myListings omit is PRECONDITION_FAILED — never invents a 50-listing page', async () => {
@@ -1034,6 +1040,55 @@ describe('svc-market mount — commerce scopes', () => {
         .archiveListing({ listingId }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(commerce.archiveListing).not.toHaveBeenCalled();
+  });
+
+  it('refuses ops.sales to a vendor session and a buyer session', async () => {
+    const commerce = stubCommerce();
+    commerce.opsSales = vi.fn();
+    const vendor = principal({ scopes: ['market:write'], mfa: true });
+    const buyer = principal({ scopes: ['market:read'] });
+    const window = { from: '2026-01-01T00:00:00.000Z', to: '2026-02-01T00:00:00.000Z', limit: 10 };
+    await expect(
+      createMarketRouter(stubVendors(), commerce as never)
+        .createCaller(signed(vendor))
+        .ops.sales(window),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      createMarketRouter(stubVendors(), commerce as never)
+        .createCaller(signed(buyer))
+        .ops.sales(window),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(commerce.opsSales).not.toHaveBeenCalled();
+  });
+
+  it('refuses takedown without MFA even when market:ops is held', async () => {
+    const commerce = stubCommerce();
+    commerce.takedownListing = vi.fn();
+    const operator = principal({ userId: OP, sub: OP, scopes: ['market:ops'], mfa: false });
+    await expect(
+      createMarketRouter(stubVendors(), commerce as never)
+        .createCaller(signed(operator))
+        .ops.takedownListing({
+          listingId,
+          reason: 'this listing breaks the catalogue rules',
+          approvalId: 'appr-1',
+          operationId: 'op-1',
+          clientRequestId: 'td-1',
+        }),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect(commerce.takedownListing).not.toHaveBeenCalled();
+  });
+
+  it('refuses myEarnings without market:read', async () => {
+    const commerce = stubCommerce();
+    commerce.myEarnings = vi.fn();
+    const writer = principal({ scopes: ['market:write'] });
+    await expect(
+      createMarketRouter(stubVendors(), commerce as never)
+        .createCaller(signed(writer))
+        .myEarnings({ from: '2026-01-01T00:00:00.000Z', to: '2026-02-01T00:00:00.000Z' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(commerce.myEarnings).not.toHaveBeenCalled();
   });
 
   /**
