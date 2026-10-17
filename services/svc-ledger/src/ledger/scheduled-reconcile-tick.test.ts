@@ -11,21 +11,24 @@ import {
   backoffTicks,
   createReconcileTickState,
   runScheduledReconciliationTick,
+  type ReconcileIncompleteAlert,
   type ReconcileTickLog,
 } from './scheduled-reconcile-tick.js';
 import { runScheduledReconciliation, type LastVerified, type ReconciliationReport, type ScheduledReconcileResult } from './reconcile.js';
 import { truncateBook } from '../db/journal-guards.testkit.js';
 
 /**
- * The hourly timer. Only a COMPLETED proof that found a break freezes posting
- * (the run itself writes that freeze before it returns). A throw or an
- * `incomplete` run used to freeze the book as `reconciliation mismatch`; since
- * issue #4755 it logs fatal, backs off across ticks, and freezes nothing. Staleness
- * is reported on every tick without changing posting.
+ * The hourly timer. A completed mismatch freezes as `reconciliation mismatch`.
+ * A Postgres or connection failure is incomplete: it alerts, backs off, and
+ * freezes only after N consecutive runs (`reconcile_unproven`, default 3).
+ * Any other throw is a failed proof and freezes immediately. Staleness is
+ * reported on every tick without changing posting.
  */
 
 const FROZEN_LOG = 'LEDGER RECONCILIATION FAILED — posting frozen, operator attention required';
 const INCOMPLETE_LOG = 'LEDGER RECONCILIATION INCOMPLETE — the book was NOT verified and NOT frozen, operator attention required';
+const UNPROVEN_LOG =
+  'LEDGER RECONCILIATION UNPROVEN — posting frozen after consecutive incomplete runs, operator attention required';
 const STALE_LOG = 'LEDGER RECONCILIATION STALE — the book is NOT verified, posting unchanged, operator attention required';
 
 function logSink(): { log: ReconcileTickLog; fatal: Array<{ obj: object; msg: string }>; info: Array<{ obj: object; msg: string }> } {
@@ -82,13 +85,19 @@ const incompleteResult = (errorCode = '57014'): ScheduledReconcileResult =>
 function recordingLedger(last?: LastVerified): {
   ledger: Parameters<typeof runScheduledReconciliationTick>[1];
   froze: Array<[string, string]>;
+  alerted: ReconcileIncompleteAlert[];
 } {
   const froze: Array<[string, string]> = [];
+  const alerted: ReconcileIncompleteAlert[] = [];
   return {
     froze,
+    alerted,
     ledger: {
       async freeze(reason: string, actor: string) {
         froze.push([reason, actor]);
+      },
+      async alertReconciliationIncomplete(alert) {
+        alerted.push(alert);
       },
       ...(last ? { lastVerified: async () => last } : {}),
     },
@@ -123,11 +132,12 @@ describe('scheduled reconciliation tick — returned result', () => {
     expect(state).toMatchObject({ consecutiveIncomplete: 0, skipTicks: 0 });
   });
 
-  it('an incomplete run pages as INCOMPLETE, freezes NOTHING, and says it did not freeze', async () => {
+  it('an incomplete run pages as INCOMPLETE, alerts, freezes NOTHING, and says it did not freeze', async () => {
     const { log, fatal } = logSink();
-    const { ledger, froze } = recordingLedger();
+    const { ledger, froze, alerted } = recordingLedger();
     await runScheduledReconciliationTick(async () => incompleteResult(), ledger, log);
     expect(froze).toEqual([]);
+    expect(alerted).toEqual([{ errorCode: '57014', phase: 'proof', consecutiveIncomplete: 1, runId: '7' }]);
     expect(fatal.map((entry) => entry.msg)).toEqual([INCOMPLETE_LOG]);
     expect(fatal[0]?.obj).toMatchObject({
       outcome: 'incomplete',
@@ -138,9 +148,9 @@ describe('scheduled reconciliation tick — returned result', () => {
     });
   });
 
-  it('a throw out of the run is "no verdict", not a mismatch: no freeze, paged as INCOMPLETE', async () => {
+  it('a non-Postgres throw is a failed proof and freezes immediately', async () => {
     const { log, fatal } = logSink();
-    const { ledger, froze } = recordingLedger();
+    const { ledger, froze, alerted } = recordingLedger();
     const thrown = new Error('scheduled reconciliation threw');
     await runScheduledReconciliationTick(
       async () => {
@@ -149,9 +159,57 @@ describe('scheduled reconciliation tick — returned result', () => {
       ledger,
       log,
     );
-    expect(froze).toEqual([]);
-    expect(fatal.map((entry) => entry.msg)).toEqual([INCOMPLETE_LOG]);
+    expect(froze).toEqual([['reconciliation mismatch', 'reconciliation']]);
+    expect(alerted).toEqual([]);
+    expect(fatal.map((entry) => entry.msg)).toEqual([FROZEN_LOG]);
     expect(fatal[0]?.obj).toMatchObject({ err: thrown });
+  });
+
+  it('a connection error stays incomplete below the limit and does not freeze', async () => {
+    const { log, fatal } = logSink();
+    const { ledger, froze, alerted } = recordingLedger();
+    const thrown = Object.assign(new Error('CONNECTION_CLOSED 127.0.0.1:15485'), { code: 'CONNECTION_CLOSED' });
+    await runScheduledReconciliationTick(async () => {
+      throw thrown;
+    }, ledger, log);
+    expect(froze).toEqual([]);
+    expect(alerted).toEqual([{ errorCode: 'CONNECTION_CLOSED', phase: 'tick', consecutiveIncomplete: 1, runId: null }]);
+    expect(fatal.map((entry) => entry.msg)).toEqual([INCOMPLETE_LOG]);
+  });
+
+  it('a Postgres-coded throw stays incomplete below the limit and does not freeze', async () => {
+    const { log, fatal } = logSink();
+    const { ledger, froze, alerted } = recordingLedger();
+    const thrown = Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' });
+    await runScheduledReconciliationTick(
+      async () => {
+        throw thrown;
+      },
+      ledger,
+      log,
+    );
+    expect(froze).toEqual([]);
+    expect(alerted).toEqual([{ errorCode: '57014', phase: 'tick', consecutiveIncomplete: 1, runId: null }]);
+    expect(fatal.map((entry) => entry.msg)).toEqual([INCOMPLETE_LOG]);
+  });
+
+  it('freezes as reconcile_unproven on the Nth consecutive incomplete run and alerts every one', async () => {
+    const { log, fatal } = logSink();
+    const { ledger, froze, alerted } = recordingLedger();
+    const state = createReconcileTickState();
+    const tick = () =>
+      runScheduledReconciliationTick(async () => incompleteResult(), ledger, log, { state, maxConsecutiveIncomplete: 3 });
+    await tick();
+    await tick();
+    expect(froze).toEqual([]);
+    expect(alerted.map((alert) => alert.consecutiveIncomplete)).toEqual([1, 2]);
+    await tick();
+    expect(froze).toEqual([]);
+    expect(alerted).toHaveLength(2);
+    await tick();
+    expect(froze).toEqual([['reconcile_unproven', 'reconciliation']]);
+    expect(alerted.map((alert) => alert.consecutiveIncomplete)).toEqual([1, 2, 3]);
+    expect(fatal.map((entry) => entry.msg)).toEqual([INCOMPLETE_LOG, INCOMPLETE_LOG, UNPROVEN_LOG]);
   });
 
   it('backs off ACROSS ticks (skip 0, 1, 3, 7, then 8) and one ok run resets it', async () => {
@@ -169,7 +227,7 @@ describe('scheduled reconciliation tick — returned result', () => {
         },
         ledger,
         log,
-        { state },
+        { state, maxConsecutiveIncomplete: 100 },
       );
 
     await tick(incompleteResult); // run 1, fails -> skip 0
@@ -374,6 +432,7 @@ describe('scheduled reconciliation tick — against a real book', () => {
     expect(src).toContain('runScheduledReconciliationTick');
     expect(src).toContain('createReconcileTickState');
     expect(src).toContain('maxStaleHours: env.LEDGER_RECONCILE_MAX_STALE_HOURS');
+    expect(src).toContain('maxConsecutiveIncomplete: env.RECONCILE_MAX_CONSECUTIVE_INCOMPLETE');
     expect(src).not.toContain('reconciliation run failed');
   });
 

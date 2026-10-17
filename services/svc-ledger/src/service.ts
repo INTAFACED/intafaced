@@ -27,6 +27,7 @@ import {
   type ScheduledReconcileLedger,
 } from './ledger/reconcile.js';
 import { DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS, RECONCILE_ACTOR, RECONCILE_MISMATCH_REASON } from './ledger/reconcile-config.js';
+import type { ReconcileIncompleteAlert } from './ledger/scheduled-reconcile-tick.js';
 import { withMoneySpan, withSpan } from './tracing.js';
 
 /**
@@ -284,10 +285,10 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
    * connection, no `chain_tip` lock, per-run `statement_timeout`. Live posts
    * therefore neither wait for it nor make it report a false `ok: false`.
    *
-   * A proof that could not FINISH (timeout, lost connection) is not a failed
-   * proof. It throws `ledger.reconcile_incomplete` and freezes nothing: the
-   * thaw precondition is "the book verifies", and an operator must be told the
-   * truth, which is "the check did not complete".
+   * A Postgres error or a lost connection is not a failed proof. It throws
+   * `ledger.reconcile_incomplete` and this call freezes nothing. Any other
+   * error is a failed proof and freezes. The scheduled tick, not this call,
+   * freezes after N consecutive incomplete runs (`reconcile_unproven`).
    *
    * The freeze is written BEFORE the page, and awaited. If the bus is down,
    * a real drift's alarm fails to send and this throws — with the book already
@@ -330,6 +331,26 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       if (!(err instanceof LedgerError && err.code === 'ledger.freeze_attributed')) throw err;
     }
     await this.publishReconciliationDrift(report);
+  }
+
+  /**
+   * Announce one incomplete run. The scheduled tick calls this on every
+   * Postgres or connection failure, including the run that then freezes for
+   * `reconcile_unproven`. No subscriber is wired; the event is the record.
+   */
+  async alertReconciliationIncomplete(alert: ReconcileIncompleteAlert): Promise<void> {
+    await this.bus.publish(
+      'ledgerReconciliationRunFailed',
+      {
+        errorCode: alert.errorCode,
+        phase: alert.phase,
+        consecutiveIncomplete: alert.consecutiveIncomplete,
+        runId: alert.runId,
+      },
+      {
+        idempotencyKey: `ledger.reconcile.incomplete:${alert.phase}:${alert.runId ?? 'unrecorded'}:${alert.consecutiveIncomplete}:${alert.errorCode}`,
+      },
+    );
   }
 
   /** When the book was last proved consistent. Backs `/health`, staleness reporting and the metric. */

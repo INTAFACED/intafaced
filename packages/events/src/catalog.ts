@@ -153,6 +153,26 @@ export const ledgerReconciliationFailed = defineEvent(
 );
 
 /**
+ * An incomplete reconciliation run: Postgres or the connection failed before a
+ * verdict. Emitted on every such run, including the one that freezes posting
+ * after N consecutive failures (`reconcile_unproven`, D-128). Not a drift.
+ * No subscriber is wired; the freeze itself does not depend on this event.
+ */
+export const ledgerReconciliationRunFailed = defineEvent(
+  'ledger',
+  'reconciliation_run',
+  'failed',
+  1,
+  z.object({
+    errorCode: z.string().min(1).max(64),
+    phase: z.enum(['start', 'tip', 'proof', 'snapshot', 'tick']),
+    consecutiveIncomplete: z.number().int().min(1),
+    runId: z.string().nullable(),
+  }),
+  'A reconciliation run could not finish. Alerts on every incomplete run; posting stays open until a mismatch or N consecutive incompletes.',
+);
+
+/**
  * ONE subject for both directions, deliberately.
  *
  * `VERBS` is a closed list and holds no honest past tense for un-freezing, so
@@ -759,6 +779,7 @@ export const EVENT_CATALOG = {
   kycApproved,
   ledgerTxPosted,
   ledgerReconciliationFailed,
+  ledgerReconciliationRunFailed,
   ledgerFreezeUpdated,
   stakeCreated,
   buybackExecuted,
@@ -961,6 +982,13 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-ledger publishes when snapshot and replay disagree, but the freeze it triggers is performed by svc-ledger itself in-process — the event is the external announcement, not the mechanism. It stays unconsumed until the alerting path (§4.2 "pages the operator") is built, and the freeze does not depend on that path existing.',
+  },
+  {
+    event: 'ledgerReconciliationRunFailed',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-ledger publishes on every incomplete reconciliation run, including the run that freezes after N consecutive failures. The halt is the posting_freeze row, written in-process. Nothing in this repo subscribes, and the freeze does not depend on a subscriber existing.',
   },
   {
     event: 'ledgerFreezeUpdated',

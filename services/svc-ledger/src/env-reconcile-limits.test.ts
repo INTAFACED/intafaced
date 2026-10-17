@@ -1,5 +1,6 @@
 /**
- * LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS and LEDGER_RECONCILE_MAX_STALE_HOURS (#4755).
+ * LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS, LEDGER_RECONCILE_MAX_STALE_HOURS (#4755)
+ * and RECONCILE_MAX_CONSECUTIVE_INCOMPLETE (D-128, default 3).
  *
  * Both carry a published default (10 minutes, 24 hours) because they are
  * operational limits, not money magnitudes. A value that is set must pass the
@@ -23,6 +24,7 @@ async function loadWith(overrides: Record<string, string | undefined> = {}) {
   vi.stubEnv('NODE_ENV', 'test');
   vi.stubEnv('LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS', undefined);
   vi.stubEnv('LEDGER_RECONCILE_MAX_STALE_HOURS', undefined);
+  vi.stubEnv('RECONCILE_MAX_CONSECUTIVE_INCOMPLETE', undefined);
   for (const [key, value] of Object.entries({ ...BASE_ENV, ...overrides })) vi.stubEnv(key, value);
   return (await import('./env.js')).env;
 }
@@ -32,13 +34,19 @@ afterEach(() => {
 });
 
 describe('svc-ledger reconcile limits', () => {
-  it('defaults to 10 minutes and 24 hours when unset or blank', async () => {
+  it('defaults to 10 minutes, 24 hours and 3 consecutive incompletes when unset or blank', async () => {
     const unset = await loadWith();
     expect(unset.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS).toBe(600_000);
     expect(unset.LEDGER_RECONCILE_MAX_STALE_HOURS).toBe(24);
-    const blank = await loadWith({ LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS: '  ', LEDGER_RECONCILE_MAX_STALE_HOURS: '' });
+    expect(unset.RECONCILE_MAX_CONSECUTIVE_INCOMPLETE).toBe(3);
+    const blank = await loadWith({
+      LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS: '  ',
+      LEDGER_RECONCILE_MAX_STALE_HOURS: '',
+      RECONCILE_MAX_CONSECUTIVE_INCOMPLETE: ' ',
+    });
     expect(blank.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS).toBe(600_000);
     expect(blank.LEDGER_RECONCILE_MAX_STALE_HOURS).toBe(24);
+    expect(blank.RECONCILE_MAX_CONSECUTIVE_INCOMPLETE).toBe(3);
   });
 
   it('takes an explicit in-range override', async () => {
@@ -53,5 +61,14 @@ describe('svc-ledger reconcile limits', () => {
 
   it.each(['0', '721', '2.5', 'a day', '-1'])('refuses max stale hours %s', async (bad) => {
     await expect(loadWith({ LEDGER_RECONCILE_MAX_STALE_HOURS: bad })).rejects.toThrow(/LEDGER_RECONCILE_MAX_STALE_HOURS/);
+  });
+
+  it('takes an explicit consecutive-incomplete limit', async () => {
+    const parsed = await loadWith({ RECONCILE_MAX_CONSECUTIVE_INCOMPLETE: '5' });
+    expect(parsed.RECONCILE_MAX_CONSECUTIVE_INCOMPLETE).toBe(5);
+  });
+
+  it.each(['0', '1001', '1.5', 'three', '-1'])('refuses consecutive incomplete limit %s', async (bad) => {
+    await expect(loadWith({ RECONCILE_MAX_CONSECUTIVE_INCOMPLETE: bad })).rejects.toThrow(/RECONCILE_MAX_CONSECUTIVE_INCOMPLETE/);
   });
 });

@@ -272,7 +272,12 @@ describe('reconciliation snapshot runner — real book', () => {
       const result = await runScheduledReconciliation(connect(), svc);
       expect(result.outcome).toBe('mismatch');
       if (result.outcome !== 'mismatch') throw new Error('expected persisted corruption mismatch');
-      expect(result.report.corruptAmountFields).toContain(field);
+      if (field === 'ledger_entries.balance_after') {
+        expect(result.report.chain.ok).toBe(false);
+        if (!result.report.chain.ok) expect(result.report.chain.brokenAt).not.toBe('incomplete');
+      } else {
+        expect(result.report.corruptAmountFields).toContain(field);
+      }
       expect((await d().sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual(['mismatch']);
       await expect(svc.status()).resolves.toMatchObject({ postingEnabled: false, frozenReason: 'reconciliation mismatch' });
       await expect(svc.post(deposit())).rejects.toMatchObject({ code: 'ledger.frozen' });
@@ -446,8 +451,9 @@ describe('reconciliation snapshot runner — real book', () => {
     );
     try {
       const run = await runSnapshotReconciliation(sql, {
-        async prove() {
-          throw new Error('proof blew up');
+        async prove(tx) {
+          await tx.unsafe(`SELECT 'not-a-number'::int`);
+          throw new Error('expected the cast to fail');
         },
       });
       expect(run).toMatchObject({ outcome: 'incomplete', runId: null, phase: 'proof' });
@@ -515,15 +521,16 @@ describe('reconciliation source pins', () => {
   const read = (rel: string) => readFileSync(join(here, rel), 'utf8');
   const strip = (code: string) => code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
-  it('the proof path takes no chain_tip lock and the tick never freezes on a throw', () => {
+  it('the proof path takes no chain_tip lock and the tick freezes only for a mismatch or unproven streak', () => {
     const reconcile = strip(read('reconcile.ts'));
     expect(reconcile).not.toMatch(/FOR UPDATE/);
     expect(reconcile).toContain("begin('REPEATABLE READ')");
     expect(reconcile).toContain('BEGIN ISOLATION LEVEL ${isolation} READ WRITE');
     expect(reconcile).toContain('SET LOCAL statement_timeout');
     const tick = strip(read('scheduled-reconcile-tick.ts'));
-    // The only reasons the tick may freeze with: a mismatch whose freeze failed, only.
+    // A proven mismatch (including a freeze that did not land, and a non-Postgres throw) or
+    // reconcile_unproven after N consecutive incomplete runs. A Postgres timeout is not in this list.
     const reasons = [...tick.matchAll(/freezeAsReconciliation\(ledger, (\w+)\)/g)].map((m) => m[1]);
-    expect(reasons.sort()).toEqual(['RECONCILE_MISMATCH_REASON']);
+    expect(reasons.sort()).toEqual(['RECONCILE_MISMATCH_REASON', 'RECONCILE_MISMATCH_REASON', 'RECONCILE_UNPROVEN_REASON']);
   });
 });

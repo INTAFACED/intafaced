@@ -23,7 +23,17 @@ export const DEFAULT_RECONCILE_MAX_STALE_HOURS = 24;
 export const MIN_RECONCILE_MAX_STALE_HOURS = 1;
 export const MAX_RECONCILE_MAX_STALE_HOURS = 24 * 30;
 
+/**
+ * How many Postgres/connection failures in a row may leave posting open.
+ * D-128: the next one freezes with `reconcile_unproven`. Default 3.
+ */
+export const DEFAULT_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE = 3;
+export const MIN_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE = 1;
+export const MAX_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE = 1_000;
+
 export const RECONCILE_MISMATCH_REASON = 'reconciliation mismatch';
+/** Posting halt after N consecutive proofs that never reached a verdict (D-128). */
+export const RECONCILE_UNPROVEN_REASON = 'reconcile_unproven';
 export const RECONCILE_ACTOR = 'reconciliation';
 
 /**
@@ -40,6 +50,20 @@ export function validReconcileStatementTimeoutMs(value: unknown): number {
   ) {
     throw new RangeError(
       `reconcile statement timeout must be an integer between ${MIN_RECONCILE_STATEMENT_TIMEOUT_MS} and ${MAX_RECONCILE_STATEMENT_TIMEOUT_MS} ms`,
+    );
+  }
+  return value;
+}
+
+export function validReconcileMaxConsecutiveIncomplete(value: unknown): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isInteger(value) ||
+    value < MIN_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE ||
+    value > MAX_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE
+  ) {
+    throw new RangeError(
+      `reconcile max consecutive incomplete must be an integer between ${MIN_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE} and ${MAX_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE}`,
     );
   }
   return value;

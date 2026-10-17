@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import { authEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
 import {
+  DEFAULT_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE,
   DEFAULT_RECONCILE_MAX_STALE_HOURS,
   DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS,
+  MAX_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE,
   MAX_RECONCILE_MAX_STALE_HOURS,
   MAX_RECONCILE_STATEMENT_TIMEOUT_MS,
+  MIN_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE,
   MIN_RECONCILE_MAX_STALE_HOURS,
   MIN_RECONCILE_STATEMENT_TIMEOUT_MS,
 } from './ledger/reconcile-config.js';
@@ -75,6 +78,20 @@ const schema = serviceEnvSchema
           .min(MIN_RECONCILE_MAX_STALE_HOURS)
           .max(MAX_RECONCILE_MAX_STALE_HOURS)
           .default(DEFAULT_RECONCILE_MAX_STALE_HOURS),
+      ),
+
+      /**
+       * Consecutive Postgres/connection failures that may leave posting open.
+       * The next one freezes with reason `reconcile_unproven` (D-128). Default 3.
+       */
+      RECONCILE_MAX_CONSECUTIVE_INCOMPLETE: z.preprocess(
+        blankIsUnset,
+        z.coerce
+          .number()
+          .int()
+          .min(MIN_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE)
+          .max(MAX_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE)
+          .default(DEFAULT_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE),
       ),
 
       /**

@@ -1,24 +1,42 @@
 import { LedgerError } from '@intafaced/ledger-client';
-import type { LastVerified, ScheduledReconcileResult } from './reconcile.js';
-import { RECONCILE_ACTOR, RECONCILE_MISMATCH_REASON } from './reconcile-config.js';
+import { isIncompleteReconcileError, reconcileErrorCode, type LastVerified, type ScheduledReconcileResult } from './reconcile.js';
+import {
+  DEFAULT_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE,
+  RECONCILE_ACTOR,
+  RECONCILE_MISMATCH_REASON,
+  RECONCILE_UNPROVEN_REASON,
+  validReconcileMaxConsecutiveIncomplete,
+} from './reconcile-config.js';
 
 /**
  * Hourly timer seam.
  *
- * Only a COMPLETED proof that found a break freezes posting, and that freeze is
- * written by the snapshot runner's caller (`LedgerService.handleReconciliationMismatch`)
- * before the run returns. This tick therefore never freezes on a throw or on an
- * `incomplete` run: "the proof could not finish" is not "the book is wrong"
- * (issue #4755). An incomplete run is logged fatal and retried on a later tick
- * with backoff.
+ * A completed mismatch freezes as `reconciliation mismatch` (the snapshot runner
+ * writes that halt before it returns). A throw that is not a Postgres error and
+ * not a connection error is the same failed proof: freeze immediately.
+ *
+ * A Postgres SQLSTATE or a connection error is incomplete (issue #4755). One of
+ * those does not freeze. Every incomplete run emits an alert. After
+ * `RECONCILE_MAX_CONSECUTIVE_INCOMPLETE` consecutive incomplete runs (default 3,
+ * D-128) posting freezes with reason `reconcile_unproven`.
  *
  * Staleness is reported on every tick, including backoff. An old or absent
- * proof is still no verdict: staleness never changes the posting switch.
+ * proof by itself never changes the posting switch.
  */
 
 const FROZEN_LOG = 'LEDGER RECONCILIATION FAILED — posting frozen, operator attention required';
 const INCOMPLETE_LOG = 'LEDGER RECONCILIATION INCOMPLETE — the book was NOT verified and NOT frozen, operator attention required';
+const UNPROVEN_LOG = 'LEDGER RECONCILIATION UNPROVEN — posting frozen after consecutive incomplete runs, operator attention required';
 const STALE_LOG = 'LEDGER RECONCILIATION STALE — the book is NOT verified, posting unchanged, operator attention required';
+const ALERT_FAILED_LOG = 'LEDGER RECONCILIATION ALERT FAILED — the incomplete run was not announced';
+
+/** What an incomplete run announces. No money figures: the proof did not finish. */
+export interface ReconcileIncompleteAlert {
+  readonly errorCode: string;
+  readonly phase: 'start' | 'tip' | 'proof' | 'snapshot' | 'tick';
+  readonly consecutiveIncomplete: number;
+  readonly runId: string | null;
+}
 
 export interface ReconcileTickLog {
   fatal(obj: object, msg: string): void;
@@ -31,6 +49,8 @@ interface TickLedger {
   status?(): Promise<{ postingEnabled: boolean }>;
   /** Present on `LedgerService`. Without it staleness reporting is off. */
   lastVerified?(): Promise<LastVerified>;
+  /** Present on `LedgerService`. Announces every incomplete run, including the one that freezes. */
+  alertReconciliationIncomplete?(alert: ReconcileIncompleteAlert): Promise<void>;
 }
 
 /** Mutable per-process state. Pass one object for the life of the timer. */
@@ -48,6 +68,11 @@ export function createReconcileTickState(now: Date = new Date()): ReconcileTickS
 export interface ReconcileTickOptions {
   /** Report staleness when the last `ok` run is older than this. Omitted: no threshold. */
   readonly maxStaleHours?: number;
+  /**
+   * Freeze with `reconcile_unproven` once this many incomplete runs have landed
+   * in a row. Omitted: the published default (3).
+   */
+  readonly maxConsecutiveIncomplete?: number;
   readonly state?: ReconcileTickState;
   readonly now?: () => Date;
 }
@@ -82,10 +107,38 @@ async function freezeAsReconciliation(ledger: TickLedger, reason: string): Promi
   }
 }
 
-function noteIncomplete(state: ReconcileTickState, log: ReconcileTickLog, detail: object): void {
+async function noteIncomplete(
+  state: ReconcileTickState,
+  ledger: TickLedger,
+  log: ReconcileTickLog,
+  alert: Omit<ReconcileIncompleteAlert, 'consecutiveIncomplete'>,
+  extra: object,
+  maxConsecutiveIncomplete: number,
+): Promise<void> {
   state.consecutiveIncomplete += 1;
+  const announced: ReconcileIncompleteAlert = { ...alert, consecutiveIncomplete: state.consecutiveIncomplete };
+  try {
+    await ledger.alertReconciliationIncomplete?.(announced);
+  } catch (err) {
+    log.fatal({ err }, ALERT_FAILED_LOG);
+  }
+  if (state.consecutiveIncomplete >= maxConsecutiveIncomplete) {
+    try {
+      await freezeAsReconciliation(ledger, RECONCILE_UNPROVEN_REASON);
+    } catch (err) {
+      // Do not back off away from a halt that did not land. The next tick retries.
+      state.skipTicks = 0;
+      throw err;
+    }
+    state.skipTicks = backoffTicks(state.consecutiveIncomplete);
+    log.fatal(
+      { ...extra, ...announced, skipNextTicks: state.skipTicks, frozenReason: RECONCILE_UNPROVEN_REASON },
+      UNPROVEN_LOG,
+    );
+    return;
+  }
   state.skipTicks = backoffTicks(state.consecutiveIncomplete);
-  log.fatal({ ...detail, consecutiveIncomplete: state.consecutiveIncomplete, skipNextTicks: state.skipTicks }, INCOMPLETE_LOG);
+  log.fatal({ ...extra, ...announced, skipNextTicks: state.skipTicks }, INCOMPLETE_LOG);
 }
 
 export async function runScheduledReconciliationTick(
@@ -96,6 +149,10 @@ export async function runScheduledReconciliationTick(
 ): Promise<void> {
   const now = options.now ?? (() => new Date());
   const state = options.state ?? createReconcileTickState(now());
+  const maxConsecutiveIncomplete =
+    options.maxConsecutiveIncomplete === undefined
+      ? DEFAULT_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE
+      : validReconcileMaxConsecutiveIncomplete(options.maxConsecutiveIncomplete);
 
   if (state.skipTicks > 0) {
     state.skipTicks -= 1;
@@ -104,35 +161,52 @@ export async function runScheduledReconciliationTick(
       'reconciliation tick skipped: backing off',
     );
   } else {
+    let result: ScheduledReconcileResult | undefined;
+    let thrown: unknown;
     try {
-      const result = await run();
-      if (result.outcome === 'ok') {
-        state.consecutiveIncomplete = 0;
-      } else if (result.outcome === 'mismatch') {
-        // Already frozen by the run. The page is this log line.
-        log.fatal({ report: result.report, snapshotted: false }, FROZEN_LOG);
-      } else if (result.outcome === 'incomplete') {
-        noteIncomplete(state, log, {
-          outcome: 'incomplete',
-          phase: result.run.phase,
-          errorCode: result.run.errorCode,
-          runId: result.run.runId,
-          err: result.run.error,
-          ...(result.run.recordError !== undefined ? { recordErr: result.run.recordError } : {}),
-        });
-      }
-      // 'skipped': another replica or the operator is proving the book. Say nothing, change nothing.
+      result = await run();
     } catch (err) {
-      if (err instanceof LedgerError && err.code === 'ledger.reconcile_freeze_failed') {
+      thrown = err;
+    }
+    if (thrown !== undefined) {
+      if (thrown instanceof LedgerError && thrown.code === 'ledger.reconcile_freeze_failed') {
         // A mismatch WAS found and the freeze after it did not land. This is the one
         // throw that must still try to halt posting. Not claiming a freeze unless it lands.
         await freezeAsReconciliation(ledger, RECONCILE_MISMATCH_REASON);
-        log.fatal({ err }, FROZEN_LOG);
+        log.fatal({ err: thrown }, FROZEN_LOG);
+      } else if (isIncompleteReconcileError(thrown)) {
+        await noteIncomplete(
+          state,
+          ledger,
+          log,
+          { errorCode: reconcileErrorCode(thrown), phase: 'tick', runId: null },
+          { outcome: 'incomplete', err: thrown },
+          maxConsecutiveIncomplete,
+        );
       } else {
-        // Anything else is "no verdict": a bug or an infrastructure fault around the run.
-        noteIncomplete(state, log, { outcome: 'incomplete', phase: 'tick', errorCode: 'unknown', err });
+        await freezeAsReconciliation(ledger, RECONCILE_MISMATCH_REASON);
+        log.fatal({ err: thrown }, FROZEN_LOG);
       }
+    } else if (result?.outcome === 'ok') {
+      state.consecutiveIncomplete = 0;
+    } else if (result?.outcome === 'mismatch') {
+      // Already frozen by the run. The page is this log line.
+      log.fatal({ report: result.report, snapshotted: false }, FROZEN_LOG);
+    } else if (result?.outcome === 'incomplete') {
+      await noteIncomplete(
+        state,
+        ledger,
+        log,
+        { errorCode: result.run.errorCode, phase: result.run.phase, runId: result.run.runId },
+        {
+          outcome: 'incomplete',
+          err: result.run.error,
+          ...(result.run.recordError !== undefined ? { recordErr: result.run.recordError } : {}),
+        },
+        maxConsecutiveIncomplete,
+      );
     }
+    // 'skipped': another replica or the operator is proving the book. Say nothing, change nothing.
   }
 
   await reportWhenStale(ledger, log, state, options, now);

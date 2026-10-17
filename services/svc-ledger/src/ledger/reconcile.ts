@@ -27,18 +27,23 @@ import { DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS, validReconcileStatementTimeoutM
  *     Catches value being created or destroyed by any means at all.
  */
 
-/** Known non-finite values actually read from persisted PostgreSQL numeric columns. */
+/**
+ * A stored amount that cannot be read as numeric(38,18): NaN, infinity, or a
+ * magnitude past the column (a replay or asset total that overflowed). That is
+ * tampered or corrupted book data, not an unfinished proof.
+ */
 class CorruptReconcileAmountError extends LedgerError {
   constructor(readonly field: string) {
-    super(`non-finite stored numeric in ${field}`, 'ledger.persisted_amount_corrupt');
+    super(`stored amount in ${field} cannot be parsed`, 'ledger.persisted_amount_corrupt');
   }
 }
 
 function parseReconcileAmount(value: unknown, field: string): ReturnType<typeof parseStoredAmount> {
-  if (typeof value === 'string' && ['NaN', 'Infinity', '-Infinity'].includes(value)) {
+  try {
+    return parseStoredAmount(value, field);
+  } catch {
     throw new CorruptReconcileAmountError(field);
   }
-  return parseStoredAmount(value, field);
 }
 
 export interface Drift {
@@ -147,29 +152,38 @@ export async function verifyChain(sql: ReconciliationDb, batchSize = 1000): Prom
     for (const tx of txs) {
       const entries: ChainEntryRow[] = entriesByTx.get(tx.id) ?? [];
 
-      const posted = {
-        id: tx.id,
-        module: tx.module,
-        reason: tx.reason,
-        postedAt: tx.posted_at,
-        entries: entries.map((e) => ({
-          id: '',
-          txId: tx.id,
-          accountId: e.account_id,
-          assetId: e.asset_id,
-          direction: e.direction,
-          amount: parseReconcileAmount(e.amount, 'ledger_entries.amount'),
-          balanceAfter: parseReconcileAmount(e.balance_after, 'ledger_entries.balance_after'),
-        })),
-      };
-      // Claims copy the actual key, hash, and metadata at insert or upgrade.
-      // A missing or contradictory claim refuses even though the shared digest
-      // intentionally does not cover key/metadata. Historical hashes stay intact.
-      if (!tx.claim_matches) {
+      // A row that cannot be parsed or hashed is a broken link. `posted_at` of
+      // `infinity` makes `toISOString` throw RangeError; an amount that does not
+      // fit numeric(38,18) throws while parsing. Either one is tampering, not
+      // a proof that failed to finish. The page query itself is outside this
+      // try: a statement timeout there is still incomplete.
+      let legacy: string;
+      try {
+        const posted = {
+          id: tx.id,
+          module: tx.module,
+          reason: tx.reason,
+          postedAt: tx.posted_at,
+          entries: entries.map((e) => ({
+            id: '',
+            txId: tx.id,
+            accountId: e.account_id,
+            assetId: e.asset_id,
+            direction: e.direction,
+            amount: parseReconcileAmount(e.amount, 'ledger_entries.amount'),
+            balanceAfter: parseReconcileAmount(e.balance_after, 'ledger_entries.balance_after'),
+          })),
+        };
+        // Claims copy the actual key, hash, and metadata at insert or upgrade.
+        // A missing or contradictory claim refuses even though the shared digest
+        // intentionally does not cover key/metadata. Historical hashes stay intact.
+        if (!tx.claim_matches) {
+          return { ok: false, brokenAt: tx.id, length };
+        }
+        legacy = hashTx(posted, previous);
+      } catch {
         return { ok: false, brokenAt: tx.id, length };
       }
-
-      const legacy = hashTx(posted, previous);
 
       if (tx.previous_hash !== previous || tx.hash !== legacy) {
         return { ok: false, brokenAt: tx.id, length };
@@ -340,6 +354,34 @@ export function reconcileErrorCode(error: unknown): string {
   return typeof code === 'string' && code.length > 0 ? code.slice(0, 64) : 'unknown';
 }
 
+/**
+ * SQLSTATE is five characters (PostgreSQL, including `57014`). Connection failures
+ * use the codes postgres.js and Node actually set. Anything else — a bug, a
+ * `RangeError`, a money parse that escaped the proof — is a failed proof.
+ */
+const POSTGRES_SQLSTATE = /^[0-9A-Z]{5}$/;
+const CONNECTION_ERROR_CODE =
+  /^(?:ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE|EHOSTUNREACH|ENETUNREACH|CONNECTION_CLOSED|CONNECTION_ENDED|CONNECTION_DESTROYED|CONNECT_TIMEOUT)$/;
+
+export function isIncompleteReconcileError(error: unknown): boolean {
+  if (error === null || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  if (typeof code !== 'string' || code.length === 0) return false;
+  return POSTGRES_SQLSTATE.test(code) || CONNECTION_ERROR_CODE.test(code);
+}
+
+/** A proof that threw before it could say the book was consistent. Not a numeric drift. */
+function failedProofReport(): ReconciliationReport {
+  return {
+    ok: false,
+    ranAt: new Date(),
+    balances: { ok: false, drift: [], accountsChecked: 0 },
+    chain: { ok: false, brokenAt: 'proof', length: 0 },
+    totals: {},
+    unbalancedAssets: [],
+  };
+}
+
 function boundedMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.length > 500 ? `${message.slice(0, 500)}…` : message;
@@ -409,6 +451,36 @@ async function recordAfterRollback(
 }
 
 /**
+ * Not a Postgres error and not a connection error: the proof failed. Record it
+ * on the mismatch path so the halt commits with the row when that insert works,
+ * and so the caller still freezes when the insert rolls back.
+ */
+async function recordFailedProof(
+  sql: ReconciliationDb,
+  startedAt: Date,
+  error: unknown,
+  phase: 'start' | 'tip' | 'proof' | 'snapshot',
+  tip: ReconciledTip | null,
+): Promise<Extract<SnapshotRun, { outcome: 'mismatch' }>> {
+  const report = failedProofReport();
+  const recorded = await recordAfterRollback(sql, {
+    startedAt,
+    outcome: 'mismatch',
+    tip,
+    errorCode: reconcileErrorCode(error),
+    detail: { phase, message: boundedMessage(error), failedProof: true },
+  });
+  return {
+    outcome: 'mismatch',
+    report,
+    tip,
+    runId: recorded.runId,
+    snapshotted: false,
+    recordError: recorded.recordError ?? error,
+  };
+}
+
+/**
  * Prove the book from one REPEATABLE READ snapshot and write the verdict.
  *
  * Owned dedicated connection for the whole run, READ WRITE, no
@@ -430,11 +502,13 @@ async function recordAfterRollback(
  *
  * Outcomes:
  *   ok         proof green. Snapshot rows and an `ok` run row are committed.
- *   mismatch   proof finished and failed. The `mismatch` run row and durable halt
- *              commit together in a short READ COMMITTED transaction.
- *   incomplete anything went wrong before a verdict (timeout, connection, insert
- *              failure, bug). Rolled back, a best-effort `incomplete` row is
- *              written on a fresh transaction. Only a completed mismatch freezes.
+ *   mismatch   proof finished and failed, or the run threw something that is not
+ *              a Postgres error and not a connection error. The `mismatch` run
+ *              row and durable halt commit together in a short READ COMMITTED
+ *              transaction (the caller freezes again if that commit rolls back).
+ *   incomplete a Postgres SQLSTATE or a connection error, and no completed
+ *              mismatch. Rolled back, a best-effort `incomplete` row is written
+ *              on a fresh transaction. One incomplete run does not freeze.
  *   skipped    another run holds the advisory lock.
  */
 export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOptions = {}): Promise<SnapshotRun> {
@@ -482,6 +556,9 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
     conn = await proofSql.reserve();
   } catch (error) {
     await proofSql.end({ timeout: 0 });
+    if (!isIncompleteReconcileError(error)) {
+      return recordFailedProof(sql, startedAt, error, 'start', null);
+    }
     const errorCode = reconcileErrorCode(error);
     const recorded = await recordAfterRollback(sql, {
       startedAt,
@@ -616,6 +693,10 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
         detail: { ...reportDetail(settled), recordedAfterRollback: true },
       });
       return { outcome: 'mismatch', report: settled, tip: state.tip, runId: recorded.runId, snapshotted: false, recordError: error };
+    }
+
+    if (!isIncompleteReconcileError(error)) {
+      return recordFailedProof(sql, startedAt, error, state.phase, state.tip);
     }
 
     const errorCode = reconcileErrorCode(error);

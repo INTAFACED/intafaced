@@ -123,7 +123,11 @@ const reconcileTimer = setInterval(() => {
     () => runScheduledReconciliation(sql, ledger, { statementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS }),
     ledger,
     app.log,
-    { maxStaleHours: env.LEDGER_RECONCILE_MAX_STALE_HOURS, state: reconcileTickState },
+    {
+      maxStaleHours: env.LEDGER_RECONCILE_MAX_STALE_HOURS,
+      maxConsecutiveIncomplete: env.RECONCILE_MAX_CONSECUTIVE_INCOMPLETE,
+      state: reconcileTickState,
+    },
   ).catch((err) => {
     app.log.fatal({ err }, 'LEDGER RECONCILIATION TICK FAILED — a freeze that was due did not land');
   });

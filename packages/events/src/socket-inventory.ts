@@ -78,6 +78,7 @@ export const EVENT_BUS_MATRIX = {
   kycApproved: { kind: 'live' },
   ledgerTxPosted: { kind: 'socket', socketClass: 'A' },
   ledgerReconciliationFailed: { kind: 'socket', socketClass: 'A' },
+  ledgerReconciliationRunFailed: { kind: 'socket', socketClass: 'A' },
   ledgerFreezeUpdated: { kind: 'socket', socketClass: 'A' },
   stakeCreated: { kind: 'live' },
   buybackExecuted: { kind: 'socket', socketClass: 'A' },
