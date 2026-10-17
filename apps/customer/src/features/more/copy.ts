@@ -50,7 +50,7 @@ const messages = {
   'academy.request.certification': 'Request certification',
   'academy.certification.outcome.received.xp.delivery.is.shown': 'Certification outcome received; XP delivery is shown separately',
   'academy.the.service.checks.completed.items.and.issues':
-    'The service checks completed items and issues an idempotent certification. XP depends on the identity publisher and its policy.',
+    'INTAFACED checks your completed lessons and issues the certificate once. XP is awarded separately and follows its own rules.',
   'academy.certification.does.not.match.this.account.and': 'Certification does not match this account and path',
   'academy.certification.receipt': 'Certification receipt',
   'academy.certification': 'Certification',
@@ -88,7 +88,7 @@ const messages = {
     'Scores are published records. Season control and scoring belong to operators. Prize pools and beneficiary pay are unavailable without published funding and ledger recipes.',
   'academyprogrammes.apply.for.a.residency': 'Apply for a residency',
   'academyprogrammes.use.a.cohort.slug.supplied.by.the':
-    'Use a cohort slug supplied by the programme. The API has no public cohort catalogue. Applications record your statement and move no funds.',
+    'Enter the cohort code your programme gave you. Applications record your statement and move no funds.',
   'academyprogrammes.review.residency.application': 'Review residency application',
   'academyprogrammes.submit.application': 'Submit application',
   'academyprogrammes.residency.application.received': 'Residency application received',
@@ -223,18 +223,18 @@ const messages = {
   'agents.task.request': 'Task request',
   'agents.review.metered.engine.request': 'Review metered engine request',
   'agents.run.engine.request': 'Run engine request',
-  'agents.engine.response.received': 'Engine response received',
+  'agents.engine.response.received': 'Agent reply received',
   'agents.request': 'Request',
   'agents.spend.ceiling': 'Spend ceiling',
   'agents.output.cap': 'Output cap',
   'agents.agent.permissions.or.routing.prices.changed.reload':
     'Agent permissions or routing prices changed. Reload and review this request again.',
   'agents.the.account.or.session.changed.review.again': 'The account or session changed. Review again.',
-  'agents.engine.response.does.not.match.this.session': 'Engine response does not match this session and reviewed fee asset',
+  'agents.engine.response.does.not.match.this.session': 'The reply doesn’t match this session and the fee currency you reviewed',
   'agents.review.engine.request': 'Review engine request',
-  'agents.the.service.labeled.this.response.unmetered': 'The service labeled this response unmetered.',
+  'agents.the.service.labeled.this.response.unmetered': 'This reply was not counted toward usage.',
   'agents.engine.text.is.a.response.to.your':
-    'Engine text is a response to your request; no order or withdrawal is executed by displaying it.',
+    'This text is a reply to your request. Showing it does not place an order or make a withdrawal.',
   'agents.close.agent.session': 'Close agent session',
   'agents.settle.and.close.session': 'Settle and close session',
   'agents.session.closure.received': 'Session closure received',
@@ -273,15 +273,15 @@ const messages = {
   'availabilityrooms.mining.pool.connection': 'Mining pool connection',
   'availabilityrooms.pool.process': 'Pool process',
   'availabilityrooms.ledger.configuration': 'Ledger configuration',
-  'availabilityrooms.window.store.configuration': 'Window-store configuration',
-  'availabilityrooms.scheduled.job.registrations': 'Scheduled job registrations',
+  'availabilityrooms.window.store.configuration': 'Reward window records setup',
+  'availabilityrooms.scheduled.job.registrations': 'Scheduled jobs',
   'availabilityrooms.configured.dependencies.are.unprobed.process.liveness.does':
-    'Configured dependencies are unprobed. Process liveness does not confirm a working ledger, accepted shares or a payout.',
+    'Connections that are set up have not been tested. Seeing the pool running does not confirm a working ledger, accepted shares or a payout.',
   'availabilityrooms.your.mining.activity': 'Your mining activity',
   'availabilityrooms.the.pool.has.a.signed.service.endpoint':
-    'The mining pool can accept shares and scheduled payouts, but it doesn’t yet show you your workers, share history, hashrate, reward balance or payouts.',
+    'The mining pool can accept shares and scheduled payouts, but it doesn’t show you your workers, share history, hashrate, reward balance or payouts.',
   'availabilityrooms.those.customer.capabilities.must.be.connected.before':
-    'Those customer capabilities must be connected before this room can show your miners or accept an instruction. The internal submitShare job is not a customer form.',
+    'The pool offers no customer access, so this room cannot show your miners or accept an instruction. Share submission is an internal pool job, not a form for customers.',
   'availabilityrooms.ask.about.pool.access': 'Ask about pool access',
   'availabilityrooms.your.launch.participation': 'Your Launch participation',
   'availabilityrooms.issue.and.list.an.asset': 'Issue and list an asset',
@@ -368,7 +368,7 @@ const messages = {
   'campaigns.campaign.copy': 'Campaign copy',
   'campaigns.campaign.activity': 'Campaign activity',
   'campaigns.the.service.publishes.draft.assessment.but.no':
-    'The service publishes draft assessment, but no customer campaign catalogue, participation history, reward budget or publication endpoint. These records cannot be shown as an empty list of completed campaigns.',
+    'No campaign list, participation history or reward budget is available. That is not the same as having no completed campaigns.',
   'campaigns.email.push.and.sms.campaign.delivery.require':
     'Email, push and SMS campaigns need a configured delivery channel and audience permission. This room can’t send a broadcast.',
   'campaigns.open.public.campaigns': 'Open public campaigns',
@@ -391,7 +391,7 @@ const messages = {
   'market.renewal': 'Renewal',
   'market.the.listing.terms.changed.reload.the.catalogue': 'The listing terms changed. Reload the catalogue and review again.',
   'market.the.account.changed.review.this.purchase.again': 'The account changed. Review this purchase again.',
-  'market.purchase.response.does.not.match.the.reviewed': 'Purchase response does not match the reviewed request',
+  'market.purchase.response.does.not.match.the.reviewed': 'The purchase result doesn’t match what you reviewed',
   'market.check.the.original.purchase.record.before.another': ' Check the original purchase record before another purchase.',
   'market.catalogue': 'Catalogue',
   'market.my.listings': 'My listings',
@@ -700,15 +700,15 @@ const messages = {
   'token.unlock': 'Unlock',
   'token.action': 'Action',
   'token.your.token.stakes': 'Your token stakes',
-  'token.asset.identity.unavailable': ' · asset identity unavailable',
-  'token.unstake.unavailable.asset.identity.missing': 'Unstake unavailable: asset identity missing',
-  'token.staking.asset.identity': 'Staking asset identity',
+  'token.asset.identity.unavailable': ' · token not named',
+  'token.unstake.unavailable.asset.identity.missing': 'Unstaking is off: INTAFACED does not say which token balance would move',
+  'token.staking.asset.identity': 'Which token is staked',
   'token.staking.and.unstaking.are.unavailable.until.the':
-    'Staking and unstaking are unavailable until the service publishes its configured asset ID.',
+    'Staking and unstaking are off because INTAFACED does not say which token balance they would move.',
   'token.the.token.asset.is.deployment.configurable.stake':
-    'The token asset is deployment-configurable. Stake and access responses contain amounts but no asset binding. A default name cannot establish which ledger asset will move.',
+    'Your stake and access readings show amounts only and do not name the token. Without a named token we do not guess which balance would move.',
   'token.your.existing.stake.records.remain.readable.a':
-    'You can still see your existing stake. These actions open once the token is published and its movements have been reviewed.',
+    'You can still see your existing stake. Staking and unstaking stay off until the token balance is named.',
   'token.proposals': 'Proposals',
   'token.no.proposals.are.published': 'No proposals are published',
   'token.proposal': 'Proposal',
@@ -734,11 +734,11 @@ const messages = {
   'token.burned.supply': 'Burned supply',
   'token.economy.boundaries': 'Economy boundaries',
   'token.emission.buyback.and.revenue.distribution.windows.are':
-    'Emission, buyback and revenue-distribution windows are signed service jobs. They are not customer actions.',
+    'Emission, buyback and revenue-distribution runs are carried out by INTAFACED itself. You cannot start them.',
   'token.the.customer.api.publishes.no.personal.yield':
-    'The customer API publishes no personal yield history, upcoming distribution quote, or buyback execution history. Those values stay absent.',
+    'No personal yield history, upcoming distribution quote or buyback record is available, so none is shown.',
   'token.governance.closure.depends.on.published.quorum.and':
-    'Governance closure depends on published quorum and threshold rules. A passed listing or grant does not execute while the executor is unconnected.',
+    'A vote closes under the published quorum and pass threshold. A passed listing or grant is not carried out, because nothing is connected to carry it out.',
   'token.proposal.detail': 'Proposal detail',
   'token.for.weight': 'For weight',
   'token.against.weight': 'Against weight',
@@ -834,9 +834,9 @@ const messages = {
   'availabilityrooms.the.market.seller.lifecycle.can.publish.catalogue':
     'The Market seller lifecycle can publish catalogue access listings. It cannot create a tradeable asset or sale round.',
   'availabilityrooms.missing.a.round.service.published.sale.terms':
-    'Missing a round service, published sale terms, jurisdiction/tier admission, scoped participation records and ledger subscribe/allocate recipes.',
+    'Not available: a sale round, published sale terms, a check of your region and tier, your participation records, and the ledger steps to subscribe and allocate.',
   'availabilityrooms.parked.chain.work.remains.unstarted.no.chain':
-    'Chain work has not started yet. This room doesn’t start any chain or deployment.',
+    'No chain work has started. This room doesn’t start any chain or launch.',
   'blueprint.identity.blueprint.card': '{value1} Identity Blueprint card',
   'campaigns.no.campaign.proposal.was.produced': 'No campaign proposal was produced: {value1}.',
   'campaigns.proposal.received.publication.remains.a.separate.human':
@@ -875,11 +875,11 @@ const messages = {
   'support.version': ' · version {value1}',
   'support.open': 'Open {value1}',
   'token.open.proposal': 'Open proposal {value1}',
-  'token.hidden.asset.identity.unavailable': 'Hidden · asset identity unavailable',
+  'token.hidden.asset.identity.unavailable': 'Hidden',
   'token.service.policy': 'Service policy',
   'token.determined.by.your.authoritative.stake.when.cast': 'Set by your stake at the moment you vote',
   'workbook.attach.fill': 'Attach fill {value1}',
-  'workbook.quote.asset.identity.unavailable': 'quote asset identity unavailable',
+  'workbook.quote.asset.identity.unavailable': 'quote currency unavailable',
   'workbook.unavailable.no.authoritative.mark': 'Unavailable: no confirmed price',
   'academy.learning': 'Learning',
   'academy.certificates': 'Certificates',
@@ -912,8 +912,16 @@ const messages = {
   'market.seconds.one.paid.period': '{seconds} seconds · one paid period',
   'quant.simulated.units': '{amount} simulated units',
   'quant.historical.quote.units': '{amount} historical quote units',
-  'token.asset.identity.unavailable.2': '{amount} · asset identity unavailable',
+  'token.asset.identity.unavailable.2': '{amount} · token not named',
   'token.basis.points': '{bps} basis points',
+  'token.filter.all': 'All',
+  'token.status.active': 'Active',
+  'token.status.pending': 'Pending',
+  'token.status.unstaking': 'Unstaking',
+  'token.status.closed': 'Closed',
+  'token.tier.flex': 'Flexible',
+  'token.tier.m3': '3 months',
+  'token.tier.m12': '12 months',
 } as const;
 const es = {
   'common.yes': 'Sí',
@@ -965,7 +973,7 @@ const es = {
   'academy.certification.outcome.received.xp.delivery.is.shown':
     'Resultado de certificación recibido; la entrega de XP se muestra por separado',
   'academy.the.service.checks.completed.items.and.issues':
-    'El servicio comprueba los contenidos completados y emite una certificación idempotente. Los XP dependen del publicador de identidad y de su política.',
+    'INTAFACED comprueba tus lecciones completadas y emite el certificado una sola vez. El XP se concede aparte y sigue sus propias reglas.',
   'academy.certification.does.not.match.this.account.and': 'La certificación no coincide con esta cuenta e itinerario',
   'academy.certification.receipt': 'Comprobante de certificación',
   'academy.certification': 'Certificación',
@@ -1004,7 +1012,7 @@ const es = {
     'Las puntuaciones son registros publicados. El control de la temporada y la puntuación corresponden a los operadores. Los fondos de premios y los pagos a beneficiarios no están disponibles sin financiación publicada y operaciones contables definidas.',
   'academyprogrammes.apply.for.a.residency': 'Solicitar una residencia',
   'academyprogrammes.use.a.cohort.slug.supplied.by.the':
-    'Usa un slug de cohorte proporcionado por el programa. La API no tiene un catálogo público de cohortes. Las solicitudes registran tu declaración y no mueven fondos.',
+    'Introduce el código de cohorte que te dio el programa. Las solicitudes registran tu declaración y no mueven fondos.',
   'academyprogrammes.review.residency.application': 'Revisar la solicitud de residencia',
   'academyprogrammes.submit.application': 'Enviar solicitud',
   'academyprogrammes.residency.application.received': 'Solicitud de residencia recibida',
@@ -1143,7 +1151,7 @@ const es = {
   'agents.task.request': 'Solicitud de tarea',
   'agents.review.metered.engine.request': 'Revisar la solicitud medida del motor',
   'agents.run.engine.request': 'Ejecutar solicitud del motor',
-  'agents.engine.response.received': 'Respuesta del motor recibida',
+  'agents.engine.response.received': 'Respuesta del agente recibida',
   'agents.request': 'Solicitud',
   'agents.spend.ceiling': 'Tope de gasto',
   'agents.output.cap': 'Límite de salida',
@@ -1151,10 +1159,10 @@ const es = {
     'Los permisos del agente o los precios de enrutamiento han cambiado. Vuelve a cargar y revisar esta solicitud.',
   'agents.the.account.or.session.changed.review.again': 'La cuenta o la sesión han cambiado. Revisa de nuevo.',
   'agents.engine.response.does.not.match.this.session':
-    'La respuesta del motor no coincide con esta sesión y el activo de comisión revisado',
+    'La respuesta no coincide con esta sesión ni con la moneda de comisión que revisaste',
   'agents.review.engine.request': 'Revisar solicitud del motor',
-  'agents.the.service.labeled.this.response.unmetered': 'El servicio ha etiquetado esta respuesta como no medida.',
-  'agents.engine.text.is.a.response.to.your': 'El texto del motor responde a tu solicitud; mostrarlo no ejecuta ninguna orden ni retirada.',
+  'agents.the.service.labeled.this.response.unmetered': 'Esta respuesta no se contó para el uso.',
+  'agents.engine.text.is.a.response.to.your': 'Este texto es una respuesta a tu solicitud. Mostrarlo no hace ninguna orden ni retirada.',
   'agents.close.agent.session': 'Cerrar sesión del agente',
   'agents.settle.and.close.session': 'Liquidar y cerrar sesión',
   'agents.session.closure.received': 'Resultado del cierre de sesión recibido',
@@ -1194,15 +1202,15 @@ const es = {
   'availabilityrooms.mining.pool.connection': 'Conexión al pool de minería',
   'availabilityrooms.pool.process': 'Proceso del pool',
   'availabilityrooms.ledger.configuration': 'Configuración del libro contable',
-  'availabilityrooms.window.store.configuration': 'Configuración del almacén de intervalos',
-  'availabilityrooms.scheduled.job.registrations': 'Registros de tareas programadas',
+  'availabilityrooms.window.store.configuration': 'Configuración de registros de ventanas de recompensa',
+  'availabilityrooms.scheduled.job.registrations': 'Tareas programadas',
   'availabilityrooms.configured.dependencies.are.unprobed.process.liveness.does':
-    'Las dependencias configuradas no se han comprobado. Que el proceso esté activo no confirma un libro contable operativo, participaciones de trabajo aceptadas ni un pago.',
+    'Las conexiones configuradas no se han probado. Ver el pool en marcha no confirma un libro mayor operativo, aportaciones aceptadas ni un pago.',
   'availabilityrooms.your.mining.activity': 'Tu actividad de minería',
   'availabilityrooms.the.pool.has.a.signed.service.endpoint':
-    'El pool de minería puede aceptar shares y pagos programados, pero aún no te muestra tus workers, historial de shares, hashrate, saldo de recompensas ni pagos.',
+    'El pool de minería puede aceptar aportaciones y pagos programados, pero no te muestra tus trabajadores, historial de aportaciones, tasa de hash, saldo de recompensas ni pagos.',
   'availabilityrooms.those.customer.capabilities.must.be.connected.before':
-    'Estas capacidades para clientes deben estar conectadas antes de que esta sala pueda mostrar tus mineros o aceptar una instrucción. La tarea interna submitShare no es un formulario para clientes.',
+    'El pool no ofrece acceso a los clientes, así que esta sala no puede mostrar tus mineros ni aceptar una instrucción. El envío de aportaciones es una tarea interna del pool, no un formulario para clientes.',
   'availabilityrooms.ask.about.pool.access': 'Consultar sobre el acceso al pool',
   'availabilityrooms.your.launch.participation': 'Tu participación en Launch',
   'availabilityrooms.issue.and.list.an.asset': 'Emitir y listar un activo',
@@ -1290,7 +1298,7 @@ const es = {
   'campaigns.campaign.copy': 'Texto de la campaña',
   'campaigns.campaign.activity': 'Actividad de campañas',
   'campaigns.the.service.publishes.draft.assessment.but.no':
-    'El servicio publica evaluaciones de borradores, pero no un catálogo de campañas para clientes, historial de participación, presupuesto de recompensas ni endpoint de publicación. Estos registros no pueden mostrarse como una lista vacía de campañas completadas.',
+    'No hay lista de campañas, historial de participación ni presupuesto de recompensas disponibles. Eso no equivale a no haber completado ninguna campaña.',
   'campaigns.email.push.and.sms.campaign.delivery.require':
     'Las campañas por correo, notificaciones push y SMS necesitan un canal de envío configurado y permiso de la audiencia. Esta sala no puede enviar difusiones.',
   'campaigns.open.public.campaigns': 'Abrir campañas públicas',
@@ -1315,7 +1323,7 @@ const es = {
   'market.the.listing.terms.changed.reload.the.catalogue':
     'Las condiciones del listado han cambiado. Vuelve a cargar el catálogo y revisar.',
   'market.the.account.changed.review.this.purchase.again': 'La cuenta ha cambiado. Revisa esta compra de nuevo.',
-  'market.purchase.response.does.not.match.the.reviewed': 'La respuesta de la compra no coincide con la solicitud revisada',
+  'market.purchase.response.does.not.match.the.reviewed': 'El resultado de la compra no coincide con lo que revisaste',
   'market.check.the.original.purchase.record.before.another': ' Comprueba el registro de la compra original antes de realizar otra compra.',
   'market.catalogue': 'Catálogo',
   'market.my.listings': 'Mis listados',
@@ -1638,15 +1646,16 @@ const es = {
   'token.unlock': 'Desbloqueo',
   'token.action': 'Acción',
   'token.your.token.stakes': 'Tu staking de tokens',
-  'token.asset.identity.unavailable': ' · identidad del activo no disponible',
-  'token.unstake.unavailable.asset.identity.missing': 'Retirada del staking no disponible: falta la identidad del activo',
-  'token.staking.asset.identity': 'Identidad del activo de staking',
+  'token.asset.identity.unavailable': ' · token sin nombrar',
+  'token.unstake.unavailable.asset.identity.missing':
+    'La retirada del staking está desactivada: INTAFACED no indica qué saldo de token se movería',
+  'token.staking.asset.identity': 'Qué token está en staking',
   'token.staking.and.unstaking.are.unavailable.until.the':
-    'El staking y su retirada no están disponibles hasta que el servicio publique el ID de su activo configurado.',
+    'El staking y su retirada están desactivados porque INTAFACED no indica qué saldo de token moverían.',
   'token.the.token.asset.is.deployment.configurable.stake':
-    'El activo del token se puede configurar en el despliegue. Las respuestas de staking y acceso contienen importes, pero no vinculan un activo. Un nombre predeterminado no puede establecer qué activo del libro contable se moverá.',
+    'Las lecturas de tu staking y acceso muestran solo importes y no nombran el token. Sin un token nombrado, no suponemos qué saldo se movería.',
   'token.your.existing.stake.records.remain.readable.a':
-    'Sigues viendo tu stake actual. Estas acciones se abrirán cuando el token esté publicado y sus movimientos se hayan revisado.',
+    'Sigues viendo tu stake actual. El staking y su retirada siguen desactivados hasta que se nombre el saldo de token.',
   'token.proposals': 'Propuestas',
   'token.no.proposals.are.published': 'No hay propuestas publicadas',
   'token.proposal': 'Propuesta',
@@ -1672,11 +1681,11 @@ const es = {
   'token.burned.supply': 'Oferta quemada',
   'token.economy.boundaries': 'Límites de la economía',
   'token.emission.buyback.and.revenue.distribution.windows.are':
-    'Los intervalos de emisión, recompra y reparto de ingresos son tareas de servicio firmadas. No son acciones del cliente.',
+    'Las emisiones, recompras y repartos de ingresos los ejecuta INTAFACED. No puedes iniciarlos tú.',
   'token.the.customer.api.publishes.no.personal.yield':
-    'La API para clientes no publica historial personal de rendimientos, cotización de próximas distribuciones ni historial de ejecución de recompras. Estos valores siguen ausentes.',
+    'No hay historial de rendimiento personal, estimación de próximo reparto ni registro de recompras, así que no se muestra ninguno.',
   'token.governance.closure.depends.on.published.quorum.and':
-    'El cierre de gobernanza depende de las reglas publicadas de cuórum y umbrales. Un listado o concesión aprobados no se ejecutan mientras el ejecutor esté desconectado.',
+    'Una votación se cierra con el quórum y el umbral publicados. Un listado o ayuda aprobados no se ejecutan, porque no hay nada conectado que los ejecute.',
   'token.proposal.detail': 'Detalle de la propuesta',
   'token.for.weight': 'Peso a favor',
   'token.against.weight': 'Peso en contra',
@@ -1776,9 +1785,9 @@ const es = {
   'availabilityrooms.the.market.seller.lifecycle.can.publish.catalogue':
     'El ciclo del vendedor de Market puede publicar listados de acceso al catálogo. No puede crear un activo negociable ni una ronda de venta.',
   'availabilityrooms.missing.a.round.service.published.sale.terms':
-    'Faltan un servicio de rondas, condiciones de venta publicadas, admisión por jurisdicción y nivel, registros de participación delimitados y operaciones de suscripción y asignación del libro contable.',
+    'No disponibles: una ronda de venta, condiciones de venta publicadas, la comprobación de tu región y nivel, tus registros de participación y los pasos del libro mayor para suscribir y asignar.',
   'availabilityrooms.parked.chain.work.remains.unstarted.no.chain':
-    'El trabajo de cadena aún no ha comenzado. Esta sala no inicia ninguna cadena ni despliegue.',
+    'No ha empezado ningún trabajo en la cadena. Esta sala no inicia ninguna cadena ni lanzamiento.',
   'blueprint.identity.blueprint.card': 'Tarjeta Identity Blueprint de {value1}',
   'campaigns.no.campaign.proposal.was.produced': 'No se ha producido ninguna propuesta de campaña: {value1}.',
   'campaigns.proposal.received.publication.remains.a.separate.human':
@@ -1818,11 +1827,11 @@ const es = {
   'support.version': ' · versión {value1}',
   'support.open': 'Abrir {value1}',
   'token.open.proposal': 'Abrir propuesta {value1}',
-  'token.hidden.asset.identity.unavailable': 'Oculto · identidad del activo no disponible',
+  'token.hidden.asset.identity.unavailable': 'Oculto',
   'token.service.policy': 'Política del servicio',
   'token.determined.by.your.authoritative.stake.when.cast': 'Se fija con tu stake en el momento de votar',
   'workbook.attach.fill': 'Adjuntar ejecución {value1}',
-  'workbook.quote.asset.identity.unavailable': 'identidad del activo de cotización no disponible',
+  'workbook.quote.asset.identity.unavailable': 'moneda de cotización no disponible',
   'workbook.unavailable.no.authoritative.mark': 'No disponible: sin precio confirmado',
   'academy.learning': 'Aprendizaje',
   'academy.certificates': 'Certificados',
@@ -1856,8 +1865,16 @@ const es = {
   'market.seconds.one.paid.period': '{seconds} segundos · un periodo pagado',
   'quant.simulated.units': '{amount} unidades simuladas',
   'quant.historical.quote.units': '{amount} unidades históricas de cotización',
-  'token.asset.identity.unavailable.2': '{amount} · identidad del activo no disponible',
+  'token.asset.identity.unavailable.2': '{amount} · token sin nombrar',
   'token.basis.points': '{bps} puntos básicos',
+  'token.filter.all': 'Todos',
+  'token.status.active': 'Activo',
+  'token.status.pending': 'Pendiente',
+  'token.status.unstaking': 'En retirada',
+  'token.status.closed': 'Cerrado',
+  'token.tier.flex': 'Flexible',
+  'token.tier.m3': '3 meses',
+  'token.tier.m12': '12 meses',
 } satisfies Record<keyof typeof messages, string>;
 
 const fr = {
@@ -1910,7 +1927,7 @@ const fr = {
   'academy.certification.outcome.received.xp.delivery.is.shown':
     'Résultat de certification reçu ; la remise des XP est affichée séparément',
   'academy.the.service.checks.completed.items.and.issues':
-    'Le service vérifie les contenus terminés et émet une certification idempotente. Les XP dépendent du service de publication d’identité et de sa politique.',
+    'INTAFACED vérifie tes leçons terminées et délivre le certificat une seule fois. Les XP sont attribués séparément et suivent leurs propres règles.',
   'academy.certification.does.not.match.this.account.and': 'La certification ne correspond pas à ce compte et à ce parcours',
   'academy.certification.receipt': 'Reçu de certification',
   'academy.certification': 'Certification',
@@ -1949,7 +1966,7 @@ const fr = {
     'Les scores sont des enregistrements publiés. Le contrôle de la saison et la notation relèvent des opérateurs. Les dotations et les paiements aux bénéficiaires sont indisponibles sans financement publié et opérations comptables définies.',
   'academyprogrammes.apply.for.a.residency': 'Postuler à une résidence',
   'academyprogrammes.use.a.cohort.slug.supplied.by.the':
-    'Utilise un slug de cohorte fourni par le programme. L’API ne propose aucun catalogue public de cohortes. Les candidatures enregistrent ta déclaration et ne déplacent aucun fonds.',
+    'Saisis le code de cohorte fourni par ton programme. Les candidatures enregistrent ta déclaration et ne déplacent aucun fonds.',
   'academyprogrammes.review.residency.application': 'Vérifier la candidature à une résidence',
   'academyprogrammes.submit.application': 'Envoyer la candidature',
   'academyprogrammes.residency.application.received': 'Candidature à une résidence reçue',
@@ -2089,7 +2106,7 @@ const fr = {
   'agents.task.request': 'Demande de tâche',
   'agents.review.metered.engine.request': 'Vérifier la demande mesurée du moteur',
   'agents.run.engine.request': 'Exécuter la demande du moteur',
-  'agents.engine.response.received': 'Réponse du moteur reçue',
+  'agents.engine.response.received': 'Réponse de l’agent reçue',
   'agents.request': 'Demande',
   'agents.spend.ceiling': 'Plafond de dépenses',
   'agents.output.cap': 'Limite de sortie',
@@ -2097,10 +2114,10 @@ const fr = {
     'Les autorisations de l’agent ou les tarifs de routage ont changé. Recharge et vérifie à nouveau cette demande.',
   'agents.the.account.or.session.changed.review.again': 'Le compte ou la session a changé. Vérifie à nouveau.',
   'agents.engine.response.does.not.match.this.session':
-    'La réponse du moteur ne correspond pas à cette session et à l’actif de frais vérifié',
+    'La réponse ne correspond pas à cette session ni à la devise de frais que tu as vérifiée',
   'agents.review.engine.request': 'Vérifier la demande du moteur',
-  'agents.the.service.labeled.this.response.unmetered': 'Le service a étiqueté cette réponse comme non mesurée.',
-  'agents.engine.text.is.a.response.to.your': 'Le texte du moteur répond à ta demande ; son affichage n’exécute aucun ordre ni retrait.',
+  'agents.the.service.labeled.this.response.unmetered': 'Cette réponse n’a pas été comptée dans l’utilisation.',
+  'agents.engine.text.is.a.response.to.your': 'Ce texte répond à ta demande. L’afficher ne passe aucun ordre et ne fait aucun retrait.',
   'agents.close.agent.session': 'Fermer la session de l’agent',
   'agents.settle.and.close.session': 'Régler et fermer la session',
   'agents.session.closure.received': 'Résultat de fermeture de session reçu',
@@ -2140,15 +2157,15 @@ const fr = {
   'availabilityrooms.mining.pool.connection': 'Connexion au pool de minage',
   'availabilityrooms.pool.process': 'Processus du pool',
   'availabilityrooms.ledger.configuration': 'Configuration du grand livre',
-  'availabilityrooms.window.store.configuration': 'Configuration du stockage des fenêtres',
-  'availabilityrooms.scheduled.job.registrations': 'Enregistrements des tâches programmées',
+  'availabilityrooms.window.store.configuration': 'Configuration des relevés des fenêtres de récompense',
+  'availabilityrooms.scheduled.job.registrations': 'Tâches planifiées',
   'availabilityrooms.configured.dependencies.are.unprobed.process.liveness.does':
-    'Les dépendances configurées n’ont pas été testées. Un processus actif ne confirme ni un grand livre opérationnel, ni des preuves de travail acceptées, ni un paiement.',
+    'Les connexions configurées n’ont pas été testées. Voir le pool en marche ne confirme ni un grand livre opérationnel, ni des shares acceptées, ni un paiement.',
   'availabilityrooms.your.mining.activity': 'Ton activité de minage',
   'availabilityrooms.the.pool.has.a.signed.service.endpoint':
-    'Le pool de minage peut accepter des parts et des paiements planifiés, mais il ne t’affiche pas encore tes workers, ton historique de parts, ton hashrate, ton solde de récompenses ni tes paiements.',
+    'Le pool de minage peut accepter des shares et des paiements planifiés, mais il ne te montre pas tes workers, ton historique de shares, ton taux de hachage, ton solde de récompenses ni tes paiements.',
   'availabilityrooms.those.customer.capabilities.must.be.connected.before':
-    'Ces capacités destinées aux clients doivent être connectées avant que ce salon puisse afficher tes mineurs ou accepter une instruction. La tâche interne submitShare n’est pas un formulaire client.',
+    'Le pool n’offre aucun accès aux clients : cette salle ne peut donc ni afficher tes mineurs ni accepter une instruction. L’envoi de shares est une tâche interne du pool, pas un formulaire client.',
   'availabilityrooms.ask.about.pool.access': 'Se renseigner sur l’accès au pool',
   'availabilityrooms.your.launch.participation': 'Ta participation à Launch',
   'availabilityrooms.issue.and.list.an.asset': 'Émettre et lister un actif',
@@ -2237,7 +2254,7 @@ const fr = {
   'campaigns.campaign.copy': 'Texte de la campagne',
   'campaigns.campaign.activity': 'Activité des campagnes',
   'campaigns.the.service.publishes.draft.assessment.but.no':
-    'Le service publie des évaluations de brouillons, mais aucun catalogue de campagnes client, historique de participation, budget de récompenses ou endpoint de publication. Ces enregistrements ne peuvent pas être présentés comme une liste vide de campagnes terminées.',
+    'Aucune liste de campagnes, aucun historique de participation ni budget de récompenses n’est disponible. Cela ne signifie pas que tu n’as terminé aucune campagne.',
   'campaigns.email.push.and.sms.campaign.delivery.require':
     'Les campagnes par e-mail, notification push et SMS nécessitent un canal d’envoi configuré et l’autorisation de l’audience. Cette salle ne peut pas envoyer de diffusion.',
   'campaigns.open.public.campaigns': 'Ouvrir les campagnes publiques',
@@ -2261,7 +2278,7 @@ const fr = {
   'market.the.listing.terms.changed.reload.the.catalogue':
     'Les conditions de l’offre ont changé. Recharge le catalogue et vérifie à nouveau.',
   'market.the.account.changed.review.this.purchase.again': 'Le compte a changé. Vérifiez à nouveau cet achat.',
-  'market.purchase.response.does.not.match.the.reviewed': 'La réponse de l’achat ne correspond pas à la demande vérifiée',
+  'market.purchase.response.does.not.match.the.reviewed': 'Le résultat de l’achat ne correspond pas à ce que tu as vérifié',
   'market.check.the.original.purchase.record.before.another': ' Vérifiez l’enregistrement de l’achat initial avant un autre achat.',
   'market.catalogue': 'Catalogue',
   'market.my.listings': 'Mes offres',
@@ -2584,15 +2601,16 @@ const fr = {
   'token.unlock': 'Déblocage',
   'token.action': 'Action',
   'token.your.token.stakes': 'Ton staking de tokens',
-  'token.asset.identity.unavailable': ' · identité de l’actif indisponible',
-  'token.unstake.unavailable.asset.identity.missing': 'Retrait du staking indisponible : identité de l’actif absente',
-  'token.staking.asset.identity': 'Identité de l’actif de staking',
+  'token.asset.identity.unavailable': ' · token non nommé',
+  'token.unstake.unavailable.asset.identity.missing':
+    'Le retrait du staking est désactivé : INTAFACED n’indique pas quel solde de token bougerait',
+  'token.staking.asset.identity': 'Quel token est en staking',
   'token.staking.and.unstaking.are.unavailable.until.the':
-    'Le staking et son retrait sont indisponibles tant que le service ne publie pas l’ID de son actif configuré.',
+    'Le staking et son retrait sont désactivés car INTAFACED n’indique pas quel solde de token ils feraient bouger.',
   'token.the.token.asset.is.deployment.configurable.stake':
-    'L’actif du token est configurable au déploiement. Les réponses de staking et d’accès contiennent des montants, mais aucune association à un actif. Un nom par défaut ne peut pas établir quel actif du grand livre sera déplacé.',
+    'Les relevés de ton staking et de ton accès n’affichent que des montants et ne nomment pas le token. Sans token nommé, nous ne devinons pas quel solde bougerait.',
   'token.your.existing.stake.records.remain.readable.a':
-    'Tu vois toujours ton stake actuel. Ces actions s’ouvriront une fois le token publié et ses mouvements examinés.',
+    'Tu vois toujours ton stake actuel. Le staking et son retrait restent désactivés tant que le solde de token n’est pas nommé.',
   'token.proposals': 'Propositions',
   'token.no.proposals.are.published': 'Aucune proposition n’est publiée',
   'token.proposal': 'Proposition',
@@ -2618,11 +2636,11 @@ const fr = {
   'token.burned.supply': 'Quantité détruite',
   'token.economy.boundaries': 'Limites de l’économie',
   'token.emission.buyback.and.revenue.distribution.windows.are':
-    'Les fenêtres d’émission, de rachat et de distribution des revenus sont des tâches de service signées. Ce ne sont pas des actions client.',
+    'Les émissions, rachats et distributions de revenus sont exécutés par INTAFACED lui-même. Tu ne peux pas les lancer.',
   'token.the.customer.api.publishes.no.personal.yield':
-    'L’API client ne publie aucun historique personnel de rendement, devis de distribution à venir ou historique d’exécution des rachats. Ces valeurs restent absentes.',
+    'Aucun historique de rendement personnel, aucune estimation de prochaine distribution ni aucun relevé de rachat n’est disponible : rien n’est affiché.',
   'token.governance.closure.depends.on.published.quorum.and':
-    'La clôture de gouvernance dépend des règles publiées de quorum et de seuils. Une cotation ou une attribution approuvée ne s’exécute pas tant que l’exécuteur est déconnecté.',
+    'Un vote se clôture selon le quorum et le seuil publiés. Une inscription ou une subvention adoptée n’est pas exécutée, car rien n’est connecté pour l’exécuter.',
   'token.proposal.detail': 'Détails de la proposition',
   'token.for.weight': 'Poids pour',
   'token.against.weight': 'Poids contre',
@@ -2721,9 +2739,9 @@ const fr = {
   'availabilityrooms.the.market.seller.lifecycle.can.publish.catalogue':
     'Le cycle du vendeur de Market peut publier des offres d’accès au catalogue. Il ne peut pas créer un actif négociable ni un tour de vente.',
   'availabilityrooms.missing.a.round.service.published.sale.terms':
-    'Il manque un service de tours, des conditions de vente publiées, une admission par juridiction et niveau, des enregistrements de participation délimités et des opérations de souscription et d’allocation du grand livre.',
+    'Indisponibles : une ronde de vente, des conditions de vente publiées, la vérification de ta région et de ton niveau, tes enregistrements de participation et les étapes du grand livre pour souscrire et attribuer.',
   'availabilityrooms.parked.chain.work.remains.unstarted.no.chain':
-    'Le travail de chaîne n’a pas encore démarré. Ce salon ne lance aucune chaîne ni aucun déploiement.',
+    'Aucun travail sur la chaîne n’a commencé. Cette salle ne lance aucune chaîne ni déploiement.',
   'blueprint.identity.blueprint.card': 'Carte Identity Blueprint de {value1}',
   'campaigns.no.campaign.proposal.was.produced': 'Aucune proposition de campagne n’a été produite : {value1}.',
   'campaigns.proposal.received.publication.remains.a.separate.human':
@@ -2763,11 +2781,11 @@ const fr = {
   'support.version': ' · version {value1}',
   'support.open': 'Ouvrir {value1}',
   'token.open.proposal': 'Ouvrir la proposition {value1}',
-  'token.hidden.asset.identity.unavailable': 'Masqué · identité de l’actif indisponible',
+  'token.hidden.asset.identity.unavailable': 'Masqué',
   'token.service.policy': 'Politique du service',
   'token.determined.by.your.authoritative.stake.when.cast': 'Fixé par ton stake au moment du vote',
   'workbook.attach.fill': 'Joindre l’exécution {value1}',
-  'workbook.quote.asset.identity.unavailable': 'identité de l’actif de cotation indisponible',
+  'workbook.quote.asset.identity.unavailable': 'devise de cotation indisponible',
   'workbook.unavailable.no.authoritative.mark': 'Indisponible : aucun prix confirmé',
   'academy.learning': 'Apprentissage',
   'academy.certificates': 'Certificats',
@@ -2801,8 +2819,16 @@ const fr = {
   'market.seconds.one.paid.period': '{seconds} secondes · une période payée',
   'quant.simulated.units': '{amount} unités simulées',
   'quant.historical.quote.units': '{amount} unités historiques de cotation',
-  'token.asset.identity.unavailable.2': '{amount} · identité de l’actif indisponible',
+  'token.asset.identity.unavailable.2': '{amount} · token non nommé',
   'token.basis.points': '{bps} points de base',
+  'token.filter.all': 'Tous',
+  'token.status.active': 'Actif',
+  'token.status.pending': 'En attente',
+  'token.status.unstaking': 'En retrait',
+  'token.status.closed': 'Clôturé',
+  'token.tier.flex': 'Flexible',
+  'token.tier.m3': '3 mois',
+  'token.tier.m12': '12 mois',
 } satisfies Record<keyof typeof messages, string>;
 
 export const copy = defineCopy('customer.more', messages, { es, fr });

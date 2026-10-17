@@ -107,9 +107,14 @@ export function canTryAgain(result: Extract<ApiResult<unknown>, { ok: false }>):
 }
 /** A service sometimes answers with its own refusal code as the message ("token.params_invalid"). */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
+/** A setting or code name inside a sentence, such as "Missing token_params.fee_discount_schedule". Only underscored names count, so "v1.2" and "e.g." stay. */
+const EMBEDDED_KEY = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)*\.[a-z][a-z0-9]*(?:_[a-z0-9]+)*\b/gi;
+function embeddedKey(message: string): string | undefined {
+  return message.match(EMBEDDED_KEY)?.find((key) => key.includes('_'));
+}
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { Copy, languageFor, requestedLocale } = uiCopy.useCopy();
-  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : undefined;
+  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
   if (rawCode && !result.messageCopy) {
     // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.
     const words = refusalCopy(result.code ?? rawCode);

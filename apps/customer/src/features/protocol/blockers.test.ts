@@ -87,7 +87,7 @@ describe('Protocol blocker mapping', () => {
     const found = blockersFor('swap', { ...healthy, chain: down });
     expect(found[0]).toMatchObject({
       code: 'source_down',
-      params: { source: 'network status', reason: 'The service could not be reached.' },
+      params: { source: 'network status', reason: 'the service could not be reached' },
     });
     expect(en.t(found[0]!.key, found[0]!.params)).toContain('network status did not answer');
   });
@@ -112,7 +112,7 @@ describe('Protocol blocker mapping', () => {
       'not_audited',
       'network_label',
     ]);
-    expect(blockersFor('swap', broken)[0]!.params.reason).toBe('rpc timeout');
+    expect(blockersFor('swap', broken)[0]!.params.reason).toBe('The network gave no usable answer.');
     expect(blockersFor('swap', broken)[1]!.params.kind).toBe('fixture');
   });
 
@@ -151,8 +151,8 @@ describe('Network label and copy honesty', () => {
     const label = networkLabel(84532);
     expect(label.name).toBe('Base Sepolia test network');
     expect(label.note).toContain('Testnet');
-    expect(en.t('banner')).toContain('Not INTACHAIN');
-    expect(en.t('banner')).toContain('Not audited');
+    expect(en.t('bannerPill')).toContain('Not INTACHAIN');
+    expect(en.t('bannerPill')).toContain('not audited');
   });
 
   it('never labels an unknown or missing chain as INTACHAIN or mainnet', () => {
@@ -169,7 +169,7 @@ describe('Network label and copy honesty', () => {
         const text = en.t(found.key, found.params);
         expect(text, found.code).not.toMatch(/audited:\s*true|mainnet (is )?live|INTACHAIN (is )?live/i);
       }
-    expect(en.t('blk_p1_go')).toContain('launch has not been approved');
+    expect(en.t('blk_p1_go')).toContain('launch is not approved');
     expect(en.t('blk_p1_go')).not.toMatch(/Nitro|P1 GO/);
     expect(en.t('blk_not_audited')).toContain('Not audited');
   });

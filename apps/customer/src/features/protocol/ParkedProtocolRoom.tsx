@@ -4,10 +4,12 @@ import { useApi } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, canTryAgain, DataTable, EmptyState, Failure, Field, Loading, Page, Panel, Stat, Tabs } from '../../shared/ui';
+import { Button, DataTable, EmptyState, Failure, Field, Loading, Page, Panel, Stat, Tabs } from '../../shared/ui';
 import { createProtocolApi, type DexQuote } from './api';
 import {
   blockersFor,
+  chainReasonWords,
+  isServiceNotConnected,
   networkLabel,
   SUBNAV,
   tabFromSubPath,
@@ -35,42 +37,59 @@ function toSource<T>(value: Resource<T>): Source<T> {
     ? { status: 'loading' }
     : resource.status === 'ready'
       ? { status: 'ok', data: resource.data }
-      : { status: 'down', reason: resource.failure.reason, message: resource.failure.message };
+      : { status: 'down', reason: resource.failure.reason, message: resource.failure.message, code: resource.failure.code };
 }
 
-/** Render one service answer: spinner while it is in flight (the API client times out at 15s), a typed refuse when it fails. */
+/**
+ * Render one service answer: spinner while it is in flight (the API client times out at 15s), a typed refuse when it fails.
+ * With a `shell`, a failed answer keeps the table's column headers and says why the table is empty.
+ * A gateway 502, 503 or 504 means the Protocol service itself is not running here: a second attempt cannot change that, so no Retry.
+ */
 export function Answer<T>({
   value,
   source,
   t,
   children,
+  shell,
+  service,
 }: {
   value: Resource<T>;
   source: string;
+  /** The service behind this answer, named in the "not connected" sentence. Defaults to Protocol. */
+  service?: string;
   t: Translate;
   children: (data: T) => ReactNode;
+  shell?: { label: string; headers: readonly ReactNode[] };
 }) {
   const { resource, reload } = value;
   if (resource.status === 'loading') return <Loading label={t('checking', { source })} />;
-  if (resource.status === 'failed')
+  if (resource.status === 'failed') {
+    const notConnected = isServiceNotConnected(resource.failure.code);
+    const words = t('serviceNotConnected', { service: service ?? t('svc_protocol') });
+    const reason = notConnected ? (
+      <div className="failure" role="status">
+        <p>{words}</p>
+      </div>
+    ) : (
+      <Failure result={resource.failure} retry={reload} />
+    );
+    if (shell)
+      return (
+        <div className="protocol-refuse" data-source={source}>
+          <DataTable label={shell.label} headers={shell.headers}>
+            <tr>
+              <td colSpan={shell.headers.length}>{notConnected ? <EmptyState title={words} /> : reason}</td>
+            </tr>
+          </DataTable>
+        </div>
+      );
     return (
       <div className="protocol-refuse" data-source={source}>
         <p className="protocol-refuse__title">{t('unreachableTitle', { source })}</p>
-        {resource.failure.status === 502 || resource.failure.status === 503 || resource.failure.status === 504 ? (
-          // 502/503/504 through the gateway means the Protocol service itself is down, not a generic network fault.
-          <div className="failure" role="status">
-            <p>{t('serviceNotRunning')}</p>
-            {canTryAgain(resource.failure) && (
-              <Button variant="secondary" onClick={reload}>
-                {t('retry')}
-              </Button>
-            )}
-          </div>
-        ) : (
-          <Failure result={resource.failure} retry={reload} />
-        )}
+        {reason}
       </div>
     );
+  }
   return <>{children(resource.data)}</>;
 }
 
@@ -272,7 +291,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
 
   const chainStatusPanel = (
     <Panel title={t('tab_status')}>
-      <Answer value={chain} source={t('src_chain')} t={t}>
+      <Answer value={chain} source={t('src_chain')} t={t} shell={{ label: t('tab_status'), headers: [t('hdr_check'), t('hdr_result')] }}>
         {(c) => (
           <Rows
             t={t}
@@ -287,7 +306,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
               [t('tokenFactoryDeployed'), flag(t, c.tokenFactoryDeployed)],
               [t('usable'), flag(t, c.usable)],
               [t('launchUsable'), flag(t, c.launchUsable)],
-              ...(c.refusalCode || c.reason ? ([[t('refusalReason'), `${c.refusalCode ?? ''} ${c.reason ?? ''}`.trim()]] as const) : []),
+              ...(c.refusalCode || c.reason ? ([[t('refusalReason'), chainReasonWords(c.refusalCode)]] as const) : []),
             ]}
           />
         )}
@@ -296,7 +315,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   );
   const auditPanel = (
     <Panel title={t('auditTitle')}>
-      <Answer value={audit} source={t('src_audit')} t={t}>
+      <Answer value={audit} source={t('src_audit')} t={t} shell={{ label: t('auditTitle'), headers: [t('hdr_field'), t('hdr_value')] }}>
         {(a) => (
           <Rows
             t={t}
@@ -315,7 +334,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   );
   const venuePanel = (
     <Panel title={t('venueTitle')}>
-      <Answer value={indexer} source={t('src_indexer')} t={t}>
+      <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
         {(i) => (
           <>
             <Rows
@@ -329,7 +348,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
           </>
         )}
       </Answer>
-      <Answer value={dex} source={t('src_dex')} t={t}>
+      <Answer value={dex} source={t('src_dex')} service={t('svc_dex')} t={t}>
         {(d) => (
           <Rows
             t={t}
@@ -350,7 +369,14 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <Panel title={t('tab_blocks')}>
         <p className="muted">{t('blocksNote')}</p>
-        <Answer value={indexer} source={t('src_indexer')} t={t}>
+        <DataTable label={t('tab_blocks')} headers={[t('hdr_block'), t('hdr_time'), t('hdr_status')]}>
+          <tr>
+            <td colSpan={3}>
+              <EmptyState title={t('blocksEmpty')} />
+            </td>
+          </tr>
+        </DataTable>
+        <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
           {(i) => (
             <>
               <Rows
@@ -390,7 +416,14 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <Panel title={t('poolsTitle')}>
         <p className="muted">{t('poolsNote')}</p>
-        <Answer value={dex} source={t('src_dex')} t={t}>
+        <DataTable label={t('poolsTitle')} headers={[t('hdr_pool'), t('hdr_pair'), t('hdr_liquidity')]}>
+          <tr>
+            <td colSpan={3}>
+              <EmptyState title={t('poolsEmpty')} />
+            </td>
+          </tr>
+        </DataTable>
+        <Answer value={dex} source={t('src_dex')} service={t('svc_dex')} t={t}>
           {(d) => <Rows t={t} rows={[[t('ammWired'), flag(t, d.ammVenueWired)]]} />}
         </Answer>
       </Panel>
@@ -450,7 +483,16 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
 
   return (
     <div className="legacy-room protocol-room" lang={copy.forLocale(language).renderedLocale}>
-      <Page title={title} description={description} eyebrow={t('banner')}>
+      <Page
+        title={title}
+        description={description}
+        eyebrow={
+          <>
+            <span>{t('bannerLine')}</span>
+            <span className="badge protocol-pill">{t('bannerPill')}</span>
+          </>
+        }
+      >
         <Tabs
           label={t('subnav')}
           items={tabs.map((entry) => entry.id)}

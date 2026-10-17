@@ -12,6 +12,7 @@ import {
   StateBlock,
   useHideBalances,
   useSession,
+  withDeviceHandles,
   type ActivityItem,
 } from './deps';
 import { counterpartyHandle, PAY_SENT_EVENT, paymentsEmpty, receiptHref, recentPayments, recentRecipients } from './recent-model';
@@ -38,10 +39,13 @@ export function RecentPanel() {
     window.addEventListener(PAY_SENT_EVENT, again);
     return () => window.removeEventListener(PAY_SENT_EVENT, again);
   }, []);
-  const items: readonly ActivityItem[] = feed.status === 'ready' ? feed.data.items : [];
+  const sent = useMemo(() => (userId ? readSent(userId) : []), [userId, revision, feed.status]);
+  // The bank does not always name the other person. A payment this device sent is named from the confirmation it kept.
+  const rows = feed.status === 'ready' ? feed.data.items : null;
+  const items: readonly ActivityItem[] = useMemo(() => (rows ? withDeviceHandles(rows, sent) : []), [rows, sent]);
   const hasMore = feed.status === 'ready' && feed.data.hasMore;
   const payments = recentPayments(items);
-  const remembered = useMemo(() => (userId ? contactsFrom(readSent(userId)) : []), [userId, revision, feed.status]);
+  const remembered = useMemo(() => contactsFrom(sent), [sent]);
   const recipients = recentRecipients(items, remembered);
   const now = Date.now();
   const failed = feed.status === 'error' || feed.status === 'refused';

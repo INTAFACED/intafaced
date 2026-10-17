@@ -604,7 +604,7 @@ test('native signout during fresh read hides old actor and sends no vote', async
 test('retained create close dependencies and unpublished stake unit stay honest', async ({ page, context, baseURL }) => {
   const { state, calls } = await network(context, page, baseURL);
   await login(page);
-  await expect(page.getByText('Staking asset identity', { exact: true })).toBeVisible();
+  await expect(page.getByText('Which token is staked', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Stake|^Unstake/ })).toHaveCount(0);
   await open(page);
   await page.locator('.token-create > summary').click();
