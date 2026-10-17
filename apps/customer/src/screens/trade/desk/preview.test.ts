@@ -84,4 +84,14 @@ describe('refusal words', () => {
     });
     expect(failureOf({ ok: false, reason: 'unreachable', message: 'm' }, {})).toEqual({ kind: 'network' });
   });
+
+  it('a frozen ledger, which the service reports as a generic exchange error with the useful code only in its message, reads as paused orders', () => {
+    const failure = failureOf({ ok: false, reason: 'error', message: 'ledger.frozen', code: 'ExchangeError', status: 400 }, {});
+    expect(failure).toMatchObject({ kind: 'refusal', copy: { title: 'Orders are paused right now' } });
+    expect(JSON.stringify(failure)).not.toMatch(/ledger|LedgerError/i);
+    // Any other LedgerError stays the generic refusal.
+    expect(failureOf({ ok: false, reason: 'error', message: 'ledger.other', code: 'ExchangeError', status: 400 }, {})).toMatchObject({
+      copy: { title: "This can't be done right now" },
+    });
+  });
 });

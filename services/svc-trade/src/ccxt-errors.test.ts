@@ -137,6 +137,8 @@ describe('CCXT error taxonomy', () => {
     expect(toCcxtError(new InsufficientFundsError('a', 'USDT', '1', '0'))!.body.code).toBe('InsufficientFunds');
     expect(toCcxtError(new InvalidEntryError('bad entry'))!.body.code).toBe('ExchangeError');
     expect(toCcxtError(new LedgerError('nope', 'ledger.other'))!.body.code).toBe('ExchangeError');
+    expect(toCcxtError(new LedgerError('book is frozen', 'ledger.frozen'))!.body.intafacedCode).toBe('ledger.frozen');
+    expect(toCcxtError(new InvalidEntryError('bad entry'))!.body.intafacedCode).toBe('ledger.invalid_entry');
     expect(toCcxtError(new MoneyError('bad decimal'))!.body.code).toBe('BadRequest');
   });
 

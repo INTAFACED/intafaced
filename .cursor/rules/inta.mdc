@@ -1,10 +1,6 @@
 ---
-description: Full-access product ship. Money integrity only.
+description: INTAFACED agent rules. The one set of rules is AGENTS.md.
 alwaysApply: true
 ---
 
-Build services and packages. Do not write docs boards, ADRs, LIVE-LANES, or TRACKER recooks.
-
-Money only through `packages/ledger-client`. Never store money in a `number`. One service per PR.
-
-Full access: start immediately, merge when done. **Merge only after the merge gate passes** (`node tooling/scripts/merge-gate.mjs <pr> --head <sha>`, from an up-to-date `origin/main` checkout). **Never wait for a fully green main, verify, Nitro, Denon, audit, FREEZE, or claims.** Honor required branch-protection checks. A 403 or 429 from `gh` means stop. Do not retry in a loop, do not switch accounts, and do not create a new token. Unset config → refuse-closed in code, not human ping.
+Read `AGENTS.md` at the repository root. It is the one set of rules.

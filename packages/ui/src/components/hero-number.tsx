@@ -1,3 +1,5 @@
+'use client';
+
 import * as React from 'react';
 import NumberFlow, { usePrefersReducedMotion } from '@number-flow/react';
 import { motion } from '../theme/tokens.js';

@@ -300,6 +300,8 @@ describe('every function with an address input in the compiled contracts is clas
     'RwaRegistry.register(address,bytes32)': 'registry entry keyed by msg.sender as issuer; moves no asset',
     'RwaRegistry.unlist(address)': 'issuer-only registry entry; moves no asset',
     'ScopedPaymaster.setAllowlisted(address,bool)': 'operator-gated paymaster policy; moves no funds',
+    'ScopedPaymaster.validatePaymasterUserOp((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes),bytes32,uint256)':
+      'EntryPoint-only; reserves the paymaster float and does not pay the userOp sender',
     'SmartAccount.initialize(address)': 'one-shot initializer; the account is never a session target (self-target is forbidden)',
     'SmartAccount.proposeOwner(address)': 'owner-only on the account; unreachable by a session (self-target is forbidden)',
     'SmartAccount.revokeSession(address)': 'account-only; unreachable by a session (self-target is forbidden)',

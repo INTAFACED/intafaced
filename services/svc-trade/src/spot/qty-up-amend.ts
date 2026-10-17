@@ -1,38 +1,22 @@
 import { requireScope, type Principal } from '@intafaced/auth';
-import {
-  add,
-  formatAmount,
-  InsufficientFundsError,
-  orderHoldAmend,
-  parseAmount,
-  recipes as ledgerRecipes,
-  sub,
-  type Amount,
-  type LedgerClient,
-} from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, sub, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { withMoneySpan } from '../tracing.js';
 import { assertMarketOpen, assertNotional, assertPrice, assertQty, assertSettlementRails, assertTradable, holdFor } from './risk.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { EngineAmendResult, MatchingClient } from './matching-client.js';
-import { attributionFromOrder, withLedgerAttribution } from './auth-attribution.js';
 import { TradeError, type AmendOrderOutcome, type AmendOutcomeCode, type AmendPriority, type Market, type OrderRecord } from './types.js';
 import { TradeService, type AmendOrderInput } from './trade-service.js';
-import { businessPayload } from '../controls/business-payload.js';
 
 /**
- * Native qty-up on the existing PATCH door.
+ * Native amend on the existing PATCH door.
  *
- * Extra size posts `recipes.orderHoldAmend` (same pot, sequenced key) before
- * matching. Refuse if that hold cannot be taken. Stop/TP funding stays a socket.
+ * TRD-0504: amend may only REDUCE the remaining quantity. A larger quantity
+ * is `trade.amend_qty_up` and must go through replace. `expectedRemaining`
+ * or `expectedVersion` that does not match the engine is `trade.amend_stale`.
  *
  * Installed onto `TradeService.prototype` so the class file never moves.
- *
- * `orderHoldAmend` is a named ledger-client export, not a registry key yet.
- * Bind it here so the live post is `recipes.orderHoldAmend` (inventory scan).
  */
-const recipes = { ...ledgerRecipes, orderHoldAmend };
-
 type AmendHost = {
   readonly sql: Sql;
   readonly ledger: LedgerClient;
@@ -65,72 +49,8 @@ type AmendHost = {
 
 const FLAG = Symbol.for('intafaced.trade.nativeQtyUpAmend');
 
-/**
- * A qty-down already posts `order.release:<orderId>:<engineVersion>`.
- * The refused qty-up must not reuse that key: the ledger would replay the
- * old release and leave the extra in the order hold. Engine versions stay
- * small. This band is only the rolled-back extra.
- */
-const QTY_UP_ROLLBACK_SEQUENCE = 1_000_000_000;
-
 function asHost(svc: object): AmendHost {
   return svc as unknown as AmendHost;
-}
-
-async function takeQtyUpHold(
-  host: AmendHost,
-  order: OrderRecord,
-  extra: Amount,
-  sequence: number,
-): Promise<{ ok: true } | { ok: false; code: AmendOutcomeCode; reason: string }> {
-  try {
-    await host.ledger.post(
-      withLedgerAttribution(
-        recipes.orderHoldAmend({
-          orderId: order.id,
-          userId: order.userId,
-          assetId: order.holdAsset,
-          amount: extra,
-          sequence,
-        }),
-        attributionFromOrder(order),
-      ),
-    );
-  } catch (err) {
-    if (err instanceof InsufficientFundsError) {
-      return { ok: false, code: 'NOT_AMENDABLE', reason: err.code };
-    }
-    return { ok: false, code: 'AMEND_UNKNOWN', reason: 'AMEND_UNKNOWN' };
-  }
-  await host.sql`
-    UPDATE trade.orders
-       SET hold_amount = ${formatAmount(add(order.holdAmount, extra))}::numeric,
-           updated_at = now()
-     WHERE id = ${order.id}
-       AND hold_amount = ${formatAmount(order.holdAmount)}::numeric
-  `;
-  return { ok: true };
-}
-
-async function releaseQtyUpHold(host: AmendHost, order: OrderRecord, extra: Amount, sequence: number): Promise<void> {
-  await host.ledger.post(
-    withLedgerAttribution(
-      recipes.orderHoldRelease({
-        orderId: order.id,
-        userId: order.userId,
-        assetId: order.holdAsset,
-        amount: extra,
-        sequence,
-      }),
-      attributionFromOrder(order),
-    ),
-  );
-  await host.sql`
-    UPDATE trade.orders
-       SET hold_amount = ${formatAmount(order.holdAmount)}::numeric,
-           updated_at = now()
-     WHERE id = ${order.id}
-  `;
 }
 
 async function amendOrderWithQtyUp(
@@ -193,6 +113,9 @@ async function amendOrderWithQtyUp(
     if (remainingQty <= 0n) {
       return host.amendOutcome(order, 'NOT_AMENDABLE', 'trade.order_not_open', false, false, null);
     }
+    if (input.qty > remainingQty) {
+      return host.amendOutcome(order, 'NOT_AMENDABLE', 'trade.amend_qty_up', false, false, null);
+    }
     try {
       assertTradable(market, {
         futuresEnabled: host.futuresEnabled,
@@ -244,42 +167,20 @@ async function amendOrderWithQtyUp(
 
     const engineRemaining = parseAmount(live.remaining);
     const expectedVersion = live.version ?? order.engineVersion;
-    const extra = leftover < newHold ? sub(newHold, leftover) : 0n;
-    if (extra > 0n && engineRemaining > input.qty) {
+    if (input.expectedRemaining != null && input.expectedRemaining !== engineRemaining) {
+      return host.amendOutcome(order, 'NOT_AMENDABLE', 'trade.amend_stale', false, false, null);
+    }
+    if (input.expectedVersion != null && input.expectedVersion !== expectedVersion) {
+      return host.amendOutcome(order, 'NOT_AMENDABLE', 'trade.amend_stale', false, false, null);
+    }
+    if (input.qty > engineRemaining) {
+      return host.amendOutcome(order, 'NOT_AMENDABLE', 'trade.amend_qty_up', false, false, null);
+    }
+    if (leftover < newHold) {
       return host.amendOutcome(order, 'NOT_AMENDABLE', 'trade.hold_uncovered', false, false, null);
     }
 
-    let funded = order;
-    if (input.qty > engineRemaining) {
-      // Each native increase is fresh exposure. Original parent placement is
-      // not authority for it; the stable engine version identifies this intent.
-      await this.admitNativeQtyIncrease(
-        principal,
-        `amend:${order.id}:${expectedVersion}`,
-        businessPayload({
-          orderId: order.id,
-          expectedVersion,
-          qty: input.qty,
-          extra,
-          newHold,
-          holdAmount: order.holdAmount,
-          holdAsset: order.holdAsset,
-          lifecycleProof,
-        }),
-      );
-    }
-    if (extra > 0n) {
-      const taken = await takeQtyUpHold(host, order, extra, expectedVersion);
-      if (!taken.ok) {
-        if (taken.code === 'AMEND_UNKNOWN') {
-          await host.markRecoveryRequired(order.id, 'AMEND_UNKNOWN');
-          const frozen = (await host.findOrder(order.id)) ?? order;
-          return host.amendOutcome(frozen, 'AMEND_UNKNOWN', 'AMEND_UNKNOWN', true, false, null);
-        }
-        return host.amendOutcome(order, taken.code, taken.reason, false, false, null);
-      }
-      funded = (await host.findOrder(order.id)) ?? { ...order, holdAmount: add(order.holdAmount, extra) };
-    }
+    const funded = order;
 
     if (engineRemaining === input.qty) {
       await host.applyNativeAmendHold(funded, market, input.qty, expectedVersion, live.sequence);
@@ -301,9 +202,6 @@ async function amendOrderWithQtyUp(
     }
 
     if (!result.accepted) {
-      if (extra > 0n) {
-        await releaseQtyUpHold(host, order, extra, QTY_UP_ROLLBACK_SEQUENCE + expectedVersion);
-      }
       if (result.rejected?.code === 'order_not_found') {
         await host.markRecoveryRequired(order.id, 'AMEND_UNKNOWN');
         const frozen = (await host.findOrder(order.id)) ?? funded;

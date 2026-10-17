@@ -629,4 +629,38 @@ describe('M: merchant isolation', () => {
       }
     });
   });
+
+  describe('merchant.myAccess lists memberships, never a merchant row the caller is not on', () => {
+    it('A sees only the merchant it owns; an invited row on that user is not a membership', async () => {
+      const o = await callTrpc(w, ctxFor('session', 'A'), 'merchant.myAccess', {});
+      expect(o.kind).toBe('ok');
+      if (o.kind !== 'ok') return;
+      const memberships = (o.value as { memberships: Array<{ merchantId: string; role: string }> }).memberships;
+      expect(memberships.map((m) => m.merchantId)).toEqual([w.e.A.merchantId]);
+      expect(memberships[0]?.role).toBe('owner');
+    });
+
+    it('a merchant session cannot decide a sensitive identity change', async () => {
+      const o = await callTrpc(w, ctxFor('session', 'A'), 'merchant.businessProfile.review', {
+        merchantId: w.e.A.merchantId,
+        requestId: randomUUID(),
+        decision: 'approved',
+        reason: 'isolation drill',
+        expectedChangeHash: `sha256:${'a'.repeat(64)}`,
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+      });
+      expect(o).toMatchObject({ kind: 'error', code: 'FORBIDDEN' });
+    });
+
+    it('B’s finance member sees only B, as finance', async () => {
+      const o = await callTrpc(w, ctxOf(sessionOf(w.bFinanceUserId)), 'merchant.myAccess', {});
+      expect(o.kind).toBe('ok');
+      if (o.kind !== 'ok') return;
+      const memberships = (o.value as { memberships: Array<{ merchantId: string; role: string }> }).memberships;
+      expect(memberships.map((m) => ({ merchantId: m.merchantId, role: m.role }))).toEqual([
+        { merchantId: w.e.B.merchantId, role: 'finance' },
+      ]);
+    });
+  });
 });

@@ -147,7 +147,7 @@ describe('svc-trade option-amend-qty-place (H8a PG-hard)', () => {
       await fund(ALICE, 'USDT', '1000');
       const original = await restOption('opt-amend-qty');
       const outcome = await trade.amendOrder(principalFor(ALICE), original.id, {
-        qty: amt('3'),
+        qty: amt('1'),
         strike: amt('100'),
         expiry: EXPIRY,
         mark: '50',
@@ -161,7 +161,7 @@ describe('svc-trade option-amend-qty-place (H8a PG-hard)', () => {
         code: 'AMENDED',
         path: 'NATIVE_AMEND',
       });
-      expect(outcome.order.qty).toBe(amt('3'));
+      expect(outcome.order.qty).toBe(amt('1'));
       expect(matching.amended).toHaveLength(1);
       const req = matching.amended[0]?.request as {
         qty?: string;
@@ -169,11 +169,11 @@ describe('svc-trade option-amend-qty-place (H8a PG-hard)', () => {
         expiry?: string | null;
         mark?: string | null;
       };
-      expect(req.qty).toBe('3');
+      expect(req.qty).toBe('1');
       expect(req.strike).toBe('100');
       expect(req.expiry).toBe(EXPIRY);
       expect(req.mark).toBeUndefined();
-      expect(await heldFor(ALICE, 'USDT', original.id)).toBe('300');
+      expect(await heldFor(ALICE, 'USDT', original.id)).toBe('100');
     });
 
     it('refuses a missing strike — no PATCH, no invented mark', async () => {
@@ -234,12 +234,8 @@ describe('svc-trade option-amend-qty-place (H8a PG-hard)', () => {
         clientOrderId: 'gtc-qty-up',
       });
       const outcome = await trade.amendOrder(principalFor(ALICE), original.id, { qty: amt('3') });
-      expect(outcome).toMatchObject({ accepted: true, code: 'AMENDED' });
-      expect(matching.amended).toHaveLength(1);
-      const req = matching.amended[0]?.request as { strike?: string | null; expiry?: string | null };
-      expect(req.strike).toBeUndefined();
-      expect(req.expiry).toBeUndefined();
-      expect(matching.amended[0]?.request.qty).toBe('3');
+      expect(outcome).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: 'trade.amend_qty_up' });
+      expect(matching.amended).toHaveLength(0);
     });
   });
 });
