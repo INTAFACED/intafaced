@@ -38,6 +38,7 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { liveAccountsIn, sandboxChargebackOpeningProbe, sandboxChargebackWonProbe } from './sandbox-ledger-guard.js';
+import { isSandboxRailId } from './sandbox-key-routing.js';
 import { classifySettlementTx, legacyPostMatchesFrozen, readSettlementBook, settlementIdempotencyKey } from './settlement-book.js';
 import type { PaymentIntent, RailAdapter, RailEvent, RailResult, RailWebhookRequest } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
@@ -2628,6 +2629,18 @@ export class PayService {
   }): Promise<PaymentView> {
     if (input.amount <= 0n) throw new PayError('Payment amount must be positive', 'pay.invalid_amount');
 
+    // A sandbox key on a live rail is refused here, before the rail lookup, the
+    // guard, admission, and the insert. REST already resolves that key onto
+    // card-sandbox. This method does not reroute: a blank or unknown rail is
+    // not a sandbox rail, and naming a live rail must not create a row.
+    if (input.keyEnv === 'sandbox' && !isSandboxRailId(input.railAdapter)) {
+      throw new PayError(
+        'A sandbox API key cannot create a payment on a live rail. NOTHING WAS ATTEMPTED.',
+        'pay.sandbox_live_account_refused',
+        { railAdapter: input.railAdapter },
+      );
+    }
+
     // Resolved now so an unknown or incapable rail fails before a payment row
     // exists, rather than at authorize time with a buyer watching.
     this.rails.require(input.railAdapter, 'authorize');
@@ -2816,6 +2829,17 @@ export class PayService {
               row.rail_adapter !== original.rail_adapter)
           )
             throw new PayError('Authorization payload changed after admission', 'pay.identity_admission_conflict');
+
+          // A flagged payment on a live rail never reaches the rail. createPayment
+          // refuses the same pair first. This catches a row inserted without that
+          // check. Nothing is posted and authorize is not called.
+          if ((await this.paymentIsSandbox(tx, row.id)) && !isSandboxRailId(row.rail_adapter)) {
+            throw new PayError(
+              'A sandbox API key cannot create a payment on a live rail. NOTHING WAS ATTEMPTED.',
+              'pay.sandbox_live_account_refused',
+              { railAdapter: row.rail_adapter },
+            );
+          }
 
           const adapter = this.rails.require(row.rail_adapter, 'authorize');
 

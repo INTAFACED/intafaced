@@ -22,6 +22,8 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { PayService } from './payment-service.js';
+import { createPayRouter } from './router.js';
+import { UserMoneyService } from './user-money-service.js';
 import { registerPublicPayRest } from './public-rest.js';
 import { MemoryRestIdempotencyStore } from './rest-idempotency.js';
 import { truncatePayForTest } from './payment-events-test-reset.js';
@@ -73,6 +75,7 @@ describe('sandbox payments cannot reach the live book', { timeout: 30_000 }, () 
   let sql!: TestDatabase['sql'];
   let ledger: MemoryLedger;
   let card: CardSandboxAdapter;
+  let rails: RailRegistry;
   let pay: PayService;
 
   beforeAll(async () => {
@@ -90,7 +93,7 @@ describe('sandbox payments cannot reach the live book', { timeout: 30_000 }, () 
     );
     ledger = new MemoryLedger();
     card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
-    const rails = new RailRegistry([
+    rails = new RailRegistry([
       card,
       new CryptoNativeAdapter({ chain: new MemoryChain(), secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 }),
       new BankPayoutAbsentAdapter(),
@@ -105,16 +108,25 @@ describe('sandbox payments cannot reach the live book', { timeout: 30_000 }, () 
 
   const read = async (account: AccountRef) => formatAmount((await ledger.balance(account)).amount);
 
-  async function book(): Promise<Record<string, string>> {
+  async function bookOf(id: string): Promise<Record<string, string>> {
     return {
-      clearing: await read(merchantClearing(merchantId, ASSET)),
-      proceeds: await read(merchantProceeds(merchantId, ASSET)),
+      clearing: await read(merchantClearing(id, ASSET)),
+      proceeds: await read(merchantProceeds(id, ASSET)),
       user: await read(userAvailable(OWNER, ASSET)),
       fees: await read(houseFees('pay', ASSET)),
       insurance: await read(insuranceFund(ASSET)),
       liveRail: await read(railBoundary('crypto-native', ASSET)),
       sandboxRail: await read(railBoundary('card-sandbox', ASSET)),
     };
+  }
+
+  async function book(): Promise<Record<string, string>> {
+    return bookOf(merchantId);
+  }
+
+  async function paymentRows(id: string): Promise<number> {
+    const [row] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM pay.payments WHERE merchant_id = ${id}`;
+    return row?.n ?? 0;
   }
 
   let merchantId = '';
@@ -269,5 +281,87 @@ describe('sandbox payments cannot reach the live book', { timeout: 30_000 }, () 
     expect(await ledger.getTxByKey(`payment.capture:${httpId}`)).toBeNull();
     expect(await book()).toEqual(before);
     await http.close();
+  });
+
+  it('refuses createPayment when a sandbox key names a live rail, before any payment row', async () => {
+    const merchant = await pay.createMerchant({ userId: OWNER, pricing: { feeBps: 0 } });
+    const before = await bookOf(merchant.id);
+    await expect(
+      pay.createPayment({
+        merchantId: merchant.id,
+        amount: amt('5'),
+        assetId: ASSET,
+        method: 'crypto',
+        railAdapter: 'crypto-native',
+        keyEnv: 'sandbox',
+      }),
+    ).rejects.toMatchObject({ code: 'pay.sandbox_live_account_refused' });
+    expect(await paymentRows(merchant.id)).toBe(0);
+    expect(await bookOf(merchant.id)).toEqual(before);
+  });
+
+  it('refuses tRPC payment.create when a sandbox principal names a live rail', async () => {
+    const merchant = await pay.createMerchant({ userId: OWNER, pricing: { feeBps: 0 } });
+    const before = await bookOf(merchant.id);
+    const principal: Principal = {
+      userId: OWNER,
+      sub: OWNER,
+      sid: '55555555-5555-4555-8555-555555555555',
+      kid: 'k',
+      key_env: 'sandbox',
+      scopes: ['pay:write', 'pay:read'],
+      tier: 'full',
+      mfa: false,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    const api = createPayRouter(
+      pay,
+      rails,
+      new UserMoneyService(sql, ledger as LedgerClient, rails, { operatorCreditRails: [] }),
+    ).createCaller({
+      principal,
+      service: null,
+      region: 'DE',
+      requestId: 'sandbox-live-rail',
+    });
+    await expect(
+      api.payment.create({
+        merchantId: merchant.id,
+        amount: '5',
+        assetId: ASSET,
+        method: 'crypto',
+        railAdapter: 'crypto-native',
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('pay.sandbox_live_account_refused'),
+      cause: expect.objectContaining({ code: 'pay.sandbox_live_account_refused' }),
+    });
+    expect(await paymentRows(merchant.id)).toBe(0);
+    expect(await bookOf(merchant.id)).toEqual(before);
+  });
+
+  it('refuses authorize of a sandbox-flagged payment on a live rail before the rail is called', async () => {
+    const merchant = await pay.createMerchant({ userId: OWNER, pricing: { feeBps: 0 } });
+    const before = await bookOf(merchant.id);
+    const inserted = await sql<{ id: string }[]>`
+      INSERT INTO pay.payments (merchant_id, amount, currency, method, rail_adapter, status)
+      VALUES (${merchant.id}, '5', ${ASSET}, 'crypto', 'crypto-native', 'created')
+      RETURNING id
+    `;
+    const id = inserted[0]!.id;
+    await sql`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (
+        ${id},
+        'created',
+        ${sql.json({ sandbox: true, amount: '5', assetId: ASSET, method: 'crypto', railAdapter: 'crypto-native' })}
+      )
+    `;
+    await expect(pay.authorize(id)).rejects.toMatchObject({ code: 'pay.sandbox_live_account_refused' });
+    const events = await sql<{ event: string }[]>`SELECT event FROM pay.payment_events WHERE payment_id = ${id} ORDER BY seq`;
+    expect(events.map((event) => event.event)).toEqual(['created']);
+    const [row] = await sql<{ status: string }[]>`SELECT status FROM pay.payments WHERE id = ${id}`;
+    expect(row?.status).toBe('created');
+    expect(await bookOf(merchant.id)).toEqual(before);
   });
 });
