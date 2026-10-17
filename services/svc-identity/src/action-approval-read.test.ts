@@ -75,7 +75,7 @@ describe('actionApproval.list and actionApproval.get', () => {
   it('hides a founder-only pending row from an operator who is not a founder', async () => {
     const r = router();
     const maker = r.createCaller(await ctx(A, ['identity:write', 'admin:write'], true));
-    // Freeze is a protective operator brake. Unfreeze is founder-only, so an operator session must not see it.
+    // Unfreeze is founder-only, so an operator session must not see it.
     await maker.actionApproval.propose({
       actionType: 'ledger.unfreeze',
       targetService: 'svc-ledger',
@@ -86,16 +86,16 @@ describe('actionApproval.list and actionApproval.get', () => {
     });
     const operator = r.createCaller(await ctx(OP, ['admin:write'], true));
     const kill = await operator.actionApproval.propose({
-      actionType: 'edge.kill',
-      targetService: 'svc-edge',
-      targetId: 'kill:trade',
+      actionType: 'market.vendor.vet',
+      targetService: 'svc-market',
+      targetId: 'market.vendor.vet',
       expectedVersion: '1',
       payloadHash: 'sha256:def',
       policyVersion: 'v1',
     });
     const other = r.createCaller(await ctx(B, ['admin:write'], false));
     // B is a founder in the directory but this session has no MFA, so founder reads stay closed.
-    // B is still an operator via admin:write, so the operator kill is visible and the ledger freeze is not.
+    // B is still an operator via admin:write, so the vendor-vet row is visible and the unfreeze is not.
     const pending = await other.actionApproval.list({ view: 'pending', limit: 20 });
     expect(pending.approvals.map((row) => row.approvalId)).toEqual([kill.approvalId]);
   });

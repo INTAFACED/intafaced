@@ -65,7 +65,12 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
   return router({
     accountControls: router({
       change: protectedProcedure
-        .input(identityRestrictionInputSchema)
+        .input(
+          accountControlInputSchema.refine(
+            (input) => input.target.area === 'identity' || input.target.area === 'trading',
+            'Identity or trading target required',
+          ),
+        )
         .output(accountControlResultSchema)
         .mutation(({ ctx, input }) => callFounderControl(controls, ctx, input)),
       history: protectedProcedure
