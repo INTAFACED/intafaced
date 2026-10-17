@@ -22,6 +22,15 @@ describe('loadEnv', () => {
     expect(env.DATABASE_SSL).toBe(true);
   });
 
+  it.each(['', ' ', '\t\n'])('refuses an explicitly blank NATS_URL (%j)', (NATS_URL) => {
+    expect(() => loadEnv(serviceEnvSchema, { ...validServiceEnv, NATS_URL })).toThrow(EnvError);
+  });
+
+  it('trims surrounding whitespace from a configured NATS_URL', () => {
+    const env = loadEnv(serviceEnvSchema, { ...validServiceEnv, NATS_URL: ' nats://bus:4222 ' });
+    expect(env.NATS_URL).toBe('nats://bus:4222');
+  });
+
   it('reports every problem in one throw', () => {
     try {
       loadEnv(serviceEnvSchema, { SERVICE_NAME: 'svc-x', DATABASE_URL: 'not-a-url', HTTP_PORT: '99999' });

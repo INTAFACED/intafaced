@@ -79,6 +79,10 @@ export function JurisdictionBoard() {
             structure, not legal advice — each <code>status</code> and <code>minTier</code> needs counsel sign-off before the market is
             switched on.
           </p>
+          <p>
+            <strong>Compiled policy, not live state.</strong> This matrix is read from <code>@intafaced/config</code> as built into this
+            console. What the running edge reports right now is in the live section above.
+          </p>
         </div>
       </div>
 

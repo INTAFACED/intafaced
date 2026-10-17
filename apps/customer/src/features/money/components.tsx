@@ -127,6 +127,8 @@ export type ActionSpec = {
   preflight?: (input: Record<string, unknown>) => Promise<ApiResult<null>>;
   /** Match returned fields to the original review where the wire exposes them. */
   verifyOutcome?: (data: unknown, input: Record<string, unknown>) => boolean;
+  /** Plain-words rows for a confirmed result, in place of the raw field list. Return null to fall back to it. */
+  describeOutcome?: (data: unknown, input: Record<string, unknown>) => [string, string][] | null;
   transferSpaces?: Space[];
   submit?: string;
   unit?: string;
@@ -471,6 +473,8 @@ export function MutationDialog({
     if (outcome.ok) onDone();
   }
   const terminalUnknown = result && !result.ok && result.reason === 'uncertain';
+  const described =
+    result?.ok && staged.current.reviewInput ? (spec.describeOutcome?.(result.data, staged.current.reviewInput) ?? null) : null;
   return (
     <Dialog title={stage === 'review' ? copyText('components.review.3', { value1: spec.title.toLowerCase() }) : spec.title} onClose={close}>
       <div className="money-dialog-body" ref={body}>
@@ -594,10 +598,21 @@ export function MutationDialog({
                 <h3>
                   <Text k="components.confirmed.by.the.service" />
                 </h3>
-                <Outcome
-                  data={result.data}
-                  unit={spec.unit ?? spec.fields?.find((field) => field.name === 'amount' || field.name === 'principal')?.unit}
-                />
+                {described ? (
+                  <dl className="detail-list">
+                    {described.map(([label, value]) => (
+                      <div key={label}>
+                        <dt>{label}</dt>
+                        <dd>{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <Outcome
+                    data={result.data}
+                    unit={spec.unit ?? spec.fields?.find((field) => field.name === 'amount' || field.name === 'principal')?.unit}
+                  />
+                )}
               </>
             ) : (
               <Failure result={result} />

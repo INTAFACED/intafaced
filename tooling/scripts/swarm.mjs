@@ -1029,7 +1029,7 @@ function renderFreezeMd(m) {
     lines.push('- **Actions runs (24h):** (gh unavailable — re-run with network)');
   }
   lines.push(
-    '- **Proof mode:** NO-FLEET until Docker present — static build + scans; never fake UI done. UI proof tooling exists (`pnpm ui:proof` + `docs/styleboard/`) — NO-FLEET is Docker, not "never seen UI".',
+    '- **Proof mode:** NO-FLEET until Docker present — static build + scans; never fake UI done. UI proof tooling exists (`pnpm ui:proof` + `docs/archive/styleboard/`) — NO-FLEET is Docker, not "never seen UI".',
   );
   lines.push('- **Claims:** docs/ops/claims/<id>.md (do not hand-edit LIVE-LANES mid-wave)');
   lines.push(

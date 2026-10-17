@@ -8,6 +8,10 @@ import { Details, Limit, Read, Select, presentActionFailure, type ActionControls
 import { t as copyText, Text } from './copy';
 import { Workbook } from './Workbook';
 import { academyLearningCopy as copy } from './academy-learning-copy';
+import { isAcademyPath, rememberLastLesson } from './academy-lms';
+import { useAcademyTracking } from './academy-tracking';
+import { AcademyCatalogue } from './AcademyCatalogue';
+import { Assessment, LessonVideoLink, ReaderHeader, ReaderPager } from './AcademyReaderParts';
 import './academy-learning.css';
 
 const ref = z.string().min(1);
@@ -211,6 +215,11 @@ export function AcademyLearning({
         : Promise.resolve({ ok: true as const, data: [] as z.infer<typeof summary>[] }),
     `academy-learning-path-items:${userId}:${certId}`,
   );
+  const overview = useAcademyTracking();
+  const openedLesson = reader.resource.status === 'ready' ? reader.resource.data?.slug : undefined;
+  useEffect(() => {
+    if (openedLesson) rememberLastLesson(userId, openedLesson);
+  }, [userId, openedLesson]);
   const pending = originalPending(userId);
   const receipt = action.result?.ok ? completion.safeParse(action.result.data) : null;
   const receiptMatches = receipt?.success && receipt.data.userId === userId && receipt.data.itemSlug === slug;
@@ -430,6 +439,10 @@ export function AcademyLearning({
                           </code>
                         </div>
                       </div>
+                      <Read resource={overview.resource} retry={overview.reload}>
+                        {(data) => <ReaderHeader slug={lesson.slug} path={lesson.path} lessons={data.lessons} tracking={data.tracking} />}
+                      </Read>
+                      <LessonVideoLink slug={lesson.slug} />
                       <code lang="zxx" className="academy-learning-ref">
                         {lesson.slug}
                       </code>
@@ -462,19 +475,7 @@ export function AcademyLearning({
                           <Details items={lesson.keyTerms.map((term) => [term.term, term.definition])} />
                         </div>
                       </section>
-                      <section>
-                        <h3>
-                          <Text k="academy.check.your.understanding" />
-                        </h3>
-                        <p className="muted">
-                          <Copy k="selfCheckBoundary" />
-                        </p>
-                        <ul lang="und">
-                          {lesson.selfCheck.map((q) => (
-                            <li key={q}>{q}</li>
-                          ))}
-                        </ul>
-                      </section>
+                      <Assessment prompts={lesson.selfCheck} />
                       {receiptMatches && receipt?.success && (
                         <section className="academy-learning-receipt" aria-label={t('completionReceipt')}>
                           <h3>
@@ -512,6 +513,9 @@ export function AcademyLearning({
                         </a>
                       </div>
                       {lesson.kind === 'workbook' && <Workbook slug={lesson.slug} />}
+                      <Read resource={overview.resource} retry={overview.reload}>
+                        {(data) => <ReaderPager slug={lesson.slug} path={lesson.path} lessons={data.lessons} certId={certId} />}
+                      </Read>
                     </>
                   )
                 }
@@ -522,6 +526,16 @@ export function AcademyLearning({
       ) : (
         <>
           {recovery}
+          <Read resource={overview.resource} retry={overview.reload}>
+            {(data) => (
+              <AcademyCatalogue
+                lessons={data.lessons}
+                tracking={data.tracking}
+                certId={certId}
+                selectedPath={isAcademyPath(initialPath) ? initialPath : null}
+              />
+            )}
+          </Read>
           <Panel title={t('learningPath')}>{pathPanel}</Panel>
           <Panel title={copyText('academy.learning.library')}>
             <div className="more-inline">
