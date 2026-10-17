@@ -1725,8 +1725,8 @@ export class PayService {
       throw new PayError(`maxUses must be a positive integer, got ${input.maxUses}`, 'pay.invalid_amount');
     }
 
-    // Validate before the claim. A bad expiry must not consume the key.
-    const expiresAt = this.linkExpiryFor(input.expiresAt);
+    // The body the caller named. Computed before the claim so a retry matches
+    // even when the stored expiry was capped.
     const fingerprint = key.key
       ? paymentLinkCreateFingerprint({
           merchantId: input.merchantId,
@@ -1740,10 +1740,11 @@ export class PayService {
       : null;
 
     if (!key.key) {
-      // A suspended merchant already cannot open a public session or create a
-      // payment. Minting a fresh capability URL that only fails at pay-time is the
-      // same class of honesty hole as letting them settle after suspension.
+      // Merchant eligibility before the lifetime. An unapproved merchant is
+      // refused as `pay.kyb_required` even when the lifetime is also unset.
+      // A bad expiry still writes nothing, because there is no claim yet.
       this.assertMerchantActive(await this.getMerchant(input.merchantId));
+      const expiresAt = this.linkExpiryFor(input.expiresAt);
       await this.assertLinkProfile(this.sql, input.merchantId, input.profileId);
       return this.insertPaymentLink(this.sql, { ...input, expiresAt });
     }
@@ -1778,6 +1779,8 @@ export class PayService {
       }
 
       this.assertMerchantActive(merchant);
+      // After eligibility, before the link row. A throw here rolls the claim back.
+      const expiresAt = this.linkExpiryFor(input.expiresAt);
       await this.assertLinkProfile(tx, input.merchantId, input.profileId);
       const created = await this.insertPaymentLink(tx, { ...input, expiresAt });
       const pointed = await tx`
