@@ -8,7 +8,7 @@ import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db'
 import { MemoryEventBus } from '@intafaced/events';
 import postgres from 'postgres';
 import { createTestDb } from '../fixture-truncate.testkit.js';
-import { AuthService, AuthError, type SessionTokens } from './auth-service.js';
+import { AuthService, AuthError, predecessorSealCleanup, type SessionTokens } from './auth-service.js';
 import { RankService } from '../rank/rank-service.js';
 import { hashToken } from './passwords.js';
 import { parseRefreshRecoverySeconds, REFRESH_RECOVERY_SECONDS_CEILING } from './refresh-cookie.js';
@@ -266,6 +266,22 @@ if (!databaseUrl) {
     await expect(auth.refresh(t0.refreshToken, { device: 'phone' })).rejects.toMatchObject({ code: 'auth.session_reused' });
     expect(await sessionCount(t0.userId)).toBe(before);
     expectNoRawToken(await sessionsText(t0.userId), t0.refreshToken, t1.refreshToken, t2.refreshToken);
+  });
+
+  it('plans the predecessor seal cleanup as an index scan on sessions', async () => {
+    const handle = unique();
+    await auth.register({ handle, email: `${handle}@example.com`, password: PASSWORD, region: 'DE' });
+    const session = await auth.login({ identifier: handle, password: PASSWORD, device: 'phone' });
+    const plan = await db.sql.begin(async (tx) => {
+      await tx`SET LOCAL enable_seqscan = off`;
+      const query = predecessorSealCleanup(session.userId, session.sessionId);
+      const rows = await tx.unsafe<Array<Record<string, unknown>>>(`EXPLAIN ${query.text}`, query.values);
+      return rows.map((row) => Object.values(row).join(' ')).join('\n');
+    });
+    expect(plan).toMatch(/Index Scan/);
+    expect(plan).toMatch(/sessions_user_idx/);
+    expect(plan).toMatch(/on sessions/);
+    expect(plan).not.toMatch(/Seq Scan/);
   });
 
   it('does not recover a successor that logout already revoked', async () => {

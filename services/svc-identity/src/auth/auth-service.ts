@@ -355,6 +355,24 @@ function recoveryWindowMs(seconds: number | undefined): number {
   return seconds * 1000;
 }
 
+/**
+ * Drop the sealed copy of `sessionId` held by its predecessor.
+ * The predecessor is the same user and already revoked, so the predicate
+ * stays on `sessions_user_idx` (`user_id`, `revoked`) instead of scanning
+ * every session row. `clearPredecessorSeal` and the plan test share this text.
+ */
+export function predecessorSealCleanup(userId: string, sessionId: string): { text: string; values: string[] } {
+  return {
+    text: 'UPDATE sessions SET successor_refresh = NULL WHERE user_id = $1 AND revoked = true AND successor_id = $2 AND successor_refresh IS NOT NULL',
+    values: [userId, sessionId],
+  };
+}
+
+export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: string): Promise<void> {
+  const query = predecessorSealCleanup(userId, sessionId);
+  await tx.unsafe(query.text, query.values);
+}
+
 export class AuthService {
   private readonly pendingTotp: PendingTotpEnrolmentStore;
   private readonly challenges: ChallengeStorePort;
@@ -904,8 +922,9 @@ export class AuthService {
       const rotatedAt = new Date();
       await tx`UPDATE sessions SET revoked = true, last_used_at = now(), rotated_at = ${rotatedAt} WHERE id = ${session.id}`;
       // The row that still holds a sealed copy of THIS session's refresh token
-      // is no longer pointing at the tip. Drop that copy in the same transaction.
-      await tx`UPDATE sessions SET successor_refresh = NULL WHERE successor_id = ${session.id}`;
+      // is no longer pointing at the tip. Drop that copy in the same transaction,
+      // scoped to the user so it uses sessions_user_idx.
+      await clearPredecessorSeal(tx, session.user_id, session.id);
       const nextToken = generateToken(48);
       const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
       const nextSession = await tx<
