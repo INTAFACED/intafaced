@@ -137,13 +137,19 @@ function tsInput(op: SdkOperation): string {
   return `PayCallInput & { readonly params: { ${fields} } }`;
 }
 
-/** GET /payments is a page. A bare array was the pre-launch shape and is refused. */
-function isPaymentPage(op: SdkOperation): boolean {
-  return op.method === 'GET' && op.path === '/payments';
+/** GET list that returns `{ items, nextCursor }`. A bare array was the pre-launch shape and is refused. */
+function pageKind(op: SdkOperation): 'payments' | 'links' | null {
+  if (op.method !== 'GET') return null;
+  if (op.path === '/payments') return 'payments';
+  if (op.path === '/payment-links') return 'links';
+  return null;
 }
 
 function tsReturn(op: SdkOperation): string {
-  return isPaymentPage(op) ? 'Promise<PayPaymentPage>' : 'Promise<PayResponse>';
+  const kind = pageKind(op);
+  if (kind === 'payments') return 'Promise<PayPaymentPage>';
+  if (kind === 'links') return 'Promise<PayPaymentLinkPage>';
+  return 'Promise<PayResponse>';
 }
 
 function comment(summary: string): string {
@@ -153,16 +159,25 @@ function comment(summary: string): string {
 
 function tsCall(op: SdkOperation): string {
   const call = `client.call({ ...input, method: '${op.method}', path: '${op.path}', idempotency: ${op.idempotency} })`;
-  if (!isPaymentPage(op)) {
+  const kind = pageKind(op);
+  if (kind === null) {
     return `    ${op.name}(input) {\n      return ${call};\n    },`;
   }
-  return `    async ${op.name}(input) {\n      const response = await ${call};\n      return paymentPageFromResponse(response);\n    },`;
+  const parse = kind === 'payments' ? 'paymentPageFromResponse' : 'paymentLinkPageFromResponse';
+  return `    async ${op.name}(input) {\n      const response = await ${call};\n      return ${parse}(response);\n    },`;
 }
 
 export function renderTypeScript(ops: readonly SdkOperation[]): string {
   const iface = ops.map((op) => `${comment(op.summary)}  ${op.name}(input: ${tsInput(op)}): ${tsReturn(op)};`).join('\n');
   const body = ops.map((op) => tsCall(op)).join('\n');
-  const pageImport = ops.some(isPaymentPage) ? "import { paymentPageFromResponse, type PayPaymentPage } from './payments-page.js';\n" : '';
+  const pageImport = [
+    ops.some((op) => pageKind(op) === 'payments')
+      ? "import { paymentPageFromResponse, type PayPaymentPage } from './payments-page.js';\n"
+      : '',
+    ops.some((op) => pageKind(op) === 'links')
+      ? "import { paymentLinkPageFromResponse, type PayPaymentLinkPage } from './payment-links-page.js';\n"
+      : '',
+  ].join('');
   return `// Generated from the Payments OpenAPI document. Do not edit.
 // Regenerate: pnpm exec tsx tooling/scripts/sdk-from-openapi.ts
 import type { PayCallInput, PayClient, PayResponse } from './client.js';
@@ -196,9 +211,11 @@ function pyCall(op: SdkOperation): string {
             idempotency_key=idempotency_key,
             max_retries=max_retries,
         )`;
-  if (!isPaymentPage(op)) return `        return ${call}`;
+  const kind = pageKind(op);
+  if (kind === null) return `        return ${call}`;
+  const parse = kind === 'payments' ? 'payment_page_from_response' : 'payment_link_page_from_response';
   return `        response = ${call}
-        return payment_page_from_response(response)`;
+        return ${parse}(response)`;
 }
 
 export function renderPython(ops: readonly SdkOperation[]): string {
@@ -212,13 +229,20 @@ export function renderPython(ops: readonly SdkOperation[]): string {
         params=None,
         idempotency_key=None,
         max_retries=None,
-    )${isPaymentPage(op) ? ' -> PayPaymentPage' : ''}:
+    )${pageKind(op) === 'payments' ? ' -> PayPaymentPage' : pageKind(op) === 'links' ? ' -> PayPaymentLinkPage' : ''}:
 ${pyDoc(op)}
 ${pyCall(op)}
 `,
     )
     .join('\n');
-  const pageImport = ops.some(isPaymentPage) ? 'from intafaced_pay.payments_page import PayPaymentPage, payment_page_from_response\n' : '';
+  const pageImport = [
+    ops.some((op) => pageKind(op) === 'payments')
+      ? 'from intafaced_pay.payments_page import PayPaymentPage, payment_page_from_response\n'
+      : '',
+    ops.some((op) => pageKind(op) === 'links')
+      ? 'from intafaced_pay.payment_links_page import PayPaymentLinkPage, payment_link_page_from_response\n'
+      : '',
+  ].join('');
   return `"""Generated from the Payments OpenAPI document. Do not edit.
 
 Regenerate: pnpm exec tsx tooling/scripts/sdk-from-openapi.ts

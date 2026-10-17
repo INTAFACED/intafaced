@@ -2,8 +2,7 @@ import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 import * as p from './schemas';
 import { cycleSchema } from './billing-schemas';
-import { subscriptionSchema, mandateSchema, executionSchema, subscriptionPostureSchema } from '../schemas';
-import { linkSchema } from '../schemas';
+import { subscriptionSchema, mandateSchema, executionSchema, subscriptionPostureSchema, linkSchema, listed } from '../schemas';
 import { portalRefusal, refusalText } from './refusal';
 
 /**
@@ -32,7 +31,12 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
   return {
     userId,
     subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
-      query('subscription.list', { merchantId, limit }, z.array(subscriptionSchema.refine((row) => row.merchantId === merchantId)), signal),
+      query(
+        'subscription.list',
+        { merchantId, limit },
+        p.page(subscriptionSchema.refine((row) => row.merchantId === merchantId)),
+        signal,
+      ).then(listed),
     subscription: (merchantId: string, subscriptionId: string, signal?: AbortSignal) =>
       query(
         'subscription.get',
@@ -41,7 +45,9 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
         signal,
       ),
     mandates: (merchantId: string, signal?: AbortSignal) =>
-      query('mandate.list', { merchantId, limit: 200 }, z.array(mandateSchema.refine((row) => row.merchantId === merchantId)), signal),
+      query('mandate.list', { merchantId, limit: 200 }, p.page(mandateSchema.refine((row) => row.merchantId === merchantId)), signal).then(
+        listed,
+      ),
     mandate: (merchantId: string, mandateId: string, signal?: AbortSignal) =>
       query(
         'mandate.get',
@@ -66,7 +72,7 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
       ),
 
     links: (merchantId: string, limit: number, signal?: AbortSignal) =>
-      query('merchant.listLinks', { merchantId, limit }, z.array(linkSchema), signal),
+      query('merchant.listLinks', { merchantId, limit }, p.page(linkSchema), signal).then(listed),
     merchant: (signal?: AbortSignal) => query('merchant.me', undefined, p.merchantRecordSchema, signal),
     rails: (signal?: AbortSignal) => query('railHealth', undefined, p.railSchema, signal),
     snapshot: (merchantId: string, preset: p.MetricPreset, signal?: AbortSignal) =>
@@ -157,7 +163,12 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
     pricingPreview: (input: { merchantId: string; assetCode: string; amount: string; monthlyVolume?: string; conversion?: boolean }) =>
       query('merchantControl.pricing.preview', input, p.quoteSchema),
     approvals: (merchantId: string, status: string, signal?: AbortSignal) =>
-      query('merchantControl.approvals.list', { merchantId, limit: 200, ...(status ? { status } : {}) }, z.array(p.approvalSchema), signal),
+      query(
+        'merchantControl.approvals.list',
+        { merchantId, limit: 200, ...(status ? { status } : {}) },
+        p.page(p.approvalSchema),
+        signal,
+      ).then(listed),
     decideApproval: (input: { approvalId: string; decision: 'approve' | 'reject'; expectedPayloadHash: string; reason: string }) =>
       mutate('merchantControl.approvals.decide', input, p.approvalSchema),
     cancelApproval: (input: { approvalId: string; reason: string }) => mutate('merchantControl.approvals.cancel', input, p.approvalSchema),
