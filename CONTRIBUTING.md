@@ -48,7 +48,7 @@ Review: the author checks their own change, and an independent reviewer checks t
 
 Do not open PRs whose only job is status or a board update.
 
-Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on the exact head (run it from an up-to-date `origin/main` checkout) and the required review passed. The gate prints the merge command; run it as its own step.
+Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on the exact head (run it from an up-to-date `origin/main` checkout) and the required review passed (format: [`docs/tooling/evidence-merge-check.md`](docs/tooling/evidence-merge-check.md)). The gate prints the merge command; run it as its own step.
 
 ---
 

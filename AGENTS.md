@@ -33,8 +33,8 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 ## Check, then merge
 
 1. Run the checks on your machine before you push: affected tests, typecheck, and `pnpm exec prettier --check` on every file you changed. Do not add GitHub rules or required checks.
-2. Merge only when both hold: `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on the exact head (run it from an up-to-date `origin/main` checkout), and the required independent review passed that same head. Money, security, sign-in and merge-check code need an Opus-class reviewer.
-3. The gate never merges. Run the command it prints. A PR that changes a gate file (`tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`) needs a `ci:` or `gate:` title.
+2. Merge only when both hold: `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on the exact head, run from a clean, up-to-date `origin/main` checkout (not the PR's branch), and the required independent review passed that same head. The gate waits for finished checks, requires Gitleaks and Dependency audit, verifies CI covers the changed paths, and classifies each failure as introduced, inherited, environmental or unknown. Only a proven inherited failure with an owner and evidence declaration is excused, and never in money or security code. Money and security changes need an independent Claude Opus transcript review of the exact head whose report quotes the gate's canonical patch hash and file list. Format and declarations: [`docs/tooling/evidence-merge-check.md`](docs/tooling/evidence-merge-check.md).
+3. The gate never merges. A PASS writes an exact-head receipt; run the merge command separately. A PR that changes a gate file (`tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`) needs a `ci:` or `gate:` title and must pass main's copy of the gate. Agent-rule files are never docs-only.
 4. A merge is not a launch. Deploys, purchases, live credentials, real funds and outside contact need the owner.
 5. On a 403 or 429 from GitHub, stop all GitHub calls and report the exact response. Do not retry in a loop, switch accounts or create a token. Keep working locally.
 6. Never push `main`.
@@ -50,5 +50,5 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 1. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): apps, services, packages, money flow, how to run.
 2. [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations procedures.
 3. [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape and money-path rules. [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md) is the original product spec. Where it disagrees with the code or this file, the code and this file win.
-4. Every other file under `docs/` is history, not instructions.
+4. `docs/archive/` is history, not instructions. Live docs are listed in [`docs/README.md`](docs/README.md).
 5. Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`.
