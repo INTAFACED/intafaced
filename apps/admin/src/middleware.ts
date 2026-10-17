@@ -74,6 +74,7 @@ export function middleware(request: NextRequest) {
   forwarded.set('content-security-policy', policy);
   const response = gate(request, forwarded);
   response.headers.set('content-security-policy', policy);
+  response.headers.set('cache-control', 'no-store');
   return response;
 }
 

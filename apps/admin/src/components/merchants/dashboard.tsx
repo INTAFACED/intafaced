@@ -115,14 +115,15 @@ function DashboardBody({
           label="Pending KYB"
           value={<span className="mp-num">{metrics.pendingKyb}</span>}
           period="Right now"
-          href="/merchants/all?kyb=pending"
+          href="/kyb"
           note="Business verification waiting"
         />
         <KpiTile
           label="Open fraud reviews"
           value={<span className="mp-num">{metrics.openFraudReviews}</span>}
           period="Right now"
-          note="The fraud queue page arrives with W2"
+          note="Open the bounded review queue"
+          href="/fraud"
         />
       </div>
 

@@ -21,6 +21,7 @@ export const payConversionModeSchema = z.literal('sandbox');
 export const PAY_CONVERSION_STATUSES = [
   'quoted',
   'intent_committed',
+  'placing',
   'placed',
   'partially_filled',
   'filled',
@@ -55,7 +56,7 @@ export const conversionQuoteSchema = z
     rate: payAmountStringSchema,
     feeAmount: payAmountStringSchema,
     spreadAmount: payAmountStringSchema,
-    /** The least the merchant accepts; a fill below this is refused and reversed. */
+    /** Gross to-asset the limit price protects. A fill still under this is inventory, not erased. */
     minimumOutput: payAmountStringSchema,
     expectedOutput: payAmountStringSchema,
     expiresAt: payTimestampSchema,
@@ -90,6 +91,147 @@ export const conversionOrderSchema = z
   })
   .strict();
 export type ConversionOrder = z.infer<typeof conversionOrderSchema>;
+
+const conversionChangeHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+
+/** First founder. The body names the row, not a fill. */
+export const conversionResolveProposeInputSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    conversionId: z.string().uuid(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export const conversionResolveProposeResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum(['pending', 'missing', 'not_placing', 'conflict']),
+    changeHash: conversionChangeHashSchema.nullable(),
+  })
+  .strict();
+
+/** Second founder. `expectedChangeHash` is the hash from the proposal. No amounts. */
+export const conversionResolveConfirmInputSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    decision: z.enum(['confirm', 'reject']),
+    reason: z.string().trim().min(1).max(500),
+    expectedChangeHash: conversionChangeHashSchema,
+  })
+  .strict();
+
+export const conversionResolveConfirmResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum(['confirmed', 'rejected', 'missing', 'hash_mismatch', 'same_founder', 'not_placing']),
+    changeHash: conversionChangeHashSchema.nullable(),
+    order: conversionOrderSchema.nullable(),
+  })
+  .strict();
+
+/** First founder. The body names the late-fill audit and how it was settled. No amounts. */
+export const conversionLateFillProposeInputSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    auditId: z.string().uuid(),
+    /** How the late fill was settled. A sentence, not a quantity. */
+    settlement: z.string().trim().min(1).max(500),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export const conversionLateFillProposeResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum(['pending', 'missing', 'conflict', 'already_acked']),
+    changeHash: conversionChangeHashSchema.nullable(),
+  })
+  .strict();
+
+/** Second founder. Same body as a resolve confirm. `settlement` is what was recorded. */
+export const conversionLateFillConfirmResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum(['confirmed', 'rejected', 'missing', 'hash_mismatch', 'same_founder', 'not_pending']),
+    changeHash: conversionChangeHashSchema.nullable(),
+    settlement: z.string().nullable(),
+  })
+  .strict();
+
+/** First founder. Names the late-fill audit. No amount, no venue numbers. */
+export const conversionLateFillBookProposeInputSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    auditId: z.string().uuid(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export const conversionLateFillBookProposeResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum(['pending', 'missing', 'conflict', 'already_booked', 'absent', 'below_minimum', 'not_bookable']),
+    changeHash: conversionChangeHashSchema.nullable(),
+  })
+  .strict();
+
+/** Second founder. Same body as a resolve confirm. `funding` is which pot paid the USD. */
+export const conversionLateFillBookConfirmResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum([
+      'confirmed',
+      'rejected',
+      'missing',
+      'hash_mismatch',
+      'same_founder',
+      'not_pending',
+      'evidence_changed',
+      'below_minimum',
+      'already_booked',
+    ]),
+    changeHash: conversionChangeHashSchema.nullable(),
+    funding: z.enum(['merchant', 'inventory']).nullable(),
+    order: conversionOrderSchema.nullable(),
+  })
+  .strict();
+
+export const conversionLateFillSweepResultSchema = z
+  .object({
+    checked: z.number().int().nonnegative(),
+    found: z.number().int().nonnegative(),
+    finalized: z.number().int().nonnegative(),
+    busy: z.boolean(),
+    errors: z
+      .array(
+        z
+          .object({
+            conversionId: z.string().uuid(),
+            code: z.string().min(1),
+          })
+          .strict(),
+      )
+      .max(500),
+  })
+  .strict();
+
+export const conversionHoldSweepResultSchema = z
+  .object({
+    released: z.number().int().nonnegative(),
+    busy: z.boolean(),
+    failures: z
+      .array(
+        z
+          .object({
+            conversionId: z.string().min(1),
+            code: z.string().min(1),
+          })
+          .strict(),
+      )
+      .max(500),
+  })
+  .strict();
 
 export const conversionGetInputSchema = z.object({ conversionId: z.string().uuid() }).strict();
 export const conversionListInputSchema = z

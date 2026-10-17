@@ -66,10 +66,14 @@ export interface DashboardData {
   readonly generatedAt: string;
 }
 
-export async function loadDashboard(ctx: PayCallContext, now: Date = new Date()): Promise<DashboardData> {
+export async function loadDashboard(
+  ctx: PayCallContext,
+  now: Date = new Date(),
+  days: 1 | 7 | 30 = DASHBOARD_DAYS,
+): Promise<DashboardData> {
   const todayDay = dayOf(now);
   const read = (window: unknown) => payCall(ctx, 'founderAdmin.metrics.global', 'GET', { window }, parseWith(founderGlobalMetricsSchema));
-  const earlier = Array.from({ length: DASHBOARD_DAYS - 1 }, (_, i) => addDays(todayDay, i - (DASHBOARD_DAYS - 1)));
+  const earlier = Array.from({ length: days - 1 }, (_, i) => addDays(todayDay, i - (days - 1)));
   const [today, ...rest] = await Promise.all([read(presetWindow('today')), ...earlier.map((day) => read(dayWindow(day)))]);
   return {
     today,

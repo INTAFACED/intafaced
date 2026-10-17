@@ -124,6 +124,30 @@ export function moduleForPage(pathname: string): ModuleId | null {
   const path = normalise(pathname);
   if (path === null) return null;
   if (path === '/') return 'killswitches';
+  if (
+    [
+      'approvals',
+      'kyb',
+      'screening',
+      'fraud',
+      'disputes',
+      'payments',
+      'settlements',
+      'payouts',
+      'conversion',
+      'treasury',
+      'pricing',
+      'limits',
+      'halts',
+      'webhooks',
+      'audit',
+      'b2b-ramp',
+      'simulator',
+      'analytics',
+      'system',
+    ].some((prefix) => under(path, `/${prefix}`))
+  )
+    return 'merchants';
   for (const route of MODULE_ROUTES) {
     if (route.href !== '/' && under(path, route.href)) return route.id;
   }

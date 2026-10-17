@@ -34,6 +34,7 @@ const migrations = [
   '0018_pay_founder_controls_admission.sql',
   // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
   '0071_pay_merchant_names.sql',
+  '0073_pay_settlement_read.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-seams-test-secret-at-least-32-characters';

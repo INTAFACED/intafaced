@@ -111,4 +111,14 @@ export const CONTROL_COPY: Record<string, PlainRefusal> = {
     body: 'A halt can only target a merchant that exists.',
     next: 'Go back to All merchants.',
   },
+  'pay.halt_target_unsupported': {
+    title: 'A user or rail halt only pauses payouts',
+    body: 'Intake, settlement and conversion can be halted for everyone or for one merchant. A user halt pauses that person’s payouts, and it needs a user id.',
+    next: 'Choose Paying out, or halt everyone or one merchant.',
+  },
+  'pay.halt_target_unknown_rail': {
+    title: 'That rail is not registered',
+    body: 'A payout halt can only name a rail this deployment sends on.',
+    next: 'Pick a registered rail.',
+  },
 };

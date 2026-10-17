@@ -8,6 +8,16 @@ import {
   founderChangeConfirmInputSchema,
   founderApprovalQueueInputSchema,
   founderApprovalQueueSchema,
+  founderApprovalDestinationInputSchema,
+  founderApprovalDestinationSchema,
+  founderControlAuditListInputSchema,
+  founderControlAuditListSchema,
+  founderPendingChangeListInputSchema,
+  founderPendingChangeListSchema,
+  founderLimitRequestListInputSchema,
+  founderLimitRequestListSchema,
+  founderLimitRequestCloseInputSchema,
+  founderLimitRequestCloseResultSchema,
   payoutApprovalSchema,
 } from '@intafaced/contracts';
 import type { ChangeOutcome } from '../control/changes.js';
@@ -72,6 +82,10 @@ export function founderChangeProcedures(founder: Founder, control: ControlServic
           return merchantResult(control, await control.changes.confirm(founderIdOf(ctx), input));
         }),
       ),
+    pending: founder
+      .input(founderPendingChangeListInputSchema)
+      .output(founderPendingChangeListSchema)
+      .query(({ input }) => guarded(() => control.changes.listPending(input))),
   };
 }
 
@@ -80,12 +94,12 @@ export function founderApprovalProcedures(founder: Founder, control: ControlServ
     list: founder
       .input(founderApprovalQueueInputSchema)
       .output(founderApprovalQueueSchema)
-      .query(({ input }) =>
-        guarded(async () => {
-          const page = await control.approvals.founderQueue(input);
-          return { approvals: page.approvals.map(toContractApproval), nextCursor: page.nextCursor };
-        }),
-      ),
+      .query(({ input }) => guarded(() => control.approvals.founderQueue(input))),
+    /** Full destination of one queue row. A mutation so a reveal is never a cached GET: each call is one audit row. */
+    destination: founder
+      .input(founderApprovalDestinationInputSchema)
+      .output(founderApprovalDestinationSchema)
+      .mutation(({ ctx, input }) => guarded(() => control.approvals.founderDestination(founderIdOf(ctx), input.approvalId))),
   };
 }
 
@@ -160,6 +174,23 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
         .mutation(({ ctx, input }) =>
           guarded(async () => toContractApproval(await control.approvals.founderDecide(founderIdOf(ctx), input))),
         ),
+    }),
+    /** Open limit-increase asks. Reading them does not change caps. Closing one does not either. */
+    limitRequests: router({
+      list: founder
+        .input(founderLimitRequestListInputSchema)
+        .output(founderLimitRequestListSchema)
+        .query(({ input }) => guarded(() => control.listPendingLimitRequests(input))),
+      close: founder
+        .input(founderLimitRequestCloseInputSchema)
+        .output(founderLimitRequestCloseResultSchema)
+        .mutation(({ ctx, input }) => guarded(() => control.closeLimitRequest(founderIdOf(ctx), input))),
+    }),
+    audit: router({
+      list: founder
+        .input(founderControlAuditListInputSchema)
+        .output(founderControlAuditListSchema)
+        .query(({ input }) => guarded(() => control.listAudit(input))),
     }),
   });
 }

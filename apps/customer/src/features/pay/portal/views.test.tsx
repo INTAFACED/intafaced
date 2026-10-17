@@ -259,7 +259,8 @@ describe('onboarding', () => {
         starterFeeBps={null}
       />,
     );
-    expect(out).toContain('You are live in sandbox');
+    expect(out).toContain('Destination saved for this visit');
+    expect(out).not.toContain('You are live in sandbox');
     expect(out).toContain('Waiting for verification to be approved');
     expect(out).toContain('Your tier and limits arrive soon');
   });
@@ -568,6 +569,8 @@ describe('exports', () => {
     rowCount: 42,
     sha256: 'a'.repeat(64),
     requestedBy: 'owner-1',
+    columns: ['payment_id', 'amount'],
+    generatedAt: '2026-10-15T09:00:00.000Z',
     asOf: '2026-10-15T09:00:00.000Z',
     expiresAt: null,
     createdAt: '2026-10-15T09:00:00.000Z',
