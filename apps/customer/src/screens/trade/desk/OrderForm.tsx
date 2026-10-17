@@ -60,7 +60,8 @@ import {
 } from './pending';
 import { bpsToRatio, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
 import { CONFLICT_CODE, resendOrder } from './resend';
-import { failureOf, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
+import { clearOrdersPaused, markOrdersPaused } from './orders-paused';
+import { failureOf, isLedgerFrozen, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
 import { problemText } from './problem-text';
 import { outcomeOf, tifFields, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
@@ -80,7 +81,7 @@ function notTradedCopy(
 }
 
 /** The reason a refusal gives, with its action link ("Verify now") when it has one. */
-function RefusalNote({ failure, onRetry }: { failure: Failure; onRetry?: () => void }) {
+function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetry?: () => void; onDismiss?: () => void }) {
   const { t } = deskCopy.useCopy();
   if (failure.kind === 'network')
     return (
@@ -96,6 +97,11 @@ function RefusalNote({ failure, onRetry }: { failure: Failure; onRetry?: () => v
   const { title, body, action, reference } = failure.copy;
   return (
     <div className="dk-note dk-note--bad" role="alert">
+      {onDismiss ? (
+        <button type="button" className="dk-dismiss" aria-label={t('Dismiss')} onClick={onDismiss}>
+          ×
+        </button>
+      ) : null}
       <p className="dk-note-title">{title}</p>
       <p>{body}</p>
       {action ? (
@@ -363,6 +369,7 @@ function SideForm({
       unmarkInFlight(sending.clientOrderId);
     }
     if (result.ok) {
+      clearOrdersPaused();
       release(userId, sending.clientOrderId);
       if (mounted.current) {
         const done = result.data;
@@ -412,6 +419,7 @@ function SideForm({
       requestCheck();
     } else {
       release(userId, sending.clientOrderId);
+      if (isLedgerFrozen(result)) markOrdersPaused();
       if (mounted.current) {
         setReview(null);
         setFailure(failureOf(result, context));
@@ -591,10 +599,12 @@ function SideForm({
         {signedIn && market.open && sellOff ? <p className="dk-note">{t('Market sell off')}</p> : null}
         {gate.reason === 'short' ? <RefusalNote failure={refusalFailure('ledger.insufficient_funds', context)} /> : null}
         {tradable && showProblem && !checked.ok ? <p className="dk-note">{problemText(checked.problem, market, t)}</p> : null}
-        {tradable && checked.ok && live.state === 'checking' ? <p className="dk-note">{t('Checking the order')}</p> : null}
+        {tradable && checked.ok && live.state === 'checking' && !failure && !status ? (
+          <p className="dk-note">{t('Checking the order')}</p>
+        ) : null}
         {tradable && checked.ok && live.state === 'blocked' ? <RefusalNote failure={live.failure} /> : null}
         {tradable && checked.ok && live.state === 'error' ? <RefusalNote failure={{ kind: 'network' }} onRetry={retry} /> : null}
-        {failure ? <RefusalNote failure={failure} /> : null}
+        {failure ? <RefusalNote failure={failure} onDismiss={() => setFailure(null)} /> : null}
         {status ? (
           <p className="dk-note dk-note--good" role="status">
             {status}

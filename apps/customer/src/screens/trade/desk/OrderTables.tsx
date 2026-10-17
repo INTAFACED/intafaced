@@ -10,7 +10,7 @@ import { Button, fmtAmount, fmtPrice, refusalCopy, Skeleton, StateBlock, StatusT
 import type { DeskMarket } from './market';
 import { dayTime } from './time';
 import { placesOf, quotePlaces } from './text';
-import { canEdit, EditOrder } from './EditOrder';
+import { canEdit } from './EditOrder';
 import { orderTag } from './tif';
 
 /**
@@ -165,6 +165,7 @@ export function OrdersTable({
   precision,
   onChanged,
   desk = false,
+  onEdit,
 }: {
   rows: Order[];
   withAction: boolean;
@@ -172,12 +173,11 @@ export function OrdersTable({
   onChanged: () => void;
   /** The desk's table: Edit beside Cancel on open orders, and Average price and Cost on past orders. Activity keeps its own columns. */
   desk?: boolean;
+  /** Open the edit dialog for an order (the desk hosts the dialog above the table: a replacement removes the row). */
+  onEdit?: (order: Order) => void;
 }) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
-  // The edit dialog lives here, not in the row: a replacement removes the old row, and the answer must stay on screen.
-  const [editing, setEditing] = useState<Order | null>(null);
-  const editingMarket = editing ? precision.marketOf(editing.symbol) : undefined;
   return (
     <>
       <table className="dk-table">
@@ -228,11 +228,11 @@ export function OrdersTable({
               <td>
                 {withAction && !isTerminalOrder(order) ? (
                   <span className="dk-bt-actions">
-                    {desk && canEdit(order) && precision.marketOf(order.symbol) ? (
+                    {onEdit && canEdit(order) && precision.marketOf(order.symbol) ? (
                       <Button
                         variant="secondary"
                         size={28}
-                        onClick={() => setEditing(order)}
+                        onClick={() => onEdit?.(order)}
                         aria-label={t('Edit order label', {
                           side: order.side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
                           amount: fmtAmount(order.amount, { places: 8 }),
@@ -252,9 +252,6 @@ export function OrdersTable({
           ))}
         </tbody>
       </table>
-      {editing && editingMarket ? (
-        <EditOrder order={editing} market={editingMarket} onDone={onChanged} onClose={() => setEditing(null)} />
-      ) : null}
     </>
   );
 }

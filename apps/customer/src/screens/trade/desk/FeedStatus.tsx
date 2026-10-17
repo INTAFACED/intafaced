@@ -5,6 +5,7 @@ import { DESK_INTERVALS, useBalances, useBook, useOpenOrders } from './data';
 import { Popover, PopoverContent, PopoverTrigger, useTicker } from './deps';
 import { overall, streamOf, type Stream, type StreamState } from './feed-status';
 import { useNow } from './hooks';
+import { useOrdersPaused } from './orders-paused';
 import { STALE_BOOK_MS } from './OrderBook';
 
 const STREAM_KEY = {
@@ -50,7 +51,8 @@ export const FeedStatus = memo(function FeedStatus({ symbol }: { symbol: string 
     streamOf('orders', openOrders, { now, intervalMs: DESK_INTERVALS.openOrders, signedIn, privateRead: true }),
     streamOf('balances', balances, { now, intervalMs: DESK_INTERVALS.balances, signedIn, privateRead: true }),
   ];
-  const state = overall(streams);
+  const paused = useOrdersPaused();
+  const state = paused ? 'paused' : overall(streams);
   return (
     <Popover>
       <PopoverTrigger className="dk-feed" data-state={state} aria-label={t('Status chip label', { state: t(`Status chip ${state}`) })}>
@@ -60,6 +62,10 @@ export const FeedStatus = memo(function FeedStatus({ symbol }: { symbol: string 
       <PopoverContent align="end" className="dk-feed-pop">
         <p className="dk-feed-title">{t('Status title')}</p>
         <ul className="dk-feed-list">
+          <li data-state={paused ? 'old' : 'ok'}>
+            <span>{t('Status placing')}</span>
+            <span className="dk-feed-state">{paused ? t('Status paused') : t('Status ready')}</span>
+          </li>
           {streams.map((stream) => (
             <li key={stream.id} data-state={stream.state}>
               <span>{t(STREAM_KEY[stream.id])}</span>

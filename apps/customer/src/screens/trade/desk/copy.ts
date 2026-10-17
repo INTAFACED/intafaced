@@ -187,7 +187,7 @@ const messages = {
   'Not placed post only title': 'Post-only order not placed',
   'Not placed post only body': 'It would have matched an order on the book right away, so it was refused. Nothing was traded.',
   'Not placed fok title': 'Fill-or-kill order not placed',
-  'Not placed fok body': 'The book couldn’t fill the whole amount at your price, so nothing was traded.',
+  'Not placed fok body': 'The book couldn’t fill the whole amount, so nothing was traded.',
   'Nothing filled title': 'Nothing filled',
   'Nothing filled body': 'Nothing could be filled at your price right now, so the order was cancelled. Nothing was traded.',
   'Not placed title': 'Order not placed',
@@ -196,7 +196,7 @@ const messages = {
   // Fees, per order and as listed
   'Fee maker': 'Fee {rate} · maker',
   'Fee taker': 'Fee {rate} · taker',
-  'Fee listed': 'Listed {maker} / {taker}',
+  'Fee listed': 'Listed: maker {maker} · taker {taker}',
   'Fee listed title': 'The market’s listed maker and taker rates, before any rank discount. The rate on the left is what this order pays.',
 
   // Changing and cancelling open orders
@@ -208,7 +208,13 @@ const messages = {
   'Edit order title': 'Edit order',
   'Edit order intro': 'Your {side} order: {amount} {asset} at {price} {quote}.',
   'Edit amount label': 'Amount left',
-  'Edit amend explain': 'Changing only the amount keeps your place in the queue.',
+  'Edit amend explain': 'Lowering the amount keeps your place in the queue. To trade more, place a new order.',
+  'Edit amount too big': 'You can only lower the amount here. To trade more, place a new order.',
+  'Edit price locked': 'A partly filled order can’t change price. Cancel it and place a new one.',
+  'Edit changed meanwhile': 'This order changed while you were editing. Close this and check Open orders.',
+  'Edit keep order': 'Keep order',
+  'Edit replace uncertain':
+    'We couldn’t confirm the replacement. Your old order may already be cancelled. Check Open orders and Order history before trying again.',
   'Edit replace explain':
     'A new price replaces the order: the old one is cancelled first, then a new one is placed at the back of the queue. If the new one is refused, the old one is already gone.',
   'Edit nothing changed': 'Change the price or the amount first.',
@@ -222,6 +228,11 @@ const messages = {
   'Edit replaced': 'Replaced. Your new order is {amount} {asset} at {price} {quote}.',
   'Edit not replaced open': 'Not replaced. Your original order is still open.',
   'Edit not replaced gone': 'The old order was cancelled but the new one wasn’t placed. Check Order history.',
+  'Edit not replaced unknown': 'The order wasn’t replaced. Check Open orders and Order history.',
+  'Edit replaced rejected': 'The old order was cancelled, but the new order was refused. Nothing is resting. Check Order history.',
+  'Edit replaced part': 'The old order was cancelled. The new order filled {filled} of {amount} {asset}; the rest was cancelled.',
+  'Edit replaced filled': 'Replaced. The new order filled right away: {amount} {asset}.',
+  'Edit replaced nofill': 'The old order was cancelled, but the new order ended with nothing filled. Nothing is resting.',
   'Edit uncertain': 'We couldn’t confirm the change. Check Open orders before trying again.',
   'Edit couldn’t check': 'We couldn’t check this change. Nothing was sent.',
   'Edit refused': 'The order wasn’t changed.',
@@ -234,13 +245,19 @@ const messages = {
   'Cancel all confirm': 'Cancel all orders',
   'Keep orders': 'Keep orders',
   'Cancel all done': 'Cancelled {count} orders.',
-  'Cancel all uncertain': 'We couldn’t confirm the cancel. Check Open orders before trying again.',
-  'Cancel all refused': 'The orders couldn’t be cancelled right now.',
+  'Cancel all uncertain': 'We couldn’t confirm which orders were cancelled. Check Open orders before trying again.',
+  'Cancel all partial': 'Cancelled {count} orders. {left} may still be open. Check Open orders.',
+
+  Dismiss: 'Dismiss',
 
   // Data status
   'Status chip ok': 'Data OK',
   'Status chip delayed': 'Data delayed',
   'Status chip problem': 'Data problem',
+  'Status chip paused': 'Orders paused',
+  'Status placing': 'Placing orders',
+  'Status paused': 'Paused: the last order was refused',
+  'Status ready': 'Open',
   'Status chip label': 'Data status: {state}',
   'Status title': 'Data status',
   'Status session': 'Sign-in',
@@ -257,7 +274,7 @@ const messages = {
   'Status down': 'Couldn’t load',
   'Status loading': 'Loading',
   'Status off': 'Sign in to see',
-  'Status note': 'The desk asks for each feed every few seconds. It is not a live connection.',
+  'Status note': 'Prices and balances refresh every few seconds; this is not a live stream.',
 
   // Review dialog
   'Review buy': 'Review your buy',

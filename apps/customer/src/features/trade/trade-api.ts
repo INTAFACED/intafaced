@@ -247,7 +247,10 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
     },
     /** Cancel every open order in one market (DELETE /orders?symbol=). The reply lists the orders it cancelled. */
     cancelAll: (symbol: string): Promise<ApiResult<Order[]>> =>
-      api.rest('/orders', z.array(orderSchema), { method: 'DELETE', query: { symbol } }),
+      // Without a symbol the service would cancel every market, so an empty one is never sent.
+      symbol.trim() === ''
+        ? Promise.resolve({ ok: false as const, reason: 'error' as const, message: 'symbol is required' })
+        : api.rest('/orders', z.array(orderSchema), { method: 'DELETE', query: { symbol } }),
     async amend(reviewed: ReviewedOrder, amount: string): Promise<ApiResult<z.infer<typeof amendmentSchema>>> {
       const { id, symbol } = reviewed;
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, amendmentSchema, { method: 'PATCH', body: { qty: amount } });
@@ -299,6 +302,9 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
       if (!canDispatch(result.data))
         return tradeRefusal('tradingContextChangedBeforeReplacementNoCancelReplaceWasSent', { reason: 'aborted' });
       const replaced = await api.rest(`/orders/${encodeURIComponent(id)}/replace`, replacementSchema, { method: 'POST', body: draft });
+      // The service cancels the original before it places the replacement, so any refusal after the request went out may
+      // come after the original is gone: it is never reported as "nothing changed".
+      if (!replaced.ok) return { ...replaced, reason: 'uncertain' as const };
       if (
         replaced.ok &&
         (replaced.data.originalOrderId !== id ||

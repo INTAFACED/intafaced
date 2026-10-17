@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDataEnv } from '../../../data/hooks';
 import { draftSchema, type Draft, type Order, type Preview } from '../../../features/trade/trade-api';
 import { deskCopy } from './copy';
@@ -19,7 +19,7 @@ import type { DeskMarket } from './market';
 import { checkOrder, padDecimals, scaled } from './order-math';
 import { failureOf, previewIsOrderable, previewRefusalCode, refusalFailure } from './preview';
 import { problemText } from './problem-text';
-import { orderTag, tifFields } from './tif';
+import { outcomeOf, orderTag, tifFields, type Tif } from './tif';
 import { placesOf } from './text';
 
 type Note = { tone: 'good' | 'bad'; text: string } | null;
@@ -61,8 +61,16 @@ export function EditOrder({
   const [note, setNote] = useState<Note>(null);
   const [review, setReview] = useState<{ draft: Draft; preview: Preview; changed: boolean } | null>(null);
   const [finished, setFinished] = useState(false);
-  // One id per time the dialog is opened: sending the same replacement again returns the first one, never a second order.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // A new id whenever the numbers change, so a changed replacement is never mistaken for a retry of the first one.
   const clientOrderId = useRef(`desk:replace:${crypto.randomUUID()}`);
+  const partlyFilled = (scaled(order.filled) ?? 0n) > 0n;
   const context = { asset: market.base, pair: market.symbol.replace('/', '-') };
   const side = order.side;
   const sideWord = side === 'buy' ? t('Order placed side buy') : t('Order placed side sell');
@@ -74,12 +82,15 @@ export function EditOrder({
   function edit(apply: () => void) {
     if (busyRef.current || finished) return;
     apply();
+    clientOrderId.current = `desk:replace:${crypto.randomUUID()}`;
     setNote(null);
     setReview(null);
   }
   const checked = checkOrder({ side, type: 'limit', price, amount }, market, null);
   const priceChanged = checked.ok && scaled(checked.price) !== scaled(order.price);
   const amountChanged = checked.ok && scaled(checked.amount) !== scaled(order.remaining);
+  // Only a lower amount is changed here: a higher one would take a new hold that this dialog never shows.
+  const amountUp = checked.ok && (scaled(checked.amount) ?? 0n) > (scaled(order.remaining) ?? 0n);
 
   async function run(work: () => Promise<void>) {
     if (busyRef.current) return;
@@ -101,7 +112,18 @@ export function EditOrder({
   /** Same price, new amount: native amend. One PATCH per click. */
   const amend = () =>
     run(async () => {
-      if (!checked.ok) return;
+      if (!checked.ok || amountUp) return;
+      // The amount sent is the new amount LEFT, so look again first: if part of the order filled while this was open, a
+      // lower number than the one on screen could still be a raise.
+      env.poller.recordExternalRequest();
+      const fresh = await api.order(order);
+      if (!mounted.current) return;
+      if (!fresh.ok || fresh.data.status !== 'open' || scaled(fresh.data.remaining) !== scaled(order.remaining)) {
+        setNote({ tone: 'bad', text: t('Edit changed meanwhile') });
+        setFinished(true);
+        onDone();
+        return;
+      }
       env.poller.recordExternalRequest();
       const result = await api.amend(order, checked.amount);
       if (!result.ok) {
@@ -158,21 +180,44 @@ export function EditOrder({
     run(async () => {
       if (!review) return;
       env.poller.recordExternalRequest(2);
-      const result = await api.replace(order, review.draft, review.preview, previewIsOrderable);
+      const result = await api.replace(order, review.draft, review.preview, (fresh) => mounted.current && previewIsOrderable(fresh));
       if (result.ok) {
         const done = result.data;
         if (done.accepted && done.replacement) {
-          setNote({
-            tone: 'good',
-            text: t('Edit replaced', {
-              amount: fmtAmount(done.replacement.amount, { places: amountPlaces }),
-              asset: market.base,
-              price: fmtPrice(done.replacement.price ?? review.draft.price ?? '', market.tickSize),
-              quote: market.quote,
-            }),
-          });
+          const tif: Tif = orderTag(order) === 'PO' ? 'PO' : 'GTC';
+          const outcome = outcomeOf(done.replacement, tif);
+          const filled = fmtAmount(done.replacement.filled, { places: amountPlaces });
+          const left = fmtAmount(done.replacement.amount, { places: amountPlaces });
+          setNote(
+            outcome.kind === 'resting'
+              ? {
+                  tone: 'good',
+                  text: t('Edit replaced', {
+                    amount: left,
+                    asset: market.base,
+                    price: fmtPrice(done.replacement.price ?? review.draft.price ?? '', market.tickSize),
+                    quote: market.quote,
+                  }),
+                }
+              : outcome.kind === 'filled'
+                ? { tone: 'good', text: t('Edit replaced filled', { amount: filled, asset: market.base }) }
+                : outcome.kind === 'partCancelled'
+                  ? { tone: 'bad', text: t('Edit replaced part', { filled, amount: left, asset: market.base }) }
+                  : outcome.kind === 'rejected'
+                    ? { tone: 'bad', text: t('Edit replaced rejected') }
+                    : { tone: 'bad', text: t('Edit replaced nofill') },
+          );
         } else {
-          setNote({ tone: 'bad', text: t(done.originalState === 'open' ? 'Edit not replaced open' : 'Edit not replaced gone') });
+          setNote({
+            tone: 'bad',
+            text: t(
+              done.originalState === 'open'
+                ? 'Edit not replaced open'
+                : done.originalState === 'canceled'
+                  ? 'Edit not replaced gone'
+                  : 'Edit not replaced unknown',
+            ),
+          });
         }
         setReview(null);
         setFinished(true);
@@ -188,14 +233,14 @@ export function EditOrder({
           });
         }
       } else if (result.reason === 'uncertain') {
-        setNote({ tone: 'bad', text: t('Edit uncertain') });
+        setNote({ tone: 'bad', text: t('Edit replace uncertain') });
         setReview(null);
         setFinished(true);
         onDone();
       } else {
+        // Refused before anything was sent (the check, or the dialog was closed): the old order is untouched.
         fail(result);
         setReview(null);
-        onDone();
       }
     });
 
@@ -254,6 +299,7 @@ export function EditOrder({
               tick={market.tickSize}
               min={market.tickSize}
               unit={market.quote}
+              disabled={partlyFilled}
               stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
               aria-label={t('Price')}
             />
@@ -266,12 +312,15 @@ export function EditOrder({
               autoFocus
               aria-label={t('Edit amount label')}
             />
-            <p className="dk-note dk-edit-help">{priceChanged ? t('Edit replace explain') : t('Edit amend explain')}</p>
+            <p className="dk-note dk-edit-help">
+              {partlyFilled ? t('Edit price locked') : priceChanged ? t('Edit replace explain') : t('Edit amend explain')}
+            </p>
           </div>
         )}
         {review?.changed ? <p className="dk-note dk-note--warn">{t('Review changed')}</p> : null}
         {review ? <p className="dk-note dk-note--warn">{t('Edit replace explain')}</p> : null}
         {problem && !review && !finished ? <p className="dk-note">{problem}</p> : null}
+        {amountUp && !review && !finished ? <p className="dk-note">{t('Edit amount too big')}</p> : null}
         {unchanged && !finished ? <p className="dk-note">{t('Edit nothing changed')}</p> : null}
         {note ? (
           <p
@@ -283,7 +332,7 @@ export function EditOrder({
         ) : null}
         <AlertDialogFooter>
           <Button variant="secondary" size={40} disabled={busy} onClick={close}>
-            {finished ? t('Edit close') : t('Cancel')}
+            {finished ? t('Edit close') : t('Edit keep order')}
           </Button>
           {finished ? null : review ? (
             <Button variant="primary" shape="pill" size={40} loading={busy} onClick={() => void confirmReplacement()}>
@@ -295,7 +344,7 @@ export function EditOrder({
               shape="pill"
               size={40}
               loading={busy}
-              disabled={!checked.ok || unchanged}
+              disabled={!checked.ok || unchanged || amountUp}
               onClick={() => void (priceChanged ? reviewReplacement() : amend())}
             >
               {priceChanged ? t('Edit review replace') : t('Edit change amount')}

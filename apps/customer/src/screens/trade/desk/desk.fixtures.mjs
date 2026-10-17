@@ -279,6 +279,10 @@ export class Exchange {
     if (path === 'orders/open') return json(this.opts.hideOrders ? [] : this.open);
     if (path === 'orders/closed') return json(this.opts.hideOrders ? [] : this.closed);
     if (path === 'account/trades') return json(this.fills);
+    if (/^orders\/[^/]+$/.test(path) && method === 'GET') {
+      const found = [...this.open, ...this.closed].find((row) => row.id === decodeURIComponent(path.slice(7)));
+      return found ? json(found) : json({ error: { message: 'gone', code: 'trade.order_not_found' } }, 404);
+    }
     if (path === 'account/fees')
       return json(
         this.opts.fees === false ? {} : { 'BTC/USDT': { symbol: 'BTC/USDT', maker: '0.0008', taker: '0.0012', percentage: true } },
@@ -338,6 +342,7 @@ export class Exchange {
       const original = { ...old, status: 'canceled' };
       this.closed.unshift(original);
       this.releaseHold(old);
+      if (this.opts.replaceError) return json({ code: 'ExchangeError', message: 'ledger.frozen', intafacedCode: 'LedgerError' }, 400);
       const replacement = this.commit(body);
       return json({
         accepted: true,

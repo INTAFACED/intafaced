@@ -33,16 +33,20 @@ export function CancelAll({ symbol, orders, onDone }: { symbol: string; orders: 
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
+    const expected = here.length;
     env.poller.recordExternalRequest();
     const result = await api.cancelAll(symbol);
     if (result.ok) {
       const done = result.data.filter((order) => order.symbol === symbol && isTerminalOrder(order)).length;
-      setNote({ tone: 'good', text: t('Cancel all done', { count: done }) });
+      // The service cancels one by one: if fewer came back than were open, say so rather than "all".
+      setNote(
+        done >= expected
+          ? { tone: 'good', text: t('Cancel all done', { count: done }) }
+          : { tone: 'bad', text: t('Cancel all partial', { count: done, left: expected - done }) },
+      );
     } else {
-      setNote({
-        tone: 'bad',
-        text: result.reason === 'uncertain' || !result.code ? t('Cancel all uncertain') : t('Cancel all refused'),
-      });
+      // Some orders may already be cancelled when a later one fails, so a refusal never says "nothing was cancelled".
+      setNote({ tone: 'bad', text: t('Cancel all uncertain') });
     }
     setFinished(true);
     busyRef.current = false;

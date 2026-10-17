@@ -752,7 +752,7 @@ test('open orders: a smaller amount uses native amend and keeps the place in the
   const dialog = page.getByRole('alertdialog');
   await expect(dialog).toContainText('Edit order');
   await dialog.getByRole('textbox', { name: 'Amount left' }).fill('0.0001');
-  await expect(dialog).toContainText('Changing only the amount keeps your place in the queue.');
+  await expect(dialog).toContainText('Lowering the amount keeps your place in the queue.');
   await dialog.getByRole('button', { name: 'Change amount' }).click();
   await expect(dialog).toContainText('Your place in the queue was kept');
   expect(m.requests('PATCH', 'orders/order-1')).toHaveLength(1);
@@ -814,7 +814,7 @@ test('data status: one chip, each feed on its own line; one failed feed makes it
   const pop = page.locator('.dk-feed-pop');
   for (const line of ['Sign-in', 'Order book', 'Prices', 'Your orders', 'Your balances']) await expect(pop).toContainText(line);
   await expect(pop).toContainText('Signed in');
-  await expect(pop).toContainText('not a live connection');
+  await expect(pop).toContainText('not a live stream');
   await shot(page, 'desk-data-status-ok');
   await page.keyboard.press('Escape');
   m.exchange.opts.fail.orders = 500;
@@ -829,7 +829,7 @@ test('fee line: this order’s rate and role from the check, and the listed pair
   await ready(page);
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
   await expect(buyForm(page)).toContainText('Fee up to 0.10%'); // a resting limit may fill as a maker, so "up to"
-  await expect(buyForm(page)).toContainText('Listed 0.08% / 0.12%');
+  await expect(buyForm(page)).toContainText('Listed: maker 0.08% · taker 0.12%');
 });
 
 test('a frozen ledger: the service refuses the order with a generic error; the desk says orders are paused, nothing rests, Buy works again', async ({
@@ -840,13 +840,67 @@ test('a frozen ledger: the service refuses the order with a generic error; the d
   m.exchange.opts.placeMode = { status: 400, json: { code: 'ExchangeError', message: 'ledger.frozen', intafacedCode: 'LedgerError' } };
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
   await openReview(page);
+  const headBefore = (await page.locator('.dk-bottom-head').boundingBox()).y;
   await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
   await expect(buyForm(page)).toContainText('Orders are paused right now');
-  await expect(buyForm(page)).toContainText('Nothing was sent');
+  // The refusal floats: the order monitor stays exactly where it was.
+  expect((await page.locator('.dk-bottom-head').boundingBox()).y).toBe(headBefore);
+  await expect(buyForm(page)).toContainText("this one wasn't placed");
   await expect(buyForm(page)).not.toContainText("can't be done right now");
+  // The desk does not look ready to trade: the status chip says orders are paused, and the layout did not move.
+  await expect(page.getByRole('button', { name: /Data status/ })).toContainText('Orders paused');
   await expect(page.getByText('No open orders.')).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toBeNull();
   await expect(buyButton(page)).toBeEnabled();
   expect(m.requests('POST', 'orders')).toHaveLength(1);
   await shotBoth(page, 'desk-orders-paused');
+});
+
+test('edit: a higher amount is refused here; a refused or failed replacement never claims the old order is safe', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await pickTif(page, 'Post only');
+  await fillBuy(page, { price: '63999.9', amount: '0.0002' });
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(1);
+
+  // More than is left: not sent from here.
+  await openTable(page)
+    .getByRole('button', { name: /Edit buy order/ })
+    .click();
+  const dialog = page.getByRole('alertdialog');
+  await dialog.getByRole('textbox', { name: 'Amount left' }).fill('0.0005');
+  await expect(dialog).toContainText('You can only lower the amount here');
+  await expect(dialog.getByRole('button', { name: 'Change amount' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Keep order' })).toBeVisible(); // not "Cancel": the order stays live
+  expect(m.requests('PATCH', 'orders/order-1')).toHaveLength(0);
+
+  // Post-only moved to a price that would match: the old order is cancelled and the new one is REFUSED. Not "Replaced".
+  await dialog.getByRole('textbox', { name: 'Amount left' }).fill('0.0002');
+  await dialog.getByRole('textbox', { name: 'Price' }).fill('65001');
+  await dialog.getByRole('button', { name: 'Review replacement' }).click();
+  await dialog.getByRole('button', { name: 'Replace order' }).click();
+  await expect(dialog).toContainText('the new order was refused');
+  await expect(dialog).not.toContainText('Replaced.');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByText('No open orders.')).toBeVisible(); // the dialog's answer stayed on screen until closed
+
+  // The service fails AFTER cancelling the original: the dialog says it cannot tell, and stops.
+  await pickTif(page, 'Good till cancelled');
+  await fillBuy(page, { price: '63999.9', amount: '0.0002' });
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(1);
+  m.exchange.opts.replaceError = true;
+  await openTable(page)
+    .getByRole('button', { name: /Edit buy order/ })
+    .click();
+  await dialog.getByRole('textbox', { name: 'Price' }).fill('63990');
+  await dialog.getByRole('button', { name: 'Review replacement' }).click();
+  await dialog.getByRole('button', { name: 'Replace order' }).click();
+  await expect(dialog).toContainText('Your old order may already be cancelled');
+  await expect(dialog.getByRole('button', { name: 'Replace order' })).toHaveCount(0);
+  await expect(dialog).not.toContainText('Orders are paused');
+  expect(m.errors).toEqual([]);
 });

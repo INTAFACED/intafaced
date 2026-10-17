@@ -69,11 +69,11 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   fokUnfillable: {
     title: 'Fill-or-kill order not placed',
-    body: "The book couldn't fill the whole amount at your price, so nothing was traded.",
+    body: "The book couldn't fill the whole amount, so nothing was traded.",
   },
   ordersPaused: {
     title: 'Orders are paused right now',
-    body: "We're checking account balances before orders can go through again. Nothing was sent.",
+    body: "Orders can't go through at the moment, and this one wasn't placed. Try again later.",
   },
   tifInvalid: { title: 'Check the order type', body: 'Post only needs a limit price. Choose a limit order, or another time in force.' },
   selfTrade: { title: 'You would trade with yourself', body: 'Change the price so it does not match one of your own orders.' },

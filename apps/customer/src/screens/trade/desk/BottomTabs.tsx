@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { BalanceEntry } from '../../../data/derive';
 import { useSession } from '../../../features/session/session';
@@ -8,6 +8,7 @@ import { useClosedOrders, useRefreshPrivate } from './data';
 import { Amount, fmtAmount, isHiddenPath, StateBlock, Tabs, TabsList, TabsPanel, TabsTab, type Loadable } from './deps';
 import type { DeskMarket } from './market';
 import { CancelAll } from './CancelAll';
+import { EditOrder } from './EditOrder';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from './OrderTables';
 
 type Tab = 'open' | 'history' | 'trades' | 'assets';
@@ -32,9 +33,13 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
   const closed = useClosedOrders(tab === 'history');
   const precision = precisionOf(markets, market);
   const showAll = !isHiddenPath('/money/activity');
+  // The edit dialog is hosted here, above the lists: a replacement removes the old row (and may empty the list), and the
+  // answer must stay on screen either way.
+  const [editing, setEditing] = useState<Order | null>(null);
+  const editingMarket = editing ? precision.marketOf(editing.symbol) : undefined;
 
   const orderTable = (rows: Order[], withAction: boolean) => (
-    <OrdersTable rows={rows} withAction={withAction} precision={precision} onChanged={refresh} desk />
+    <OrdersTable rows={rows} withAction={withAction} precision={precision} onChanged={refresh} desk onEdit={setEditing} />
   );
 
   return (
@@ -110,6 +115,9 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
           }}
         </LoadState>
       </TabsPanel>
+      {editing && editingMarket ? (
+        <EditOrder order={editing} market={editingMarket} onDone={refresh} onClose={() => setEditing(null)} />
+      ) : null}
     </Tabs>
   );
 });
