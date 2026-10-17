@@ -108,7 +108,14 @@ describe('invoice rules the form and the buttons follow', () => {
   it('lists every problem with a draft, and none for a good one', () => {
     const draft = blankDraft('USDT');
     expect(
-      draftProblems({ ...draft, assetId: 'usdt!', amount: '', customerRef: 'x'.repeat(201), description: 'a\u0007b', customerEmail: 'nope' }),
+      draftProblems({
+        ...draft,
+        assetId: 'usdt!',
+        amount: '',
+        customerRef: 'x'.repeat(201),
+        description: 'a\u0007b',
+        customerEmail: 'nope',
+      }),
     ).toEqual({
       assetId: 'format',
       amount: 'empty',
@@ -154,7 +161,12 @@ describe('invoice rules the form and the buttons follow', () => {
     expect(invoiceSchema.safeParse(invoice()).success).toBe(true);
     // overdue is never stored: it is worked out from a sent invoice and its due date
     expect(invoiceSchema.safeParse({ ...invoice(), status: 'overdue' }).success).toBe(false);
-    expect(invoiceSchema.safeParse({ ...invoice(), lineItems: [{ kind: 'credit', description: 'x', quantity: '1', unitAmount: '2', amount: '-2' }] }).success).toBe(true);
+    expect(
+      invoiceSchema.safeParse({
+        ...invoice(),
+        lineItems: [{ kind: 'credit', description: 'x', quantity: '1', unitAmount: '2', amount: '-2' }],
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -250,7 +262,10 @@ describe('invoice line items and exact totals', () => {
     expect(lineAmount(line({ quantity: '123456789.123456789', unitAmount: '1000000' }))).toBe('123456789123456.789');
   });
   it('shows a credit as a negative line and takes it off the total', () => {
-    const lines = [line({ quantity: '3', unitAmount: '100' }), line({ kind: 'credit', description: 'TEST credit', quantity: '1', unitAmount: '49.5' })];
+    const lines = [
+      line({ quantity: '3', unitAmount: '100' }),
+      line({ kind: 'credit', description: 'TEST credit', quantity: '1', unitAmount: '49.5' }),
+    ];
     expect(lineAmount(lines[1]!)).toBe('-49.5');
     expect(linesTotal(lines)).toBe('250.5');
     expect(draftAmount({ ...blankDraft('USDT'), lineItems: lines })).toBe('250.5');
@@ -269,7 +284,9 @@ describe('invoice line items and exact totals', () => {
     const balanced = [line({ unitAmount: '5' }), line({ kind: 'credit', unitAmount: '5' })];
     expect(linesTotal(balanced)).toBe('0');
     expect(draftProblems({ ...blankDraft('USDT'), lineItems: balanced })).toEqual({ lineItems: 'total' });
-    expect(draftProblems({ ...blankDraft('USDT'), lineItems: [line({ unitAmount: '5' }), line({ unitAmount: '' })] })).toEqual({ lineItems: 'lines' });
+    expect(draftProblems({ ...blankDraft('USDT'), lineItems: [line({ unitAmount: '5' }), line({ unitAmount: '' })] })).toEqual({
+      lineItems: 'lines',
+    });
     expect(draftProblems({ ...blankDraft('USDT'), lineItems: [line({ unitAmount: '5' })] })).toEqual({});
   });
   it('checks the typed amount only when there are no lines', () => {
@@ -327,7 +344,9 @@ describe('invoice line items and exact totals', () => {
   });
   it('flags an overdue invoice on its detail', () => {
     allowWrite = true;
-    const out = detail(invoice({ status: 'sent', dueAt: '2020-01-01T00:00:00.000Z', paymentLinkId: '1b000002-0000-4000-8000-000000000002' }));
+    const out = detail(
+      invoice({ status: 'sent', dueAt: '2020-01-01T00:00:00.000Z', paymentLinkId: '1b000002-0000-4000-8000-000000000002' }),
+    );
     expect(out).toContain('Overdue');
     expect(out).toContain('past its due date');
   });

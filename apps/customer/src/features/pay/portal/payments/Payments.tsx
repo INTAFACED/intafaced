@@ -105,7 +105,14 @@ export function PaymentsView({
         <Freshness asOf={snapshot.data.freshness.asOf} lagSeconds={snapshot.data.freshness.lagSeconds ?? 0} />
       ) : null}
       <HaltBanner resource={halts} scopes={['intake']} />
-      <Totals snapshot={snapshot} period={period} matchesList={matchesList} retry={retry} portal={portal} {...(merchantId ? { merchantId } : {})} />
+      <Totals
+        snapshot={snapshot}
+        period={period}
+        matchesList={matchesList}
+        retry={retry}
+        portal={portal}
+        {...(merchantId ? { merchantId } : {})}
+      />
       <FilterRow
         label={t('pay_listTitle')}
         filters={filters}
@@ -229,7 +236,13 @@ function Totals({
             value: <MoneyLines items={snap.captured} />,
             note: t('kpiVolumeNote'),
           },
-          { label: t('kpiRefunded'), period: label, href: refundsHref, value: <MoneyLines items={snap.refunded} />, note: t('kpiRefundedNote') },
+          {
+            label: t('kpiRefunded'),
+            period: label,
+            href: refundsHref,
+            value: <MoneyLines items={snap.refunded} />,
+            note: t('kpiRefundedNote'),
+          },
           ...(merchantId
             ? [
                 {

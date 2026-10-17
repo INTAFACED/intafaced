@@ -164,8 +164,10 @@ export function createPaymentsMock(ctx) {
   };
   /** The service's checks on a create, in its order. Returns a refusal code, or the canonical lines. */
   const checkInvoice = (input) => {
-    if (!/^\d+(\.\d{1,18})?$/.test(String(input.amount ?? '')) || !/[1-9]/.test(input.amount)) return { code: 'pay.invoice_amount_invalid' };
-    if (input.customerEmail !== undefined && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.customerEmail.trim())) return { code: 'pay.invoice_email_invalid' };
+    if (!/^\d+(\.\d{1,18})?$/.test(String(input.amount ?? '')) || !/[1-9]/.test(input.amount))
+      return { code: 'pay.invoice_amount_invalid' };
+    if (input.customerEmail !== undefined && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.customerEmail.trim()))
+      return { code: 'pay.invoice_email_invalid' };
     if (input.dueAt !== undefined && Number.isNaN(Date.parse(input.dueAt))) return { code: 'pay.invoice_due_invalid' };
     if (!input.lineItems || input.lineItems.length === 0) return { lines: [] };
     if (input.lineItems.length > 40) return { code: 'pay.invoice_lines_too_many' };

@@ -74,7 +74,11 @@ describe('business access: a person who may only start a business (pay:onboard, 
   const onboardOnly = (patch: Partial<AccessInputs> = {}) =>
     inputs({ myAccess: failure('forbidden') as Resource<MyAccess>, merchant: ready<MerchantRecord | null>(null), ...patch });
   it('has no business account, not a refusal', () => {
-    for (const team of [failure('forbidden'), failure('forbidden', 'pay.merchant_ops_not_merchant'), failure('forbidden', 'pay.team_member_not_found')]) {
+    for (const team of [
+      failure('forbidden'),
+      failure('forbidden', 'pay.merchant_ops_not_merchant'),
+      failure('forbidden', 'pay.team_member_not_found'),
+    ]) {
       expect(resolveAccess(onboardOnly({ team: team as AccessInputs['team'] })).status).toBe('none');
     }
   });

@@ -165,7 +165,20 @@ export function InvoiceList({ portal }: { portal: PortalApi }) {
                   downloadText(
                     'invoices.csv',
                     buildCsv(
-                      ['id', 'status', 'customer', 'customer_email', 'description', 'amount', 'asset', 'due_at', 'created_at', 'sent_at', 'paid_at', 'voided_at'],
+                      [
+                        'id',
+                        'status',
+                        'customer',
+                        'customer_email',
+                        'description',
+                        'amount',
+                        'asset',
+                        'due_at',
+                        'created_at',
+                        'sent_at',
+                        'paid_at',
+                        'voided_at',
+                      ],
                       rows.map((i) => [
                         i.id,
                         displayStatus(i, now),

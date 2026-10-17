@@ -21,7 +21,10 @@ export const paymentsContract: ContractPart = {
     { method: 'ownTier', run: (p) => p.ownTier(merchant) },
     { method: 'paymentPage', run: (p) => p.paymentPage(merchant, { assetId: 'USDT' }, undefined) },
     { method: 'paymentRefundRows', run: (p) => p.paymentRefundRows('aa000004-0000-4000-8000-000000000004', merchant) },
-    { method: 'refundsIssued', run: (p) => p.refundsIssued(merchant, { from: '2026-09-18T00:00:00.000Z', to: '2026-10-18T00:00:00.000Z' }) },
+    {
+      method: 'refundsIssued',
+      run: (p) => p.refundsIssued(merchant, { from: '2026-09-18T00:00:00.000Z', to: '2026-10-18T00:00:00.000Z' }),
+    },
     { method: 'paymentActivity', run: (p) => p.paymentActivity('aa000003-0000-4000-8000-000000000003') },
     { method: 'invoices', run: (p) => p.invoices({ status: 'sent' }, undefined) },
     { method: 'invoice', run: (p) => p.invoice('1a000002-0000-4000-8000-000000000002') },

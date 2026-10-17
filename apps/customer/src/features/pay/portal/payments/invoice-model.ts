@@ -80,7 +80,8 @@ export function linesTotal(lines: readonly LineDraft[]): string | null {
 }
 
 /** The amount the invoice will carry: the lines' total when there are lines, else the typed amount. */
-export const draftAmount = (draft: InvoiceDraft): string => (draft.lineItems.length > 0 ? (linesTotal(draft.lineItems) ?? '') : draft.amount.trim());
+export const draftAmount = (draft: InvoiceDraft): string =>
+  draft.lineItems.length > 0 ? (linesTotal(draft.lineItems) ?? '') : draft.amount.trim();
 
 export type DraftField = 'assetId' | 'amount' | 'customerRef' | 'customerEmail' | 'description' | 'dueDate' | 'lineItems';
 export type DraftProblems = Partial<
