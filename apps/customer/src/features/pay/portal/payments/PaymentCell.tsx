@@ -14,7 +14,7 @@ export function PaymentCell({ portal, paymentId }: { portal?: PortalApi; payment
   return (
     <>
       <a className="text-link" href={`/pay/payments/${encodeURIComponent(paymentId)}`}>
-        {t('disputePaymentRef', { ref: shortId(paymentId) })}
+        {t('disputePaymentRef', { ref: known?.railRef ?? shortId(paymentId) })}
       </a>
       {known?.customerRef && <small className="pay-cell-note">{known.customerRef}</small>}
     </>

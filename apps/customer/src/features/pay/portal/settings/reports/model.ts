@@ -53,7 +53,7 @@ export const hasDateRange = (kind: ExportKind) => kind !== 'ledger_statement';
 export const isKnownKind = (kind: string): kind is ExportKind => (exportKinds as readonly string[]).includes(kind);
 
 const overrides: Record<string, string> = {
-  fee_bps: 'Fee rate (bps)',
+  fee_bps: 'Fee rate',
   applied_layer: 'Pricing level',
   rail: 'Payment route',
   window: 'Settlement window',

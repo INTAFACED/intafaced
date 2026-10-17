@@ -267,7 +267,6 @@ const en = {
   netFeeError: 'Enter a percentage between 0 and 100 with up to two decimals.',
   netCreateAction: 'Add business',
   netCreateReview: 'This creates the business account now. Check the user ID and the fee.',
-  bpsExact: '{bps} basis points',
   netOwnerOnly: 'Only the account owner can add a business.',
   netNeedUser: 'Enter their user ID.',
   netNeedFee: 'Enter the fee as a percentage.',

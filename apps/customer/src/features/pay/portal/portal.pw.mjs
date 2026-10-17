@@ -119,9 +119,7 @@ test('dashboard: a new merchant sees how the first payment appears, not a wall o
   await signIn(page, '/pay/merchant');
   await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
   await expect(page.getByText('No balance to show yet')).toBeVisible();
-  await page.getByRole('button', { name: 'More payment insights', exact: true }).click();
-  await expect(page.getByRole('link', { name: 'Continue setup' })).toHaveAttribute('href', '/pay/onboarding');
-  await expect(page.getByText('Not published')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Set up your account/ })).toHaveAttribute('href', '/pay/onboarding');
   await snap(page, '03-dashboard-empty');
 });
 
@@ -147,7 +145,7 @@ test('onboarding: verification then payout destination, with activation explicit
   await page.getByRole('button', { name: 'Send for review' }).click();
   const dialog = page.getByRole('dialog', { name: 'Review: Send for review' });
   await expect(dialog.getByText('TEST-dossier-777')).toBeVisible();
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await dialog.locator('.form-stack > button').last().click();
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
   expect(mock.calls.filter((c) => c.procedure === 'merchant.submitKyb')).toHaveLength(1);
   await page.getByRole('listitem').filter({ hasText: 'Step 3 of 3' }).getByRole('link', { name: 'Continue' }).click();
@@ -158,10 +156,7 @@ test('onboarding: verification then payout destination, with activation explicit
   await address.fill(`0x${'ab'.repeat(20)}`);
   await snap(page, '07-onboarding-payout');
   await page.getByRole('button', { name: 'Save destination' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('Destination saved.', { exact: true })).toBeVisible();
   await expect(page.getByText('Waiting for your verification to be approved')).toBeVisible();
   await expect(page.getByText(/Saving a destination does not activate payments/).first()).toBeVisible();
@@ -198,7 +193,7 @@ test('team: change a role, invite, and a refused change reads in plain words', a
   await page.getByRole('button', { name: 'Change role', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Review: Change role' });
   await expect(dialog.getByText(/TEST Dev changes from Developer to Viewer/)).toBeVisible();
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await dialog.locator('.form-stack > button').last().click();
   await expect(page.getByText('TEST Dev changed from Developer to Viewer')).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantOps.team.changeRole').input).toMatchObject({ role: 'viewer' });
   // A refusal from the service: words, not a code.
@@ -211,10 +206,7 @@ test('team: change a role, invite, and a refused change reads in plain words', a
   );
   await page.getByLabel('Account ID *').fill('TEST-user-new');
   await page.getByRole('button', { name: 'Send invitation' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText(/Team changes need a session verified with two-step sign-in/).first()).toBeVisible();
   await expect(page.getByText('pay.team_interactive_only')).toHaveCount(0);
   await axe(page);
@@ -226,10 +218,7 @@ test('team: pending invitations can be accepted or declined', async ({ page }) =
   await expect(page.getByText('Invitation to join a team as Developer')).toBeVisible();
   await snap(page, '11-team-invitation');
   await page.getByRole('button', { name: 'Accept', exact: true }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('Invitation to join a team as Developer')).toHaveCount(0);
 });
 
@@ -251,20 +240,14 @@ test('disputes: filter in the URL, open one, upload evidence, then contest', asy
   await page.getByLabel('File *').setInputFiles({ name: 'TEST-receipt.txt', mimeType: 'text/plain', buffer: content });
   await expect(page.getByText(/TEST-receipt\.txt · 21 B · ready/)).toBeVisible();
   await page.getByRole('button', { name: 'Add evidence', exact: true }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByRole('cell', { name: /TEST-receipt\.txt/ }).first()).toBeVisible();
   const sent = mock.calls.find((c) => c.procedure === 'merchantOps.disputes.uploadEvidence').input;
   expect(sent).toMatchObject({ fileName: 'TEST-receipt.txt', contentType: 'text/plain', contentBase64: content.toString('base64') });
   expect(sent.sha256).toBe(createHash('sha256').update(content).digest('hex'));
   await snap(page, '13-dispute-detail');
   await page.getByRole('button', { name: 'Contest the dispute' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('You contested the dispute')).toBeVisible();
   const decision = mock.calls.find((c) => c.procedure === 'merchantOps.disputes.respond').input;
   expect(decision.requestId).toMatch(/^[0-9a-f-]{36}$/);
@@ -313,7 +296,7 @@ test('exports: request, watch it build, download it', async ({ page }) => {
   await page.getByRole('button', { name: 'Request a report', exact: true }).last().click();
   const dialog = page.getByRole('dialog', { name: 'Review: Request a report' });
   await expect(dialog.getByText('Settlements')).toBeVisible();
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await dialog.locator('.form-stack > button').last().click();
   const jobs = page.getByRole('region', { name: 'Your report files' });
   await expect(jobs.getByRole('row', { name: /Settlements.*(Waiting|Building)/ })).toBeVisible();
   const request = mock.calls.find((c) => c.procedure === 'merchantOps.exports.create').input;
@@ -386,7 +369,7 @@ test('payments: totals with their period, filters the service applies, load more
   await expect(page.getByText('Updated just now').first()).toBeVisible();
   const rows = page.locator('.pe-table tbody tr');
   await expect(rows).toHaveCount(25);
-  await expect(page.getByText('Newest 25 · Load more')).toBeVisible();
+  await expect(page.getByText('25 shown · Load more')).toBeVisible();
   await snap(page, '20-payments-desktop');
   await page.getByRole('button', { name: 'Load more' }).click();
   await expect(rows).toHaveCount(50);
@@ -514,7 +497,10 @@ test('payouts: named by destination and date, a status on every row, and a timel
   await snap(page, '30-payout-detail-paid');
   await go(page, `/pay/payouts/${STL_FAILED}`);
   await expect(page.getByText('The payment network declined this payout.').first()).toBeVisible();
-  await expect(page.getByText('The approval on this payout no longer counts')).toBeVisible();
+  // one banner, not two that disagree: the failure, with retry paused and a way to reach support
+  await expect(page.getByText('The approval on this payout no longer counts')).toHaveCount(0);
+  await expect(page.getByText('Retrying is paused while we fix a safety issue.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Contact support' })).toBeVisible();
   await snap(page, '31-payout-detail-failed-voided');
   await axe(page);
 });
@@ -545,7 +531,7 @@ test('payout detail: the checker approves with a reason, the service gets the fi
     ),
   ).toBeVisible();
   await expect(dialog.getByText('Checked the destination')).toBeVisible();
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await dialog.locator('.form-stack > button').last().click();
   await expect(page.getByText('Approved').first()).toBeVisible();
   const sent = mock.calls.find((c) => c.procedure === 'merchantControl.approvals.decide').input;
   expect(sent).toEqual({
@@ -563,10 +549,7 @@ test('payout detail: the person who asked cannot approve, and can take the reque
   await expect(page.getByText('You asked for this payout, so someone else on your team has to decide it.')).toBeVisible();
   await page.getByLabel('Reason for cancelling *').fill('Wrong amount');
   await page.getByRole('button', { name: 'Cancel my request' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('The approval on this payout no longer counts')).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantControl.approvals.cancel').input).toMatchObject({ reason: 'Wrong amount' });
 });
@@ -608,20 +591,14 @@ test('payout detail: a refused decision is plain words, and a retry then goes th
   );
   await page.getByLabel('Your reason *').fill('Looks right');
   await page.getByRole('button', { name: 'Reject payout' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText(/The payout changed after you opened it, so your decision was not recorded/).first()).toBeVisible();
   await expect(page.getByText('pay.approval_payload_mismatch')).toHaveCount(0);
   await snap(page, '34-approvals-refused');
   await page.unroute('**/api/pay/trpc/merchantControl.approvals.decide');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Reject payout' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('Rejected').first()).toBeVisible();
   expect(mock.calls.filter((c) => c.procedure === 'merchantControl.approvals.decide').at(-1).input).toMatchObject({ decision: 'reject' });
 });
@@ -796,7 +773,7 @@ test('payout detail: a decision that was voided meanwhile is shown as refused, n
   await page.getByLabel('Your reason *').fill('Looks right');
   await page.getByRole('button', { name: 'Approve payout' }).click();
   const dialog = page.getByRole('dialog', { name: 'Review: Approve payout' });
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await dialog.locator('.form-stack > button').last().click();
   await expect(dialog.getByText('The request was voided because the payout changed, so your decision did not count.')).toBeVisible();
   await expect(page.getByText('The service confirmed the action')).toHaveCount(0);
   await snap(page, '46-approvals-voided-result');

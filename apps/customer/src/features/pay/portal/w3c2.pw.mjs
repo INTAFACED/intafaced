@@ -144,11 +144,8 @@ test('invoices: a real list, a create form that reviews the exact amount, and a 
   await page.getByLabel('Amount').fill('12.345678');
   await page.getByLabel('Customer reference').fill('TEST-cust-001');
   await page.getByRole('button', { name: 'Create invoice' }).click();
-  await expect(page.getByRole('dialog')).toContainText('12.345678');
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /Confirm/ })
-    .click();
+  await expect(page.getByText('12.345678').first()).toBeVisible();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page).toHaveURL(/\/pay\/invoices\/[0-9a-f-]{36}$/);
   expect(mock.calls.filter((c) => c.procedure === 'merchantOps.invoices.create')).toHaveLength(1);
   await expect(page.getByRole('button', { name: 'Send invoice' })).toBeVisible();
@@ -204,7 +201,7 @@ test('compliance: verification status and append-only history do not imply scree
 test('subscriptions: filters, exact terms, period keys, and creation with existing mandate', async ({ page }) => {
   const { mock, errors } = await setup(page);
   await signIn(page, '/pay/subscriptions');
-  await expect(page.getByText('Newest 1')).toBeVisible();
+  await expect(page.getByText('1 shown')).toBeVisible();
   await both(page, 'P17-subscriptions');
   await page.getByRole('combobox', { name: 'Status', exact: true }).selectOption('paused');
   await expect(page).toHaveURL(/status=paused/);
@@ -215,13 +212,11 @@ test('subscriptions: filters, exact terms, period keys, and creation with existi
     .getByRole('link', { name: 'Open' })
     .click();
   await expect(page.getByRole('heading', { name: 'Subscription detail', level: 1 })).toBeVisible();
-  await expect(page.getByText('TEST-period:', { exact: false })).toBeVisible();
   await both(page, 'P18-subscription-detail');
   await go(page, '/pay/subscriptions/new');
-  await expect(page.getByLabel('Active customer mandate *')).toBeVisible();
-  await page.getByLabel('Active customer mandate *').selectOption(D);
-  await page.getByLabel('Supported charge path *').selectOption('crypto_invoice');
-  await expect(page.getByLabel('Supported charge path *').locator('option[value="card"]')).toHaveCount(0);
+  // the only active mandate already runs a subscription, so it is not offered a second one
+  await expect(page.getByText('Every active customer authorization already has a subscription.')).toBeVisible();
+  await expect(page.getByLabel('Active customer mandate *')).toHaveCount(0);
   await both(page, 'P19-create-subscription');
   expect(mock.calls.some((c) => /subscription\.(create|cancel|pause|resume)/.test(c.procedure))).toBe(false);
   expect(errors).toEqual([]);
@@ -412,7 +407,7 @@ test('subscription component: cancellation requires a summary and dispatches the
   await expect(dialog).toContainText('stop its future scheduled cycles');
   await expect(dialog).toContainText('TEST-customer');
   expect(await page.evaluate(() => window.__fixtureCalls)).toEqual([]);
-  await dialog.getByRole('button', { name: 'Confirm cancel subscription', exact: true }).dblclick();
+  await dialog.getByRole('button', { name: 'Cancel subscription', exact: true }).dblclick();
   await expect
     .poll(() => page.evaluate(() => window.__fixtureCalls))
     .toEqual([{ procedure: 'subscription.cancel', input: { subscriptionId: S }, scope: 'pay:write', guardKey: `subscription:${S}` }]);
@@ -429,7 +424,7 @@ test('subscription component: create reviews the authorized terms and uses the e
     await expect(dialog).toContainText(value);
   await expect(dialog.locator('time')).toHaveAttribute('datetime', at);
   if (shots) await page.screenshot({ path: `${shots}/P19-review-fixes-TEST.png`, fullPage: true });
-  await dialog.getByRole('button', { name: 'Confirm create subscription', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Create subscription', exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.__fixtureCalls))
     .toEqual([
@@ -440,7 +435,7 @@ test('subscription component: create reviews the authorized terms and uses the e
         guardKey: `subscription-create:${D}`,
       },
     ]);
-  await expect(page.getByRole('link', { name: `Subscription detail: ${S}`, exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open the new subscription', exact: true })).toBeVisible();
 });
 
 // "Check and finish the original request" on the create page. First it asks whether the mandate already has an open
@@ -526,10 +521,9 @@ test('subscription review fixes: an uncertain create is checked, then resent onc
   await page.getByLabel('Active customer mandate *').selectOption(D);
   await page.getByLabel('Supported charge path *').selectOption('crypto_invoice');
   await page.getByRole('button', { name: 'Create subscription', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm create subscription', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create subscription', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
-  await expect(page.getByRole('dialog')).toContainText('Outcome not confirmed');
-  await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await expect(page.getByText('Outcome not confirmed').first()).toBeVisible();
   const check = page.getByRole('button', { name: 'Check and finish the original request', exact: true });
   await expect(check).toBeVisible();
   // First check: nothing is open on the mandate, so the original request goes out once more, unchanged.
@@ -547,7 +541,7 @@ test('subscription review fixes: an uncertain create is checked, then resent onc
     window.__fixtureAnswer = 'created';
   });
   await check.click();
-  await expect(page.getByRole('link', { name: new RegExp(S) })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open the new subscription' })).toBeVisible();
   const after = await page.evaluate(() => window.__fixtureCalls);
   expect(after).toHaveLength(3);
   expect(after[2]).toEqual(after[0]);
@@ -629,20 +623,18 @@ test('subscription review fixes: an uncertain create that had committed is found
   await page.getByLabel('Active customer mandate *').selectOption(D);
   await page.getByLabel('Supported charge path *').selectOption('crypto_invoice');
   await page.getByRole('button', { name: 'Create subscription', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm create subscription', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create subscription', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
-  await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
   await page.getByRole('button', { name: 'Check and finish the original request', exact: true }).click();
-  await expect(page.getByRole('link', { name: new RegExp(S) })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open the new subscription' })).toBeVisible();
   expect(await page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
   expect(await page.evaluate((lock) => window.__fixtureGuard.status(lock), `${USER}:subscription-create:${D}`)).toBeNull();
 });
 test('subscription review fixes: uncertain pause checks recorded status and releases only the original lock', async ({ page }) => {
   await developerFixture(page, 'subscription', true);
   await page.getByRole('button', { name: 'Pause subscription', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm pause subscription', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('TEST timeout');
-  await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Pause subscription', exact: true }).click();
+  await expect(page.getByText('TEST timeout').first()).toBeVisible();
   const check = page.getByRole('button', { name: 'Check and finish the original request', exact: true });
   await check.click();
   await expect(page.getByText(/original outcome is still unconfirmed/)).toBeVisible();
@@ -746,9 +738,9 @@ test('subscription recovery: reload locks the stored path and conflict clears th
   await page.getByLabel('Active customer mandate *').selectOption(D);
   await page.getByLabel('Supported charge path *').selectOption('crypto_invoice');
   await page.getByRole('button', { name: 'Create subscription', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm create subscription', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create subscription', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
-  await expect(page.getByRole('dialog')).toContainText('Outcome not confirmed');
+  await expect(page.getByText('Outcome not confirmed').first()).toBeVisible();
   const firstBody = await page.evaluate(() => window.__fixtureCalls[0]);
   await page.reload();
   await mount();

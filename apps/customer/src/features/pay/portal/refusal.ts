@@ -42,8 +42,6 @@ const byCode: Record<string, PlainKey> = {
   'pay.invalid_destination_ref': 'rDestinationRef',
   'pay.destination_kind_mismatch': 'rDestinationKind',
   'pay.submerchant_permission_denied': 'rForbidden',
-  'pay.submerchant_not_onboarded': 'rSubmerchantUnknown',
-  'pay.submerchant_out_of_scope': 'rSubmerchantUnknown',
   'pay.merchant_forbidden': 'rForbidden',
   'pay.payment_not_found': 'rPaymentNotFound',
   'pay.settlement_not_found': 'rSettlementNotFound',

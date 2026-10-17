@@ -18,9 +18,12 @@ const BANNED = [
   /\bfixtures?\b/i,
   /\barrives?\b/i,
   /\bpay\.[a-z_]{3,}/,
-  /crypto-native|card-sandbox|idempotency|sha256|\bbps\b|\bpay\.[a-z_]+|\boperator\b/i,
   /\b[a-z]+_[a-z]+_[a-z]+\b/,
 ];
+
+/** What a merchant must never read as a word. The developer pages teach signing and idempotent requests, so they may name those two. */
+const NEVER = /crypto-native|card-sandbox|sha256|\bbps\b|\bpay\.[a-z_]+|\boperator\b|idempotency/i;
+const DEVELOPER_MAY = /sha256|idempotency/i;
 
 const REDIRECTS = { '/pay/settings/team': '/pay/team', '/pay/exports': '/pay/reports/exports', '/pay/developer': '/pay/developer/keys' };
 const failures = [];
@@ -46,6 +49,8 @@ async function inspect(page, where, who, width) {
     const m = text.match(pattern);
     if (m) fail(where, `engineer word "${m[0]}"`);
   }
+  const never = text.match(NEVER);
+  if (never && !(where.includes('/pay/developer') && DEVELOPER_MAY.test(never[0]))) fail(where, `engineer word "${never[0]}"`);
   const path = [...where.matchAll(/\/pay\/[^\s@:]*/g)].at(-1)?.[0] ?? '';
   for (const problem of lintRenderedText(text, path)) fail(where, `rendered text has ${problem}`);
   if (width < 700) {

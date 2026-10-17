@@ -157,10 +157,11 @@ describe('business details model', () => {
 describe('second approval and the name', () => {
   it('offers one control, never both turn-on and turn-off', () => {
     const out = html();
-    expect(out).toContain('Turn on second approval');
+    // nothing tells it whether the setting is on: the page says so and offers no toggle that would guess
+    expect(out).not.toContain('Turn on second approval');
     expect(out).not.toContain('Turn off second approval');
-    // nothing tells it whether the setting is on, and the page says so instead of guessing
     expect(out).toContain('We can’t read this setting yet');
+    expect(out).toContain('It can’t be changed until we can read it');
   });
   it('shows the state, and the opposite action, when the service reports it', () => {
     const on = html({ profile: ready({ ...profile, secondApprovalEnabled: true }) });

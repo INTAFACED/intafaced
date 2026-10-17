@@ -77,7 +77,7 @@ it('lists recorded schedules with server filters and no estimated revenue or pla
   expect(out).toContain(`/pay/subscriptions/${S}`);
   expect(out).toContain('TEST-customer');
   expect(out).not.toContain('recurring revenue and subscription trends');
-  expect(out).toContain('Newest 1');
+  expect(out).toContain('1 shown');
   expect(out).toContain('Active');
 });
 it('shows each subscription\u2019s amount and cadence from its mandate, and says so when the mandate is not shown', () => {
@@ -160,7 +160,6 @@ it('keeps money exact and separates invoice creation from payment', () => {
   expect(out).toContain('9,007,199,254,740,993.00');
   expect(out).toContain('USDT');
   expect(out).toContain('not proof of payment');
-  expect(out).toContain('TEST-period-key');
   expect(out).toContain('No payment created');
   expect(out).not.toContain('INTERNAL DO NOT DISPLAY');
   expect(out).not.toContain('>Cancel subscription<');

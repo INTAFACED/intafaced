@@ -58,7 +58,7 @@ describe('report catalog', () => {
   it('shows when you last made one, with its range, made-at and as-of times', () => {
     expect(out).toContain('Made');
     expect(out).toContain('Figures as of');
-    expect(out).toContain('2026-10-01 to 2026-10-07');
+    expect(out).toContain('Oct 1, 2026 to Oct 7, 2026');
   });
   it('says none yet for a kind never requested, and never invents a date', () => {
     expect(out).toContain('None yet');
@@ -102,7 +102,7 @@ describe('report columns and filters', () => {
   });
   it('writes column names in words', () => {
     expect(columnLabel('payment_id')).toBe('Payment ID');
-    expect(columnLabel('fee_bps')).toBe('Fee rate (bps)');
+    expect(columnLabel('fee_bps')).toBe('Fee rate');
     expect(columnLabel('created_at')).toBe('Created at');
   });
   it('formats sizes and survives a missing one', () => {
@@ -165,7 +165,7 @@ describe('files', () => {
     expect(renderToString(<JobActions api={api} job={job({ status: 'expired' })} onDone={() => {}} />)).not.toContain('Delete file');
   });
   it('says what a file covers, including balances at the time it was made', () => {
-    expect(renderToString(<Covers job={job()} />)).toContain('2026-10-01 to 2026-10-07');
+    expect(renderToString(<Covers job={job()} />)).toContain('Oct 1, 2026 to Oct 7, 2026');
     expect(renderToString(<Covers job={job({ kind: 'ledger_statement', filters: {} })} />)).toContain('Balances when the file was made');
     expect(renderToString(<Covers job={job({ filters: {} })} />)).toContain('All dates');
   });

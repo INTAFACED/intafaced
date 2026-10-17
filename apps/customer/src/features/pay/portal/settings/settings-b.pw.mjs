@@ -86,10 +86,7 @@ test('keys: a new key is shown once, then hidden; revoking asks first', async ({
   await signIn(page, '/pay/developer/keys');
   await page.getByLabel('Key name').fill('TEST new key');
   await page.getByRole('button', { name: 'Create test key', exact: true }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText(/test_TEST-NOT-A-REAL-KEY/)).toBeVisible();
   await expect(page.getByText(/shown only once/)).toBeVisible();
   await page.getByRole('button', { name: 'Hide it', exact: true }).click();
@@ -101,10 +98,7 @@ test('keys: a new key is shown once, then hidden; revoking asks first', async ({
   const revoke = page.getByRole('button', { name: 'Revoke key', exact: true }).first();
   await revoke.click();
   expect(b.calls.filter((c) => c.procedure === 'apiKeys.revoke')).toHaveLength(0);
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .dblclick();
+  await page.getByRole('dialog').locator('.form-stack > button').last().dblclick();
   await expect.poll(() => b.calls.filter((c) => c.procedure === 'apiKeys.revoke').length).toBe(1);
 });
 
@@ -116,10 +110,7 @@ test('signing: nothing is saved until a choice is made; the secret is shown once
   await page.getByRole('checkbox', { name: /Require signed requests/ }).click();
   await expect(page.getByText('Requests with this key need a valid signature, or they are refused.').first()).toBeVisible();
   await page.getByRole('button', { name: 'Save signing settings' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('ifs_TEST-signing-secret')).toBeVisible();
   await page.getByRole('button', { name: 'Hide it', exact: true }).click();
   await expect(page.getByText('ifs_TEST-signing-secret')).toHaveCount(0);
@@ -133,7 +124,7 @@ test('allowed addresses: the review warns that saving can change whether the key
   await page.getByRole('button', { name: 'Replace allowed addresses' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByText(/can change whether this key needs signed requests/)).toBeVisible();
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await dialog.locator('.form-stack > button').last().click();
   await expect.poll(() => b.calls.filter((c) => c.procedure === 'bindApiKeyIpAllowlist').length).toBe(1);
 });
 
@@ -146,10 +137,7 @@ test('webhooks: a private address is refused before sending; a good one shows it
   await expect(page.getByRole('button', { name: 'Add endpoint', exact: true }).last()).toBeDisabled();
   await page.getByLabel('Endpoint address').fill('https://receiver.example/new');
   await page.getByRole('button', { name: 'Add endpoint', exact: true }).last().click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText(/TEST-secret-TEST-endpoint-4/)).toBeVisible();
   await page.getByRole('button', { name: 'Hide it', exact: true }).click();
   await expect(page.getByText(/TEST-secret-TEST-endpoint-4/)).toHaveCount(0);
@@ -161,10 +149,7 @@ test('endpoint: disabling asks first and the page then offers no way back on', a
   await signIn(page, '/pay/developer/webhooks/TEST-endpoint-1');
   await page.getByRole('button', { name: 'Turn off endpoint', exact: true }).click();
   expect(b.calls.filter((c) => c.procedure === 'merchantOps.webhooks.disable')).toHaveLength(0);
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect.poll(() => b.calls.filter((c) => c.procedure === 'merchantOps.webhooks.disable').length).toBe(1);
   await expect(page.getByText(/add it as a new endpoint/).first()).toBeVisible();
 });
@@ -178,10 +163,7 @@ test('deliveries: filter to failed and send one again after a review', async ({ 
     .poll(() => b.calls.some((c) => c.procedure === 'merchantOps.webhooks.deliveries.list' && c.input.status === 'failed'))
     .toBe(true);
   await page.getByRole('button', { name: 'Send again', exact: true }).first().click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect
     .poll(() => b.calls.find((c) => c.procedure === 'merchantOps.webhooks.deliveries.retry')?.input.requestId)
     .toMatch(/^[0-9a-f-]{36}$/);
@@ -203,10 +185,7 @@ test('reports: the catalog opens the request form on the chosen kind; request, b
   await expect(page.getByRole('heading', { name: 'Report files', level: 1, exact: true })).toBeVisible();
   await expect(page.locator('#request select').first()).toHaveValue('fees');
   await page.getByRole('button', { name: 'Request a report', exact: true }).last().click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect.poll(() => b.calls.some((c) => c.procedure === 'merchantOps.exports.create')).toBe(true);
   const create = b.calls.find((c) => c.procedure === 'merchantOps.exports.create');
   expect(create.input.requestId).toMatch(/^[0-9a-f-]{36}$/);
@@ -225,10 +204,7 @@ test('reports: the catalog opens the request form on the chosen kind; request, b
     .first()
     .getByRole('button', { name: 'Delete file', exact: true })
     .click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect.poll(() => b.calls.filter((c) => c.procedure === 'merchantOps.exports.expire').length).toBe(1);
 });
 

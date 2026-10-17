@@ -129,7 +129,7 @@ describe('payments list (P06)', () => {
     expect(out).toContain('Paid');
     expect(out).toContain('Failed');
     expect(out).toContain('Export these results');
-    expect(out).toContain('Newest 2');
+    expect(out).toContain('2 shown');
     expectPlain(out);
   });
   it('picks the totals period from the date filter, and says when the list is wider than the totals', () => {

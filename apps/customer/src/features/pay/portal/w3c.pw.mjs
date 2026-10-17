@@ -211,7 +211,7 @@ test('payment-link creation: validates fields and asks for a review before anyth
   await page.getByLabel('Maximum completed payments', { exact: true }).fill('1.5');
   await expect(page.getByText('Check this field before reviewing the link.')).toBeVisible();
   await page.getByLabel('Maximum completed payments', { exact: true }).fill('10');
-  await expect(page.getByRole('button', { name: 'Review and create link' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Create link' })).toBeEnabled();
   await snap(page, 'P14-new-payment-link');
   await axe(page);
   await phone(page, 'P14-new-payment-link');

@@ -179,7 +179,7 @@ describe('invoice detail', () => {
     expect(out).toContain('data-review="Send invoice"');
     expect(out).toContain('data-review="Void invoice"');
     expect(out).toContain('data-review="Mark as paid"');
-    expect(out).toContain('no due date');
+    expect(out).toContain('Due dates for invoices are on the way');
     expect(out).not.toContain('Overdue');
   });
   it('shows the exact amount inside every money review', () => {

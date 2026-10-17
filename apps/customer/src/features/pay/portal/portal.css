@@ -561,6 +561,12 @@
     .pp .pay-section > header {
       align-items: flex-end;
     }
+    /* Stacked on a phone, the heading starts at the left edge like everything else. */
+    @media (max-width: 680px) {
+      .pp .pay-section > header {
+        align-items: flex-start;
+      }
+    }
 
     /* Screen-reader-only text is absolutely positioned. Inside a wide table it would sit past the right edge of the table's own scroller and
    widen the whole page, so the scroller becomes its containing block. */
@@ -602,6 +608,9 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+    }
+    .pp-links li > small {
+      display: block;
     }
     .pp-stepitem--bad .pp-timeline-dot {
       background: var(--if-down-text);

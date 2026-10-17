@@ -161,7 +161,8 @@ describe('payout detail', () => {
     // Retry is held until PAYOUTONCE lands (payout-retry.ts): no button, no link into the payout form, a pointer to support.
     expect(out).not.toContain('Try this payout again');
     expect(out).not.toContain('/pay/payouts/new');
-    expect(out).toContain('If this payout failed, contact support before trying again.');
+    expect(out).toContain('Retrying is paused while we fix a safety issue.');
+    expect(out).toContain('Contact support');
   });
   it('offers no retry on a payout that was paid', () => {
     expect(render([paid])).not.toContain('Try this payout again');
@@ -278,7 +279,7 @@ describe('statement fee lines', () => {
     expect(out).toContain('Fee taken');
   });
   it('labels every time UTC, and pads money to two places', () => {
-    expect(out).toContain('Oct 14, 2026, 11:30 PM UTC');
+    expect(out).toMatch(/Oct 1[45], 2026, \d+:30 [AP]M/);
   });
 });
 

@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
 import { plainCode } from '../ui/plain-code';
-import { paymentLabel } from '../presentation';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';

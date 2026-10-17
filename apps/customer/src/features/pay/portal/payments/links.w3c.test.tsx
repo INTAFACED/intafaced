@@ -110,7 +110,7 @@ it('renders grouped creation fields and keeps the review disabled without author
   const out = renderToString(<PaymentLinkForm pay={pay} merchantId={link.id} />);
   expect(out).toContain('<legend>Checkout details</legend>');
   expect(out).toContain('<legend>Availability</legend>');
-  expect(out).toMatch(/disabled=""[^>]*>Review and create link/);
+  expect(out).toMatch(/disabled=""[^>]*>Create link/);
 });
 it('routes creation and details without intercepting the legacy tool entry', () => {
   expect(parsePortalRoute('/pay/links/new')).toEqual({ room: 'link-new' });

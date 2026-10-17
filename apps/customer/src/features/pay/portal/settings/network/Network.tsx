@@ -138,7 +138,7 @@ function CreateSub({ portal, merchantId, allowed, done }: { portal: PortalApi; m
               </div>
               <div>
                 <dt>{t('colFee')}</dt>
-                <dd>{bps === null ? '' : `${bpsPercent(bps)} (${t('bpsExact', { bps })})`}</dd>
+                <dd>{bps === null ? '' : bpsPercent(bps)}</dd>
               </div>
             </dl>
           }

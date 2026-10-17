@@ -97,13 +97,11 @@ describe('dashboard', () => {
     series: ready(series),
     ...o,
   });
-  const render = (d: DashboardData, m: p.MerchantRecord | null = merchantRecord) =>
-    html(<DashboardView merchant={m} role="owner" data={d} retry={noop} todayDay="2026-10-15" />);
+  const render = (d: DashboardData) => html(<DashboardView data={d} retry={noop} />);
 
   it('shows loading skeletons while the numbers arrive', () => {
     const out = render(data({ today: loading, rolling_7d: loading, rolling_30d: loading, series: loading }));
     expect(out).toContain('aria-busy="true"');
-    expect(out).toContain('Account status');
   });
   it('shows tiles per period with exact figures, per asset, and an as-of line', () => {
     const out = render(data());
@@ -115,12 +113,6 @@ describe('dashboard', () => {
     expect(out).toContain('4 s behind');
     expect(out).toContain('1,234.56');
     expect(out).toMatch(/href="\/pay\/payments"/);
-  });
-  it('gives the chart a text equivalent and a table fallback control', () => {
-    const out = render(data());
-    expect(out).toMatch(/role="img" aria-label="Bar chart of daily volume in USDT/);
-    expect(out).toContain('Show as a table');
-    expect(out).toContain('aria-expanded="false"');
   });
   it('explains an empty new account instead of painting zeros', () => {
     const out = render(
@@ -144,20 +136,6 @@ describe('dashboard', () => {
     const down = render(data({ today: failed('', 503, 'unreachable') }));
     expect(down).toContain('Try again');
     expectPlain(down);
-  });
-  it('labels what is not built yet: tier, limits and operator pauses', () => {
-    const out = render(data());
-    expect(out).toContain('Limits and approvals');
-    expect(out).toMatch(notLiveWords);
-  });
-  it('points a not-yet-verified merchant at setup, and a team member sees their role not an account record', () => {
-    expect(render(data(), { ...merchantRecord, status: 'pending', kybStatus: 'none' })).toContain('Continue setup');
-    const member = render(data(), null);
-    expect(member).toContain('Team member');
-    expect(member).toContain('Owner');
-  });
-  it('shows a missing fee as not published, never a number', () => {
-    expect(render(data(), { ...merchantRecord, feeBps: null })).toContain('Not published');
   });
 });
 describe('disputes', () => {

@@ -122,7 +122,7 @@ describe('activity', () => {
     expect(out).toContain('role="search"');
     expect(out).toContain('Everything');
     expect(out).toContain('Anyone');
-    expect(out).toContain('Newest 4');
+    expect(out).toContain('4 shown');
     expect(out).toContain('finds one exact');
   });
   it('has loading, empty and failure states', () => {

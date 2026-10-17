@@ -150,8 +150,8 @@ describe('filters', () => {
   });
   it('counts honestly: a total only if the service gave one', () => {
     const { t } = uiCopy.forLocale('en');
-    expect(countText(t, 25, true)).toBe('Newest 25 · Load more');
-    expect(countText(t, 9, false)).toBe('Newest 9');
+    expect(countText(t, 25, true)).toBe('25 shown · Load more');
+    expect(countText(t, 9, false)).toBe('9 shown');
     expect(countText(t, 25, true, 313)).toBe('313 results');
   });
 });

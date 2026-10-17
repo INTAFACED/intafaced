@@ -140,7 +140,7 @@ const en = {
   whyAdmin: 'Only the owner can change an admin.',
   whyRole: 'Only the owner or an admin can manage the team.',
   inviteTitle: 'Invite someone',
-  inviteBody: 'Invite by account ID. They get access only when they accept. Invitations by email are coming soon.',
+  inviteBody: 'Invite by account ID. They get access only when they accept. Invitations by email are on the way.',
   fUserId: 'Account ID',
   hUserId: 'The person’s INTAFACED account ID, from their Account page.',
   fRole: 'Role',

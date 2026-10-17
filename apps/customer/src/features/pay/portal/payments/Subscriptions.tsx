@@ -772,9 +772,9 @@ export function CreateSubscriptionView({
                   />
                 )}
                 {createNotice && <p role="status">{createNotice}</p>}
-                {mandateId && taken.has(mandateId) && (
+                {mandateId && (
                   <a className="text-link" href={`/pay/subscriptions?mandateId=${encodeURIComponent(mandateId)}`}>
-                    {c.t('openExisting')}
+                    {taken.has(mandateId) ? c.t('openExisting') : c.t('subscriptionsTitle')}
                   </a>
                 )}
                 {pay ? (
@@ -820,7 +820,11 @@ export function CreateSubscriptionView({
                 )}
               </div>
             ) : (
-              <EmptyState title={c.t('chooseMandate')}>{c.t('noMandates')}</EmptyState>
+              <EmptyState title={c.t('chooseMandate')}>
+                {mandates.status === 'ready' && mandates.data.some((m) => m.status === 'active')
+                  ? c.t('allMandatesTaken')
+                  : c.t('noMandates')}
+              </EmptyState>
             )
           }
         </Gate>

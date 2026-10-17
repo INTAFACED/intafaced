@@ -12,7 +12,7 @@ import { useListFilters } from '../ui/FilterRow';
 import type { ListState } from '../hooks';
 import type { Dispute, MerchantRecord } from '../schemas';
 import { DisputesView } from './Disputes';
-import { CheckoutSettingsView, feePercent, HomePanelsView } from './HomePanels';
+import { CheckoutSettingsView, feeLines, feePercent, HomePanelsView } from './HomePanels';
 import { assetChoices } from './asset-choices';
 import { definite, neverRan } from './not-available';
 import { InvoiceCreate } from './Invoices';
@@ -39,6 +39,25 @@ const panels = (patch: Partial<Parameters<typeof HomePanelsView>[0]> = {}) =>
     <HomePanelsView
       merchant={merchant}
       role="owner"
+      pricing={ready({
+        merchantId: merchant.id,
+        tierId: null,
+        archetypeId: null,
+        caps: null,
+        pricing: [
+          {
+            layer: 'global' as const,
+            scopeId: null,
+            assetCode: 'USDT',
+            bands: [{ fromAmount: '0', feeBps: 150, flatFee: '0.30' }],
+            spreadBps: null,
+            roundingBeneficiary: 'platform' as const,
+          },
+        ],
+        reserve: null,
+        version: '1',
+        updatedAt: null,
+      })}
       rails={rails}
       settings={ready({ status: 'not_configured' as const })}
       retryRails={noop}
@@ -50,7 +69,7 @@ const panels = (patch: Partial<Parameters<typeof HomePanelsView>[0]> = {}) =>
 describe('Home panels, in plain words', () => {
   it('says status, verification, mode, fee and role as a person would, with no raw service value', () => {
     const out = panels();
-    for (const word of ['Your account', 'Active', 'Approved', 'Gateway', '1.5% of each payment', 'Owner', 'Ways customers can pay'])
+    for (const word of ['Your account', 'Active', 'Approved', 'Gateway', '1.5% + 0.30 per payment', 'Owner', 'Ways customers can pay'])
       expect(out).toContain(word);
     for (const raw of [
       'basis points',
@@ -224,4 +243,24 @@ it('says a billing cadence in words, never the raw value', async () => {
   expect(cadenceWord('daily')).toBe('Daily');
   expect(cadenceWord('weekly')).toBe('Weekly');
   expect(cadenceWord('monthly')).toBe('Monthly');
+});
+
+describe('the fee as the pricing read states it', () => {
+  const rule = (layer: 'global' | 'merchant', feeBps: number, flatFee: string | null, assetCode = 'USDT') => ({
+    layer,
+    scopeId: null,
+    assetCode,
+    bands: [{ fromAmount: '0', feeBps, flatFee }],
+    spreadBps: null,
+    roundingBeneficiary: 'platform' as const,
+  });
+  it('says percent plus flat per payment, from the most specific rule', () => {
+    expect(feeLines([rule('global', 150, '0.30'), rule('merchant', 120, '0.25')])).toEqual([
+      { assetCode: 'USDT', percent: '1.2%', flat: '0.25', fromBand: false },
+    ]);
+  });
+  it('leaves the flat part out when there is none, and says nothing when no rule is read', () => {
+    expect(feeLines([rule('global', 150, '0.00')])[0]).toMatchObject({ percent: '1.5%', flat: null });
+    expect(feeLines(null)).toEqual([]);
+  });
 });
