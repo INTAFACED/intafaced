@@ -3,6 +3,7 @@
 // and parses tolerantly (unknown keys ignored, an array and a page both accepted).
 import { z } from 'zod';
 import { amount, asset, id } from '../../schemas';
+import * as shared from '../schemas';
 
 const timestamp = z.string().datetime({ offset: true });
 
@@ -72,3 +73,7 @@ export const ownTierSchema = z.union([
   z.object({ status: z.literal('configured'), ownTierId: z.string(), tiers: z.array(z.object({ id: z.string(), name: z.string() })) }),
 ]);
 export type OwnTier = z.infer<typeof ownTierSchema>;
+
+/** `merchantOps.disputes.getEvidence` on main: the evidence row plus its bytes, for a signed-in session only. */
+export const evidenceFileSchema = shared.evidenceSchema.extend({ contentBase64: z.string() });
+export type EvidenceFile = z.infer<typeof evidenceFileSchema>;

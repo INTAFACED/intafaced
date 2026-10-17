@@ -48,6 +48,27 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
     ),
   links: (merchantId: string, limit: number, signal?: AbortSignal) =>
     query('merchant.listLinks', { merchantId, limit }, p.page(linkSchema), signal).then(listed),
+  disputePage: (
+    filters: { status?: string; search?: string; from?: string; to?: string; dueBefore?: string; deadline?: string },
+    cursor: string | undefined,
+    signal?: AbortSignal,
+  ) =>
+    list(
+      'merchantOps.disputes.list',
+      p.disputeSchema,
+      { ...(cursor ? { cursor } : {}), ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) },
+      signal,
+    ),
+  uploadEvidence: (input: {
+    disputeId: string;
+    kind: p.EvidenceKind;
+    fileName: string;
+    contentType: string;
+    contentBase64: string;
+    sha256: string;
+    note?: string;
+  }) => mutate('merchantOps.disputes.uploadEvidence', input, p.evidenceSchema),
+  evidenceFile: (evidenceId: string) => query('merchantOps.disputes.getEvidence', { evidenceId }, pay.evidenceFileSchema),
   disputeSummary: (signal?: AbortSignal) => query('merchantOps.disputes.summary', {}, p.disputeSummarySchema, signal),
   disputes: (cursor: string | undefined, status: string, signal?: AbortSignal) =>
     list('merchantOps.disputes.list', p.disputeSchema, { ...(cursor ? { cursor } : {}), ...(status ? { status } : {}) }, signal),

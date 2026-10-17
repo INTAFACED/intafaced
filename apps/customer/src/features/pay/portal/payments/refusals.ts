@@ -3,6 +3,18 @@ import { paymentsCopy } from './copy';
 
 /** Plain words for the service's invoice refusals. A code never reaches the screen. */
 registerRefusals({
+  'pay.dispute_evidence_upload_off': () => paymentsCopy.t('ev_r_uploadOff'),
+  'pay.dispute_evidence_scan_unconfigured': () => paymentsCopy.t('ev_r_uploadOff'),
+  'pay.dispute_evidence_scan_failed': () => paymentsCopy.t('ev_r_scanFailed'),
+  'pay.dispute_evidence_rejected': () => paymentsCopy.t('ev_r_rejected'),
+  'pay.dispute_evidence_hash_mismatch': () => paymentsCopy.t('ev_r_hash'),
+  'pay.dispute_evidence_interactive_only': () => paymentsCopy.t('ev_r_interactive'),
+  'pay.dispute_evidence_content_absent': () => paymentsCopy.t('ev_r_absent'),
+  'pay.dispute_evidence_not_found': () => paymentsCopy.t('ev_r_notFound'),
+  'pay.dispute_evidence_content_type': () => paymentsCopy.t('ev_r_type'),
+  'pay.dispute_evidence_too_large': () => paymentsCopy.t('ev_r_size'),
+  'pay.dispute_evidence_empty': () => paymentsCopy.t('ev_r_empty'),
+  'pay.dispute_evidence_file_name': () => paymentsCopy.t('ev_r_name'),
   'pay.invoice_not_found': () => paymentsCopy.t('inv_r_notFound'),
   'pay.invoice_amount_invalid': () => paymentsCopy.t('inv_r_amount'),
   'pay.invoice_asset_invalid': () => paymentsCopy.t('inv_r_asset'),

@@ -357,7 +357,7 @@ describe('payment detail (P07)', () => {
     };
     const out = view({ payment: ready(payment({ status: 'disputed' })), dispute: ready<p.DisputeDetail | null>(dispute) });
     expect(out).toContain('href="/pay/disputes/d0000001-0000-4000-8000-000000000001"');
-    expect(out).toContain('fraudulent');
+    expect(out).toContain('Fraud');
     expect(view()).toContain('The customer has not disputed this payment.');
     expect(view({ payment: ready(payment({ status: 'disputed' })) })).toContain('no dispute record could be linked');
   });

@@ -24,6 +24,7 @@ import { useServerList } from '../ui/useServerList';
 import { assetsOf } from '../model';
 import { ExportResults } from './ExportResults';
 import { portalCopy as c } from './copy';
+import { disputeReason } from './dispute-model';
 import { canRefund, feeSummary, PRESET, totalsPeriod } from './payment-model';
 import { countOf, paymentSteps, refundable, successRate } from './model';
 import type { ActivityItem, PaymentRefundRow } from './schemas';
@@ -523,7 +524,7 @@ function DisputeCard({ dispute, status, retry }: { dispute: Resource<DisputeDeta
         items={[
           [t('colStatus'), <StatusChip entity="dispute" value={d.status} />],
           [t('colAmount'), <Money value={d.amount} asset={d.assetId} />],
-          [t('colReason'), d.reasonCode ? plainCode(d.reasonCode) : t('notGiven')],
+          [t('colReason'), d.reasonCode ? disputeReason(d.reasonCode) : t('notGiven')],
           [t('colDue'), d.responseDueAt ? <DateTime value={d.responseDueAt} /> : <NotConfigured>{t('noDeadline')}</NotConfigured>],
         ]}
       />

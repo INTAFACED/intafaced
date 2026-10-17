@@ -12,6 +12,8 @@ import type { PortalApi } from '../api';
 import { CustomerDetailView, CustomersView } from './Customers';
 import { DashboardInsights as DashboardView, type DashboardData } from './Dashboard';
 import { DisputeDetailView, DisputesView } from './Disputes';
+import { useListFilters } from '../ui/FilterRow';
+import { countdown, fileProblem, fromBase64, toBase64 } from './dispute-model';
 import type { ListState } from '../hooks';
 import * as p from '../schemas';
 import { notLiveWords } from '../ui/test-words';
@@ -178,37 +180,62 @@ describe('disputes', () => {
     byStatus: { open: 1, contested: 1, accepted: 0, won: 1, lost: 0 },
     amountAtRisk: [{ assetId: 'USDT', amount: '99.98' }],
   });
-  it('shows KPI tiles and a table with status words and links to each dispute', () => {
-    const out = html(<DisputesView summary={sum} list={list([dispute()])} status="" setStatus={noop} loadMore={noop} retry={noop} />);
-    expect(out).toContain('Needs a response');
-    expect(out).toContain('99.98');
-    expect(out).toContain('href="/pay/disputes/dsp-0001-aaaa-bbbb"');
-    expect(out).toContain('The customer challenged this payment and you have not answered yet.');
-    expect(out).toContain('No deadline');
-    expect(out).toContain('No deadline has been published');
-    expectPlain(out);
-  });
-  it('explains an empty list and a filter with no match', () => {
-    const empty = html(<DisputesView summary={sum} list={list<p.Dispute>([])} status="" setStatus={noop} loadMore={noop} retry={noop} />);
-    expect(empty).toContain('A dispute is a payment a customer has challenged');
-    const none = html(
-      <DisputesView summary={sum} list={list<p.Dispute>([])} status="lost" setStatus={noop} loadMore={noop} retry={noop} />,
-    );
-    expect(none).toContain('No disputes with that status');
-  });
-  it('falls back to a coming-soon notice with a way to the older list while the service is off', () => {
-    const off = failed('pay.not_built', 501, 'not_supported');
-    const offFailure = refusal('pay.not_built', 501, 'not_supported');
-    const out = html(
+  function Harness(props: { summary: Resource<never> | typeof sum; list: ListState<p.Dispute>; due?: string }) {
+    const filters = useListFilters();
+    return (
       <DisputesView
-        summary={off}
-        list={{ status: 'failed', failure: offFailure }}
-        status=""
-        setStatus={noop}
+        summary={props.summary as never}
+        list={props.list}
+        filters={filters}
+        due={props.due ?? ''}
+        setDue={noop}
         loadMore={noop}
         retry={noop}
-      />,
+      />
     );
+  }
+  it('shows tiles that each open their own filtered list, and rows with a countdown and a link to the payment', () => {
+    const soon = dispute({ responseDueAt: new Date(Date.now() + 2 * 86_400_000 + 3_600_000).toISOString() });
+    const out = html(<Harness summary={sum} list={list([dispute({ disputeId: 'dsp-0002-aaaa-bbbb' }), soon])} />);
+    expect(out).toContain('Needs a response');
+    expect(out).toContain('99.98');
+    expect(out).toContain('href="/pay/disputes?status=open"');
+    expect(out).toContain('href="/pay/disputes/dsp-0001-aaaa-bbbb"');
+    expect(out).toContain('href="/pay/payments/pay-0001-aaaa-bbbb"');
+    expect(out).toContain('Due in 2 d');
+    expect(out).toContain('No deadline');
+    expect(out).toContain('Fraud');
+    expect(out).not.toContain('fraudulent');
+    expect(out.indexOf('Due in 2 d')).toBeLessThan(out.indexOf('No deadline'));
+    expectPlain(out);
+  });
+  it('counts the deadline down in plain words and never invents one', () => {
+    const now = Date.parse('2026-10-17T12:00:00Z');
+    const due = (iso: string | null, status: p.Dispute['status'] = 'open') => countdown({ status, responseDueAt: iso }, now);
+    expect(due(null)).toEqual({ kind: 'none' });
+    expect(due('2026-10-16T12:00:00Z')).toEqual({ kind: 'overdue', days: 1 });
+    expect(due('2026-10-17T20:00:00Z')).toEqual({ kind: 'today' });
+    expect(due('2026-10-19T12:00:00Z')).toEqual({ kind: 'soon', days: 2 });
+    expect(due('2026-10-30T12:00:00Z')).toEqual({ kind: 'later', days: 13 });
+    expect(due('2026-10-30T12:00:00Z', 'won')).toEqual({ kind: 'closed' });
+  });
+  it('checks an evidence file before it is sent', () => {
+    expect(fileProblem({ contentType: 'application/pdf', sizeBytes: 1000 })).toBeNull();
+    expect(fileProblem({ contentType: 'application/zip', sizeBytes: 1000 })).toBe('type');
+    expect(fileProblem({ contentType: 'image/png', sizeBytes: 2_000_000 })).toBe('size');
+    expect(fileProblem({ contentType: 'image/png', sizeBytes: 0 })).toBe('empty');
+    expect(fromBase64(toBase64(new Uint8Array([1, 2, 250, 255])))).toEqual(new Uint8Array([1, 2, 250, 255]));
+  });
+  it('explains an empty list and a filter with no match', () => {
+    const empty = html(<Harness summary={sum} list={list<p.Dispute>([])} />);
+    expect(empty).toContain('A dispute is a payment a customer has challenged');
+    const none = html(<Harness summary={sum} list={list<p.Dispute>([])} due="3d" />);
+    expect(none).toContain('No disputes match these filters');
+  });
+  it('shows the not-live notice while the service is off', () => {
+    const off = failed('pay.not_built', 501, 'not_supported');
+    const offFailure = refusal('pay.not_built', 501, 'not_supported');
+    const out = html(<Harness summary={off} list={{ status: 'failed', failure: offFailure }} />);
     expect(out).toMatch(notLiveWords);
     expect(out).not.toContain('view=payments');
   });
@@ -246,7 +273,9 @@ describe('disputes', () => {
     expect(out).toContain('Evidence added: Receipt');
     expect(out).toContain('receipt.pdf');
     expect(out).toContain('2.0 KB');
-    expect(out).toContain('Only the file’s name, type, size and a fingerprint');
+    expect(out).toContain('The file is stored with this dispute');
+    expect(out).toContain('Download');
+    expect(out).toContain('href="/pay/payments/pay-0001-aaaa-bbbb"');
     expect(out).toContain('Contest the dispute');
     expect(out).toContain('Accept liability');
     expect(out).toContain('Not recorded yet');

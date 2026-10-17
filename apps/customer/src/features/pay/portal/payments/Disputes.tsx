@@ -4,48 +4,52 @@ import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable, EmptyState } from '@intafaced/ui';
 import { PayTime, PaySection } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
-import {
-  BackLink,
-  Chip,
-  NotLive,
-  Facts,
-  Gate,
-  Kpi,
-  KpiGrid,
-  ListShell,
-  MoneyLines,
-  Money,
-  MoreFooter,
-  PortalFailure,
-  SelectField,
-  Timeline,
-} from '../components';
+import { BackLink, Chip, Facts, Gate, MoneyLines, Money, PortalFailure, PortalLoading, SelectField, Timeline } from '../components';
 import { portalCopy } from './copy';
-import { useCursorList, useUrlParam, type ListState } from '../hooks';
+import { useNow, useUrlParam, type ListState } from '../hooks';
 import { newRequestId, shortId } from '../model';
-import { nextDueSoonest } from './model';
+import { refusalText } from '../refusal';
 import type { PortalApi } from '../api';
 import type { z } from 'zod';
 import { disputeStatuses, evidenceKinds, type Dispute, type DisputeDetail, type EvidenceKind } from '../schemas';
 import type { disputeSummarySchema } from '../schemas';
+import { DateTime } from '../ui/DateTime';
+import { EntityList } from '../ui/EntityList';
+import { dateRange, FilterRow, useListFilters, type DatePreset, type ListFilters } from '../ui/FilterRow';
+import { KpiStrip } from '../ui/Kpi';
+import { StatusChip, ToneChip } from '../ui/StatusChip';
+import { useServerList } from '../ui/useServerList';
+import { bySoonestDue, countdown, disputeReason, fileProblem, fromBase64, toBase64 } from './dispute-model';
 
 type Summary = z.infer<typeof disputeSummarySchema>;
 
-/** `/pay/disputes`: every dispute on this account, newest first, with what is at risk and what is due. */
+/** `/pay/disputes`: every dispute, filtered by the service, with the answer deadline counted down on each row. */
 export function Disputes({ portal }: { portal: PortalApi }) {
-  const [status, setStatus] = useUrlParam('status', '');
+  const filters = useListFilters();
+  const [due, setDue] = useUrlParam('due', '');
+  const range = dateRange(filters.date as DatePreset, Date.now(), { from: filters.from, to: filters.to });
+  const days = due === '3d' ? 3 : due === '7d' ? 7 : 0;
+  const query = {
+    status: filters.status,
+    search: filters.search.trim(),
+    from: range.from ?? '',
+    to: range.to ?? '',
+    dueBefore: days ? new Date(Date.now() + days * 86_400_000).toISOString() : '',
+    deadline: due === 'none' ? 'unset' : '',
+  };
   const summary = useResource((s) => portal.disputeSummary(s), 'portal:dispute-summary');
-  const list = useCursorList(
-    (cursor, s) => portal.disputes(cursor, status, s),
-    `portal:disputes:${status}`,
-    (d) => d.disputeId,
+  const list = useServerList(
+    (f, cursor, s) => portal.disputePage(f, cursor, s),
+    query,
+    (d: Dispute) => d.disputeId,
   );
   return (
     <DisputesView
       summary={summary.resource}
       list={list.state}
-      status={status}
-      setStatus={setStatus}
+      filters={filters}
+      due={due}
+      setDue={setDue}
       loadMore={list.loadMore}
       retry={() => {
         summary.reload();
@@ -55,113 +59,147 @@ export function Disputes({ portal }: { portal: PortalApi }) {
   );
 }
 
+export function DueChip({ dispute, now }: { dispute: Pick<Dispute, 'status' | 'responseDueAt'>; now: number }) {
+  const { t } = portalCopy.useCopy();
+  const c = countdown(dispute, now);
+  if (c.kind === 'closed') return <span className="muted">—</span>;
+  if (c.kind === 'none') return <span className="muted">{t('noDeadline')}</span>;
+  const tone = c.kind === 'overdue' ? 'failed' : c.kind === 'today' || c.kind === 'soon' ? 'action' : 'progress';
+  const label =
+    c.kind === 'overdue' ? t('dueOverdue', { days: c.days }) : c.kind === 'today' ? t('dueToday') : t('dueIn', { days: c.days });
+  return <ToneChip tone={tone} label={label} />;
+}
+
 export function DisputesView({
   summary,
   list,
-  status,
-  setStatus,
+  filters,
+  due,
+  setDue,
   loadMore,
   retry,
 }: {
   summary: Resource<Summary>;
   list: ListState<Dispute>;
-  status: string;
-  setStatus: (value: string) => void;
+  filters: ListFilters;
+  due: string;
+  setDue: (value: string) => void;
   loadMore: () => void;
   retry: () => void;
 }) {
   const { t } = portalCopy.useCopy();
+  const now = useNow();
   // If the dispute reads are not live, say so once; do not paint empty tiles. The failure becomes the not-live card when unmounted.
   const notLive = list.status === 'failed' && summary.status === 'failed';
   if (notLive) return <PortalFailure result={list.failure} retry={retry} />;
-  const due = list.status === 'ready' ? nextDueSoonest(list.items) : null;
+  const filtered = Boolean(filters.status || filters.search || filters.date || due);
+  const period = t('periodAllTime');
   return (
     <div className="stack">
       <Gate resource={summary} retry={retry} rows={2}>
         {(s) => (
-          <KpiGrid label={t('disputeKpis')}>
-            <Kpi
-              label={t('kpiOpen')}
-              value={s.byStatus.open + s.byStatus.contested}
-              note={t('kpiOpenNote', { open: s.byStatus.open, contested: s.byStatus.contested })}
-            />
-            <Kpi label={t('kpiWon')} value={s.byStatus.won} />
-            <Kpi label={t('kpiLost')} value={s.byStatus.lost} tone={s.byStatus.lost > 0 ? 'attention' : undefined} />
-            <Kpi
-              label={t('kpiAtRisk')}
-              value={
-                <MoneyLines
-                  items={s.amountAtRisk.map((a) => ({ assetCode: a.assetId, amount: a.amount }))}
-                  emptyLabel={t('nothingAtRisk')}
-                />
-              }
-              note={t('kpiAtRiskNote')}
-            />
-            <Kpi
-              label={t('kpiDue')}
-              value={due?.responseDueAt ? <PayTime value={due.responseDueAt} /> : '—'}
-              note={due ? undefined : t('kpiDueNone')}
-            />
-          </KpiGrid>
+          <KpiStrip
+            label={t('disputeKpis')}
+            tiles={[
+              {
+                label: t('kpiOpen'),
+                period,
+                href: '/pay/disputes?status=open',
+                value: s.byStatus.open,
+                tone: s.byStatus.open > 0 ? 'attention' : undefined,
+              },
+              { label: t('kpiContested'), period, href: '/pay/disputes?status=contested', value: s.byStatus.contested },
+              { label: t('kpiWon'), period, href: '/pay/disputes?status=won', value: s.byStatus.won },
+              { label: t('kpiLost'), period, href: '/pay/disputes?status=lost', value: s.byStatus.lost },
+              {
+                label: t('kpiAtRisk'),
+                period,
+                href: '/pay/disputes',
+                value: (
+                  <MoneyLines
+                    items={s.amountAtRisk.map((a) => ({ assetCode: a.assetId, amount: a.amount }))}
+                    emptyLabel={t('nothingAtRisk')}
+                  />
+                ),
+                note: t('kpiAtRiskNote'),
+              },
+            ]}
+          />
         )}
       </Gate>
-      <PaySection
-        title={t('disputesTitle')}
-        description={t('disputesBody')}
-        action={
+      <FilterRow
+        label={t('disputesTitle')}
+        filters={filters}
+        statuses={disputeStatuses.map((s) => [s, t(`chipDispute_${s}` as 'chipDispute_open')] as const)}
+        more={
           <SelectField
-            label={t('filterStatus')}
-            value={status}
-            onChange={setStatus}
-            options={[['', t('filterAll')], ...disputeStatuses.map((s) => [s, t(`chipDispute_${s}` as 'chipDispute_open')] as const)]}
+            label={t('filterDue')}
+            value={due}
+            onChange={setDue}
+            options={[
+              ['', t('dueAny')],
+              ['3d', t('dueWithin3')],
+              ['7d', t('dueWithin7')],
+              ['none', t('dueNone')],
+            ]}
           />
         }
-      >
-        <ListShell
-          state={list}
-          retry={retry}
-          empty={{
-            title: status ? t('disputesNoMatchTitle') : t('disputesEmptyTitle'),
-            body: status ? t('disputesNoMatchBody') : t('disputesEmptyBody'),
-          }}
-        >
-          {(rows) => (
-            <>
-              <DataTable
-                label={t('disputesTitle')}
-                headers={[t('colDispute'), t('colPayment'), t('colAmount'), t('colReason'), t('colStatus'), t('colOpened'), t('colDue')]}
-              >
-                {rows.map((d) => (
-                  <tr key={d.disputeId}>
-                    <th scope="row">
-                      <a
-                        className="text-link pp-mono"
-                        href={`/pay/disputes/${encodeURIComponent(d.disputeId)}`}
-                        aria-label={t('openDisputeAria', { id: d.disputeId })}
-                      >
-                        {shortId(d.disputeId)}
-                      </a>
-                    </th>
-                    <td className="pp-mono">{shortId(d.paymentId)}</td>
-                    <td>
-                      <Money value={d.amount} asset={d.assetId} />
-                    </td>
-                    <td>{d.reasonCode ? plainCode(d.reasonCode) : t('notGiven')}</td>
-                    <td>
-                      <Chip kind="dispute" value={d.status} />
-                    </td>
-                    <td>
-                      <PayTime value={d.openedAt} />
-                    </td>
-                    <td>{d.responseDueAt ? <PayTime value={d.responseDueAt} /> : <span className="muted">{t('noDeadline')}</span>}</td>
-                  </tr>
-                ))}
-              </DataTable>
-              {list.status === 'ready' && <MoreFooter state={list} onMore={loadMore} />}
-            </>
-          )}
-        </ListShell>
-      </PaySection>
+        {...(list.status === 'ready' ? { shown: list.items.length, hasMore: list.hasMore } : {})}
+      />
+      {list.status === 'loading' && <PortalLoading />}
+      {list.status === 'failed' && <PortalFailure result={list.failure} retry={retry} />}
+      {list.status === 'ready' &&
+        (list.items.length === 0 ? (
+          <EmptyState title={filtered ? t('disputesNoMatchTitle') : t('disputesEmptyTitle')}>
+            {filtered ? t('disputesNoMatchBody') : t('disputesEmptyBody')}
+          </EmptyState>
+        ) : (
+          <>
+            <p className="muted pp-note">{t('soonestFirst')}</p>
+            <EntityList
+              label={t('disputesTitle')}
+              rows={bySoonestDue(list.items)}
+              rowKey={(d) => d.disputeId}
+              href={(d) => `/pay/disputes/${encodeURIComponent(d.disputeId)}`}
+              columns={[
+                {
+                  header: t('colReason'),
+                  cell: (d) => (
+                    <>
+                      <strong>{d.reasonCode ? disputeReason(d.reasonCode) : t('notGiven')}</strong>
+                      <small className="pay-cell-note">{shortId(d.disputeId)}</small>
+                    </>
+                  ),
+                },
+                {
+                  header: t('colPayment'),
+                  cell: (d) => (
+                    <a className="text-link" href={`/pay/payments/${encodeURIComponent(d.paymentId)}`}>
+                      {t('openPayment')}
+                    </a>
+                  ),
+                },
+                { header: t('colAmount'), cell: (d) => <Money value={d.amount} asset={d.assetId} /> },
+                { header: t('colStatus'), cell: (d) => <StatusChip entity="dispute" value={d.status} /> },
+                { header: t('colDue'), cell: (d) => <DueChip dispute={d} now={now} /> },
+                { header: t('colOpened'), cell: (d) => <DateTime value={d.openedAt} /> },
+              ]}
+              card={(d) => ({
+                title: d.reasonCode ? disputeReason(d.reasonCode) : t('notGiven'),
+                time: <DueChip dispute={d} now={now} />,
+                amount: <Money value={d.amount} asset={d.assetId} />,
+                status: <StatusChip entity="dispute" value={d.status} />,
+              })}
+            />
+            <div className="pp-actions">
+              {list.hasMore && (
+                <Button variant="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
+                  {list.more === 'loading' ? t('loadingMore') : t('loadMore')}
+                </Button>
+              )}
+            </div>
+          </>
+        ))}
     </div>
   );
 }
@@ -193,11 +231,25 @@ export function DisputeDetailView({
               <Facts
                 items={[
                   [t('colDispute'), <span className="pp-mono pp-copy">{d.disputeId}</span>],
-                  [t('colPayment'), <span className="pp-mono pp-copy">{d.paymentId}</span>],
+                  [
+                    t('colPayment'),
+                    <a className="text-link" href={`/pay/payments/${encodeURIComponent(d.paymentId)}`}>
+                      {t('openPayment')}
+                    </a>,
+                  ],
                   [t('colAmount'), <Money value={d.amount} asset={d.assetId} />],
-                  [t('colReason'), d.reasonCode ? plainCode(d.reasonCode) : t('notGiven')],
+                  [t('colReason'), d.reasonCode ? disputeReason(d.reasonCode) : t('notGiven')],
                   [t('colStatus'), <Chip kind="dispute" value={d.status} />],
-                  [t('colDue'), d.responseDueAt ? <PayTime value={d.responseDueAt} /> : t('noDeadline')],
+                  [
+                    t('colDue'),
+                    d.responseDueAt ? (
+                      <>
+                        <PayTime value={d.responseDueAt} /> <DueChip dispute={d} now={Date.now()} />
+                      </>
+                    ) : (
+                      t('noDeadline')
+                    ),
+                  ],
                   [t('ledgerWire'), d.ledgerWire === 'posted' ? t('ledgerPosted') : t('ledgerNotConnected')],
                 ]}
               />
@@ -229,13 +281,12 @@ export function DisputeDetailView({
               <PaySection title={t('relatedPayment')}>
                 <Facts
                   items={[
-                    [t('colPayment'), <span className="pp-mono">{d.payment.paymentId}</span>],
                     [t('colAmount'), <Money value={d.payment.amount} asset={d.payment.assetId} />],
                     [t('colStatus'), <Chip kind="payment" value={d.payment.status} />],
                     [t('colOpened'), <PayTime value={d.payment.createdAt} />],
                   ]}
                 />
-                <a className="text-link" href="/pay/payments">
+                <a className="text-link" href={`/pay/payments/${encodeURIComponent(d.payment.paymentId)}`}>
                   {t('seePayments')}
                 </a>
               </PaySection>
@@ -265,13 +316,52 @@ export async function fingerprintFile(file: File): Promise<{ fileName: string; c
   return { fileName: file.name, contentType: file.type || 'application/octet-stream', sizeBytes: file.size, sha256 };
 }
 
+function EvidenceDownload({ portal, evidenceId, fileName }: { portal: PortalApi; evidenceId: string; fileName: string }) {
+  const { t } = portalCopy.useCopy();
+  const [state, setState] = useState<'idle' | 'busy' | string>('idle');
+  return (
+    <>
+      <Button
+        variant="ghost"
+        disabled={state === 'busy'}
+        aria-label={t('evDownloadFile', { name: fileName })}
+        onClick={async () => {
+          setState('busy');
+          const result = await portal.evidenceFile(evidenceId);
+          if (!result.ok) return setState(refusalText(result));
+          const bytes = fromBase64(result.data.contentBase64);
+          const url = URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: result.data.contentType }));
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = result.data.fileName;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          setState('idle');
+        }}
+      >
+        {t('evDownload')}
+      </Button>
+      {state !== 'idle' && state !== 'busy' && (
+        <small className="error-text" role="alert">
+          {state}
+        </small>
+      )}
+    </>
+  );
+}
+
 function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispute: DisputeDetail; reload: () => void }) {
   const { t } = portalCopy.useCopy();
   const [kind, setKind] = useState<EvidenceKind>('receipt');
   const [note, setNote] = useState('');
   const [picked, setPicked] = useState<Awaited<ReturnType<typeof fingerprintFile>> | null>(null);
   const [reading, setReading] = useState(false);
+  const [fileRef, setFileRef] = useState<File | null>(null);
+  // Once the service says file storage is off, the page stops trying it and records details only.
+  const [storageOff, setStorageOff] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const problem = picked ? fileProblem(picked) : null;
+  const detailsOnly = storageOff || problem !== null;
   return (
     <PaySection title={t('evidenceTitle')} description={t('evidenceBody')}>
       {dispute.evidence.length === 0 ? (
@@ -279,7 +369,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
       ) : (
         <DataTable
           label={t('evidenceTitle')}
-          headers={[t('colKind'), t('colFile'), t('colSize'), t('colFingerprint'), t('colNote'), t('colAdded')]}
+          headers={[t('colKind'), t('colFile'), t('colSize'), t('colFingerprint'), t('colNote'), t('colAdded'), t('evDownload')]}
         >
           {dispute.evidence.map((e) => (
             <tr key={e.evidenceId}>
@@ -296,6 +386,9 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
               <td>
                 <PayTime value={e.createdAt} />
               </td>
+              <td>
+                <EvidenceDownload portal={portal} evidenceId={e.evidenceId} fileName={e.fileName} />
+              </td>
             </tr>
           ))}
         </DataTable>
@@ -304,7 +397,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
         <div className="form-stack pp-form pp-add-evidence">
           <h3 className="pp-sub">{t('addEvidence')}</h3>
           <p className="pp-callout" role="note">
-            {t('evidenceMetaOnly')}
+            {detailsOnly ? (problem ? t(`evProblem_${problem}`) + ' ' : '') + t('evidenceMetaOnly') : t('evUploadNote')}
           </p>
           <label className="field">
             <span>{t('fFile')} *</span>
@@ -313,9 +406,10 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
               type="file"
               onChange={async (event) => {
                 const file = event.target.files?.[0];
-                if (!file) return setPicked(null);
+                if (!file) return (setFileRef(null), setPicked(null));
                 setReading(true);
                 try {
+                  setFileRef(file);
                   setPicked(await fingerprintFile(file));
                 } finally {
                   setReading(false);
@@ -342,7 +436,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
             <small>{t('hEvidenceNote')}</small>
           </label>
           <PortalReview
-            title={t('addEvidence')}
+            title={detailsOnly ? t('evRecordOnly') : t('addEvidence')}
             variant="primary"
             description={t('addEvidenceBody')}
             review={
@@ -357,16 +451,34 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
                 />
               )
             }
-            perform={() =>
-              portal.addEvidence({ disputeId: dispute.disputeId, kind, ...picked!, ...(note.trim() ? { note: note.trim() } : {}) })
-            }
+            perform={async () => {
+              const extra = note.trim() ? { note: note.trim() } : {};
+              if (detailsOnly || !fileRef) return portal.addEvidence({ disputeId: dispute.disputeId, kind, ...picked!, ...extra });
+              const contentBase64 = toBase64(new Uint8Array(await fileRef.arrayBuffer()));
+              const result = await portal.uploadEvidence({
+                disputeId: dispute.disputeId,
+                kind,
+                fileName: picked!.fileName,
+                contentType: picked!.contentType,
+                contentBase64,
+                sha256: picked!.sha256,
+                ...extra,
+              });
+              if (
+                !result.ok &&
+                (result.code === 'pay.dispute_evidence_upload_off' || result.code === 'pay.dispute_evidence_scan_unconfigured')
+              )
+                setStorageOff(true);
+              return result;
+            }}
             onConfirmed={() => {
               setPicked(null);
+              setFileRef(null);
               setNote('');
               if (input.current) input.current.value = '';
               reload();
             }}
-            disabled={!picked || reading}
+            disabled={!picked || reading || problem === 'empty'}
           />
         </div>
       ) : (
