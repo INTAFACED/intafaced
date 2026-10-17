@@ -26,7 +26,11 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0080      | unassigned                                            | free; ask W0 before using                       |
 | 0081      | subscription.create idempotency, one open subscription per mandate | used                               |
 | 0082      | merchant portal business profile                      | used                                            |
-| 0083+     | unassigned                                            | free; ask W0 before using                       |
+| 0083      | dispute cases, rail deadlines, evidence bytes         | used                                            |
+| 0084      | standalone merchant invoices                          | used                                            |
+| 0085      | reserved: portal activity, exports, webhooks          | do not use                                      |
+| 0086      | W6 prelive late-fill horizon, booking, hold timer     | used                                            |
+| 0087+     | unassigned                                            | free; ask W0 before using                       |
 
 ## Why gaps are safe
 

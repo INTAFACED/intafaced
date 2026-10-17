@@ -7,6 +7,7 @@ import {
   conversionInventory,
   div,
   formatAmount,
+  merchantClearing,
   mul,
   mulBps,
   parseAmount,
@@ -29,6 +30,15 @@ import { GUARD_HALTED, GUARD_HALT_STORE_UNAVAILABLE } from '../halts/guards.js';
 import { assertOnMerchantTeam, type ConversionCaller } from './access.js';
 import { ConversionError, conversionNotFound } from './errors.js';
 import { classifyPlaceFailure } from './place-error.js';
+import {
+  CONVERSION_LATE_FILL_HORIZON_MS,
+  CONVERSION_LATE_FILL_VENUE_CALLS_PER_TICK,
+  HOLD_SWEEP_LOCK_A,
+  HOLD_SWEEP_LOCK_B,
+  LATE_FILL_SWEEP_LOCK_A,
+  LATE_FILL_SWEEP_LOCK_B,
+  lateFillBackoffMs,
+} from './late-fill-schedule.js';
 import type { ConversionSymbolFilters, ConversionVenue } from './venue.js';
 
 const PAIR = 'USD/USDT';
@@ -52,14 +62,32 @@ const ABSENT_LOOK_GAP_MS = 5 * 60 * 1000;
 export const CONVERSION_VENUE_WINDOW_LEAD_MS = 60 * 1000;
 export const CONVERSION_VENUE_WINDOW_TAIL_MS = 10 * 60 * 1000;
 /**
- * How often the in-process sweep retries a row it already checked. Technical
- * poll, not a quote TTL. A venue error does not stamp the row, so the next
- * tick retries it without waiting out this gap.
+ * How often the process wakes the late-fill sweep. The per-row wait is the
+ * jittered backoff in `late-fill-schedule.ts`. A venue error does not stamp
+ * the row, so the next tick retries it.
  */
-export const CONVERSION_LATE_FILL_RECHECK_MS = 60 * 1000;
-/** One sweep pass. The next tick continues. Not a business cap. */
-const LATE_FILL_SWEEP_BATCH = 500;
+export { CONVERSION_LATE_FILL_TICK_MS as CONVERSION_LATE_FILL_RECHECK_MS } from './late-fill-schedule.js';
 const LATE_FILL_AUDIT = 'pay.conversion_late_fill';
+const LATE_FILL_BOOKED = 'pay.conversion_late_fill_booked';
+const LATE_FILL_SHORTFALL = 'pay.conversion_late_fill_shortfall';
+const LATE_FILL_ACK = 'pay.conversion_late_fill_acknowledged';
+/**
+ * Seven days from the absent-resolve confirmation. A row with no confirmed
+ * absent proposal falls back to the claim instant, then to created_at.
+ */
+const LATE_FILL_HORIZON_ANCHOR = `COALESCE(
+  (
+    SELECT r.decided_at
+      FROM pay.conversion_resolve_proposals r
+     WHERE r.conversion_id = o.id
+       AND r.status = 'confirmed'
+       AND r.venue_lookup = 'absent'
+     ORDER BY r.decided_at DESC NULLS LAST
+     LIMIT 1
+  ),
+  o.placing_at,
+  o.created_at
+)`;
 
 export interface ConversionServiceDeps {
   sql: Sql;
@@ -126,6 +154,12 @@ interface OrderRow {
   placing_at: Date | null;
   /** Last successful late-fill history check. Null after a venue error, so the next tick retries. */
   last_checked_at: Date | null;
+  /** Successful late-fill checks. Drives the backoff step. A venue error does not increment it. */
+  late_fill_check_count: number;
+  /** Next eligible check. Null means due now. */
+  late_fill_next_check_at: Date | null;
+  /** Set when the 7-day technical horizon has passed. The sweep does not call the venue again. */
+  late_fill_check_final_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -143,7 +177,7 @@ const QUOTE_COLS = `id, merchant_id, settlement_id, from_asset, to_asset, from_a
 const ORDER_COLS = `id, request_id, quote_id, merchant_id, settlement_id, attempt, client_order_id, venue_id, symbol,
   status, from_asset, to_asset, from_amount::text, filled_from_amount::text, filled_to_amount::text,
   fee_amount::text, spread_amount::text, minimum_output::text, failure_code, venue_order_id, placing_at,
-  last_checked_at, created_at, updated_at`;
+  last_checked_at, late_fill_check_count, late_fill_next_check_at, late_fill_check_final_at, created_at, updated_at`;
 
 function callerOf(principal: Principal | null): ConversionCaller {
   if (!principal?.userId) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
@@ -235,6 +269,40 @@ export function roundDownToStep(quantity: Amount, step: Amount): Amount {
   if (step <= 0n) throw new ConversionError('pay.conversion_filters_unconfigured', 'PRECONDITION_FAILED');
   if (quantity <= 0n) return 0n;
   return (quantity / step) * step;
+}
+
+interface LateFillEvidenceCanon {
+  venueOrderId: string | null;
+  clientOrderId: string;
+  status: string;
+  filled: string;
+  remaining: string;
+  averagePrice: string | null;
+  feePaid: string | null;
+  feeAsset: string | null;
+}
+
+function lateFillEvidence(order: VenueOrder): LateFillEvidenceCanon {
+  return {
+    venueOrderId: order.venueOrderId,
+    clientOrderId: order.clientOrderId,
+    status: order.status,
+    filled: formatAmount(order.filled),
+    remaining: formatAmount(order.remaining),
+    averagePrice: order.averagePrice === null ? null : formatAmount(order.averagePrice),
+    feePaid: order.feePaid === null ? null : formatAmount(order.feePaid),
+    feeAsset: order.feeAsset,
+  };
+}
+
+function fundingOfReason(reason: string): 'merchant' | 'inventory' {
+  if (reason === 'pay.conversion.late_shortfall') return 'inventory';
+  if (reason === 'pay.conversion.late_booked') return 'merchant';
+  throw new ConversionError('pay.conversion_late_fill_book_conflict', 'PRECONDITION_FAILED');
+}
+
+function isIdempotencyConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ledger.idempotency_conflict';
 }
 
 function sweepFailureCode(error: unknown): string {
@@ -543,11 +611,22 @@ export class ConversionService {
   /**
    * Release holds whose conversion row is failed or gone. A live row is left
    * alone. The amount released is the hold the ledger still has, not a figure
-   * supplied by the caller.
+   * supplied by the caller. One replica per pass: a busy lock returns without
+   * releasing anything.
    */
-  async sweepOrphanHolds(founderUserId: string): Promise<{ released: number; failures: Array<{ conversionId: string; code: string }> }> {
+  async sweepOrphanHolds(
+    founderUserId: string,
+  ): Promise<{ released: number; failures: Array<{ conversionId: string; code: string }>; busy: boolean }> {
     const actor = founderUserId.trim().toLowerCase();
     if (!actor) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
+    return this.withAdvisoryLock(HOLD_SWEEP_LOCK_A, HOLD_SWEEP_LOCK_B, { released: 0, failures: [], busy: true }, async () => {
+      return this.sweepOrphanHoldsLocked(actor);
+    });
+  }
+
+  private async sweepOrphanHoldsLocked(
+    actor: string,
+  ): Promise<{ released: number; failures: Array<{ conversionId: string; code: string }>; busy: boolean }> {
     const merchants = await this.deps.sql<Array<{ id: string }>>`SELECT id FROM pay.merchants`;
     let released = 0;
     const failures: Array<{ conversionId: string; code: string }> = [];
@@ -577,7 +656,7 @@ export class ConversionService {
         }
       }
     }
-    return { released, failures };
+    return { released, failures, busy: false };
   }
 
   /**
@@ -692,29 +771,251 @@ export class ConversionService {
   }
 
   /**
+   * First founder asks to book a detected late fill. The hash binds the audit
+   * row and the venue evidence fetched here. The body carries no amount.
+   */
+  async proposeLateFillBook(
+    founderUserId: string,
+    input: { requestId: string; auditId: string; reason: string },
+  ): Promise<{
+    requestId: string;
+    status: 'pending' | 'missing' | 'conflict' | 'already_booked' | 'absent' | 'below_minimum' | 'not_bookable';
+    changeHash: string | null;
+  }> {
+    const actor = founderUserId.trim().toLowerCase();
+    if (!actor) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
+    const reason = input.reason.trim();
+    if (!reason) throw new ConversionError('pay.conversion_late_fill_book_invalid', 'BAD_REQUEST');
+    const existing = await this.lateFillBookByRequest(input.requestId);
+    if (existing) {
+      if (existing.audit_id !== input.auditId) return { requestId: input.requestId, status: 'conflict', changeHash: null };
+      if (existing.status === 'confirmed')
+        return { requestId: input.requestId, status: 'already_booked', changeHash: existing.change_hash };
+      if (existing.status === 'pending') return { requestId: input.requestId, status: 'pending', changeHash: existing.change_hash };
+      return { requestId: input.requestId, status: 'conflict', changeHash: null };
+    }
+    const audit = await this.lateFillAudit(input.auditId);
+    if (!audit) return { requestId: input.requestId, status: 'missing', changeHash: null };
+    const confirmed = await this.lateFillBookForAudit(audit.id, 'confirmed');
+    if (confirmed) return { requestId: input.requestId, status: 'already_booked', changeHash: confirmed.change_hash };
+    const pending = await this.lateFillBookForAudit(audit.id, 'pending');
+    if (pending) return { requestId: input.requestId, status: 'conflict', changeHash: null };
+    const row = await this.orderById(audit.conversion_id);
+    if (!row || row.status !== 'failed' || row.failure_code !== 'pay.conversion_resolve_absent') {
+      return { requestId: input.requestId, status: 'not_bookable', changeHash: null };
+    }
+    const evidence = await this.lookupLateFill(row);
+    const economics = evidence ? this.lateFillEconomics(row, evidence) : null;
+    if (!evidence || !economics) return { requestId: input.requestId, status: 'absent', changeHash: null };
+    const canonical = lateFillEvidence(evidence);
+    const changeHash = this.lateFillBookHash(audit, canonical);
+    try {
+      await this.deps.sql`
+        INSERT INTO pay.conversion_late_fill_books (
+          request_id, audit_id, conversion_id, change_hash, reason, evidence, proposed_by, status
+        ) VALUES (
+          ${input.requestId}, ${audit.id}, ${audit.conversion_id}, ${changeHash}, ${reason},
+          ${this.deps.sql.json(canonical as never)}, ${actor}, 'pending'
+        )
+      `;
+    } catch (error) {
+      const pg = error as { code?: string } | null;
+      if (pg?.code === '23505') return { requestId: input.requestId, status: 'conflict', changeHash: null };
+      throw error;
+    }
+    await this.audit(audit.conversion_id, 'late_fill_book_proposed', actor, null, { changeHash, auditId: audit.id });
+    return { requestId: input.requestId, status: 'pending', changeHash };
+  }
+
+  /**
+   * Second founder confirms the hash. Confirm fetches the venue again and
+   * posts only when that evidence still matches the hash. Amounts come from
+   * the venue order and the original order's fee and spread, never from the
+   * founder. Idempotent on the audit row.
+   */
+  async confirmLateFillBook(
+    founderUserId: string,
+    input: { requestId: string; decision: 'confirm' | 'reject'; reason: string; expectedChangeHash: string },
+  ): Promise<{
+    requestId: string;
+    status:
+      | 'confirmed'
+      | 'rejected'
+      | 'missing'
+      | 'hash_mismatch'
+      | 'same_founder'
+      | 'not_pending'
+      | 'evidence_changed'
+      | 'below_minimum'
+      | 'already_booked';
+    changeHash: string | null;
+    funding: 'merchant' | 'inventory' | null;
+    order: ReturnType<typeof orderView> | null;
+  }> {
+    const actor = founderUserId.trim().toLowerCase();
+    if (!actor) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
+    const proposal = await this.lateFillBookByRequest(input.requestId);
+    if (!proposal) return { requestId: input.requestId, status: 'missing', changeHash: null, funding: null, order: null };
+    if (proposal.status === 'confirmed') {
+      const booked = await this.orderById(proposal.conversion_id);
+      return {
+        requestId: input.requestId,
+        status: 'confirmed',
+        changeHash: proposal.change_hash,
+        funding: proposal.funding,
+        order: booked ? orderView(booked) : null,
+      };
+    }
+    if (proposal.status === 'rejected') {
+      return { requestId: input.requestId, status: 'rejected', changeHash: proposal.change_hash, funding: null, order: null };
+    }
+    if (!changeHashesEqual(proposal.change_hash, input.expectedChangeHash)) {
+      return { requestId: input.requestId, status: 'hash_mismatch', changeHash: proposal.change_hash, funding: null, order: null };
+    }
+    if (proposal.proposed_by === actor) {
+      return { requestId: input.requestId, status: 'same_founder', changeHash: proposal.change_hash, funding: null, order: null };
+    }
+    const audit = await this.lateFillAudit(proposal.audit_id);
+    if (!audit) return { requestId: input.requestId, status: 'not_pending', changeHash: proposal.change_hash, funding: null, order: null };
+    if (input.decision === 'reject') {
+      const rejected = await this.deps.sql<Array<{ request_id: string }>>`
+        UPDATE pay.conversion_late_fill_books
+           SET status = 'rejected', confirmed_by = ${actor}, decided_at = now()
+         WHERE request_id = ${input.requestId} AND status = 'pending'
+         RETURNING request_id
+      `;
+      if (!rejected[0]) {
+        return { requestId: input.requestId, status: 'not_pending', changeHash: proposal.change_hash, funding: null, order: null };
+      }
+      await this.audit(audit.conversion_id, 'late_fill_book_rejected', proposal.proposed_by, actor, { changeHash: proposal.change_hash });
+      return { requestId: input.requestId, status: 'rejected', changeHash: proposal.change_hash, funding: null, order: null };
+    }
+    const row = await this.orderById(audit.conversion_id);
+    if (!row) return { requestId: input.requestId, status: 'not_pending', changeHash: proposal.change_hash, funding: null, order: null };
+    const evidence = await this.lookupLateFill(row);
+    const economics = evidence ? this.lateFillEconomics(row, evidence) : null;
+    if (!evidence || !economics || !changeHashesEqual(this.lateFillBookHash(audit, lateFillEvidence(evidence)), proposal.change_hash)) {
+      return { requestId: input.requestId, status: 'evidence_changed', changeHash: proposal.change_hash, funding: null, order: null };
+    }
+    const inventoryOnly = economics.kind === 'reverse';
+    const key = `pay.conversion.late:${audit.id}`;
+    const already = await this.deps.ledger.getTxByKey(key);
+    let funding = already ? fundingOfReason(already.reason) : proposal.funding;
+    if (!already && (inventoryOnly || !funding)) {
+      if (inventoryOnly) {
+        funding = 'inventory';
+      } else {
+        const clearing = await this.deps.ledger.balance(merchantClearing(row.merchant_id, row.from_asset));
+        funding = clearing.amount >= economics.filled ? 'merchant' : 'inventory';
+      }
+      await this.deps.sql`
+        UPDATE pay.conversion_late_fill_books
+           SET funding = ${funding}
+         WHERE request_id = ${input.requestId} AND status = 'pending'
+      `;
+      const stored = await this.lateFillBookByRequest(input.requestId);
+      funding = inventoryOnly ? 'inventory' : (stored?.funding ?? funding);
+    }
+    if (!funding)
+      return { requestId: input.requestId, status: 'not_pending', changeHash: proposal.change_hash, funding: null, order: null };
+    if (!already) {
+      try {
+        await this.postLateFill(audit.id, row, economics, funding);
+      } catch (error) {
+        if (funding === 'merchant' && error instanceof InsufficientFundsError) {
+          funding = 'inventory';
+          await this.deps.sql`
+            UPDATE pay.conversion_late_fill_books
+               SET funding = 'inventory'
+             WHERE request_id = ${input.requestId} AND status = 'pending'
+          `;
+          const raced = await this.deps.ledger.getTxByKey(key);
+          if (!raced) await this.postLateFill(audit.id, row, economics, 'inventory');
+          else funding = fundingOfReason(raced.reason);
+        } else if (isIdempotencyConflict(error)) {
+          const raced = await this.deps.ledger.getTxByKey(key);
+          if (!raced) throw error;
+          funding = fundingOfReason(raced.reason);
+        } else {
+          throw error;
+        }
+      }
+    }
+    const settled = await this.finishLateFillBook(proposal, actor, audit, row, evidence, economics, funding);
+    return {
+      requestId: input.requestId,
+      status: 'confirmed',
+      changeHash: proposal.change_hash,
+      funding,
+      order: orderView(settled),
+    };
+  }
+
+  /**
    * Re-query resolve-absent rows for a fill the earlier miss did not see.
-   * Founder calls pass `force` so a recent stamp does not skip the row.
+   * Founder calls pass `force` so a backoff stamp does not skip the row.
+   * Force does not reopen a row past the 7-day horizon, counted from the
+   * absent-resolve confirmation (or placing_at when that confirmation is missing).
    * A venue or rate error is counted and left unstamped. It does not throw.
+   * One replica holds the tick lock. A busy lock makes no venue calls.
    */
   async sweepLateFills(
     actorId: string,
     opts?: { force?: boolean },
-  ): Promise<{ checked: number; found: number; errors: Array<{ conversionId: string; code: string }> }> {
+  ): Promise<{
+    checked: number;
+    found: number;
+    finalized: number;
+    busy: boolean;
+    errors: Array<{ conversionId: string; code: string }>;
+  }> {
     const actor = actorId.trim().toLowerCase();
     if (!actor) throw new ConversionError('pay.conversion_unauthenticated', 'BAD_REQUEST');
-    const force = opts?.force === true;
-    const due = new Date(this.now().getTime() - CONVERSION_LATE_FILL_RECHECK_MS);
-    const rows = await this.deps.sql<OrderRow[]>`
-      SELECT ${this.deps.sql.unsafe(ORDER_COLS)} FROM pay.conversion_orders o
+    const idle = { checked: 0, found: 0, finalized: 0, busy: true, errors: [] as Array<{ conversionId: string; code: string }> };
+    return this.withAdvisoryLock(LATE_FILL_SWEEP_LOCK_A, LATE_FILL_SWEEP_LOCK_B, idle, async (conn) => {
+      return this.sweepLateFillsLocked(conn, actor, opts?.force === true);
+    });
+  }
+
+  private async sweepLateFillsLocked(
+    conn: Sql,
+    actor: string,
+    force: boolean,
+  ): Promise<{
+    checked: number;
+    found: number;
+    finalized: number;
+    busy: boolean;
+    errors: Array<{ conversionId: string; code: string }>;
+  }> {
+    const now = this.now();
+    const horizon = new Date(now.getTime() - CONVERSION_LATE_FILL_HORIZON_MS);
+    const finalizedRows = await conn<Array<{ id: string }>>`
+      UPDATE pay.conversion_orders o
+         SET late_fill_check_final_at = ${now}
        WHERE o.status = 'failed'
          AND o.failure_code = 'pay.conversion_resolve_absent'
+         AND o.late_fill_check_final_at IS NULL
+         AND ${conn.unsafe(LATE_FILL_HORIZON_ANCHOR)} <= ${horizon}
          AND NOT EXISTS (
            SELECT 1 FROM pay.conversion_audit a
             WHERE a.conversion_id = o.id AND a.action = ${LATE_FILL_AUDIT}
          )
-         AND (${force} OR o.last_checked_at IS NULL OR o.last_checked_at <= ${due})
-       ORDER BY o.last_checked_at NULLS FIRST, o.id
-       LIMIT ${LATE_FILL_SWEEP_BATCH}
+       RETURNING id
+    `;
+    const rows = await conn<OrderRow[]>`
+      SELECT ${conn.unsafe(ORDER_COLS)} FROM pay.conversion_orders o
+       WHERE o.status = 'failed'
+         AND o.failure_code = 'pay.conversion_resolve_absent'
+         AND o.late_fill_check_final_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM pay.conversion_audit a
+            WHERE a.conversion_id = o.id AND a.action = ${LATE_FILL_AUDIT}
+         )
+         AND (${force} OR o.late_fill_next_check_at IS NULL OR o.late_fill_next_check_at <= ${now})
+         AND ${conn.unsafe(LATE_FILL_HORIZON_ANCHOR)} > ${horizon}
+       ORDER BY o.late_fill_next_check_at NULLS FIRST, o.id
+       LIMIT ${CONVERSION_LATE_FILL_VENUE_CALLS_PER_TICK}
     `;
     let checked = 0;
     let found = 0;
@@ -728,14 +1029,21 @@ export class ConversionService {
         continue;
       }
       checked += 1;
-      await this.deps.sql`
-        UPDATE pay.conversion_orders SET last_checked_at = ${this.now()} WHERE id = ${row.id}
+      const checks = Number(row.late_fill_check_count) + 1;
+      const next = new Date(now.getTime() + lateFillBackoffMs(row.id, checks));
+      await conn`
+        UPDATE pay.conversion_orders
+           SET last_checked_at = ${now},
+               late_fill_check_count = ${checks},
+               late_fill_next_check_at = ${next}
+         WHERE id = ${row.id}
+           AND late_fill_check_final_at IS NULL
       `;
       if (!evidence || evidence.filled <= 0n) continue;
       const inserted = await this.recordLateFill(row, evidence, actor);
       if (inserted) found += 1;
     }
-    return { checked, found, errors };
+    return { checked, found, finalized: finalizedRows.length, busy: false, errors };
   }
 
   private resolveHash(row: OrderRow): string {
@@ -1433,6 +1741,243 @@ export class ConversionService {
        LIMIT 1
     `;
     return rows[0] ?? null;
+  }
+
+  private lookupLateFill(row: OrderRow): Promise<VenueOrder | null> {
+    return this.lookup(row);
+  }
+
+  private lateFillBookHash(
+    audit: { id: string; conversion_id: string; detail: unknown; created_at: Date },
+    evidence: LateFillEvidenceCanon,
+  ): string {
+    return founderChangeHash(
+      {
+        kind: 'conversion_late_fill_book',
+        auditId: audit.id,
+        conversionId: audit.conversion_id,
+        detail: audit.detail,
+        evidence,
+      },
+      new Date(audit.created_at).toISOString(),
+    );
+  }
+
+  /** Amounts from the venue order and the original order. A miss is null. Below the original floor is `reverse`. */
+  private lateFillEconomics(
+    row: OrderRow,
+    order: VenueOrder,
+  ): { kind: 'accept' | 'reverse'; filled: Amount; received: Amount; merchant: Amount; fee: Amount; spread: Amount } | null {
+    if (order.filled <= 0n || order.clientOrderId !== row.client_order_id) return null;
+    const ordered = parseAmount(row.from_amount);
+    if (order.filled > ordered) throw new ConversionError('pay.conversion_late_fill_book_invalid', 'PRECONDITION_FAILED');
+    const received = receivedQuote(order);
+    if (received <= 0n) throw new ConversionError('pay.conversion_commission_unknown', 'SERVICE_UNAVAILABLE');
+    const split = splitFill(
+      received,
+      proRate(parseAmount(row.fee_amount), order.filled, ordered),
+      proRate(parseAmount(row.spread_amount), order.filled, ordered),
+      proRate(parseAmount(row.minimum_output), order.filled, ordered),
+    );
+    return { kind: split.kind, filled: order.filled, received, merchant: split.merchant, fee: split.fee, spread: split.spread };
+  }
+
+  private async postLateFill(
+    auditId: string,
+    row: OrderRow,
+    economics: { filled: Amount; merchant: Amount; fee: Amount; spread: Amount },
+    funding: 'merchant' | 'inventory',
+  ): Promise<void> {
+    const merchantUserId = await this.merchantUser(row.merchant_id);
+    await postPayLedger(
+      this.deps.ledger,
+      recipes.fxConversionLateFill({
+        auditId,
+        conversionId: row.id,
+        merchantId: row.merchant_id,
+        merchantUserId,
+        venueId: row.venue_id,
+        fromAsset: row.from_asset,
+        toAsset: row.to_asset,
+        fromAmount: economics.filled,
+        toAmount: economics.merchant,
+        feeAmount: economics.fee,
+        spreadAmount: economics.spread,
+        funding,
+      }),
+    );
+  }
+
+  private async finishLateFillBook(
+    proposal: { request_id: string; audit_id: string; proposed_by: string; change_hash: string },
+    actor: string,
+    audit: { id: string; conversion_id: string; detail: unknown; created_at: Date },
+    row: OrderRow,
+    evidence: VenueOrder,
+    economics: { filled: Amount; received: Amount; merchant: Amount; fee: Amount; spread: Amount },
+    funding: 'merchant' | 'inventory',
+  ): Promise<OrderRow> {
+    const status = evidence.status === 'filled' && evidence.remaining === 0n ? 'filled' : 'partially_filled';
+    const clearing = await this.deps.ledger.balance(merchantClearing(row.merchant_id, row.from_asset));
+    return this.deps.sql.begin(async (raw) => {
+      const tx = raw as unknown as Sql;
+      const updated = await tx<Array<{ request_id: string }>>`
+        UPDATE pay.conversion_late_fill_books
+           SET status = 'confirmed', confirmed_by = ${actor}, funding = ${funding}, decided_at = now()
+         WHERE request_id = ${proposal.request_id} AND status = 'pending'
+         RETURNING request_id
+      `;
+      const marked =
+        (await this.mark(
+          row.id,
+          {
+            status,
+            filledFrom: economics.filled,
+            filledTo: economics.received,
+            venueOrderId: evidence.venueOrderId,
+          },
+          tx,
+        )) ?? row;
+      if (updated[0]) {
+        await tx`
+          INSERT INTO pay.conversion_audit (id, conversion_id, action, actor_id, approver_id, detail)
+          VALUES (
+            ${randomUUID()}, ${row.id}, ${LATE_FILL_BOOKED}, ${proposal.proposed_by}, ${actor},
+            ${tx.json({
+              changeHash: proposal.change_hash,
+              auditId: proposal.audit_id,
+              funding,
+              fromAmount: formatAmount(economics.filled),
+              toAmount: formatAmount(economics.merchant),
+              feeAmount: formatAmount(economics.fee),
+              spreadAmount: formatAmount(economics.spread),
+              venueOrderId: evidence.venueOrderId,
+            } as never)}
+          )
+        `;
+        if (funding === 'inventory') {
+          await tx`
+            INSERT INTO pay.conversion_audit (id, conversion_id, action, actor_id, approver_id, detail)
+            VALUES (
+              ${randomUUID()}, ${row.id}, ${LATE_FILL_SHORTFALL}, ${proposal.proposed_by}, ${actor},
+              ${tx.json({
+                auditId: proposal.audit_id,
+                fromAmount: formatAmount(economics.filled),
+                clearingAmount: formatAmount(clearing.amount),
+                asset: row.from_asset,
+              } as never)}
+            )
+          `;
+        }
+        await this.acknowledgeBookedLateFill(tx, proposal, actor, audit);
+      }
+      return marked;
+    });
+  }
+
+  /**
+   * The book is the acknowledgement. One confirmed sentence lifts the quote
+   * halt in the same two-founder step. A pending sentence for this audit is
+   * closed so the open-ack index can take the booked sentence.
+   */
+  private async acknowledgeBookedLateFill(
+    tx: Sql,
+    proposal: { request_id: string; audit_id: string; proposed_by: string },
+    actor: string,
+    audit: { id: string; conversion_id: string; detail: unknown; created_at: Date },
+  ): Promise<void> {
+    const settlement = `booked via late-fill book ${proposal.request_id}`;
+    const rejected = await tx<Array<{ request_id: string }>>`
+      UPDATE pay.conversion_late_fill_acks
+         SET status = 'rejected', confirmed_by = ${actor}, decided_at = now()
+       WHERE audit_id = ${audit.id} AND status = 'pending'
+       RETURNING request_id
+    `;
+    if (rejected[0]) {
+      await tx`
+        INSERT INTO pay.conversion_audit (id, conversion_id, action, actor_id, approver_id, detail)
+        VALUES (
+          ${randomUUID()}, ${audit.conversion_id}, 'late_fill_ack_rejected', ${proposal.proposed_by}, ${actor},
+          ${tx.json({ auditId: audit.id, supersededBy: proposal.request_id } as never)}
+        )
+      `;
+    }
+    const changeHash = this.lateFillHash(audit, settlement);
+    const inserted = await tx<Array<{ request_id: string }>>`
+      INSERT INTO pay.conversion_late_fill_acks (
+        request_id, audit_id, conversion_id, change_hash, settlement, reason,
+        proposed_by, status, confirmed_by, decided_at
+      )
+      VALUES (
+        ${randomUUID()}, ${audit.id}, ${audit.conversion_id}, ${changeHash}, ${settlement}, ${settlement},
+        ${proposal.proposed_by}, 'confirmed', ${actor}, now()
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING request_id
+    `;
+    if (!inserted[0]) return;
+    await tx`
+      INSERT INTO pay.conversion_audit (id, conversion_id, action, actor_id, approver_id, detail)
+      VALUES (
+        ${randomUUID()}, ${audit.conversion_id}, ${LATE_FILL_ACK}, ${proposal.proposed_by}, ${actor},
+        ${tx.json({ changeHash, auditId: audit.id, settlement } as never)}
+      )
+    `;
+  }
+
+  private async lateFillBookByRequest(requestId: string): Promise<{
+    request_id: string;
+    audit_id: string;
+    conversion_id: string;
+    change_hash: string;
+    proposed_by: string;
+    status: string;
+    funding: 'merchant' | 'inventory' | null;
+  } | null> {
+    const rows = await this.deps.sql<
+      Array<{
+        request_id: string;
+        audit_id: string;
+        conversion_id: string;
+        change_hash: string;
+        proposed_by: string;
+        status: string;
+        funding: string | null;
+      }>
+    >`
+      SELECT request_id, audit_id, conversion_id, change_hash, proposed_by, status, funding
+        FROM pay.conversion_late_fill_books
+       WHERE request_id = ${requestId}
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { ...row, funding: row.funding === 'merchant' || row.funding === 'inventory' ? row.funding : null };
+  }
+
+  private async lateFillBookForAudit(auditId: string, status: 'pending' | 'confirmed'): Promise<{ change_hash: string } | null> {
+    const rows = await this.deps.sql<Array<{ change_hash: string }>>`
+      SELECT change_hash FROM pay.conversion_late_fill_books
+       WHERE audit_id = ${auditId} AND status = ${status}
+       LIMIT 1
+    `;
+    return rows[0] ?? null;
+  }
+
+  private async withAdvisoryLock<T>(keyA: number, keyB: number, onBusy: T, body: (conn: Sql) => Promise<T>): Promise<T> {
+    const conn = await this.deps.sql.reserve();
+    try {
+      const [lock] = await conn<Array<{ locked: boolean }>>`
+        SELECT pg_try_advisory_lock(${keyA}, ${keyB}) AS locked
+      `;
+      if (lock?.locked !== true) return onBusy;
+      try {
+        return await body(conn);
+      } finally {
+        await conn`SELECT pg_advisory_unlock(${keyA}, ${keyB})`;
+      }
+    } finally {
+      conn.release();
+    }
   }
 
   /** Insert the late-fill audit once. A second sweeper sees the row and does not insert again. */
