@@ -131,9 +131,9 @@ const en = {
   hdr_address: 'Address',
   railsTitle: 'Rails',
   railsNote: 'Custody stays on the single custodial ledger. These rails are the Protocol side only.',
-  railBase: 'Base Sepolia contracts (P0)',
+  railBase: 'Base Sepolia contracts',
   railBaseState: 'Deployed on testnet. Not INTACHAIN.',
-  railIntachain: 'INTACHAIN (P1)',
+  railIntachain: 'INTACHAIN network',
   // Source: the INTACHAIN P1 GO is recorded (INTACHAIN_P1_GO in blockers.ts) but no chain service runs yet. Customers read the plain version.
   railIntachainState: 'Approved to build. No INTACHAIN network is running yet, so nothing here runs on it.',
   railBridge: 'Bridge',

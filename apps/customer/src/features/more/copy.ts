@@ -856,7 +856,7 @@ const messages = {
   'availabilityrooms.missing.a.round.service.published.sale.terms':
     'Missing a round service, published sale terms, jurisdiction/tier admission, scoped participation records and ledger subscribe/allocate recipes.',
   'availabilityrooms.parked.chain.work.remains.unstarted.no.chain':
-    'Parked chain work remains unstarted. No chain or deployment procedure is called by this room.',
+    'Chain work has not started yet. No chain or deployment procedure is called by this room.',
   'blueprint.identity.blueprint.card': '{value1} Identity Blueprint card',
   'blueprint.answer.key.2': 'Answer {value1} key',
   'blueprint.your.answer.2': 'Your answer {value1}',
@@ -1237,7 +1237,7 @@ const es = {
   'availabilityrooms.a.customer.owned.participation.read.and.ledger':
     'Se necesitan una consulta de participación propia del cliente y operaciones de suscripción y asignación respaldadas por el libro contable antes de mostrar un importe o estado de orden.',
   'availabilityrooms.asset.issuance.currently.belongs.to.the.parked':
-    'La emisión de activos pertenece actualmente al plano de cadena aparcado. INTACHAIN no se ha iniciado, por lo que esta sala no puede desplegar un token, predecir una dirección activa, firmar calldata ni presentar una fábrica utilizable.',
+    'La emisión de activos pertenece al plano de cadena. INTACHAIN está aprobado para construirse pero aún no está en funcionamiento, por lo que esta sala no puede desplegar un token, predecir una dirección activa, firmar calldata ni presentar una fábrica utilizable.',
   'availabilityrooms.the.existing.template.is.explicitly.unaudited.compiler':
     'La plantilla existente no está auditada, de forma explícita. Los artefactos del compilador no acreditan una auditoría ni permiso para lanzar.',
   'availabilityrooms.launch.overview': 'Vista general de Launch',
@@ -1823,7 +1823,7 @@ const es = {
   'availabilityrooms.missing.a.round.service.published.sale.terms':
     'Faltan un servicio de rondas, condiciones de venta publicadas, admisión por jurisdicción y nivel, registros de participación delimitados y operaciones de suscripción y asignación del libro contable.',
   'availabilityrooms.parked.chain.work.remains.unstarted.no.chain':
-    'El trabajo de cadena aparcado sigue sin iniciarse. Esta sala no llama a ningún procedimiento de cadena ni de despliegue.',
+    'El trabajo de cadena aún no ha comenzado. Esta sala no llama a ningún procedimiento de cadena ni de despliegue.',
   'blueprint.identity.blueprint.card': 'Tarjeta Identity Blueprint de {value1}',
   'blueprint.answer.key.2': 'Clave de la respuesta {value1}',
   'blueprint.your.answer.2': 'Tu respuesta {value1}',
@@ -2208,7 +2208,7 @@ const fr = {
   'availabilityrooms.a.customer.owned.participation.read.and.ledger':
     'Une consultation de la participation propre au client et des opérations de souscription et d’allocation adossées au grand livre sont nécessaires avant d’afficher un montant ou un état d’ordre.',
   'availabilityrooms.asset.issuance.currently.belongs.to.the.parked':
-    'L’émission d’actifs relève actuellement du plan de chaîne en attente. INTACHAIN n’a pas été démarré ; ce salon ne peut donc ni déployer un token, ni prédire une adresse active, ni signer du calldata, ni présenter une factory utilisable.',
+    'L’émission d’actifs relève du plan de chaîne. INTACHAIN est approuvé pour la construction mais ne fonctionne pas encore ; ce salon ne peut donc ni déployer un token, ni prédire une adresse active, ni signer du calldata, ni présenter une factory utilisable.',
   'availabilityrooms.the.existing.template.is.explicitly.unaudited.compiler':
     'Le modèle existant est explicitement non audité. Les artefacts du compilateur ne constituent ni un audit ni une autorisation de lancement.',
   'availabilityrooms.launch.overview': 'Vue d’ensemble de Launch',
@@ -2795,7 +2795,7 @@ const fr = {
   'availabilityrooms.missing.a.round.service.published.sale.terms':
     'Il manque un service de tours, des conditions de vente publiées, une admission par juridiction et niveau, des enregistrements de participation délimités et des opérations de souscription et d’allocation du grand livre.',
   'availabilityrooms.parked.chain.work.remains.unstarted.no.chain':
-    'Le travail de chaîne en attente n’a toujours pas démarré. Ce salon n’appelle aucune procédure de chaîne ni de déploiement.',
+    'Le travail de chaîne n’a pas encore démarré. Ce salon n’appelle aucune procédure de chaîne ni de déploiement.',
   'blueprint.identity.blueprint.card': 'Carte Identity Blueprint de {value1}',
   'blueprint.answer.key.2': 'Clé de la réponse {value1}',
   'blueprint.your.answer.2': 'Ta réponse {value1}',
