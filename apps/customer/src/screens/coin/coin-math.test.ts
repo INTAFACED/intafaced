@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { heroPrice, highLow, moveSince, startsLate } from './coin-math';
-import type { Candle } from './deps';
+import { fallbackSince, heroPrice, highLow, isUnpricedMarket, pickQuote, moveSince, startsLate, tickerMove } from './coin-math';
+import type { Candle, Loadable, TickerRow } from './deps';
 
 const candle = (t: number, o: string, c: string): Candle => ({ t, o, h: c, l: o, c, v: '1', filled: false });
 
@@ -70,5 +70,86 @@ describe('startsLate: less history than the range asks for', () => {
   });
   it('is false with no candles', () => {
     expect(startsLate([], HOUR, 168 * HOUR, now)).toBe(false);
+  });
+});
+
+const ticker = (patch: Partial<TickerRow>): TickerRow => ({
+  symbol: 'BTC/USDT',
+  last: '64772.05',
+  bid: null,
+  ask: null,
+  open24h: '65120.39',
+  high24h: null,
+  low24h: null,
+  change24h: '-348.34',
+  changePct24h: '-0.005349',
+  baseVolume24h: null,
+  quoteVolume24h: null,
+  windowStart: null,
+  source: 'server',
+  ...patch,
+});
+
+describe('tickerMove: the past day as the ticker states it, for the 1D line while its candles are out', () => {
+  it('measures from the 24 h open to the last price, exactly', () => {
+    const move = tickerMove(ticker({}))!;
+    expect(move.base).toBe('65120.39');
+    expect(move.change).toBe('-348.34');
+    expect(move.direction).toBe('down');
+    expect(move.changeRatio).toBe('-0.005349169438327995');
+  });
+  it('does not guess without an open, a last price or a ticker', () => {
+    expect(tickerMove(ticker({ open24h: null }))).toBeNull();
+    expect(tickerMove(ticker({ last: null }))).toBeNull();
+    expect(tickerMove(null)).toBeNull();
+  });
+});
+
+describe('isUnpricedMarket: a listed market with no open book says "no market", it is not a fault', () => {
+  const refused = (code: string): Loadable<TickerRow> => ({ status: 'refused', code });
+  it('is true when the exchange answers that no book is open or the market is missing', () => {
+    expect(isUnpricedMarket(refused('trade.no_book'))).toBe(true);
+    expect(isUnpricedMarket(refused('trade.matching_market_missing'))).toBe(true);
+    expect(isUnpricedMarket(refused('trade.market_not_found'))).toBe(true);
+  });
+  it('is false for any other refusal, a failed read, a loading ticker or a priced one', () => {
+    expect(isUnpricedMarket(refused('ExchangeError'))).toBe(false);
+    expect(isUnpricedMarket(refused('scope.denied'))).toBe(false);
+    expect(isUnpricedMarket({ status: 'loading' })).toBe(false);
+    expect(isUnpricedMarket({ status: 'error', retry: () => undefined })).toBe(false);
+    expect(isUnpricedMarket({ status: 'ready', data: ticker({}), asOf: 0 })).toBe(false);
+  });
+});
+
+describe('fallbackSince: a newly listed market says "Since {time}" while its change comes from the ticker', () => {
+  const now = Date.parse('2026-10-17T10:00:00Z');
+  const young = ticker({ windowStart: now - 3 * 3_600_000 });
+  it('gives the window start for a market younger than a day when the candles are out on 1D', () => {
+    expect(fallbackSince(true, '1D', young, now)).toBe(now - 3 * 3_600_000);
+  });
+  it('gives nothing for a full-day window, other ranges, loaded candles or no ticker', () => {
+    expect(fallbackSince(true, '1D', ticker({ windowStart: now - 25 * 3_600_000 }), now)).toBeNull();
+    expect(fallbackSince(true, '1W', young, now)).toBeNull();
+    expect(fallbackSince(false, '1D', young, now)).toBeNull();
+    expect(fallbackSince(true, '1D', null, now)).toBeNull();
+  });
+});
+
+describe('pickQuote: price in a quote that has a book', () => {
+  it('keeps the chosen quote when it is priced, else the first priced one', () => {
+    expect(pickQuote(['USDT', 'USDC'], ['USDT', 'USDC'], 'USDC')).toBe('USDC');
+    expect(pickQuote(['USDT', 'USDC'], ['USDT', 'USDC'], null)).toBe('USDT');
+  });
+  it('falls back to the priced quote when the first or the chosen one has no book', () => {
+    expect(pickQuote(['USDT', 'USDC'], ['USDC'], null)).toBe('USDC');
+    expect(pickQuote(['USDT', 'USDC'], ['USDC'], 'USDT')).toBe('USDC');
+  });
+  it('keeps the chosen, else first, quote for the "no market" card when none is priced', () => {
+    expect(pickQuote(['USDT', 'USDC'], [], null)).toBe('USDT');
+    expect(pickQuote(['USDT', 'USDC'], [], 'USDC')).toBe('USDC');
+  });
+  it('has no quote for a coin with no market, and ignores a chosen quote it does not have', () => {
+    expect(pickQuote([], [], null)).toBeNull();
+    expect(pickQuote(['USDT'], ['USDT'], 'EUR')).toBe('USDT');
   });
 });

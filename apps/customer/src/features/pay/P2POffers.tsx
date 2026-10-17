@@ -7,6 +7,7 @@ import type { PersonalPayApi } from './pay-api';
 import { id, type Offer } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { offerCopy } from './p2p-offer-copy';
+import { shortReference } from '../../shared/reference';
 import {
   MutationResult,
   PayAmount,
@@ -197,7 +198,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
           ) : null}
           {maker ? (
             <p className="p2p-notice-row">
-              <span lang="zxx">{p2pDepth.t('makerNotice', { maker })}</span>
+              <span lang="zxx">{p2pDepth.t('makerNotice', { maker: shortReference(maker) })}</span>
               <a className="text-link" href={location.pathname}>
                 {p2pDepth.t('makerClear')}
               </a>
@@ -290,8 +291,8 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                             <strong>
                               <Copy k="role" params={{ side: t(offer.side === 'sell' ? 'sells' : 'buys'), asset: offer.asset }} />
                             </strong>
-                            <span className="p2p-offer-reference" lang="zxx">
-                              {offer.makerId}
+                            <span className="p2p-offer-reference" lang="zxx" title={offer.makerId}>
+                              {shortReference(offer.makerId)}
                             </span>
                             <span className="muted" lang="zxx">
                               {offerMethods(offer).join(', ') || payCopy.t('noUsableMethodsDeclared')}
@@ -322,10 +323,12 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                         </li>
                       ))}
                     </ul>
-                  ) : (
+                  ) : mine ? (
                     <PayNotice title={payCopy.t('noOwnOffersInThisWindow')}>
                       <PayCopy k="increaseTheWindowOrChooseFiltersTo" />
                     </PayNotice>
+                  ) : (
+                    <PayNotice title={p2pDepth.t('offersNoneBoardTitle')}>{p2pDepth.t('offersNoneBoardBody')}</PayNotice>
                   )}
                   <PayPagination count={rows.length} limit={limit} setLimit={setLimit} />
                 </>
@@ -333,7 +336,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
             }}
           </PayState>
           <p className="muted">
-            <Copy k="window" params={{ limit }} />
+            <Copy k="window" />
           </p>
           <Button variant="ghost" onClick={list.reload}>
             <Copy k="refreshMarket" />
@@ -487,8 +490,8 @@ function OfferInspector({
         <h2 tabIndex={-1} ref={heading}>
           {t('current')}
         </h2>
-        <span className="p2p-offer-reference" lang="zxx">
-          {offerId}
+        <span className="p2p-offer-reference" lang="zxx" title={offerId}>
+          {shortReference(offerId)}
         </span>
       </div>
       {!locked && <MutationResult result={actionResult} />}

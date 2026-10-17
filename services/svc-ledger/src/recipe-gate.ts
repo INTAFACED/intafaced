@@ -38,6 +38,7 @@ type RepeatRule = {
 };
 
 type CatalogRow = {
+  name: RecipeName;
   minLegs: number;
   signatures: ReadonlySet<string>;
   repeats: readonly RepeatRule[];
@@ -208,6 +209,17 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
 
   return [
     { name: 'deposit', post: recipes.deposit({ userId: U, assetId: 'USDT', amount: AMT, rail: 'crypto-native', railRef: 'tx1' }) },
+    {
+      name: 'depositReverse',
+      post: recipes.depositReverse({
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        railRef: 'tx1',
+        depositId: 'dep1',
+      }),
+    },
     { name: 'marketMakerSeedFund', post: recipes.marketMakerSeedFund({ assetId: 'USDT', amount: AMT, seedId: 'seed1' }) },
     { name: 'withdrawHold', post: recipes.withdrawHold(withdraw) },
     { name: 'withdrawSettle', post: recipes.withdrawSettle(withdraw) },
@@ -988,7 +1000,7 @@ function matchesRepeat(rules: readonly RepeatRule[], sigs: readonly string[]): b
 }
 
 function buildCatalog(): { catalog: Map<string, CatalogRow>; sampled: ReadonlySet<RecipeName> } {
-  const grouped = new Map<string, { minLegs: number; signatures: Set<string>; legs: string[][] }>();
+  const grouped = new Map<string, { name: RecipeName; minLegs: number; signatures: Set<string>; legs: string[][] }>();
   const sampled = new Set<RecipeName>();
 
   for (const { name, post } of samplePosts()) {
@@ -998,8 +1010,11 @@ function buildCatalog(): { catalog: Map<string, CatalogRow>; sampled: ReadonlySe
     const legs = post.entries.map((entry) => legSignature(entry));
     const existing = grouped.get(key);
     if (!existing) {
-      grouped.set(key, { minLegs: post.entries.length, signatures: new Set([legs.join(';')]), legs: [legs] });
+      grouped.set(key, { name, minLegs: post.entries.length, signatures: new Set([legs.join(';')]), legs: [legs] });
       continue;
+    }
+    if (existing.name !== name) {
+      throw new Error(`recipe catalog key ${key} is shared by ${existing.name} and ${name}`);
     }
     existing.minLegs = Math.min(existing.minLegs, post.entries.length);
     existing.signatures.add(legs.join(';'));
@@ -1009,6 +1024,7 @@ function buildCatalog(): { catalog: Map<string, CatalogRow>; sampled: ReadonlySe
   const catalog = new Map<string, CatalogRow>();
   for (const [key, row] of grouped) {
     catalog.set(key, {
+      name: row.name,
       minLegs: row.minLegs,
       signatures: row.signatures,
       repeats: deriveRepeatRules(row.legs),
@@ -1024,17 +1040,40 @@ export function unsampledRecipeNames(): readonly RecipeName[] {
   return (Object.keys(recipes) as RecipeName[]).filter((name) => !SAMPLED_RECIPES.has(name)).sort();
 }
 
-export function assertKnownRecipePost(input: WirePost): void {
-  if (matchesFeeCharge(input) || matchesRewardPay(input) || matchesFeeSweep(input)) return;
+/** Samples the catalog was built from. Tests use this to check candidate names. */
+export function recipeGateSamples(): readonly { readonly name: RecipeName; readonly post: PostRequest }[] {
+  return samplePosts();
+}
 
-  const key = `${input.module}::${input.reason}`;
-  const spec = RECIPE_CATALOG.get(key);
-  if (!spec) throw recipeError(input.module, input.reason);
-
-  if (input.entries.length < spec.minLegs) throw recipeError(input.module, input.reason);
+function catalogRecipe(input: WirePost): RecipeName | null {
+  const spec = RECIPE_CATALOG.get(`${input.module}::${input.reason}`);
+  if (!spec) return null;
+  if (input.entries.length < spec.minLegs) return null;
 
   const sigs = input.entries.map((entry) => legSignature(entry));
-  if (spec.signatures.has(sigs.join(';'))) return;
-  if (matchesRepeat(spec.repeats, sigs)) return;
+  if (spec.signatures.has(sigs.join(';'))) return spec.name;
+  if (matchesRepeat(spec.repeats, sigs)) return spec.name;
+  return null;
+}
+
+/**
+ * Every recipe this body matches.
+ *
+ * Fee, reward, and sweep can share a shape with a catalog recipe (an
+ * interest-only loan repayment is also the feeCharge shape). The first hit
+ * is not the only name the caller may have been granted.
+ */
+export function recipeCandidates(input: WirePost): RecipeName[] {
+  const found: RecipeName[] = [];
+  if (matchesFeeCharge(input)) found.push('feeCharge');
+  if (matchesRewardPay(input)) found.push('rewardPay');
+  if (matchesFeeSweep(input)) found.push('sweepFeesToRewards');
+  const catalog = catalogRecipe(input);
+  if (catalog !== null && !found.includes(catalog)) found.push(catalog);
+  return found;
+}
+
+export function assertKnownRecipePost(input: WirePost): void {
+  if (recipeCandidates(input).length > 0) return;
   throw recipeError(input.module, input.reason);
 }

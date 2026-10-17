@@ -26,6 +26,8 @@ export const kbSchema = z.object({
   bodyKey: z.string(),
   version: z.number().int().positive().optional(),
   published: z.boolean().optional(),
+  category: z.string().optional(),
+  tags: z.array(z.string()).optional(),
 });
 export type Ticket = z.infer<typeof ticketSchema>;
 export type Comment = z.infer<typeof commentSchema>;

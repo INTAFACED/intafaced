@@ -4,7 +4,7 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, DataTable } from '@intafaced/ui';
-import { Field, Page } from './ui-kit';
+import { EmptyState, Field, Page } from './ui-kit';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
 import {
   PayAmount,
@@ -89,6 +89,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
             !showAccess &&
             !publish &&
             !tradeId &&
+            current !== '/chat' &&
             !inspectionMine &&
             (current !== '/checkuser' || inspectionReturn.kind === 'offer' || inspectionReturn.kind === 'offers')
               ? 'page'
@@ -120,15 +121,38 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           <PayCopy k="tradingAccess" />
         </a>
       </nav>
-      {current === '/chat' || tradeId ? (
+      {current === '/chat' && !tradeId ? (
+        <EmptyState
+          title={p2pDepth.t('chatPickTitle')}
+          action={
+            <a className="button button--primary" href="/uc/order">
+              {p2pDepth.t('chatPickAction')}
+            </a>
+          }
+        >
+          {p2pDepth.t('chatPickBody')}
+        </EmptyState>
+      ) : current === '/chat' || tradeId ? (
         <OrderDetail pay={pay} tradeId={tradeId ?? ''} userId={userId} />
       ) : current === '/checkuser' ? (
         counterparty && id.safeParse(counterparty).success ? (
           <P2PCounterparty pay={pay} userId={counterparty} returnTo={params.get('returnTo')} />
         ) : (
-          <PayNotice title={payCopy.t('chooseACounterparty')}>
-            <PayCopy k="openACounterpartyFromAnOfferTo" />
-          </PayNotice>
+          <EmptyState
+            title={p2pDepth.t('cpPickTitle')}
+            action={
+              <div className="actions">
+                <a className="button button--primary" href="/p2p">
+                  {p2pDepth.t('cpPickOffers')}
+                </a>
+                <a className="button button--secondary" href="/uc/order">
+                  {p2pDepth.t('cpPickOrders')}
+                </a>
+              </div>
+            }
+          >
+            {p2pDepth.t('cpPickBody')}
+          </EmptyState>
         )
       ) : showOrders ? (
         <OrderList pay={pay} userId={userId} />

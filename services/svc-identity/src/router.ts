@@ -336,9 +336,9 @@ function toTrpcError(err: unknown): TRPCError {
 const sessionOutput = z.object({
   accessToken: z.string(),
   /**
-   * Always filled, including for a browser. The customer app requires a
-   * non-empty string. Optional in the schema so an older reply still parses.
-   * The httpOnly cookie is set as well. Hiding this field waits on that app.
+   * Present for a native or API client (no Origin). Omitted when the
+   * request is a browser session: the refresh token is only in the
+   * httpOnly `ifc_rt` cookie. Optional so both shapes parse.
    */
   refreshToken: z.string().optional(),
   expiresAt: z.string(),
@@ -481,12 +481,13 @@ export function createIdentityRouter(
   ) => {
     const bag = ctx.refreshCookie;
     bag?.issue(session.refreshToken, auth.refreshLifetimeSeconds());
-    return {
+    const wire = {
       accessToken: session.accessToken,
-      refreshToken: session.refreshToken,
       expiresAt: session.expiresAt.toISOString(),
       userId: session.userId,
     };
+    if (bag?.browser) return wire;
+    return { ...wire, refreshToken: session.refreshToken };
   };
 
   const presentedRefreshToken = (ctx: { refreshCookie?: RefreshCookieBag | null }, body: string | undefined): string => {

@@ -147,6 +147,9 @@ contract ConstantProductPool {
         returns (uint256 amountOut)
     {
         if (amountIn == 0) revert InsufficientInput();
+        // Zero is not a bound: it passes `amountOut < minAmountOut` for every
+        // quote. Refuse before the pull so a callback token never sees the input.
+        if (minAmountOut == 0) revert InsufficientOutput();
         (uint112 r0, uint112 r1,) = getReserves();
         bool zeroIn = tokenIn == token0;
         if (!zeroIn && tokenIn != token1) revert InvalidTokens();

@@ -124,8 +124,8 @@ const keys = (page) => page.getByRole('region', { name: 'Passkeys', exact: true 
 const auth = (page) => page.getByRole('region', { name: 'Authenticator app', exact: true });
 const seats = (page) => page.getByRole('region', { name: 'Where you’re signed in', exact: true });
 const unknown = (page) => page.getByRole('region', { name: 'Confirmation not received', exact: true });
-const prepUnknown = (page) => page.getByRole('region', { name: 'Setup response not received', exact: true });
-const receipt = (page) => page.getByRole('region', { name: 'Original security response', exact: true });
+const prepUnknown = (page) => page.getByRole('region', { name: 'Setup result not received', exact: true });
+const receipt = (page) => page.getByRole('region', { name: 'Security action result', exact: true });
 const fail = (route, status = 503, message = 'Isolated response lost', code = 'ISOLATED_REFUSAL') =>
   route.fulfill({ status, json: { error: { message, data: { cause: { code } } } } });
 const writeCount = (state, procedure) => state.writes.filter((row) => row.procedure === procedure).length;

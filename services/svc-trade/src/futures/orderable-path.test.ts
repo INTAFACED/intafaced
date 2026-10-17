@@ -95,7 +95,16 @@ import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '.
 
 // #3699: placeOrder takes the owner fee schedule (not the listing's bps), so the
 // "fees are 0 bps" balances below need an explicitly published zero schedule.
-const ZERO_FEE_SCHEDULE = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'test-zero', makerBps: '0', takerBps: '0' }));
+// A futures fill also needs the perpetual block published; a spot-only schedule refuses.
+const ZERO_FEE_SCHEDULE = parseFeeScheduleJson(
+  JSON.stringify({
+    published: true,
+    version: 'test-zero',
+    makerBps: '0',
+    takerBps: '0',
+    perpetual: { makerBps: '0', takerBps: '0' },
+  }),
+);
 import { TradeError, type Market } from '../spot/types.js';
 
 import {

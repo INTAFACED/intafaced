@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui';
+import { shortReference } from '../../shared/reference';
 import { navigate } from '../../app/location';
 import { PayDetails, PaySection, PayState } from './components';
 import type { PersonalPayApi } from './pay-api';
@@ -34,8 +35,8 @@ export function P2PCounterparty({ pay, userId, returnTo }: { pay: PersonalPayApi
         <Copy k={back[destination.kind]} />
       </a>
       <PaySection title={t('record')}>
-        <p className="p2p-counterparty-id" lang="zxx">
-          {userId}
+        <p className="p2p-counterparty-id" lang="zxx" title={userId}>
+          {shortReference(userId)}
         </p>
         <PayState resource={reputation.resource} retry={reputation.reload}>
           {(data) => (

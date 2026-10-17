@@ -268,7 +268,7 @@ test('Bank membership never enables company writes or duplicates personal money 
 test('honest absence fits desktop, tablet, phone and narrow phone and has no serious accessibility issues', async ({ page }) => {
   await defaultApi(page);
   await mount(page, '/bank');
-  await expect(page.getByText('No account balances returned')).toBeVisible();
+  await expect(page.getByText('No account balances yet')).toBeVisible();
   for (const width of [1440, 1024, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -308,7 +308,7 @@ test('Holding detail labels fallback availability without inventing a total or h
 test('An absent holding is not zero and retains its asset-specific task destinations', async ({ page }) => {
   await defaultApi(page);
   await mount(page, '/portfolio/BTC');
-  await expect(page.getByText('No holding returned for this asset', { exact: true })).toBeVisible();
+  await expect(page.getByText('You hold none of this asset', { exact: true })).toBeVisible();
   await expect(page.locator('.money-holding-quantity')).toHaveCount(0);
   await expect(page.getByRole('link', { name: /Send available BTC/ })).toHaveAttribute('href', '/pay/send?asset=BTC');
   await expect(page.locator('a[href="/pay/send"]')).toHaveCount(0);

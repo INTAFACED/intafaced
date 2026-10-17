@@ -18,20 +18,7 @@ import { shellCopy } from './shell-copy';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { SessionNotice } from './SessionNotice';
 import { ParkedProtocolRoomAt } from '../features/protocol';
-
-function configuredTeamHref(path: string): string | undefined {
-  const configured: string | undefined = import.meta.env.VITE_TEAM_URL;
-  if (!configured) return undefined;
-  try {
-    const url = new URL(configured);
-    const local = import.meta.env.DEV && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-    if ((url.protocol !== 'https:' && !(local && url.protocol === 'http:')) || url.username || url.password || url.search || url.hash)
-      return undefined;
-    return new URL(path.replace(/^\//, ''), `${url.href.replace(/\/$/, '')}/`).href;
-  } catch {
-    return undefined;
-  }
-}
+import { TeamDesk, teamConsoleHref } from './TeamDesk';
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
@@ -107,7 +94,7 @@ export function App() {
   // build, so the Docker image opens exactly what `vite dev` opens.
   const redirectTo = room?.alias ? resolveAlias(room, path, search) : path === '/' && session ? '/home' : undefined;
   useCustomerRoomArrival(path, devFeatures || !room || !['public', 'team', 'parked'].includes(room.area), Boolean(redirectTo));
-  const teamHref = room?.area === 'team' ? configuredTeamHref(current) : undefined;
+  const teamHref = room?.area === 'team' ? teamConsoleHref(current, import.meta.env.VITE_TEAM_URL, import.meta.env.DEV) : undefined;
   useEffect(() => {
     if (redirectTo) navigate(redirectTo + location.hash, true);
   }, [redirectTo]);
@@ -200,24 +187,11 @@ export function App() {
       <PublicRoutes path={path} />
     </div>
   ) : room?.area === 'team' ? (
-    <div className="legacy-room">
-      <Page title={t('Separate team desk')}>
-        <EmptyState
-          title={t('Open the operator console')}
-          action={
-            teamHref ? (
-              <a className="button button--primary" href={teamHref}>
-                {t('Open Team')}
-              </a>
-            ) : undefined
-          }
-        >
-          {teamHref
-            ? t('The team desk uses separate operator authentication.')
-            : t('The Team deployment address is not configured. Ask your operator for the verified console address.')}
-        </EmptyState>
-      </Page>
-    </div>
+    // The app header stays so a founder who landed here can get back; the console itself is a separate deployment.
+    <Shell door={undefined} path={path}>
+      {ribbon}
+      <TeamDesk href={teamHref} />
+    </Shell>
   ) : room?.area === 'parked' ? (
     // Parked rooms sit in the normal shell (top bar, door "More") but stay out of customerRoomHref, so they are
     // never a sign-in return target.

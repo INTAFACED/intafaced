@@ -29,7 +29,7 @@ const en = {
   marketLink: 'Market service listings →',
   details: 'Availability details',
   detailsBody:
-    'The existing issuance template is explicitly unaudited; compiler artifacts are not an audit or permission to launch. Issuance stays parked. This room calls no deployment or chain procedure.',
+    'The current issuance template has not been audited, and build output is not an audit or permission to launch. Issuance stays parked. This room starts no deployment or chain action.',
 } as const;
 const es = {
   scope: 'Tareas de lanzamiento de activos y registros de participación',
@@ -63,7 +63,7 @@ const es = {
   marketLink: 'Listados de servicios de Market →',
   details: 'Detalles de disponibilidad',
   detailsBody:
-    'La plantilla de emisión existente está explícitamente sin auditar; los artefactos del compilador no constituyen una auditoría ni permiso para lanzar. La emisión sigue aparcada. Esta sala no invoca ningún procedimiento de despliegue o de cadena.',
+    'La plantilla de emisión actual no ha sido auditada, y el resultado de la compilación no es una auditoría ni un permiso de lanzamiento. La emisión sigue en pausa. Esta sala no inicia ningún despliegue ni acción en la cadena.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   scope: 'Tâches de lancement d’actifs et dossiers de participation',
@@ -99,6 +99,6 @@ const fr = {
   marketLink: 'Offres de services de Market →',
   details: 'Détails de disponibilité',
   detailsBody:
-    'Le modèle d’émission existant est explicitement non audité ; les artefacts du compilateur ne constituent ni un audit ni une autorisation de lancement. L’émission reste en attente. Cette salle n’appelle aucune procédure de déploiement ou de chaîne.',
+    'Le modèle d’émission actuel n’a pas été audité, et le résultat de compilation n’est ni un audit ni une autorisation de lancement. L’émission reste en pause. Cette salle ne lance aucun déploiement ni action sur la chaîne.',
 } satisfies Record<keyof typeof en, string>;
 export const launchCopy = defineCopy('more.launch.availability', en, { es, fr });

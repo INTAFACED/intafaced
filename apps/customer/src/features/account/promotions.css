@@ -22,6 +22,30 @@
   align-items: start;
   gap: 28px;
 }
+.promotions__columns--single {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 720px;
+}
+.promotions__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--color-border);
+}
+.promotions__tabs a {
+  padding: 10px 0;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--color-muted);
+}
+.promotions__tabs a:hover {
+  color: var(--color-text);
+}
+.promotions__tabs a[aria-current='page'] {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+}
 .promotions__columns > * {
   min-width: 0;
 }

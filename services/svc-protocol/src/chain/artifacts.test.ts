@@ -239,6 +239,27 @@ describe('committed AMM artefacts match the Solidity in this tree', () => {
   });
 });
 
+describe('committed router artefacts match the Solidity in this tree', () => {
+  const routerSuite = (SUITES as Suite[]).find((s) => s.name === 'router');
+
+  it('compiles SovereignRouter', () => {
+    expect(routerSuite?.expect).toBe('compiles');
+    const artefact = loadArtifact('SovereignRouter');
+    expect(artefact.contractName).toBe('SovereignRouter');
+    expect(artefact.suite).toBe('router');
+    expect(artefact.bytecode.length).toBeGreaterThan(2);
+    expect(artefact.bytecode).not.toContain('__$');
+  });
+
+  it('records a sourceHash that still matches the .sol files on disk', () => {
+    const expected = computeSourceHash(suiteSources(routerSuite, collectSources()));
+    expect(
+      loadArtifact('SovereignRouter').sourceHash,
+      'SovereignRouter.json is stale. Run: pnpm --filter @intafaced/svc-protocol contracts:build',
+    ).toBe(expected);
+  });
+});
+
 describe('committed vault artefacts match the Solidity in this tree', () => {
   const vaults = (SUITES as Suite[]).find((s) => s.name === 'vaults');
   const vaultNames = ['CrewVault', 'LegacyVault', 'LaunchLpLock', 'LaunchVesting', 'DeployerReputation', 'TreasuryYieldVault'] as const;

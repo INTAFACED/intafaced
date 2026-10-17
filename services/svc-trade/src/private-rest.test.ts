@@ -337,6 +337,20 @@ describe('mapCreateOrderBody', () => {
       }),
     ).toThrow(TradeError);
   });
+
+  it('refuses maker-or-cancel with trade.invalid_tif', () => {
+    expect(() =>
+      mapCreateOrderBody({
+        symbol: 'BTC/USDT',
+        type: 'limit',
+        side: 'buy',
+        amount: '1',
+        price: '100',
+        timeInForce: 'MOC',
+        clientOrderId: 'bot-moc',
+      }),
+    ).toThrow(expect.objectContaining({ name: 'TradeError', code: 'trade.invalid_tif' }));
+  });
 });
 
 describe('private REST — mount boundary + order write path', () => {
