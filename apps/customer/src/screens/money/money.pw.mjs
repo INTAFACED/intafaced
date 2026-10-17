@@ -29,7 +29,7 @@ mkdirSync(shots, { recursive: true });
 const referencePortfolio = process.env.MONEY_REFERENCE_PORTFOLIO;
 const referenceActivity = process.env.MONEY_REFERENCE_ACTIVITY;
 
-const forbidden = /unavailable|not connected|restricted|fixture|lifecycle|\bspaces?\b|\broom\b|\bledger\b|\btier\b/i;
+const forbidden = /unavailable|not connected|restricted|fixture|lifecycle|\broom\b|\bledger\b|\btier\b/i;
 const moneyShape = /^[−+]?[$]?[\d,]+(\.\d+)?[%A-Z ]*$|^—$|^••••$/;
 
 const missing = {
@@ -484,6 +484,7 @@ const pro = (page, extra = {}) =>
 
 test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy and Sell go to the desk (critic H4)', async ({ page }) => {
   await mock(page, {
+    bank: { 'spaces.list': () => spaces().map((space) => ({ ...space, balance: '0' })) },
     rest: {
       balance: () => balances({ USDT: { free: '4095', used: '5', total: '4100.00' }, BTC: { free: '0.1', used: '0', total: '0.1' } }),
     },
@@ -504,14 +505,17 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
     'Today',
     'Available',
     'In orders',
+    'In spaces',
     'Actions',
   ]);
   const usdt = page.locator('#cash tr[data-asset="USDT"]');
   expect(await texts(usdt.locator('td[data-col="available"]'))).toEqual(['4,095']);
   expect(await texts(usdt.locator('td[data-col="in-orders"]'))).toEqual(['5']);
+  expect(await texts(usdt.locator('td[data-col="in-spaces"]'))).toEqual(['0']);
   const btc = page.locator('#crypto tr[data-asset="BTC"]');
   expect(await texts(btc.locator('td[data-col="available"]'))).toEqual(['0.1']);
   expect(await texts(btc.locator('td[data-col="in-orders"]'))).toEqual(['0']);
+  expect(await texts(btc.locator('td[data-col="in-spaces"]'))).toEqual(['0']);
   expect(Math.round((await btc.boundingBox()).height)).toBe(40);
   // Pro means the desk.
   await expect(page.locator('.money-actions a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
@@ -529,6 +533,23 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, `${size.width}px`).toBeLessThanOrEqual(0);
   }
+});
+
+test('Pro Money: Available + In orders + In spaces add up to Amount (USDT 3,795 + 5 + 300 = 4,100)', async ({ page }) => {
+  await mock(page, {
+    rest: {
+      balance: () => balances({ USDT: { free: '3795', used: '5', total: '3800.00' }, BTC: { free: '0.06', used: '0', total: '0.06' } }),
+    },
+  });
+  await pro(page);
+  await open(page);
+  const usdt = page.locator('#cash tr[data-asset="USDT"]');
+  expect(await texts(usdt.locator('td[data-col="available"]'))).toEqual(['3,795']);
+  expect(await texts(usdt.locator('td[data-col="in-orders"]'))).toEqual(['5']);
+  expect(await texts(usdt.locator('td[data-col="in-spaces"]'))).toEqual(['300']);
+  const btc = page.locator('#crypto tr[data-asset="BTC"]');
+  expect(await texts(btc.locator('td[data-col="in-spaces"]'))).toEqual(['0.04']);
+  await expect(page.getByTestId('held-note')).toHaveCount(0);
 });
 
 test('Simple Money has no Available and In orders columns', async ({ page }) => {

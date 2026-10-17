@@ -78,7 +78,7 @@ describe('rooms with no backing service', () => {
       />,
     );
     expect(html).toContain('Shared library');
-    expect(html).toContain('not private to your account');
+    expect(html).toContain('Everyone using this service sees the same strategies here.');
     expect(html).toContain('Momentum');
     expect(html).toContain('Showing 1 of 1 loaded');
   });

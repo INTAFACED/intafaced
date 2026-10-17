@@ -31,6 +31,7 @@ import {
   type Loadable,
   type MarketRow,
 } from './deps';
+import { allAdd, heldFor, spacesFor, type Held, type Spaces } from './held-breakdown';
 import { InfoTip } from './InfoTip';
 import { buyHref } from './links';
 import { clockTime } from './time';
@@ -159,6 +160,7 @@ function Colgroup({ pro }: { pro: boolean }) {
       <col className="money-col--today money-cell--today" />
       {pro ? <col className="money-col--free money-cell--pro" /> : null}
       {pro ? <col className="money-col--used money-cell--pro" /> : null}
+      {pro ? <col className="money-col--spaces money-cell--pro" /> : null}
       <col className="money-col--actions money-cell--actions" />
     </colgroup>
   );
@@ -188,17 +190,22 @@ function RowActions({ row, markets, copy, layout }: { row: MoneyRow; markets: Lo
   );
 }
 
-/** Pro columns: what can be spent now (Available) and what is set aside for open orders (In orders), as the balance call says. */
-function HeldCells({ asset, balances, hidden }: { asset: string; balances: Balances; hidden: boolean }) {
-  const entry = balances.status === 'ready' ? balances.data[asset] : undefined;
-  const show = (value: string | undefined) => (value === undefined ? '—' : fmtAmount(value, { round: 'down' }));
+/**
+ * Pro columns: what can be spent now (Available), what is set aside for open orders (In orders) and what sits in named
+ * spaces (In spaces), as the bank returned them. A figure the bank did not return shows a dash.
+ */
+function HeldCells({ held, hidden }: { held: Held; hidden: boolean }) {
+  const show = (value: string | null) => (value === null ? '—' : fmtAmount(value, { round: 'down' }));
   return (
     <>
       <td className="money-num money-cell--pro" data-col="available">
-        <Amount value={show(entry?.free)} hidden={hidden} />
+        <Amount value={show(held.available)} hidden={hidden} />
       </td>
       <td className="money-num money-cell--pro" data-col="in-orders">
-        <Amount value={show(entry?.used)} hidden={hidden} />
+        <Amount value={show(held.inOrders)} hidden={hidden} />
+      </td>
+      <td className="money-num money-cell--pro" data-col="in-spaces">
+        <Amount value={show(held.inSpaces)} hidden={hidden} />
       </td>
     </>
   );
@@ -210,14 +217,14 @@ function CoinRow({
   markets,
   copy,
   layout,
-  balances,
+  held,
 }: {
   row: MoneyRow;
   hidden: boolean;
   markets: Loadable<MarketRow[]>;
   copy: Copy;
   layout: Mode;
-  balances: Balances;
+  held: Held;
 }) {
   const name = assetName(row.asset, copy);
   const cash = row.class === 'cash';
@@ -246,7 +253,7 @@ function CoinRow({
       <td className="money-num money-cell--today">
         <ChangeText value={today} hidden={hidden} className="money-today" />
       </td>
-      {layout === 'pro' ? <HeldCells asset={row.asset} balances={balances} hidden={hidden} /> : null}
+      {layout === 'pro' ? <HeldCells held={held} hidden={hidden} /> : null}
       <td className="money-cell--actions">
         <RowActions row={row} markets={markets} copy={copy} layout={layout} />
       </td>
@@ -261,7 +268,7 @@ function CoinTable({
   copy,
   head,
   layout,
-  balances,
+  helds,
 }: {
   rows: MoneyRow[];
   hidden: boolean;
@@ -269,7 +276,7 @@ function CoinTable({
   copy: Copy;
   head: boolean;
   layout: Mode;
-  balances: Balances;
+  helds: ReadonlyMap<string, Held>;
 }) {
   const { t } = copy;
   const pro = layout === 'pro';
@@ -297,6 +304,9 @@ function CoinTable({
                 <th scope="col" className="money-num money-cell--pro">
                   {t('In orders')}
                 </th>
+                <th scope="col" className="money-num money-cell--pro">
+                  {t('In spaces')}
+                </th>
               </>
             ) : null}
             <th scope="col" className="money-cell--actions">
@@ -307,11 +317,19 @@ function CoinTable({
       ) : null}
       <tbody>
         {rows.map((row) => (
-          <CoinRow key={row.asset} row={row} hidden={hidden} markets={markets} copy={copy} layout={layout} balances={balances} />
+          <CoinRow key={row.asset} row={row} hidden={hidden} markets={markets} copy={copy} layout={layout} held={helds.get(row.asset)!} />
         ))}
       </tbody>
     </table>
   );
+}
+
+/** One plain line under a Pro table when its columns cannot be added up, and why. Nothing when they do. */
+function heldNote(spaces: Spaces, adds: boolean | null, t: Copy['t']): string | null {
+  if (spaces.state === 'unavailable') return t('Spaces figure missing');
+  if (spaces.state === 'not-in-amount') return t('Spaces left out of amount');
+  if (adds === false) return t('Held read apart');
+  return null;
 }
 
 function HoldingsCard({
@@ -325,6 +343,7 @@ function HoldingsCard({
   collapseSmall,
   layout,
   balances,
+  spaces,
 }: {
   id: 'cash' | 'crypto';
   title: string;
@@ -336,8 +355,20 @@ function HoldingsCard({
   collapseSmall?: boolean;
   layout: Mode;
   balances: Balances;
+  spaces: Spaces;
 }) {
   const { t } = copy;
+  const helds = useMemo(
+    () =>
+      new Map(
+        rows.map((row) => [
+          row.asset,
+          heldFor(row.asset, row.amount, balances.status === 'ready' ? balances.data[row.asset] : undefined, spaces),
+        ]),
+      ),
+    [rows, balances, spaces],
+  );
+  const note = layout === 'pro' ? heldNote(spaces, allAdd([...helds.values()]), t) : null;
   // Small balances fold away only when there is something bigger to show above them.
   const small = collapseSmall ? rows.filter(isSmall) : [];
   const main = small.length > 0 && small.length < rows.length ? rows.filter((row) => !isSmall(row)) : rows;
@@ -348,7 +379,7 @@ function HoldingsCard({
         <h2 id={`money-${id}-title`}>{title}</h2>
         <Money value={total === null ? null : fmtUsd(total)} hidden={hidden} className="money-card__total" />
       </header>
-      <CoinTable rows={main} hidden={hidden} markets={markets} copy={copy} head layout={layout} balances={balances} />
+      <CoinTable rows={main} hidden={hidden} markets={markets} copy={copy} head layout={layout} helds={helds} />
       {folded.length > 0 ? (
         <Collapsible className="money-small">
           <CollapsibleTrigger className="money-small__trigger">
@@ -359,9 +390,14 @@ function HoldingsCard({
             <ChevronDown size={20} aria-hidden="true" className="money-small__chev" />
           </CollapsibleTrigger>
           <CollapsiblePanel>
-            <CoinTable rows={folded} hidden={hidden} markets={markets} copy={copy} head={false} layout={layout} balances={balances} />
+            <CoinTable rows={folded} hidden={hidden} markets={markets} copy={copy} head={false} layout={layout} helds={helds} />
           </CollapsiblePanel>
         </Collapsible>
+      ) : null}
+      {note ? (
+        <p className="money-card__foot" data-testid="held-note">
+          {note}
+        </p>
       ) : null}
     </section>
   );
@@ -439,6 +475,7 @@ export default function Portfolio() {
     return () => window.removeEventListener('hashchange', scroll);
   }, [view !== null]);
 
+  const spaces = useMemo(() => spacesFor(accounts, view?.source ?? 'server'), [accounts, view?.source]);
   const mode: PillMode = portfolio.status === 'refused' ? 'refused' : portfolio.status === 'empty' ? 'empty' : 'normal';
   const buyTarget = buyHref(null, null, false, layout);
 
@@ -498,6 +535,7 @@ export default function Portfolio() {
             copy={copy}
             layout={layout}
             balances={balances}
+            spaces={spaces}
           />
         ) : null}
         {cryptoRows.length > 0 ? (
@@ -512,6 +550,7 @@ export default function Portfolio() {
             collapseSmall
             layout={layout}
             balances={balances}
+            spaces={spaces}
           />
         ) : null}
         {accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (

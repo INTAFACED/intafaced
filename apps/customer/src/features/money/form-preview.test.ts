@@ -57,7 +57,7 @@ describe('Open loan form facts', () => {
     expect(rows).toContainEqual(['Collateral is sold when', 'your loan reaches 85% of your collateral’s value']);
     expect(rows).toContainEqual(['Most you can borrow', '50% of your collateral’s value']);
     const price = rows.find(([label]) => label === 'Starting LTV and liquidation price');
-    expect(price?.[1]).toMatch(/doesn’t include the price/);
+    expect(price?.[1]).toMatch(/does not send the price it uses for your collateral/);
     // nothing numeric is shown for a figure that needs a price
     expect(price?.[1]).not.toMatch(/\d/);
   });

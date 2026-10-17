@@ -28,7 +28,11 @@ export const identitySessionCopy = defineCopy(
     guardBody:
       'This page has a known result for the original sign-out, but the record this browser saved for it could not be cleared safely. Keep further sign-outs blocked and contact Support.',
     reviewAction: 'Sign out',
-    reviewSeat: 'Sign out session {id}',
+    reviewSeat: 'Sign out the session started {time}',
+    thisDevice: 'This device',
+    showOlder: 'Show {count} more (older than 24 hours)',
+    hideOlder: 'Show fewer',
+    startedAt: 'Started {time}',
     createdLabel: 'Created {time}',
     unknown: 'Original revoke is not confirmed',
     unknownBody: 'Keep this original request blocked. A live-session list cannot recover its outcome, even when this session is absent.',
@@ -74,7 +78,11 @@ export const identitySessionCopy = defineCopy(
       guardBody:
         'Esta página tiene un resultado conocido del cierre de sesión original, pero el registro que guardó este navegador no se pudo borrar con seguridad. Mantén bloqueados los demás cierres y contacta con soporte.',
       reviewAction: 'Revisar sesión',
-      reviewSeat: 'Revisar sesión {id}',
+      reviewSeat: 'Cerrar la sesión iniciada {time}',
+      thisDevice: 'Este dispositivo',
+      showOlder: 'Mostrar {count} más (de hace más de 24 horas)',
+      hideOlder: 'Mostrar menos',
+      startedAt: 'Iniciada {time}',
       createdLabel: 'Creada {time}',
       unknown: 'La revocación original no está confirmada',
       unknownBody:
@@ -123,7 +131,11 @@ export const identitySessionCopy = defineCopy(
       guardBody:
         'Cette page a un résultat connu pour la déconnexion initiale, mais la trace enregistrée par ce navigateur n’a pas pu être effacée en sécurité. Gardez les autres déconnexions bloquées et contactez l’assistance.',
       reviewAction: 'Examiner la session',
-      reviewSeat: 'Examiner la session {id}',
+      reviewSeat: 'Fermer la session commencée {time}',
+      thisDevice: 'Cet appareil',
+      showOlder: 'Afficher {count} de plus (de plus de 24 heures)',
+      hideOlder: 'Afficher moins',
+      startedAt: 'Commencée {time}',
       createdLabel: 'Créée le {time}',
       unknown: 'La révocation initiale n’est pas confirmée',
       unknownBody:

@@ -7,8 +7,9 @@ const owner = '11111111-1111-4111-8111-111111111111',
   other = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   one = '22222222-2222-4222-8222-222222222222',
   two = '33333333-3333-4333-8333-333333333333';
-const stamp = '2026-10-10T09:41:00.000Z',
-  older = '2026-10-09T09:41:00.000Z',
+// Both inside the last 24 hours, so neither row is folded behind "Show N more" (that has its own check below).
+const stamp = new Date(Date.now() - 2 * 3_600_000).toISOString(),
+  older = new Date(Date.now() - 3 * 3_600_000).toISOString(),
   key = 'intafaced.customer.session-revoke.v1:' + owner;
 const evidence = process.env.IDENTITY_SESSION_EVIDENCE;
 mkdirSync(evidence, { recursive: true });
@@ -107,7 +108,11 @@ async function login(page, path = '/uc/safe') {
   await expect(page).toHaveURL(new URL(path, test.info().project.use.baseURL).href);
 }
 const region = (page, name = 'Where you’re signed in') => page.getByRole('region', { name, exact: true });
-const seatButton = (page, id = one) => region(page).getByRole('button', { name: 'Sign out session ' + id, exact: true });
+// Rows no longer show the session id; the row carries it as a data attribute so a test can still pick one.
+const seatButton = (page, id = one) =>
+  region(page)
+    .locator('[data-session-id="' + id + '"]')
+    .getByRole('button', { name: /^Sign out the session started / });
 const unknown = (page) => region(page).getByRole('region', { name: 'Original revoke is not confirmed', exact: true });
 const receipt = (page) => region(page).getByRole('region', { name: 'Sign-out result', exact: true });
 async function send(page) {
@@ -141,8 +146,8 @@ test('native owner inspection to original reviewed session and matching true rec
   await expect(seatButton(page)).toBeVisible();
   await expect(region(page)).toContainText(stamp.slice(0, 4));
   await seatButton(page).click();
-  await expect(page.getByRole('dialog')).toContainText(owner);
-  await expect(page.getByRole('dialog')).toContainText(one);
+  await expect(page.getByRole('dialog')).toContainText('Started ');
+  await expect(page.getByRole('dialog')).not.toContainText(one);
   expect(state.writes).toEqual([]);
   await send(page);
   await expect(receipt(page)).toContainText('The service revoked the selected session.');
@@ -197,7 +202,7 @@ for (const malformed of ['owner', 'duplicate', 'date', 'impossibleDate', 'overLi
     await login(page);
     await expect(region(page).getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
     await expect(region(page).locator('time')).toHaveCount(0);
-    await expect(region(page).getByRole('button', { name: /^Sign out session / })).toHaveCount(0);
+    await expect(region(page).getByRole('button', { name: /^Sign out the session started / })).toHaveCount(0);
     await expect(region(page)).not.toContainText('Invalid Date');
     expect(state.writes).toEqual([]);
   });
@@ -451,8 +456,7 @@ for (const locale of ['es', 'fr'])
     await expect(
       dialog.getByRole('button', { name: locale === 'es' ? 'Revocar esta sesión' : 'Révoquer cette session', exact: true }),
     ).toBeVisible();
-    await expect(dialog).toContainText(owner);
-    await expect(dialog).toContainText(one);
+    await expect(dialog).not.toContainText(one);
     await dialog.getByRole('button', { name: locale === 'es' ? 'Revocar esta sesión' : 'Révoquer cette session', exact: true }).click();
     const scoped = region(page, locale === 'es' ? 'Sesiones de identidad activas' : 'Sessions d’identité actives');
     await expect(
@@ -479,11 +483,11 @@ for (const width of [320, 390, 768])
     await expect(button).toBeFocused();
     expect((await button.boundingBox()).height).toBeGreaterThanOrEqual(44);
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('dialog')).toContainText(one);
+    await expect(page.getByRole('dialog')).toContainText('Started ');
     await page.keyboard.press('Escape');
     await expect(button).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await expect(region(page).locator('.identity-sessions__ref').first()).toHaveText(one);
+    await expect(region(page)).not.toContainText(one);
     expect(state.writes).toEqual([]);
     await shot(page, 'sessions-phone-' + width);
   });
@@ -607,4 +611,19 @@ test('native known response with failed journal removal stays honest and blocks 
   expect(await marker(page)).toBe(original);
   await expect(seatButton(page, two)).toBeDisabled();
   expect(state.writes).toHaveLength(1);
+});
+
+test('native sessions older than 24 hours fold behind Show N more and the list shows no session ids', async ({ page, context }) => {
+  const stale = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const state = await network(context);
+  state.rows.push({ id: stale, user_id: owner, created_at: new Date(Date.now() - 30 * 3_600_000), revoked: false });
+  await login(page);
+  await expect(seatButton(page)).toBeVisible();
+  await expect(seatButton(page, stale)).toHaveCount(0);
+  await expect(region(page)).not.toContainText(one);
+  await expect(region(page)).not.toContainText(stale);
+  await region(page).getByRole('button', { name: 'Show 1 more (older than 24 hours)', exact: true }).click();
+  await expect(seatButton(page, stale)).toBeVisible();
+  await expect(region(page)).not.toContainText(stale);
+  expect(state.writes).toEqual([]);
 });
