@@ -819,10 +819,15 @@ export const merchantPayoutDestinations = pay.table(
     railId: text('rail_id').notNull(),
     kind: text('kind').notNull(),
     ref: text('ref').notNull(),
+    /** Page key for the inventory cursor. Not a second destination. */
+    id: uuid('id').notNull().defaultRandom(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] })],
+  (t) => [
+    primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] }),
+    uniqueIndex('merchant_payout_destinations_id_idx').on(t.id),
+  ],
 );
 
 const evidenceBytea = customType<{ data: Buffer; driverData: Buffer }>({
@@ -923,9 +928,23 @@ export const merchantInvoiceActions = pay.table(
   (t) => [primaryKey({ name: 'merchant_invoice_actions_pkey', columns: [t.merchantId, t.requestId] })],
 );
 
+/**
+ * One in-flight merchant statement scan. Not a balance. The scan deletes its
+ * row when it finishes. `expires_at` is only the bound after which a crashed
+ * scan can be replaced.
+ */
+export const merchantStatementLeases = pay.table('merchant_statement_leases', {
+  merchantId: uuid('merchant_id')
+    .primaryKey()
+    .references(() => merchants.id, { onDelete: 'cascade' }),
+  leaseId: uuid('lease_id').notNull(),
+  expiresAt: tstz('expires_at').notNull(),
+});
+
 export const schema = {
   merchants,
   merchantPayoutDestinations,
+  merchantStatementLeases,
   merchantPermissionEvents,
   paymentProfiles,
   paymentLinks,

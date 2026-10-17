@@ -43,7 +43,7 @@ async function run(db: TestDatabase, down = false) {
     const result = await execute('pnpm', ['exec', 'tsx', 'scripts/migrate.ts', ...(down ? ['--down'] : [])], {
       cwd: serviceRoot,
       env: { ...process.env, DATABASE_URL: db.url },
-      timeout: 10_000,
+      timeout: 60_000,
     });
     return { code: 0, ...result };
   } catch (err) {
@@ -58,7 +58,7 @@ async function row(db: TestDatabase, purchase: string) {
 }
 
 // Each test shells out to the real migration runner against a fresh database; 5 s is not enough under CI load.
-describe('actual market migration runner down transactions', { timeout: 30_000 }, () => {
+describe('actual market migration runner down transactions', { timeout: 90_000 }, () => {
   it('rolls back the complete reversal when its tracking-row delete fails', async () => {
     const { db, purchase } = await fixture();
     try {

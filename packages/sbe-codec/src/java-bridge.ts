@@ -6,7 +6,7 @@
  * Image/compose pins `INTAFACED_SBE_JAVA` to the shaded jar (H3).
  */
 
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,31 +28,6 @@ export function javaMainClassPath(): string | null {
   return existsSync(compiled) ? compiled : null;
 }
 
-type Toolchain = { readonly JAVA_HOME: string; readonly MVN: string; readonly MAVEN_REPO: string };
-
-function loadEnsure(): Toolchain | null {
-  try {
-    const r = spawnSync(process.execPath, [join(packageRoot(), 'scripts', 'ensure-toolchain.mjs')], {
-      encoding: 'utf8',
-      cwd: packageRoot(),
-      timeout: 90_000,
-      killSignal: 'SIGKILL',
-    });
-    if (r.status !== 0) return null;
-    const line = r.stdout.trim().split('\n').filter(Boolean).at(-1);
-    if (line === undefined) return null;
-    const parsed: unknown = JSON.parse(line);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    const rec = parsed as { JAVA_HOME?: unknown; MVN?: unknown; MAVEN_REPO?: unknown };
-    if (typeof rec.JAVA_HOME !== 'string' || typeof rec.MVN !== 'string' || typeof rec.MAVEN_REPO !== 'string') {
-      return null;
-    }
-    return { JAVA_HOME: rec.JAVA_HOME, MVN: rec.MVN, MAVEN_REPO: rec.MAVEN_REPO };
-  } catch {
-    return null;
-  }
-}
-
 function resolveJavaBin(): string | null {
   const home = process.env.JAVA_HOME?.trim();
   if (home) {
@@ -69,33 +44,38 @@ function resolveJavaBin(): string | null {
   return null;
 }
 
+/**
+ * Unpinned: ask scripts/ensure-build.mjs for a JDK and the content-hashed codec jar. When the jar is already
+ * built (turbo runs `build:jar` before the tests, see turbo.json) this is a hash and a stat, no lock, no Maven.
+ * Only if it is missing (vitest run by hand) does it build, behind a plain mkdir lock that is never stolen.
+ */
+// Ceiling for the fallback build: a 300 s lock wait, or bounded toolchain downloads plus a 180 s `mvn package`.
+const BUILD_TIMEOUT_MS = 1_200_000;
+
 function compileAndClasspath(): { java: string; classpath: string } | null {
-  const env = loadEnsure();
-  if (env === null) return null;
-  const root = packageRoot();
-  const mvnEnv = { ...process.env, JAVA_HOME: env.JAVA_HOME, PATH: `${join(env.JAVA_HOME, 'bin')}:${process.env.PATH ?? ''}` };
-  const compile = spawnSync(env.MVN, ['-q', `-Dmaven.repo.local=${env.MAVEN_REPO}`, '-DskipTests', 'package'], {
-    cwd: root,
-    env: mvnEnv,
-    encoding: 'utf8',
-    timeout: 90_000,
-    killSignal: 'SIGKILL',
-  });
-  if (compile.status !== 0) return null;
-  const shaded = join(root, 'target', 'sbe-codec-0.0.0.jar');
-  const java = join(env.JAVA_HOME, 'bin', 'java');
-  if (existsSync(shaded) && existsSync(java)) return { java, classpath: shaded };
-  mkdirSync(join(root, '.tools'), { recursive: true });
-  const cpFile = join(root, '.tools', 'cp.txt');
-  const cp = spawnSync(
-    env.MVN,
-    ['-q', `-Dmaven.repo.local=${env.MAVEN_REPO}`, 'dependency:build-classpath', `-Dmdep.outputFile=${cpFile}`],
-    { cwd: root, env: mvnEnv, encoding: 'utf8', timeout: 90_000, killSignal: 'SIGKILL' },
-  );
-  if (cp.status !== 0 || !existsSync(cpFile)) return null;
-  const classpath = `${join(root, 'target/classes')}:${readFileSync(cpFile, 'utf8').trim()}`;
-  if (!existsSync(java)) return null;
-  return { java, classpath };
+  try {
+    const r = spawnSync(process.execPath, [join(packageRoot(), 'scripts', 'ensure-build.mjs')], {
+      encoding: 'utf8',
+      cwd: packageRoot(),
+      timeout: BUILD_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+    });
+    if (r.status !== 0) {
+      // A missing or broken codec must not look like a clean skip: say why, on stderr.
+      process.stderr.write(`${r.stderr || `sbe-codec jar build failed (${r.status ?? r.signal})`}\n`);
+      return null;
+    }
+    const line = r.stdout.trim().split('\n').filter(Boolean).at(-1);
+    if (line === undefined) return null;
+    const parsed: unknown = JSON.parse(line);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const rec = parsed as { JAVA_HOME?: unknown; JAR?: unknown };
+    if (typeof rec.JAVA_HOME !== 'string' || typeof rec.JAR !== 'string') return null;
+    const java = join(rec.JAVA_HOME, 'bin', 'java');
+    return existsSync(java) && existsSync(rec.JAR) ? { java, classpath: rec.JAR } : null;
+  } catch {
+    return null;
+  }
 }
 
 function runtimeFromEnv(): { java: string; classpath: string } | null {
