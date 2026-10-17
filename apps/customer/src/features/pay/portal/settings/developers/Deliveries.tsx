@@ -47,6 +47,8 @@ export function DeliveryList({
   const [to, setTo] = useUrlParam('to');
   const [endpointParam, setEndpoint] = useUrlParam('endpoint');
   const [open, setOpen] = useUrlParam('delivery');
+  // What the last "Send again" did, said in words, because the row it was pressed on may change or leave the list.
+  const [queued, setQueued] = useState<string | null>(null);
   const endpoint = endpointId ?? endpointParam;
   const range = dateRange(date as DatePreset, now, { from, to });
   const endpoints = useResource(
@@ -129,6 +131,11 @@ export function DeliveryList({
           )}
         </p>
       </div>
+      {queued && (
+        <p className="pay-confirmed" role="status">
+          {t('retryQueued', { event: queued })}
+        </p>
+      )}
       <ListShell
         state={list.state}
         retry={list.reload}
@@ -173,7 +180,15 @@ export function DeliveryList({
                       <Button variant="ghost" onClick={() => setOpen(d.id)} aria-label={t('openDelivery', { event: d.eventType })}>
                         {t('details')}
                       </Button>
-                      <RetryButton api={api} delivery={d} canManage={canManage} onDone={() => list.reload()} />
+                      <RetryButton
+                        api={api}
+                        delivery={d}
+                        canManage={canManage}
+                        onDone={() => {
+                          setQueued(d.eventType);
+                          list.reload();
+                        }}
+                      />
                     </div>
                   ),
                 },

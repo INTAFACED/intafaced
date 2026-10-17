@@ -232,25 +232,7 @@ export function Chip({ kind, value }: { kind: ChipKind; value: string }) {
   return <StatusChip entity={kind} value={value} />;
 }
 
-export type TimelineItem = { at: string; title: string; detail?: string };
-export function Timeline({ items, label }: { items: readonly TimelineItem[]; label: string }) {
-  return (
-    <ol className="pp-timeline" aria-label={label}>
-      {items.map((item, i) => (
-        <li key={`${item.at}:${i}`}>
-          <span className="pp-timeline-dot" aria-hidden="true" />
-          <div>
-            <strong>{item.title}</strong>
-            {item.detail && <p className="muted">{item.detail}</p>}
-            <small className="muted">
-              <DateTime value={item.at} />
-            </small>
-          </div>
-        </li>
-      ))}
-    </ol>
-  );
-}
+export { Timeline, type TimelineEvent as TimelineItem } from './ui/Timeline';
 
 export function SelectField({
   label,

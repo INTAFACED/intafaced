@@ -153,7 +153,8 @@ export function createAccountMock(ctx) {
         detail,
       });
     for (const p of w.payments.filter((x) => ['captured', 'settled', 'refunded'].includes(x.status)).slice(0, 4))
-      add(p.createdAt, 'system', 'captured', 'payment', p.id, { amount: p.amount, asset: p.assetId });
+      // five minutes after the payment began: the very moment its own history records the money being taken
+      add(Date.parse(p.createdAt) + 5 * 60_000, 'system', 'captured', 'payment', p.id, { amount: p.amount, asset: p.assetId });
     for (const r of w.refunds.filter((x) => x.status !== 'reversed'))
       add(r.createdAt, USER_ID, 'refunded', 'payment', r.paymentId, { amount: r.amount, asset: r.assetId });
     for (const d of w.disputes) {

@@ -257,6 +257,7 @@ const en = {
   deliveryTip_failed: 'Your system did not accept the event. You can send it again.',
   deliveryTip_dead: 'We stopped trying. You can send it again.',
   retryAction: 'Send again',
+  retryQueued: 'Queued: “{event}” will be sent to the same address again. Its status updates here once your system answers.',
   retryReview: 'The event is queued to be sent to the same address again.',
   // sandbox
   sandboxIntro: 'Everything on this page works with test money. Nothing here moves real money.',

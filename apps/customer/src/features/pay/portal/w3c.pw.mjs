@@ -177,7 +177,7 @@ test('payment links: scoped records, URL search and availability, export and det
   await setup(page);
   await page.route('**/api/pay/trpc/merchant.listLinks?*', (route) => reply(route, { items: testLinks(), nextCursor: null }));
   await signIn(page, '/pay/links');
-  await expect(page.getByRole('link', { name: 'TEST workshop', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: /TEST workshop/ })).toBeVisible();
   await expect(page.getByText('2 shown from 2 links.')).toBeVisible();
   await snap(page, 'P13-payment-links');
   await axe(page);
@@ -191,7 +191,7 @@ test('payment links: scoped records, URL search and availability, export and det
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download shown links (CSV)' }).click();
   expect((await download).suggestedFilename()).toBe('payment-links.csv');
-  await page.getByRole('link', { name: 'TEST workshop', exact: true }).click();
+  await page.getByRole('link', { name: /TEST workshop/ }).click();
   await expect(page.getByRole('heading', { name: 'Payment link', level: 1 })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Deactivate link' })).toBeEnabled();
   await snap(page, 'P15-link-detail-phone');

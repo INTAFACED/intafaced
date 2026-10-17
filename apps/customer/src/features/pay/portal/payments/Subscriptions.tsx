@@ -363,7 +363,6 @@ export function SubscriptionDetailView({
                 {subscription.customerId}
               </a>,
             ],
-            [c.t('mandate'), <CopyReference value={subscription.mandateId} />],
             [c.t('status'), <SubscriptionChip status={subscription.status} />],
             [c.t('chargePath'), pathLabel(subscription.path)],
             [c.t('nextRun'), subscription.status === 'active' ? <DateTime value={subscription.nextRunAt} /> : c.t('noNextRun')],
@@ -394,7 +393,7 @@ export function SubscriptionDetailView({
             <PayDetails
               values={[
                 [c.t('amount'), <Money value={m.amount} asset={m.assetId} />],
-                [c.t('status'), c.t(`mandate_${m.status}`)],
+                [c.t('mandateStatusLabel'), c.t(`mandate_${m.status}`)],
                 [c.t('cadence'), cadenceLabel(m.cadence)],
                 [c.t('mandateStart'), <DateTime value={m.startsAt} />],
                 [c.t('mandateEnd'), m.endsAt ? <DateTime value={m.endsAt} /> : c.t('openEnded')],
@@ -542,7 +541,6 @@ export function SubscriptionTerms({ mandate: m, path }: { mandate: Mandate; path
     <PayDetails
       values={[
         [c.t('customer'), m.customerId],
-        [c.t('mandate'), m.id],
         [c.t('chargePath'), path ? pathLabel(path) : c.t('unavailable')],
         [c.t('amount'), <Money value={m.amount} asset={m.assetId} />],
         [c.t('cadence'), cadenceLabel(m.cadence)],
@@ -671,6 +669,8 @@ function CreateSubscription({ portal, merchantId, pay }: { portal: PortalApi; me
       reload={() => {
         mandates.reload();
         posture.reload();
+        // the list of open subscriptions decides which mandates are still offered
+        open.reload();
       }}
     />
   );
@@ -765,7 +765,8 @@ export function CreateSubscriptionView({
                     onSettled={(result) => {
                       if (!result.ok) {
                         setPath(path);
-                        setCreateNotice(result.message);
+                        // "Still not confirmed" is already said by the check itself; only a real refusal is added.
+                        if (result.reason !== 'uncertain' && result.reason !== 'aborted') setCreateNotice(result.message);
                       }
                       refreshLock((v) => v + 1);
                     }}
@@ -798,7 +799,8 @@ export function CreateSubscriptionView({
                       perform={async () => {
                         try {
                           const result = await createSubscriptionWithRecovery(pay, mandateId, path);
-                          if (!result.ok) setCreateNotice(result.message);
+                          // An unconfirmed reply is shown once, by the review and the check below it.
+                          if (!result.ok && result.reason !== 'uncertain') setCreateNotice(result.message);
                           return result;
                         } finally {
                           refreshLock((v) => v + 1);

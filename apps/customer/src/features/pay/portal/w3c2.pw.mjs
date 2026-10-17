@@ -136,7 +136,10 @@ test('invoices: a real list, a create form that reviews the exact amount, and a 
   await signIn(page, '/pay/invoices');
   await expect(page.getByRole('heading', { name: 'Invoices', level: 1 })).toBeVisible();
   await expect(page.locator('.pe-table tbody tr').first()).toBeVisible();
-  await expect(page.getByText(/Overdue/)).toHaveCount(0);
+  // a sent invoice past its due date reads Overdue, and the filter keeps only those
+  await expect(page.locator('.pe-table').getByText('Overdue', { exact: true }).first()).toBeVisible();
+  await page.getByLabel('Status').selectOption('overdue');
+  await expect(page.locator('.pe-table tbody tr')).toHaveCount(1);
   await page.getByLabel('Status').selectOption('sent');
   await expect.poll(() => mock.calls.some((c) => c.procedure === 'merchantOps.invoices.list' && c.input.status === 'sent')).toBe(true);
   await both(page, 'P20-invoices');
@@ -145,6 +148,7 @@ test('invoices: a real list, a create form that reviews the exact amount, and a 
   await page.getByLabel('Customer reference').fill('TEST-cust-001');
   await page.getByRole('button', { name: 'Create invoice' }).click();
   await expect(page.getByText('12.345678').first()).toBeVisible();
+  // (a due date, a customer email and exact line items are covered below)
   await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page).toHaveURL(/\/pay\/invoices\/[0-9a-f-]{36}$/);
   expect(mock.calls.filter((c) => c.procedure === 'merchantOps.invoices.create')).toHaveLength(1);
@@ -153,6 +157,40 @@ test('invoices: a real list, a create form that reviews the exact amount, and a 
   await go(page, '/pay/invoices/1a000003-0000-4000-8000-000000000003');
   await expect(page.getByRole('button', { name: 'Send invoice' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Void invoice' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+test('invoices: line items add up exactly, a credit comes off the total, and the due date and email are sent', async ({ page }) => {
+  const { mock, errors } = await setup(page);
+  await signIn(page, '/pay/invoices/new');
+  await page.getByRole('button', { name: 'Add line items' }).click();
+  const one = page.getByRole('group', { name: 'Line 1' });
+  await one.getByLabel('Item').fill('TEST design work');
+  await one.getByLabel('Quantity').fill('3');
+  await one.getByLabel('Unit price').fill('100');
+  await page.getByRole('button', { name: 'Add another line' }).click();
+  const two = page.getByRole('group', { name: 'Line 2' });
+  await two.getByLabel('Type').selectOption('credit');
+  await two.getByLabel('Item').fill('TEST loyalty credit');
+  await two.getByLabel('Quantity').fill('1');
+  await two.getByLabel('Unit price').fill('49.5');
+  // worked out by exact decimal arithmetic, never a float
+  await expect(page.locator('.pp-line-total')).toContainText('250.50');
+  await page.getByLabel('Customer email').fill('buyer@example.test');
+  await page.getByLabel('Due date').fill('2099-01-01');
+  await page.getByRole('button', { name: 'Create invoice' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('250.50');
+  await expect(dialog).toContainText('TEST loyalty credit');
+  await dialog.locator('.form-stack > button').last().click();
+  await expect(page).toHaveURL(/\/pay\/invoices\/[0-9a-f-]{36}$/);
+  const made = mock.calls.filter((c) => c.procedure === 'merchantOps.invoices.create');
+  expect(made).toHaveLength(1);
+  expect(made[0].input.amount).toBe('250.5');
+  expect(made[0].input.customerEmail).toBe('buyer@example.test');
+  expect(made[0].input.dueAt).toMatch(/^2099-01-0[12]T/);
+  expect(made[0].input.lineItems.map((l) => l.kind)).toEqual(['charge', 'credit']);
+  await expect(page.getByText('TEST loyalty credit')).toBeVisible();
+  await expect(page.getByText('Overdue', { exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 test('settings: profile saves need a reason; team search', async ({ page }) => {
@@ -420,8 +458,10 @@ test('subscription component: create reviews the authorized terms and uses the e
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('cannot pull funds from the customer');
   await expect(dialog).toContainText('29.99');
-  for (const value of ['TEST-customer', 'Monthly', 'Open ended', 'No limit set', 'USDT', 'Crypto invoice and watch', D])
+  for (const value of ['TEST-customer', 'Monthly', 'Open ended', 'No limit set', 'USDT', 'Crypto invoice and watch'])
     await expect(dialog).toContainText(value);
+  // the authorization's internal reference is not something a customer-facing review reads
+  await expect(dialog).not.toContainText(D);
   await expect(dialog.locator('time')).toHaveAttribute('datetime', at);
   if (shots) await page.screenshot({ path: `${shots}/P19-review-fixes-TEST.png`, fullPage: true });
   await dialog.getByRole('button', { name: 'Create subscription', exact: true }).click();

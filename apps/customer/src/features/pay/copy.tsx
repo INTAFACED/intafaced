@@ -767,7 +767,7 @@ const messages = {
   moreRecordsMayExist: '. There may be more.',
   showUpTo: 'Show up to',
   thisServiceHasNoContinuationCursorThis: 'That is the most that can be shown here, so older records may not be listed.',
-  theServiceConfirmedTheActionRefreshThe: 'Done.',
+  theServiceConfirmedTheActionRefreshThe: '{title}: confirmed. Refresh the page to see the latest.',
   review: 'Review: {title}',
   waitingForConfirmation: 'Waiting for confirmation…',
   confirm: 'Confirm {value1}',
@@ -1614,7 +1614,7 @@ const es = {
   showUpTo: 'Mostrar hasta',
   thisServiceHasNoContinuationCursorThis:
     'Es lo máximo que se puede mostrar aquí, así que puede que los registros más antiguos no aparezcan.',
-  theServiceConfirmedTheActionRefreshThe: 'Hecho.',
+  theServiceConfirmedTheActionRefreshThe: '{title}: confirmado. Actualiza la página para ver lo más reciente.',
   review: 'Revisión: {title}',
   waitingForConfirmation: 'Esperando confirmación…',
   confirm: 'Confirmar {value1}',
@@ -2462,7 +2462,7 @@ const fr = {
   showUpTo: 'Afficher jusqu’à',
   thisServiceHasNoContinuationCursorThis:
     'C’est le maximum qui peut être affiché ici ; les enregistrements plus anciens peuvent donc ne pas figurer.',
-  theServiceConfirmedTheActionRefreshThe: 'Terminé.',
+  theServiceConfirmedTheActionRefreshThe: '{title} : confirmé. Actualisez la page pour voir les dernières informations.',
   review: 'Vérification : {title}',
   waitingForConfirmation: 'En attente de confirmation…',
   confirm: 'Confirmer {value1}',

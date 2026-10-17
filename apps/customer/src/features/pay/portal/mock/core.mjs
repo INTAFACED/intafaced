@@ -110,7 +110,13 @@ export function createCoreMock(ctx) {
     'export_ready',
     'team_change',
   ];
-  const fresh = { asOf: iso(now - 4000), lagSeconds: 4 };
+  // Four seconds behind the moment it is asked, every time: a clock frozen at start-up would read hours behind later.
+  const fresh = {
+    get asOf() {
+      return iso(Date.now() - 4000);
+    },
+    lagSeconds: 4,
+  };
   const world = ctx.world;
   // The pages say "days are UTC days", and Analytics counts whole UTC days, so a window starts at midnight UTC: today is
   // since midnight, 7 days is today and the six before, 30 days is today and the 29 before. Paid in on Payments, Captured

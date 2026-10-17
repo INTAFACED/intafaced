@@ -98,9 +98,10 @@ test('dashboard: Home-style figures, daily chart, retained insights and phone wi
   await expect(page.locator('.plo-number')).toHaveText(
     (Number(mock.world.balance('USDT').proceeds) / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
   );
-  await page.getByRole('button', { name: '30 days', exact: true }).click();
+  await page.getByRole('button', { name: '30 days', exact: true }).first().click();
   expect(mock.calls.some((c) => c.procedure === 'merchantMetrics.snapshot' && c.input.window.preset === 'rolling_30d')).toBe(true);
-  await page.getByRole('button', { name: 'Payment volume', exact: true }).click();
+  // the daily chart is open when the page opens: no click needed
+  await expect(page.locator('.plo-volume')).toBeVisible();
   // two assets are paid in, so the chart offers both; this check follows USDT
   await page.locator('.plo-volume').getByRole('group', { name: 'Asset' }).getByRole('button', { name: 'USDT', exact: true }).click();
   await expect(page.getByRole('img', { name: /Payment volume · USDT/ })).toBeVisible();

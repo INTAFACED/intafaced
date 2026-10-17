@@ -1,7 +1,7 @@
 import { defineCopy } from '../../../shared/i18n';
 
 const en = {
-  loadedWindow: 'Showing your newest 200 records. Search and sorting work within these; full search and date filters aren’t connected yet.',
+  loadedWindow: 'Showing your newest 200 records. Search and sorting work within these.',
   readAt: 'Updated',
   staleRead: 'These figures are more than five minutes old. Refresh before you act.',
   refresh: 'Refresh',

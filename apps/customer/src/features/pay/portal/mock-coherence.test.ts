@@ -689,16 +689,13 @@ describe('the stand-in never contradicts itself', () => {
     }
   });
 
-  it('describes each sign-in with a device and an address, marked as test values', async () => {
+  it('describes each sign-in only by what the real list returns: an id and when it began', async () => {
     const seats = await call(mock, 'listSessions', { userId: '22222222-2222-4222-8222-222222222222', limit: 50 });
     expect(seats.sessions.length).toBeGreaterThan(1);
     for (const seat of seats.sessions) {
-      expect(seat.device).toMatch(/^TEST /);
-      // 198.51.100.0/24 and 203.0.113.0/24 are reserved for documentation: no such address belongs to a person
-      expect(seat.ip).toMatch(/^(198\.51\.100|203\.0\.113)\.\d{1,3}$/);
-      expect(Number.isFinite(Date.parse(seat.lastSeenAt))).toBe(true);
+      expect(Object.keys(seat).sort()).toEqual(['createdAt', 'id', 'revoked']);
+      expect(Number.isFinite(Date.parse(seat.createdAt))).toBe(true);
     }
-    expect(seats.sessions.filter((s: Any) => s.current).length).toBe(1);
   });
 
   it('answers the network reads for a business that is not in the network with a not-a-platform refusal, not a 404', async () => {

@@ -244,6 +244,8 @@ const en = {
   detailFee: 'Fee',
   detailRole: 'Role',
   detailDestination: 'Destination',
+  destKind_crypto: 'Crypto wallet',
+  destKind_bank: 'Bank account',
   detailHost: 'Receiver',
   detailEvent: 'Event',
   detailAttempts: '{n} attempts',

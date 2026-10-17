@@ -34,7 +34,11 @@ test('Home-style default, accordion keyboard control, chart table and reviewed p
   await expect(page.locator('.plo-heading')).toHaveCount(0);
   await expect(page.locator('.pay-business-nav')).toHaveCount(0);
   const trigger = page.getByRole('button', { name: 'Payment volume', exact: true });
+  // the daily chart is open when the page opens, so the wide screen has no empty area under the figures
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
   await trigger.focus();
+  await page.keyboard.press('Enter');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   await page.keyboard.press('Enter');
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
   // two assets are paid in, so the chart offers both; this check follows USDT

@@ -231,7 +231,6 @@ it('uses the same complete mandate summary for selection and confirmation, inclu
   );
   for (const value of [
     mandate.customerId,
-    D,
     'Crypto invoice and watch',
     'USDT',
     'Monthly',
@@ -244,6 +243,8 @@ it('uses the same complete mandate summary for selection and confirmation, inclu
     expect(out).toContain(value);
   expect(out).toContain(`dateTime="${at}"`);
   expect(out).toContain(`dateTime="${endsAt}"`);
+  // a customer reads who and what, never the authorization's internal reference
+  expect(out).not.toContain(D);
   const open = renderToString(<SubscriptionTerms mandate={mandate} path="crypto_invoice" />);
   expect(open).toContain('Open ended');
   expect(open).toContain('No limit set');

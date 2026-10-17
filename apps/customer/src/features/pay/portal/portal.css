@@ -947,3 +947,22 @@
 .plo .loading-dot {
   background: var(--color-muted);
 }
+
+/*
+ * A button that sits on its own line in a page's column is a normal-size button on the right at desktop width, not a
+ * bar across the page. On a phone it stays full width, where that is the easy thing to press. The row-action columns
+ * in a table keep their own width.
+ */
+@media (min-width: 720px) {
+  .if-business .stack > [data-slot='button'],
+  .if-business .form-stack > [data-slot='button'],
+  .if-business .pp-approval > [data-slot='button'],
+  .if-business .pay-action > [data-slot='button'] {
+    align-self: flex-end;
+    width: auto;
+  }
+  .if-business .pp-row-actions .pay-action > [data-slot='button'] {
+    align-self: stretch;
+    width: 100%;
+  }
+}

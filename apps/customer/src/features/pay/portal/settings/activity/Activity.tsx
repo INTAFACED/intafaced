@@ -8,6 +8,7 @@ import { DateTime } from '../../ui/DateTime';
 import { EntityList } from '../../ui/EntityList';
 import { dateRange, FilterRow, useListFilters, type ListFilters } from '../../ui/FilterRow';
 import { MoneyText } from '../../ui/MoneyText';
+import { plainCode } from '../../ui/plain-code';
 import { useServerList } from '../../ui/useServerList';
 import { actorName } from '../account/actors';
 import { accountCopy } from '../account/copy';
@@ -84,7 +85,10 @@ export function ActivityView(props: {
     if (d.amount && d.asset) parts.push(<MoneyText key="m" value={d.amount} asset={d.asset} />);
     if (d.fee && d.asset) parts.push(`${t('detailFee')} ${d.fee} ${d.asset}`);
     if (d.role) parts.push(`${t('detailRole')}: ${p(`role_${d.role}` as 'role_owner')}`);
-    if (d.destinationKind && d.destinationMasked) parts.push(`${t('detailDestination')}: ${d.destinationKind} ${d.destinationMasked}`);
+    if (d.destinationKind && d.destinationMasked)
+      parts.push(
+        `${t('detailDestination')}: ${d.destinationKind === 'crypto' || d.destinationKind === 'bank' ? t(`destKind_${d.destinationKind}`) : plainCode(d.destinationKind)} ${d.destinationMasked}`,
+      );
     if (d.host) parts.push(`${t('detailHost')}: ${d.host}`);
     if (d.eventType) parts.push(`${t('detailEvent')}: ${d.eventType.replace(/[._]+/g, ' ')}`);
     if (d.attempts) parts.push(t('detailAttempts', { n: d.attempts }));

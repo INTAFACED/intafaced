@@ -14,6 +14,7 @@ import { portalCopy } from '../copy';
 import type { ControlProfile, MemberRole, MerchantRecord, PricingRule } from '../schemas';
 import { formatMoney } from '../ui/format';
 import { CopyReference } from '../ui/CopyReference';
+import { YourEffectiveFee } from '../money/fee-rate';
 import { DateTime } from '../ui/DateTime';
 import { PortalReview } from '../ui/PortalReview';
 import { plainCode } from '../ui/plain-code';
@@ -57,14 +58,11 @@ export function HomePanels({
   merchantId,
   merchant,
   role,
-  feeRate,
 }: {
   portal: PortalApi;
   merchantId: string;
   merchant: MerchantRecord | null;
   role: MemberRole | null;
-  /** Slot for the effective fee rate (money package's `YourEffectiveFee`), shown instead of the price rule when given. */
-  feeRate?: ReactNode;
 }) {
   const rails = useResource((s) => portal.rails(s), `portal:home-rails:${merchantId}`);
   const settings = useResource((s) => portal.checkoutSettings(merchantId, s), `portal:home-checkout:${merchantId}`);
@@ -78,7 +76,8 @@ export function HomePanels({
       settings={settings.resource}
       retryRails={rails.reload}
       retrySettings={settings.reload}
-      {...(feeRate ? { feeRate } : {})}
+      // The rate INTAFACED worked out over the last 30 days; the price rule is the answer until the service sends one.
+      feeRate={<YourEffectiveFee portal={portal} merchantId={merchantId} fallback={<FeeText pricing={pricing.resource} />} />}
     />
   );
 }

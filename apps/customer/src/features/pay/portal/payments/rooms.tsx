@@ -62,7 +62,7 @@ const links: RoomDef = {
     route.room === 'links'
       ? { title: c('linksTitle'), purpose: c('linksPurpose'), action: link('/pay/links/new', c('linkNew'), 'primary') }
       : route.room === 'link-new'
-        ? { title: c('linkNew'), purpose: c('linkNewPurpose'), action: link('/pay/links', c('backLinks')) }
+        ? { title: c('linkNew'), purpose: c('linkNewPurpose') }
         : { title: c('linkDetail'), purpose: c('linkDetailPurpose'), action: link('/pay/links/new', c('linkNew')) },
   here: '/pay/links',
   render: (route, { portal, authority }) => (

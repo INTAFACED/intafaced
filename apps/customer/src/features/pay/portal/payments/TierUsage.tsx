@@ -2,9 +2,6 @@ import { useResource } from '../../../../shared/resource';
 import { parseAmount } from '../../../../shared/money';
 import type { PortalApi } from '../api';
 import { NotConfigured, PortalLoading, UsageBar } from '../components';
-import { isNotLive } from '../refusal';
-import { NotLiveCard } from '../chrome/NotLiveCard';
-import { reason } from '../chrome/copy';
 import type { UsageRow } from '../schemas';
 import { MoneyText } from '../ui/MoneyText';
 import { DateTime } from '../ui/DateTime';
@@ -33,12 +30,8 @@ export function TierUsage({ portal, merchantId }: { portal: PortalApi; merchantI
         {tier.resource.status === 'loading' ? '…' : name ? name : <NotConfigured>{t('tierNotSet')}</NotConfigured>}
       </p>
       {usage.resource.status === 'loading' && <PortalLoading rows={1} />}
-      {usage.resource.status === 'failed' &&
-        (isNotLive(usage.resource.failure) ? (
-          <NotLiveCard reason={reason('reasonLimits')} />
-        ) : (
-          <p className="muted">{t('usageUnavailable')}</p>
-        ))}
+      {/* Whatever the reason the usage read gave no rows, the card says so once; the tier above comes from the tier ladder read. */}
+      {usage.resource.status === 'failed' && <p className="muted">{t('usageUnavailable')}</p>}
       {usage.resource.status === 'ready' && <UsageRows rows={usage.resource.data.rows.slice(0, 3)} />}
       <a className="text-link" href="/pay/limits">
         {t('allLimits')} →

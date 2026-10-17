@@ -18,7 +18,7 @@ const en = {
   linkLabel: 'Link label',
   asset: 'Asset code',
   profile: 'Checkout profile ID',
-  expiry: 'Expiry (UTC)',
+  expiry: 'Expiry',
   payerChooses: 'Customer chooses',
   uses: 'Completed payments',
   created: 'Created',

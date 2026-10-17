@@ -51,6 +51,7 @@ const en = {
   tipRefund_succeeded: 'The money went back to the customer.',
   chipRefund_failed: 'Failed',
   tipRefund_failed: 'The refund didn’t go through. Nothing was returned.',
+  timeNotRecorded: 'Time not recorded',
   chipInvoice_draft: 'Draft',
   tipInvoice_draft: 'Not sent yet. You can still change it.',
   chipInvoice_sent: 'Sent',

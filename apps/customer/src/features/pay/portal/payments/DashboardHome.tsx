@@ -206,7 +206,7 @@ export function LayoutDashboardView({
         {hero}
         {metrics}
         {pending}
-        <Accordion className="plo-card">
+        <Accordion className="plo-card" defaultValue={['volume']}>
           <AccordionItem value="volume">
             <AccordionTrigger>{t('volume')}</AccordionTrigger>
             <AccordionPanel>{chart}</AccordionPanel>
@@ -229,17 +229,7 @@ export function LayoutDashboardView({
 
 const WHEN = { today: 'today', rolling_7d: '7d', rolling_30d: '30d' } as const;
 /** Each tile names its period and opens the list with that same period and filter in the address. */
-export function MetricStrip({
-  snap,
-  period,
-  when,
-  issued,
-}: {
-  snap: Snapshot;
-  period: string;
-  when: MetricPreset;
-  issued?: ReactNode;
-}) {
+export function MetricStrip({ snap, period, when, issued }: { snap: Snapshot; period: string; when: MetricPreset; issued?: ReactNode }) {
   const { t } = c.useCopy();
   const key = WHEN[when];
   const range = dateRange(key, Date.now());

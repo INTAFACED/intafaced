@@ -25,27 +25,11 @@ const OWNER_ONLY = new Set([
 export function createWritesMock(ctx) {
   const { now, state, scenario, world } = ctx;
   const replays = new Map();
+  // The real list carries only an id and when each sign-in began, so that is all this one carries: no device name, address,
+  // last-seen time or "this one" flag, which the service does not return.
   const sessions = (state.sessions ??= [
-    // Where each sign-in came from. TEST values: the device names are made up and the addresses are from the ranges reserved
-    // for documentation (RFC 5737), so none of them can belong to anyone.
-    {
-      id: uuid('51', 1),
-      createdAt: iso(now - 2 * 3600_000),
-      revoked: false,
-      device: 'TEST laptop · TEST Browser on macOS',
-      ip: '198.51.100.24',
-      lastSeenAt: iso(now - 120_000),
-      current: true,
-    },
-    {
-      id: uuid('51', 2),
-      createdAt: iso(now - 6 * DAY),
-      revoked: false,
-      device: 'TEST phone · TEST Browser on iOS',
-      ip: '203.0.113.88',
-      lastSeenAt: iso(now - 26 * 3600_000),
-      current: false,
-    },
+    { id: uuid('51', 1), createdAt: iso(now - 2 * 3600_000), revoked: false },
+    { id: uuid('51', 2), createdAt: iso(now - 6 * DAY), revoked: false },
   ]);
   const paymentView = ({ n: _n, linkId: _l, fee: _f, settlementId: _s, disputeId: _d, refundId: _r, ...row }) => row;
 

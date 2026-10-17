@@ -95,7 +95,11 @@ export function TeamView(props: {
   const filtered = Boolean(filters.search || filters.role || filters.status);
   const rows = props.members.status === 'ready' ? pinOwner(props.members.items, a('teamMemberFallback')) : null;
   const chosen = rows?.find((m) => memberKey(m) === props.selected) ?? null;
-  const nameOf = (m: Member) => (m.userId === props.myUserId ? a('actorYou') : memberName(m, a('teamMemberFallback')));
+  // A person with no name on file is told apart by the end of their account id, so two of them never read the same.
+  const nameOf = (m: Member) =>
+    m.userId === props.myUserId
+      ? a('actorYou')
+      : memberName(m, `${a('teamMemberFallback')} (${m.userId.length > 14 ? `…${m.userId.slice(-8)}` : m.userId})`);
   return (
     <div className="stack">
       <p className="pp-callout" role="note">

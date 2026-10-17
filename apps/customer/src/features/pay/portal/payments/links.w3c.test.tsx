@@ -83,11 +83,17 @@ it('shows Copy, Open and the QR code only while the link is active and not expir
   const show = (row: object) =>
     renderToString(<LinksView {...props} linkId={link.id} resource={{ status: 'ready', data: [{ ...link, checkoutUrl: url, ...row }] }} />);
   expect(show({})).toContain('data-testid="link-address"');
-  for (const row of [{ active: false }, { expiresAt: '2020-01-01T00:00:00Z' }, { uses: 3 }]) {
+  for (const [row, words] of [
+    [{ active: false }, 'This link is deactivated, so its address no longer takes payments.'],
+    [{ expiresAt: '2020-01-01T00:00:00Z' }, 'This link can’t take another payment, so there is no address to share.'],
+    [{ uses: 3 }, 'This link can’t take another payment, so there is no address to share.'],
+  ] as const) {
     const out = show(row);
     expect(out).not.toContain('data-testid="link-address"');
     expect(out).not.toContain(url);
-    expect(out).toContain('This link’s address can’t be shown again.');
+    expect(out).toContain(words);
+    // a link that cannot take payments is not told to be shared
+    expect(out).not.toContain('Share this address');
   }
   // No stored address at all: the same sentence.
   expect(renderToString(<LinksView {...props} linkId={link.id} resource={{ status: 'ready', data: [link] }} />)).toContain(
@@ -116,4 +122,11 @@ it('routes creation and details without intercepting the legacy tool entry', () 
   expect(parsePortalRoute('/pay/links/new')).toEqual({ room: 'link-new' });
   expect(parsePortalRoute(`/pay/links/${link.id}`)).toEqual({ room: 'link', param: link.id });
   expect(parsePortalRoute('/pay/links?view=tools')).toBeNull();
+});
+
+it('a deactivated link says so in its history and offers no deactivate button', () => {
+  const out = renderToString(<LinksView {...props} linkId={link.id} resource={{ status: 'ready', data: [{ ...link, active: false }] }} />);
+  expect(out).toContain('Deactivated');
+  expect(out).toContain('Time not recorded');
+  expect(out).not.toContain('Deactivate link');
 });

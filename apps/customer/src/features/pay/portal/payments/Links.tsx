@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../../session/session';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { Button, DataTable } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
 import { EmptyState, Field } from '../../ui-kit';
 import { PayDetails, PaySection } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
@@ -187,15 +187,26 @@ export function LinksView({
                       ...(selected.expiresAt && Date.parse(selected.expiresAt) <= now
                         ? [{ at: selected.expiresAt, title: t('expired') }]
                         : []),
+                      // The service does not record when a link was switched off, so the page says so rather than guess.
+                      ...(!selected.active ? [{ title: t('lk_deactivatedEvent') }] : []),
                     ]}
                   />
                 </PaySection>
-                <PaySection title={t('lk_addressTitle')} description={t('lk_addressBody')}>
+                <PaySection
+                  title={t('lk_addressTitle')}
+                  {...(addressOf(selected) && linkState(selected, now) === 'active' ? { description: t('lk_addressBody') } : {})}
+                >
                   {addressOf(selected) && linkState(selected, now) === 'active' ? (
                     <LinkAddress url={addressOf(selected)!} />
                   ) : (
                     <p className="pp-callout" role="note">
-                      {t('lk_addressBlocked')}
+                      {t(
+                        !selected.active
+                          ? 'lk_addressDeactivated'
+                          : ['expired', 'exhausted'].includes(linkState(selected, now))
+                            ? 'lk_addressClosed'
+                            : 'lk_addressBlocked',
+                      )}
                     </p>
                   )}
                 </PaySection>
@@ -205,38 +216,40 @@ export function LinksView({
                     {t('linkOwnerOnly')}
                   </p>
                 )}
-                <div title={noWrite ? t('linkOwnerOnly') : !selected.active ? t('inactiveTip') : undefined}>
-                  <PortalReview
-                    title={t('deactivateLink')}
-                    description={t('deactivateBody')}
-                    variant="sell"
-                    review={
-                      <PayDetails
-                        values={[
-                          [t('linkId'), selected.id],
-                          [t('linkLabel'), selected.label],
-                          [t('uses'), selected.uses],
-                        ]}
-                      />
-                    }
-                    disabled={noWrite || !selected.active}
-                    perform={async () => {
-                      const result = definite(
-                        await pay.mutate(
-                          'merchant.deactivateLink',
-                          { merchantId, linkId: selected.id },
-                          z.object({ deactivated: z.boolean() }),
-                          'pay:write',
-                          `link-deactivate:${selected.id}`,
-                        ),
-                      );
-                      return result.ok && !result.data.deactivated
-                        ? { ok: false as const, reason: 'error' as const, code: 'portal.local', message: t('deactivateNotConfirmed') }
-                        : result;
-                    }}
-                    onConfirmed={retry}
-                  />
-                </div>
+                {selected.active && (
+                  <div title={noWrite ? t('linkOwnerOnly') : undefined}>
+                    <PortalReview
+                      title={t('deactivateLink')}
+                      description={t('deactivateBody')}
+                      variant="sell"
+                      review={
+                        <PayDetails
+                          values={[
+                            [t('linkId'), selected.id],
+                            [t('linkLabel'), selected.label],
+                            [t('uses'), selected.uses],
+                          ]}
+                        />
+                      }
+                      disabled={noWrite}
+                      perform={async () => {
+                        const result = definite(
+                          await pay.mutate(
+                            'merchant.deactivateLink',
+                            { merchantId, linkId: selected.id },
+                            z.object({ deactivated: z.boolean() }),
+                            'pay:write',
+                            `link-deactivate:${selected.id}`,
+                          ),
+                        );
+                        return result.ok && !result.data.deactivated
+                          ? { ok: false as const, reason: 'error' as const, code: 'portal.local', message: t('deactivateNotConfirmed') }
+                          : result;
+                      }}
+                      onConfirmed={retry}
+                    />
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -281,35 +294,62 @@ export function LinksView({
                     : t('linkCount', { shown: rows.length, loaded: links.length })}
                 </p>
                 {rows.length ? (
-                  <DataTable label={t('linksTitle')} headers={[t('linkLabel'), t('amount'), t('status'), t('uses'), t('expiry')]}>
-                    {rows.map((link) => (
-                      <tr key={link.id}>
-                        <td>
-                          <a className="text-link" href={`/pay/links/${encodeURIComponent(link.id)}`}>
-                            {link.label}
-                          </a>
-                          <small className="pay-cell-note pp-mono">{link.prefix}</small>
-                        </td>
-                        <td>
-                          {link.amount === null ? (
+                  <EntityList
+                    label={t('linksTitle')}
+                    rows={rows}
+                    rowKey={(link) => link.id}
+                    href={(link) => `/pay/links/${encodeURIComponent(link.id)}`}
+                    columns={[
+                      {
+                        header: t('linkLabel'),
+                        cell: (link) => (
+                          <>
+                            <a className="text-link" href={`/pay/links/${encodeURIComponent(link.id)}`}>
+                              {link.label}
+                            </a>
+                            <small className="pay-cell-note pp-mono">{link.prefix}</small>
+                          </>
+                        ),
+                      },
+                      {
+                        header: t('amount'),
+                        cell: (link) =>
+                          link.amount === null ? (
                             t('payerChooses')
                           ) : link.currency ? (
                             <Money value={link.amount} asset={link.currency} />
                           ) : (
                             '—'
-                          )}
-                        </td>
-                        <td>
-                          <LinkChip value={linkState(link, now)} />
-                        </td>
-                        <td>
-                          {link.uses}
-                          {link.maxUses !== null ? ` / ${link.maxUses}` : ''}
-                        </td>
-                        <td>{link.expiresAt ? <DateTime value={link.expiresAt} /> : '—'}</td>
-                      </tr>
-                    ))}
-                  </DataTable>
+                          ),
+                      },
+                      { header: t('status'), cell: (link) => <LinkChip value={linkState(link, now)} /> },
+                      {
+                        header: t('uses'),
+                        cell: (link) => (
+                          <>
+                            {link.uses}
+                            {link.maxUses !== null ? ` / ${link.maxUses}` : ''}
+                          </>
+                        ),
+                      },
+                      { header: t('expiry'), cell: (link) => (link.expiresAt ? <DateTime value={link.expiresAt} /> : '—') },
+                    ]}
+                    card={(link) => ({
+                      title: link.label,
+                      time: link.expiresAt ? (
+                        <>
+                          {t('expiry')} <DateTime value={link.expiresAt} />
+                        </>
+                      ) : undefined,
+                      amount:
+                        link.amount === null ? (
+                          t('payerChooses')
+                        ) : link.currency ? (
+                          <Money value={link.amount} asset={link.currency} />
+                        ) : undefined,
+                      status: <LinkChip value={linkState(link, now)} />,
+                    })}
+                  />
                 ) : (
                   <EmptyState title={t(links.length ? 'linkNoMatches' : 'linkEmpty')}>
                     {t(links.length ? 'linkNoMatchesBody' : 'linkEmptyBody')}
@@ -473,6 +513,8 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
   const [form, setForm] = useState({ label: '', amount: '', currency: '', profileId: '', expiry: '', maxUses: '' });
   const [created, setCreated] = useState<z.infer<typeof s.newLinkSchema> | null>(null);
   const [sent, setSent] = useState(false);
+  // Bumped when a lost reply is recovered, so the stale "outcome not confirmed" notice goes with it.
+  const [recovered, setRecovered] = useState(0);
   // The details of the request in flight, so "check and finish" can send exactly the same one again.
   const original = useRef<z.infer<typeof createLinkInputSchema> | null>(null);
   const [, refreshLock] = useState(0);
@@ -537,6 +579,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
         {!parsed.success && <p className="muted">{t('invalidForm')}</p>}
         <div title={noWrite ? t('linkOwnerOnly') : !parsed.success ? t('invalidForm') : undefined}>
           <PortalReview
+            key={recovered}
             title={t('reviewLink')}
             description={t('reviewLinkBody')}
             variant="primary"
@@ -580,6 +623,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
             onFinished={(value) => {
               setCreated(value);
               setSent(true);
+              setRecovered((n) => n + 1);
               refreshLock((n) => n + 1);
             }}
             onSettled={() => refreshLock((n) => n + 1)}

@@ -241,11 +241,11 @@ export function Status({ value }: { value: string }) {
     />
   );
 }
-export function MutationResult({ result }: { result: ApiResult<unknown> | null }) {
+export function MutationResult({ result, title }: { result: ApiResult<unknown> | null; title: string }) {
   if (!result) return null;
   return result.ok ? (
     <p className="pay-confirmed" role="status">
-      <PayCopy k="theServiceConfirmedTheActionRefreshThe" />
+      <PayCopy k="theServiceConfirmedTheActionRefreshThe" params={{ title }} />
     </p>
   ) : (
     <PayFailure result={result} />
@@ -325,7 +325,7 @@ export function ReviewedAction<T>({
       >
         {title}
       </Button>
-      <MutationResult result={result} />
+      <MutationResult result={result} title={title} />
       {opened && (
         <Dialog
           closeLabel={uiCopy.t('closeDialog')}
@@ -341,7 +341,7 @@ export function ReviewedAction<T>({
           <div className="form-stack">
             <p className="muted">{description}</p>
             {review}
-            <MutationResult result={result} />
+            <MutationResult result={result} title={title} />
             <Button
               variant={variant}
               disabled={busy || Boolean(result && !result.ok && result.reason === 'uncertain')}

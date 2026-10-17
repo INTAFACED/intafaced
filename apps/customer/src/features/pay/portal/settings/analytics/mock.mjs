@@ -12,7 +12,7 @@ const weekStart = (day) => {
 /** Volume and fees by day or week, worked out from the same payments every other page uses (mock/world.mjs). */
 export function createAnalyticsMock(ctx) {
   const { now } = ctx;
-  const freshness = () => ({ asOf: iso(now - 90_000), lagSeconds: 90 });
+  const freshness = () => ({ asOf: iso(Date.now() - 90_000), lagSeconds: 90 });
   /** One row per day and asset: captured payments, what they paid in, the fees taken on them, and what was refunded. */
   const rows = (from, to, asset) => {
     const by = new Map();
