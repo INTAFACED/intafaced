@@ -8,7 +8,7 @@ import { createApiClient } from '../../../shared/api';
 import type { Offer, TakeQuote, Trade } from '../schemas';
 import { createPayMutationGuard, createPersonalPayApi, type PersonalPayApi } from '../pay-api';
 import { OfferForm } from './OfferForm';
-import { DisputeProgress, EscrowPath, OfferTabs, OrderChat, OrderFilterTabs, TakeOfferPanel } from './P2PDepth';
+import { DisputeProgress, EscrowPath, OfferTabs, OrderFilterTabs, TakeOfferPanel } from './P2PDepth';
 import { TakeAvailable, TakeFailureNote, TakeQuoteDetails, TakeReviewDetails } from './TakeOffer';
 import { CounterpartyMetrics, CounterpartyName } from '../P2PCounterparty';
 import { TraderName, TraderSummary } from './Trader';
@@ -80,14 +80,6 @@ it('lists the four dispute stages', () => {
   );
   for (const label of ['Opened', 'Evidence', 'Moderator review', 'Ruling']) expect(out).toContain(label);
   expect(out).toContain('past its deadline');
-});
-
-it('shows the whole chat and cannot send, with the reason', () => {
-  const out = renderToString(<OrderChat />);
-  expect(out).toContain('Order chat isn’t on this page');
-  expect(out).toContain('No messages yet.');
-  expect(out).toMatch(/<textarea[^>]*>/);
-  expect(out).toMatch(/<button[^>]*disabled[^>]*>Send message/);
 });
 
 const idle = createApiClient({ fetch: () => new Promise<Response>(() => {}) });
@@ -201,8 +193,15 @@ it('names a trader by handle, never by account id, and says what the record retu
   expect(summary).toContain('120 orders');
   expect(summary).toContain('98.5%');
   expect(summary).toContain('releases in about 3 min');
+  // Identity not connected (no profile status): nothing is known about the member, so it stays "Member".
   const unnamed = renderToString(<TraderName record={{ ok: true, data: { ...record.data, handle: null } }} />);
   expect(unnamed).toContain('Member');
+  const absent = renderToString(
+    <TraderName record={{ ok: true, data: { ...record.data, handle: null, profile: { status: 'absent' } } }} />,
+  );
+  expect(absent).toContain('—');
+  expect(absent).toContain('No public handle');
+  expect(absent).not.toContain('Member');
   // A maker beyond the board's cap has no record asked for: Member, no spinner, no summary.
   expect(renderToString(<TraderName record={null} />)).toContain('Member');
   expect(renderToString(<TraderName record={null} />)).not.toContain('aria-busy');
@@ -297,11 +296,14 @@ it('shows the real rate and release time once there are completed trades, and a 
   expect(cancelledOnly).toContain('No completed trades yet');
 });
 
-it('names the counterparty by handle, or “Member”, and never by account id', () => {
+it('names the counterparty by handle, or says there is none, and never by account id', () => {
   const named = renderToString(<CounterpartyName resource={{ status: 'ready', data: reputation({ handle: 'test_friend' }) }} />);
   expect(named).toContain('@test_friend');
   const unnamed = renderToString(<CounterpartyName resource={{ status: 'ready', data: reputation() }} />);
   expect(unnamed).toContain('Member');
+  const absent = renderToString(<CounterpartyName resource={{ status: 'ready', data: reputation({ profile: { status: 'absent' } }) }} />);
+  expect(absent).toContain('—');
+  expect(absent).toContain('No public handle');
   const failed = renderToString(
     <CounterpartyName resource={{ status: 'failed', failure: { ok: false, reason: 'error', message: 'x' } }} />,
   );

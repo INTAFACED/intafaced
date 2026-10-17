@@ -42,7 +42,16 @@ export function TraderName({ record }: { record: ApiResult<Reputation> | null | 
   const { t } = p2pDepth.useCopy();
   if (record === undefined) return <span aria-busy="true" />;
   const handle = record?.ok ? record.data.handle : null;
-  return handle ? <span lang="zxx">{`@${handle}`}</span> : <span>{t('traderUnnamed')}</span>;
+  if (handle) return <span lang="zxx">{`@${handle}`}</span>;
+  // Identity answered and holds no public profile for this member: say so. When identity is not connected at all
+  // (`unwired`, or no status) nothing is known about the member, so it stays "Member".
+  if (record?.ok && record.data.profile?.status === 'absent')
+    return (
+      <span>
+        <span aria-hidden="true">—</span> <small className="muted">{t('traderNoHandle')}</small>
+      </span>
+    );
+  return <span>{t('traderUnnamed')}</span>;
 }
 
 /** Orders, completion rate and average release time, exactly as returned. */

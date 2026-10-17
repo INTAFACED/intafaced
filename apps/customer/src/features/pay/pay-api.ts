@@ -504,6 +504,58 @@ export function createPersonalPayApi(
       // exact requested UUID and current owner/URL view, never a guessed field.
       return p2pCurrent() ? result : p2pDeparted();
     },
+    /** The signed-in account id (null when signed out). Lets a screen tell "you" from the other side. */
+    viewer: userId,
+    /**
+     * `chat.messages.list`: messages after `cursor`, oldest first. The service marks the thread read for this account
+     * when a page ends the thread, so only call it for a thread that is on screen.
+     */
+    chatMessages(tradeId: string, page: { cursor: string | null; limit: number }, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.query(
+        'p2p',
+        'chat.messages.list',
+        { tradeId, limit: page.limit, ...(page.cursor ? { cursor: page.cursor } : {}) },
+        s.chatPageSchema,
+        { signal },
+      );
+    },
+    /**
+     * `chat.messages.send`. `clientId` is the idempotency key: the service stores one message per (order, sender,
+     * clientId), so sending the same text again under the same clientId can never post twice.
+     */
+    chatSend(tradeId: string, text: string, clientId: string, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate('p2p', 'chat.messages.send', { tradeId, text, clientId }, s.chatSentSchema, { signal });
+    },
+    /** `chat.unread`: messages from the other side that this account has not read, for one order. */
+    chatUnread(tradeId: string, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.query('p2p', 'chat.unread', { tradeId }, s.chatUnreadSchema, { signal });
+    },
+    /** `contacts.list`: the account ids this account follows and blocks. */
+    contacts(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.query('p2p', 'contacts.list', undefined, s.contactsSchema, { signal });
+    },
+    /**
+     * `contacts.follow | unfollow | block | unblock`. `idempotencyKey` makes a repeat of the same change harmless; the
+     * reply is the whole list as the service now holds it.
+     */
+    setContact(change: 'follow' | 'unfollow' | 'block' | 'unblock', peerId: string, idempotencyKey: string, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate('p2p', `contacts.${change}`, { peerId, idempotencyKey }, s.contactsSchema, { signal });
+    },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
     applyProgramme: () =>

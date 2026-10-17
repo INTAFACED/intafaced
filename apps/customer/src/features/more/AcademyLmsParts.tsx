@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react';
-import { Button } from '../../shared/ui';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ApiResult } from '../../shared/api';
+import { Button, Failure } from '../../shared/ui';
 import { academyLmsCopy as copy } from './academy-lms-copy';
+import { academyRefusalText } from './academy-flows';
 import type { AcademyPath, CertificateState, LessonStatus } from './academy-lms';
 import './academy-lms.css';
 
@@ -38,7 +40,7 @@ export function ProgressBar({ percent, label }: { percent: number; label: string
   );
 }
 
-const statusKeys = { recorded: 'statusRecorded', pending: 'statusPending', untracked: 'statusUntracked' } as const;
+const statusKeys = { recorded: 'statusRecorded', pending: 'statusPending', open: 'statusOpen' } as const;
 export function StatusChip({ status }: { status: LessonStatus }) {
   const { Copy } = copy.useCopy();
   return (
@@ -63,7 +65,50 @@ export function CertificateChip({ state }: { state: CertificateState }) {
   );
 }
 
-/** A control that cannot run today, with the reason next to it rather than in a tooltip. */
+/**
+ * A failed Academy request. The service's typed refusals are worded here in plain language; anything else (a dropped
+ * connection, a sign-in problem) goes to the shared failure panel, which words those.
+ */
+export function AcademyRefusal({ failure, retry }: { failure: Extract<ApiResult<never>, { ok: false }>; retry?: () => void }) {
+  const { t } = copy.useCopy();
+  const words = academyRefusalText(failure, t);
+  if (words === null) return <Failure result={failure} retry={retry} />;
+  return (
+    <div className="failure" role="status">
+      <p>{words}</p>
+    </div>
+  );
+}
+
+/**
+ * A button that states why it is off. The reason sits next to the button, not in a tooltip, and the button points at it,
+ * so a screen reader hears it with the button. When the button is on, no reason is shown.
+ */
+export function GuardedButton({
+  reason,
+  reasonId,
+  children,
+  ...props
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'disabled'> & {
+  reason: ReactNode | null;
+  reasonId: string;
+  variant?: 'primary' | 'secondary';
+}) {
+  return (
+    <div className="academy-lms-disabled">
+      <Button {...props} disabled={reason !== null} aria-describedby={reason !== null ? reasonId : undefined}>
+        {children}
+      </Button>
+      {reason !== null && (
+        <small id={reasonId} className="muted">
+          {reason}
+        </small>
+      )}
+    </div>
+  );
+}
+
+/** A control that cannot run, with the reason next to it rather than in a tooltip. */
 export function DisabledWithReason({ label, reason, id }: { label: ReactNode; reason: ReactNode; id: string }) {
   return (
     <div className="academy-lms-disabled">

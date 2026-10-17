@@ -1,12 +1,6 @@
 /**
- * Unit card — GET /positions wire does not invent D3 maintenance or next funding
- * 1. Promise: presentPosition leaves maintenanceMargin null; list is not a valuation
- * 2. Break: listOpen attaches a mark extra or maintenanceMargin from DEFAULT ladder
- * 3. Done bar: source has maintenanceMargin: null; listOpen calls presentPosition(row)
- * 4. Class N
- * 5. Paths: svc-trade/src/futures/position-service.ts
- * 6. RED: maintenanceMargin: formatAmount(…) or listOpen presentPosition(row, extras)
- * 7. Collision: #1918 host D3 pin (index.ts) — this file does not read index.ts
+ * Maintenance on a position row is planLadderRung's maintenanceRequired.
+ * The presenter does not import the test ladder and does not hard-null the field.
  */
 
 import { readFileSync } from 'node:fs';
@@ -16,20 +10,26 @@ import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
+const present = src.slice(src.indexOf('function presentPosition'), src.indexOf('export function storedEntryAfterFill'));
+const listed = src.slice(src.indexOf('private async presentListed'), src.indexOf('private async maintenanceAt'));
 
-describe('position present does not invent D3 or next funding', () => {
+describe('position present uses the liquidation ladder for maintenance', () => {
   it('does not import DEFAULT_FUTURES_LADDER_POLICY', () => {
     expect(src).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
   });
 
-  it('presentPosition hard-nulls maintenanceMargin and does not emit nextFundingTimestamp', () => {
-    expect(src).toMatch(/maintenanceMargin:\s*null/);
-    expect(src).not.toMatch(/nextFundingTimestamp/);
-    expect(src).not.toMatch(/maintenanceBps\s*:/);
+  it('maintenanceAt calls planLadderRung and presentPosition does not hard-null maintenance', () => {
+    const maintenance = src.slice(src.indexOf('private async maintenanceAt'), src.indexOf('type ReduceOnlyOutcome'));
+    expect(maintenance).toMatch(/planLadderRung\(/);
+    expect(maintenance).toMatch(/maintenanceRequired/);
+    expect(present).not.toMatch(/maintenanceMargin:\s*null/);
+    expect(present).not.toMatch(/nextFundingTimestamp/);
+    expect(listed).toMatch(/tryMarkForMarking\(/);
   });
 
-  it('listOpen presents rows without a mark extra', () => {
-    expect(src).toMatch(/rows\.map\(\(row\) => presentPosition\(row\)\)/);
-    expect(src).not.toMatch(/listOpen[\s\S]{0,900}presentPosition\(row,\s*\{/);
+  it('listOpen presents through presentListed', () => {
+    const listOpen = src.slice(src.indexOf('async listOpen'), src.indexOf('async listClosed'));
+    expect(listOpen).toMatch(/this\.presentListed\(row\)/);
+    expect(listOpen).not.toMatch(/presentPosition\(row,\s*\{/);
   });
 });

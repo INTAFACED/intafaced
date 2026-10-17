@@ -40,7 +40,8 @@ import {
   type ReplaceOrderOutcome,
 } from './spot/types.js';
 import { FuturesError } from './futures/position-service.js';
-import { presentFuturesErrorWire } from './futures/futures-error-wire.js';
+import { isRolledBackMarkRefusal, presentFuturesErrorWire, presentRolledBackRefusal } from './futures/futures-error-wire.js';
+import { resolveOpenPositionMode } from './futures/account-mode.js';
 import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen } from './futures/margin-mode.js';
 import type { MarginCallWire } from './futures/margin-call-transport.js';
 import type { AdlDisclosureWire } from './futures/adl-disclosure.js';
@@ -1282,18 +1283,16 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       }
       const reduceOnly = body.reduceOnly === true;
       let positionMode: 'one_way' | 'hedge' | undefined;
-      if (body.positionMode === 'one_way' || body.positionMode === 'hedge') positionMode = body.positionMode;
-      if (!positionMode && !reduceOnly && deps.readAccountMode) {
-        const state = await deps.readAccountMode(principal);
-        if (state.mode == null) {
-          return reply.code(400).send({
-            error: state.code ?? 'trade.position_mode_unset',
-            message: 'position mode is unset',
-            mode: null,
-            source: state.source,
-          });
+      if (!reduceOnly) {
+        const stored = deps.readAccountMode ? await deps.readAccountMode(principal) : null;
+        const decision = resolveOpenPositionMode({
+          requested: body.positionMode,
+          stored: stored?.mode ?? null,
+        });
+        if (!decision.ok) {
+          return reply.code(400).send({ error: decision.code, message: decision.reason });
         }
-        positionMode = state.mode;
+        if (body.positionMode != null || stored?.mode != null) positionMode = decision.mode;
       }
 
       if (!symbol || !side || !size) {
@@ -1328,6 +1327,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         return reply.code(err.status).send({ error: err.code, message: err.message });
       }
       if (err instanceof FuturesError) {
+        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
         return reply.code(err.status).send(presentFuturesErrorWire(err));
       }
       const sent = sendDomainError(reply, err);
@@ -1509,6 +1509,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return reply.code(200).send(pos);
     } catch (err) {
       if (err instanceof FuturesError) {
+        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
         return reply.code(err.status).send(presentFuturesErrorWire(err));
       }
       const sent = sendDomainError(reply, err);
@@ -1543,7 +1544,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       if (err instanceof MoneyError) {
         return reply.code(400).send({ error: 'trade.close_quantity_invalid', message: err.message });
       }
-      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      if (err instanceof FuturesError) {
+        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
+        return reply.code(err.status).send(presentFuturesErrorWire(err));
+      }
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;
