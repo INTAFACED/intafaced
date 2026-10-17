@@ -35,7 +35,7 @@ export function ChannelTable({ read }: { read: DeliveriesRead }) {
     <div className="dk-stack" data-testid="channel-stats">
       {span ? (
         <p className="dk-muted">
-          Covers the {read.rows.length} most recently updated deliveries, from {span.from} to {span.to}.{' '}
+          Covers the {read.rows.length} most recently updated deliveries, from {formatWhen(span.from)} to {formatWhen(span.to)}.{' '}
           {span.pageFull
             ? `The page is full (${read.limit}), so older deliveries exist that are not counted. These are not all-time figures.`
             : 'svc-notify returned nothing older.'}

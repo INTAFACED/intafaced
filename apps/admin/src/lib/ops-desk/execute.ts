@@ -50,6 +50,28 @@ export function readResidencyAnswer(raw: unknown): ResidencyAnswer | null {
   return { id: raw.id, status: raw.status };
 }
 
+interface CardStatusAnswer {
+  readonly cardId: string;
+  readonly status: string;
+  readonly frozenBy: string | null;
+}
+
+export function readCardStatusAnswer(raw: unknown): CardStatusAnswer | null {
+  if (!isRecord(raw) || typeof raw.cardId !== 'string' || typeof raw.status !== 'string') return null;
+  if (!(raw.frozenBy === null || typeof raw.frozenBy === 'string')) return null;
+  return { cardId: raw.cardId, status: raw.status, frozenBy: raw.frozenBy };
+}
+
+interface TakedownAnswer {
+  readonly listingId: string;
+  readonly status: string;
+}
+
+export function readTakedownAnswer(raw: unknown): TakedownAnswer | null {
+  if (!isRecord(raw) || typeof raw.listingId !== 'string' || typeof raw.status !== 'string') return null;
+  return { listingId: raw.listingId, status: raw.status };
+}
+
 const WRONG_STATE: ExecuteReply = {
   ok: false,
   refusal: explainRefusal('admin.ops_invalid_response', 502, true),
@@ -58,12 +80,16 @@ const WRONG_STATE: ExecuteReply = {
 const NEEDS: Readonly<Record<string, string>> = {
   market: 'the market operator permission (market:ops) and a verified second factor',
   academy: 'the Academy operator permission (admin:write) and a verified second factor',
+  bank: 'the bank treasury permission (admin:treasury) and a verified second factor',
+  p2p: 'moderator access (admin:compliance, or being on the moderator list) and the P2P read permission',
 };
 
 /** The permission, as the founder reads it in the refusal's headline. */
 const PERMISSION_NAME: Readonly<Record<string, string>> = {
   market: 'market operator',
   academy: 'Academy operator',
+  bank: 'bank treasury',
+  p2p: 'P2P moderator',
 };
 
 /** A failed call as a desk refusal. A typed approval code is a definite "nothing changed"; a dropped connection is unknown. */
@@ -170,6 +196,39 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       const a = result.data;
       if (a.id !== request.id || a.status !== request.decision) return WRONG_STATE;
       return { ok: true, detail: `svc-academy answered and its returned application is ${a.status}.` };
+    }
+    if (request.kind === 'bank.card.status') {
+      const result = await founderCall(
+        ctx,
+        'bank',
+        'ops.setCardStatus',
+        'POST',
+        // The operation id is the client key, so running the same approved request twice replays the first
+        // result at the service instead of acting twice.
+        { cardId: request.cardId, status: request.status, reason: request.reason, ...ids, clientRequestId: ids.operationId },
+        readCardStatusAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-bank', 'bank', result);
+      const a = result.data;
+      if (a.cardId !== request.cardId || a.status !== request.status) return WRONG_STATE;
+      return {
+        ok: true,
+        detail: `svc-bank answered and its returned card is ${a.status}${a.frozenBy === 'operator' ? ', frozen by an operator' : ''}.`,
+      };
+    }
+    if (request.kind === 'market.listing.takedown') {
+      const result = await founderCall(
+        ctx,
+        'market',
+        'ops.takedownListing',
+        'POST',
+        { listingId: request.listingId, reason: request.reason, ...ids, clientRequestId: ids.operationId },
+        readTakedownAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-market', 'market', result);
+      const a = result.data;
+      if (a.listingId !== request.listingId || a.status !== 'taken_down') return WRONG_STATE;
+      return { ok: true, detail: 'svc-market answered and its returned listing is taken down.' };
     }
     return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
   };

@@ -128,6 +128,28 @@ describe('what the page says happened', () => {
     expect(unknown).not.toContain('Nothing was changed.');
     expect(unknown).toContain('data-tone="warn"');
   });
+  it('prints when the approval expires in the shared UTC form, not as raw ISO text', () => {
+    const html = render();
+    expect(html).toContain('17 Oct 2026, 03:10:00 UTC');
+    expect(html).not.toContain('2026-10-17T03:10:00.000Z');
+    const made = renderToStaticMarkup(
+      <StepReplyView
+        reply={{
+          ok: true,
+          step: 'propose',
+          approval: {
+            approvalId: 'appr_1',
+            operationId: 'op_1',
+            status: 'PENDING',
+            expiresAt: '2026-10-17T03:10:00.000Z',
+            requesterId: A,
+            approverId: null,
+          },
+        }}
+      />,
+    );
+    expect(made).toContain('17 Oct 2026, 03:10:00 UTC');
+  });
   it('an execute reply says it is what the service said, not the state', () => {
     const html = renderToStaticMarkup(<StepReplyView reply={{ ok: true, step: 'execute', detail: 'svc-edge answered 200' }} />);
     expect(html).toContain('The service answered');
