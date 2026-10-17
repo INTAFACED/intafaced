@@ -158,6 +158,16 @@ describe('svc-support mount', () => {
     expect(await caller.events({ ticketId: opened.id, limit: 100 })).toMatchObject([{ kind: 'opened', actorId: USER, actorRole: 'user' }]);
   });
 
+  it('refuses operator rating and attachment reads without support:ops', async () => {
+    const caller = createSupportRouter(stubSupport()).createCaller(signed());
+    const ticketId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    await expect(caller.ratingOps({ ticketId })).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'scope.denied' } });
+    await expect(caller.attachmentOps({ attachmentId: ticketId })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      cause: { code: 'scope.denied' },
+    });
+  });
+
   it('refuses signed unauthorized ops and settlement before effects with strict policy flags', async () => {
     vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'true');
     vi.stubEnv('INTAFACED_REGION_FAIL_CLOSED', 'true');

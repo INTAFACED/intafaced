@@ -176,6 +176,18 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
       });
     });
 
+    it('refuses flatten when the owner protection floor is unpublished', async () => {
+      const bare = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+      });
+      await expect(
+        closeSpotPosition(bare, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-unset' }),
+      ).rejects.toMatchObject({ code: 'trade.protection_unset' });
+      expect(matching.closed).toHaveLength(0);
+    });
+
     it('refuses a flat book — no ledger post, no invented mark', async () => {
       matching.closeScript = () => flatResult();
       await expect(

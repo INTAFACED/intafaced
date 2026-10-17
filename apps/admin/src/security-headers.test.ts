@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import nextConfig from '../next.config.mjs';
@@ -29,13 +31,13 @@ describe('static security headers (next.config headers())', () => {
 
   it('carry the required values and none is empty', () => {
     const headers = new Map(STATIC_SECURITY_HEADERS.map((h) => [h.key, h.value]));
-    expect(headers.get('Strict-Transport-Security')).toBe('max-age=86400');
     expect(headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(headers.get('X-Frame-Options')).toBe('DENY');
     expect(headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
     expect(headers.get('Cross-Origin-Opener-Policy')).toBe('same-origin');
     for (const { key, value } of STATIC_SECURITY_HEADERS) expect(value.trim(), key).not.toBe('');
-    expect(headers.get('Strict-Transport-Security')).not.toMatch(/preload|includeSubDomains/);
+    // HSTS is per deployment, so it is set by the middleware from the runtime env; baked into `headers()` it would be fixed per image.
+    expect(headers.has('Strict-Transport-Security')).toBe(false);
     expect(new Set(STATIC_SECURITY_HEADERS.map((h) => h.key)).size).toBe(STATIC_SECURITY_HEADERS.length);
   });
 
@@ -43,6 +45,60 @@ describe('static security headers (next.config headers())', () => {
     const policy = STATIC_SECURITY_HEADERS.find((h) => h.key === 'Permissions-Policy')!.value;
     for (const feature of ['camera', 'microphone', 'geolocation', 'payment']) expect(policy).toContain(`${feature}=()`);
     expect(policy).not.toMatch(/publickey-credentials/);
+  });
+});
+
+describe('Strict-Transport-Security (middleware, runtime env)', () => {
+  const KEYS = ['HSTS_MAX_AGE_SECONDS', 'HSTS_INCLUDE_SUBDOMAINS'] as const;
+  const saved = Object.fromEntries(KEYS.map((key) => [key, process.env[key]]));
+  afterEach(() => {
+    for (const key of KEYS) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  });
+  const sts = (path = '/') => run(path).headers.get('strict-transport-security');
+
+  it("sends today's gentle value when nothing is configured, on pages, API routes, redirects and 404s", () => {
+    for (const key of KEYS) delete process.env[key];
+    for (const path of ['/', '/crm', '/api/kill-switch']) expect(sts(path), path).toBe('max-age=86400');
+    process.env.ADMIN_MODULES = 'crm';
+    expect(run('/tools').status).toBe(307);
+    expect(sts('/tools')).toBe('max-age=86400');
+    expect(run('/api/accounts').status).toBe(404);
+    expect(sts('/api/accounts')).toBe('max-age=86400');
+  });
+
+  it('follows the environment at call time, with no rebuild in between', () => {
+    process.env.HSTS_MAX_AGE_SECONDS = '604800';
+    process.env.HSTS_INCLUDE_SUBDOMAINS = 'true';
+    expect(sts()).toBe('max-age=604800; includeSubDomains');
+    process.env.HSTS_MAX_AGE_SECONDS = '2592000';
+    process.env.HSTS_INCLUDE_SUBDOMAINS = 'false';
+    expect(sts()).toBe('max-age=2592000');
+    process.env.HSTS_MAX_AGE_SECONDS = '0';
+    expect(sts()).toBe('max-age=0');
+  });
+
+  it('never throws on a bad value (boot refuses it; the request path falls back to the default) and never says preload', () => {
+    for (const bad of ['-1', '1e9', '63072001', '86400; preload', 'yes', ' 86400', '08', '1.5', 'NaN']) {
+      process.env.HSTS_MAX_AGE_SECONDS = bad;
+      process.env.HSTS_INCLUDE_SUBDOMAINS = 'preload';
+      expect(sts(), bad).toBe('max-age=86400');
+    }
+  });
+
+  it('does not depend on the build: no HSTS in next.config headers(), no NEXT_PUBLIC_ or `env` inlining of the knobs', async () => {
+    const rules = await nextConfig.headers!();
+    for (const rule of rules) {
+      for (const header of rule.headers) expect(header.key.toLowerCase()).not.toBe('strict-transport-security');
+    }
+    expect((nextConfig as { env?: Record<string, string> }).env ?? {}).not.toHaveProperty('HSTS_MAX_AGE_SECONDS');
+    expect((nextConfig as { env?: Record<string, string> }).env ?? {}).not.toHaveProperty('HSTS_INCLUDE_SUBDOMAINS');
+    const sources = ['./middleware.ts', './lib/security-headers.mjs', './instrumentation.ts'].map((file) =>
+      readFileSync(resolve(import.meta.dirname, file), 'utf8'),
+    );
+    for (const source of sources) expect(source).not.toMatch(/NEXT_PUBLIC_HSTS/);
   });
 });
 

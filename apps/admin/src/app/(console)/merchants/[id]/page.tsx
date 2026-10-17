@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { MerchantDetailView, parseTab } from '@/components/merchants/merchant-detail';
 import { dayOf } from '@/lib/merchants/dates';
+import { loadNotes } from '@/lib/founder-ops/reads';
 import { loadMerchantApprovals, loadMerchantControls, loadMerchantDetail, loadMerchantHalts, parsePreset } from '@/lib/merchants/loaders';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { requireMerchantsFounder } from '@/lib/merchants/page-gate';
@@ -36,13 +37,16 @@ export default async function MerchantPage({
         ? { approvals: await loadMerchantApprovals(ctx, now) }
         : tab === 'halts'
           ? { halts: await loadMerchantHalts(ctx, merchantId, now) }
-          : {};
+          : tab === 'notes'
+            ? { notes: await loadNotes(ctx, merchantId, query) }
+            : {};
   return (
     <MerchantDetailView
       merchantId={merchantId}
       data={data}
       tab={tab}
       tabData={tabData}
+      query={query}
       currentUserId={ctx.session.userId}
       now={now}
       preset={preset}

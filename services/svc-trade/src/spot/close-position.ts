@@ -46,6 +46,7 @@ type CloseHost = {
   readonly sql: Sql;
   readonly ledger: LedgerClient;
   readonly matching: MatchingClient;
+  readonly slippageCapBps: number | null;
   readonly spotEnabled: boolean;
   readonly futuresEnabled: boolean;
   readonly optionsSettlementAssetLaw: string;
@@ -123,6 +124,13 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
   const orderId = orderIdFor(userId, market.id, input.clientOrderId);
   const existing = await host.findOrder(orderId);
   if (existing) return existing;
+
+  if (host.slippageCapBps == null || !Number.isInteger(host.slippageCapBps) || host.slippageCapBps < 1 || host.slippageCapBps > 5000) {
+    throw new TradeError(
+      'flatten has no owner protection floor (TRADE_MARKET_SLIPPAGE_CAP_BPS unset) — refuse rather than send an unbounded close',
+      'trade.protection_unset',
+    );
+  }
 
   const lifecycleProof = await host.assertLifecycleAction(market, 'PLACE');
   const request: MatchingCloseRequest = {

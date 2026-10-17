@@ -12,6 +12,13 @@ import {IPaymaster} from "../interfaces/IPaymaster.sol";
  * its own balance. It has no path to a user's SmartAccount, no pause that
  * freezes user funds, and no hardcoded platform address.
  *
+ * A successful validation reserves `maxCost` from the unreserved float so a
+ * second operation cannot pass against the same wei. `postOp` settles that
+ * reservation to `actualGasCost` and releases the unused part. The float stays
+ * in this contract: it is not deposited to, or withdrawn from, the EntryPoint.
+ * A lost bundler reply never calls `postOp`, so the reservation stays and a
+ * second sponsorship cannot spend the same float.
+ *
  * Funding the float is Nitro Class X (ADR 2026-08-08). Until ETH sits here,
  * every validation returns failure — same refuse as the TypeScript policy's
  * `funding_unconfigured`. An empty paymaster is not a pretend sponsor.
@@ -30,6 +37,11 @@ contract ScopedPaymaster is IPaymaster {
     mapping(address => bool) public allowlisted;
     mapping(bytes4 => bool) public permittedSelector;
     uint256 public maxCostWei;
+    /// Open `maxCost` locks plus gas already settled in `postOp`.
+    uint256 private reservedWei;
+    uint256 private nextReservation;
+    mapping(uint256 => uint256) private reservationCost;
+    mapping(uint256 => bool) private reservationOpen;
 
     error EntryPointRequired();
     error OperatorRequired();
@@ -80,15 +92,24 @@ contract ScopedPaymaster is IPaymaster {
         emit FloatWithdrawn(to, amount);
     }
 
+    /// Wei still free to sponsor: contract balance minus reserved and settled gas.
+    function _unreservedFloat() internal view returns (uint256) {
+        uint256 balance = address(this).balance;
+        uint256 reserved = reservedWei;
+        if (reserved >= balance) return 0;
+        return balance - reserved;
+    }
+
     function validatePaymasterUserOp(
         PackedUserOperation calldata userOp,
         bytes32 /* userOpHash */,
         uint256 maxCost
-    ) external view override returns (bytes memory context, uint256 validationData) {
+    ) external override returns (bytes memory context, uint256 validationData) {
         if (msg.sender != entryPoint) revert NotEntryPoint();
 
-        // Empty float = Nitro has not funded. Refuse, do not pretend.
-        if (address(this).balance == 0 || maxCost > address(this).balance) {
+        // Empty or already-reserved float refuses. Do not pretend to sponsor.
+        uint256 available = _unreservedFloat();
+        if (available == 0 || maxCost > available) {
             return ("", SIG_VALIDATION_FAILED);
         }
         if (maxCostWei == 0 || maxCost > maxCostWei) {
@@ -104,11 +125,23 @@ contract ScopedPaymaster is IPaymaster {
         if (!permittedSelector[selector]) {
             return ("", SIG_VALIDATION_FAILED);
         }
-        context = "";
+        uint256 id = nextReservation + 1;
+        nextReservation = id;
+        reservationOpen[id] = true;
+        reservationCost[id] = maxCost;
+        reservedWei = reservedWei + maxCost;
+        context = abi.encode(id);
         validationData = SIG_VALIDATION_SUCCESS;
     }
 
-    function postOp(PostOpMode, bytes calldata, uint256, uint256) external override {
+    function postOp(PostOpMode, bytes calldata context, uint256 actualGasCost, uint256) external override {
         if (msg.sender != entryPoint) revert NotEntryPoint();
+        uint256 id = abi.decode(context, (uint256));
+        if (!reservationOpen[id]) revert BadCap();
+        uint256 reservedCost = reservationCost[id];
+        if (actualGasCost > reservedCost) revert BadCap();
+        reservationOpen[id] = false;
+        // Keep actualGasCost committed. Release only the unused reservation.
+        reservedWei = reservedWei - (reservedCost - actualGasCost);
     }
 }

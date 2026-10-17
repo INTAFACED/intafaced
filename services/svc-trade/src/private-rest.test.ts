@@ -14,6 +14,7 @@ import {
   presentCcxtBalances,
   presentCcxtMyTrade,
   presentCcxtOrder,
+  presentCcxtOrderCost,
   presentCcxtTradingFee,
   presentTradingFees,
   registerPrivateRest,
@@ -21,6 +22,7 @@ import {
   toCcxtOrderStatus,
   type PrivateRestDeps,
 } from './private-rest.js';
+import { parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { TradeError } from './spot/types.js';
 import type { PlaceOrderInput } from './spot/trade-service.js';
 import { fakeMarket } from './public-rest.js';
@@ -114,6 +116,7 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(wire.cost).toBe('50');
     expect(wire.postOnly).toBe(true);
     expect(wire.status).toBe('open');
+    expect(wire.rejectCode).toBeNull();
     expect(typeof wire.price).toBe('string');
     expect(typeof wire.amount).toBe('string');
   });
@@ -132,6 +135,18 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(wire.price).toBeNull();
     expect(wire.cost).toBe('200');
     expect(wire.cost).not.toBe('0');
+  });
+
+  it('filled market sell cost ignores the protection floor and is null without fills', () => {
+    const order = fakeOrder({
+      side: 'sell',
+      type: 'market',
+      price: null,
+      protectionPrice: parseAmount('98'),
+      filledQty: parseAmount('1'),
+    });
+    expect(presentCcxtOrderCost(order)).toBeNull();
+    expect(presentCcxtOrderCost(order, [{ quoteAmount: parseAmount('99') }])).toBe('99');
   });
 
   it('filled market sell without fills: cost is null, never confident "0" (PEACE residual)', () => {
@@ -1334,6 +1349,18 @@ describe('private REST — mount boundary + order write path', () => {
     expect(parseAmendOrderBody({ qty: 1 }).ok).toBe(false);
   });
 
+  it('parseAmendOrderBody accepts expectedRemaining as money and expectedVersion as an integer', () => {
+    const ok = parseAmendOrderBody({ qty: '1', expectedRemaining: '1.5', expectedVersion: 4 });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.input.expectedRemaining).toBe(parseAmount('1.5'));
+      expect(ok.input.expectedVersion).toBe(4);
+    }
+    expect(parseAmendOrderBody({ qty: '1', expectedRemaining: 1.5 }).ok).toBe(false);
+    expect(parseAmendOrderBody({ qty: '1', expectedVersion: '4' }).ok).toBe(false);
+    expect(parseAmendOrderBody({ qty: '1', expectedVersion: -1 }).ok).toBe(false);
+  });
+
   // ── GET /orders/:id ───────────────────────────────────────────────────────
 
   it('GET /orders/:id: forged → 401', async () => {
@@ -1858,21 +1885,61 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
-  it('GET /account/fees: signed returns per-symbol TradingFee from market bps', async () => {
+  it('GET /account/fees: signed returns the owner schedule, not listing-row bps', async () => {
     const rich = fakeMarket({ id: market.id, symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 });
-    const app = await build(deps({ markets: async () => [rich] }));
+    const app = await build(
+      deps({
+        markets: async () => [rich],
+        feeSchedule: parseFeeScheduleJson(JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10' })),
+      }),
+    );
     const res = await app.inject({
       method: 'GET',
       url: '/api/v1/account/fees',
       headers: signedHeaders(),
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as Record<string, unknown>;
-    expect(body['BTC/USDT']).toBeDefined();
+    const body = res.json() as Record<string, { maker: string; taker: string; makerBps: number; takerBps: number; version: string }>;
     expect(tradingFeeSchema.safeParse(body['BTC/USDT']).success).toBe(true);
-    expect((body['BTC/USDT'] as { maker: string; taker: string }).maker).toBe('0.001');
-    expect((body['BTC/USDT'] as { taker: string }).taker).toBe('0.002');
-    expect(typeof (body['BTC/USDT'] as { maker: string }).maker).toBe('string');
+    expect(body['BTC/USDT']?.maker).toBe('0.0008');
+    expect(body['BTC/USDT']?.taker).toBe('0.001');
+    expect(body['BTC/USDT']?.makerBps).toBe(8);
+    expect(body['BTC/USDT']?.takerBps).toBe(10);
+    expect(body['BTC/USDT']?.version).toBe('desk');
+    await app.close();
+  });
+
+  it('private reads carry serverTime and rejected orders carry rejectCode', async () => {
+    const clock = new Date('2026-10-17T04:05:00.000Z');
+    const rejected = fakeOrder({ status: 'rejected', rejectCode: 'post_only_would_cross' });
+    const app = await build(
+      deps({
+        now: () => clock,
+        openOrders: async () => [rejected],
+        myFills: async () => [fill],
+        userBalances: async () => [],
+      }),
+    );
+    const headers = signedHeaders();
+    const orders = await app.inject({ method: 'GET', url: '/api/v1/orders/open?limit=10', headers });
+    expect(orders.statusCode, orders.body).toBe(200);
+    expect(orders.headers['x-server-time']).toBe(String(clock.getTime()));
+    const orderWire = orders.json()[0];
+    expect(orderWire.serverTime).toBe(clock.getTime());
+    expect(orderWire.rejectCode).toBe('post_only_would_cross');
+    expect(orderSchema.safeParse(orderWire).success).toBe(true);
+    const bare = orderSchema.safeParse({ ...orderWire, rejectCode: undefined, serverTime: undefined });
+    expect(bare.success).toBe(true);
+
+    const fills = await app.inject({ method: 'GET', url: '/api/v1/account/trades?limit=10', headers });
+    expect(fills.headers['x-server-time']).toBe(String(clock.getTime()));
+    expect(fills.json()[0].serverTime).toBe(clock.getTime());
+    expect(tradeSchema.safeParse(fills.json()[0]).success).toBe(true);
+
+    const balances = await app.inject({ method: 'GET', url: '/api/v1/account/balance', headers });
+    expect(balances.headers['x-server-time']).toBe(String(clock.getTime()));
+    expect(balances.json().serverTime).toBe(clock.getTime());
+    expect(balancesSchema.safeParse(balances.json()).success).toBe(true);
     await app.close();
   });
 
