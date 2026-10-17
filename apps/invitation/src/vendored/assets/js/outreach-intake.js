@@ -3,7 +3,7 @@
 // Public enquiries only. No account token, membership lookup or money arithmetic.
 let AUDIENCES = ['investor', 'trader', 'merchant', 'academy', 'partner'];
 let ROUTES = { '/invest': 'investor', '/trade': 'trader', '/merchant': 'merchant', '/academy': 'academy', '/partner': 'partner' };
-let STORAGE_KEY = 'intafaced.outreach.continuation.v1';
+let STORAGE_KEY = 'intafaced.outreach.continuation.v1'; // gitleaks:allow (browser storage slot name, not a secret)
 let DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
 let CAPABILITY = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
 let UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
