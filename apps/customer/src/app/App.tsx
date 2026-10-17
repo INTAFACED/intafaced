@@ -97,7 +97,7 @@ export function App() {
   const path = current.split('?')[0] ?? '/';
   const search = current.slice(path.length);
   const room = findRoom(path);
-  const { session } = useSession();
+  const { session, restoring } = useSession();
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
   const hidden = hiddenFeatureFor(path, search);
@@ -132,7 +132,7 @@ export function App() {
     const url = new URL(anchor.href, location.href);
     if (url.origin !== location.origin) return;
     // A link to another place in the same page is the browser's job (it scrolls to the anchor). A link to
-    // another route with a `#` stays inside the app: a full reload would drop the in-memory sign-in.
+    // another route with a `#` stays inside the app: a full reload would re-run the boot refresh and flash the loading state.
     if (url.hash && url.pathname === location.pathname && url.search === location.search) return;
     event.preventDefault();
     navigate(url.pathname + url.search + url.hash);
@@ -149,6 +149,8 @@ export function App() {
   const area = room ? legacyArea(room) : undefined;
   let body: ReactNode;
   if (devFeatures) body = <DevFeatures />;
+  // A private room never paints, and never shows "Sign in to continue", until the boot refresh has answered.
+  else if (needsSession && !session && restoring) body = fallback;
   else if (needsSession && !session)
     body = (
       <div className="legacy-room">

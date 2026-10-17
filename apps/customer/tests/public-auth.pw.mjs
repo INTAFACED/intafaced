@@ -29,10 +29,27 @@ test.afterAll(() => {
   const previous = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : [];
   writeFileSync(path, JSON.stringify([...previous, ...summary], null, 2));
 });
+/** Runs a fixture auth call the way the cookie would: refresh/logout take the token from the fake cookie, not the body. */
+async function refreshCall(state, procedure, input) {
+  if (procedure === 'auth.refresh' && !input?.refreshToken) {
+    if (!state.cookie.token)
+      return { status: 401, body: { error: { message: 'Session not found', data: { intafacedCode: 'auth.session_invalid' } } } };
+    input = { refreshToken: state.cookie.token };
+  }
+  const result = await state.instance.call(procedure, input);
+  const data = result.status === 200 ? result.body?.result?.data : undefined;
+  if (data?.refreshToken) state.cookie.token = data.refreshToken;
+  if (procedure === 'auth.logout') state.cookie.token = null;
+  if (data?.refreshToken) data.refreshToken = undefined;
+  return result;
+}
 async function network(context, options = {}) {
   const instance = await service.makeService(options),
     tokens = new Map();
-  const state = { instance, writes: [], privateReads: 0, ...options };
+  // Models the HttpOnly `ifc_rt` cookie: login/register/passkey sets it from the reply, logout clears it, refresh reads it.
+  // The page never sends a refresh token, so a bare refresh with no cookie is `auth.session_invalid`.
+  const cookie = { token: null };
+  const state = { instance, cookie, writes: [], privateReads: 0, ...options };
   await context.route('**/api/**', async (route) => {
     const req = route.request(),
       url = new URL(req.url()),
@@ -43,7 +60,7 @@ async function network(context, options = {}) {
     const reply = (data) => route.fulfill({ status: 200, json: { result: { data } } });
     if (state[procedure]) return state[procedure](route, input, reply);
     if (['auth.login', 'auth.register', 'auth.refresh', 'auth.logout', 'webauthn.authOptions', 'webauthn.authVerify'].includes(procedure)) {
-      const result = await instance.call(procedure, input);
+      const result = await refreshCall(state, procedure, input);
       if (result.status === 200 && result.body.result.data?.accessToken)
         tokens.set(result.body.result.data.accessToken, result.body.result.data.userId);
       return route.fulfill({ status: result.status, json: result.body });
@@ -230,14 +247,15 @@ test('held original login cannot replace a real SessionProvider-refreshed API', 
     refreshes = 0;
   const state = await network(context, {
     'auth.login': async (route, input) => {
-      const result = await state.instance.call('auth.login', input);
+      const result = await refreshCall(state, 'auth.login', input);
       if (++logins === 1) result.body.result.data.expiresAt = new Date(Date.now() + 33000).toISOString();
       else await held.promise;
       return route.fulfill({ status: result.status, json: result.body });
     },
     'auth.refresh': async (route, input) => {
-      refreshes++;
-      const result = await state.instance.call('auth.refresh', input);
+      // The boot refresh of a signed-out page (no cookie yet) is not the silent refresh this test counts.
+      if (state.cookie.token) refreshes++;
+      const result = await refreshCall(state, 'auth.refresh', input);
       return route.fulfill({ status: result.status, json: result.body });
     },
   });

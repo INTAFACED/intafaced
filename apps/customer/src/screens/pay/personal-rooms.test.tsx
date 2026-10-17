@@ -12,7 +12,7 @@ const USER = '00000000-0000-4000-8000-000000000001';
 vi.mock('../../features/session/session', () => ({
   useSession: () => ({
     userId: USER,
-    session: { accessToken: 'x', refreshToken: 'y', expiresAt: '2099-01-01T00:00:00Z', userId: USER },
+    session: { accessToken: 'x', expiresAt: '2099-01-01T00:00:00Z', userId: USER },
     api: { canWrite: () => true, query: () => new Promise(() => {}), mutate: () => new Promise(() => {}) },
   }),
 }));

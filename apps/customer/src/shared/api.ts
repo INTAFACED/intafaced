@@ -51,6 +51,8 @@ export function createApiClient(
     token?: () => string | undefined;
     canWrite?: () => boolean;
     fetch?: typeof fetch;
+    /** `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore). */
+    credentials?: 'same-origin' | 'include';
     onUnauthorized?: (requestToken: string | undefined) => void;
   } = {},
 ) {
@@ -79,7 +81,7 @@ export function createApiClient(
       const response = await fetcher(url, {
         method,
         headers,
-        credentials: 'same-origin',
+        credentials: options.credentials ?? 'same-origin',
         signal: controller.signal,
         ...(input === undefined ? {} : { body: JSON.stringify(input) }),
       });
