@@ -1,8 +1,8 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
 import { buildWorld } from './world.mjs';
-import { DAY, MERCHANT_ID, USER_ID, hex, iso } from './ids.mjs';
+import { DAY, MERCHANT_ID, TEAM, USER_ID, hex, iso, startOfDay } from './ids.mjs';
 
-export { DAY, MERCHANT_ID, USER_ID, hex, iso };
+export { DAY, MERCHANT_ID, TEAM, USER_ID, hex, iso, startOfDay };
 /** What a part's handler answers for a procedure it does not own, so the next part is asked. */
 export const NOT_MINE = Symbol('not-mine');
 

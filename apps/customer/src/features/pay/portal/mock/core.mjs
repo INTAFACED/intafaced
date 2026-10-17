@@ -1,5 +1,5 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
-import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, iso, ok, page, refuse } from './shared.mjs';
+import { NOT_MINE, DAY, MERCHANT_ID, TEAM, USER_ID, iso, ok, page, refuse, startOfDay } from './shared.mjs';
 import { fromU, isTaken, toU } from './world.mjs';
 
 const PERMISSIONS = [
@@ -87,7 +87,8 @@ export function createCoreMock(ctx) {
       {
         notificationId: 'n0000003-0000-4000-8000-000000000003',
         kind: 'team_change',
-        title: 'TEST-user-dev joined your team',
+        // named the way the Team page names them
+        title: `${TEAM.developer.label} joined your team`,
         body: null,
         subjectType: null,
         subjectId: null,
@@ -111,7 +112,14 @@ export function createCoreMock(ctx) {
   ];
   const fresh = { asOf: iso(now - 4000), lagSeconds: 4 };
   const world = ctx.world;
-  const WINDOW = { today: DAY, rolling_7d: 7 * DAY, rolling_30d: 30 * DAY };
+  // The pages say "days are UTC days", and Analytics counts whole UTC days, so a window starts at midnight UTC: today is
+  // since midnight, 7 days is today and the six before, 30 days is today and the 29 before. Paid in on Payments, Captured
+  // on Home and Gross on Analytics are then the same figure for the same label.
+  const WINDOW_START = {
+    today: startOfDay(now),
+    rolling_7d: startOfDay(now) - 6 * DAY,
+    rolling_30d: startOfDay(now) - 29 * DAY,
+  };
   /** Every figure on Home and in the metrics reads is worked out from the world's payments in the window. */
   const snapshot = (preset) => {
     const empty = {
@@ -131,7 +139,7 @@ export function createCoreMock(ctx) {
       conversionVolume: null,
     };
     if (!activity) return empty;
-    const f = world.figures(now - (WINDOW[preset] ?? WINDOW.rolling_30d));
+    const f = world.figures(WINDOW_START[preset] ?? WINDOW_START.rolling_30d);
     return {
       merchantId: MERCHANT_ID,
       freshness: fresh,

@@ -91,13 +91,15 @@ export function createPaymentsMock(ctx) {
   const historyOf = (p) => {
     const t0 = Date.parse(p.createdAt);
     let seq = 0;
-    const ev = (event, payload, k) => ({
+    // `ts` is the moment the thing happened, in ms: events are then put in time order, so a history always reads as it happened
+    const ev = (event, payload, ts) => ({
       id: hex('ee', p.n * 100 + ++seq),
       event,
       payload,
       railEventId: null,
-      ts: iso(t0 + k * 60_000),
+      ts: iso(ts),
     });
+    const minutes = (k) => t0 + k * 60_000;
     const out = [
       ev(
         'created',
@@ -107,28 +109,39 @@ export function createPaymentsMock(ctx) {
           customerRef: p.customerRef,
           instrument: { kind: 'token', token: 'tok_TEST_must_never_show' },
         },
-        0,
+        t0,
       ),
-      ev('rail.authorize', { raw: 'rail internals' }, 1),
+      ev('rail.authorize', { raw: 'rail internals' }, minutes(1)),
     ];
-    if (p.status !== 'created' && p.status !== 'failed') out.push(ev('authorized', { amount: p.amount, railRef: p.railRef }, 2));
-    if (['captured', 'settled', 'refunded', 'disputed'].includes(p.status))
-      out.push(ev('captured', { amount: p.amount, railRef: p.railRef, ledgerTxId: 'TEST-ledger-tx-0001' }, 5));
+    if (p.status !== 'created' && p.status !== 'failed') out.push(ev('authorized', { amount: p.amount, railRef: p.railRef }, minutes(2)));
+    if (['captured', 'settled', 'refunded', 'disputed'].includes(p.status) || toU(p.refundedAmount) > 0n)
+      out.push(ev('captured', { amount: p.amount, railRef: p.railRef, ledgerTxId: 'TEST-ledger-tx-0001' }, minutes(5)));
     const settlement = p.settlementId ? world.settlementById(p.settlementId) : null;
-    if (settlement) {
-      const at = Math.max(Date.parse(settlement.createdAt) - t0, 6 * 60_000) / 60_000;
-      out.push(ev('settled', { settlementId: settlement.id, window: settlement.window, assetId: p.assetId }, at));
-    }
-    const refund = p.refundId ? world.refunds.find((r) => r.refundId === p.refundId) : null;
-    if (refund && refund.status !== 'reversed') {
-      const at = (Date.parse(refund.createdAt) - t0) / 60_000;
+    if (settlement)
+      out.push(
+        ev(
+          'settled',
+          { settlementId: settlement.id, window: settlement.window, assetId: p.assetId },
+          Math.max(Date.parse(settlement.createdAt), minutes(6)),
+        ),
+      );
+    // Every refund on the payment, a part refund included, is posted to the ledger and then confirmed by the network. The
+    // service puts the same refund id on both events, which is how a page proves that a refund it sent went through.
+    for (const refund of world.refundsOf(p.id)) {
+      const at = Date.parse(refund.createdAt);
       out.push(
         ev('refund.posted', { refundId: refund.refundId, amount: refund.amount, source: 'balance', ledgerTxId: 'TEST-ledger-tx-0002' }, at),
       );
-      if (p.status === 'refunded')
+      if (refund.status === 'settled')
         out.push(
-          ev('refunded', { refundId: refund.refundId, amount: refund.amount, source: 'balance', railRef: 'TEST-rail-refund' }, at + 1),
+          ev(
+            'refunded',
+            { refundId: refund.refundId, amount: refund.amount, source: 'balance', railRef: `${p.railRef}-refund` },
+            Date.parse(refund.settledAt),
+          ),
         );
+      if (refund.status === 'reversed')
+        out.push(ev('refund.reversed', { refundId: refund.refundId, amount: refund.amount, source: 'balance' }, at + 2 * 3600_000));
     }
     const dispute = p.disputeId ? world.disputes.find((d) => d.disputeId === p.disputeId) : null;
     if (dispute)
@@ -136,11 +149,11 @@ export function createPaymentsMock(ctx) {
         ev(
           'disputed',
           { disputeId: dispute.disputeId, reasonCode: dispute.reasonCode ?? 'other', ledgerWire: 'refused' },
-          (Date.parse(dispute.openedAt) - t0) / 60_000,
+          Date.parse(dispute.openedAt),
         ),
       );
-    if (p.status === 'failed') out.push(ev('failed', { failureCode: 'rail.TEST_internal_code' }, 3));
-    return out;
+    if (p.status === 'failed') out.push(ev('failed', { failureCode: 'rail.TEST_internal_code' }, minutes(3)));
+    return out.sort((x, y) => x.ts.localeCompare(y.ts));
   };
   return {
     /** Returns NOT_MINE for a procedure this part does not own. */

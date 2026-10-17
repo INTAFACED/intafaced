@@ -1,5 +1,5 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
-import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, iso, ok, page, refuse } from '../mock/shared.mjs';
+import { NOT_MINE, DAY, MERCHANT_ID, TEAM, USER_ID, iso, ok, page, refuse } from '../mock/shared.mjs';
 import { createAccountMock } from './account/mock.mjs';
 
 /** Onboarding, verification and the team. Report files are answered by reports/mock.mjs. */
@@ -20,11 +20,11 @@ export function createSettingsMock(ctx) {
         cursor: null,
       },
       {
-        memberId: 'a1111111-1111-4111-8111-111111111111',
-        userId: 'TEST-user-finance',
+        memberId: TEAM.finance.memberId,
+        userId: TEAM.finance.userId,
         role: 'finance',
         status: 'active',
-        label: 'TEST Accounts',
+        label: TEAM.finance.label,
         invitedBy: USER_ID,
         createdAt: iso(now - 40 * DAY),
         activatedAt: iso(now - 39 * DAY),
@@ -32,11 +32,11 @@ export function createSettingsMock(ctx) {
         cursor: 'c1',
       },
       {
-        memberId: 'a2222222-2222-4222-8222-222222222222',
-        userId: 'TEST-user-dev',
+        memberId: TEAM.developer.memberId,
+        userId: TEAM.developer.userId,
         role: 'developer',
         status: 'active',
-        label: 'TEST Dev',
+        label: TEAM.developer.label,
         invitedBy: USER_ID,
         createdAt: iso(now - 20 * DAY),
         activatedAt: iso(now - 20 * DAY),
@@ -44,8 +44,8 @@ export function createSettingsMock(ctx) {
         cursor: 'c2',
       },
       {
-        memberId: 'a3333333-3333-4333-8333-333333333333',
-        userId: 'TEST-user-pending',
+        memberId: TEAM.invited.memberId,
+        userId: TEAM.invited.userId,
         role: 'viewer',
         status: 'invited',
         label: null,
@@ -59,7 +59,7 @@ export function createSettingsMock(ctx) {
     teamHistory: [
       {
         seq: '3',
-        memberUserId: 'TEST-user-pending',
+        memberUserId: TEAM.invited.userId,
         action: 'invited',
         fromRole: null,
         toRole: 'viewer',
@@ -68,16 +68,16 @@ export function createSettingsMock(ctx) {
       },
       {
         seq: '2',
-        memberUserId: 'TEST-user-dev',
+        memberUserId: TEAM.developer.userId,
         action: 'accepted',
         fromRole: null,
         toRole: 'developer',
-        actorId: 'TEST-user-dev',
+        actorId: TEAM.developer.userId,
         createdAt: iso(now - 20 * DAY),
       },
       {
         seq: '1',
-        memberUserId: 'TEST-user-finance',
+        memberUserId: TEAM.finance.userId,
         action: 'role_changed',
         fromRole: 'viewer',
         toRole: 'finance',

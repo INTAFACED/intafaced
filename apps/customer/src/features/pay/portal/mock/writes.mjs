@@ -26,8 +26,26 @@ export function createWritesMock(ctx) {
   const { now, state, scenario, world } = ctx;
   const replays = new Map();
   const sessions = (state.sessions ??= [
-    { id: uuid('51', 1), createdAt: iso(now - 2 * 3600_000), revoked: false },
-    { id: uuid('51', 2), createdAt: iso(now - 6 * DAY), revoked: false },
+    // Where each sign-in came from. TEST values: the device names are made up and the addresses are from the ranges reserved
+    // for documentation (RFC 5737), so none of them can belong to anyone.
+    {
+      id: uuid('51', 1),
+      createdAt: iso(now - 2 * 3600_000),
+      revoked: false,
+      device: 'TEST laptop · TEST Browser on macOS',
+      ip: '198.51.100.24',
+      lastSeenAt: iso(now - 120_000),
+      current: true,
+    },
+    {
+      id: uuid('51', 2),
+      createdAt: iso(now - 6 * DAY),
+      revoked: false,
+      device: 'TEST phone · TEST Browser on iOS',
+      ip: '203.0.113.88',
+      lastSeenAt: iso(now - 26 * 3600_000),
+      current: false,
+    },
   ]);
   const paymentView = ({ n: _n, linkId: _l, fee: _f, settlementId: _s, disputeId: _d, refundId: _r, ...row }) => row;
 
@@ -47,9 +65,14 @@ export function createWritesMock(ctx) {
             return refuse(route, 400, 'pay.refund_amount_invalid');
           const refundedAmount = fromU(toU(p.refundedAmount) + toU(input.amount));
           const createdAt = Date.now();
+          // Money comes out of the pot it is in: still being settled until the payment is in a settlement, then the merchant's
+          // settled money. The refund form and the ledger both say the same, because both read this.
+          const fromSettled = p.settlementId !== null;
           p.refundedAmount = refundedAmount;
           if (toU(refundedAmount) === toU(p.capturedAmount)) p.status = 'refunded';
           p.refundId = input.refundId;
+          // The network confirms a refund as it is posted, so the payment already says refunded (or part refunded). Every refund,
+          // a part refund too, is one row here; the payment history reads these rows (payments/mock.mjs).
           world.refunds.unshift({
             id: uuid('cc3', world.refunds.length + 1),
             refundId: input.refundId,
@@ -59,11 +82,16 @@ export function createWritesMock(ctx) {
             assetId: p.assetId,
             reason: null,
             actor: USER_ID,
-            status: 'posted',
+            status: 'settled',
             createdAt: iso(createdAt),
-            settledAt: null,
-            source: 'clearing',
-            ledgerEffect: { recorded: true, pot: 'clearing', ledgerTxId: uuid('cc4', world.refunds.length + 1), direction: 'credit' },
+            settledAt: iso(createdAt),
+            source: fromSettled ? 'settled' : 'clearing',
+            ledgerEffect: {
+              recorded: true,
+              pot: fromSettled ? 'merchantProceeds' : 'clearing',
+              ledgerTxId: uuid('cc4', world.refunds.length + 1),
+              direction: 'credit',
+            },
             payment: { paymentId: p.id, status: p.status },
           });
           replays.set(`refund:${input.refundId}`, true);
@@ -71,6 +99,9 @@ export function createWritesMock(ctx) {
         }
         case 'merchant.createLink': {
           if (input.amount && !input.currency) return refuse(route, 400, 'pay.payment_link_currency_required');
+          // The same request sent twice (a lost reply, then "check and finish") makes one link, and answers the same way.
+          const seenLink = input.idempotencyKey ? replays.get(`link:${input.idempotencyKey}`) : undefined;
+          if (seenLink) return ok(route, seenLink);
           const n = world.links.length + 1;
           const prefix = `TESTl${n}`;
           const expiresAt = input.expiresAt ?? iso(now + 30 * DAY);
@@ -88,7 +119,18 @@ export function createWritesMock(ctx) {
             checkoutUrl: `https://checkout.example.test/pay/checkout?token=TEST-token-${prefix}`,
           };
           world.links.unshift(link);
-          return ok(route, { id: link.id, token: `TEST-token-${prefix}`, prefix, label: link.label, expiresAt, maxUses: link.maxUses });
+          const made = {
+            id: link.id,
+            token: `TEST-token-${prefix}`,
+            prefix,
+            label: link.label,
+            expiresAt,
+            maxUses: link.maxUses,
+            // the address a payer opens, built by the service, so a page never has to build one from its own address
+            checkoutUrl: link.checkoutUrl,
+          };
+          if (input.idempotencyKey) replays.set(`link:${input.idempotencyKey}`, made);
+          return ok(route, made);
         }
         case 'merchant.deactivateLink': {
           const link = world.links.find((l) => l.id === input.linkId);
