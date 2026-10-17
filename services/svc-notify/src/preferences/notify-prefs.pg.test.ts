@@ -28,9 +28,8 @@ const OTHER = 'n0t1f7be-2222-4222-8222-222222222222';
 const AUTHOR = 'n0t1f7be-3333-4333-8333-333333333333';
 const APPROVER = 'n0t1f7be-4444-4444-8444-444444444444';
 
-if (!URL) throw new Error('TEST_DATABASE_URL is unset. Source ~/.codex/context/work/runs/test-db.env.');
-
-const sql = postgres(URL, { max: 2, onnotice: () => undefined });
+/** Unset means this file is not the caller. The package suite must not inherit a database named `test`: older helpers refuse it. */
+const client: Sql | null = URL ? postgres(URL, { max: 2, onnotice: () => undefined }) : null;
 
 async function applyMigrations(db: Sql): Promise<void> {
   const name = await db<{ db: string }[]>`SELECT current_database() AS db`;
@@ -100,14 +99,21 @@ class OneApproval implements NoticeApprovalConsumer {
   }
 }
 
+function db(): Sql {
+  if (!client) throw new Error('TEST_DATABASE_URL is unset');
+  return client;
+}
+
 beforeAll(async () => {
-  await applyMigrations(sql);
-  await cleanup(sql);
+  if (!client) return;
+  await applyMigrations(client);
+  await cleanup(client);
 });
 
 afterAll(async () => {
-  await cleanup(sql).catch(() => undefined);
-  await sql.end({ timeout: 1 }).catch(() => undefined);
+  if (!client) return;
+  await cleanup(client).catch(() => undefined);
+  await client.end({ timeout: 1 }).catch(() => undefined);
 });
 
 class ReadyEmail implements NotificationChannel {
@@ -127,12 +133,12 @@ function channelStatus() {
   ]).status();
 }
 
-describe('notify prefs on the shared test database', () => {
+describe.skipIf(!URL)('notify prefs on the shared test database', () => {
   it('keeps one account topic mute invisible to another, and replays the first snapshot', async () => {
     const account = new AccountPrefs(
-      new PostgresTopicPrefStore(sql),
-      new PostgresDigestPrefStore(sql),
-      new PostgresCommandLog(sql),
+      new PostgresTopicPrefStore(db()),
+      new PostgresDigestPrefStore(db()),
+      new PostgresCommandLog(db()),
       channelStatus,
     );
     const first = await account.setTopicPref(USER, {
@@ -152,9 +158,9 @@ describe('notify prefs on the shared test database', () => {
     const other = await account.topicPrefs(OTHER);
     expect(other.find((row) => row.topic === 'trade' && row.channel === 'email')?.enabled).toBe(true);
     const reloaded = new AccountPrefs(
-      new PostgresTopicPrefStore(sql),
-      new PostgresDigestPrefStore(sql),
-      new PostgresCommandLog(sql),
+      new PostgresTopicPrefStore(db()),
+      new PostgresDigestPrefStore(db()),
+      new PostgresCommandLog(db()),
       channelStatus,
     );
     expect((await reloaded.topicPrefs(USER)).find((row) => row.topic === 'trade' && row.channel === 'email')?.enabled).toBe(false);
@@ -164,22 +170,22 @@ describe('notify prefs on the shared test database', () => {
     const older = 'a1111111-1111-4111-8111-111111111111';
     const newer = 'b1111111-1111-4111-8111-111111111111';
     const foreign = 'c1111111-1111-4111-8111-111111111111';
-    await sql`
+    await db()`
       INSERT INTO notify.notifications (id, user_id, kind, title_key, body_key, severity, source_subject, source_idempotency_key)
       VALUES
         (${older}, ${USER}, 'trade.fill', 'notify.trade.fill.title', 'notify.trade.fill.body', 'info', 'intafaced.trade.fill.settled', 'pg-recent-older'),
         (${newer}, ${USER}, 'trade.fill', 'notify.trade.fill.title', 'notify.trade.fill.body', 'info', 'intafaced.trade.fill.settled', 'pg-recent-newer'),
         (${foreign}, ${OTHER}, 'trade.fill', 'notify.trade.fill.title', 'notify.trade.fill.body', 'info', 'intafaced.trade.fill.settled', 'pg-recent-foreign')
     `;
-    const deliveries = new PostgresDeliveryStore(sql);
+    const deliveries = new PostgresDeliveryStore(db());
     for (const id of [older, newer, foreign]) {
       const claim = await deliveries.claim(id, 'email', 3);
       if (!claim.claimed) throw new Error('claim failed');
       await deliveries.settle({ id: claim.id, attempt: claim.attempt, status: 'accepted', refusalCode: null, attempted: true });
     }
-    await sql`UPDATE notify.deliveries SET created_at = '2026-06-01T00:00:00.000Z' WHERE notification_id = ${older}`;
-    await sql`UPDATE notify.deliveries SET created_at = '2026-06-01T00:00:02.000Z' WHERE notification_id = ${newer}`;
-    await sql`UPDATE notify.deliveries SET created_at = '2026-06-01T00:00:03.000Z' WHERE notification_id = ${foreign}`;
+    await db()`UPDATE notify.deliveries SET created_at = '2026-06-01T00:00:00.000Z' WHERE notification_id = ${older}`;
+    await db()`UPDATE notify.deliveries SET created_at = '2026-06-01T00:00:02.000Z' WHERE notification_id = ${newer}`;
+    await db()`UPDATE notify.deliveries SET created_at = '2026-06-01T00:00:03.000Z' WHERE notification_id = ${foreign}`;
     const page = await deliveries.listOwnedRecent({ userId: USER, limit: 1, before: null });
     expect(page.map((row) => row.notificationId)).toEqual([newer]);
     const rest = await deliveries.listOwnedRecent({
@@ -194,7 +200,7 @@ describe('notify prefs on the shared test database', () => {
 
   it('refuses a published notice edit and keeps the id', async () => {
     const board = new NoticeBoard(
-      new PostgresNoticeStore(sql),
+      new PostgresNoticeStore(db()),
       new OneApproval(),
       new MemoryCommandLog(),
       () => new Date('2026-10-17T12:00:00.000Z'),
@@ -216,7 +222,7 @@ describe('notify prefs on the shared test database', () => {
     const listed = await board.notices({ limit: 20 });
     expect(listed.some((row) => row.id === draft.id && row.status === 'draft')).toBe(false);
     expect(listed.find((row) => row.id === published.id)?.status).toBe('published');
-    await expect(sql`UPDATE notify.notices SET title = 'Changed' WHERE id = ${published.id}`).rejects.toThrow(
+    await expect(db()`UPDATE notify.notices SET title = 'Changed' WHERE id = ${published.id}`).rejects.toThrow(
       /notify\.notice_published_immutable/,
     );
     const again = await board.publish(AUTHOR, {
