@@ -6,7 +6,20 @@ import { useLocation } from '../../app/location';
 import { useSession } from '../session/session';
 import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
+import { ContactSupport } from './ContactSupport';
+import { KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from '../more/support-desk';
+import { deskCopy } from '../more/support-desk-copy';
 import './help.css';
+import '../more/support-desk.css';
+
+const CATEGORY_KEY = {
+  all: 'categoryAll',
+  account: 'categoryAccount',
+  security: 'categorySecurity',
+  trading: 'categoryTrading',
+  money: 'categoryMoney',
+  general: 'categoryGeneral',
+} as const;
 
 type Actor = { client: ApiClient; owner: string | null; token: string | null };
 type Context = { actor: Actor; url: string };
@@ -40,6 +53,8 @@ export function PublicHelp() {
   const [window, setWindow] = useState({ actor, limit: 100 }),
     [retry, setRetry] = useState(0);
   const [read, setRead] = useState<Read | null>(null);
+  const [category, setCategory] = useState<KbCategory>('all');
+  const desk = deskCopy.useCopy();
   const limit = window.actor === actor ? window.limit : 100;
   const queryText = query.actor === actor ? query.text : '';
   const filterText = submitted.actor === actor ? submitted.text : '';
@@ -108,6 +123,7 @@ export function PublicHelp() {
   const loaded = visible?.status === 'ready' && visible.value.kind === 'browse' ? visible.value : null;
   const articles =
     loaded?.articles.filter((article) => {
+      if (!inKbCategory(article.id, category)) return false;
       const text = rendered(article);
       return [text.title ?? '', text.body ?? '', article.id]
         .join(' ')
@@ -151,19 +167,14 @@ export function PublicHelp() {
     </div>
   );
   const support = (articleRecovery = false) => (
-    <aside className="help__card">
-      <h2>{t(articleRecovery ? 'stillNeed' : 'accountChecked')}</h2>
-      <p className="muted">{t(articleRecovery ? 'recoveryBody' : 'accountBoundary')}</p>
+    <div className="help__side">
+      <ContactSupport />
       {articleRecovery && (
         <a href="/findPwd" className="help__link text-link">
           {t('recovery')}
         </a>
       )}
-      <a href="/support" className="help__link text-link">
-        {t('support')}
-      </a>
-      {!articleRecovery && <p className="help__caption muted">{t('signInBoundary')}</p>}
-    </aside>
+    </div>
   );
   return (
     <div className="help" lang={languageFor('title')}>
@@ -246,6 +257,20 @@ export function PublicHelp() {
               )}
               {loaded && (
                 <>
+                  <div className="support-chips" role="group" aria-label={desk.t('categoriesLabel')}>
+                    {KB_CATEGORIES.filter((id) => kbCategoryCounts(loaded.articles.map((row) => row.id))[id]).map((id) => (
+                      <button
+                        type="button"
+                        key={id}
+                        className={`support-chip${category === id ? ' support-chip--on' : ''}`}
+                        aria-pressed={category === id}
+                        onClick={() => setCategory(id)}
+                      >
+                        {desk.t(CATEGORY_KEY[id])}{' '}
+                        <span aria-hidden="true">{kbCategoryCounts(loaded.articles.map((row) => row.id))[id]}</span>
+                      </button>
+                    ))}
+                  </div>
                   <div className="help__list">
                     {articles.map((row) => {
                       const text = rendered(row);
@@ -337,9 +362,7 @@ export function PublicHelp() {
                   {t('readLatestShort')}
                 </a>
               </section>
-              <a href="/support" className="help__link text-link">
-                {t('support')}
-              </a>
+              <ContactSupport />
               <p className="help__caption muted">{t('resultBoundary')}</p>
             </>
           )}

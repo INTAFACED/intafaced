@@ -7,6 +7,7 @@ import { stubApprovalConsumer } from './action-approval-consume.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { defaultFraudReviewQueue } from './fraud/review-queue.js';
 import { PayError, assertPaymentHistoryLimit, type PayService, type PaymentView, type SettlementRecord } from './payment-service.js';
+import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
 import type { DepositRecord, UserMoneyService, WithdrawalRecord } from './user-money-service.js';
 import { RailRegistry } from './rails/registry.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
@@ -166,9 +167,15 @@ function stubService(): Stub {
     getMerchant: record('getMerchant', merchant),
     getMerchantByUserId: record('getMerchantByUserId', merchant),
     submitKyb: record('submitKyb', () => ({ ...merchant(), kybStatus: 'pending' as const, kybRef: 'dossier-1' })),
-    decideKyb: record('decideKyb', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
+    decideKyb: record('decideKyb', ((input: { beforeWrite?: () => Promise<void> }) => {
+      const consume = input.beforeWrite?.() ?? Promise.resolve();
+      return consume.then(() => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' }));
+    }) as unknown as () => ReturnType<typeof merchant>),
     decideKybStub: record('decideKybStub', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
-    listPayments: record('listPayments', () => [paymentView({ status: 'captured', capturedAmount: amt('100') })]),
+    listPayments: record('listPayments', () => ({
+      items: [{ ...paymentView({ status: 'captured', capturedAmount: amt('100') }), pricingSnapshot: null, failure: null }],
+      nextCursor: null,
+    })),
     createProfile: record('createProfile', () => ({ id: SETTLEMENT, merchantId: MERCHANT })),
     clearingBalance: record('clearingBalance', () => amt('100.5')),
     merchantBalance: record('merchantBalance', () => amt('97.5')),
@@ -187,7 +194,20 @@ function stubService(): Stub {
       settlementRecord({ status: 'paid_out', payoutMethod: 'card-sandbox', payoutRef: 'po_1' }),
     ),
     getSettlement: record('getSettlement', () => settlementRecord()),
-    listSettlements: record('listSettlements', () => [settlementRecord()]),
+    listSettlements: record('listSettlements', () => ({
+      items: [
+        {
+          ...settlementRecord(),
+          createdAt: new Date('2026-07-27T00:00:00.000Z'),
+          sentAt: null,
+          settledAt: new Date('2026-07-27T01:00:00.000Z'),
+          failedAt: null,
+          failure: null,
+          pricingSnapshot: null,
+        },
+      ],
+      nextCursor: null,
+    })),
     createPaymentLink: record('createPaymentLink', () => ({
       id: LINK,
       token: 'pl_generated_token',
@@ -311,7 +331,30 @@ let router: ReturnType<typeof createPayRouter>;
 beforeEach(() => {
   stub = stubService();
   money = stubUserMoney();
-  router = createPayRouter(stub.service, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM));
+  router = createPayRouter(
+    stub.service,
+    rails,
+    money.service,
+    null,
+    undefined,
+    stubApprovalConsumer(CONFIRM),
+    null,
+    undefined,
+    (async () => [
+      {
+        profile_version: '0',
+        legal_name: null,
+        statement_descriptor: null,
+        industry: null,
+        address_line1: null,
+        address_line2: null,
+        address_city: null,
+        address_region: null,
+        address_postal_code: null,
+        address_country: null,
+      },
+    ]) as never,
+  );
 });
 
 const caller = async (scopes: string[], opts?: Parameters<typeof ctx>[1]) => router.createCaller(await ctx(scopes, opts));
@@ -405,6 +448,35 @@ describe('money crosses this boundary as a decimal string', () => {
     expect(() => JSON.stringify(payment)).not.toThrow();
   });
 
+  it('returns the committed capture when the post-commit facts read fails', async () => {
+    const seen: string[] = [];
+    setPaymentFactsReadFailureSink((event) => {
+      seen.push(event.paymentId);
+    });
+    try {
+      (stub.service as PayService).paymentFacts = async () => {
+        throw new Error('facts unread');
+      };
+      const api = await caller(['pay:write']);
+      const payment = await api.payment.capture({ paymentId: PAYMENT });
+      expect(payment.id).toBe(PAYMENT);
+      expect(payment.status).toBe('captured');
+      expect(payment.pricingSnapshot).toBeNull();
+      expect(payment.failure).toBeNull();
+      expect(seen).toEqual([PAYMENT]);
+    } finally {
+      setPaymentFactsReadFailureSink(null);
+    }
+  });
+
+  it('still fails payment.get when the facts read fails, because nothing was committed', async () => {
+    (stub.service as PayService).paymentFacts = async () => {
+      throw new Error('facts unread');
+    };
+    const api = await caller(['pay:read']);
+    await expect(api.payment.get({ paymentId: PAYMENT })).rejects.toThrow();
+  });
+
   it('returns settlement gross, fees and net as decimal strings that still add up', async () => {
     const api = await caller(['pay:write']);
     const settlement = await api.settlement.run({ merchantId: MERCHANT, window: '2026-07-27', assetId: 'USDT' });
@@ -419,6 +491,15 @@ describe('money crosses this boundary as a decimal string', () => {
       clearing: '100.5',
       available: '97.5',
     });
+  });
+
+  it('a caller who does not own the merchant cannot read merchant balances', async () => {
+    stub.ownedBy('99999999-9999-4999-8999-999999999999');
+    const api = await caller(['pay:read']);
+    const err = await api.merchant.balances({ merchantId: MERCHANT, assetId: 'USDT' }).catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBe('NOT_FOUND');
+    expect(stub.calls.some((c) => c.method === 'merchantBalance')).toBe(false);
+    expect(stub.calls.some((c) => c.method === 'clearingBalance')).toBe(false);
   });
 
   it('passes an optional capture amount through as a bigint, and omits it when absent', async () => {
@@ -740,15 +821,17 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
       id: SETTLEMENT,
       gross: '100',
       net: '97.5',
+      createdAt: null,
     });
   });
 
   it('owner can list settlements for a merchant', async () => {
     const api = await caller(['pay:read']);
     const rows = await api.settlement.list({ merchantId: MERCHANT, status: 'posted', limit: 50 });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.gross).toBe('100');
-    expect(rows[0]!.net).toBe('97.5');
+    expect(rows.items).toHaveLength(1);
+    expect(rows.items[0]!.gross).toBe('100');
+    expect(rows.items[0]!.net).toBe('97.5');
+    expect(rows.nextCursor).toBeNull();
     expect(stub.calls.filter((c) => c.method === 'listSettlements')).toHaveLength(1);
   });
 

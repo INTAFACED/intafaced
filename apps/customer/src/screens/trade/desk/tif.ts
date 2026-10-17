@@ -1,0 +1,73 @@
+/**
+ * Time in force on the spot ticket: what the trader may pick, what the order carries, and how the outcome is worded.
+ *
+ * The service accepts GTC, post-only (PO), IOC and FOK on a limit order, and a market order is already immediate
+ * (the engine sends it as IOC, or FOK when asked). Nothing here widens that: stop, stop-limit and take-profit are
+ * refused by the service (`trade.order_type_unsupported`), so the ticket shows them disabled (`UNSUPPORTED_TYPES`).
+ */
+import type { Draft, Order } from '../../../features/trade/trade-api';
+import { scaled, type OrderType } from './order-math';
+
+export type Tif = 'GTC' | 'PO' | 'IOC' | 'FOK';
+
+const LIMIT_TIFS: readonly Tif[] = ['GTC', 'PO', 'IOC', 'FOK'];
+/** A market order never rests, so "good till cancelled" and "post only" do not apply. Standard = the engine's immediate rule. */
+const MARKET_TIFS: readonly Tif[] = ['GTC', 'FOK'];
+
+export const tifsFor = (type: OrderType): readonly Tif[] => (type === 'limit' ? LIMIT_TIFS : MARKET_TIFS);
+
+/** Keep the pick when the new order type still allows it, otherwise fall back to the standard one. */
+export const tifFor = (type: OrderType, tif: Tif): Tif => (tifsFor(type).includes(tif) ? tif : 'GTC');
+
+/** The two fields the order carries. Post-only is sent as time in force PO and postOnly true, as the service expects. */
+export function tifFields(tif: Tif): Pick<Draft, 'timeInForce' | 'postOnly'> {
+  return tif === 'PO' ? { timeInForce: 'PO', postOnly: true } : { timeInForce: tif, postOnly: false };
+}
+
+export type TifLabelKey = 'Tif GTC' | 'Tif PO' | 'Tif IOC' | 'Tif FOK' | 'Tif market standard' | 'Tif market FOK';
+export type TifHelpKey = `${TifLabelKey} help`;
+
+/** Copy key for the name of a pick. A market order's "standard" is the engine's immediate rule, not "good till cancelled". */
+export function tifLabelKey(type: OrderType, tif: Tif): TifLabelKey {
+  if (type === 'market') return tif === 'FOK' ? 'Tif market FOK' : 'Tif market standard';
+  return tif === 'PO' ? 'Tif PO' : tif === 'IOC' ? 'Tif IOC' : tif === 'FOK' ? 'Tif FOK' : 'Tif GTC';
+}
+
+/** The pick a draft was built from (the inverse of `tifFields`). */
+export const tifOfDraft = (draft: Pick<Draft, 'timeInForce' | 'postOnly'>): Tif =>
+  draft.postOnly || draft.timeInForce === 'PO' ? 'PO' : draft.timeInForce;
+
+/** Order kinds the service refuses on spot today. They are listed, disabled, with one shared reason. */
+export const UNSUPPORTED_TYPES = ['stopLimit', 'takeProfitStopLoss', 'oco', 'trailingStop'] as const;
+export type UnsupportedType = (typeof UNSUPPORTED_TYPES)[number];
+
+/** What the order itself says it is, for the tables: nothing for a plain limit or market, a short tag otherwise. */
+export function orderTag(order: Pick<Order, 'timeInForce' | 'postOnly'>): 'PO' | 'IOC' | 'FOK' | 'GTD' | 'GTT' | null {
+  if (order.postOnly || order.timeInForce === 'PO') return 'PO';
+  if (order.timeInForce === 'IOC' || order.timeInForce === 'FOK' || order.timeInForce === 'GTD' || order.timeInForce === 'GTT')
+    return order.timeInForce;
+  return null;
+}
+
+export type Outcome =
+  | { kind: 'filled' }
+  | { kind: 'resting' }
+  | { kind: 'partCancelled' }
+  | { kind: 'noFill'; tif: Tif }
+  | { kind: 'rejected'; tif: Tif }
+  | { kind: 'done' };
+
+/**
+ * What happened to an order the service accepted a request for. An order that came back rejected, or finished with
+ * nothing filled, is NOT "done": the trader must hear that nothing traded and, for post-only and fill-or-kill, why.
+ */
+export function outcomeOf(order: Pick<Order, 'status' | 'filled' | 'remaining'>, tif: Tif): Outcome {
+  const filled = scaled(order.filled) ?? 0n;
+  const remaining = scaled(order.remaining) ?? 0n;
+  if (order.status === 'open') return { kind: 'resting' };
+  if (order.status === 'rejected') return { kind: 'rejected', tif };
+  if (order.status === 'closed' && remaining === 0n && filled > 0n) return { kind: 'filled' };
+  if (filled === 0n) return { kind: 'noFill', tif };
+  if (remaining > 0n) return { kind: 'partCancelled' };
+  return { kind: 'done' };
+}

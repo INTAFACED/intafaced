@@ -50,6 +50,15 @@ export const rooms: readonly Room[] = [
     screen: 'money',
   },
   {
+    path: '/money/activity/:id',
+    title: 'Activity',
+    description: 'Transaction details',
+    door: 'Money',
+    area: 'money',
+    hidden: true,
+    screen: 'money',
+  },
+  {
     path: '/coin/:asset',
     title: 'Coin',
     description: 'Asset details and actions',
@@ -90,7 +99,7 @@ export const rooms: readonly Room[] = [
   { path: '/uc/withdraw', title: 'Withdraw', description: 'Withdraw available funds', door: 'Money', area: 'money' },
   { path: '/uc/withdraw/address', title: 'Addresses', description: 'Withdrawal destinations', door: 'Money', area: 'money' },
   { path: '/uc/record', title: 'Activity', description: 'Money moving in and out', door: 'Money', area: 'money', alias: '/money/activity' },
-  { path: '/bank', title: 'Bank', description: 'The bank behind your balance', door: 'Money', area: 'money', alias: '/money' },
+  { path: '/bank', title: 'Bank', description: 'The bank behind your balance', door: 'Money', area: 'money' },
   { path: '/bank/spaces', title: 'Spaces', description: 'Organise funds for your goals', door: 'Money', area: 'money' },
   { path: '/bank/transfers', title: 'Transfers', description: 'Move funds between your spaces', door: 'Money', area: 'money' },
   { path: '/bank/earn', title: 'Earn', description: 'Available earning products', door: 'Money', area: 'money' },
@@ -98,7 +107,14 @@ export const rooms: readonly Room[] = [
   { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Money', area: 'money' },
   { path: '/bank/ramps', title: 'Cash and crypto', description: 'Onramps and offramps', door: 'Money', area: 'money' },
   { path: '/bank/analytics', title: 'Spending', description: 'Understand your activity', door: 'Money', area: 'money' },
-  { path: '/bank/business', title: 'Business bank', description: 'Company cash accounts', door: 'Money', area: 'money', business: true },
+  {
+    path: '/bank/business',
+    title: 'Business approvals',
+    description: 'Approval rules on your accounts',
+    door: 'Money',
+    area: 'money',
+    business: true,
+  },
   { path: '/trade', title: 'Markets', description: 'Prices for every market', door: 'Trade', area: 'trade', screen: 'trade/markets' },
   { path: '/exchange', title: 'Trade', description: 'Spot trading terminal', door: 'Trade', area: 'trade', alias: '/trade' },
   {
@@ -127,8 +143,22 @@ export const rooms: readonly Room[] = [
     area: 'trade',
     screen: 'trade/buy',
   },
-  { path: '/trade/margin', title: 'Margin', description: 'Cross or isolated trading', door: 'Trade', area: 'trade' },
-  { path: '/trade/futures', title: 'Futures', description: 'Perpetual and dated contracts', door: 'Trade', area: 'trade' },
+  {
+    path: '/trade/margin',
+    title: 'Margin',
+    description: 'Isolated margin, health and collateral',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'trade/margin',
+  },
+  {
+    path: '/trade/futures',
+    title: 'Futures',
+    description: 'Perpetual and dated contracts',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'trade/futures',
+  },
   { path: '/trade/options', title: 'Options', description: 'Calls, strikes and puts', door: 'Trade', area: 'trade' },
   { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade' },
   { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
@@ -162,10 +192,10 @@ export const rooms: readonly Room[] = [
   },
   { path: '/pay', title: 'Pay', description: 'Send, receive and request', door: 'Pay', area: 'pay', screen: 'pay' },
   { path: '/pay/send', title: 'Send', description: 'Pay a person', door: 'Pay', area: 'pay', screen: 'pay' },
-  { path: '/pay/request', title: 'Request', description: 'Request a payment', door: 'Pay', area: 'pay' },
+  { path: '/pay/request', title: 'Request', description: 'Request a payment', door: 'Pay', area: 'pay', screen: 'pay' },
   { path: '/pay/receive', title: 'Receive', description: 'Receive into your account', door: 'Pay', area: 'pay', screen: 'pay' },
-  { path: '/pay/bills', title: 'Bill pay', description: 'Pay a bill', door: 'Pay', area: 'pay' },
-  { path: '/pay/global', title: 'Send globally', description: 'Send to a bank account abroad', door: 'Pay', area: 'pay' },
+  { path: '/pay/bills', title: 'Bill pay', description: 'Pay a bill', door: 'Pay', area: 'pay', screen: 'pay' },
+  { path: '/pay/global', title: 'Send globally', description: 'Send to a bank account abroad', door: 'Pay', area: 'pay', screen: 'pay' },
   { path: '/p2p', title: 'Person-to-person', description: 'Offers, orders and counterparties', door: 'Pay', area: 'pay' },
   { path: '/ctc', title: 'Person-to-person', description: 'Offers and orders', door: 'Pay', area: 'pay', alias: '/p2p' },
   { path: '/uc/ad', title: 'My offers', description: 'Manage your person-to-person offers', door: 'Pay', area: 'pay' },
@@ -178,8 +208,12 @@ export const rooms: readonly Room[] = [
     [
       ['merchant', 'Merchant home', 'Manage your business payments'],
       ['money', 'Merchant balance', 'Funds belonging to your merchant account'],
+      ['money/activity', 'Balance activity', 'Records explaining merchant balance changes'],
       ['links', 'Payment links', 'Share a payment link'],
+      ['links/new', 'Create a payment link', 'Review a new checkout link'],
       ['checkout', 'Checkout', 'Hosted payment checkout'],
+      ['refunds', 'Refunds', 'Find refunds by their original payment'],
+      ['refunds/new', 'Issue a refund', 'Review a full or partial refund'],
       ['payments', 'Payments', 'Customer payment activity'],
       ['customers', 'Customers', 'Business customer records'],
       ['payouts', 'Payouts', 'Review outgoing business payments'],
@@ -187,14 +221,32 @@ export const rooms: readonly Room[] = [
       ['disputes', 'Disputes', 'Manage payment disputes'],
       ['network', 'Sub-merchants', 'Your merchant network'],
       ['permissions', 'Permissions', 'Merchant access controls'],
+      ['conversion', 'Conversion', 'USD to USDT availability and orders'],
+      ['conversion/new', 'Convert USD to USDT', 'Review a conversion quote'],
+      ['compliance', 'Compliance', 'Business verification and requirements'],
+      ['settings', 'Business profile', 'Merchant account details and preferences'],
+      ['settings/team', 'Team settings', 'Manage merchant team access'],
+      ['settings/notifications', 'Notification preferences', 'Choose business alerts'],
       ['invoices', 'Invoices', 'Issue and manage invoices'],
+      ['subscriptions/new', 'Create subscription', 'Start a schedule from an existing mandate'],
       ['subscriptions', 'Subscriptions', 'Recurring billing'],
       ['reports', 'Reports', 'Export business activity'],
+      ['reports/exports', 'Export jobs', 'Request and download account reports'],
+      ['developer/keys', 'API keys', 'Sandbox credentials and their scopes'],
+      ['developer/signing', 'Request signing', 'Request signing availability'],
+      ['developer/webhooks', 'Webhook endpoints', 'Merchant event receivers'],
+      ['developer/deliveries', 'Webhook deliveries', 'Recorded event delivery attempts'],
       ['developer', 'Developer', 'Test keys and webhooks'],
       ['onboarding', 'Set up your account', 'Open your merchant account in three steps'],
+      ['onboarding/business', 'Business details', 'Save your legal business and contact details'],
+      ['onboarding/verification', 'Business verification', 'Submit and track business verification'],
+      ['onboarding/go-live', 'Payout destination', 'Review your destination and activation requirements'],
       ['team', 'Team and roles', 'Who can do what on this account'],
       ['exports', 'Exports', 'Download payment, settlement and payout reports'],
       ['notifications', 'Business alerts', 'Disputes, payouts and exports that need you'],
+      ['approvals', 'Payout approvals', 'Payouts waiting for a second person'],
+      ['pricing', 'Pricing and fees', 'What your account is charged'],
+      ['limits', 'Limits and tier', 'How much of each limit is used'],
     ] as const
   ).map(([slug, title, description]) => ({
     path: `/pay/${slug}`,
@@ -205,9 +257,99 @@ export const rooms: readonly Room[] = [
     business: true,
   })),
   {
+    path: '/pay/invoices/:invoiceId',
+    title: 'Invoice detail',
+    description: 'One invoice reference',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/developer/webhooks/:endpointId',
+    title: 'Endpoint detail',
+    description: 'One merchant webhook endpoint',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/subscriptions/:subscriptionId',
+    title: 'Subscription detail',
+    description: 'One recurring schedule',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/conversion/:orderId',
+    title: 'Conversion order',
+    description: 'One conversion order',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/settings/profile',
+    title: 'Business profile',
+    description: 'Merchant account details and preferences',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/links/:linkId',
+    title: 'Payment link',
+    description: 'One checkout link',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/refunds/:refundId',
+    title: 'Refund detail',
+    description: 'One recorded refund',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
     path: '/pay/disputes/:disputeId',
     title: 'Dispute',
     description: 'One dispute',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/payments/:paymentId',
+    title: 'Payment',
+    description: 'One payment',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/settlements/:settlementId',
+    title: 'Settlement statement',
+    description: 'One settlement',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/payouts/:payoutId',
+    title: 'Payout',
+    description: 'One payout',
     door: 'Pay',
     area: 'pay',
     business: true,
@@ -272,13 +414,11 @@ export const rooms: readonly Room[] = [
   { path: '/uc/trade', title: 'Trading settings', description: 'Personal trade settings', area: 'person', alias: '/view' },
   { path: '/ops', title: 'Team desk', description: 'Separate operator console', area: 'team', hidden: true },
   { path: '/platform', title: 'Team inspection', description: 'Operator module inspection', area: 'team', hidden: true },
-  ...(['chain', 'dex', 'protocol'] as const).map((slug) => ({
-    path: `/${slug}`,
-    title: slug,
-    description: 'Parked until owner activation' as const,
-    area: 'parked' as const,
-    hidden: true,
-  })),
+  ...(['chain', 'dex', 'protocol'] as const).flatMap((slug) => [
+    { path: `/${slug}`, title: slug, description: 'Parked until owner activation' as const, area: 'parked' as const },
+    // Tab deep links (`/chain/validators`); the room picks the tab from the rest of the path.
+    { path: `/${slug}/*`, title: slug, description: 'Parked until owner activation' as const, area: 'parked' as const, hidden: true },
+  ]),
 ];
 
 export function findRoom(path: string): Room | undefined {
@@ -344,18 +484,23 @@ export function roomDescription(room: Room, locale: UiLocale = currentPreference
 export function doorLabel(door: Door, locale: UiLocale = currentPreferences().language): string {
   return navigationCopy.forLocale(locale).t(door);
 }
-/** Pages offered by search: visible routes only. Aliases, parameter routes and hidden features never appear. */
+const publicSearchable = new Set(['/help', '/notice', '/lab', '/app', '/partner']);
+/**
+ * Pages offered by search: every room you can open. Aliases, detail routes (flagged `hidden`) and the separate Team desk
+ * never appear; parked Protocol rooms do, so a search finds them and shows their blockers. Business rooms wait for Business
+ * mode, except the Merchant home, which is how a Personal account finds the merchant set-up.
+ */
 export function searchRooms(query: string, mode: 'Personal' | 'Business', locale: UiLocale = currentPreferences().language): Room[] {
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   return rooms.filter(
     (room) =>
       !room.hidden &&
       !room.alias &&
-      !['team', 'parked'].includes(room.area) &&
-      // Public marketing pages are not part of the signed-in app; Help is the one public page customers look for.
-      (room.area !== 'public' || room.path === '/help') &&
+      room.area !== 'team' &&
+      // Public marketing pages are not part of the signed-in app; Help and the public extras customers once could not reach are.
+      (room.area !== 'public' || publicSearchable.has(room.path)) &&
       !isHiddenPath(room.path) &&
-      (!room.business || mode === 'Business') &&
+      (!room.business || mode === 'Business' || room.path === '/pay/merchant') &&
       words.every((word) =>
         `${room.title} ${room.description} ${room.door ?? ''} ${roomTitle(room, locale)} ${roomDescription(room, locale)} ${room.door ? doorLabel(room.door, locale) : ''}`
           .toLowerCase()

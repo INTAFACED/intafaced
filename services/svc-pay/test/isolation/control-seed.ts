@@ -6,6 +6,7 @@
  * own owner (the maker), so an id-taking `merchantControl.*` procedure has a real row to aim at. It also
  * leaves the founder side a real, one-shot target for each founder procedure that takes an id.
  */
+import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
@@ -40,10 +41,15 @@ export interface ControlSeed {
   /** Pending requests opened by a DIFFERENT founder, for the founder positive controls of the two `confirm` procedures. */
   readonly pendingMerchantChangeId: string;
   readonly pendingConfigureId: string;
+  /** The hash each pending request was stored under; a confirm must carry it. */
+  readonly pendingMerchantChangeHash: string;
+  readonly pendingConfigureHash: string;
   /** The merchant the pending merchant change names, and the one the founder positive control submits against. */
   readonly changeMerchantId: string;
   /** The profile version the founder `changes.submit` positive control expects. */
   readonly changeMerchantVersion: string;
+  /** One pending limit ask, closed by the founder positive control. */
+  readonly pendingLimitRequestId: string;
 }
 
 export async function seedControl(
@@ -92,25 +98,38 @@ export async function seedControl(
     SELECT version FROM pay.control_merchant_profiles WHERE merchant_id = ${changeMerchant.merchantId}`;
   const changeMerchantVersion = versionRows[0]?.version ?? '0';
   const pendingMerchantChangeId = randomUUID();
+  const merchantTarget = {
+    scope: 'merchant',
+    merchantId: changeMerchant.merchantId,
+    change: { kind: 'set_tier', tierId: ISOLATION_TIER.id, archetypeId: 'standard' },
+  } as const;
   const merchantSubmit = await changes.submit(FOUNDER_1, {
     requestId: pendingMerchantChangeId,
-    target: {
-      scope: 'merchant',
-      merchantId: changeMerchant.merchantId,
-      change: { kind: 'set_tier', tierId: ISOLATION_TIER.id, archetypeId: 'standard' },
-    },
+    target: merchantTarget,
     reason: 'isolation seed',
     expectedVersion: changeMerchantVersion,
   });
   if (merchantSubmit.outcome !== 'pending_second_approval') throw new Error(`seed merchant change ${merchantSubmit.outcome}`);
   const pendingConfigureId = randomUUID();
+  const configureTarget = { scope: 'tier', change: { kind: 'upsert_tier', tier: SECOND_TIER } } as const;
   const configureSubmit = await changes.submit(FOUNDER_1, {
     requestId: pendingConfigureId,
-    target: { scope: 'tier', change: { kind: 'upsert_tier', tier: SECOND_TIER } },
+    target: configureTarget,
     reason: 'isolation seed',
     expectedVersion: '0',
   });
   if (configureSubmit.outcome !== 'pending_second_approval') throw new Error(`seed tier change ${configureSubmit.outcome}`);
+
+  const askMerchant = entities[0];
+  if (!askMerchant) throw new Error('seed limit request needs a merchant');
+  const pendingLimitRequestId = randomUUID();
+  const asked = await control.requestLimitIncrease(makePrincipal(askMerchant.userId), {
+    merchantId: askMerchant.merchantId,
+    requestId: pendingLimitRequestId,
+    caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '10' }],
+    reason: 'isolation seed ask',
+  });
+  if (asked.outcome !== 'stored') throw new Error(`seed limit request ${asked.outcome}`);
 
   return {
     approvalIds,
@@ -118,7 +137,10 @@ export async function seedControl(
     founderApprovalHash: rows[0]!.payload_hash,
     pendingMerchantChangeId,
     pendingConfigureId,
+    pendingMerchantChangeHash: founderChangeHash(merchantTarget, changeMerchantVersion),
+    pendingConfigureHash: founderChangeHash(configureTarget, '0'),
     changeMerchantId: changeMerchant.merchantId,
     changeMerchantVersion,
+    pendingLimitRequestId,
   };
 }

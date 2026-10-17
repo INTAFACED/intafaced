@@ -261,6 +261,49 @@
   }
 
   /* Questions */
+  .cvt-breakdown {
+    padding: 0 4px;
+  }
+  .cvt-holdbar {
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--if-line);
+    overflow: hidden;
+  }
+  .cvt-holdbar__fill {
+    height: 100%;
+    background: var(--if-lime);
+    transition: width 250ms linear;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cvt-holdbar__fill {
+      transition: none;
+    }
+  }
+  .cvt-recent {
+    margin-top: 48px;
+    max-width: 1224px;
+  }
+  .cvt-recent__head {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  .cvt-recent__head h2 {
+    font-size: var(--if-text-xl);
+    line-height: var(--if-leading-xl);
+    font-weight: var(--if-weight-xl);
+  }
+  .cvt-recent__all {
+    margin-left: auto;
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .cvt-recent__all:hover {
+    color: var(--if-fg);
+  }
   .cvt-faq {
     margin-top: 64px;
     max-width: 1224px;

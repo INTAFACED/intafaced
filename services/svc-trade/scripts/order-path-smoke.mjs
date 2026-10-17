@@ -10,16 +10,22 @@
  * Never invent fills or balances. STRICT=1 fails closed on missing proof.
  * REQs: PC-L2-1 · PC-L3-1..5 · PC-L4-1..2 — docs/ORDER-ROUTE-PROD-CLAIM-AGENT-MAX-2026-08-02.md
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 
 const TRADE = process.env.TRADE_HTTP_URL ?? 'http://127.0.0.1:4004';
 const MATCHING = process.env.MATCHING_HTTP_URL ?? 'http://127.0.0.1:4005';
 const LEDGER = process.env.LEDGER_HTTP_URL ?? 'http://127.0.0.1:4001';
+const IDENTITY = process.env.IDENTITY_HTTP_URL ?? 'http://127.0.0.1:4002';
 const STRICT = process.env.ORDER_PATH_SMOKE_STRICT === '1';
 const EDGE = process.env.EDGE_PRINCIPAL_SECRET?.trim() || '';
 const INTERNAL = process.env.INTERNAL_SERVICE_SECRET?.trim() || '';
-const USER = process.env.TRADE_SMOKE_USER_ID ?? '11111111-1111-4111-8111-111111111111';
-const MAKER = process.env.TRADE_SMOKE_MAKER_ID ?? '22222222-2222-4222-8222-222222222222';
+// With TRADE_SMOKE_SEED_SQL=1 these two are replaced by real, freshly registered `local-test`
+// identity users (see registerLocalTestTraders): identity's order admission refuses a user
+// or session it has never issued (auth.account_frozen / auth.credential_denied).
+let USER = process.env.TRADE_SMOKE_USER_ID ?? '11111111-1111-4111-8111-111111111111';
+let MAKER = process.env.TRADE_SMOKE_MAKER_ID ?? '22222222-2222-4222-8222-222222222222';
+/** userId -> the real identity session id its orders are signed with. */
+const SESSION_IDS = new Map();
 const SYMBOL = process.env.TRADE_SMOKE_SYMBOL ?? 'BTC/USDT';
 const QTY = process.env.TRADE_SMOKE_QTY ?? '0.1';
 const PRICE = process.env.TRADE_SMOKE_PRICE ?? '100';
@@ -119,6 +125,279 @@ async function ledgerAvailable(contracts, userId, assetId) {
   return String(json.amount ?? '0');
 }
 
+/**
+ * SMOKE DATA, not an authority decision. Place is refused with
+ * trade.lifecycle_authority_unavailable until the market has an AUTHORIZED
+ * lifecycle publication (PX-S01), and nothing else in this rig publishes one.
+ * So the smoke publishes one through the app's own route
+ * (POST /internal/market-lifecycle, service-signed), shaped like the fixtures in
+ * services/svc-trade/src/market-lifecycle.test.ts. Every actor, grant and dossier
+ * id starts with `local-test:`: svc-trade accepts that marker only while APP_ENV
+ * is dev/test and treats such a record as no authority anywhere else.
+ */
+async function publishSmokeLifecycleAuthority(contracts, marketId) {
+  const base = `${TRADE.replace(/\/$/, '')}/internal/market-lifecycle`;
+  const signed = (body) => ({
+    'content-type': 'application/json',
+    ...contracts.serviceAuthHeadersForBody('svc-trade', INTERNAL, body),
+  });
+  // A rerun against the same database must chain onto the current head.
+  const head = await fetch(`${base}/${marketId}`, { headers: signed('') });
+  let predecessor = null;
+  if (head.status === 200) predecessor = (await head.json()).evidenceId ?? null;
+  else if (head.status !== 404) throw new Error(`lifecycle head read failed ${head.status}`);
+
+  const now = Date.now();
+  const at = new Date(now).toISOString();
+  const ready = (ref) => ({ status: 'READY', evidenceRefs: [`local-test:cx8-smoke:${ref}`] });
+  const publication = {
+    marketId,
+    idempotencyKey: `local-test:cx8-smoke:${now}`,
+    causalPredecessorId: predecessor,
+    authoritySubject: 'local-test:cx8-smoke-operator',
+    authorityScope: `market:${marketId}:place`,
+    ruleVersion: 'local-test:cx8-smoke-rules',
+    instrumentVersion: 'local-test:cx8-smoke-instrument',
+    observedAt: at,
+    effectiveAt: at,
+    expiresAt: new Date(now + 60 * 60 * 1000).toISOString(),
+    authority: {
+      decision: 'AUTHORIZED',
+      reasonCode: null,
+      legalOwnerId: 'local-test:cx8-smoke-owner',
+      accountId: 'local-test:cx8-smoke-account',
+      subAccountId: 'local-test:cx8-smoke-subaccount',
+      actorId: 'local-test:cx8-smoke-operator',
+      origin: 'OPERATOR',
+      sessionId: 'local-test:cx8-smoke-session',
+      credentialId: null,
+      grantId: 'local-test:cx8-smoke-grant',
+      grantVersion: 'local-test:cx8-smoke-grant-v1',
+      mandateId: 'local-test:cx8-smoke-mandate',
+      decidedAt: at,
+      freshnessAt: at,
+    },
+    dossier: {
+      dossierId: 'local-test:cx8-smoke-dossier',
+      marketId,
+      ruleVersion: 'local-test:cx8-smoke-rules',
+      instrumentVersion: 'local-test:cx8-smoke-instrument',
+      legalEntityAndJurisdiction: ready('legal'),
+      counterpartyRole: ready('counterparty'),
+      deterministicSettlement: ready('settlement'),
+      custodyAndTransferSupport: ready('custody'),
+      oracleIndexAndDisruption: ready('oracle'),
+      liquidityAndMarketQuality: ready('liquidity'),
+      surveillanceAndRetention: ready('surveillance'),
+      riskAndLimits: ready('risk'),
+      operationsAndIncidentOwner: ready('operations'),
+      windDownAndResiduals: ready('winddown'),
+      approvedAt: at,
+      approvalRefs: ['local-test:cx8-smoke-approval'],
+    },
+  };
+  const raw = JSON.stringify(publication);
+  const res = await fetch(base, { method: 'POST', headers: signed(raw), body: raw });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`lifecycle publication for ${marketId} failed ${res.status}: ${text.slice(0, 400)}`);
+  log(`SEED lifecycle authority (local-test: smoke data) for ${SYMBOL}`);
+}
+
+// ── Opening the market in svc-matching: the REAL two-person path ─────────────
+//
+// svc-trade refuses PLACE with trade.matching_market_missing until svc-matching
+// lists the market, and matching lists it only after `POST /markets/:id/open`
+// consumes an identity action approval: one person proposes, a DIFFERENT person
+// approves with MFA, and matching consumes that approval at identity. Opening a
+// market is founder-only, so both people must be live founders. This reproduces
+// that path with two throwaway `local-test` founders (enrolled with identity's
+// own founder invites and pinned as its founder pair by the CX-8 boot helper)
+// and a real TOTP enrolment each, and forges nothing:
+//   · each founder's MFA flag comes from a real `auth.login` with a TOTP code,
+//     read back from the verified access token (the way the edge would);
+//   · the approval is proposed, approved and consumed through identity's own
+//     tRPC doors and matching's own route.
+// SMOKE DATA: users, handles and ids carry `local-test` and are created per run.
+
+function base32Decode(input) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0;
+  let value = 0;
+  const out = [];
+  for (const ch of input.toUpperCase().replace(/=+$/, '')) {
+    value = (value << 5) | alphabet.indexOf(ch);
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(out);
+}
+
+/** RFC 6238 TOTP (SHA-1, 30 s, 6 digits) — what any authenticator app computes. */
+function totpCode(secretBase32, atMs) {
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(atMs / 1000 / 30)));
+  const digest = createHmac('sha1', base32Decode(secretBase32)).update(counter).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary = ((digest[offset] & 0x7f) << 24) | (digest[offset + 1] << 16) | (digest[offset + 2] << 8) | digest[offset + 3];
+  return String(binary % 1_000_000).padStart(6, '0');
+}
+
+/** One identity tRPC mutation. `principal` is what the edge would forward for a verified session; null for public doors. */
+async function identityCall(contracts, procedure, input, principal) {
+  const raw = JSON.stringify(input ?? {});
+  const headers = { 'content-type': 'application/json', accept: 'application/json' };
+  if (principal) {
+    const encoded = contracts.encodePrincipal(principal);
+    headers['x-intafaced-principal'] = encoded;
+    headers['x-intafaced-principal-sig'] = contracts.signPrincipalHeader(encoded, EDGE, REGION);
+    headers['x-intafaced-region'] = REGION;
+  }
+  const res = await fetch(`${IDENTITY.replace(/\/$/, '')}/trpc/${procedure}`, { method: 'POST', headers, body: raw });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`identity ${procedure} failed ${res.status}: ${text.slice(0, 400)}`);
+  return JSON.parse(text).result.data;
+}
+
+/** Read the principal out of a real access token, verifying it as the edge does. */
+async function principalOf(accessToken) {
+  const auth = await import('@intafaced/auth');
+  return auth.verifyAccessToken(accessToken, {
+    secret: process.env.JWT_ACCESS_SECRET?.trim() || '',
+    issuer: process.env.JWT_ISSUER?.trim() || '',
+    audience: process.env.JWT_AUDIENCE?.trim() || '',
+    accessTtlSeconds: 900,
+  });
+}
+
+async function registerLocalTestOperator(contracts, role) {
+  const suffix = `${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+  const password = randomBytes(18).toString('base64url');
+  const handle = `localtest_cx8_${role}_${suffix}`;
+  const email = `${handle}@example.test`;
+  const session = await identityCall(contracts, 'auth.register', { handle, email, password, region: REGION }, null);
+  return { handle, email, password, userId: session.userId, accessToken: session.accessToken };
+}
+
+/**
+ * Enrol one smoke founder: a single-use founder invite (`auth.registerFounder`, public sign-up stays closed),
+ * then a real TOTP enrolment so identity can pin the account into the founder pair at its next boot.
+ */
+async function registerLocalTestFounder(contracts, role, invite) {
+  const suffix = `${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+  const password = randomBytes(18).toString('base64url');
+  const handle = `localtest_cx8_${role}_${suffix}`;
+  const email = `${handle}@example.test`;
+  let session;
+  try {
+    session = await identityCall(contracts, 'auth.registerFounder', { invite, handle, email, password }, null);
+  } catch (err) {
+    throw new Error(
+      `${(err && err.message) || err} (founder enrolment needs a database whose founder pair is not pinned yet: use a fresh one)`,
+    );
+  }
+  const principal = await principalOf(session.accessToken);
+  const enrol = await identityCall(contracts, 'totp.enrol', {}, principal);
+  await identityCall(contracts, 'totp.confirm', { secret: enrol.secret, code: totpCode(enrol.secret, Date.now()) }, principal);
+  return { handle, email, password, userId: session.userId, totpSecret: enrol.secret };
+}
+
+/**
+ * Phase 1, run by the CX-8 boot helper (`--enrol-founders`) while identity is up with founder invites and no
+ * founder pair: enrol the two smoke founders and print them as one machine-read line. The boot helper then
+ * restarts identity with the pair pinned to these two ids and passes the line back as CX8_FOUNDERS_JSON.
+ * SMOKE RIG ONLY: throwaway `localtest_cx8_*` accounts, created per run; they are not the real founders.
+ */
+async function enrolFounders() {
+  const invites = (process.env.CX8_FOUNDER_INVITES ?? '').split(',').filter(Boolean);
+  if (invites.length !== 2) throw new Error('--enrol-founders needs CX8_FOUNDER_INVITES (two founder invite codes)');
+  const contracts = await loadContracts();
+  const founders = [];
+  for (const [i, role] of ['fa', 'fb'].entries()) founders.push(await registerLocalTestFounder(contracts, role, invites[i]));
+  console.log(`CX8_FOUNDERS_JSON=${JSON.stringify(founders)}`);
+}
+
+/** Phase 2: a real password + TOTP login for a smoke founder; the principal is read back from the verified token. */
+async function founderMfaPrincipal(contracts, founder) {
+  // The enrolment code's step is spent (replay-protected); the next step's code is inside identity's +/-1 step drift window.
+  const session = await identityCall(
+    contracts,
+    'auth.login',
+    { identifier: founder.email, password: founder.password, totpCode: totpCode(founder.totpSecret, Date.now() + 30_000) },
+    null,
+  );
+  const principal = await principalOf(session.accessToken);
+  if (!principal.mfa) throw new Error(`founder ${founder.handle} login did not yield an MFA session`);
+  return principal;
+}
+
+// Opening a market (`matching.open`) is a founder-only action: identity needs a live founder to propose and a
+// different live founder to approve, each on an MFA session. The CX-8 boot helper enrols the two smoke founders
+// through identity's own founder invites and pins them as the founder pair before this runs.
+async function openMarketInMatching(contracts, marketId) {
+  if (!EDGE) throw new Error('opening the market needs EDGE_PRINCIPAL_SECRET (the smoke acts as the edge)');
+  const founders = JSON.parse(process.env.CX8_FOUNDERS_JSON ?? '[]');
+  if (founders.length !== 2)
+    throw new Error('opening the market needs two enrolled smoke founders (CX8_FOUNDERS_JSON, set by the CX-8 boot helper)');
+  const [requester, approver] = founders;
+  const requesterMfa = await founderMfaPrincipal(contracts, requester);
+  const approverMfa = await founderMfaPrincipal(contracts, approver);
+
+  // Requester proposes; approver approves; matching consumes.
+  const action = { actionType: 'matching.open', targetService: 'svc-matching', targetId: `open:${marketId}`, expectedVersion: '1' };
+  const payloadHash = `sha256:${createHash('sha256')
+    .update(JSON.stringify({ actionType: action.actionType, marketId }))
+    .digest('hex')}`;
+  const proposed = await identityCall(
+    contracts,
+    'actionApproval.propose',
+    { ...action, payloadHash, policyVersion: 'local-test:cx8-smoke-policy-v1' },
+    requesterMfa,
+  );
+  const approved = await identityCall(
+    contracts,
+    'actionApproval.approve',
+    { approvalId: proposed.approvalId, expectedPayloadHash: payloadHash },
+    approverMfa,
+  );
+
+  const body = JSON.stringify({
+    operatorId: requester.userId,
+    confirmOperatorId: approved.approverId,
+    approvalId: approved.approvalId,
+    operationId: approved.operationId,
+  });
+  const res = await fetch(`${MATCHING.replace(/\/$/, '')}/markets/${marketId}/open`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('svc-trade', INTERNAL, body) },
+    body,
+  });
+  const text = await res.text();
+  const json = (() => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  })();
+  if (!res.ok || json?.accepted !== true)
+    throw new Error(`matching open for ${marketId} not accepted ${res.status}: ${text.slice(0, 400)}`);
+  log(`SEED matching open (local-test founders ${requester.handle} + ${approver.handle}, approval ${approved.approvalId})`);
+}
+
+/** SMOKE DATA: the buyer and seller are real identity users (handles `localtest_cx8_*`), created per run. */
+async function registerLocalTestTraders(contracts) {
+  if (process.env.TRADE_SMOKE_USER_ID || process.env.TRADE_SMOKE_MAKER_ID) return;
+  const buyer = await registerLocalTestOperator(contracts, 'buy');
+  const seller = await registerLocalTestOperator(contracts, 'sel');
+  for (const trader of [buyer, seller]) SESSION_IDS.set(trader.userId, (await principalOf(trader.accessToken)).sid);
+  USER = buyer.userId;
+  MAKER = seller.userId;
+  log(`SEED traders (local-test identity users ${buyer.handle} + ${seller.handle})`);
+}
+
 async function seedMarketAndFunds(contracts) {
   if (!SEED) return;
   if (!TRADE_DB) throw new Error('TRADE_SMOKE_SEED_SQL=1 requires TRADE_DATABASE_URL');
@@ -127,7 +406,7 @@ async function seedMarketAndFunds(contracts) {
   const postgres = (await import('postgres')).default;
   const sql = postgres(TRADE_DB, { max: 1, onnotice: () => undefined });
   try {
-    await sql`
+    const [market] = await sql`
       INSERT INTO trade.markets (
         symbol, base_asset, quote_asset, kind, tick_size, lot_size,
         min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
@@ -139,8 +418,12 @@ async function seedMarketAndFunds(contracts) {
         'crypto', 'crypto-24x7', ${SYMBOL}
       )
       ON CONFLICT (symbol) DO UPDATE SET status = 'active', min_notional = '1', updated_at = now()
+      RETURNING id
     `;
     log(`SEED market ${SYMBOL}`);
+    await publishSmokeLifecycleAuthority(contracts, market.id);
+    await openMarketInMatching(contracts, market.id);
+    await registerLocalTestTraders(contracts);
   } finally {
     await sql.end({ timeout: 2 });
   }
@@ -156,7 +439,7 @@ function edgeHeaders(contracts, userId) {
   const principal = {
     sub: userId,
     userId,
-    sid: randomUUID(),
+    sid: SESSION_IDS.get(userId) ?? randomUUID(),
     scopes: ['trade:read', 'trade:write'],
     tier: 'basic',
     mfa: false,
@@ -469,6 +752,8 @@ async function stressIdempotentPlace(contracts) {
 }
 
 async function main() {
+  if (process.argv.includes('--enrol-founders')) return enrolFounders();
+
   log('CX-8 assembled path — trade + matching + ledger (prod-claim agent-max path C)');
   log(`TRADE=${TRADE} MATCHING=${MATCHING} LEDGER=${LEDGER} STRICT=${STRICT} L3=${L3} STRESS_N=${STRESS_N}`);
 

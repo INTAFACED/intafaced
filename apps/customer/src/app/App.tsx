@@ -9,12 +9,14 @@ import { ApplyView } from '../features/account/View';
 import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
-import { hiddenFeatureFor, isDevBuild, tabHome, type Feature } from './feature-registry';
+import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
 import { LegacyRoom, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
 import { screens } from './screens';
 import { DevFeatures } from './DevFeatures';
 import { shellCopy } from './shell-copy';
+import { SessionNotice } from './SessionNotice';
+import { ParkedProtocolRoomAt } from '../features/protocol';
 
 function configuredTeamHref(path: string): string | undefined {
   const configured: string | undefined = import.meta.env.VITE_TEAM_URL;
@@ -96,19 +98,13 @@ export function App() {
   const path = current.split('?')[0] ?? '/';
   const search = current.slice(path.length);
   const room = findRoom(path);
-  const { session } = useSession();
+  const { session, restoring, restoreFailed, retryRestore } = useSession();
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
   const hidden = hiddenFeatureFor(path, search);
-  // One redirect rule per render, in this order: a hidden feature in a customer build, an alias row, signed-in `/`.
-  const redirectTo =
-    !devFeatures && hidden && !dev
-      ? tabHome(hidden)
-      : room?.alias
-        ? resolveAlias(room, path, search)
-        : path === '/' && session
-          ? '/home'
-          : undefined;
+  // One redirect rule per render, in this order: an alias row, signed-in `/`. No path is redirected for being hidden, in any
+  // build, so the Docker image opens exactly what `vite dev` opens.
+  const redirectTo = room?.alias ? resolveAlias(room, path, search) : path === '/' && session ? '/home' : undefined;
   useCustomerRoomArrival(path, devFeatures || !room || !['public', 'team', 'parked'].includes(room.area), Boolean(redirectTo));
   const teamHref = room?.area === 'team' ? configuredTeamHref(current) : undefined;
   useEffect(() => {
@@ -137,7 +133,7 @@ export function App() {
     const url = new URL(anchor.href, location.href);
     if (url.origin !== location.origin) return;
     // A link to another place in the same page is the browser's job (it scrolls to the anchor). A link to
-    // another route with a `#` stays inside the app: a full reload would drop the in-memory sign-in.
+    // another route with a `#` stays inside the app: a full reload would re-run the boot refresh and flash the loading state.
     if (url.hash && url.pathname === location.pathname && url.search === location.search) return;
     event.preventDefault();
     navigate(url.pathname + url.search + url.hash);
@@ -154,6 +150,19 @@ export function App() {
   const area = room ? legacyArea(room) : undefined;
   let body: ReactNode;
   if (devFeatures) body = <DevFeatures />;
+  // A private room never paints, and never shows "Sign in to continue", until the boot refresh has answered.
+  else if (needsSession && !session && restoring) body = fallback;
+  // The service did not answer: the cookie is untouched, so offer Retry instead of pretending the person is signed out.
+  else if (needsSession && !session && restoreFailed)
+    body = (
+      <div className="legacy-room">
+        <Page title={room ? roomTitle(room, requestedLocale) : t('Sign in')}>
+          <EmptyState title={t('We could not check your sign-in')} action={<Button onClick={retryRestore}>{t('Retry')}</Button>}>
+            {t('The account service did not answer. Your sign-in is not lost; try again.')}
+          </EmptyState>
+        </Page>
+      </div>
+    );
   else if (needsSession && !session)
     body = (
       <div className="legacy-room">
@@ -180,9 +189,13 @@ export function App() {
         </Page>
       </div>
     );
-  const content = redirectTo ? null : room?.area === 'public' ? (
+  // `/` sends a signed-in person to /home, so it waits for the boot refresh instead of flashing the signed-out landing page.
+  const content = redirectTo ? null : path === '/' && restoring && !session ? (
+    fallback
+  ) : room?.area === 'public' ? (
     <div className="legacy-room">
       {ribbon}
+      <SessionNotice />
       <PublicRoutes path={path} />
     </div>
   ) : room?.area === 'team' ? (
@@ -205,13 +218,12 @@ export function App() {
       </Page>
     </div>
   ) : room?.area === 'parked' ? (
-    <div className="legacy-room">
-      <Page title={t('This room is parked')}>
-        <EmptyState title={t('Chain services are not active')}>
-          {t('This room remains reserved until owner activation. It is not available from customer navigation or search.')}
-        </EmptyState>
-      </Page>
-    </div>
+    // Parked rooms sit in the normal shell (top bar, door "More") but stay out of customerRoomHref, so they are
+    // never a sign-in return target.
+    <Shell door="More" path={path}>
+      {ribbon}
+      <ParkedProtocolRoomAt path={path} />
+    </Shell>
   ) : (
     <Shell door={room?.door} path={path}>
       {ribbon}

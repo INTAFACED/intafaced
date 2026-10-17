@@ -1,6 +1,6 @@
 # Local test stack
 
-One command starts a private copy of the INTAFACED backend and the Customer app on your Mac, without Docker. Everything binds to `127.0.0.1`. Balances in it are **test funds, not real money**; the Customer shows a fixed banner saying so.
+One command starts a private copy of the INTAFACED backend and the Customer app on your Mac, without Docker. Everything binds to `127.0.0.1`. Balances and market prices in it are **test funds and test prices, not real money or a live market feed**; the Customer shows a fixed banner saying so.
 
 ## Commands
 
@@ -29,7 +29,11 @@ Open **http://127.0.0.1:3210** for everything except passkeys.
 
 Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Customer 3210. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.
 
-State lives in `~/.intafaced/local-test-stack/` (data, logs, `secrets.json` mode 600, `LOCAL-TEST-STACK.json` marker). Delete that folder to start from nothing. Requires PostgreSQL 16 at `/opt/homebrew/bin` and at least 14 GB free disk.
+State lives in `~/.intafaced/local-test-stack/` (data, logs, `secrets.json` mode 600, `LOCAL-TEST-STACK.json` marker). Requires PostgreSQL 16 at `/opt/homebrew/bin` and at least 14 GB free disk.
+
+For a fresh database without altering an existing one, set `export LOCAL_STACK_STATE="$HOME/.intafaced/my-fresh-test-stack"` before running any command. The path must be absolute. Stack, funding, market, gates and world commands all use that folder, including background children. Use the same setting for later status, restart and stop commands. Ports stay fixed: stop the previous stack with its original state setting before starting another. The old data and secrets stay in their original folder; nothing is copied automatically. `plan --json` reports `stateDir` so the selected folder can be checked before starting.
+
+Helpers also check that this folder's Postgres and recorded services still own their loopback ports, with the expected checkout, database directory and process start time. A stale marker cannot authorize mutations against a different stack that has taken over the fixed ports. Missing ownership evidence refuses the action before account creation, funding or order submission.
 
 ## Real vs test
 
@@ -97,7 +101,7 @@ On this stack only, the stack may stand in for three people who do not exist loc
 
 What production refuses today: #4606/#4607 refuse `local-test:` market lifecycle records in svc-trade, and refuse to boot svc-trade with a test sanctions list or `INTAFACED_SCREENING_FAIL_CLOSED=off` outside explicit `APP_ENV` dev/test. Nothing yet refuses the other stand-ins below: screening `off` in other services when `APP_ENV` is unset, the `local-test:` fee-schedule version, `local-test:v1` approvals, the test operator accounts and their approved verifications, or the unlabelled number stand-ins (tracked in #4611 and #4612). Markers a production check can refuse: any id or label starting `local-test:`; operator handles `local_test_operator_*` and emails `@local-test.invalid`; `policyVersion` `local-test:v1`; KYC jurisdiction `ZZ`; the env values `INTAFACED_SCREENING_FAIL_CLOSED=off` and `IDENTITY_ACTION_APPROVAL_TTL_SECONDS` set by this stack. Containment: every command refuses unless `LOCAL-TEST-STACK.json` exists and every target is `http://127.0.0.1:<a port the marker lists>`. Test: `node tooling/scripts/local-test-gates.test.mjs`.
 
-Owner risk limits: the stack publishes LOCAL TEST values for `TRADE_MAX_ORDER`, `TRADE_MAX_POSITION` and `TRADE_MAX_LOSS` (1,000,000 / 5,000,000 / 100,000) under option B. `services/svc-trade/src/futures/pretrade-credit.ts` only requires them to be published integers and does not compare orders against them. They are not owner decisions.
+Owner risk limits: the stack publishes LOCAL TEST values for `TRADE_MAX_ORDER`, `TRADE_MAX_POSITION` and `TRADE_MAX_LOSS` (1,000,000 / 5,000,000 / 100,000) under option B. svc-trade requires them to be published integers and compares every new order, convert and futures open against them (whole USDT units; see `docs/runbooks/trade-pretrade-limits.md`). They are not owner decisions.
 
 Trade fee schedule: `TRADE_FEE_SCHEDULE` is `{"published":true,"version":"local-test:okx-regular-spot-reference","makerBps":"8","takerBps":"10"}` (maker 0.08%, taker 0.10%, no maker rebate), referenced to OKX's public regular-user spot tier. LOCAL TEST, not an owner decision (option B). Without it every order is refused with 400 `trade.fee_schedule_blank`.
 

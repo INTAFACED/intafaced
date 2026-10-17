@@ -6,6 +6,9 @@ import { useResource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, Field, Panel } from '../../shared/ui';
 import { MarketPurchaseRecords } from './MarketPurchaseRecords';
+import { ListingDetail, MarketFilters, SellerDirectory } from './MarketExplorer';
+import { filterListings, NO_FILTER, type ListingFilter } from './market-explorer';
+import { marketExplorerCopy } from './market-explorer-copy';
 import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
 import type { ApiResult, RefusalReason } from '../../shared/api';
 const uuid = z.string().uuid(),
@@ -122,7 +125,9 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
     [asset, setAsset] = useState(''),
     [price, setPrice] = useState(''),
     [offer, setOffer] = useState(strategy ? 'subscription' : 'one_time'),
-    [period, setPeriod] = useState('');
+    [period, setPeriod] = useState(''),
+    [filter, setFilter] = useState<ListingFilter>(NO_FILTER),
+    [detailId, setDetailId] = useState<string | null>(null);
   const listings = useResource(
       async (signal) => {
         if (!mine && !strategy) return api.query('market', 'listings', { limit }, z.array(listingSchema), { signal });
@@ -284,131 +289,162 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           retry={listings.reload}
           empty={mine || strategy ? copyText('market.you.have.no.listings') : copyText('market.no.listings.are.available')}
         >
-          {(rows) => (
-            <>
-              <div className="more-rooms market-catalogue-list">
-                {rows.map((row) => (
-                  <article className="more-room-link market-catalogue-row" key={row.id}>
-                    <div className="market-catalogue-main">
-                      <h3 lang="und">{row.title}</h3>
-                      <p className="market-catalogue-description" lang="und">
-                        {row.description}
-                      </p>
-                      <dl className="market-catalogue-facts">
-                        <div>
-                          <dt>
-                            <Text k="market.seller" />
-                          </dt>
-                          <dd>
-                            <code lang="zxx">{row.vendorId}</code>
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>
-                            <Text k="market.offer" />
-                          </dt>
-                          <dd lang="zxx">{row.offerType}</dd>
-                        </div>
-                        {(mine || strategy) && (
+          {(allRows) => {
+            const rows = filterListings(allRows, filter);
+            const detail = allRows.find((row) => row.id === detailId) ?? null;
+            return (
+              <>
+                <MarketFilters rows={allRows} filter={filter} onChange={setFilter} shown={rows.length} />
+                {detail ? (
+                  <ListingDetail
+                    row={detail}
+                    signedIn={Boolean(userId)}
+                    onClose={() => setDetailId(null)}
+                    onSeller={(vendorId) => {
+                      setFilter({ ...NO_FILTER, vendorId });
+                      setDetailId(null);
+                    }}
+                  />
+                ) : null}
+                <div className="more-rooms market-catalogue-list">
+                  {rows.map((row) => (
+                    <article className="more-room-link market-catalogue-row" key={row.id}>
+                      <div className="market-catalogue-main">
+                        <h3 lang="und">{row.title}</h3>
+                        <p className="market-catalogue-description" lang="und">
+                          {row.description}
+                        </p>
+                        <dl className="market-catalogue-facts">
                           <div>
                             <dt>
-                              <Text k="market.status" />
+                              <Text k="market.seller" />
                             </dt>
-                            <dd lang="zxx">{row.status}</dd>
+                            <dd>
+                              <code lang="zxx">{row.vendorId}</code>
+                            </dd>
                           </div>
-                        )}
-                      </dl>
-                    </div>
-                    <div className="market-catalogue-decision">
-                      <div className="market-catalogue-price">
-                        <span className="muted">
-                          <Text k="market.price" />
-                        </span>
-                        <MarketPrice price={row.price} assetId={row.assetId} />
+                          <div>
+                            <dt>
+                              <Text k="market.offer" />
+                            </dt>
+                            <dd lang="zxx">{row.offerType}</dd>
+                          </div>
+                          {(mine || strategy) && (
+                            <div>
+                              <dt>
+                                <Text k="market.status" />
+                              </dt>
+                              <dd lang="zxx">{row.status}</dd>
+                            </div>
+                          )}
+                        </dl>
                       </div>
-                      <div className="market-catalogue-access">
-                        <span className="muted">
-                          <Text k="market.access" />
-                        </span>
-                        <p>
-                          {row.periodSeconds
-                            ? copyText('market.seconds.one.paid.period', { seconds: row.periodSeconds })
-                            : copyText('market.one.time.purchase')}
-                        </p>
-                        {row.offerType === 'subscription' && (
-                          <p className="muted">
-                            <Text k="market.automatic.recurring.charges.are.not.built" />
+                      <div className="market-catalogue-decision">
+                        <div className="market-catalogue-price">
+                          <span className="muted">
+                            <Text k="market.price" />
+                          </span>
+                          <MarketPrice price={row.price} assetId={row.assetId} />
+                        </div>
+                        <div className="market-catalogue-access">
+                          <span className="muted">
+                            <Text k="market.access" />
+                          </span>
+                          <p>
+                            {row.periodSeconds
+                              ? copyText('market.seconds.one.paid.period', { seconds: row.periodSeconds })
+                              : copyText('market.one.time.purchase')}
                           </p>
+                          {row.offerType === 'subscription' && (
+                            <p className="muted">
+                              <Text k="market.automatic.recurring.charges.are.not.built" />
+                            </p>
+                          )}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          aria-pressed={detailId === row.id}
+                          onClick={() => setDetailId(detailId === row.id ? null : row.id)}
+                        >
+                          {marketExplorerCopy.t('details')}
+                        </Button>
+                        {mine || strategy ? (
+                          <Button
+                            variant="secondary"
+                            disabled={action.disabled || row.status === 'archived'}
+                            onClick={() =>
+                              action.stage({
+                                title: () => copyText('market.archive.listing'),
+                                confirm: () => copyText('market.archive.listing'),
+                                success: () => copyText('market.listing.archived'),
+                                content: () => (
+                                  <>
+                                    <p>
+                                      <span lang="und">{row.title}</span>
+                                      <Text k="market.will.leave.the.public.catalogue" />
+                                    </p>
+                                    <Details
+                                      items={[
+                                        [copyText('market.listing'), <code lang="zxx">{row.id}</code>],
+                                        [copyText('market.seller'), <code lang="zxx">{row.vendorId}</code>],
+                                        [copyText('market.price'), <MarketPrice price={row.price} assetId={row.assetId} />],
+                                      ]}
+                                    />
+                                  </>
+                                ),
+                                run: () =>
+                                  api.mutate(
+                                    'market',
+                                    'archiveListing',
+                                    { listingId: row.id },
+                                    listingSchema.refine(
+                                      (result) => result.id === row.id && result.vendorId === row.vendorId && result.status === 'archived',
+                                    ),
+                                  ),
+                                done: () => {
+                                  listings.reload();
+                                  slots.reload();
+                                },
+                              })
+                            }
+                          >
+                            <Text k="market.archive" />
+                          </Button>
+                        ) : (
+                          <Button
+                            disabled={action.disabled || row.status !== 'active'}
+                            onClick={() => buy(row)}
+                            onFocus={(event) => {
+                              const target = event.currentTarget;
+                              if (!target.matches(':focus-visible')) return;
+                              const navigation = document.querySelector<HTMLElement>('.mobile-doors')?.getBoundingClientRect();
+                              if (navigation?.height && target.getBoundingClientRect().bottom > navigation.top)
+                                target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+                            }}
+                            aria-label={copyText('market.buy.2', { value1: row.title })}
+                            lang="und"
+                          >
+                            {row.offerType === 'subscription' ? <Text k="market.buy.one.period" /> : <Text k="market.buy" />}
+                          </Button>
                         )}
                       </div>
-                      {mine || strategy ? (
-                        <Button
-                          variant="secondary"
-                          disabled={action.disabled || row.status === 'archived'}
-                          onClick={() =>
-                            action.stage({
-                              title: () => copyText('market.archive.listing'),
-                              confirm: () => copyText('market.archive.listing'),
-                              success: () => copyText('market.listing.archived'),
-                              content: () => (
-                                <>
-                                  <p>
-                                    <span lang="und">{row.title}</span>
-                                    <Text k="market.will.leave.the.public.catalogue" />
-                                  </p>
-                                  <Details
-                                    items={[
-                                      [copyText('market.listing'), <code lang="zxx">{row.id}</code>],
-                                      [copyText('market.seller'), <code lang="zxx">{row.vendorId}</code>],
-                                      [copyText('market.price'), <MarketPrice price={row.price} assetId={row.assetId} />],
-                                    ]}
-                                  />
-                                </>
-                              ),
-                              run: () =>
-                                api.mutate(
-                                  'market',
-                                  'archiveListing',
-                                  { listingId: row.id },
-                                  listingSchema.refine(
-                                    (result) => result.id === row.id && result.vendorId === row.vendorId && result.status === 'archived',
-                                  ),
-                                ),
-                              done: () => {
-                                listings.reload();
-                                slots.reload();
-                              },
-                            })
-                          }
-                        >
-                          <Text k="market.archive" />
-                        </Button>
-                      ) : (
-                        <Button
-                          disabled={action.disabled || row.status !== 'active'}
-                          onClick={() => buy(row)}
-                          onFocus={(event) => {
-                            const target = event.currentTarget;
-                            if (!target.matches(':focus-visible')) return;
-                            const navigation = document.querySelector<HTMLElement>('.mobile-doors')?.getBoundingClientRect();
-                            if (navigation?.height && target.getBoundingClientRect().bottom > navigation.top)
-                              target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-                          }}
-                          aria-label={copyText('market.buy.2', { value1: row.title })}
-                          lang="und"
-                        >
-                          {row.offerType === 'subscription' ? <Text k="market.buy.one.period" /> : <Text k="market.buy" />}
-                        </Button>
-                      )}
-                    </div>
-                  </article>
-                ))}
-              </div>
-              <Limit count={rows.length} limit={limit} cap={50} onChange={setLimit} />
-            </>
-          )}
+                    </article>
+                  ))}
+                </div>
+                <Limit count={allRows.length} limit={limit} cap={50} onChange={setLimit} />
+              </>
+            );
+          }}
         </Read>
       </Panel>
+      {!mine && !strategy ? (
+        <SellerDirectory
+          onSeller={(vendorId) => {
+            setFilter({ ...NO_FILTER, vendorId });
+            setDetailId(null);
+          }}
+        />
+      ) : null}
       {(mine || strategy) && (
         <div className="more-columns">
           <div>

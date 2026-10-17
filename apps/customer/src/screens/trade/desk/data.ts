@@ -18,6 +18,7 @@ import type { BalanceEntry } from '../../../data/derive';
 import type { Loadable } from '../../../data/types';
 import { useSession } from '../../../features/session/session';
 import { createTradeApi, type Order, type TradeApi } from '../../../features/trade/trade-api';
+import { decimalSchema } from '../../../shared/money';
 import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
 import { deskListingSchema, toDeskMarkets, type DeskMarket } from './market';
 
@@ -33,6 +34,8 @@ export const DESK_INTERVALS = {
   /** Fills feed the chart's B/S markers all the time, slowly; quickly while Trade history is open or an order was just sent. */
   fillsSlow: 60_000,
   fillsFast: 15_000,
+  /** The listed fee rates change rarely. */
+  fees: 300_000,
 } as const;
 
 const SIGNED_OUT: Loadable<never> = { status: 'refused', code: 'auth.required' };
@@ -151,6 +154,36 @@ export function useFills(fast: boolean): Loadable<Trade[]> {
           fast ? DESK_INTERVALS.fillsFast : DESK_INTERVALS.fillsSlow,
         ),
       [env, api, fast],
+    ),
+  );
+}
+
+const feesSchema = z.record(z.object({ maker: decimalSchema, taker: decimalSchema }).passthrough());
+export type ListedFees = Record<string, { maker: string; taker: string }>;
+
+/** The fee rates the market lists for each pair (maker and taker, as ratios). Before any rank discount; the order check has the rate this order pays. */
+export function useListedFees(): Loadable<ListedFees> {
+  const env = useDataEnv();
+  return useSource(
+    useMemo(
+      () =>
+        privateSource<ListedFees>(
+          env,
+          'desk-fees',
+          async (signal) => {
+            const result = await env.api.rest('/account/fees', feesSchema, { signal });
+            return result.ok
+              ? {
+                  ok: true,
+                  data: Object.fromEntries(
+                    Object.entries(result.data).map(([symbol, row]) => [symbol, { maker: row.maker, taker: row.taker }]),
+                  ),
+                }
+              : result;
+          },
+          DESK_INTERVALS.fees,
+        ),
+      [env],
     ),
   );
 }

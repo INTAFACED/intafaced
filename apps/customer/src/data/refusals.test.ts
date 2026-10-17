@@ -43,6 +43,13 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
     });
     expect(refusalCopy('trade.convert_spread_unset').action?.href).toBe('/trade');
   });
+  it('operator-not-configured refusals read as "not set up yet", never as the raw code', () => {
+    for (const code of ['token.params_invalid', 'token.params_missing', 'token.proposal_list_limit_unset'])
+      expect(refusalCopy(code)).toEqual({
+        title: 'Not set up yet',
+        body: 'This part of INTAFACED has not been switched on yet. Nothing was changed.',
+      });
+  });
   it('market orders paused', () => {
     expect(refusalCopy('trade.slippage_cap_unset')).toEqual({ title: 'Market orders are paused', body: 'Use a limit order instead.' });
   });
@@ -89,6 +96,30 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
   });
 });
 
+describe('order refusals the pro desk shows by their registered words (TRD-0521)', () => {
+  it('names a post-only, fill-or-kill, unsupported-type and minimum-notional refusal, and never the raw code', () => {
+    expect(refusalCopy('trade.post_only_would_cross')).toEqual({
+      title: 'Post-only order not placed',
+      body: 'It would have matched an order on the book right away, so it was refused. Nothing was traded.',
+    });
+    expect(refusalCopy('fok_unfillable').title).toBe('Fill-or-kill order not placed');
+    expect(refusalCopy('trade.order_type_unsupported')).toEqual({
+      title: "That order type isn't offered yet",
+      body: 'This market takes limit and market orders only.',
+    });
+    expect(refusalCopy('trade.below_min_notional')).toEqual({ title: 'Amount is too small', body: 'Enter a larger amount to continue.' });
+    expect(refusalCopy('trade.orders_paused').title).toBe('Orders are paused right now');
+    for (const code of [
+      'trade.post_only_would_cross',
+      'fok_unfillable',
+      'trade.order_type_unsupported',
+      'trade.invalid_tif',
+      'trade.orders_paused',
+    ])
+      expect(`${refusalCopy(code).title} ${refusalCopy(code).body}`).not.toMatch(/trade\.|_would_|_unfillable|_unsupported|_tif/);
+  });
+});
+
 describe('classifyRefusal', () => {
   it('sorts the codes customers can reach', () => {
     const cases: Array<[string, string]> = [
@@ -108,6 +139,12 @@ describe('classifyRefusal', () => {
       ['auth.required', 'signedOut'],
       ['bank.below_minimum', 'belowMinimum'],
       ['trade.self_trade', 'selfTrade'],
+      ['trade.order_type_unsupported', 'orderTypeUnsupported'],
+      ['trade.post_only_would_cross', 'postOnlyWouldCross'],
+      ['post_only_would_cross', 'postOnlyWouldCross'],
+      ['fok_unfillable', 'fokUnfillable'],
+      ['trade.invalid_tif', 'tifInvalid'],
+      ['trade.below_min_notional', 'belowMinimum'],
       ['trade.convert_insufficient_depth', 'insufficientDepth'],
       ['trade.convert_invalid_qty', 'quoteFailed'],
     ];

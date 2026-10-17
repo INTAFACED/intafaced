@@ -1,3 +1,5 @@
+'use client';
+
 /*
  * Structure adapted from shadcn/ui (Base UI flavour) `dropdown-menu.tsx`.
  * Source: https://github.com/shadcn-ui/ui/blob/30a58d4498f270af1c1e981a7d78a15cf5740841/apps/v4/registry/bases/base/ui/dropdown-menu.tsx

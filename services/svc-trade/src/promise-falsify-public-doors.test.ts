@@ -243,8 +243,8 @@ function privateDeps(overrides: Partial<PrivateRestDeps> = {}): PrivateRestDeps 
 
 describe('D26-P2-01a refuse-closed defaults (no invent)', () => {
   it('copy residuals name DIRECTION §8 — never invent rates or geo allowlist', () => {
-    expect(COPY_FEE_SHARE_RESIDUAL).toMatch(/never invent fee-share rates/i);
-    expect(COPY_JURISDICTION_RESIDUAL).toMatch(/never invent geo allowlist/i);
+    expect(COPY_FEE_SHARE_RESIDUAL).toMatch(/leader fee share is not set/i);
+    expect(COPY_JURISDICTION_RESIDUAL).toMatch(/served regions is not set/i);
   });
 
   it('public funding-rate door documents never-invent-zero for unpublished futures', () => {
@@ -425,7 +425,7 @@ describe('D26-P2-01a public doors — copy refuse invent §8 rates / jurisdictio
     };
     expect(payload.feeSharePublished).toBe(false);
     expect(payload.jurisdictionPublished).toBe(false);
-    expect(payload.residual).toMatch(/DIRECTION §8/);
+    expect(payload.residual).toMatch(/leader fee share/);
     await app.close();
   });
 
@@ -446,7 +446,7 @@ describe('D26-P2-01a public doors — copy refuse invent §8 rates / jurisdictio
     });
 
     expect(statusCode).toBe(412);
-    expect(body.error!.message).toMatch(/jurisdiction|DIRECTION §8|trade\.copy_jurisdiction_blank/i);
+    expect(body.error!.message).toMatch(/served regions/i);
     await app.close();
   });
 
@@ -509,7 +509,7 @@ describe('D26-P2-01a public doors — copy refuse invent §8 rates / jurisdictio
     });
 
     expect(statusCode).toBe(412);
-    expect(body.error!.message).toMatch(/fee-share|leader_share|trade\.copy_fee_share_blank|DIRECTION §8/i);
+    expect(body.error!.message).toMatch(/leader fee share/i);
     await app.close();
   });
 });

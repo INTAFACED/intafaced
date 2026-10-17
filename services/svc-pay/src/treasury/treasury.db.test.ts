@@ -35,6 +35,7 @@ const migrations = [
   '0058_pay_halts.sql',
   '0059_pay_treasury_exposure_indexes.sql',
   '0071_pay_merchant_names.sql',
+  '0073_pay_settlement_read.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-treasury-test-secret-at-least-32-characters';
@@ -223,6 +224,7 @@ describe('W5 treasury exposure (real Postgres)', () => {
   it('conversion: refused while the inventory reader is unwired; with one wired, at-limit passes and one minor unit over is refused', async () => {
     const ctx = (fromAmount: bigint, replay = FRESH) => ({
       sql: sql as never,
+      tx: sql as never,
       merchantId: randomUUID(),
       settlementId: randomUUID(),
       fromAsset: 'USD',
@@ -472,6 +474,7 @@ describe('W5 treasury exposure (real Postgres)', () => {
       await expect(
         conv.beforeConversion({
           sql: sql as never,
+          tx: sql as never,
           merchantId: randomUUID(),
           settlementId: randomUUID(),
           fromAsset: 'USD',
@@ -486,6 +489,7 @@ describe('W5 treasury exposure (real Postgres)', () => {
       await expect(
         conv.beforeConversion({
           sql: sql as never,
+          tx: sql as never,
           merchantId: randomUUID(),
           settlementId: randomUUID(),
           fromAsset: 'USD',

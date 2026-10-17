@@ -58,6 +58,24 @@ Internal tRPC (`src/router.ts`). Money is a **decimal string** in both direction
 
 Refunds and payouts carry their own scopes. Taking a payment and sending money back out are not the same authority. Bad destinations refuse as `pay.invalid_destination_ref` / `pay.destination_kind_mismatch` **before** any hold.
 
+### Merchant statement (`merchant.statement.list`)
+
+The page is one window, not the merchant's whole history. `from` and `to` are required (`pay.statement_range_required`). The span is at most 92 days (`pay.statement_range_too_wide`). One request resolves at most 2000 candidate ledger keys (`pay.statement_too_large`). Those two numbers are technical safety bounds so a read cannot walk every capture, settlement, refund, dispute, and payout the merchant has ever had. They are not a retention policy and not a fee.
+
+Running balances need a ledger balance at `from`. `LedgerClient` does not expose one, so the response says `runningBalances: "within_range"` and `opening: null`. In that mode each line carries `windowNet`, the signed net of that line's account inside the window after the line (a debit is positive). `runningClearing` and `runningProceeds` are null and `runningReason` is `no_opening`. A negative window net is an outflow recorded without an opening balance, and the line stays `runningOrder: "clear"`.
+
+When the client exposes `balanceAsOf`, `runningBalances` is `from_opening`, lines start from that opening, and `windowNet` is null. A reconstructed balance that would go negative is `runningOrder: "order_ambiguous"` and `runningReason: "order_ambiguous"`. Later lines for that asset drop their balances. The page still returns.
+
+Same-timestamp lines from different ledger transactions follow `seq` or `sequence` when every line at that instant has one, otherwise the hash chain (`previousHash`). When neither a sequence nor a distinct chain position orders those transactions, the line is `order_ambiguous` in either mode.
+
+One `merchant.statement.list` runs per merchant at a time. The slot is a row in `pay.merchant_statement_leases`, kept for at most 60 seconds and deleted when the scan finishes. This process also runs at most two scans at once. A second call for that merchant, or a third scan on that process, is `pay.statement_busy`. Those bounds are a concurrency limit. They are not a quota and not a fee. The scan does not hold a pooled connection across the ledger reads.
+
+TODO: svc-ledger should grow a cursor that pages entries by account. This procedure should read that cursor instead of guessing ledger keys from pay rows.
+
+`payment.refunds.get` loads the merchant id and fences before it parses an amount or reads the ledger. A malformed row the caller does not own is `pay.refund_not_found`.
+
+`settlement.lifecycle` derives status from the timeline. When the status column is ahead of `settled_at` / `sent_at` / `failed_at` (migration 0073 did not backfill them), the read adds one synthetic event `{ at: null, timeKnown: false }` so the derived status is not lower than the column.
+
 **HTTP:** `POST /webhooks/:railId` (public, signature-authenticated), `GET /health`, `GET /ready`, hosted checkout `GET /checkout?token=` / `GET /pay/link/:token` (public HTML; browser via edge `/api/pay/checkout?token=`).
 
 ### User money in and out
@@ -237,6 +255,7 @@ Every value movement is a recipe. This service holds no balance of any kind (Doc
 | `withdrawSettle`       | `withdraw.settled`        | hold → rail boundary (completed)                                       |
 | `withdrawReverse`      | `withdraw.reversed`       | hold → available (refused)                                             |
 | `deposit`              | `deposit.credited`        | rail boundary → user available                                         |
+| `depositReverse`       | `deposit.reversed`        | user available → rail boundary (rewritten deposit block)               |
 
 The three `withdraw*` recipes serve **both** outbound paths — a merchant payout keyed on `<settlementId>:<attempt>`, and a user withdrawal keyed on `<withdrawalId>:<attempt>`. Same shape, same reasoning, one set of recipes.
 
@@ -261,6 +280,7 @@ can complete the same recipe plan against a real chain.
 | `withdraw.hold\|settle\|reverse:<settlementId>:<attempt>` | One merchant payout attempt.                                                                                                                                                                                                                    |
 | `withdraw.hold\|settle\|reverse:<withdrawalId>:<attempt>` | One user withdrawal attempt.                                                                                                                                                                                                                    |
 | `deposit:<rail>:<railRef>`                                | A rail reference is credited once, however often it is redelivered.                                                                                                                                                                             |
+| `deposit.reverse:<depositId>`                             | A rewritten block reverses that deposit once. A second report returns the first row.                                                                                                                                                            |
 
 > **Why the asset is in the settlement key.** §6.1's settlement is keyed on merchant and window. A merchant taking USDT and BTC on the same day has two settlements, and without the asset in the key the second would find the first's transaction, return it, and strand a whole currency's takings in clearing. The `settlements` table carries an `asset_id` column for the same reason: `gross`/`fees`/`net` are meaningless without one.
 
@@ -343,9 +363,31 @@ What the kit asserts is exactly what the core is entitled to assume. That is wha
 
 ---
 
+## USD → USDT conversion (sandbox)
+
+Live mode refuses to boot. With no testnet key, quote and execute refuse. They do not invent a fill.
+
+**Orphan holds.** `founderAdmin.conversion.holds.sweep` (`sweepOrphanHolds`) stays founder-triggered. The same pass also runs every 5 minutes. One replica holds a session try-lock for the pass; a busy lock releases nothing. Run it after any resolve, and after a crash, so a hold whose conversion row is failed or gone is released. The amount released is the hold the ledger still has. A live row, including `placing`, is left alone.
+
+**Late fills.** Detection is not on the quote or execute path, and it does not book. A timer calls `sweepLateFills` once a minute, and a founder can run the same pass with `founderAdmin.conversion.lateFill.sweep` (that call skips the backoff wait). One replica holds a session try-lock for the tick. A busy lock makes no venue calls. Each tick calls the venue for at most 8 rows, so the lock cannot sit in front of quote and execute lookups. The venue search is only `placing_at` minus 1 minute through `placing_at` plus 10 minutes (the window in which the venue could have accepted the order). The same window is what resolve and reconcile use. Each successful check stamps `last_checked_at` and sets the next check at most 1 minute later, then 5, then 15, then 60. The wait is jittered under that cap and is the same on every replica. A venue or rate error does not stamp the row, is logged, and is retried on the next tick. It does not block quotes or executes. Only a found late fill does.
+
+The sweep stops calling the venue for a resolve-absent row 7 days after the absent-resolve confirmation (or `placing_at`, then `created_at`, when that confirmation is missing). It sets `late_fill_check_final_at`. That horizon is technical: it bounds how long a miss is re-queried. It is not a quote TTL. A founder force does not reopen a final row. A fill that appears after the horizon is not auto-detected.
+
+A found fill writes a `pay.conversion_late_fill` audit row and blocks new quotes and executes with `pay.conversion_late_fill_halt`. Nothing is booked. Clearing a conversion halt, including a halt that was set for another reason, does not lift that block.
+
+**Acknowledgement.** Two founders. `founderAdmin.conversion.lateFill.propose` names how the fill was settled (a sentence, not an amount) and returns a hash bound to the audit row. A different founder calls `founderAdmin.conversion.lateFill.confirm` with that hash. Rejecting leaves the block in place. Confirming records the sentence and lets quotes and executes proceed. It does not book the fill and it does not clear a halt.
+
+**Booking.** Separate from a hand-written sentence. `founderAdmin.conversion.lateFill.book.propose` fetches the venue and returns a hash bound to the audit row and that evidence. The body has no amount. A different founder calls `founderAdmin.conversion.lateFill.book.confirm` with the hash. Confirm fetches the venue again and posts only when the evidence still matches. The post is `fxConversionLateFill`. When merchant clearing covers the filled USD, that USD leaves clearing, the merchant is credited the net USDT, and the fee and spread are the original order's, pro-rated by the venue fill. The idempotency key is the audit row id. When clearing cannot cover, or the fill is under the original minimum, the venue legs go to treasury `pay:fx-inventory` only: inventory is short the filled USD and long the gross USDT the venue delivered. The merchant is not credited and no fee is taken. The merchant keeps the USD the absent-resolve already restored. A `pay.conversion_late_fill_shortfall` audit is written. Confirming the book also writes the confirmed acknowledgement, sentence `booked via late-fill book <requestId>`, so the quote halt lifts in that same two-founder step. `PAY_CONVERSION_MODE` still defaults to off. Nothing on the timer posts a fill.
+
 ## Kill-switch
 
 `module.pay` in the admin console — the module kill-switch beats every other flag (`packages/config/src/flags.ts`). With it off, no procedure in this service serves. `pay.payfac` and `pay.laneA` gate features not built here.
+
+## Halts
+
+A halt stops one operation (intake, conversion, payout, or settlement) for everyone, one merchant, one user's withdrawal, or one rail. Auto-trip stays off until `PAY_HALT_AUTOTRIP_FAILURES` or `PAY_HALT_AUTOTRIP_RAIL_FAILURES` is a positive integer. There is no default count. With both unset, a payout, withdrawal, or refund does not take the auto-trip lock.
+
+Adapter throws count per occurrence: N retries of one stuck payout can trip the merchant. That is fail-closed and intended. A generic `rail.failed` without a rail-health code never counts.
 
 ---
 

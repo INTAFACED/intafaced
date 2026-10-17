@@ -25,8 +25,11 @@ const messages = {
   Promotions: 'Promotions',
   'Dividend records': 'Dividend records',
   'Signed out.': 'Signed out.',
-  'Signed out on this device. The server could not confirm session revocation; use Sign out everywhere after reconnecting.':
-    'Signed out on this device. The server could not confirm session revocation; use Sign out everywhere after reconnecting.',
+  'Not signed out yet. Reloading would sign you back in.': 'Not signed out yet. Reloading would sign you back in.',
+  Retry: 'Retry',
+  'You were signed out because your sign-in was used elsewhere.': 'You were signed out because your sign-in was used elsewhere.',
+  'This account is frozen, so you were signed out. Contact support to find out why.':
+    'This account is frozen, so you were signed out. Contact support to find out why.',
   'Sign out': 'Sign out',
   'Sign in to access account, security and verification.': 'Sign in to access account, security and verification.',
   'Sign in': 'Sign in',
@@ -67,6 +70,12 @@ const messages = {
   'Share your details to get paid': 'Share your details to get paid',
   Help: 'Help',
   'Answers and support': 'Answers and support',
+  Merchant: 'Merchant',
+  'Accept payments and run your business': 'Accept payments and run your business',
+  Academy: 'Academy',
+  'Learning paths and certificates': 'Learning paths and certificates',
+  'All rooms': 'All rooms',
+  'Everything INTAFACED offers': 'Everything INTAFACED offers',
   Settings: 'Settings',
   'Display, language and notifications': 'Display, language and notifications',
   'Search markets': 'Search markets',
@@ -122,8 +131,11 @@ export const shellCopy: ReturnType<typeof defineCopy<typeof messages>> = defineC
     Promotions: 'Promociones',
     'Dividend records': 'Registros de dividendos',
     'Signed out.': 'Sesión cerrada.',
-    'Signed out on this device. The server could not confirm session revocation; use Sign out everywhere after reconnecting.':
-      'La sesión se cerró en este dispositivo. El servidor no pudo confirmar su revocación; usa Cerrar sesión en todas partes cuando vuelvas a conectarte.',
+    'Not signed out yet. Reloading would sign you back in.': 'Aún no se cerró la sesión. Si recargas, volverás a entrar.',
+    Retry: 'Reintentar',
+    'You were signed out because your sign-in was used elsewhere.': 'Se cerró tu sesión porque tu inicio de sesión se usó en otro lugar.',
+    'This account is frozen, so you were signed out. Contact support to find out why.':
+      'Esta cuenta está congelada, por eso se cerró tu sesión. Contacta con soporte para saber el motivo.',
     'Sign out': 'Cerrar sesión',
     'Sign in to access account, security and verification.': 'Inicia sesión para acceder a tu cuenta, seguridad y verificación.',
     'Sign in': 'Iniciar sesión',
@@ -171,8 +183,12 @@ export const shellCopy: ReturnType<typeof defineCopy<typeof messages>> = defineC
     Promotions: 'Promotions',
     'Dividend records': 'Registres de dividendes',
     'Signed out.': 'Déconnecté.',
-    'Signed out on this device. The server could not confirm session revocation; use Sign out everywhere after reconnecting.':
-      'Vous êtes déconnecté sur cet appareil. Le serveur n’a pas pu confirmer la révocation de la session ; utilisez Déconnecter tous les appareils après la reconnexion.',
+    'Not signed out yet. Reloading would sign you back in.': 'Vous n’êtes pas encore déconnecté. Recharger la page vous reconnecterait.',
+    Retry: 'Réessayer',
+    'You were signed out because your sign-in was used elsewhere.':
+      'Vous avez été déconnecté parce que votre connexion a été utilisée ailleurs.',
+    'This account is frozen, so you were signed out. Contact support to find out why.':
+      'Ce compte est gelé, vous avez donc été déconnecté. Contactez le support pour en connaître la raison.',
     'Sign out': 'Se déconnecter',
     'Sign in to access account, security and verification.': 'Connectez-vous pour accéder au compte, à la sécurité et à la vérification.',
     'Sign in': 'Se connecter',

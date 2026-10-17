@@ -9,6 +9,7 @@ import '../chart/chart.css';
 import { BookPanel, STALE_BOOK_MS, type BookPick } from './OrderBook';
 import { BottomTabs, type BottomTab } from './BottomTabs';
 import { ChartPanel } from './ChartPanel';
+import { FeedStatus } from './FeedStatus';
 import { MarketsPanel } from './MarketsPanel';
 import { OrderPanel } from './OrderForm';
 import { TickerStrip } from './TickerStrip';
@@ -72,6 +73,7 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const reference = useMemo<Reference | null>(() => (bookData ? { bestBid, bestAsk } : null), [bookData !== null, bestBid, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps
   const referenceFresh = bookData !== null && now - bookData.timestamp < STALE_BOOK_MS;
   const symbol = market.symbol;
+  const status = useMemo(() => <FeedStatus symbol={symbol} />, [symbol]);
   const toggleFavorite = useCallback(() => toggle(symbol), [toggle, symbol]);
   const picker = useMemo(() => <PairPicker selected={symbol} />, [symbol]);
   const onPlaced = useCallback(() => {
@@ -92,6 +94,7 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         onToggleFavorite={toggleFavorite}
         zone={timeZone}
         picker={picker}
+        status={status}
       />
       <div className="dk-grid">
         <aside className="dk-panel dk-left" aria-label={t('Markets')}>

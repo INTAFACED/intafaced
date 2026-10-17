@@ -19,10 +19,9 @@ import { composePortfolioView, portfolioViewSchema } from '@intafaced/portfolio-
 import { DualControlError } from './ledger/dual-control.js';
 import {
   ActionApprovalConsumeError,
-  type ActionApprovalConsumer,
-  ledgerActionPayloadHash,
-  readApprovalIds,
+  consumeLedgerApproval,
   unwiredApprovalConsumer,
+  type ActionApprovalConsumer,
 } from './ledger/action-approval-consume.js';
 import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
@@ -61,6 +60,14 @@ function toTrpcError(err: unknown): TRPCError {
   }
   if (err instanceof LedgerError && err.code === 'ledger.freeze_attributed') {
     return new TRPCError({ code: 'CONFLICT', message: userCopy(err.code), cause: err });
+  }
+  // Operator reconcile: another run holds the single-flight lock, or the proof could not
+  // finish. Operator-only procedure, so the message is the operator's to read as written.
+  if (err instanceof LedgerError && err.code === 'ledger.reconcile_in_progress') {
+    return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+  }
+  if (err instanceof LedgerError && err.code === 'ledger.reconcile_incomplete') {
+    return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: err.message, cause: err });
   }
   // Caller-actionable, and retrying the same body never will succeed. Same
   // status as `s2s-http.httpError`: a history window that cannot be answered,
@@ -392,16 +399,15 @@ export function createLedgerRouter(
       .mutation(async ({ ctx, input }) => {
         try {
           void ctx.principal.userId;
-          const ids = readApprovalIds(input);
           const prior = await ledger.freezeState();
-          const consumed = await approvals.consume({
-            approvalId: ids.approvalId,
-            operationId: ids.operationId,
-            payloadHash: ledgerActionPayloadHash('ledger.reconcile', {}),
-            targetService: 'svc-ledger',
-            targetId: 'posting_reconcile',
-            expectedVersion: prior.changedAtPrecise,
-          });
+          const consumed = await consumeLedgerApproval(
+            approvals,
+            input,
+            'ledger.reconcile',
+            'posting_reconcile',
+            prior.changedAtPrecise,
+            {},
+          );
           const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
           const report = await ledger.reconcile();
           // chainLength is the number of transactions that verified, even on a
@@ -454,15 +460,9 @@ export function createLedgerRouter(
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          const ids = readApprovalIds(input);
           const prior = await ledger.freezeState();
-          const consumed = await approvals.consume({
-            approvalId: ids.approvalId,
-            operationId: ids.operationId,
-            payloadHash: ledgerActionPayloadHash('ledger.freeze', { reason: input.reason }),
-            targetService: 'svc-ledger',
-            targetId: 'posting_freeze',
-            expectedVersion: prior.changedAtPrecise,
+          const consumed = await consumeLedgerApproval(approvals, input, 'ledger.freeze', 'posting_freeze', prior.changedAtPrecise, {
+            reason: input.reason,
           });
           const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
           const state = await ledger.freeze(input.reason, ctx.principal.userId);
@@ -490,18 +490,10 @@ export function createLedgerRouter(
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          const ids = readApprovalIds(input);
           const prior = await ledger.freezeState();
-          const consumed = await approvals.consume({
-            approvalId: ids.approvalId,
-            operationId: ids.operationId,
-            payloadHash: ledgerActionPayloadHash('ledger.unfreeze', {}),
-            targetService: 'svc-ledger',
-            targetId: 'posting_unfreeze',
-            expectedVersion: prior.changedAtPrecise,
-          });
+          const consumed = await consumeLedgerApproval(approvals, input, 'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {});
           const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
-          const state = await ledger.unfreeze(ctx.principal.userId);
+          const state = await ledger.unfreeze(ctx.principal.userId, confirmOperatorId);
           return { postingEnabled: !state.frozen, frozenReason: state.reason, frozenBy: state.actor, confirmOperatorId };
         } catch (err) {
           throw toTrpcError(err);

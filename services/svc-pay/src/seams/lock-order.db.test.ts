@@ -22,6 +22,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
   let changes!: ChangeService;
   let merchantId = '';
   let ownerUserId = '';
+  let ledger!: MemoryLedger;
   const saved: Record<string, string | undefined> = {};
   const ENV = ['PAY_MERCHANT_CONTROLS', 'PAY_TREASURY_LIMITS', 'PAY_TREASURY_EXPOSURE_LIMITS'] as const;
 
@@ -39,10 +40,12 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     process.env.PAY_TREASURY_LIMITS = 'required';
     process.env.PAY_TREASURY_EXPOSURE_LIMITS = '{"USDT":"1000"}';
     await resetControl(sql);
-    const pay = new PayService(sql, new MemoryLedger(), new RailRegistry([]), {});
+    ledger = new MemoryLedger();
+    const pay = new PayService(sql, ledger, new RailRegistry([]), {});
     ownerUserId = randomUUID();
     merchantId = (await pay.createMerchant({ userId: ownerUserId, pricing: { feeBps: 0 } })).id;
-    // The owner has settled USDT, so the withdrawal hook holds the owner's USDT withdrawals to this merchant's caps.
+    // A pending row with no settlement post. A reader reports it absent, so it
+    // does not put the owner's personal withdrawal under the payout cap.
     await sql`INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net) VALUES (${merchantId}, 'lock-order', 'USDT', 10, 0, 10)`;
     await applyChange(changes, sql, { scope: 'tier', change: { kind: 'upsert_tier', tier: TEST_TIER } });
     await applyChange(changes, sql, {
@@ -70,7 +73,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
 
   /** Run one payout admission in a transaction whose every statement is recorded in order. */
   async function admit(amount: string, seen: string[] = []): Promise<string[]> {
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     await sql.begin(async (tx) => {
       const spy = new Proxy(tx, {
         apply: (target, thisArg, args: unknown[]) => {
@@ -133,7 +136,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
       merchantId: other,
       change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null },
     });
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     const run = (m: string, ref: string) =>
       sql.begin((tx) =>
         guards.beforePayoutAdmit({
@@ -154,10 +157,13 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     const results = await Promise.allSettled(jobs);
     expect(results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason)).toEqual([]);
     expect(Number(await used())).toBe(50);
-  });
+    // Same budget as beforeEach: creating the second merchant and admitting both
+    // sides holds treasury locks until the test returns. A 5s abort leaves those
+    // transactions running and the next test deadlocks with them.
+  }, 30_000);
   /** One user-money withdrawal admission by the merchant's owner, every statement recorded in order. */
   async function withdraw(amount: string, seen: string[] = []): Promise<string[]> {
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     await sql.begin(async (tx) => {
       const spy = new Proxy(tx, {
         apply: (target, thisArg, args: unknown[]) => {
@@ -183,21 +189,15 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     return seen;
   }
 
-  it('an owner withdrawal takes the treasury advisory lock before any W1 counter, exactly one treasury lock, and counts against the merchant', async () => {
-    const statements = await withdraw('10');
-    const treasury = statements.findIndex((s) => s.includes('pg_advisory_xact_lock'));
-    const firstCounter = statements.findIndex((s) => s.includes('pay.control_cap_usage'));
-    expect(treasury, `no treasury lock in: ${JSON.stringify(statements)}`).toBeGreaterThanOrEqual(0);
-    expect(firstCounter, `W1 took no counter in: ${JSON.stringify(statements)}`).toBeGreaterThanOrEqual(0);
-    expect(treasury).toBeLessThan(firstCounter);
-    // Every treasury lock (the guard takes the same per-asset key twice on a withdrawal) comes before the first W1 counter,
-    // and W1 takes no advisory lock of its own that could invert the order.
-    const advisory = statements.map((s, i) => (s.includes('pg_advisory_xact_lock') ? i : -1)).filter((i) => i >= 0);
-    expect(advisory.every((i) => i < firstCounter)).toBe(true);
-    // Within the merchant: the daily payout counter before the beneficiary counter, as in a payout admission.
-    const kinds = statements.filter((s) => s.includes('INSERT INTO pay.control_cap_usage')).length;
-    expect(kinds).toBe(2);
-    expect(Number(await used())).toBe(10);
+  it('an owner withdrawal takes the treasury lock, then screening with no result refuses it before any cap count', async () => {
+    const statements: string[] = [];
+    await expect(withdraw('10', statements)).rejects.toMatchObject({
+      code: 'pay.guard_screening_unavailable',
+      kind: 'unavailable',
+    });
+    expect(statements.some((s) => s.includes('pg_advisory_xact_lock'))).toBe(true);
+    expect(statements.some((s) => s.includes('pay.control_cap_usage'))).toBe(false);
+    expect(await used()).toBeUndefined();
   });
 
   it('a withdrawal the treasury refuses never reaches the W1 counters', async () => {
@@ -209,7 +209,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
   });
 
   it('payout admissions and owner withdrawals racing on one merchant all finish and add up: no deadlock', async () => {
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     const payout = (i: number) =>
       sql.begin((tx) =>
         guards.beforePayoutAdmit({
@@ -226,11 +226,15 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
       );
     const jobs = Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? payout(i) : withdraw('10').then(() => undefined)));
     const results = await Promise.allSettled(jobs);
-    expect(results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason)).toEqual([]);
-    expect(Number(await used())).toBe(100);
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    // The five withdrawals have no screening result, so they refuse. The five payout admissions still finish.
+    expect(rejected).toHaveLength(5);
+    for (const result of rejected) expect(result.reason).toMatchObject({ code: 'pay.guard_screening_unavailable' });
+    // Five payout admissions of 10. The interleaved withdrawals are personal and do not count.
+    expect(Number(await used())).toBe(50);
   });
   it('a capture takes its counters last, after a bounded lock timeout is set, and no advisory lock; daily intake before monthly', async () => {
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     const seen: string[] = [];
     const paymentId = randomUUID();
     await sql.begin(async (tx) => {

@@ -48,6 +48,20 @@ import {
 
 const FENCE_CODES = new Set(['pay.merchant_forbidden', 'pay.merchant_not_found', 'pay.payment_not_found', 'pay.settlement_not_found']);
 
+/** Same refusal, with the per-request correlation id removed. Both bodies must carry one. */
+function refusalBody(json: unknown): unknown {
+  if (!json || typeof json !== 'object') return json;
+  const body = { ...(json as Record<string, unknown>) };
+  const error = body.error;
+  if (!error || typeof error !== 'object') return body;
+  const err = { ...(error as Record<string, unknown>) };
+  expect(typeof err.requestId).toBe('string');
+  expect(String(err.requestId).length).toBeGreaterThan(0);
+  delete err.requestId;
+  body.error = err;
+  return body;
+}
+
 /** The owner got past the isolation fence (data, or a business answer about their own row). */
 function passedFence(o: Outcome): boolean {
   if (o.kind === 'ok') return true;
@@ -101,8 +115,8 @@ describe('M: merchant isolation', () => {
     it('a merchant with rows in every table sees ONLY them: B’s own list is B’s, and is disjoint from A’s', async () => {
       const a = await callTrpc(w, ctxFor('session', 'A'), 'payment.list', { merchantId: w.e.A.merchantId, limit: 200 });
       const b = await callTrpc(w, ctxFor('session', 'B'), 'payment.list', { merchantId: w.e.B.merchantId, limit: 200 });
-      const aIds = (a as { value: Array<{ id: string }> }).value.map((r) => r.id);
-      const bIds = (b as { value: Array<{ id: string }> }).value.map((r) => r.id);
+      const aIds = (a as { value: { items: Array<{ id: string }> } }).value.items.map((r) => r.id);
+      const bIds = (b as { value: { items: Array<{ id: string }> } }).value.items.map((r) => r.id);
       expect(aIds.length).toBeGreaterThan(0);
       expect(bIds.length).toBeGreaterThan(0);
       expect(aIds.filter((x) => bIds.includes(x))).toEqual([]);
@@ -370,7 +384,7 @@ describe('M: merchant isolation', () => {
         const none = await callRest(w, p, route.req({ ...ghostIds(), merchantId: w.e.A.merchantId }));
         expect(shapeOf(foreign)).toEqual(shapeOf(none));
         expect(foreign.status).toBe(none.status);
-        expect(foreign.json).toEqual(none.json);
+        expect(refusalBody(foreign.json)).toEqual(refusalBody(none.json));
       },
     );
 
@@ -525,17 +539,18 @@ describe('M: merchant isolation', () => {
   // ────────────────────────────────────────────────────────────────────────
   describe('M6: A’s webhooks and exports contain only A’s data', () => {
     const endpointsOf = async (merchantId: string) =>
-      (await w.sql`SELECT id, url, signing_secret FROM pay.merchant_webhook_endpoints WHERE merchant_id = ${merchantId}`) as unknown as Array<{
+      (await w.sql`SELECT id, url, signing_secret, status FROM pay.merchant_webhook_endpoints WHERE merchant_id = ${merchantId}`) as unknown as Array<{
         id: string;
         url: string;
         signing_secret: string;
+        status: string;
       }>;
 
     it('an event for A is queued for A’s endpoints only, and delivered only to A’s URLs, signed with A’s secret', async () => {
       const A = w.e.A;
       const B = w.e.B;
-      const aEndpoints = await endpointsOf(A.merchantId);
-      const bEndpoints = await endpointsOf(B.merchantId);
+      const aEndpoints = (await endpointsOf(A.merchantId)).filter((e) => e.status === 'active');
+      const bEndpoints = (await endpointsOf(B.merchantId)).filter((e) => e.status === 'active');
       const payment = await w.pay.getPayment(A.paymentId2);
       await w.webhooks.enqueue({ type: 'payment.failed', payment });
       const queued =
@@ -612,6 +627,40 @@ describe('M: merchant isolation', () => {
         expect(text).not.toContain(e.signing_secret);
         expect(text).not.toContain(createHash('sha256').update(e.signing_secret).digest('hex'));
       }
+    });
+  });
+
+  describe('merchant.myAccess lists memberships, never a merchant row the caller is not on', () => {
+    it('A sees only the merchant it owns; an invited row on that user is not a membership', async () => {
+      const o = await callTrpc(w, ctxFor('session', 'A'), 'merchant.myAccess', {});
+      expect(o.kind).toBe('ok');
+      if (o.kind !== 'ok') return;
+      const memberships = (o.value as { memberships: Array<{ merchantId: string; role: string }> }).memberships;
+      expect(memberships.map((m) => m.merchantId)).toEqual([w.e.A.merchantId]);
+      expect(memberships[0]?.role).toBe('owner');
+    });
+
+    it('a merchant session cannot decide a sensitive identity change', async () => {
+      const o = await callTrpc(w, ctxFor('session', 'A'), 'merchant.businessProfile.review', {
+        merchantId: w.e.A.merchantId,
+        requestId: randomUUID(),
+        decision: 'approved',
+        reason: 'isolation drill',
+        expectedChangeHash: `sha256:${'a'.repeat(64)}`,
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+      });
+      expect(o).toMatchObject({ kind: 'error', code: 'FORBIDDEN' });
+    });
+
+    it('B’s finance member sees only B, as finance', async () => {
+      const o = await callTrpc(w, ctxOf(sessionOf(w.bFinanceUserId)), 'merchant.myAccess', {});
+      expect(o.kind).toBe('ok');
+      if (o.kind !== 'ok') return;
+      const memberships = (o.value as { memberships: Array<{ merchantId: string; role: string }> }).memberships;
+      expect(memberships.map((m) => ({ merchantId: m.merchantId, role: m.role }))).toEqual([
+        { merchantId: w.e.B.merchantId, role: 'finance' },
+      ]);
     });
   });
 });

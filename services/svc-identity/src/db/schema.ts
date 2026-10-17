@@ -258,10 +258,37 @@ export const sessions = identity.table(
      * stolen. Reuse detection is the entire point of rotating them.
      */
     reuseDetectedAt: tstz('reuse_detected_at'),
+    /**
+     * Set when this refresh token is rotated. A second presentation inside the
+     * grace window reads `successorId` instead of burning the family.
+     */
+    rotatedAt: tstz('rotated_at'),
+    successorId: uuid('successor_id'),
+    /** AES-256-GCM (`enc:v1`) of the successor refresh token. Not the raw token. */
+    successorRefresh: text('successor_refresh'),
     createdAt: createdAt(),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('sessions_refresh_idx').on(t.refreshHash), index('sessions_user_idx').on(t.userId, t.revoked)],
+);
+
+/**
+ * One-time signed-out password reset proofs. The code itself is never stored.
+ */
+export const passwordResetProofs = identity.table(
+  'password_reset_proofs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** SHA-256 hex of the mailed code. */
+    codeHash: text('code_hash').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+    consumedAt: tstz('consumed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('password_reset_proofs_code_hash_idx').on(t.codeHash), index('password_reset_proofs_user_open_idx').on(t.userId)],
 );
 
 export const apiKeys = identity.table(
@@ -294,6 +321,12 @@ export const apiKeys = identity.table(
      * Minted into the short access token as `key_env`. Default live.
      */
     mode: text('mode').notNull().default('live'),
+    /** Opt-in inbound HMAC. Default false: unsigned calls stay accepted. */
+    requireSignature: boolean('require_signature').notNull().default(false),
+    /** When true, an empty IP allowlist refuses. Default false keeps empty = open. */
+    requireNonEmptyIpAllowlist: boolean('require_non_empty_ip_allowlist').notNull().default(false),
+    /** HMAC key. Shown once when signature is turned on. Never listed. */
+    requestSigningSecret: text('request_signing_secret'),
     lastUsedAt: tstz('last_used_at'),
     expiresAt: tstz('expires_at'),
     revoked: boolean('revoked').notNull().default(false),
@@ -422,6 +455,7 @@ export const schema = {
   xpEvents,
   rankThresholds,
   sessions,
+  passwordResetProofs,
   apiKeys,
   subAccounts,
   waitlistEntries,

@@ -1,0 +1,242 @@
+/*
+ * Request, Bills, Global and the Send/Receive extras. Only --if-* tokens, all in the components layer.
+ * The QR square is the one fixed-colour element: a code has to be dark on white to scan, in any theme.
+ */
+@layer components {
+  .pay-tabs [role='tab'] {
+    min-width: 0;
+  }
+
+  .pay-text {
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--if-fg);
+    font: 500 16px/24px var(--if-font-ui);
+    outline: none;
+  }
+  .pay-text::placeholder {
+    color: var(--if-fg-3);
+  }
+  .pay-text:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 4px;
+    border-radius: var(--if-r-sm);
+  }
+  .pay-text:disabled {
+    cursor: not-allowed;
+  }
+  select.pay-text {
+    appearance: none;
+    cursor: pointer;
+  }
+  .pay-fieldset {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .pay-fieldset:disabled .pay-field {
+    opacity: 0.6;
+  }
+  .pay-hint {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
+  /* One plain reason, always visible, never a tooltip */
+  .pay-reason {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px;
+    border-radius: var(--if-r-md);
+    background: var(--if-lime-soft);
+  }
+  .pay-reason__title {
+    font: 600 15px/20px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .pay-reason__body {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
+  /* The steps of a journey */
+  .pay-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: pay-step;
+  }
+  .pay-steps > li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font: 500 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+    counter-increment: pay-step;
+  }
+  .pay-steps > li::before {
+    content: counter(pay-step);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--if-r-pill);
+    background: var(--if-field);
+    color: var(--if-fg-2);
+    font: 600 12px/16px var(--if-font-ui);
+  }
+  .pay-steps > li[data-state='done']::before {
+    background: var(--if-lime);
+    color: var(--if-bg);
+  }
+  .pay-steps > li[data-state='current'] {
+    color: var(--if-fg);
+  }
+
+  .pay-section-title {
+    font: 600 15px/20px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .pay-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--if-line-strong);
+  }
+
+  /* Recent people */
+  .pay-contacts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .pay-contacts__label {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
+  /* Quote rows: a rate is never shown unless a source gave it */
+  .pay-quote {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 16px;
+    border-radius: var(--if-r-md);
+    background: var(--if-field);
+  }
+  .pay-quote > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .pay-quote dt {
+    color: var(--if-fg-2);
+  }
+  .pay-quote dd {
+    margin: 0;
+    color: var(--if-fg);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* QR */
+  .pay-qr {
+    align-self: center;
+    width: 100%;
+    max-width: 208px;
+    padding: 8px;
+    border-radius: var(--if-r-md);
+    /* QR codes need fixed dark-on-light contrast in every theme, so plain keywords, not theme tokens. */
+    background: white;
+    line-height: 0;
+  }
+  .pay-qr svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .pay-link {
+    padding: 12px;
+    border-radius: var(--if-r-sm);
+    background: var(--if-field);
+    font: 400 12px/18px var(--if-font-mono);
+    color: var(--if-fg-2);
+    overflow-wrap: anywhere;
+    user-select: all;
+  }
+  .pay-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Lists: requests, payments */
+  .pay-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .pay-list > li {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--if-line-strong);
+  }
+  .pay-list > li:last-child {
+    border-bottom: 0;
+  }
+  .pay-list__main {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    font: 500 14px/20px var(--if-font-ui);
+    overflow-wrap: anywhere;
+  }
+  .pay-list__sub {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+    overflow-wrap: anywhere;
+  }
+  .pay-empty {
+    padding: 12px 0;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
+  /* Banner above Send when a payment link filled it in */
+  .pay-banner {
+    padding: 12px 16px;
+    border-radius: var(--if-r-md);
+    background: var(--if-lime-soft);
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 560px) {
+    .pay-card [role='tablist'] {
+      overflow-x: auto;
+    }
+  }
+}

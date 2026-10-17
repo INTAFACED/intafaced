@@ -82,6 +82,7 @@ import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
+import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
 import { startAlgoJobs } from './algo/algo-jobs.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
 import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
@@ -156,6 +157,8 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['trade'],
 });
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
+const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+retainRawBody(app);
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
   accountAdmission: tradingControls,
   marketLifecycle,
@@ -175,6 +178,8 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   affiliateAccrue,
   affiliatePayout,
   dropCopyIngest,
+  holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
+  onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
 const subscriptions = await subscribeMatchingEvents(bus, trade);
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
@@ -289,8 +294,6 @@ const copy = new CopyService(ledger, {
 export const appRouter = createTradeRouter(trade, otc, copy, tradingControls);
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
-const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
-retainRawBody(app);
 if (venueBookPort && venuePublicAdapter) {
   for (const symbol of venueStreamSymbols) {
     const book = new MaintainedBook(venuePublicAdapter, symbol);
@@ -447,6 +450,27 @@ const optionsExerciseJobs = startOptionsExerciseJobs({
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'options exercise job tick failed'),
 });
+const holdUnknownSweep = startHoldUnknownSweepJobs({
+  trade,
+  config: {
+    enabled: env.TRADE_HOLD_UNKNOWN_SWEEP_ENABLED,
+    intervalMs: env.TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS,
+  },
+  onError: (name, err) => app.log.error({ err, job: name }, 'hold-unknown sweep tick failed'),
+  onResult: (r) => {
+    if (r.alerts.length === 0) return;
+    app.log.error(
+      {
+        examined: r.examined,
+        booked: r.booked,
+        absent: r.absent,
+        stillUnknown: r.stillUnknown,
+        alerts: r.alerts,
+      },
+      'hold-unknown sweep — order.hold reply was lost',
+    );
+  },
+});
 const reconcileJobs = startEngineLedgerReconcileJobs({
   sql,
   ledger,
@@ -589,6 +613,11 @@ registerSpotOrderPreviewRest(app, {
     const best = depth.asks[0];
     return best ? parseAmount(best[0]) : null;
   },
+  bestBid: async (marketId) => {
+    const depth = await matching.depth(marketId, 1);
+    const best = depth.bids[0];
+    return best ? parseAmount(best[0]) : null;
+  },
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
@@ -693,6 +722,8 @@ registerPrivateRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   marketById: (marketId) => trade.marketById(marketId),
   markets: (limit) => trade.markets(limit),
+  feeSchedule,
+  now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),
   listPositions: (principal, symbol) => positions.listOpen(principal.userId, symbol),
@@ -779,6 +810,8 @@ app.log.info(
     optionsJobs: optionsExerciseJobs.host.list(),
     reconcileJobsEnabled: env.TRADE_RECONCILE_JOBS_ENABLED,
     reconcileJobs: reconcileJobs.host.list(),
+    holdUnknownSweepEnabled: env.TRADE_HOLD_UNKNOWN_SWEEP_ENABLED,
+    holdUnknownSweep: holdUnknownSweep.host.list(),
     trpc: true,
   },
   'svc-trade ready',
@@ -792,6 +825,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       algoJobs.stop();
       optionsExerciseJobs.stop();
       reconcileJobs.stop();
+      holdUnknownSweep.stop();
       await Promise.all([...venueMaintainedBooks.values()].map((b) => b.close()));
       await app.close();
       for (const subscription of subscriptions) await subscription.unsubscribe();

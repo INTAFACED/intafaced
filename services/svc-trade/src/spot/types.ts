@@ -20,7 +20,7 @@ export type MarketStatus = 'pending' | 'active' | 'halted' | 'delisted';
 export type OrderSide = 'buy' | 'sell';
 export type OrderType = 'market' | 'limit';
 export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'GTD' | 'GTT';
-export type OrderStatus = 'pending' | 'open' | 'filled' | 'cancelled' | 'rejected' | 'expired' | 'recovery_required';
+export type OrderStatus = 'pending' | 'open' | 'filled' | 'cancelled' | 'rejected' | 'expired' | 'recovery_required' | 'hold_unknown';
 export type RecoveryReason = 'SUBMIT_UNKNOWN' | 'CANCEL_UNKNOWN' | 'AMEND_UNKNOWN' | 'RECONCILIATION_REQUIRED';
 export type AmendPriority = 'retained' | 'lost';
 export type Liquidity = 'maker' | 'taker';
@@ -144,7 +144,9 @@ export type ReplaceOutcomeCode =
   | 'RECONCILIATION_REQUIRED'
   | 'REPLACEMENT_SUBMIT_UNKNOWN'
   | 'REPLACEMENT_NOT_SUBMITTED'
-  | 'LIFECYCLE_REFUSED';
+  | 'LIFECYCLE_REFUSED'
+  /** Owner pre-trade limit would refuse the replacement; the original was left untouched (#4725). */
+  | 'LIMIT_REFUSED';
 
 /** Honest result of the two-step cancel → finalized release → submit saga. */
 export interface ReplaceOrderOutcome {
@@ -275,6 +277,17 @@ export type TradeErrorCode =
   | 'trade.lifecycle_transition_partial'
   | 'trade.lifecycle_transition_unknown'
   | 'trade.lifecycle_recovery_required'
+  /**
+   * `order.hold` did not answer, and a read of `order.hold:<orderId>` did not
+   * answer either. The row is `hold_unknown`. Retry the same clientOrderId.
+   * Do not treat this as a cancel.
+   */
+  | 'trade.hold_unknown'
+  /**
+   * The lost `order.hold` reply was read back and the hold was not booked.
+   * The intent row is gone. The same clientOrderId may be placed again.
+   */
+  | 'trade.hold_not_booked'
   | 'trade.product_disabled'
   | 'trade.matching_market_missing'
   | 'trade.matching_unavailable'
@@ -433,6 +446,18 @@ export type TradeErrorCode =
    * out of 1–5000. Never invent 200.
    */
   | 'trade.slippage_cap_unset'
+  /**
+   * Market sell or flatten with no owner protection floor. Preview and place
+   * both refuse. Never `orderable: true` with a null protection price.
+   */
+  | 'trade.protection_unset'
+  /**
+   * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
+   * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.
+   */
+  | 'trade.limit_max_order'
+  | 'trade.limit_max_position'
+  | 'trade.limit_max_loss'
   /**
    * MM seed refused: TRADE_MM_SEED_HALF_SPREAD_BPS or TRADE_MM_SEED_STEP_BPS
    * blank / non-integer. Never invent 10.

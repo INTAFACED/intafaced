@@ -28,10 +28,23 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
     const portal = sources(join(root, 'features', 'pay', 'portal')).filter((file) => file.endsWith('api.ts'));
     expect(portal.length).toBe(1);
     const text = readFileSync(portal[0]!, 'utf8');
-    const procedures = [...text.matchAll(/'((?:merchant|merchantOps|merchantMetrics|railHealth)[A-Za-z.]*)'/g)].map((m) => m[1]!);
+    const procedures = [
+      ...text.matchAll(/'((?:merchant|merchantOps|merchantMetrics|merchantControl|payHalts|payment|settlement|railHealth)[A-Za-z.]*)'/g),
+    ].map((m) => m[1]!);
     expect(procedures.length).toBeGreaterThan(20);
     for (const name of procedures)
-      expect(name, name).toMatch(/^(merchantOps\.|merchantMetrics\.|merchant\.(me|create|submitKyb|setPayoutDestination)$|railHealth$)/);
+      expect(name, name).toMatch(
+        new RegExp(
+          [
+            '^(merchantOps\\.|merchantMetrics\\.|merchant\\.(me|create|submitKyb|setPayoutDestination|listLinks)$|railHealth$',
+            // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
+            'payment\\.(list|get|history)$',
+            'settlement\\.(list|get)$',
+            'payHalts\\.status$',
+            'merchantControl\\.(get|usage|pricing\\.preview|approvals\\.(list|decide|cancel))$)',
+          ].join('|'),
+        ),
+      );
     expect(text).not.toMatch(/admin:|operator|killswitch/i);
   });
   it('keeps the whole customer app free of the founder namespace', () => {

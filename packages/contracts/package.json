@@ -21,11 +21,15 @@
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
+    },
+    "./founder-change-hash": {
+      "types": "./dist/founder-change-hash.d.ts",
+      "default": "./dist/founder-change-hash.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "typecheck": "node --input-type=module -e \"import {existsSync} from 'node:fs'; process.exit(['auth','config'].some((n)=>!existsSync('../../packages/'+n+'/dist/index.d.ts'))?1:0)\" || pnpm --filter @intafaced/contracts^... run --if-present build && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "tsc -p tsconfig.json && vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo"

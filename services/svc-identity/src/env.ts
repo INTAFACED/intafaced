@@ -51,6 +51,11 @@ const schema = serviceEnvSchema
     z.object({
       SERVICE_NAME: z.string().default('svc-identity'),
       HTTP_PORT: z.coerce.number().int().default(4002),
+      /**
+       * Seconds a just-rotated refresh token may be presented again (two tabs).
+       * Default 10. 0 disables the grace window. Ceiling 120.
+       */
+      REFRESH_REUSE_GRACE_SECONDS: z.coerce.number().int().min(0).max(120).default(10),
       /** Existing verified platform UUIDs. Missing/malformed/duplicate pair disables controls. */
       IDENTITY_FOUNDER_NITRO_USER_ID: z.string().optional(),
       IDENTITY_FOUNDER_PHANTOM_USER_ID: z.string().optional(),
@@ -118,6 +123,11 @@ const schema = serviceEnvSchema
        */
       IDENTITY_TOTP_SECRET_KEY: z.string().optional().default(''),
       /**
+       * 32-byte AES-256 key (base64 or 64-char hex) for api_keys.request_signing_secret.
+       * Blank = signing opt-in refuses (no plaintext write). Prod and staging boot refuse if missing.
+       */
+      API_KEY_SIGNING_ENC_KEY: z.string().optional().default(''),
+      /**
        * svc-ledger base URL for the ONE money path this service has: the
        * affiliate / IB commission fan-out (§0.6 — identity stores no balances).
        *
@@ -150,6 +160,16 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
+      /**
+       * Owner-published lifetime for a signed-out password-reset proof, in seconds.
+       * Blank / unset → unpublished; the reset request refuses (`auth.reset_unwired`).
+       * Never git-default 900 or 15 minutes. One day is the ceiling.
+       */
+      IDENTITY_PASSWORD_RESET_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
       /**
        * Optional pin for `waitlist.enabled` / `referral.queue` (packages/config
        * `envVarNameFor`). Unset or blank (compose `${VAR:-}`) follows the drop

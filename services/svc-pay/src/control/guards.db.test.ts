@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { formatAmount, MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
+import { formatAmount, MemoryLedger, merchantClearing, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
 import { signPayload } from '../rails/webhook-signature.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
@@ -68,7 +68,7 @@ describe('W1 control guards', () => {
     await adminStop();
   }, 30_000);
 
-  const required = () => composeGuards(createControlGuards({ sql, mode: 'required' }));
+  const required = () => composeGuards(createControlGuards({ sql, mode: 'required', ledger }));
   const service = (guards = required()) =>
     new PayService(sql, ledger, rails, {
       payoutDestinations: memoryPayoutDestinations(),
@@ -528,6 +528,58 @@ describe('W1 control guards', () => {
       expect((await sql`SELECT 1 FROM pay.control_pricing_snapshots WHERE subject_id = ${bareId}`).length).toBe(0);
     });
 
+    it('a failing over-cap notice does not roll back a capture whose ledger post landed', async () => {
+      const warnings: Array<Record<string, unknown>> = [];
+      const p = service(
+        composeGuards(
+          createControlGuards({
+            sql,
+            mode: 'required',
+            warn: (fields) => {
+              warnings.push(fields);
+            },
+          }),
+        ),
+      );
+      const m = await merchant('99999999-9999-4999-8999-999999999997', p);
+      await configure(m.id);
+      const ids: string[] = [];
+      for (let i = 0; i < 4; i += 1) {
+        const created = await pay(p, m.id, '100');
+        await fund(p, created.id, '100');
+        ids.push(created.id);
+      }
+      await sql.unsafe(`
+        CREATE OR REPLACE FUNCTION pay.test_reject_over_cap_notice() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          RAISE EXCEPTION 'notice insert refused';
+        END $$;
+        CREATE TRIGGER test_reject_over_cap_notice
+        BEFORE INSERT ON pay.merchant_notifications
+        FOR EACH ROW EXECUTE FUNCTION pay.test_reject_over_cap_notice();
+      `);
+      try {
+        for (const id of ids) expect((await p.capture(id)).status).toBe('captured');
+        expect(await usage(m.id, 'daily_intake')).toBe('400');
+        expect(warnings).toEqual([
+          expect.objectContaining({
+            event: 'payment.captured_over_cap_notice_failed',
+            paymentId: ids[3],
+            merchantId: m.id,
+          }),
+        ]);
+        expect(await sql`SELECT 1 FROM pay.merchant_notifications WHERE merchant_id = ${m.id}`).toHaveLength(0);
+        expect(await sql`SELECT 1 FROM pay.control_audit WHERE merchant_id = ${m.id} AND kind = 'payment.captured_over_cap'`).toHaveLength(
+          1,
+        );
+        expect(await ledger.getTxByKey(`payment.capture:${ids[3]!.toLowerCase()}`)).not.toBeNull();
+      } finally {
+        await sql`DROP TRIGGER IF EXISTS test_reject_over_cap_notice ON pay.merchant_notifications`;
+        await sql`DROP FUNCTION IF EXISTS pay.test_reject_over_cap_notice()`;
+      }
+    });
+
     it('a pricing rule that cannot be computed skips the snapshot, never the capture', async () => {
       const m = await merchant('99999999-9999-4999-8999-999999999999');
       await configure(m.id);
@@ -627,7 +679,7 @@ describe('W1 control guards', () => {
         tier: { ...TEST_TIER, caps: TEST_TIER.caps.map((c) => (c.kind === 'daily_payout' ? { ...c, limit: '30' } : c)) },
       });
       let clock = new Date('2026-03-10T10:00:00Z');
-      const g = composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock }));
+      const g = composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock, ledger }));
       const settlementId = randomUUID();
       const byDay = async () =>
         Object.fromEntries(
@@ -683,7 +735,7 @@ describe('W1 control guards', () => {
     });
   });
 
-  describe('an owner cannot leave through a user-money withdrawal what a payout would be stopped from sending', () => {
+  describe('a personal withdrawal is not a merchant payout', () => {
     const OWNER = '77777777-7777-4777-8777-777777777777';
     const BANK = { kind: 'bank', ref: 'DE89370400440532013000' };
     const wdTier = (daily: string) => ({
@@ -736,116 +788,154 @@ describe('W1 control guards', () => {
       clientRef,
     });
 
-    it("required: a withdrawal over the owner merchant's daily payout cap is refused, leaves no claim, and counts nothing", async () => {
+    it('required: a personal withdrawal is not refused for a payout cap, and it counts nothing', async () => {
       const m = await merchant(OWNER);
       await configure(m.id, { tier: wdTier('30') });
       await settle(m.id);
       const svc = await funded(required());
       expect((await svc.withdraw(request('w1', '20'))).status).toBe('sent');
-      expect(await usage(m.id, 'daily_payout')).toBe('20');
-      await expect(svc.withdraw(request('w2', '10.000000000000000001'))).rejects.toMatchObject({ code: 'pay.cap_daily_payout_exceeded' });
-      expect((await sql`SELECT 1 FROM pay.withdrawals WHERE client_ref = 'w2'`).length).toBe(0);
-      expect(await usage(m.id, 'daily_payout')).toBe('20');
-      expect((await svc.withdraw(request('w3', '10'))).status).toBe('sent');
-      expect(await usage(m.id, 'daily_payout')).toBe('30');
-      // A repeat of a sent withdrawal is a replay: returned, not refused, not counted again.
-      expect((await svc.withdraw(request('w3', '10'))).status).toBe('sent');
-      expect(await usage(m.id, 'daily_payout')).toBe('30');
+      expect((await svc.withdraw(request('w2', '40'))).status).toBe('sent');
+      expect(await usage(m.id, 'daily_payout')).toBe('0');
+      expect((await sql`SELECT 1 FROM pay.control_beneficiaries`).length).toBe(0);
     });
 
-    it('off: the same withdrawal goes through and nothing is counted (no change from before)', async () => {
+    it('required: an owner withdrawal is refused when the merchant still has a legacy settlement over the payout cap', async () => {
       const m = await merchant(OWNER);
       await configure(m.id, { tier: wdTier('30') });
-      const svc = await funded(composeGuards(createControlGuards({ sql, mode: 'off' })));
-      expect((await svc.withdraw(request('w-off', '150'))).status).toBe('sent');
-      expect((await sql`SELECT 1 FROM pay.control_cap_usage`).length).toBe(0);
+      const off = service(composeGuards({}));
+      const created = await pay(off, m.id, '10');
+      await fund(off, created.id, '10');
+      await off.capture(created.id);
+      windowSeq += 1;
+      const window = `wd-legacy-${windowSeq}`;
+      await ledger.post({
+        idempotencyKey: `settlement:${m.id}:${window}:USDT`,
+        module: 'pay',
+        reason: 'pay.settled',
+        meta: { merchantId: m.id, window, assetId: 'USDT' },
+        entries: [
+          { account: merchantClearing(m.id, 'USDT'), direction: 'credit', amount: amt('10') },
+          { account: userAvailable(OWNER, 'USDT'), direction: 'debit', amount: amt('10') },
+        ],
+      });
+      const settled = await off.settleWindow({
+        merchantId: m.id,
+        window,
+        assetId: 'USDT',
+        from: new Date(Date.now() - 86_400_000),
+        to: new Date(Date.now() + 86_400_000),
+      });
+      expect(settled.status).toBe('posted');
+      const svc = await funded(required());
+      expect((await svc.withdraw(request('legacy-w1', '20'))).status).toBe('sent');
+      expect(await usage(m.id, 'daily_payout')).toBe('20');
+      await expect(svc.withdraw(request('legacy-w2', '10.000000000000000001'))).rejects.toMatchObject({
+        code: 'pay.cap_daily_payout_exceeded',
+      });
+      expect((await sql`SELECT 1 FROM pay.withdrawals WHERE client_ref = 'legacy-w2'`).length).toBe(0);
+      expect(await usage(m.id, 'daily_payout')).toBe('20');
     });
 
-    it('required: the beneficiary cap applies to withdrawals and is shared with payouts', async () => {
+    it('required: a pending row with a pre-cutover post puts the owner under the payout cap', async () => {
       const m = await merchant(OWNER);
-      await configure(m.id);
-      await settle(m.id);
+      await configure(m.id, { tier: wdTier('30') });
+      const off = service(composeGuards({}));
+      const created = await pay(off, m.id, '10');
+      await fund(off, created.id, '10');
+      await off.capture(created.id);
+      windowSeq += 1;
+      const window = `wd-pending-legacy-${windowSeq}`;
+      await ledger.post({
+        idempotencyKey: `settlement:${m.id}:${window}:USDT`,
+        module: 'pay',
+        reason: 'pay.settled',
+        meta: { merchantId: m.id, window, assetId: 'USDT' },
+        entries: [
+          { account: merchantClearing(m.id, 'USDT'), direction: 'credit', amount: amt('10') },
+          { account: userAvailable(OWNER, 'USDT'), direction: 'debit', amount: amt('10') },
+        ],
+      });
+      await sql`
+        INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status)
+        VALUES (${m.id}, ${window}, 'USDT', 10, 0, 10, 'pending')
+      `;
       const svc = await funded(required());
+      expect((await svc.withdraw(request('pending-legacy-w1', '20'))).status).toBe('sent');
+      expect(await usage(m.id, 'daily_payout')).toBe('20');
+      await expect(svc.withdraw(request('pending-legacy-w2', '10.000000000000000001'))).rejects.toMatchObject({
+        code: 'pay.cap_daily_payout_exceeded',
+      });
+      expect(await usage(m.id, 'daily_payout')).toBe('20');
+    });
+
+    it('required: a pending settlement with no ledger post does not cap the owner', async () => {
+      const m = await merchant(OWNER);
+      await configure(m.id, { tier: wdTier('30') });
+      windowSeq += 1;
+      await sql`
+        INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status)
+        VALUES (${m.id}, ${`wd-pending-empty-${windowSeq}`}, 'USDT', 10, 0, 10, 'pending')
+      `;
+      const svc = await funded(required());
+      expect((await svc.withdraw(request('pending-empty', '40'))).status).toBe('sent');
+      expect(await usage(m.id, 'daily_payout')).toBe('0');
+    });
+
+    it('required: beforePayoutAdmit still enforces the daily payout cap on the proceeds payout', async () => {
+      const m = await merchant(OWNER);
+      await configure(m.id, { tier: wdTier('30') });
+      await settle(m.id);
       const g = required();
-      // One beneficiary used by a payout today, one by a withdrawal: the third distinct destination is refused.
-      await sql.begin((tx) =>
+      const admit = (tx: unknown, amount: bigint) =>
         g.beforePayoutAdmit({
           tx: tx as never,
           settlementId: randomUUID(),
           merchantId: m.id,
           assetId: 'USDT',
-          amount: amt('10'),
+          amount,
           railId: 'crypto-native',
           destination: DEST_A,
           attempt: 0,
           replay: FRESH,
-        }),
-      );
-      await svc.withdraw(request('b1', '10', OWNER, { kind: 'bank', ref: 'DE89370400440532013000' }));
-      expect(await usage(m.id, 'beneficiaries_per_day')).toBe('2');
-      await expect(svc.withdraw(request('b2', '10', OWNER, { kind: 'bank', ref: 'GB29NWBK60161331926819' }))).rejects.toMatchObject({
-        code: 'pay.cap_beneficiaries_exceeded',
+        });
+      await sql.begin((tx) => admit(tx, amt('20')));
+      await expect(sql.begin((tx) => admit(tx, amt('10.000000000000000001')))).rejects.toMatchObject({
+        code: 'pay.cap_daily_payout_exceeded',
       });
-      // A destination already used today costs nothing.
-      expect((await svc.withdraw(request('b3', '10'))).status).toBe('sent');
-    });
-
-    it('required: at or above the approval threshold is refused (no approval can exist for a withdrawal); just under goes through', async () => {
-      const m = await merchant(OWNER);
-      await configure(m.id);
-      await settle(m.id);
-      const svc = await funded(required());
-      await expect(svc.withdraw(request('t1', '50'))).rejects.toMatchObject({ code: 'pay.approval_required' });
-      expect((await sql`SELECT 1 FROM pay.withdrawals`).length).toBe(0);
-      expect((await svc.withdraw(request('t2', '49.999999999999999999'))).status).toBe('sent');
-    });
-
-    it('required: an owner with USDT settlements and nothing configured is refused (no defaults) for USDT; a user who owns no merchant is untouched', async () => {
-      const m = await merchant(OWNER);
-      await settle(m.id);
-      const svc = await funded(required());
-      await expect(svc.withdraw(request('u1', '5'))).rejects.toMatchObject({ code: 'pay.tier_unassigned' });
-      const PLAIN = '88888888-8888-4888-8888-888888888888';
-      const plain = await funded(required(), PLAIN);
-      expect((await plain.withdraw(request('p1', '150', PLAIN))).status).toBe('sent');
-      expect((await sql`SELECT 1 FROM pay.control_cap_usage`).length).toBe(0);
-    });
-
-    it('required: an owner whose merchant only ever settled USDT can withdraw personal BTC, and is still held to the USDT caps', async () => {
-      const m = await merchant(OWNER);
-      await configure(m.id, { tier: wdTier('30') });
-      await settle(m.id);
-      const svc = await funded(required());
-      await svc.credit({
-        userId: OWNER,
-        assetId: 'BTC',
-        amount: amt('5'),
-        rail: 'card-sandbox',
-        railRef: `seed-btc-${randomUUID()}`,
-        creditedBy: '99999999-9999-4999-8999-999999999999',
-      });
-      const btc = { ...request('btc-1', '2'), assetId: 'BTC' };
-      expect((await svc.withdraw(btc)).status).toBe('sent');
-      expect((await sql`SELECT 1 FROM pay.control_cap_usage`).length).toBe(0);
-      // The same user is still held to the USDT caps for USDT.
-      await expect(svc.withdraw(request('usdt-over', '31'))).rejects.toMatchObject({ code: 'pay.cap_daily_payout_exceeded' });
-      expect((await svc.withdraw(request('usdt-ok', '20'))).status).toBe('sent');
       expect(await usage(m.id, 'daily_payout')).toBe('20');
     });
 
-    it('required: an owner whose only merchant is dormant (no settlements, no config) withdraws freely', async () => {
-      await merchant(OWNER);
+    it('required: an owner with settlements and nothing configured can still withdraw personal funds', async () => {
+      const m = await merchant(OWNER);
+      await settle(m.id);
       const svc = await funded(required());
-      expect((await svc.withdraw(request('dormant', '150'))).status).toBe('sent');
+      expect((await svc.withdraw(request('u1', '5'))).status).toBe('sent');
       expect((await sql`SELECT 1 FROM pay.control_cap_usage`).length).toBe(0);
+      // The payout door is still closed: no tier means no payout admission.
+      const g = required();
+      await expect(
+        sql.begin((tx) =>
+          g.beforePayoutAdmit({
+            tx: tx as never,
+            settlementId: randomUUID(),
+            merchantId: m.id,
+            assetId: 'USDT',
+            amount: amt('10'),
+            railId: 'crypto-native',
+            destination: DEST_A,
+            attempt: 0,
+            replay: FRESH,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'pay.tier_unassigned' });
     });
 
-    it('the guard counts a withdrawal once per client reference, ignores replay and recovery, and refuses nothing it did not count', async () => {
+    it('the withdrawal hook does not count, including replay and a later day', async () => {
       const m = await merchant(OWNER);
       await configure(m.id, { tier: wdTier('30') });
       await settle(m.id);
       let clock = new Date('2026-03-10T10:00:00Z');
-      const g = composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock }));
+      const g = composeGuards(createControlGuards({ sql, mode: 'required', now: () => clock, ledger }));
       const ctx = (tx: unknown, over: Record<string, unknown> = {}) => ({
         tx: tx as never,
         userId: OWNER,
@@ -858,26 +948,11 @@ describe('W1 control guards', () => {
         ...over,
       });
       await sql.begin((tx) => g.beforeUserMoneyWithdrawal(ctx(tx)));
-      await sql.begin((tx) => g.beforeUserMoneyWithdrawal(ctx(tx)));
       await sql.begin((tx) => g.beforeUserMoneyWithdrawal(ctx(tx, { replay: { kind: 'replay', reason: 'withdrawal_already_sent' } })));
-      await sql.begin((tx) =>
-        g.beforeUserMoneyWithdrawal(
-          ctx(tx, { clientRef: 'other', amount: amt('99'), replay: { kind: 'recovery', reason: 'withdrawal_hold_booked' } }),
-        ),
-      );
-      expect(await usage(m.id, 'daily_payout')).toBe('20');
-      // The same reference retried on a later day is counted on that day (and its beneficiary too).
       clock = new Date('2026-03-11T00:00:01Z');
       await sql.begin((tx) => g.beforeUserMoneyWithdrawal(ctx(tx)));
-      const days = await sql<Array<{ period_key: string; used: string }>>`
-        SELECT period_key, used FROM pay.control_cap_usage WHERE merchant_id = ${m.id} AND cap_kind = 'daily_payout' ORDER BY period_key`;
-      expect(days.map((d) => [d.period_key, formatAmount(amt(d.used))])).toEqual([
-        ['2026-03-10', '20'],
-        ['2026-03-11', '20'],
-      ]);
-      const benefs = await sql<Array<{ period_key: string }>>`
-        SELECT period_key FROM pay.control_beneficiaries WHERE merchant_id = ${m.id} ORDER BY period_key`;
-      expect(benefs.map((b) => b.period_key)).toEqual(['2026-03-10', '2026-03-11']);
+      expect(await usage(m.id, 'daily_payout')).toBe('0');
+      expect((await sql`SELECT 1 FROM pay.control_beneficiaries WHERE merchant_id = ${m.id}`).length).toBe(0);
     });
   });
 

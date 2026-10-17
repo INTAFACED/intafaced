@@ -43,6 +43,10 @@ export class ControlRefusal extends PayGuardRefusal {
 
 export const CONTROL_ERROR_CODES = [
   'pay.merchant_not_found',
+  'pay.merchant_inactive',
+  'pay.interactive_required',
+  'pay.limit_request_not_found',
+  'pay.limit_request_not_pending',
   'pay.tier_unassigned',
   'pay.tier_not_found',
   'pay.approval_not_found',
@@ -60,6 +64,7 @@ export const CONTROL_ERROR_CODES = [
   'pay.payout_destination_missing',
   'pay.change_not_found',
   'pay.change_not_pending',
+  'pay.change_hash_mismatch',
   'pay.request_id_reused',
   'pay.dual_control_required',
   'pay.control_invalid',
@@ -72,6 +77,10 @@ export type ControlErrorClass = 'not_found' | 'forbidden' | 'precondition' | 'co
 
 const CLASS_OF: Record<ControlErrorCode, ControlErrorClass> = {
   'pay.merchant_not_found': 'not_found',
+  'pay.merchant_inactive': 'precondition',
+  'pay.interactive_required': 'forbidden',
+  'pay.limit_request_not_found': 'not_found',
+  'pay.limit_request_not_pending': 'conflict',
   'pay.tier_not_found': 'not_found',
   'pay.approval_not_found': 'not_found',
   'pay.change_not_found': 'not_found',
@@ -84,6 +93,7 @@ const CLASS_OF: Record<ControlErrorCode, ControlErrorClass> = {
   'pay.approval_payload_mismatch': 'conflict',
   'pay.approval_state_invalid': 'conflict',
   'pay.change_not_pending': 'conflict',
+  'pay.change_hash_mismatch': 'conflict',
   'pay.request_id_reused': 'conflict',
   'pay.approval_not_required': 'precondition',
   'pay.approval_threshold_unconfigured': 'precondition',

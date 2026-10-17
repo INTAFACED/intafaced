@@ -9,6 +9,9 @@
  *   FOUNDER_EXTRA    operator surfaces that are NOT under `founderAdmin.` / `payHalts.`
  *                    but are founder-only in effect. They guard themselves, so the
  *                    G7 static inventory cannot see them; the G1-G5 tables do.
+ *   COMPLIANCE_PROCS operator procedures on `admin:compliance` (not founder-only,
+ *                    not a merchant pay:write door). Same class as
+ *                    `merchant.decideKyb`, `kyb.decide`, and `kyb.decisionBinding`.
  *   MERCHANT_PROCS   every merchant-scoped tRPC procedure that takes an id (M1).
  *   LIST_PROCS       every list endpoint (M2).
  *   REST_ROUTES      the same for the public REST door (M1/M2).
@@ -30,11 +33,22 @@ const hash = `sha256:${'a'.repeat(64)}`;
 const window = { kind: 'preset', preset: 'today' } as const;
 /** An explicit range must sit on UTC midnights. */
 const series = { from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day' } as const;
+/** Statement reads refuse without a window. Seven days sits inside the 92-day technical cap. */
+function statementWindow(): { from: string; to: string } {
+  const to = Date.now() + 24 * 60 * 60 * 1000;
+  return { from: new Date(to - 7 * 24 * 60 * 60 * 1000).toISOString(), to: new Date(to).toISOString() };
+}
 export const ghost = (): string => randomUUID();
 
 // ── G: founder-only ─────────────────────────────────────────────────────────
 
-/** Operator surfaces outside the two founder-only prefixes. Behavioural G tests only. */
+/**
+ * Compliance procedures. Not founder-guarded and not in MERCHANT_PROCS: a pay:write
+ * session is refused by scope, the same way `merchant.decideKyb` and `kyb.decide` are.
+ * `kyb.decisionBinding` is the read a compliance proposer uses to file that approval.
+ */
+export const COMPLIANCE_PROCS = ['merchant.decideKyb', 'kyb.decide', 'kyb.decisionBinding', 'merchant.businessProfile.review'] as const;
+
 export const FOUNDER_EXTRA = [
   'accountControls.change',
   'accountControls.getState',
@@ -44,7 +58,22 @@ export const FOUNDER_EXTRA = [
 ] as const;
 
 /** Prefixes whose procedures must be founder-guarded (mirror of FOUNDER_ONLY_PREFIXES, restated so a change there is noticed). */
-export const FOUNDER_PREFIXES = ['founderAdmin.', 'payHalts.set', 'payHalts.history', 'payHalts.operatorStatus'] as const;
+export const FOUNDER_PREFIXES = [
+  'founderAdmin.',
+  'payHalts.set',
+  'payHalts.history',
+  'payHalts.operatorStatus',
+  'payHalts.pendingClears',
+  'b2bRamp.founderStatus',
+] as const;
+
+/**
+ * Live-founder verdicts that are past the guard. While pay.b2b_ramp is off,
+ * founderStatus refuses with this cause; that is not an authority refusal.
+ */
+export const FOUNDER_FLAG_OFF: Readonly<Record<string, string>> = {
+  'b2bRamp.founderStatus': 'pay.b2b_ramp_off',
+};
 
 /** A merchant id nobody owns: the control-write targets it, so even a broken guard mutates nothing real. */
 const NOBODY = ghost();
@@ -100,10 +129,17 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     expectedVersion: '0',
   }),
   'payHalts.history': () => ({ limit: 10 }),
+  'payHalts.pendingClears': () => ({ limit: 10 }),
   // Takes no input (`{}` is what the sweep sends by default); listed so the entry is explicit.
   'payHalts.operatorStatus': () => undefined,
   'founderAdmin.merchants.list': () => ({ limit: 10 }),
-  'founderAdmin.merchants.drilldown': () => ({ merchantId: NOBODY, window }),
+  'founderAdmin.merchants.drilldown': (w) => ({ merchantId: w.e.A.merchantId, window }),
+  'founderAdmin.merchants.section': (w) => ({ merchantId: w.e.A.merchantId, section: 'profile', limit: 10 }),
+  'founderAdmin.merchants.recent': () => ({ limit: 10 }),
+  'founderAdmin.payouts.list': () => ({ limit: 10 }),
+  'founderAdmin.disputes.list': () => ({ limit: 10 }),
+  'founderAdmin.live.summary': () => ({}),
+  'founderAdmin.risk.summary': () => ({ topN: 5 }),
   'founderAdmin.metrics.global': () => ({ window }),
   // A real merchant: founder authority replaces ownership, so the founder gets A's figures.
   'founderAdmin.metrics.merchant': (w) => ({ merchantId: w.e.A.merchantId, window }),
@@ -139,8 +175,12 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     requestId: w.control.pendingMerchantChangeId,
     decision: 'confirm',
     reason: 'second founder agrees',
+    expectedChangeHash: w.control.pendingMerchantChangeHash,
   }),
   'founderAdmin.approvals.list': () => ({ limit: 10 }),
+  'founderAdmin.approvals.destination': (w) => ({ approvalId: w.control.founderApprovalId }),
+  'founderAdmin.changes.pending': () => ({ limit: 10 }),
+  'founderAdmin.control.audit.list': () => ({ limit: 10 }),
   'founderAdmin.control.tiers.list': () => ({}),
   'founderAdmin.control.pricing.rules': () => ({ layer: 'global' }),
   'founderAdmin.control.merchant.get': (w) => ({ merchantId: w.e.A.merchantId }),
@@ -155,6 +195,7 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     requestId: w.control.pendingConfigureId,
     decision: 'confirm',
     reason: 'second founder agrees',
+    expectedChangeHash: w.control.pendingConfigureHash,
   }),
   'founderAdmin.control.approvals.decide': (w) => ({
     approvalId: w.control.founderApprovalId,
@@ -162,7 +203,48 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     expectedPayloadHash: w.control.founderApprovalHash,
     reason: 'isolation drill',
   }),
+  'founderAdmin.control.limitRequests.list': () => ({ limit: 10 }),
+  'founderAdmin.control.limitRequests.close': (w) => ({
+    requestId: w.control.pendingLimitRequestId,
+    reason: 'isolation drill close',
+  }),
   'founderAdmin.treasury.exposure': () => ({}),
+  'founderAdmin.conversion.resolve.propose': () => ({
+    requestId: randomUUID(),
+    conversionId: ghost(),
+    reason: 'isolation drill',
+  }),
+  'founderAdmin.conversion.resolve.confirm': () => ({
+    requestId: randomUUID(),
+    decision: 'reject' as const,
+    reason: 'isolation drill',
+    expectedChangeHash: hash,
+  }),
+  'founderAdmin.conversion.holds.sweep': () => ({}),
+  'founderAdmin.conversion.lateFill.propose': () => ({
+    requestId: randomUUID(),
+    auditId: ghost(),
+    settlement: 'reviewed outside the book',
+    reason: 'isolation drill',
+  }),
+  'founderAdmin.conversion.lateFill.confirm': () => ({
+    requestId: randomUUID(),
+    decision: 'reject' as const,
+    reason: 'isolation drill',
+    expectedChangeHash: hash,
+  }),
+  'founderAdmin.conversion.lateFill.sweep': () => ({}),
+  'founderAdmin.conversion.lateFill.book.propose': () => ({
+    requestId: randomUUID(),
+    auditId: ghost(),
+    reason: 'isolation drill',
+  }),
+  'founderAdmin.conversion.lateFill.book.confirm': () => ({
+    requestId: randomUUID(),
+    decision: 'reject' as const,
+    reason: 'isolation drill',
+    expectedChangeHash: hash,
+  }),
   // W15 operator notes: A is a real merchant, and the seeded note is live exactly until the positive control retracts it.
   'founderAdmin.ops.notes.add': (w) => ({ merchantId: w.e.A.merchantId, body: 'isolation drill', tags: ['drill'], flagged: false }),
   'founderAdmin.ops.notes.list': (w) => ({ merchantId: w.e.A.merchantId, limit: 10 }),
@@ -183,6 +265,8 @@ export interface ProbeIds {
   settlementId: string;
   linkId: string;
   endpointId: string;
+  spareEndpointId: string;
+  deliveryId: string;
   /** W15 merchant operations ids. */
   disputeId: string;
   customerRef: string;
@@ -192,6 +276,10 @@ export interface ProbeIds {
   inviteId: string;
   /** W1: a pending payout approval (the owner of that merchant is its maker). */
   approvalId: string;
+  /** `refund.posted` event id for payment.refunds.get. */
+  refundEventId: string;
+  invoiceId: string;
+  evidenceId: string;
 }
 
 export const idsOfEntity = (e: Entity): ProbeIds => ({
@@ -200,6 +288,8 @@ export const idsOfEntity = (e: Entity): ProbeIds => ({
   settlementId: e.settlementId,
   linkId: e.linkId,
   endpointId: e.endpointId,
+  spareEndpointId: e.spareEndpointId,
+  deliveryId: e.deliveryId,
   disputeId: e.disputeId,
   customerRef: e.customerRef,
   exportJobId: e.exportJobId,
@@ -207,6 +297,9 @@ export const idsOfEntity = (e: Entity): ProbeIds => ({
   memberId: e.memberId,
   inviteId: e.inviteId,
   approvalId: e.approvalId,
+  refundEventId: e.refundEventId,
+  invoiceId: e.invoiceId,
+  evidenceId: e.evidenceId,
 });
 export const ghostIds = (): ProbeIds => ({
   merchantId: ghost(),
@@ -214,6 +307,8 @@ export const ghostIds = (): ProbeIds => ({
   settlementId: ghost(),
   linkId: ghost(),
   endpointId: ghost(),
+  spareEndpointId: ghost(),
+  deliveryId: ghost(),
   disputeId: `dp-${ghost()}`,
   customerRef: `cust-${ghost()}`,
   exportJobId: ghost(),
@@ -221,6 +316,9 @@ export const ghostIds = (): ProbeIds => ({
   memberId: ghost(),
   inviteId: ghost(),
   approvalId: ghost(),
+  refundEventId: ghost(),
+  invoiceId: ghost(),
+  evidenceId: ghost(),
 });
 
 export interface MerchantProc {
@@ -275,6 +373,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, decision: 'approved' }),
   },
   { path: 'merchant.profile', scope: 'pay:write', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchant.checkoutSettings.get', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   { path: 'merchant.createLink', scope: 'pay:write', own: 'ok', input: (i) => ({ merchantId: i.merchantId, label: 'probe' }) },
   { path: 'merchant.listLinks', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   {
@@ -285,6 +384,61 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, linkId: i.linkId }),
   },
   { path: 'merchant.balances', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, assetId: 'USDT' }) },
+  { path: 'merchant.businessProfile.get', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchant.businessProfile.history', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 20 }) },
+  {
+    path: 'merchant.businessProfile.submit',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ merchantId: i.merchantId, reason: 'isolation drill', displayName: 'Isolation Name', expectedVersion: '0' }),
+  },
+  {
+    path: 'merchant.businessProfile.setSecondApproval',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ merchantId: i.merchantId, enabled: false }),
+  },
+  {
+    path: 'merchant.businessProfile.confirm',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.profile_change_not_found',
+    sessionOnly: true,
+    input: (i) => ({
+      merchantId: i.merchantId,
+      requestId: ghost(),
+      decision: 'confirm',
+      expectedChangeHash: hash,
+      reason: 'isolation drill',
+    }),
+  },
+  { path: 'merchant.onboarding.progress', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  {
+    path: 'merchantAnalytics.volume',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
+  },
+  {
+    path: 'merchantAnalytics.fees',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
+  },
+  {
+    path: 'merchant.payoutDestinations.list',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ merchantId: i.merchantId, limit: 50 }),
+  },
+  {
+    path: 'merchant.statement.list',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ merchantId: i.merchantId, limit: 50, ...statementWindow() }),
+  },
   // W5: the merchant-readable halt status for a named merchant (merchant-safe shape; an unnamed read is the global switch only).
   { path: 'payHalts.status', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   // payment.*
@@ -300,6 +454,8 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   { path: 'payment.get', scope: 'pay:read', own: 'ok', input: (i) => ({ paymentId: i.paymentId }) },
   { path: 'payment.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'payment.history', scope: 'pay:read', own: 'ok', input: (i) => ({ paymentId: i.paymentId, limit: 50 }) },
+  { path: 'payment.refunds.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
+  { path: 'payment.refunds.get', scope: 'pay:read', own: 'ok', input: (i) => ({ refundEventId: i.refundEventId }) },
   // settlement.*
   {
     path: 'settlement.run',
@@ -314,6 +470,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ settlementId: i.settlementId, railId: 'crypto-native' }),
   },
   { path: 'settlement.get', scope: 'pay:read', own: 'ok', input: (i) => ({ settlementId: i.settlementId }) },
+  { path: 'settlement.lifecycle', scope: 'pay:read', own: 'ok', input: (i) => ({ settlementId: i.settlementId }) },
   { path: 'settlement.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.release', scope: 'pay:write', own: 'service', input: (i) => ({ settlementId: i.settlementId, reason: 'probe' }) },
   // kyb.*
@@ -333,6 +490,29 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, assetCode: 'USDT', amount: '10' }),
   },
   { path: 'merchantControl.approvals.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
+  { path: 'merchantControl.tiers.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchantControl.pricing.history', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 20 }) },
+  { path: 'merchantControl.limits.open', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  {
+    path: 'merchantControl.limits.requestIncrease',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({
+      merchantId: i.merchantId,
+      requestId: randomUUID(),
+      caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '10' }],
+      reason: 'isolation drill',
+    }),
+  },
+  {
+    path: 'merchantControl.limits.withdraw',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
+    ownCause: 'pay.limit_request_not_found',
+    input: (i) => ({ merchantId: i.merchantId, requestId: randomUUID(), reason: 'isolation drill' }),
+  },
   // pay:payout is interactive-only, so there is no key case. "My merchant + their settlement" must look like a missing settlement.
   {
     path: 'merchantControl.approvals.request',
@@ -368,14 +548,13 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   },
   {
     path: 'conversion.quote',
-    scope: 'pay:read',
+    scope: 'pay:write',
     own: 'service',
-    stub: true,
     input: (i) => ({ merchantId: i.merchantId, settlementId: i.settlementId, fromAsset: 'USD', toAsset: 'USDT', fromAmount: '10' }),
   },
-  { path: 'conversion.execute', scope: 'pay:payout', own: 'service', stub: true, input: () => ({ requestId: ghost(), quoteId: ghost() }) },
-  { path: 'conversion.get', scope: 'pay:read', own: 'service', stub: true, input: () => ({ conversionId: ghost() }) },
-  { path: 'conversion.list', scope: 'pay:read', own: 'ok', stub: true, input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
+  { path: 'conversion.execute', scope: 'pay:payout', own: 'service', input: () => ({ requestId: ghost(), quoteId: ghost() }) },
+  { path: 'conversion.get', scope: 'pay:read', own: 'service', input: () => ({ conversionId: ghost() }) },
+  { path: 'conversion.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
   // W15 merchantOps.*: every procedure that takes a resource id. (The caller's merchant comes from the principal,
   // never the body, so there is no `mixed` case: the id is the only thing a caller can aim at someone else.)
   // Order matters for the positive controls: an action that consumes the row (remove, decline, respond) comes after its siblings.
@@ -384,6 +563,58 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     scope: 'pay:read',
     own: 'ok',
     input: (i) => ({ disputeId: i.disputeId }),
+  },
+  {
+    path: 'merchantOps.disputes.getEvidence',
+    scope: 'pay:read',
+    own: 'ok',
+    // Evidence bytes are an interactive respond action. An API key is refused even for the owner.
+    sessionOnly: true,
+    input: (i) => ({ evidenceId: i.evidenceId }),
+  },
+  {
+    path: 'merchantOps.disputes.uploadEvidence',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.dispute_evidence_upload_off',
+    input: (i) => ({
+      disputeId: i.disputeId,
+      kind: 'receipt',
+      fileName: 'receipt.pdf',
+      contentType: 'application/pdf',
+      contentBase64: Buffer.from('%PDF').toString('base64'),
+    }),
+  },
+  {
+    path: 'merchantOps.invoices.get',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ invoiceId: i.invoiceId }),
+  },
+  {
+    path: 'merchantOps.invoices.send',
+    scope: 'pay:write',
+    own: 'service',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
+  },
+  {
+    path: 'merchantOps.invoices.markPaidByPayment',
+    scope: 'pay:write',
+    own: 'service',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId, paymentId: i.paymentId }),
+  },
+  {
+    path: 'merchantOps.invoices.void',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.invoice_paid',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
+  },
+  {
+    path: 'merchantOps.invoices.reissueLink',
+    scope: 'pay:write',
+    own: 'service',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
   },
   {
     path: 'merchantOps.disputes.addEvidence',
@@ -409,6 +640,12 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     scope: 'pay:read',
     own: 'ok',
     input: (i) => ({ customerRef: i.customerRef, recentPaymentsLimit: 5 }),
+  },
+  {
+    path: 'merchantOps.customers.series',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ customerRef: i.customerRef, ...series, limit: 20 }),
   },
   { path: 'merchantOps.exports.get', scope: 'pay:read', own: 'ok', input: (i) => ({ jobId: i.exportJobId }) },
   { path: 'merchantOps.exports.download', scope: 'pay:read', own: 'ok', input: (i) => ({ jobId: i.exportJobId }) },
@@ -436,6 +673,63 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ memberId: i.inviteId }),
   },
   { path: 'merchantOps.team.declineInvite', scope: 'pay:write', own: 'ok', sessionOnly: true, input: (i) => ({ memberId: i.inviteId }) },
+  { path: 'merchantOps.exports.expire', scope: 'pay:write', own: 'ok', input: (i) => ({ jobId: i.exportJobId }) },
+  {
+    path: 'merchantOps.webhooks.update',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ endpointId: i.endpointId, url: `http://localhost:9/hook-updated-${i.endpointId.slice(0, 8)}` }),
+  },
+  {
+    path: 'merchantOps.webhooks.disable',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ endpointId: i.spareEndpointId }),
+  },
+  {
+    path: 'merchantOps.webhooks.rotateSecret',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ endpointId: i.endpointId, requestId: randomUUID() }),
+  },
+  {
+    path: 'merchantOps.webhooks.deliveries.retry',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ deliveryId: i.deliveryId, requestId: randomUUID() }),
+  },
+  // W10: while pay.b2b_ramp is off, the owner and a stranger get the same refusal. The flag check runs before any merchant lookup.
+  {
+    path: 'b2bRamp.status',
+    scope: 'pay:read',
+    own: 'service',
+    ownCause: 'pay.b2b_ramp_off',
+    input: (i) => ({ merchantId: i.merchantId }),
+  },
+  {
+    path: 'b2bRamp.credit',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.b2b_ramp_off',
+    input: (i) => ({
+      merchantId: i.merchantId,
+      bankLineId: 'bank-line-1',
+      amount: '10.00',
+      asset: 'USD',
+      clientSettledAmount: '999999.00',
+    }),
+  },
+  {
+    path: 'b2bRamp.get',
+    scope: 'pay:read',
+    own: 'service',
+    ownCause: 'pay.b2b_ramp_off',
+    input: (i) => ({ creditId: i.paymentId }),
+  },
 ];
 
 export const keyCanCall = (p: MerchantProc): boolean => !p.sessionOnly && MERCHANT_KEY_SCOPES.includes(p.scope);
@@ -453,48 +747,133 @@ export interface ListProc {
 }
 
 const arr = (v: unknown) => v as Array<Record<string, unknown>>;
+export function pageRows(v: unknown): Array<Record<string, unknown>> {
+  if (
+    v !== null &&
+    typeof v === 'object' &&
+    'items' in v &&
+    Array.isArray((v as { items: unknown }).items) &&
+    'nextCursor' in v &&
+    ((v as { nextCursor: unknown }).nextCursor === null || typeof (v as { nextCursor: unknown }).nextCursor === 'string')
+  ) {
+    return (v as { items: Array<Record<string, unknown>> }).items;
+  }
+  throw new Error('list page is not { items, nextCursor }');
+}
 
 export const LIST_PROCS: ListProc[] = [
   {
     name: 'trpc payment.list',
     call: { via: 'trpc', path: 'payment.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.paymentId, e.paymentId2],
   },
   {
     name: 'trpc settlement.list',
     call: { via: 'trpc', path: 'settlement.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.settlementId],
+  },
+  {
+    name: 'trpc merchant.payoutDestinations.list',
+    call: { via: 'trpc', path: 'merchant.payoutDestinations.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
+    rows: pageRows,
+  },
+  {
+    name: 'trpc payment.refunds.list',
+    call: { via: 'trpc', path: 'payment.refunds.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.refundEventId],
+  },
+  {
+    name: 'trpc merchant.statement.list',
+    call: { via: 'trpc', path: 'merchant.statement.list', input: (e) => ({ merchantId: e.merchantId, limit: 200, ...statementWindow() }) },
+    rows: pageRows,
+  },
+  {
+    name: 'trpc merchantOps.invoices.list',
+    call: { via: 'trpc', path: 'merchantOps.invoices.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.invoiceId],
   },
   {
     name: 'trpc merchant.listLinks',
     call: { via: 'trpc', path: 'merchant.listLinks', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.linkId],
   },
   {
     name: 'rest GET /v1/payments',
     call: { via: 'rest', req: (e) => ({ method: 'GET', url: `/v1/payments?merchantId=${e.merchantId}&limit=200` }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.paymentId, e.paymentId2],
   },
   {
     name: 'rest GET /v1/payment-links',
     call: { via: 'rest', req: (e) => ({ method: 'GET', url: `/v1/payment-links?merchantId=${e.merchantId}&limit=200` }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.linkId],
   },
   {
     name: 'rest GET /v1/webhook-endpoints',
     call: { via: 'rest', req: (e) => ({ method: 'GET', url: `/v1/webhook-endpoints?merchantId=${e.merchantId}&limit=200` }) },
     rows: arr,
-    expectedIds: (e) => [e.endpointId],
+    expectedIds: (e) => [e.endpointId, e.spareEndpointId],
   },
   {
     name: 'rest GET /v1/webhook-deliveries',
     call: { via: 'rest', req: (e) => ({ method: 'GET', url: `/v1/webhook-deliveries?merchantId=${e.merchantId}&limit=200` }) },
     rows: arr,
+  },
+  {
+    name: 'trpc merchantOps.activity.list',
+    call: { via: 'trpc', path: 'merchantOps.activity.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+  },
+  {
+    name: 'trpc merchantOps.payouts.list',
+    call: { via: 'trpc', path: 'merchantOps.payouts.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.settlementId],
+  },
+  {
+    name: 'trpc merchantOps.webhooks.list',
+    call: { via: 'trpc', path: 'merchantOps.webhooks.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.endpointId, e.spareEndpointId],
+  },
+  {
+    name: 'trpc merchantOps.webhooks.health',
+    call: { via: 'trpc', path: 'merchantOps.webhooks.health', input: () => ({}) },
+    rows: (v) => {
+      const endpoints = (v as { endpoints?: Array<{ endpointId: string }> }).endpoints ?? [];
+      return endpoints.map((row) => ({ id: row.endpointId }));
+    },
+    expectedIds: (e) => [e.endpointId, e.spareEndpointId],
+  },
+  {
+    name: 'trpc merchantOps.webhooks.deliveries.list',
+    call: { via: 'trpc', path: 'merchantOps.webhooks.deliveries.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.deliveryId],
+  },
+  {
+    name: 'trpc merchantOps.exports.list',
+    call: { via: 'trpc', path: 'merchantOps.exports.list', input: () => ({ limit: 200 }) },
+    rows: (v) => pageRows(v).map((r) => ({ ...r, id: String(r.jobId) })),
+    expectedIds: (e) => [e.exportJobId],
+  },
+  {
+    name: 'trpc merchantOps.disputes.list',
+    call: { via: 'trpc', path: 'merchantOps.disputes.list', input: () => ({ limit: 200 }) },
+    rows: (v) => pageRows(v).map((r) => ({ ...r, id: String(r.disputeId) })),
+    expectedIds: (e) => [e.disputeId],
+  },
+  {
+    name: 'trpc merchantControl.approvals.list',
+    call: { via: 'trpc', path: 'merchantControl.approvals.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
+    rows: (v) => pageRows(v).map((r) => ({ ...r, id: String(r.approvalId) })),
+    expectedIds: (e) => [e.approvalId],
   },
 ];
 
@@ -643,9 +1022,33 @@ export const TREE_PROCS: TreeProc[] = [
   { path: 'payment.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.list', area: 'settlement', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.get', area: 'settlement', input: (i) => ({ settlementId: i.settlementId }) },
+  { path: 'settlement.lifecycle', area: 'settlement', input: (i) => ({ settlementId: i.settlementId }) },
+  { path: 'merchant.payoutDestinations.list', area: 'settlement.payout', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
+  { path: 'payment.refunds.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
+  { path: 'payment.refunds.get', area: 'payment', input: (i) => ({ refundEventId: i.refundEventId }) },
+  { path: 'merchant.statement.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50, ...statementWindow() }) },
   // The merchant metrics need BOTH `payment` and `settlement` over the subject; neither is a default grant, so one name stands for the pair.
   { path: 'merchantMetrics.snapshot', area: 'payment', input: (i) => ({ merchantId: i.merchantId, window }) },
   { path: 'merchantMetrics.series', area: 'payment', input: (i) => ({ merchantId: i.merchantId, ...series }) },
+  {
+    path: 'submerchant.summary',
+    area: 'merchant.profile',
+    input: (i) => ({ merchantId: i.merchantId, recentPaymentsLimit: 5, grantsLimit: 20 }),
+  },
+  {
+    path: 'merchantAnalytics.volume',
+    area: 'payment',
+    input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
+  },
+  {
+    path: 'merchantAnalytics.fees',
+    area: 'settlement',
+    input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
+  },
+  { path: 'merchant.businessProfile.get', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchant.checkoutSettings.get', area: 'checkout.profile', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchant.businessProfile.history', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId, limit: 20 }) },
+  { path: 'merchant.onboarding.progress', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId }) },
 ];
 
 /** Default grants every sub-merchant gets from its parent (submerchants.ts DEFAULT_GRANTED_AREAS). */
