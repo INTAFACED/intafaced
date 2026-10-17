@@ -372,9 +372,9 @@ export function toCcxtOrderStatus(status: OrderStatus): 'open' | 'closed' | 'can
  *   3. unfilled → `"0"` (nothing moved).
  *   4. filled but no basis and no fills → `null` (honest unknown).
  *
- * Market sells have no limit price and no protectionPrice, so without a fill
- * load the residual used to invent confident `"0"`. That lies about quote
- * moved — never do it (PEACE residual after R6).
+ * A sell's protectionPrice is the slippage floor, not the proceeds. Without a
+ * limit price and without loaded fills the cost is unknown — return null.
+ * Never invent a confident "0", and never price the sell at the floor.
  */
 export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<FillRecord, 'quoteAmount'>[]): string | null {
   if (order.filledQty === 0n) return '0';
@@ -383,7 +383,7 @@ export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<F
     for (const f of fills) total = add(total, f.quoteAmount);
     return formatAmount(total);
   }
-  const costBasis = order.price ?? order.protectionPrice;
+  const costBasis = order.price ?? (order.side === 'buy' ? order.protectionPrice : null);
   if (costBasis === null) return null;
   return formatAmount(mul(costBasis, order.filledQty));
 }

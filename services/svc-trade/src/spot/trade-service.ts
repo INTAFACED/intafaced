@@ -1481,9 +1481,13 @@ export class TradeService {
      *                  floor is the owner slippage cap under the best bid.
      *                  A caller `minProtectionPrice` may only tighten that floor.
      *                  No published floor is `trade.protection_unset`.
+     *                  The owner max-order check uses the best bid (what a
+     *                  sell IOC can fill), or that floor when it is higher.
      */
     let fundingPrice: Amount | null = null;
     let protectionPrice: Amount | null = null;
+    // Market sell only. Limit and market-buy keep fundingPrice.
+    let marketSellLimitPrice: Amount | null = null;
 
     if (orderType === 'limit') {
       if (input.price == null) throw new TradeError('a limit order requires a price', 'trade.invalid_price');
@@ -1503,8 +1507,10 @@ export class TradeService {
     } else {
       // Market sell. Hold stays base qty — fundingPrice remains null — but the
       // engine path is an IOC limit at the owner floor so a sell cannot print
-      // through an unpublished or missing bid.
-      let floor = sellProtectionPriceFor(market, await this.bestBid(market.id), this.slippageCapBps);
+      // through an unpublished or missing bid. The bid is read once and shared
+      // with the owner-limit reference below.
+      const bid = await this.bestBid(market.id);
+      let floor = sellProtectionPriceFor(market, bid, this.slippageCapBps);
       if (input.minProtectionPrice != null) {
         if (input.minProtectionPrice <= 0n) {
           throw new TradeError('minProtectionPrice must be positive', 'trade.invalid_price');
@@ -1513,6 +1519,10 @@ export class TradeService {
         if (input.minProtectionPrice > floor) floor = input.minProtectionPrice;
       }
       protectionPrice = floor;
+      // A sell IOC can fill up to the best bid, so the max-order check must
+      // not undervalue the order at the slippage floor. A floor above the bid
+      // (a tightened minProtectionPrice) is the larger reference.
+      marketSellLimitPrice = bid != null && bid > floor ? bid : floor;
     }
 
     // Owner pre-trade max-order limit (#4725): this is the one door every
@@ -1520,8 +1530,10 @@ export class TradeService {
     // an existing order returned above, so a retry is never newly refused. Paper
     // markets returned above too (no real money), and seeded MM is a system action.
     // Reduce-only orders only ever shrink a position, so they are never capped.
+    // Limit and market-buy use fundingPrice. A market sell uses the best bid
+    // (or the floor when that is higher), never the floor alone.
     if (!seeded && (input as { reduceOnly?: boolean }).reduceOnly !== true) {
-      await this.assertOwnerOrderLimit(market, input.qty, fundingPrice ?? protectionPrice);
+      await this.assertOwnerOrderLimit(market, input.qty, fundingPrice ?? marketSellLimitPrice ?? protectionPrice);
     }
 
     // A market SELL holds base quantity, so `holdFor` ignores the price on that

@@ -14,6 +14,7 @@ import {
   presentCcxtBalances,
   presentCcxtMyTrade,
   presentCcxtOrder,
+  presentCcxtOrderCost,
   presentCcxtTradingFee,
   presentTradingFees,
   registerPrivateRest,
@@ -134,6 +135,18 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(wire.price).toBeNull();
     expect(wire.cost).toBe('200');
     expect(wire.cost).not.toBe('0');
+  });
+
+  it('filled market sell cost ignores the protection floor and is null without fills', () => {
+    const order = fakeOrder({
+      side: 'sell',
+      type: 'market',
+      price: null,
+      protectionPrice: parseAmount('98'),
+      filledQty: parseAmount('1'),
+    });
+    expect(presentCcxtOrderCost(order)).toBeNull();
+    expect(presentCcxtOrderCost(order, [{ quoteAmount: parseAmount('99') }])).toBe('99');
   });
 
   it('filled market sell without fills: cost is null, never confident "0" (PEACE residual)', () => {

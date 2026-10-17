@@ -222,13 +222,13 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
       await expect(trade.placeOrder(principal, { ...input, clientOrderId: 'mb-over' })).rejects.toMatchObject({ code: LIMIT_MAX_ORDER });
     });
 
-    it('market sell is valued at its protection floor; with no bid it refuses', async () => {
-      // bid 99, 150 bps, tick 0.01 → floor 97.52; qty 2 → 195.04. The owner
-      // limit is an integer, so 196 admits the floor notional and 195 refuses it.
-      onlyOrder('196');
+    it('market sell is valued at the best bid; with no bid it refuses', async () => {
+      // bid 99 × qty 2 = 198. A sell IOC can fill at the bid, so 198 admits
+      // and 197 refuses. The slippage floor is not the limit reference.
+      onlyOrder('198');
       const input = { marketId: spot.id, side: 'sell' as const, type: 'market' as const, qty: amt('2') };
       await trade.placeOrder(principal, { ...input, clientOrderId: 'ms-exact' });
-      onlyOrder('195');
+      onlyOrder('197');
       await expect(trade.placeOrder(principal, { ...input, clientOrderId: 'ms-over' })).rejects.toMatchObject({ code: LIMIT_MAX_ORDER });
       matching.bids = [];
       onlyOrder(BIG);
