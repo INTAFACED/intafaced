@@ -156,6 +156,8 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         )
       ) : showOrders ? (
         <OrderList pay={pay} userId={userId} />
+      ) : current === '/uc/ad/update' && !id.safeParse(params.get('offerId')).success ? (
+        <OfferForm pay={pay} userId={userId} mode="edit" offerId={null} />
       ) : publish ? (
         <div className="stack">
           <OfferForm pay={pay} userId={userId} mode={current === '/uc/ad/update' ? 'edit' : 'create'} offerId={params.get('offerId')} />
@@ -182,7 +184,16 @@ function PublishAvailability({ pay }: { pay: PersonalPayApi }) {
             <PayDetails
               values={[
                 [payCopy.t('instrumentEncryption'), data.instrumentKmsConfigured ? payCopy.t('configured') : payCopy.t('notConnected')],
-                [payCopy.t('offerLimits'), data.offerLimitsPosture],
+                [
+                  payCopy.t('offerLimits'),
+                  payCopy.t(
+                    data.offerLimitsPosture === 'unset'
+                      ? 'offerLimitsUnset'
+                      : data.offerLimitsPosture === 'unlimited'
+                        ? 'offerLimitsUnlimited'
+                        : 'offerLimitsConfigured',
+                  ),
+                ],
                 [
                   payCopy.t('moderation'),
                   data.moderation.status === 'configured'
@@ -202,9 +213,7 @@ function PublishAvailability({ pay }: { pay: PersonalPayApi }) {
                 <div className="pay-destination" key={`${method.methodId}:${method.country}`}>
                   <span>
                     {method.label}
-                    <small>
-                      {method.methodId} · {method.country}
-                    </small>
+                    <small>{method.country === '*' ? payCopy.t('allCountries') : method.country}</small>
                   </span>
                   <Status value={method.enabled ? 'enabled' : 'disabled'} />
                 </div>

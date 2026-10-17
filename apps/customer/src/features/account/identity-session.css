@@ -26,12 +26,13 @@
   font-size: 16px;
   line-height: 24px;
 }
-.identity-sessions__ref {
+.identity-sessions__mine {
+  align-self: flex-start;
   font-size: 13px;
   line-height: 20px;
-  color: var(--color-muted);
-  overflow-wrap: anywhere;
-  font-variant-numeric: tabular-nums;
+  padding: 0 8px;
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
 }
 .identity-sessions__row > button {
   flex-shrink: 0;

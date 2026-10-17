@@ -4,16 +4,7 @@ const instant = z
   .string()
   .datetime({ offset: true })
   .refine((value) => Number.isFinite(Date.parse(value)));
-// The service lists id and createdAt; a device name, address, last-seen time and a current-session flag are read when it sends them.
-export const identitySeat = z.object({
-  id: uuid,
-  createdAt: instant,
-  revoked: z.literal(false),
-  device: z.string().max(200).nullish(),
-  ip: z.string().max(80).nullish(),
-  lastSeenAt: instant.nullish(),
-  current: z.boolean().nullish(),
-});
+export const identitySeat = z.object({ id: uuid, createdAt: instant, revoked: z.literal(false) });
 export type IdentitySeat = z.infer<typeof identitySeat>;
 export interface PrivateSessionSource {
   userId: string;
@@ -73,4 +64,47 @@ export function finishRevoke(marker: RevokeMarker): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The id of the session this browser is signed in with, read from its own access token (a signed token whose middle part
+ * carries the session id as "sid"). It is only used to label a row "This device" and to keep that row from being signed
+ * out by mistake; the server still decides what any sign-out does. Null when the token is not in that shape.
+ */
+export function sessionIdFromToken(token: string | null | undefined): string | null {
+  try {
+    const part = token?.split('.')[1];
+    if (!part) return null;
+    const padded = part
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .padEnd(Math.ceil(part.length / 4) * 4, '=');
+    const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+    const payload: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    const sid = payload && typeof payload === 'object' ? (payload as { sid?: unknown }).sid : undefined;
+    const parsed = uuid.safeParse(sid);
+    return parsed.success ? parsed.data.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+export const RECENT_SESSION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Sessions started in the last 24 hours (and this device's own, whatever its age) stay in view; the rest fold behind
+ * "Show N more". Order is kept. A start time that cannot be read counts as older, never as recent.
+ */
+export function splitSessions<T extends { id: string; createdAt: string }>(
+  seats: readonly T[],
+  currentId: string | null,
+  now: number,
+): { recent: T[]; older: T[] } {
+  const recent: T[] = [];
+  const older: T[] = [];
+  for (const seat of seats) {
+    const at = Date.parse(seat.createdAt);
+    (seat.id.toLowerCase() === currentId || (Number.isFinite(at) && now - at <= RECENT_SESSION_MS) ? recent : older).push(seat);
+  }
+  return { recent, older };
 }

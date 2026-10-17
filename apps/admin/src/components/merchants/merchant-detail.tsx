@@ -264,12 +264,12 @@ function Overview({
               label="Conversion volume"
               value={
                 m.conversionVolume === null ? (
-                  <span className="mp-muted">Not built yet</span>
+                  <span className="mp-muted">Not available</span>
                 ) : (
                   <Amounts rows={m.conversionVolume} empty="None" />
                 )
               }
-              period="Arrives with W6"
+              period="No conversion order reader"
             />
           </div>
         )}
@@ -514,7 +514,7 @@ function Settlements({ metrics, here }: { metrics: MerchantDetailData['metrics']
             </table>
           )}
           <p className="mp-footnote mp-mt">
-            Individual settlements with retry and hold arrive with W1 and W5. This tab is the summary the read model projects.
+            Individual settlements with retry and hold are not connected here. This tab is the summary the read model projects.
           </p>
         </Card>
       )}
@@ -576,7 +576,7 @@ function ApprovalsTab({
           {rows.length === 0 ? (
             <StateBlock kind="empty" title="Nothing waiting for founders">
               No payout for this merchant is waiting at the founder step. Payouts still waiting for the merchant’s own team are not listed
-              here: the service has no founder-readable list for that earlier step yet.
+              here: the service has no founder-readable list for that earlier step.
             </StateBlock>
           ) : (
             <ApprovalsTable

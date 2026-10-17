@@ -33,6 +33,7 @@ import {
 import { usePendingNote } from '../buy/order-flow';
 import { useAvailable, useMarketLimits } from '../buy/quote-flow';
 import { dec, fractionDigits, toPlaces } from '../buy/trade-math';
+import { TradeSubNav } from '../TradeSubNav';
 import { convertCopy } from './copy';
 import { KeyValue, StatusChip, type KeyValueItem } from './deps';
 import { RecentConversions } from './RecentConversions';
@@ -143,36 +144,39 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
   else card = <ConvertCard key={`${shown.from}>${shown.to}`} all={all} from={shown.from} to={shown.to} onPair={setChosen} />;
 
   return (
-    <div className="if-convert">
-      <div className="cvt-grid">
-        <header className="cvt-hero">
-          <h1>
-            <span>{t('Convert')}</span>
-            <span data-testid="headline-pair">{shown ? t('{from} to {to}', { from: shown.from, to: shown.to }) : ''}</span>
-          </h1>
-          <p>{t('Convert tagline')}</p>
-        </header>
-        {card}
+    <>
+      <TradeSubNav active="convert" />
+      <div className="if-convert">
+        <div className="cvt-grid">
+          <header className="cvt-hero">
+            <h1>
+              <span>{t('Convert')}</span>
+              <span data-testid="headline-pair">{shown ? t('{from} to {to}', { from: shown.from, to: shown.to }) : ''}</span>
+            </h1>
+            <p>{t('Convert tagline')}</p>
+          </header>
+          {card}
+        </div>
+        {signedIn ? <RecentConversions /> : null}
+        <section className="cvt-faq" aria-labelledby="cvt-faq-title">
+          <h2 id="cvt-faq-title">{t('Questions')}</h2>
+          <Accordion>
+            {(
+              [
+                ['Q price', 'A price'],
+                ['Q expire', 'A expire'],
+                ['Q where', 'A where'],
+              ] as const
+            ).map(([question, answer]) => (
+              <AccordionItem key={question} value={question}>
+                <AccordionTrigger>{t(question)}</AccordionTrigger>
+                <AccordionPanel>{t(answer)}</AccordionPanel>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </section>
       </div>
-      {signedIn ? <RecentConversions /> : null}
-      <section className="cvt-faq" aria-labelledby="cvt-faq-title">
-        <h2 id="cvt-faq-title">{t('Questions')}</h2>
-        <Accordion>
-          {(
-            [
-              ['Q price', 'A price'],
-              ['Q expire', 'A expire'],
-              ['Q where', 'A where'],
-            ] as const
-          ).map(([question, answer]) => (
-            <AccordionItem key={question} value={question}>
-              <AccordionTrigger>{t(question)}</AccordionTrigger>
-              <AccordionPanel>{t(answer)}</AccordionPanel>
-            </AccordionItem>
-          ))}
-        </Accordion>
-      </section>
-    </div>
+    </>
   );
 }
 

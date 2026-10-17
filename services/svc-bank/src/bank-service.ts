@@ -8,16 +8,22 @@ import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
+import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
 import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
+import { ActivityRecordService } from './activity/activity-records.js';
+import { StatementService } from './statements/statement-service.js';
 import { PersonalPayService } from './transfers/personal-pay.js';
 import type { PartyHandlePort } from './transfers/party-handles.js';
 import type { PersonalRequestNotices } from './transfers/request-notices.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
+import { BillPayService } from './personal-pay/bills.js';
+import { GlobalSendService } from './personal-pay/global.js';
+import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
  * svc-bank — MULTI-CURRENCY ACCOUNTS OVER THE LEDGER (§8.1).
@@ -41,11 +47,16 @@ export interface BankServices {
   readonly analytics: SpendAnalytics;
   readonly portfolio: PortfolioService;
   readonly activity: ActivityService;
+  readonly activityRecords: ActivityRecordService;
+  readonly statements: StatementService;
   readonly loans: LoanService;
   readonly cards: CardService;
   readonly ramps: RampService;
+  readonly deposits: DepositService;
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
+  readonly bills: BillPayService;
+  readonly globalSend: GlobalSendService;
 }
 
 export interface BankServiceOptions {
@@ -84,6 +95,11 @@ export interface BankServiceOptions {
    */
   ramps?: RampServiceOptions;
   /**
+   * Custody port for deposit addresses. Unset refuses `bank.deposit_custody_unset`.
+   * This service does not derive an address.
+   */
+  deposits?: DepositServiceOptions;
+  /**
    * Auto-invest wiring: optional convert port for DCA.
    *
    * Not defaulted. Absent convert = every DCA create/run refuses
@@ -118,6 +134,16 @@ export interface BankServiceOptions {
   directory?: BusinessDirectoryPort;
   /** Recipient-lookup budget. Default is 30 per minute per caller. */
   directoryLookups?: BusinessLookupLimiter;
+  /**
+   * Bill-pay ports. Unset refuses search, lookup, pay and recurring create.
+   * Nothing here invents a biller, an amount due or a PSP.
+   */
+  bills?: BillPorts;
+  /**
+   * Global-send ports. Unset refuses corridors, quotes and sends.
+   * Travel-rule `decision()` null means Nitro/Phantom have not decided.
+   */
+  global?: GlobalPorts;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
@@ -130,10 +156,13 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
   const analytics = new SpendAnalytics(spaces, history);
   const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
+  const activityRecords = new ActivityRecordService(sql);
   const activity = new ActivityService(spaces, {
     ...(options.activity ?? {}),
+    records: activityRecords,
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
   });
+  const statements = new StatementService(activity, options.activity?.cursorSecret);
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
@@ -150,6 +179,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   });
   // No ramp programme = every ramp procedure refuses `bank.no_ramp_rail`.
   const ramps = new RampService(sql, ledger, options.ramps ?? {});
+  const deposits = new DepositService(sql, options.deposits ?? {});
   const business = new BusinessService(
     sql,
     ledger,
@@ -159,7 +189,28 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.directoryLookups,
   );
 
-  return { spaces, transfers, personalPay, earn, analytics, portfolio, activity, loans, cards, ramps, autoInvest, business };
+  const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());
+  const globalSend = new GlobalSendService(sql, ledger, spaces, options.global ?? emptyGlobalPorts());
+
+  return {
+    spaces,
+    transfers,
+    personalPay,
+    earn,
+    analytics,
+    portfolio,
+    activity,
+    activityRecords,
+    statements,
+    loans,
+    cards,
+    ramps,
+    deposits,
+    autoInvest,
+    business,
+    bills,
+    globalSend,
+  };
 }
 
 export { PortfolioService, httpTickerSource, type TickerSource } from './portfolio/portfolio-service.js';
@@ -173,6 +224,7 @@ export {
   LoanService,
   CardService,
   RampService,
+  DepositService,
   AutoInvestService,
   BusinessService,
 };

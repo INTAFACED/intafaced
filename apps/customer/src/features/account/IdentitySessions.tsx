@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import type { ApiClient, ApiResult } from '../../shared/api';
@@ -9,29 +9,39 @@ import {
   readRevoke,
   revokeResponse,
   saveRevoke,
+  sessionIdFromToken,
   sessionRevokeKey,
   sessionsFor,
+  splitSessions,
   type IdentitySeat,
   type RevokeMarker,
   type StoredRevoke,
 } from './identity-session-guards';
-import { formatDateTime } from '../pay/portal/ui/format';
+import { stamp } from '../../screens/money/time';
+import { usePreferences } from '../../shared/preferences';
 import './identity-session.css';
 export type { PrivateSessionSource } from './identity-session-guards';
 type Review = { owner: string; seat: IdentitySeat; limit: number; client: ApiClient };
 type Response = { original: Review; marker?: RevokeMarker; answer: ApiResult<{ userId: string; sessionId: string; revoked: boolean }> };
 type Problem = 'changed' | 'seatChanged' | 'storage' | 'another' | 'locks';
 export function IdentitySessions() {
-  const { api, userId } = useSession();
+  const { api, userId, session } = useSession();
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
+  const { timeZone } = usePreferences();
   const [limit, setLimit] = useState(50);
+  const thisDevice = sessionIdFromToken(session?.accessToken);
   const { resource, reload } = useResource(
     (signal) =>
       userId
         ? api.query('identity', 'listSessions', { userId, limit }, sessionsFor(userId, limit), { signal })
         : Promise.resolve({ ok: true as const, data: null }),
-    `identity-seats:${userId}:${limit}`,
+    // A new session id (the sign-in renews about every 15 minutes) reloads the list, so "This device" never goes stale.
+    `identity-seats:${userId}:${limit}:${thisDevice ?? ''}`,
   );
+  const [showOlder, setShowOlder] = useState(false);
+  const seats = resource.status === 'ready' && resource.data ? resource.data.sessions : null;
+  // "Older than 24 hours" is measured when the list arrives, so a row never jumps sections while it is being read.
+  const split = useMemo(() => (seats ? splitSessions(seats, thisDevice, Date.now()) : null), [seats, thisDevice]);
   const [review, setReview] = useState<Review | null>(null),
     [busy, setBusy] = useState(false),
     [response, setResponse] = useState<Response | null>(null),
@@ -172,18 +182,13 @@ export function IdentitySessions() {
       if (mounted.current) setBusy(false);
     }
   }
-  function references(owner: string, seatId: string) {
+  /** The one place a raw id earns its place: what Support asks for when a sign-out result is unknown. */
+  function supportReference(seatId: string) {
     return (
       <dl className="identity-sessions__context">
         <div>
           <dt>
-            <Copy k="owner" />
-          </dt>
-          <dd lang="zxx">{owner}</dd>
-        </div>
-        <div>
-          <dt>
-            <Copy k="original" />
+            <Copy k="supportReference" />
           </dt>
           <dd lang="zxx">{seatId}</dd>
         </div>
@@ -209,7 +214,7 @@ export function IdentitySessions() {
           <p>
             <Copy k={knownGuard ? 'guardBody' : 'unknownBody'} />
           </p>
-          {references(journal.marker.owner, journal.marker.seat.id)}
+          {supportReference(journal.marker.seat.id)}
           <p className="muted">
             <Copy k="lookup" />
           </p>
@@ -234,34 +239,44 @@ export function IdentitySessions() {
           <Copy k="emptyBody" />
         </EmptyState>
       ) : (
-        <ul className="identity-sessions__rows" aria-label={t('table')}>
-          {resource.data.sessions.map((seat) => (
-            <li className="identity-sessions__row" key={seat.id}>
-              <div>
-                <time dateTime={seat.createdAt} lang={requestedLocale}>
-                  {t('createdLabel', { time: formatDateTime(seat.createdAt, requestedLocale)?.short ?? seat.createdAt })}
-                </time>
-                {(seat.current || seat.device || seat.ip || seat.lastSeenAt) && (
-                  <span className="identity-sessions__ref">
-                    {[
-                      seat.current ? t('thisDevice') : null,
-                      seat.device,
-                      seat.ip,
-                      seat.lastSeenAt
-                        ? t('lastSeen', { time: formatDateTime(seat.lastSeenAt, requestedLocale)?.short ?? seat.lastSeenAt })
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                )}
-              </div>
-              <Button variant="secondary" disabled={blocked} aria-label={t('reviewSeat', { id: seat.id })} onClick={() => open(seat)}>
-                <Copy k="reviewAction" />
-              </Button>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="identity-sessions__rows" aria-label={t('table')}>
+            {(split ? (showOlder ? [...split.recent, ...split.older] : split.recent) : resource.data.sessions).map((seat) => {
+              const mine = thisDevice !== null && seat.id.toLowerCase() === thisDevice;
+              const started = stamp(seat.createdAt, timeZone);
+              return (
+                <li className="identity-sessions__row" key={seat.id} data-session-id={seat.id} data-this-device={mine ? 'true' : undefined}>
+                  <div>
+                    <time dateTime={seat.createdAt} lang={requestedLocale}>
+                      {t('createdLabel', { time: started })}
+                    </time>
+                    {mine ? (
+                      <span className="identity-sessions__mine">
+                        <Copy k="thisDevice" />
+                      </span>
+                    ) : null}
+                  </div>
+                  {/* Signing out the session this browser uses would end this visit: Sign out below does that on purpose. */}
+                  {mine ? null : (
+                    <Button
+                      variant="secondary"
+                      disabled={blocked}
+                      aria-label={t('reviewSeat', { time: started })}
+                      onClick={() => open(seat)}
+                    >
+                      <Copy k="reviewAction" />
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {split && split.older.length > 0 ? (
+            <Button variant="ghost" aria-expanded={showOlder} onClick={() => setShowOlder((value) => !value)}>
+              {showOlder ? <Copy k="hideOlder" /> : <Copy k="showOlder" params={{ count: split.older.length }} />}
+            </Button>
+          ) : null}
+        </>
       )}
       <p className="muted">
         <Copy k="window" params={{ limit }} />
@@ -294,7 +309,9 @@ export function IdentitySessions() {
             <p role="status">
               <Copy k={result.answer.data.revoked ? 'revoked' : 'unchanged'} />
             </p>
-            {references(result.original.owner, result.original.seat.id)}
+            <p>
+              <Copy k="startedAt" params={{ time: stamp(result.original.seat.createdAt, timeZone) }} />
+            </p>
             {!result.answer.data.revoked && (
               <p>
                 <Copy k="falseBoundary" />
@@ -323,7 +340,9 @@ export function IdentitySessions() {
             <p className="muted">
               <Copy k="scope" />
             </p>
-            {references(review.owner, review.seat.id)}
+            <p>
+              <Copy k="startedAt" params={{ time: stamp(review.seat.createdAt, timeZone) }} />
+            </p>
             <Button variant="danger" disabled={blocked} onClick={() => void revoke()}>
               <Copy k="confirm" />
             </Button>

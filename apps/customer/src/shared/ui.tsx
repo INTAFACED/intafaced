@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
 import { Panel } from '@intafaced/ui';
-import type { ApiResult } from './api';
+import { isServiceNotConnected, type ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
 import { classifyRefusal, type RefusalKind } from '../data/refusal-codes';
@@ -99,6 +99,8 @@ const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
 /** Try again belongs to network trouble and to refusals that can clear by themselves, never to a missing setting or permission. */
 export function canTryAgain(result: Extract<ApiResult<unknown>, { ok: false }>): boolean {
   if (result.reason === 'uncertain' || result.reason === 'unauthorized') return false;
+  // The gateway says the service is not running in this environment: a second attempt cannot change that.
+  if (isServiceNotConnected(result.code)) return false;
   if (result.reason === 'unreachable' || result.reason === 'invalid_response' || result.reason === 'aborted') return true;
   // A source that is unavailable, stale or unknown can recover by itself, whatever else its code says.
   if (result.code && /_(unavailable|stale|unknown)$/.test(result.code)) return true;
@@ -107,9 +109,27 @@ export function canTryAgain(result: Extract<ApiResult<unknown>, { ok: false }>):
 }
 /** A service sometimes answers with its own refusal code as the message ("token.params_invalid"). */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
+/** A setting or code name inside a sentence, such as "Missing token_params.fee_discount_schedule". Only underscored names count, so "v1.2" and "e.g." stay. */
+const EMBEDDED_KEY = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)*\.[a-z][a-z0-9]*(?:_[a-z0-9]+)*\b/gi;
+function embeddedKey(message: string): string | undefined {
+  return message.match(EMBEDDED_KEY)?.find((key) => key.includes('_'));
+}
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { Copy, languageFor, requestedLocale } = uiCopy.useCopy();
-  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : undefined;
+  if (isServiceNotConnected(result.code)) {
+    // The gateway's own text is never shown for this answer: say plainly that the service is not connected here.
+    return (
+      <div className="failure" role="status">
+        <h3>
+          <Copy k="not_mounted" />
+        </h3>
+        <p>
+          <Copy k="serviceNotConnected" />
+        </p>
+      </div>
+    );
+  }
+  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
   if (rawCode && !result.messageCopy) {
     // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.
     const words = refusalCopy(result.code ?? rawCode);

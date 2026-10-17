@@ -101,6 +101,16 @@ const schema = baseEnvSchema
         z.string().url().optional(),
       ),
 
+      /**
+       * Founder door verifies the edge principal. Blank → `/operator/*` refuses
+       * matching.operator_auth_unconfigured. S2S HMAC halt does not need it.
+       * Never required at boot: a missing value must not crash-loop the book.
+       */
+      EDGE_PRINCIPAL_SECRET: z.preprocess(
+        (value) => (typeof value !== 'string' || value.trim() === '' ? undefined : value.trim()),
+        z.string().min(32).optional(),
+      ),
+
       MATCHING_OPERATOR_IDS: z
         .string()
         .default('')

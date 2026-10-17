@@ -3,6 +3,7 @@ export { cn } from './cn.js';
 export { Wordmark } from './wordmark.js';
 export { Button, buttonVariants, type ButtonProps } from './button.js';
 export { Tabs, TabsList, TabsTab, TabsPanel, TabsTrigger, TabsContent, type TabsListProps } from './tabs.js';
+export { SubNav, type SubNavItem, type SubNavProps } from './sub-nav.js';
 export { ToggleGroup, ToggleGroupItem, type ToggleGroupProps, type ToggleGroupVariant } from './toggle-group.js';
 export { SegmentedControl, type SegmentedControlProps, type SegmentedItem } from './segmented.js';
 export {

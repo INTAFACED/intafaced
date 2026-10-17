@@ -37,6 +37,22 @@ export function OfferForm({
 }) {
   const { t, languageFor, directionFor } = p2pDepth.useCopy();
   const valid = offerId !== null && id.safeParse(offerId).success;
+  // An edit with no offer chosen shows no form at all: there is nothing to edit and nothing to type into.
+  if (mode === 'edit' && !valid)
+    return (
+      <div className="p2p-form" lang={languageFor('formCreateTitle')} dir={directionFor('formCreateTitle')} data-testid="offer-pick">
+        <EmptyState
+          title={t('editPickTitle')}
+          action={
+            <a className="button button--primary" href="/uc/ad">
+              {t('backToOffers')}
+            </a>
+          }
+        >
+          {t('editPickBody')}
+        </EmptyState>
+      </div>
+    );
   return (
     <div className="p2p-form" lang={languageFor('formCreateTitle')} dir={directionFor('formCreateTitle')} data-testid="offer-form">
       <P2PReason title={mode === 'edit' ? t('formOffEditTitle') : t('formOffCreateTitle')}>
@@ -44,22 +60,8 @@ export function OfferForm({
       </P2PReason>
       {mode === 'create' ? (
         <Fields pay={pay} baseline={emptyOffer()} mode="create" />
-      ) : valid ? (
-        <EditLive pay={pay} userId={userId} offerId={offerId.toLowerCase()} />
       ) : (
-        <>
-          <EmptyState
-            title={t('editPickTitle')}
-            action={
-              <a className="button button--primary" href="/uc/ad">
-                {t('backToOffers')}
-              </a>
-            }
-          >
-            {t('editPickBody')}
-          </EmptyState>
-          <Fields pay={pay} baseline={emptyOffer()} mode="edit" />
-        </>
+        <EditLive pay={pay} userId={userId} offerId={offerId!.toLowerCase()} />
       )}
     </div>
   );

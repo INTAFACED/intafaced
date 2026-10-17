@@ -466,6 +466,8 @@ const AUTH_ERROR_MAP: Record<AuthErrorCode, Arm> = {
   /** Step-up required — the credential is valid, the session is not enough. */
   'mfa.required': { ccxt: 'AuthenticationError', status: 401 },
   'scope.denied': { ccxt: 'PermissionDenied', status: 403 },
+  /** Held on the token, refused because the credential is an API key. */
+  'scope.interactive_only': { ccxt: 'PermissionDenied', status: 403 },
   'tier.insufficient': { ccxt: 'PermissionDenied', status: 403 },
   'ownership.denied': { ccxt: 'PermissionDenied', status: 403 },
 };

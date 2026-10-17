@@ -1,6 +1,7 @@
 import type { EventBus, Subscription } from '@intafaced/events';
 import type { HubLogger } from '../depth/hub.js';
 import type { PrivateOrderHub } from './hub.js';
+import type { PositionsStream } from './positions-stream.js';
 
 /**
  * Bus → private hub.
@@ -84,13 +85,16 @@ export async function subscribePrivatePositions(input: {
   hub: PrivateOrderHub;
   durable: string;
   log?: HubLogger;
+  /** Sequenced desk stream. The hub fan-out stays; this journal is additional. */
+  positions?: PositionsStream;
 }): Promise<Subscription> {
-  const { bus, hub, durable, log } = input;
+  const { bus, hub, durable, log, positions } = input;
 
   return bus
     .subscribe(
       'positionUpdated',
       (payload) => {
+        if (positions) positions.ingest(payload);
         hub.publishPosition({
           positionId: payload.positionId,
           userId: payload.userId,
@@ -138,6 +142,7 @@ export async function tryAttachPrivate(input: {
   hub: PrivateOrderHub;
   durable: string;
   log?: HubLogger;
+  positions?: PositionsStream;
 }): Promise<PrivateAttachments | null> {
   let orders: Subscription | null = null;
   let fills: Subscription | null = null;
@@ -148,12 +153,14 @@ export async function tryAttachPrivate(input: {
       ...input,
       durable: `${input.durable}-fills`,
     });
+    input.positions?.markSourceAttached(true);
     positions = await subscribePrivatePositions({
       ...input,
       durable: `${input.durable}-positions`,
     });
     return { orders, fills, positions };
   } catch (err) {
+    input.positions?.markSourceAttached(false);
     await orders?.unsubscribe().catch(() => undefined);
     await fills?.unsubscribe().catch(() => undefined);
     await positions?.unsubscribe().catch(() => undefined);

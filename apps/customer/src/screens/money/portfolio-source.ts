@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo } from 'react';
 import { z } from 'zod';
-import { classOf, useDataEnv, useSource, type Decimal, type Loadable, type PortfolioSummary } from '../../data';
+import { classOf, useDataEnv, useSource, type Decimal, type Holding, type Loadable, type PortfolioSummary } from '../../data';
 import { dec, decOrNull, ratio, sub, sumOf, type Scaled } from '../../data/decimal';
 import { portfolioSource, type DataEnv } from '../../data/queries';
 import { balancesFetcher } from '../../data/fetchers';
@@ -208,7 +208,65 @@ export function useMoneyPortfolio(): Loadable<MoneyView> {
   const server = useSource(useMemo(() => serverSource(env), [env]));
   const fallback = server.status === 'error' || (server.status === 'refused' && server.code === SERVER_SUMMARY_MISSING);
   const derived = useSource(useMemo(() => (fallback ? portfolioSource(env) : constantSource(WAITING)), [env, fallback]));
-  return useMemo(() => (fallback ? mapLoadable(derived, fromDerived) : mapLoadable(server, fromServer)), [fallback, derived, server]);
+  return useMemo(() => pickMoneyView(fallback, server, derived), [fallback, derived, server]);
+}
+
+/** Which portfolio view to show, given the bank's summary and (when it failed) the client fallback. */
+export function pickMoneyView(
+  fallback: boolean,
+  server: Loadable<ServerSummary>,
+  derived: Loadable<PortfolioSummary>,
+): Loadable<MoneyView> {
+  if (!fallback) return mapLoadable(server, fromServer);
+  const view = mapLoadable(derived, fromDerived);
+  // The fallback leaves out named spaces, so "no rows" there is not "no money": while the bank is failing, show its
+  // error (with retry) instead of an invented zero.
+  return view.status === 'empty' && server.status === 'error' ? server : view;
+}
+
+// ── Home's view of the same total ────────────────────────────────────────────
+
+/** A holding as Home lists it: no spendable / in-orders split (Home never shows it, and the server summary does not give it). */
+export type HomeHolding = Omit<Holding, 'available' | 'inOrders'>;
+/** What Home reads: the same figures as `PortfolioSummary`, with holdings in the shape either source can fill. */
+export type HomePortfolio = Omit<PortfolioSummary, 'holdings'> & { holdings: HomeHolding[] };
+
+/** Re-shape the Money screen's view so Home shows exactly the numbers Money shows. */
+export function toHomePortfolio(view: MoneyView): HomePortfolio {
+  return {
+    totalUsd: view.totalUsd,
+    change24hUsd: view.change24hUsd,
+    change24hPct: view.change24hPct,
+    cashUsd: view.cashUsd,
+    cryptoUsd: view.cryptoUsd,
+    holdings: view.rows.map((row) => ({
+      asset: row.asset,
+      class: row.class,
+      total: row.amount,
+      usdValue: row.usdValue,
+      usdChange24h: row.usdChange24h,
+      share: row.share,
+      priceSymbol: row.priceSymbol,
+    })),
+    unpriced: view.unpriced,
+    source: view.source,
+    asOf: view.asOf,
+    windowStart: view.windowStart,
+  };
+}
+
+/**
+ * Home's portfolio: the same source as the Money screen (the bank's own valuation, which counts named accounts), so the
+ * two screens show one total. Only when the bank cannot give it does this use the data layer's derivation, and then
+ * `source` is "derived" and the screens say so under the total (named spaces are not in that total).
+ */
+export function useHomePortfolio(): Loadable<HomePortfolio> {
+  const money = useMoneyPortfolio();
+  return useMemo(
+    () =>
+      money.status === 'ready' ? { status: 'ready', data: toHomePortfolio(money.data), asOf: money.asOf } : (money as Loadable<never>),
+    [money],
+  );
 }
 
 // ── named accounts ("Spaces" on the server) ──────────────────────────────────
@@ -227,10 +285,14 @@ export interface NamedAccount {
   balance: Decimal;
 }
 
+const SPACES_PAGE = 200;
+
 function accountsFetcher(env: DataEnv): Fetcher<NamedAccount[]> {
   return async (signal) => {
-    const result = await env.api.query('bank', 'spaces.list', { limit: 200 }, z.array(spaceSchema), { signal });
+    const result = await env.api.query('bank', 'spaces.list', { limit: SPACES_PAGE }, z.array(spaceSchema), { signal });
     if (!result.ok) return result;
+    // A full page may not be the whole list, and a partial list would undercount; say it is not available instead.
+    if (result.data.length >= SPACES_PAGE) return { ok: false, reason: 'spaces_list_may_be_partial' };
     return {
       ok: true,
       data: result.data

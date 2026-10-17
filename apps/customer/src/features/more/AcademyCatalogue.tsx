@@ -86,19 +86,19 @@ function PathCard({ path, tracking, active }: { path: PathSummary; tracking: Tra
       <h3>{pathLabel(t, path.path)}</h3>
       <div className="academy-lms-meta">
         <span>
-          <Copy k="lessonCount" params={{ count: path.lessons.length }} />
+          {path.lessons.length === 1 ? <Copy k="lessonCountOne" /> : <Copy k="lessonCount" params={{ count: path.lessons.length }} />}
         </span>
         <span>
           <Copy k="minutes" params={{ minutes: path.minutes }} />
         </span>
         {path.playbooks > 0 && (
           <span>
-            <Copy k="playbookCount" params={{ count: path.playbooks }} />
+            {path.playbooks === 1 ? <Copy k="playbookCountOne" /> : <Copy k="playbookCount" params={{ count: path.playbooks }} />}
           </span>
         )}
         {path.workbooks > 0 && (
           <span>
-            <Copy k="workbookCount" params={{ count: path.workbooks }} />
+            {path.workbooks === 1 ? <Copy k="workbookCountOne" /> : <Copy k="workbookCount" params={{ count: path.workbooks }} />}
           </span>
         )}
       </div>

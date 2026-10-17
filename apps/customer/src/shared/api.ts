@@ -14,6 +14,12 @@ export type RestOptions = RequestOptions & {
   idempotencyKey?: string;
 };
 
+/**
+ * Only the gateway's "this service is not connected in this environment" answer is permanent. A 502 or 504 is a crash, a
+ * restart or a timeout, so the HTTP status alone never means "not connected".
+ */
+export const isServiceNotConnected = (code: string | undefined): boolean => code === 'edge.upstream_unwired';
+
 /** Keep authored copy separate from opaque service explanations. The descriptor
  * also lets a mounted refusal follow a later device-language change. */
 export function authoredRefusal(reason: RefusalReason, messageCopy: UiMessage, status?: number): Extract<ApiResult<never>, { ok: false }> {
@@ -118,7 +124,7 @@ export function createApiClient(
               ? { key: 'gatewayUnreachable' }
               : reason === 'uncertain'
                 ? { key: 'gatewayUncertain' }
-                : { key: 'unreadableRefusal', status: response.status },
+                : { key: 'unreadableRefusal' },
             response.status,
           );
         }
@@ -153,7 +159,19 @@ export function createApiClient(
         else if (response.status >= 500) reason = method === 'GET' ? 'unreachable' : 'uncertain';
         return {
           ...(message === undefined
-            ? authoredRefusal(reason, { key: 'serviceRefusal', status: response.status }, response.status)
+            ? authoredRefusal(
+                reason,
+                {
+                  key: isServiceNotConnected(code)
+                    ? 'serviceNotConnected'
+                    : reason === 'uncertain'
+                      ? 'gatewayUncertain'
+                      : reason === 'unreachable'
+                        ? 'serviceNoAnswer'
+                        : 'serviceRefusal',
+                },
+                response.status,
+              )
             : { ok: false as const, reason, message, status: response.status }),
           ...(code ? { code } : {}),
           ...(requestId ? { requestId } : {}),

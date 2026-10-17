@@ -105,6 +105,8 @@ if (!available) {
         now: NOW,
       });
       expect(consumed?.status).toBe('CONSUMED');
+      expect(consumed?.consumedByService).toBeNull();
+      expect(consumed?.consumedRequestId).toBeNull();
       expect(
         await store.casConsume({
           approvalId: 'appr-pg',
@@ -116,6 +118,30 @@ if (!available) {
           now: NOW,
         }),
       ).toBeNull();
+    });
+
+    it('records who consumed a row and which request id', async () => {
+      await store.insert(row({ approvalId: 'appr-prov', operationId: 'op-prov' }));
+      await store.casApprove('appr-prov', 'user-b', NOW);
+      const consumed = await store.casConsume({
+        approvalId: 'appr-prov',
+        operationId: 'op-prov',
+        payloadHash: 'sha256:abc',
+        targetService: 'svc-ledger',
+        targetId: 'posting_freeze',
+        expectedVersion: '1',
+        now: NOW,
+        requestId: 'req-prov',
+        consumedByService: 'svc-ledger',
+        consumedByPrincipal: 'user-c',
+      });
+      expect(consumed).toMatchObject({
+        status: 'CONSUMED',
+        consumedByService: 'svc-ledger',
+        consumedByPrincipal: 'user-c',
+        consumedRequestId: 'req-prov',
+      });
+      expect((await store.get('appr-prov'))?.consumedRequestId).toBe('req-prov');
     });
 
     it('lists a requester’s rows and other people’s pending rows, newest first', async () => {

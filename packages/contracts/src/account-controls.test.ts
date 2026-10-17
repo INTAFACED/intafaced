@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   accountControlInputSchema,
+  identityAccountControlInputSchema,
   accountControlHistoryInputSchema,
   accountControlLookupInputSchema,
   accountControlResultSchema,
@@ -71,10 +72,16 @@ describe('founder account-control wire boundary', () => {
     expect(accountControlInputSchema.parse({ ...command, action: 'restore' }).action).toBe('restore');
   });
 
-  it.each(['actorUserId', 'actor', 'mfa', 'founder', 'confirmOperatorId', 'approvalId', 'recoveryAllowed'])(
+  it.each(['actorUserId', 'actor', 'mfa', 'founder', 'confirmOperatorId', 'recoveryAllowed', 'approvalId'])(
     'rejects caller-supplied %s authority',
     (field) => expect(accountControlInputSchema.safeParse({ ...command, [field]: OTHER }).success).toBe(false),
   );
+
+  it('accepts an approval id as a reference and rejects a blank one', () => {
+    expect(identityAccountControlInputSchema.parse({ ...command, approvalId: KEY }).approvalId).toBe(KEY);
+    expect(identityAccountControlInputSchema.safeParse({ ...command, approvalId: '  ' }).success).toBe(false);
+    expect(identityAccountControlInputSchema.safeParse({ ...command, approvalId: KEY, unknownExtra: true }).success).toBe(false);
+  });
 
   it('rejects wrong target fields and malformed concurrency inputs', () => {
     for (const candidate of [

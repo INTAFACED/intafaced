@@ -396,7 +396,7 @@ describe('POST as a signed-in founder', () => {
     expect(body.refusal).toMatchObject({ title: 'Live venues are not allowed yet', requestId: 'req-9' });
   });
 
-  it('a registry that is not mounted on this deployment is a clear "not built yet", status 501', async () => {
+  it('a registry that is not mounted on this deployment is a clear "not switched on", status 501', async () => {
     configure();
     upstream({
       'registries.preview': () =>
@@ -412,7 +412,7 @@ describe('POST as a signed-in founder', () => {
     });
     const res = await POST(post({ action: 'preview', registry: 'venue', change: venueChange }, authed()));
     expect(res.status).toBe(501);
-    expect((await res.json()).refusal.title).toBe('This is not built yet');
+    expect((await res.json()).refusal.title).toBe('This is not switched on');
   });
 
   it('reject closes the approval through identity', async () => {

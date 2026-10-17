@@ -149,6 +149,20 @@ const schema = serviceEnvSchema
       /** Blank = unpublished magnitudes, grant refuse-closed. */
       ACADEMY_VIDEO_MIN_TIER: z.string().optional().default(''),
       ACADEMY_VIDEO_MIN_STAKE: z.string().optional().default(''),
+
+      /**
+       * Owner-published cap on unauthenticated certVerify calls per address
+       * per window. Blank / unset is unpublished — certVerify refuses
+       * `academy.verify_rate_unset`. Never invent a count or a window.
+       */
+      ACADEMY_CERT_VERIFY_RATE_MAX: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(10_000)]),
+      ),
+      ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
+      ),
     }),
   );
 
