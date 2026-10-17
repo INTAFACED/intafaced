@@ -28,6 +28,8 @@ export const SCOPES = [
   'pay:write',
   'pay:refund',
   'pay:payout',
+  // Opening a merchant account. Not an acquiring scope: it cannot move money.
+  'pay:onboard',
 
   // P2P
   'p2p:read',
@@ -140,7 +142,7 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
  * tests and — correctly — flagged it rather than changing a shared package
  * unilaterally.
  */
-export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:payout'];
+export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:payout', 'pay:onboard'];
 
 export function assertKeyScopesAllowed(scopes: readonly string[]): void {
   const forbidden = scopes.filter((s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s));
@@ -282,6 +284,25 @@ export type SessionScope = (typeof SESSION_SCOPE_LIST)[number];
 export const SESSION_SCOPES: readonly SessionScope[] = SESSION_SCOPE_LIST;
 
 /**
+ * Staff permissions a live founder session carries so the founder console can
+ * call support, notify, kill and ledger freeze as that founder.
+ *
+ * They are not in `SESSION_SCOPES`: an ordinary account must not receive them.
+ * `admin:write` and `admin:treasury` are added only after MFA. None of them may
+ * be copied onto an API key (`assertDelegatableScopes`).
+ */
+export const FOUNDER_DESK_SCOPES = ['support:ops', 'admin:read', 'admin:write', 'admin:treasury'] as const satisfies readonly Scope[];
+
+export function scopesForFounderSession(base: readonly Scope[], opts: { readonly founder: boolean; readonly mfa: boolean }): Scope[] {
+  if (!opts.founder) return [...base];
+  const grant: Scope[] = ['support:ops', 'admin:read'];
+  if (opts.mfa) grant.push('admin:write', 'admin:treasury');
+  const out = [...base];
+  for (const scope of grant) if (!out.includes(scope)) out.push(scope);
+  return out;
+}
+
+/**
  * Every scope a session does NOT get, and why.
  *
  * The type is the point. `Exclude<Scope, SessionScope>` means adding a scope to
@@ -301,15 +322,15 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // moving through a merchant we onboarded. Granted by merchant onboarding, not
   // by holding an account.
   //
-  // Grant mechanism (D26-P0-08 → D26-P1-P10): ADR
-  // docs/adr/2026-08-12-pay-write-kyb-grant-mechanism-shape.md + refuse-closed
-  // `issueMerchantPayScopes` / `assertMerchantPayScopeGrantAllowed`. DIRECTION
-  // §8 item 4 — never invent the grantor or KYB threshold. Layer B live KYB
-  // money gate is separate (`pay.kyb_required` in svc-pay).
+  // Grant mechanism (D26-P0-08 → P1-P10): `issueMerchantPayScopes`.
+  // Published 2026-10-17: the owner of one KYB-approved merchant receives
+  // pay:read and pay:write for that merchant. These four stay off ordinary
+  // sessions. Layer B (`pay.kyb_required`) is a separate money gate.
   'pay:read': 'Merchant acquiring surface — granted by merchant onboarding',
   'pay:write': 'Merchant acquiring surface — granted by merchant onboarding',
   'pay:refund': 'Merchant acquiring surface — refunds another party’s payment',
   'pay:payout': 'Merchant acquiring surface, and interactive-only (§9)',
+  'pay:onboard': 'Opens one root merchant account. Interactive only, so it can never sit on an API key. Not issued on an ordinary session.',
 
   // §18 card issuance. In INTERACTIVE_ONLY_SCOPES: it authorises spend from a
   // funded card, so it needs a 2FA session and must never sit on a long-lived
@@ -338,10 +359,12 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // criterion to decide with — a human supplies the decision (§8 "mine alone").
   'market:ops': 'Operator scope — vetting a vendor application is a human decision',
 
-  // Operator scopes. Never on a user session, whatever the account.
-  // `admin:compliance` is the sharp one: it approves KYC records, so a session
-  // carrying it could verify itself to `institutional` and walk into every
-  // custodial module in the OS.
+  // Operator scopes. Not in SESSION_SCOPES. The four founder desk scopes
+  // (`support:ops`, `admin:read`, `admin:write`, `admin:treasury`) are added
+  // only to a live founder's interactive session by `scopesForFounderSession`.
+  // `admin:compliance` never is: it approves KYC records, so a session carrying
+  // it could verify itself to `institutional` and walk into every custodial
+  // module in the OS.
   'admin:read': 'Operator scope',
   'admin:write': 'Operator scope',
   'admin:treasury': 'Operator scope, and interactive-only (§9)',
@@ -378,5 +401,9 @@ export function assertDelegatableScopes(requested: readonly string[], grantorSco
   const notHeld = requested.filter((s) => !held.has(s as Scope));
   if (notHeld.length > 0) {
     throw new Error(`Cannot grant scopes the granting session does not hold: ${notHeld.join(', ')}`);
+  }
+  const desk = requested.filter((s) => (FOUNDER_DESK_SCOPES as readonly string[]).includes(s));
+  if (desk.length > 0) {
+    throw new Error(`Founder desk scopes stay on the interactive founder session: ${desk.join(', ')}`);
   }
 }

@@ -384,10 +384,11 @@ export class FounderControls {
    * not configured) answers `false`. A storage failure THROWS, so the caller can tell "cannot tell" from "no" and
    * still refuse closed.
    */
-  async isLiveFounder(userId: string): Promise<boolean> {
+  async isLiveFounder(userId: string, query?: Sql): Promise<boolean> {
     const parsed = canonicalUuid.safeParse(userId);
     if (!parsed.success || !this.configured || !this.pair || !this.pair.includes(parsed.data)) return false;
-    const rows = await this.sql<
+    const sql = query ?? this.sql;
+    const rows = await sql<
       Array<{ enabled: boolean; status: string }>
     >`SELECT e.enabled, u.status FROM founder_operator_entitlements e JOIN users u ON u.id = e.user_id WHERE e.user_id = ${parsed.data}`;
     return rows[0]?.enabled === true && rows[0].status === 'active';

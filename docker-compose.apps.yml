@@ -175,6 +175,24 @@ services:
       # detect = answer a reused key's different body with the original and log ledger.idempotency_mismatch;
       # refuse = 409 ledger.idempotency_conflict. Stays detect until the jobs that rebuild bodies on re-run are fixed.
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
+      # OPS-0001 caller binding. Default report: the shared INTERNAL_SERVICE_SECRET
+      # still posts. Every shared-secret post is counted as unbound, and a
+      # recipe or module outside the claim is counted too. The warning is
+      # rate-limited, so a quiet log is not a zero count. Set enforce only when
+      # unbound is 0 for every posting service and allowlist violations are 0
+      # for a full business cycle. Per-service secrets are optional
+      # pass-through (empty = unset). A pull with no new .env keys must keep
+      # booting. Do not use :? here.
+      # See services/svc-ledger/CALLER-BINDING.md before setting enforce.
+      LEDGER_CALLER_BINDING: ${LEDGER_CALLER_BINDING:-report}
+      LEDGER_CALLER_SECRET_SVC_AGENTS: ${LEDGER_CALLER_SECRET_SVC_AGENTS:-}
+      LEDGER_CALLER_SECRET_SVC_BANK: ${LEDGER_CALLER_SECRET_SVC_BANK:-}
+      LEDGER_CALLER_SECRET_SVC_IDENTITY: ${LEDGER_CALLER_SECRET_SVC_IDENTITY:-}
+      LEDGER_CALLER_SECRET_SVC_MARKET: ${LEDGER_CALLER_SECRET_SVC_MARKET:-}
+      LEDGER_CALLER_SECRET_SVC_P2P: ${LEDGER_CALLER_SECRET_SVC_P2P:-}
+      LEDGER_CALLER_SECRET_SVC_PAY: ${LEDGER_CALLER_SECRET_SVC_PAY:-}
+      LEDGER_CALLER_SECRET_SVC_TOKEN: ${LEDGER_CALLER_SECRET_SVC_TOKEN:-}
+      LEDGER_CALLER_SECRET_SVC_TRADE: ${LEDGER_CALLER_SECRET_SVC_TRADE:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4001']
     healthcheck: *healthcheck
@@ -481,6 +499,10 @@ services:
       # reachable halt. Host `.env` publishes it. `docker compose config` stays
       # valid because the variable has an empty default.
       MATCHING_OPERATOR_IDS: ${MATCHING_OPERATOR_IDS:-}
+      # Replay hold check. Read-only balances on svc-ledger. No default in env.ts:
+      # a blank URL leaves a book that replayed resting orders closed. Compose
+      # points at the ledger the same way svc-trade does.
+      LEDGER_URL: http://svc-ledger:4001
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4005']
     volumes:
@@ -491,6 +513,8 @@ services:
     healthcheck: *healthcheck
     depends_on:
       <<: *needs-bus
+      svc-ledger:
+        condition: service_healthy
 
   # QuickFIX/J 3.0.2 acceptor (H1). Not the Node image.
   # Pin: services/svc-fix/PIN.quickfixj commit 6334e2d288e5 (QFJ 3.0.2).
@@ -797,6 +821,13 @@ services:
       # refuse-closed (ws.max_connections_unset). Host may set 5000 explicitly.
       # Never invent 5000.
       WS_MAX_CONNECTIONS: ${WS_MAX_CONNECTIONS:-}
+      # Multiplexed subscription seats, separate from the ?market= pool.
+      # Blank refuses the attach (ws.close.mux_max_seats_unset). Never invent a size.
+      WS_MUX_MAX_SEATS: ${WS_MUX_MAX_SEATS:-}
+      # Idle multiplexed sockets that hold no subscription. Blank does not
+      # invent a timeout: this service has no connection idle setting, so the
+      # multiplexed door stays unmounted. Never invent a duration.
+      WS_MUX_IDLE_MS: ${WS_MUX_IDLE_MS:-}
       # Host can pin ping cadence. Default matches env.ts (30_000). Without
       # this name, a host `.env` never reaches the container.
       WS_HEARTBEAT_MS: ${WS_HEARTBEAT_MS:-30000}

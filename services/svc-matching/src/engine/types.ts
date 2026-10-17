@@ -255,6 +255,10 @@ export const REJECT_CODES = [
   'missing_evidence',
   'delist_policy_missing',
   'permissionless_listing',
+  /** Replay hold check could not be read. The book does not open. */
+  'hold_check_unreachable',
+  /** A replayed order's hold was not confirmed and cancel could not pull it. */
+  'hold_unconfirmed',
 ] as const;
 
 export type RejectCode = (typeof REJECT_CODES)[number];
@@ -301,6 +305,12 @@ export const CANCEL_REASONS = [
   'expired',
   'would_increase_position',
   'session_dead',
+  /**
+   * Pulled at replay because the ledger hold was missing, smaller than the
+   * remaining size, or unreadable. The normal cancel path so trade releases
+   * whatever hold is still there.
+   */
+  'hold_unconfirmed',
 ] as const;
 
 export type CancelReason = (typeof CANCEL_REASONS)[number];
@@ -650,6 +660,21 @@ export interface EngineLiveOrder {
   readonly remaining: string;
   readonly sequence: number;
   readonly version: number;
+}
+
+/**
+ * One resting order as the replay hold check sees it.
+ * `fundingPrice` is the limit the hold was sized against. A market stop has
+ * none — the engine cannot confirm a notional it does not have.
+ */
+export interface RestingHoldSubject {
+  readonly marketId: MarketId;
+  readonly orderId: OrderId;
+  readonly accountId: AccountId;
+  readonly side: OrderSide;
+  readonly remaining: string;
+  readonly fundingPrice: string | null;
+  readonly sequence: number;
 }
 
 export type BulkItemStatus = 'APPLIED' | 'REFUSED' | 'OUTCOME_UNKNOWN';

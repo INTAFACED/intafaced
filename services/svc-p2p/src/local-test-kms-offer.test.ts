@@ -127,6 +127,7 @@ describe('local-test key: offers and sealed instruments', () => {
     maxAmount: '100.00',
     totalAmount: '100.00',
     methods: [METHOD],
+    idempotencyKey: 'local-test-kms-offer-create',
   };
 
   async function storeInstrument() {
@@ -154,7 +155,9 @@ describe('local-test key: offers and sealed instruments', () => {
     expect(listed.map((offer) => offer.id)).toContain(created.id);
     expect(bus.emitted('p2pOfferCreated')).toHaveLength(1);
 
-    await expect(caller.offers.create({ ...offerInput, methods: ['not-a-rail'] })).rejects.toMatchObject({
+    await expect(
+      caller.offers.create({ ...offerInput, methods: ['not-a-rail'], idempotencyKey: 'local-test-kms-unknown-rail' }),
+    ).rejects.toMatchObject({
       cause: { code: 'p2p.instrument_method_unknown' },
     });
     await instruments.registerMethodSchema({
@@ -163,7 +166,9 @@ describe('local-test key: offers and sealed instruments', () => {
       label: 'TEST other',
       fields: [{ key: 'account_reference', label: 'Account reference', required: true }],
     });
-    await expect(caller.offers.create({ ...offerInput, methods: ['other'] })).rejects.toMatchObject({
+    await expect(
+      caller.offers.create({ ...offerInput, methods: ['other'], idempotencyKey: 'local-test-kms-no-destination' }),
+    ).rejects.toMatchObject({
       cause: { code: 'p2p.offer_method_no_destination' },
     });
     expect(bus.emitted('p2pOfferCreated')).toHaveLength(1);

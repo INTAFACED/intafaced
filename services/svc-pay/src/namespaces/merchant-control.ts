@@ -179,7 +179,11 @@ export function createMerchantControlRouter(control?: ControlService) {
           .query(({ ctx, input }) =>
             guarded(async () => {
               const page = await control.approvals.list(principalOf(ctx), input);
-              return { items: page.items.map(toContractApproval), nextCursor: page.nextCursor };
+              return {
+                items: page.items.map(toContractApproval),
+                nextCursor: page.nextCursor,
+                dailyPayoutRemaining: page.dailyPayoutRemaining,
+              };
             }),
           ),
         request: payout

@@ -140,6 +140,77 @@ describe('customer step-up binding', () => {
     expect(role.ok).toBe(true);
     if (role.ok) expect(role.target).toBe('user-2');
 
+    const issued = bindCustomerStepUp(ACTOR, {
+      scope: 'bank.step_up.cards.issue',
+      purpose: 'cards.issue',
+      amount: '10',
+      target: 'card-1',
+      fields: {
+        cardId: 'card-1',
+        assetId: 'USDT',
+        settlementAssetId: '',
+        cashbackBps: '',
+        perAuthorizationLimit: '10',
+        cardType: 'virtual',
+        shippingAddress: '',
+      },
+    });
+    expect(issued.ok).toBe(true);
+    if (issued.ok) {
+      expect(issued.payloadHash).toBe(
+        customerStepUpPayloadHash('bank.step_up.cards.issue', {
+          actor: ACTOR,
+          cardId: 'card-1',
+          assetId: 'USDT',
+          settlementAssetId: '',
+          cashbackBps: '',
+          perAuthorizationLimit: '10',
+          cardType: 'virtual',
+          shippingAddress: '',
+        }),
+      );
+    }
+
+    const limits = bindCustomerStepUp(ACTOR, {
+      scope: 'bank.step_up.cards.setLimits',
+      purpose: 'cards.setLimits',
+      amount: '90',
+      target: 'card-1',
+      fields: {
+        cardId: 'card-1',
+        commandId: 'cmd-1',
+        perAuthorizationLimit: '90',
+        dailyLimit: 'null',
+        monthlyLimit: '',
+        cashLimit: '',
+      },
+    });
+    expect(limits.ok).toBe(true);
+
+    const reveal = bindCustomerStepUp(ACTOR, {
+      scope: 'bank.step_up.cards.reveal',
+      purpose: 'cards.reveal',
+      target: 'card-1',
+      fields: { cardId: 'card-1', revealId: 'rev-1' },
+    });
+    expect(reveal.ok).toBe(true);
+
+    const pinReveal = bindCustomerStepUp(ACTOR, {
+      scope: 'bank.step_up.cards.pinReveal',
+      purpose: 'cards.pinReveal',
+      target: 'card-1',
+      fields: { cardId: 'card-1', revealId: 'rev-2' },
+    });
+    expect(pinReveal.ok).toBe(true);
+
+    const pinSet = bindCustomerStepUp(ACTOR, {
+      scope: 'bank.step_up.cards.pinSet',
+      purpose: 'cards.pinSet',
+      target: 'card-1',
+      fields: { cardId: 'card-1', commandId: 'cmd-2' },
+    });
+    expect(pinSet.ok).toBe(true);
+
     const ramp = bindCustomerStepUp(ACTOR, {
       scope: 'bank.step_up.ramps.offramp',
       purpose: 'ramps.offramp',

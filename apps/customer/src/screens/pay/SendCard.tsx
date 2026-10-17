@@ -52,6 +52,7 @@ import {
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { copyText } from './share';
+import { PAY_SENT_EVENT } from './recent-model';
 import { checkAmount, parseAccountId, rememberRecipient, sentBefore, sourcesFrom, type Source } from './send-model';
 import type { IdentityState } from './identity-state';
 import type { z } from 'zod';
@@ -463,6 +464,7 @@ function SendForm({
       const confirmed: Receipt = { entry, from: labelFrom(review.source) };
       rememberRecipient(userId, review.recipient.userId);
       recordSent(userId, entry);
+      window.dispatchEvent(new Event(PAY_SENT_EVENT));
       lastReceipt.set(key, confirmed);
       if (!mounted.current) return;
       setBusy(false);

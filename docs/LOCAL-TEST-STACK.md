@@ -114,3 +114,51 @@ Trade commercial values (LOCAL TEST, not owner decisions, option B 2026-10-13; r
 Convert settles against house market-maker inventory (principal quotes, not book trades), so that pot must hold both sides: `pnpm local:fund house BTC 100` and `pnpm local:fund house USDT 5000000` (LOCAL TEST inventory through the real ledger; without it an accepted Convert fails with `Insufficient BTC`). The market runner's taker spends its USDT as it trades, so top it up before a manual trade session.
 
 Trade order preview reads the shared screening switch (`screeningFailClosedFromEnv`) like placing does, so with `INTAFACED_SCREENING_FAIL_CLOSED=off` the order form previews as orderable for a verified test user. After changing any service env here, restart only the services whose env changed (`pnpm local:stack:restart <names>`); a service started before the change keeps the old env until restarted.
+
+## Local test content
+
+`local:seed` writes labelled TEST rows so Earn, Loans, Convert and P2P have something to show on this stack only. It is not a production default. It does not enable a feature flag, set a service env, or restart anything. Every amount is an exact decimal string. The figures below live only in `tooling/scripts/local-test-seed.mjs`.
+
+```
+LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state ~/.intafaced/s3-trade-20261015
+LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs status --state ~/.intafaced/s3-trade-20261015
+LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs unseed --state ~/.intafaced/s3-trade-20261015
+```
+
+Without `--state`, the directory is `~/.intafaced/local-test-stack`. `pnpm local:seed` is the same script. It refuses unless `LOCAL_TEST=1`, `NODE_ENV` is not `production`, `APP_ENV` (if set) is `dev` or `test`, and `<state>/LOCAL-TEST-STACK.json` is a local test stack marker. Database URLs are built only from that directory's `secrets.json` and marker (loopback host, marker postgres port). A `DATABASE_URL` in the environment is ignored.
+
+Undo is `unseed`. It closes matching earn pools and loan products and disables the P2P method. It does not delete rows and it does not reverse ledger credits.
+
+Earn and loan reserves are funded by a labelled TEST deposit on rail `local-test` into a fixed TEST funder, then moved into each reserve. The funder id is `00000000-0000-4000-8000-00000000c0de`. It is a labelled local TEST funder, not a person. Each deposit uses `recipes.deposit` with rail ref `LOCAL-TEST-seed-funder-<slug>-v1`. A repeat of that deposit is a ledger no-op. Earn moves the balance with `recipes.earnPoolFund` from that funder's available balance (funding id `local-test-seed-<slug>`). The USDT loan reserve uses slug `loan-reserve-USDT` and `recipes.loanReserveFund` (funding id `local-test-seed-loan-reserve-USDT`, amount `1000000`). House inventory does not use the funder. It is credited from rail `local-test` straight into the house market-maker account.
+
+Opening a loan still refuses where this stack has no price marks (see Real vs test). The Loans room can list the products below. The seed does not invent marks.
+
+Earn pools (funding id `local-test-seed-<slug>`):
+
+| Name                                                              | Asset | Kind     | Term    | APR     | Reserve   |
+| ----------------------------------------------------------------- | ----- | -------- | ------- | ------- | --------- |
+| `TEST · USDT flexible 400 bps (local test, not a real rate)`      | USDT  | flexible | —       | 400 bps | `1000000` |
+| `TEST · USDT fixed 30 days 600 bps (local test, not a real rate)` | USDT  | fixed    | 30 days | 600 bps | `1000000` |
+| `TEST · USDC flexible 350 bps (local test, not a real rate)`      | USDC  | flexible | —       | 350 bps | `1000000` |
+| `TEST · BTC flexible 100 bps (local test, not a real rate)`       | BTC   | flexible | —       | 100 bps | `10`      |
+
+Loan products (policy copied from the passing `DEFAULT_LIQUIDATION_POLICY` fixture: margin call 7500, liquidation 8500, insolvency 9500, target 6500, penalty 200 bps, tranche 2500 bps, grace 3600 seconds; APR 1000 bps; max LTV 5000 bps). Both borrow and quote USDT. The USDT lending reserve is `1000000`, slug `loan-reserve-USDT`.
+
+| Name                                                                    | Collateral |
+| ----------------------------------------------------------------------- | ---------- |
+| `TEST · BTC collateral against USDT debt (local test, not a real rate)` | BTC        |
+| `TEST · ETH collateral against USDT debt (local test, not a real rate)` | ETH        |
+
+Convert house inventory (`recipes.marketMakerSeedFund`, rail `local-test`, seed id `LOCAL-TEST-seed-house-<ASSET>-v1`). Convert prices a spot book (`services/svc-trade/src/convert/quote.ts`) and settles base against quote. The stack's default markets are BTC/USDT, BTC/USDC, ETH/USDT, ETH/USDC and IFC/USDT, so both sides of each are stocked. No user account is credited.
+
+| Asset | Amount    |
+| ----- | --------- |
+| BTC   | `100`     |
+| ETH   | `1000`    |
+| USDT  | `5000000` |
+| USDC  | `5000000` |
+| IFC   | `1000000` |
+
+P2P method `local_test_bank`, country `*` (any country), label `TEST bank transfer (local test, not a real rail)`, enabled, two plain text fields (`holder`, `reference`). A seller still adds their own TEST instrument in the app. `unseed` disables this method.
+
+Every ledger post carries `LOCAL TEST FUNDS — not real money`. `status` prints what is present and an as-of time. An empty stack prints `nothing seeded`.

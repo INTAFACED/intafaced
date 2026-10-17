@@ -90,6 +90,17 @@ const schema = baseEnvSchema
        * approver). Blank, one id or duplicates refuse boot: a lost variable must
        * not leave journal-replayed markets trading with no reachable halt.
        */
+      /**
+       * svc-ledger base URL for the replay hold check. Blank / unset is unwired:
+       * a book that replays resting orders stays closed (`matching.hold_check_unwired`)
+       * rather than matching them. No default host — this service does not invent
+       * a ledger. Read-only (`balances`); matching still has no DATABASE_URL.
+       */
+      LEDGER_URL: z.preprocess(
+        (value) => (typeof value !== 'string' || value.trim() === '' ? undefined : value.trim()),
+        z.string().url().optional(),
+      ),
+
       MATCHING_OPERATOR_IDS: z
         .string()
         .default('')

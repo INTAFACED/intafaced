@@ -211,10 +211,22 @@ export const merchantControlApprovalListInputSchema = z
   })
   .strict();
 
+/**
+ * Headroom still approvable today for one asset. `remaining` is an exact decimal
+ * string. Null means no daily payout limit is configured: approval refuses.
+ */
+export const dailyPayoutRemainingSchema = z
+  .object({
+    assetCode: payAssetCodeSchema,
+    remaining: payAmountStringSchema.nullable(),
+  })
+  .strict();
+
 export const merchantControlApprovalPageSchema = z
   .object({
     items: z.array(payoutApprovalSchema),
     nextCursor: z.string().nullable(),
+    dailyPayoutRemaining: z.array(dailyPayoutRemainingSchema).max(232),
   })
   .strict();
 
@@ -247,16 +259,17 @@ export type MerchantTierSummary = z.infer<typeof merchantTierSummarySchema>;
 
 export const merchantTierListInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
 /**
- * `not_configured` means this merchant has no tier to show. That is also the
- * answer when other tiers exist: there is no public flag, so another tier's
- * name and caps are not in this response. `configured` is exactly this
- * merchant's own tier, one row.
+ * `not_configured` means the catalogue has no tier. `configured` is the ladder:
+ * every tier's commercial terms, and `ownTierId` for the tier this merchant is
+ * on (`null` when none is assigned). Founder thresholds, approval bars, TTL and
+ * how many other merchants sit on a tier are not in this shape. 64 is a
+ * response-size bound, not a product limit.
  */
 const merchantTierConfiguredSchema = z
   .object({
     status: z.literal('configured'),
-    ownTierId: payRiskTierIdSchema,
-    tiers: z.array(merchantTierSummarySchema).length(1),
+    ownTierId: payRiskTierIdSchema.nullable(),
+    tiers: z.array(merchantTierSummarySchema).min(1).max(64),
   })
   .strict();
 export const merchantTierListSchema = z
@@ -265,8 +278,13 @@ export const merchantTierListSchema = z
     merchantTierConfiguredSchema,
   ])
   .superRefine((value, ctx) => {
-    if (value.status === 'configured' && value.tiers[0]?.id !== value.ownTierId) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only this merchant’s own tier is listed' });
+    if (value.status !== 'configured') return;
+    const ids = value.tiers.map((tier) => tier.id);
+    if (new Set(ids).size !== ids.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tier ids must be unique' });
+    }
+    if (value.ownTierId !== null && !ids.includes(value.ownTierId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'current tier must be one of the listed tiers' });
     }
   });
 export type MerchantTierList = z.infer<typeof merchantTierListSchema>;

@@ -84,6 +84,9 @@ registerLedgerStatusHttp(app, ledger, env.SERVICE_NAME);
 
 // Body digest is required on the live money plane. Isolated tests may still
 // mount accept-both; compose / config default stays accept-both.
+// Caller binding is read inside registerS2sHttp from LEDGER_CALLER_BINDING
+// (default report) and LEDGER_CALLER_SECRET_SVC_*. This call stays body-bind
+// only so a pull does not require new secrets.
 registerS2sHttp(app, ledger, env.INTERNAL_SERVICE_SECRET, { bodyBind: 'require' });
 
 /**

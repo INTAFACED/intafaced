@@ -9,6 +9,7 @@ import { ChannelRegistry } from './channels/registry.js';
 import { InAppChannel, UnconfiguredChannel } from './channels/gateway.js';
 import { MemoryMuteStore } from './preferences/mute.js';
 import { createNotifyRouter } from './router.js';
+import { providerHealth } from './provider-health.js';
 
 /**
  * Operator delivery outcomes — product path (not a mocked NotifyService).
@@ -195,5 +196,46 @@ describe('operator delivery outcomes (ops.notifications residual)', () => {
       message: 'notify.operator_deliveries_limit_unset',
     });
     await expect(caller.notify.ops.deliveries({ limit: 50 })).resolves.toEqual([]);
+  });
+
+  it('filters by status and aggregates every row, and refuses a session without admin:read', async () => {
+    const { notify, deliveries } = productHarness();
+    const email = await deliveries.claim('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'email', 3);
+    if (!email.claimed) throw new Error('expected claim');
+    await deliveries.settle({ id: email.id, attempt: 1, status: 'refused', refusalCode: 'channel.not_configured', attempted: false });
+    const inbox = await deliveries.claim('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'inapp', 3);
+    if (!inbox.claimed) throw new Error('expected claim');
+    await deliveries.settle({ id: inbox.id, attempt: 1, status: 'accepted', attempted: true });
+
+    const caller = createNotifyRouter(notify).createCaller(signed(['admin:read']));
+    const refused = await caller.notify.operatorDeliveries({ limit: 20, status: 'refused' });
+    expect(refused).toHaveLength(1);
+    expect(refused[0]!.status).toBe('refused');
+
+    const totals = await caller.notify.operatorDeliveryAggregates();
+    expect(totals.total).toBe(2);
+    expect(totals.byStatus).toMatchObject({ accepted: 1, refused: 1, pending: 0 });
+    expect(totals.byChannel).toMatchObject({ email: 1, inapp: 1 });
+
+    await expect(
+      createNotifyRouter(notify)
+        .createCaller(signed(['notify:read']))
+        .notify.operatorDeliveryAggregates(),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+
+    const health = await caller.notify.operatorProviderHealth();
+    expect(health.delivered).toMatchObject({ observed: false, code: 'notify.delivered_unobserved' });
+    expect(health.email.configured).toBe(false);
+    expect(health.email.code).toBe('notify.email_gateway_unconfigured');
+    expect(health.push.code).toBe('notify.push_gateway_unconfigured');
+    expect(
+      providerHealth({ NOTIFY_EMAIL_GATEWAY_URL: 'https://mail.example', NOTIFY_EMAIL_GATEWAY_TOKEN: 'x'.repeat(16) }).email,
+    ).toMatchObject({
+      configured: true,
+      probed: false,
+      code: 'notify.provider_probe_unconfigured',
+    });
   });
 });

@@ -332,6 +332,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_flatten_refused':
       case 'trade.copy_flatten_drift':
       case 'trade.copy_flatten_unavailable':
+      case 'trade.copy_flatten_partial':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });

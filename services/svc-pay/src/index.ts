@@ -26,6 +26,9 @@ import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { env } from './env.js';
+import { readMerchantStarterFee } from './starter-fee.js';
+import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
+import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
 import { UserMoneyService } from './user-money-service.js';
 import { createLedgerClient } from './ledger-client.js';
@@ -180,6 +183,8 @@ const rails = new RailRegistry([
  * are one decision rather than two that can drift apart.
  */
 assertConversionBoot(process.env);
+/** Local-test starter fee. Unset stays null. Set outside dev/test refuses boot. */
+const merchantStarterFee = readMerchantStarterFee(process.env);
 const conversionConfig = readConversionConfig(process.env);
 const conversionVenue = openConversionVenue(process.env);
 const railPosture = assertRailPosture(rails, { ...process.env, PAY_ALLOW_SANDBOX_RAILS: env.PAY_ALLOW_SANDBOX_RAILS });
@@ -229,8 +234,13 @@ const conversion = new ConversionService({
   placingMaxAgeMs: conversionConfig.placingMaxAgeMs,
 });
 const disputeCases = new PostgresDisputeCaseStore(sql);
+const chargebackOutcomeSlots = env.DATABASE_POOL_MAX - 1;
+if (chargebackOutcomeSlots < 1) {
+  throw new Error('pay.chargeback_outcome_slots: DATABASE_POOL_MAX must leave one connection free of the chargeback outcome lock');
+}
 const pay = new PayService(sql, ledger, rails, {
   disputeCases,
+  chargebackOutcomeSlots,
   guards: payGuards,
   haltStore,
   identityOperationAdmission: identityAdmission,
@@ -247,6 +257,7 @@ const pay = new PayService(sql, ledger, rails, {
   checkoutSessionTtlSeconds: env.PAY_CHECKOUT_SESSION_TTL_SECONDS,
   linkDefaultTtlDays: env.PAY_LINK_DEFAULT_TTL_DAYS,
   linkMaxTtlDays: env.PAY_LINK_MAX_TTL_DAYS,
+  checkoutPublicBasePath: env.PAY_PUBLIC_BASE_PATH,
   maxOpenSessionsPerLink: env.PAY_CHECKOUT_MAX_OPEN_SESSIONS,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
@@ -405,7 +416,9 @@ const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql),
+  // One line: isolation composition pin matches this call as a single substring.
+  // prettier-ignore
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee),
   createMerchantStateRouter(
     merchantState,
     new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {
@@ -560,6 +573,33 @@ await registerCheckoutRoutes(app, pay, { basePath: env.PAY_PUBLIC_BASE_PATH });
  * so an unauthenticated caller cannot fan out invoices to every customer on the
  * platform.
  */
+registerOwnerPayScopeRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  installRawBody: false,
+  findOwnedMerchant: async (userId) => {
+    const rows = await sql<
+      Array<{
+        id: string;
+        user_id: string;
+        parent_merchant_id: string | null;
+        kyb_status: 'none' | 'pending' | 'approved' | 'rejected';
+        status: 'pending' | 'active' | 'suspended' | 'closed';
+      }>
+    >`
+      SELECT id, user_id, parent_merchant_id, kyb_status, status
+        FROM pay.merchants WHERE user_id = ${userId} LIMIT 1`;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      kybStatus: row.kyb_status,
+      status: row.status,
+      parentMerchantId: row.parent_merchant_id,
+    };
+  },
+});
+
 registerSubscriptionCycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   subscriptions,
@@ -604,6 +644,8 @@ await registerPublicPayRest(app, {
   webhooks: merchantWebhooks,
   trees: subMerchants,
   teamReads: teamReadFromSql(sql),
+  recheckOwnerPayScope: (principal, scope) =>
+    assertOwnerPayScopeStillGranted(principal, scope, (userId) => pay.getMerchantByUserId(userId)),
 });
 
 /** Drain outbound merchant webhook deliveries (ADR §2.4 retry). */
@@ -737,7 +779,13 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext(req),
+    createContext: ({ req }) => ({
+      ...edgeContext(req),
+      ownerPayGrant: {
+        assertStillGranted: (principal, scope) =>
+          assertOwnerPayScopeStillGranted(principal, scope, (userId) => pay.getMerchantByUserId(userId)),
+      },
+    }),
     responseMeta({ ctx }) {
       const requestId = ctx?.requestId;
       if (!requestId) return {};

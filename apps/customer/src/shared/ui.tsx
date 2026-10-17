@@ -113,11 +113,13 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
   if (rawCode && !result.messageCopy) {
     // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.
     const words = refusalCopy(result.code ?? rawCode);
+    // A write that may have gone through is never called refused or unchanged; the code only gives the support reference.
+    const uncertain = result.reason === 'uncertain';
     return (
-      <div className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
-        <h3>{words.title}</h3>
-        <p>{words.body}</p>
-        {words.action && (
+      <div className="failure" role={uncertain ? 'alert' : 'status'}>
+        <h3>{uncertain ? <Copy k="uncertain" /> : words.title}</h3>
+        <p>{uncertain ? <Copy k="gatewayUncertain" /> : words.body}</p>
+        {!uncertain && words.action && (
           <a className="text-link" href={words.action.href}>
             {words.action.label}
           </a>
