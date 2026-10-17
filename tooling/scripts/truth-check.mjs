@@ -13,7 +13,9 @@ const ENTRY = ['AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', 'README.md', 'toolin
 const EXACT_STALE = ['Merge when done', 'may merge their own'];
 const INSTRUCTED = ['worktree remove --force', 'pnpm wt:rm', 'wt:gc:apply'];
 const CORE = ['packages/ledger-client', '403 or 429', 'Never bypass', 'git worktree remove'];
-const PROHIBIT = /\b(never|do not|don't|must not|cannot|can't)\b/i;
+const NEGATION = /\b(never|don't|do not|not|forbidden|no)\b/i;
+const VUE_HISTORY = /histor(y|ical)|retired|legacy|archived|\bnot\b|\bnever\b|\bno\b/i;
+const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s/;
 
 function read(root, rel) {
   const path = join(root, rel);
@@ -29,55 +31,78 @@ function entryFiles(root) {
   return files;
 }
 
-/** Vue on a line is history when that line says so. Otherwise it is the current front end. */
-function vueIsCurrent(text) {
-  return text.split('\n').some((line) => /\bvue\b/i.test(line) && !/history/i.test(line));
-}
-
-function instructed(line, phrase) {
-  return line.includes(phrase) && !PROHIBIT.test(line);
-}
-
+/** A forbidden command is excused only by a negation before it on its line, or a Forbidden/Never heading or lead-in above it. */
 function staleHits(text) {
   const hits = [];
-  for (const phrase of EXACT_STALE) if (text.includes(phrase)) hits.push(phrase);
-  for (const line of text.split('\n')) {
-    for (const phrase of INSTRUCTED) if (instructed(line, phrase)) hits.push(phrase);
-    if (vueIsCurrent(line)) hits.push('Vue as the current front end');
-  }
-  return hits;
+  const lower = text.toLowerCase();
+  for (const phrase of EXACT_STALE) if (lower.includes(phrase.toLowerCase())) hits.push([phrase, 0]);
+  let forbiddenContext = false;
+  text.split('\n').forEach((line, index) => {
+    const at = index + 1;
+    const lowerLine = line.toLowerCase();
+    for (const phrase of INSTRUCTED) {
+      const found = lowerLine.indexOf(phrase.toLowerCase());
+      if (found !== -1 && !forbiddenContext && !NEGATION.test(line.slice(0, found))) hits.push([phrase, at]);
+    }
+    if (/\bvue\b/i.test(line) && !VUE_HISTORY.test(line)) hits.push(['Vue as the current front end', at]);
+    const leadIn = /^\s*#/.test(line) || line.trimEnd().endsWith(':');
+    if (leadIn) forbiddenContext = /forbidden|never/i.test(line);
+    else if (line.trim() && !LIST_ITEM.test(line)) forbiddenContext = false;
+  });
+  return hits.map(([phrase, at]) => (at ? `${phrase} (line ${at})` : phrase));
 }
 
 function git(root, args) {
   return spawnSync('git', args, { cwd: root, encoding: 'utf8', env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } });
 }
 
-function addedPaths(root) {
-  const base = git(root, ['merge-base', 'HEAD', 'origin/main']);
-  if (base.status !== 0) return [];
-  const diff = git(root, ['diff', '--name-only', '--diff-filter=A', `${base.stdout.trim()}`, 'HEAD']);
-  if (diff.status !== 0) return [];
-  return diff.stdout.split('\n').filter(Boolean);
+function lines(result) {
+  return result.status === 0 ? result.stdout.split('\n').filter(Boolean) : [];
+}
+
+/** Files changed in this push (committed since the merge-base, plus uncommitted). null = no merge-base: check everything. */
+function changedPaths(root, base) {
+  if (!base) return null;
+  return new Set([
+    ...lines(git(root, ['diff', '--name-only', '-M', base, 'HEAD'])),
+    ...lines(git(root, ['diff', '--name-only', '-M', 'HEAD'])),
+    ...lines(git(root, ['ls-files', '--others', '--exclude-standard'])),
+  ]);
+}
+
+function addedPaths(root, base) {
+  return base ? lines(git(root, ['diff', '--name-only', '-M', '--diff-filter=A', base, 'HEAD'])) : [];
+}
+
+function listed(readme, rel) {
+  const name = rel.slice(rel.lastIndexOf('/') + 1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\]\\((?:[^)\\s]*/)?${name}[)#]|\`(?:[^\`\\s]*/)?${name}\``).test(readme);
 }
 
 function evaluate(root) {
   const messages = [];
-  for (const rel of entryFiles(root)) {
+  const merge = git(root, ['merge-base', 'HEAD', 'origin/main']);
+  const base = merge.status === 0 ? merge.stdout.trim() : '';
+  const changed = changedPaths(root, base);
+  const touched = (rel) => changed === null || changed.has(rel);
+  for (const rel of entryFiles(root).filter(touched)) {
     for (const hit of staleHits(read(root, rel) ?? '')) messages.push(`stale agent rule in ${rel}: ${hit}`);
   }
-  const agents = read(root, 'AGENTS.md');
-  if (agents == null) messages.push('AGENTS.md lost a core rule: file missing');
-  else for (const phrase of CORE) if (!agents.includes(phrase)) messages.push(`AGENTS.md lost a core rule: ${phrase}`);
+  if (touched('AGENTS.md')) {
+    const agents = read(root, 'AGENTS.md');
+    if (agents == null) messages.push('AGENTS.md lost a core rule: file missing');
+    else for (const phrase of CORE) if (!agents.includes(phrase)) messages.push(`AGENTS.md lost a core rule: ${phrase}`);
+  }
   const readme = read(root, 'docs/README.md') ?? '';
-  for (const rel of addedPaths(root)) {
+  for (const rel of addedPaths(root, base)) {
+    if (rel === 'docs/archive/README.md') continue;
     if (rel.startsWith('docs/archive/')) {
       messages.push(`archive only receives moves: ${rel} was added`);
       continue;
     }
     const atRoot = /^[^/]+\.md$/.test(rel);
     const inDocs = /^docs\/[^/]+\.md$/.test(rel);
-    const base = rel.slice(rel.lastIndexOf('/') + 1);
-    if ((atRoot || inDocs) && !readme.includes(base)) messages.push(`new markdown is not listed in docs/README.md: ${rel}`);
+    if ((atRoot || inDocs) && !listed(readme, rel)) messages.push(`new markdown is not listed in docs/README.md: ${rel}`);
   }
   return [...new Set(messages)];
 }

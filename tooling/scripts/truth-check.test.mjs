@@ -40,7 +40,7 @@ function fixture(mutate) {
   writeFileSync(join(root, 'README.md'), '# readme\n');
   writeFileSync(join(root, 'tooling/agent-protocol/AGENT_PROTOCOL.md'), '# protocol\n');
   writeFileSync(join(root, '.cursor/rules/inta.mdc'), '# rules\n');
-  writeFileSync(join(root, 'docs/README.md'), '# docs\n- MOVE-ME.md\n');
+  writeFileSync(join(root, 'docs/README.md'), '# docs\n- [Move me](MOVE-ME.md)\n');
   writeFileSync(join(root, 'docs/MOVE-ME.md'), 'kept\n');
   git(root, ['init', '-b', 'main']);
   git(root, ['add', '.']);
@@ -50,14 +50,14 @@ function fixture(mutate) {
   return root;
 }
 
-function run(root) {
-  return spawnSync(process.execPath, [script, '--root', root], { encoding: 'utf8' });
+function run(root, env = {}) {
+  return spawnSync(process.execPath, [script, '--root', root], { encoding: 'utf8', env: { ...process.env, ...env } });
 }
 
-function withRoot(mutate, check) {
+function withRoot(mutate, check, env) {
   const root = fixture(mutate);
   try {
-    check(run(root), root);
+    check(run(root, env), root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -134,7 +134,7 @@ test('added archive file and unlisted markdown fail; a listed file and a move pa
     (root) => {
       git(root, ['checkout', '-b', 'topic']);
       writeFileSync(join(root, 'docs/LISTED.md'), 'new\n');
-      writeFileSync(join(root, 'docs/README.md'), '# docs\n- MOVE-ME.md\n- LISTED.md\n');
+      writeFileSync(join(root, 'docs/README.md'), '# docs\n- [Move me](MOVE-ME.md)\n- `LISTED.md`\n');
       git(root, ['add', 'docs/LISTED.md', 'docs/README.md']);
       git(root, ['commit', '-m', 'add listed']);
     },
@@ -153,5 +153,79 @@ test('added archive file and unlisted markdown fail; a listed file and a move pa
     (result) => {
       assert.equal(result.status, 0, result.stderr);
     },
+  );
+});
+
+function agentsLine(line) {
+  return (root) => writeFileSync(join(root, 'AGENTS.md'), `${CLEAN_AGENTS}\n${line}\n`);
+}
+
+test('honest Vue lines pass; matching is case-insensitive', () => {
+  for (const line of ['Vue was retired; the front end is React.', 'Vue (historical) lives in vendor/.', 'No Vue.']) {
+    withRoot(agentsLine(line), (result) => assert.equal(result.status, 0, `${line}: ${result.stderr}`));
+  }
+  withRoot(agentsLine('merge when done'), (result) => {
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /stale agent rule in AGENTS.md: Merge when done/);
+  });
+});
+
+test('a negation after the forbidden command does not excuse it; a Forbidden lead-in does', () => {
+  withRoot(agentsLine('Clean up with pnpm wt:rm; never push to main'), (result) => {
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /stale agent rule in AGENTS.md: pnpm wt:rm \(line \d+\)/);
+  });
+  withRoot(agentsLine('Forbidden commands:\n- pnpm wt:rm\n- pnpm wt:gc:apply'), (result) => {
+    assert.equal(result.status, 0, result.stderr);
+  });
+  withRoot(agentsLine('## Never\n\nUse pnpm wt:gc:apply'), (result) => assert.equal(result.status, 0, result.stderr));
+  withRoot(agentsLine('Allowed:\n- pnpm wt:rm'), (result) => assert.equal(result.status, 1));
+});
+
+test('stale text already on base but not changed in this push passes', () => {
+  withRoot(
+    (root) => {
+      writeFileSync(join(root, 'AGENTS.md'), `${CLEAN_AGENTS}\nMerge when done\n`);
+      git(root, ['commit', '-am', 'bad base']);
+      git(root, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+      git(root, ['checkout', '-b', 'topic']);
+      writeFileSync(join(root, 'CLAUDE.md'), '# claude, edited\n');
+      git(root, ['commit', '-am', 'unrelated edit']);
+    },
+    (result) => assert.equal(result.status, 0, result.stderr),
+  );
+});
+
+test('docs/README.md must link or backtick the file; DATA.md does not list A.md', () => {
+  withRoot(
+    (root) => {
+      git(root, ['checkout', '-b', 'topic']);
+      writeFileSync(join(root, 'docs/A.md'), 'new\n');
+      writeFileSync(join(root, 'docs/DATA.md'), 'new\n');
+      writeFileSync(join(root, 'docs/README.md'), '# docs\n- [Move me](MOVE-ME.md)\n- [Data](DATA.md)\n');
+      git(root, ['add', '.']);
+      git(root, ['commit', '-m', 'add']);
+    },
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /not listed in docs\/README.md: docs\/A.md/);
+      assert.doesNotMatch(result.stderr, /docs\/DATA.md/);
+    },
+  );
+});
+
+test('a move into archive passes even with diff.renames=false; archive README is allowed', () => {
+  const env = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'diff.renames', GIT_CONFIG_VALUE_0: 'false' };
+  withRoot(
+    (root) => {
+      git(root, ['checkout', '-b', 'topic']);
+      mkdirSync(join(root, 'docs/archive'), { recursive: true });
+      git(root, ['mv', 'docs/MOVE-ME.md', 'docs/archive/MOVE-ME.md']);
+      writeFileSync(join(root, 'docs/archive/README.md'), 'Archive index\n');
+      git(root, ['add', '.']);
+      git(root, ['commit', '-m', 'move into archive']);
+    },
+    (result) => assert.equal(result.status, 0, result.stderr),
+    env,
   );
 });

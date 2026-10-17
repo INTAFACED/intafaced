@@ -84,6 +84,14 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/truth-check.mjs) </dev/null; then
+  cat >&2 <<'MSG'
+
+  ✖ truth-check failed — push refused.
+
+    Fix the named lines (AGENTS.md is the truth); archive files arrive by
+    git mv; list new docs in docs/README.md.
+
+MSG
   exit 1
 fi
 
