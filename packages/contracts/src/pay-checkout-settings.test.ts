@@ -50,6 +50,8 @@ describe('merchant.checkoutSettings.get', () => {
       domains: ['checkout.example'],
       createdAt: '2026-10-17T00:00:00.000Z',
     });
+    expect(hidden.status).toBe('configured');
+    if (hidden.status !== 'configured') throw new Error('expected configured');
     expect(hidden.feeRouting).toBeNull();
     expect(hidden.checkoutConfig).toEqual({ brandName: 'North' });
   });
