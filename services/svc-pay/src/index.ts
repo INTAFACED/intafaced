@@ -7,6 +7,8 @@ import { createFounderAuthority } from './founder-authority.js';
 import { ControlService, teamAccessPorts } from './control/index.js';
 import { teamReadFromSql } from './merchant-team-read.js';
 import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
+import { disputeEvidenceScanEnabled, disputeEvidenceUploadEnabled } from './merchant-ops/dispute-evidence-policy.js';
+import { PostgresDisputeCaseStore } from './fraud/dispute-case-store.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
 import { retryAdoptConfig } from './halts/adopt-boot.js';
@@ -143,6 +145,9 @@ const cryptoRail = new CryptoNativeAdapter({
   minConfirmations: env.PAY_MIN_CONFIRMATIONS,
   toleranceSeconds: env.PAY_WEBHOOK_TOLERANCE_SECONDS,
 });
+/** Filled once Fastify exists. A malformed rail due date is logged and ignored. */
+const evidenceDueByLog: { warn: (eventId: string) => void } = { warn: () => undefined };
+
 const rails = new RailRegistry([
   cryptoRail,
   // Always registered. mode:'absent' — not a sandbox, so staging/prod boot is
@@ -154,6 +159,7 @@ const rails = new RailRegistry([
         new CardSandboxAdapter({
           secret: env.PAY_CARD_SANDBOX_WEBHOOK_SECRET,
           toleranceSeconds: env.PAY_WEBHOOK_TOLERANCE_SECONDS,
+          noteMalformedEvidenceDueBy: (eventId) => evidenceDueByLog.warn(eventId),
         }),
       ]
     : []),
@@ -221,7 +227,9 @@ const conversion = new ConversionService({
   slippageBps: conversionConfig.slippageBps,
   placingMaxAgeMs: conversionConfig.placingMaxAgeMs,
 });
+const disputeCases = new PostgresDisputeCaseStore(sql);
 const pay = new PayService(sql, ledger, rails, {
+  disputeCases,
   guards: payGuards,
   haltStore,
   identityOperationAdmission: identityAdmission,
@@ -396,7 +404,7 @@ const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql)),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases),
   createMerchantStateRouter(
     merchantState,
     new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {
@@ -424,6 +432,12 @@ export const appRouter = mergeRouters(
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
+    disputes: disputeCases,
+    evidence: {
+      uploadEnabled: disputeEvidenceUploadEnabled(process.env),
+      scanEnabled: disputeEvidenceScanEnabled(process.env),
+    },
+    invoiceLinks: pay,
     payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) },
     treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql, ledger) },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
@@ -442,6 +456,9 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000, g
 app.addHook('onRequest', async (req, reply) => {
   reply.header('x-request-id', req.id);
 });
+evidenceDueByLog.warn = (eventId) => {
+  app.log.warn({ eventId }, 'pay.evidence_due_by_ignored');
+};
 // Callers get a uniform not-found; operators get the real reason (log only).
 setIsolationDenialSink((denial) => app.log.warn({ isolation: denial }, 'pay.isolation_denied'));
 setPaymentFactsReadFailureSink((event) => app.log.warn(event, 'payment facts unread after commit'));

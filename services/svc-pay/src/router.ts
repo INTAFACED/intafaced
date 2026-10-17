@@ -53,7 +53,13 @@ import { evaluateFraud } from './fraud/evaluate.js';
 import { describeFraudPolicy } from './fraud/fraud-policy.js';
 import { describeRoutingPolicy } from './routing/routing-policy.js';
 import { defaultFraudReviewQueue, FraudReviewError } from './fraud/review-queue.js';
-import { defaultDisputeCaseStore, DisputeCaseError, refuseChargebackUncovered, type ChargebackLedgerRefuse } from './fraud/dispute-case.js';
+import {
+  defaultDisputeCaseStore,
+  DisputeCaseError,
+  refuseChargebackUncovered,
+  type ChargebackLedgerRefuse,
+  type DisputeCaseStore,
+} from './fraud/dispute-case.js';
 import { describeCmsPluginStatus } from './plugins/cms-status.js';
 import { describePluginsPolicy } from './plugins/plugins-policy.js';
 import {
@@ -199,6 +205,7 @@ export function createPayRouter(
   destinations: MerchantPayoutDestinations = assertOnlyPayoutDestinations(),
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   teamReads: MerchantTeamRead | null = null,
+  disputeCases: DisputeCaseStore = defaultDisputeCaseStore,
 ) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -1422,7 +1429,7 @@ export function createPayRouter(
               }
             }
             const ledgerPost = posted?.txId?.trim() ? { txId: posted.txId.trim() } : undefined;
-            const c = defaultDisputeCaseStore.open({
+            const c = await disputeCases.open({
               disputeId: input.disputeId,
               paymentId: input.paymentId,
               merchantId: input.merchantId,
@@ -1474,7 +1481,7 @@ export function createPayRouter(
             const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.fraud_contest_dispute', {
               disputeId: input.disputeId,
             });
-            const c = defaultDisputeCaseStore.contest(input.disputeId);
+            const c = await disputeCases.contest(input.disputeId);
             return {
               disputeId: c.disputeId,
               status: c.status,
@@ -1497,8 +1504,8 @@ export function createPayRouter(
 
       getDispute: scopedProcedure('pay:read', { module: 'pay' })
         .input(z.object({ disputeId: z.string().min(1) }))
-        .query(({ input }) => {
-          const c = defaultDisputeCaseStore.get(input.disputeId);
+        .query(async ({ input }) => {
+          const c = await disputeCases.get(input.disputeId);
           if (!c) {
             throw new TRPCError({ code: 'NOT_FOUND', message: `pay.dispute_not_found: ${input.disputeId}` });
           }

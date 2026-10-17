@@ -7,7 +7,9 @@ import { founderProcedure } from '../namespaces/founder-procedure.js';
 import { ACTIVITY_OBJECT_TYPES, ActivityFeed } from './activity.js';
 import { CustomerDirectory } from './customers.js';
 import { DisputeOpsService, EVIDENCE_KINDS } from './disputes.js';
+import { EVIDENCE_UPLOAD_OFF, type DisputeEvidenceGate } from './dispute-evidence-policy.js';
 import { MerchantOpsError, wrapOps } from './errors.js';
+import { INVOICE_STATUSES, InvoiceService, type InvoiceLinkPort } from './invoices.js';
 import { EXPORT_KINDS, ExportService, type ExportDeps } from './exports.js';
 import { MerchantKybView } from './kyb.js';
 import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
@@ -35,6 +37,10 @@ export interface MerchantOpsDeps {
   readonly founderAuthority: FounderAuthority;
   /** Defaults to the process-wide dispute case store the fraud code already uses. */
   readonly disputes?: DisputeCaseStore;
+  /** Default off. Upload stays refused until both switches are on and a scanner is set. */
+  readonly evidence?: DisputeEvidenceGate;
+  /** Hosted payment links. Absent: invoice send refuses, it does not mint a second checkout. */
+  readonly invoiceLinks?: InvoiceLinkPort;
   readonly exports?: ExportDeps;
   /** Ledger balances for a statement export. Absent: that kind refuses. */
   readonly ledger?: ExportDeps['ledger'];
@@ -60,7 +66,8 @@ function makeParts(deps: MerchantOpsDeps) {
     ? {
         sql,
         team: new TeamService(sql),
-        disputes: new DisputeOpsService(sql, deps.disputes ?? defaultDisputeCaseStore),
+        disputes: new DisputeOpsService(sql, deps.disputes ?? defaultDisputeCaseStore, deps.evidence ?? EVIDENCE_UPLOAD_OFF),
+        invoices: new InvoiceService(sql, deps.invoiceLinks),
         customers: new CustomerDirectory(sql),
         kyb: new MerchantKybView(sql),
         exports: new ExportService(sql, {
@@ -109,6 +116,9 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               search: z.string().trim().min(1).max(200).optional(),
               from: iso.optional(),
               to: iso.optional(),
+              dueAfter: iso.optional(),
+              dueBefore: iso.optional(),
+              deadline: z.enum(['set', 'unset']).optional(),
             }),
           )
           .query(({ ctx, input }) => wrapOps(async () => need().disputes.list(await callerOf(ctx), input))),
@@ -129,6 +139,25 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
             }),
           )
           .mutation(({ ctx, input }) => wrapOps(async () => need().disputes.addEvidence(await callerOf(ctx), input))),
+        uploadEvidence: write
+          .input(
+            z.object({
+              disputeId: z.string().trim().min(1).max(200),
+              kind: z.enum(EVIDENCE_KINDS),
+              fileName: z.string().trim().min(1).max(255),
+              contentType: z.string().trim().min(1).max(127),
+              contentBase64: z.string().min(1).max(1_400_000),
+              sha256: z
+                .string()
+                .regex(/^[0-9a-fA-F]{64}$/)
+                .optional(),
+              note: note.optional(),
+            }),
+          )
+          .mutation(({ ctx, input }) => wrapOps(async () => need().disputes.uploadEvidence(await callerOf(ctx), input))),
+        getEvidence: read
+          .input(z.object({ evidenceId: id }))
+          .query(({ ctx, input }) => wrapOps(async () => need().disputes.getEvidence(await callerOf(ctx), input.evidenceId))),
         respond: write
           .input(
             z.object({
@@ -139,6 +168,48 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
             }),
           )
           .mutation(({ ctx, input }) => wrapOps(async () => need().disputes.respond(await callerOf(ctx), input))),
+      }),
+
+      invoices: router({
+        create: write
+          .input(
+            z.object({
+              requestId: id,
+              assetId: assetIdIn,
+              amount: z.string().trim().min(1).max(80),
+              customerRef: z.string().trim().min(1).max(200).optional(),
+              description: z.string().trim().min(1).max(2000).optional(),
+            }),
+          )
+          .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.create(await callerOf(ctx), input))),
+        list: read
+          .input(
+            z.object({
+              limit: limitInput,
+              cursor: cursorInput,
+              status: z.enum(INVOICE_STATUSES).optional(),
+              assetId: assetIdIn.optional(),
+              search: z.string().trim().min(1).max(200).optional(),
+              from: iso.optional(),
+              to: iso.optional(),
+            }),
+          )
+          .query(({ ctx, input }) => wrapOps(async () => need().invoices.list(await callerOf(ctx), input))),
+        get: read
+          .input(z.object({ invoiceId: id }))
+          .query(({ ctx, input }) => wrapOps(async () => need().invoices.get(await callerOf(ctx), input.invoiceId))),
+        send: write
+          .input(z.object({ requestId: id, invoiceId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.send(await callerOf(ctx), input))),
+        void: write
+          .input(z.object({ requestId: id, invoiceId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.void(await callerOf(ctx), input))),
+        reissueLink: write
+          .input(z.object({ requestId: id, invoiceId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.reissueLink(await callerOf(ctx), input))),
+        markPaidByPayment: write
+          .input(z.object({ requestId: id, invoiceId: id, paymentId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.markPaidByPayment(await callerOf(ctx), input))),
       }),
 
       customers: router({

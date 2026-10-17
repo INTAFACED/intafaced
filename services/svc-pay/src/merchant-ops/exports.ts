@@ -365,7 +365,7 @@ export class ExportService {
   ): Promise<{ content: string; rows: number }> {
     validateFilters(kind, filters);
     if (kind === 'refunds' || kind === 'fees') return this.buildSqlKind(merchantId, kind, filters, columns);
-    if (kind === 'disputes') return this.buildDisputes(merchantId, filters, columns);
+    if (kind === 'disputes') return await this.buildDisputes(merchantId, filters, columns);
     if (kind === 'ledger_statement') return this.buildLedger(merchantId, filters, columns);
     const ceiling = this.deps.rowCeiling ?? DEFAULT_EXPORT_ROW_CEILING;
     const BATCH = this.deps.batchSize ?? DEFAULT_BATCH;
@@ -557,7 +557,11 @@ export class ExportService {
     return { content: `${lines.join('\r\n')}\r\n`, rows };
   }
 
-  private buildDisputes(merchantId: string, filters: ExportFilters, columns: readonly string[]): { content: string; rows: number } {
+  private async buildDisputes(
+    merchantId: string,
+    filters: ExportFilters,
+    columns: readonly string[],
+  ): Promise<{ content: string; rows: number }> {
     const store = this.deps.disputes;
     if (!store) throw new MerchantOpsError('pay.export_disputes_unconfigured', 'precondition');
     const header = EXPORT_COLUMNS.disputes;
@@ -565,8 +569,7 @@ export class ExportService {
     const ceiling = this.deps.rowCeiling ?? DEFAULT_EXPORT_ROW_CEILING;
     const from = filters.from ? Date.parse(filters.from) : null;
     const to = filters.to ? Date.parse(filters.to) : null;
-    const cases = store
-      .listForMerchant(merchantId)
+    const cases = (await store.listForMerchant(merchantId))
       .filter((c) => (filters.status ? c.status === filters.status : true))
       .filter((c) => (filters.assetId ? c.assetId === filters.assetId : true))
       .filter((c) => (from === null ? true : Date.parse(c.openedAt) >= from))

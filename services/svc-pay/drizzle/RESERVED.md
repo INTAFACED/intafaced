@@ -25,7 +25,9 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0079      | W5 auto-trip window                                   | used                                            |
 | 0080      | unassigned                                            | free; ask W0 before using                       |
 | 0081      | subscription.create idempotency, one open subscription per mandate | used                               |
-| 0082-0084 | sibling portal jobs (profile, disputes)               | reserved; do not use on this branch             |
+| 0082      | unassigned                                            | free; ask W0 before using                       |
+| 0083      | dispute cases, rail deadlines, evidence bytes         | used                                            |
+| 0084      | standalone merchant invoices                          | used                                            |
 | 0085      | merchant portal activity, export kinds, webhook ops   | used                                            |
 | 0086+     | unassigned                                            | free; ask W0 before using                       |
 

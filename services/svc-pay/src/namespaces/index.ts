@@ -7,6 +7,9 @@ import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
+import type { DisputeEvidenceGate } from '../merchant-ops/dispute-evidence-policy.js';
+import type { DisputeCaseStore } from '../fraud/dispute-case.js';
+import type { InvoiceLinkPort } from '../merchant-ops/invoices.js';
 import { createFounderOpsRouter, createMerchantOpsRouter } from '../merchant-ops/index.js';
 import { createConversionRouter } from './conversion.js';
 import { createFounderAdminRouter, type FounderTreasuryDeps } from './founder-admin.js';
@@ -50,6 +53,10 @@ export function createPayNamespaces(deps: {
   treasury?: FounderTreasuryDeps;
   control?: ControlService;
   conversion?: ConversionService;
+  evidence?: DisputeEvidenceGate;
+  invoiceLinks?: InvoiceLinkPort;
+  /** Production passes the Postgres dispute store. Omitted keeps the memory store. */
+  disputes?: DisputeCaseStore;
 }) {
   const opsDeps = {
     founderAuthority: deps.founderAuthority,
@@ -57,6 +64,9 @@ export function createPayNamespaces(deps: {
     ledger: deps.ledger,
     webhooksAllowLocalHttp: deps.webhooksAllowLocalHttp,
     webhookRetry: deps.webhookRetry,
+    evidence: deps.evidence,
+    invoiceLinks: deps.invoiceLinks,
+    disputes: deps.disputes,
   };
   return mergeRouters(
     createMerchantControlRouter(deps.control),
