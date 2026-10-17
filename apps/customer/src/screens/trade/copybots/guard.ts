@@ -29,6 +29,33 @@ function read(key: string): { pending: Marker | null; blocked: boolean; storage:
   }
 }
 
+/** Removes the marker only when it is still the one the caller checked (another tab may have replaced it meanwhile). */
+export function clearIfSame(storage: Pick<Storage, 'getItem' | 'removeItem'>, key: string, expected: Marker): boolean {
+  try {
+    const wire = storage.getItem(key);
+    if (!wire) return false;
+    const parsed = markerSchema.safeParse(JSON.parse(wire));
+    if (!parsed.success) return false;
+    const stored = parsed.data;
+    if (
+      stored.kind !== expected.kind ||
+      stored.id !== expected.id ||
+      stored.startedAt !== expected.startedAt ||
+      stored.operation !== expected.operation
+    )
+      return false;
+    storage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The id the service stores a bot under: a create is remembered by the id we chose, prefixed with the first 8 of the user id. */
+export function algoServiceId(userId: string | null, pending: Marker): string {
+  return pending.operation ? pending.id : `algo-${(userId ?? '').slice(0, 8)}-${pending.id}`;
+}
+
 const storageFailure: Failure = { ok: false, reason: 'error', message: '', code: 'device.storage_unavailable' };
 
 export function useWriteGuard() {
@@ -61,6 +88,19 @@ export function useWriteGuard() {
     }
     setState(read(key));
   }, [key]);
+
+  /** Clears the marker the caller checked, and only that one; a newer marker from another tab stays. */
+  const settle = useCallback(
+    (expected: Marker) => {
+      try {
+        if (clearIfSame(localStorage, key, expected)) window.dispatchEvent(new Event('trade-pending-change'));
+      } catch {
+        /* the lock stays; the banner still tells the customer why */
+      }
+      setState(read(key));
+    },
+    [key],
+  );
 
   /** Sends one write. Returns true when the service answered ok. A lost reply keeps the marker and locks every write. */
   const run = useCallback(
@@ -117,6 +157,7 @@ export function useWriteGuard() {
     setFailure,
     run,
     clear,
+    settle,
     signedIn: Boolean(session),
   };
 }

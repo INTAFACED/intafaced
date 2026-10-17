@@ -212,6 +212,7 @@ export const bankWrites = {
   }),
   'loans.close': z.object({ released: money, ledgerTxId: z.string().nullable() }),
   'cards.setStatus': z.object({ id: z.string(), status: z.string() }),
+  'cards.issue': cardSchema,
   'autoInvest.createDca': ruleSchema,
   'autoInvest.createThresholdSweep': ruleSchema,
   'autoInvest.createRoundUp': ruleSchema,
@@ -219,6 +220,7 @@ export const bankWrites = {
   'autoInvest.resume': ruleSchema,
   'autoInvest.cancel': z.object({ ok: z.literal(true) }),
   'ramps.setWithdrawDestination': z.object({ kind: z.string(), ref: z.string() }),
+  'ramps.offramp': offrampSchema,
   'business.create': businessSchema,
   'business.addMember': z.object({ accountId: z.string(), userId: z.string(), role: z.enum(['admin', 'maker', 'checker']) }),
   'business.proposeTransfer': z.discriminatedUnion('kind', [

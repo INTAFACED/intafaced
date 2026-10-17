@@ -109,7 +109,7 @@ export function CopyRoom({ path }: { path: string }) {
           : t('That follow is no longer in your list.'),
       );
     }
-    guard.clear();
+    guard.settle(pending);
   };
 
   const leaderColumns: TableColumn<LeaderRow>[] = [

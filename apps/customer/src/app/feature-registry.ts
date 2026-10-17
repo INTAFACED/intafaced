@@ -1,13 +1,16 @@
 import { hasPattern, matchPath } from './path-match';
 
 /**
- * One row per feature that is hidden from customers or still to be confirmed live
- * (UI-SPEC 3.4). The top-bar menus, Home actions, More and search read this file, and
- * nothing hidden is linked anywhere. A row becomes `live` only when its screen loads
- * real data on the local stack with no refusal; whoever flips it writes the evidence
- * in the pull request.
+ * One row per feature that is still to be confirmed live (UI-SPEC 3.4), with the reason and what unlocks it.
+ * Founder order 2026-10-17: nothing in the customer app is hidden. A `blocked` row is reachable and linked from the
+ * menus, Home actions, More and search like any other; its own screen shows the honest refusal or empty state, and the
+ * reason and unlock here are what `/dev/features` lists. A row becomes `live` only when its screen loads real data on
+ * the local stack with no refusal; whoever flips it writes the evidence in the pull request.
+ *
+ * `hidden` stays as a mechanism (the lookups below, and every `isHiddenPath` consumer, still honour it) but no row uses
+ * it, and no build redirects a hidden path any more: a Docker build behaves exactly like `vite dev`.
  */
-export type FeatureStatus = 'live' | 'hidden';
+export type FeatureStatus = 'live' | 'blocked' | 'hidden';
 export type FeatureTab = 'home' | 'money' | 'trade' | 'pay' | 'more' | 'person' | 'public';
 
 export interface Feature {
@@ -21,7 +24,7 @@ export interface Feature {
   /** Shown in the dev ribbon, so it names the cause in plain words. */
   reason: string;
   unlock: string;
-  /** Where a customer lands when they open a hidden path. */
+  /** The tab the feature belongs to (`tabHome` gives that tab's landing page). */
   tab: FeatureTab;
   /** Evidence for rows that were re-checked on the local stack. */
   checked?: string;
@@ -88,7 +91,7 @@ export const features: readonly Feature[] = [
     id: 'deposit',
     label: 'Deposit',
     paths: ['/uc/recharge'],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'Custody is not connected',
     unlock: 'deposit address endpoint (U10) + custody',
     tab: 'money',
@@ -97,7 +100,7 @@ export const features: readonly Feature[] = [
     id: 'withdraw',
     label: 'Withdraw',
     paths: ['/uc/withdraw', '/uc/withdraw/address'],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'Custody withdrawal is not connected',
     unlock: 'custody contract',
     tab: 'money',
@@ -106,7 +109,7 @@ export const features: readonly Feature[] = [
     id: 'repeat-buy',
     label: 'Repeat buy',
     paths: ['/portfolio/:asset/repeat-buy'],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'Scheduled transfers are off locally',
     unlock: 'scheduler flag + review',
     tab: 'money',
@@ -115,6 +118,7 @@ export const features: readonly Feature[] = [
     id: 'bank',
     label: 'Bank',
     paths: [
+      '/bank',
       '/bank/spaces',
       '/bank/transfers',
       '/bank/earn',
@@ -124,7 +128,7 @@ export const features: readonly Feature[] = [
       '/bank/analytics',
       '/bank/business',
     ],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'Not part of the new Money tab; earn rate, loans, cards, ramps not set up',
     unlock: 'product decision per feature',
     tab: 'money',
@@ -133,27 +137,37 @@ export const features: readonly Feature[] = [
     id: 'margin-futures-options',
     label: 'Margin, Futures, Options',
     paths: ['/trade/margin', '/trade/futures', '/trade/options'],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'Contracts or flags not live',
     unlock: 'per contract',
     tab: 'trade',
   },
   {
-    id: 'copy-bots',
-    label: 'Copy trading and Bots',
-    paths: ['/trade/copy', '/trade/bots'],
-    status: 'live',
+    id: 'copy',
+    label: 'Copy trading',
+    paths: ['/trade/copy'],
+    status: 'blocked',
     reason:
-      'Complete rooms (catalogue, set-up, controls); copy follows are refused by the service until its fee-share and country law are published',
+      'The leader fee share and the list of countries where copy trading is allowed are not approved yet, so the service refuses every new follow',
+    unlock: 'Approval of the leader fee share and of the country list',
+    tab: 'trade',
+  },
+  {
+    id: 'bots',
+    label: 'Bots',
+    paths: ['/trade/bots'],
+    status: 'live',
+    reason: 'Catalogue, set-up and controls load real data through svc-trade',
     unlock: 'already live',
     tab: 'trade',
-    checked: '2026-10-17, local stack as the TEST account: every room and action walked to a result or a typed refusal (TRCOPY receipt).',
+    checked:
+      '2026-10-17, local stack as the TEST account: every bot room and action walked to a result or a typed refusal (TRCOPY receipt).',
   },
   {
     id: 'execution-quote',
     label: 'Execution, Quote desk',
     paths: ['/execution', '/otc', '/otc/*'],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'Not a first-release customer path',
     unlock: 'per contract',
     tab: 'trade',
@@ -194,7 +208,7 @@ export const features: readonly Feature[] = [
     label: 'Simulated markets',
     paths: [],
     queries: ['simulated=true'],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'No paper market is published',
     unlock: 'publish a paper market',
     tab: 'trade',
@@ -203,7 +217,7 @@ export const features: readonly Feature[] = [
     id: 'request-bills-global',
     label: 'Request, Bill pay, Send globally',
     paths: ['/pay/request', '/pay/bills', '/pay/global'],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'No contract',
     unlock: 'per contract',
     tab: 'pay',
@@ -212,7 +226,7 @@ export const features: readonly Feature[] = [
     id: 'p2p',
     label: 'Person-to-person',
     paths: ['/p2p', '/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/chat', '/checkuser'],
-    status: 'hidden',
+    status: 'blocked',
     reason: "Needs owner's instrument encryption provider",
     unlock: 'owner',
     tab: 'pay',
@@ -221,7 +235,7 @@ export const features: readonly Feature[] = [
     id: 'business-pay',
     label: 'Business Pay and business account',
     paths: [...businessPaySlugs.map((slug) => `/pay/${slug}`), '/identbusiness'],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'No verified business account contract',
     unlock: 'contract',
     tab: 'pay',
@@ -247,7 +261,7 @@ export const features: readonly Feature[] = [
       '/campaigns',
       '/uc/innovation/myorders',
     ],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'Not a first-release customer path, or service/data not ready',
     unlock: 'per feature',
     tab: 'more',
@@ -256,7 +270,7 @@ export const features: readonly Feature[] = [
     id: 'promotions-dividends',
     label: 'Promotions, Invitations, Dividends',
     paths: ['/uc/promotion', '/uc/promotion/mycards', '/uc/promotion/mypromotion', '/uc/invitingmining', '/uc/paydividends'],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'Not redesigned / no contract',
     unlock: 'redesign later',
     tab: 'person',
@@ -265,7 +279,7 @@ export const features: readonly Feature[] = [
     id: 'strategy-subaccounts',
     label: 'Strategy subaccounts (section of Account)',
     paths: [],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'Not a first-release customer path',
     unlock: 'Copy trading and bots go live',
     tab: 'person',
@@ -274,7 +288,7 @@ export const features: readonly Feature[] = [
     id: 'public-extras',
     label: 'Notices, Lab, App, Partner',
     paths: ['/notice', '/notice/:id', '/announcement', '/announcement/:id', '/lab', '/lab/detail/:id', '/bzb', '/app', '/partner'],
-    status: 'hidden',
+    status: 'blocked',
     reason: 'No service behind them',
     unlock: 'per feature',
     tab: 'public',
@@ -360,12 +374,12 @@ const tabHomes: Record<FeatureTab, string> = {
   person: '/more',
   public: '/',
 };
-/** Customer builds send a hidden path to its tab home. */
+/** The landing page of a feature's tab. */
 export function tabHome(feature: Feature): string {
   return tabHomes[feature.tab];
 }
 
-/** Dev builds (`vite dev`, or the local test stack build) still open hidden screens, under a ribbon. */
+/** Dev builds (`vite dev`, or a `VITE_LOCAL_TEST` bundle) show the blocker ribbon and `/dev/features`; they open the same screens as every other build. */
 export function isDevBuild(): boolean {
   return Boolean(import.meta.env.DEV) || import.meta.env.VITE_LOCAL_TEST === '1';
 }

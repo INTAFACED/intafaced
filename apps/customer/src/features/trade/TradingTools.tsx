@@ -340,9 +340,7 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
           </select>
         </label>
         <Field
-          label={
-            <CopyText k={'baseQuantitye5704f'} params={{ symbolSplitAsset: String(symbol.split('/')[0] ?? copy.t('genericAsset')) }} />
-          }
+          label={<BaseQuantityLabel symbol={symbol} />}
           inputMode="decimal"
           value={qty}
           onChange={(event) => {
@@ -437,6 +435,11 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
       />
     </>
   );
+}
+/** "Base quantity (BTC)", or just "Base quantity" before a market is picked (never empty parentheses). */
+function BaseQuantityLabel({ symbol }: { symbol: string }) {
+  const base = symbol.split('/')[0] ?? '';
+  return base ? <CopyText k={'baseQuantitye5704f'} params={{ symbolSplitAsset: base }} /> : <CopyText k={'baseQuantity'} />;
 }
 function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Listing[]; simulation: boolean }) {
   const status = useResource((signal) => tools.otcStatus(signal), 'quote-desk');
@@ -551,10 +554,10 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
             detail={
               data.published ? (
                 <CopyText k={'quotesRequireActualDeskPricingTheNamedCounterpartyAndYourAccount'} />
-              ) : data.residual === null || data.residual === undefined ? (
-                <CopyText k={'deskSpreadStakeEligibilityCounterpartyRoutingOrReferencePricingAuthorityIs'} />
               ) : (
-                <span lang="und">{data.residual}</span>
+                // `data.residual` is the service's internal wording (a DIRECTION section citation, refuse-closed);
+                // customers get the plain sentence for the same reason: the desk law is not published yet.
+                <CopyText k={'deskSpreadStakeEligibilityCounterpartyRoutingOrReferencePricingAuthorityIs'} />
               )
             }
           />
@@ -589,9 +592,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
             </select>
           </label>
           <Field
-            label={
-              <CopyText k={'baseQuantitye5704f'} params={{ symbolSplitAsset: String(symbol.split('/')[0] ?? copy.t('genericAsset')) }} />
-            }
+            label={<BaseQuantityLabel symbol={symbol} />}
             value={qty}
             inputMode="decimal"
             onChange={(event) => {

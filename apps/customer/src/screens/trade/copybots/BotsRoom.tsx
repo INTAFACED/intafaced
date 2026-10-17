@@ -25,7 +25,7 @@ import { displayAmount } from '../../../shared/money';
 import { createRoomApi, type StudioStrategy } from './api';
 import { BOT_TONE, BOT_WORD, BotDetail, percentFilled, type Algo, type Progress } from './BotDetail';
 import { roomCopy } from './copy';
-import { useWriteGuard, type Failure } from './guard';
+import { algoServiceId, useWriteGuard, type Failure } from './guard';
 import { useLive } from './live';
 import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote } from './parts';
 import { TwapWizard, type BotKind } from './TwapWizard';
@@ -191,7 +191,7 @@ export function BotsRoom({ path }: { path: string }) {
     }
     setChecking(true);
     // A create is remembered by the id we chose; the service stores it as algo-<first 8 of your user id>-<that id>.
-    const serviceId = pending.operation ? pending.id : `algo-${(userId ?? '').slice(0, 8)}-${pending.id}`;
+    const serviceId = algoServiceId(userId ?? null, pending);
     const result = await api.algoGet(serviceId);
     setChecking(false);
     if (result.ok) {
@@ -202,10 +202,10 @@ export function BotsRoom({ path }: { path: string }) {
           : t('The bot was created. It is in My bots.'),
       );
       rows.reload();
-      guard.clear();
+      guard.settle(pending);
     } else if (result.code === 'trade.algo_not_found') {
       setVerdict(t('No bot exists with that request, so it did not go through. You can set it up again.'));
-      guard.clear();
+      guard.settle(pending);
     } else {
       setVerdict(t('We could not check right now. Try again in a moment.'));
     }

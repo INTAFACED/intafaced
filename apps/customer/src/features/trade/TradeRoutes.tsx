@@ -84,7 +84,7 @@ export function TradeRoutes({ path }: { path: string }) {
             </a>
           ))}
         </div>
-        {/* The feature registry hides simulated markets from customers; the switch only shows once that row goes live. */}
+        {/* Simulated markets are a blocked feature: the switch shows, and the desk says that no paper market is published. A row marked hidden would drop it. */}
         {hiddenFeatureFor(pathname, '?simulated=true') ? null : (
           <label className="trade-simulation">
             <input
