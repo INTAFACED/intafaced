@@ -8,6 +8,7 @@ import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { PostgresLedger } from './postgres-ledger.js';
 import { verifyChain } from './reconcile.js';
+import { truncateBook } from '../db/journal-guards.testkit.js';
 
 /**
  * The hourly chain proof pages `ledger_tx` by seq. Entries for that page are
@@ -87,9 +88,7 @@ describe('verifyChain loads a page of entries in one round trip', () => {
   let engine: PostgresLedger;
 
   const reset = async () => {
-    await db!.sql`
-      TRUNCATE ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE
-    `;
+    await truncateBook(db!.sql, 'ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE');
     await db!.sql`UPDATE chain_tip SET hash = NULL, seq = 0 WHERE id = true`;
   };
 

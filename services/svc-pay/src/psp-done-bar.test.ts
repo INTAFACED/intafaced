@@ -175,7 +175,7 @@ describe('D26-P1-P1 PSP Done bar — public doors', () => {
     const api = createKybPspRouter(kyb, stubPsp(), stubApprovalConsumer(CONFIRM), {
       getMerchant: async () => ({ userId: 'another-owner' }),
     }).createCaller(await ctx(['pay:write']));
-    await expect(api.kyb.submit({ merchantId: MERCHANT, kybRef: 'dossier-other' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(api.kyb.submit({ merchantId: MERCHANT, kybRef: 'dossier-other' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(await kyb.history(MERCHANT, 50)).toHaveLength(0);
   });
 

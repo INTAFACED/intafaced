@@ -609,7 +609,15 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
   };
 }
 
-/** Mark a dated position closed after settlement recipes post. Not liquidation. */
+/**
+ * Mark a dated position closed after settlement recipes post. Not liquidation.
+ *
+ * NOT GATED ON A LIVE RUNG, ON PURPOSE. By the time this runs the settlement has already posted the
+ * position's money (`runDatedFuturesSettlementJob`), so refusing to close the row would leave a
+ * settled position open and tradable. The gate that keeps a rung and a settlement from meeting is
+ * upstream, where nothing has posted yet: `sqlDatedSettlementPositionLoader` does not hand
+ * settlement a position that has a live rung or is parked.
+ */
 export function sqlDatedSettlementCloser(sql: Sql): (positionId: string) => Promise<void> {
   return async (positionId) => {
     await sql`

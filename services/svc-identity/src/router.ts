@@ -9,6 +9,7 @@ import {
 } from './controls/founder-controls-router.js';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
+import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import {
   AuthError,
@@ -62,6 +63,7 @@ import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { userCopy } from './user-copy.js';
+import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -244,6 +246,11 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.invalid_credentials':
     case 'auth.mfa_invalid':
     case 'auth.domain_not_allowed':
+    case 'auth.request_unsigned':
+    case 'auth.request_stale':
+    case 'auth.request_tampered':
+    case 'auth.request_replay':
+    case 'auth.ip_allowlist_required':
       // Deliberately the same shape as a wrong password: never confirm which
       // half of the credential was right (including "key ok, origin wrong").
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
@@ -279,6 +286,14 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'CONFLICT', message, cause: err });
     case 'auth.account_frozen':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    case 'auth.invite_invalid':
+    case 'auth.invite_expired':
+    case 'auth.founder_enrolment_closed':
+      // Founder enrolment (auth.registerFounder). Retrying the same call cannot help; the client
+      // branches on `intafacedCode` for the copy of each.
+      return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    case 'auth.invite_used':
+      return new TRPCError({ code: 'CONFLICT', message, cause: err });
     case 'auth.not_found':
       return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     case 'auth.sub_account_required':
@@ -377,6 +392,12 @@ export function createIdentityRouter(
      * `identity.registration_open_unset`. Explicit false → closed. Never invent true.
      */
     registrationOpen?: boolean;
+    /**
+     * Founder enrolment (`auth.registerFounder`, `auth.founderEnrolmentStatus`).
+     * `invites` is the parsed IDENTITY_FOUNDER_INVITE_HASHES + _EXPIRES_AT; absent
+     * means enrolment is closed. Independent of `registrationOpen`. `now` is a test clock.
+     */
+    founderEnrolment?: { invites?: FounderEnrolmentConfig | undefined; now?: () => Date };
     webauthnEnabled?: boolean;
     /**
      * Founder pair (user ids). These identities may not self-enrol a FIRST
@@ -434,6 +455,8 @@ export function createIdentityRouter(
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
+  const founderInvites = options.founderEnrolment?.invites;
+  const founderNow = options.founderEnrolment?.now ?? (() => new Date());
   const privilegedUserIds = options.privilegedUserIds ?? [];
   const toFactorError = (err: unknown): TRPCError => factorGateTrpcError(err) ?? toTrpcError(err);
   const referral = options.referral;
@@ -618,6 +641,47 @@ export function createIdentityRouter(
             if (referrerId) {
               await requireReferral().attribute({ userId: session.userId, referrerId });
             }
+            return { ...session, expiresAt: session.expiresAt.toISOString() };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Is the founder enrolment door open? True only while the founder pair is not
+       * pinned, invites are configured, the expiry has not passed and one is unspent.
+       * Public and input-free; reveals nothing else.
+       */
+      founderEnrolmentStatus: publicProcedure.output(z.object({ open: z.boolean() })).query(async () => {
+        try {
+          return { open: await auth.founderEnrolmentOpen(founderInvites, founderNow()) };
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+      /**
+       * Founder enrolment: an invite-gated, single-use `register`. Independent of
+       * REGISTRATION_OPEN, so public sign-up stays closed. Refuses forever once the
+       * founder pair is pinned. Same handle/email/password rules as `register`;
+       * the session it returns is a password session (mfa false) that may enrol
+       * its first factor (the account is not privileged until pinned).
+       * Errors (`intafacedCode`): auth.invite_invalid, auth.invite_used,
+       * auth.invite_expired, auth.founder_enrolment_closed, plus handle/email taken.
+       */
+      registerFounder: publicProcedure
+        .input(
+          z.object({
+            invite: z.string().min(1).max(100),
+            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
+            email: z.string().email(),
+            password: z.string().min(12).max(200),
+          }),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input }) => {
+          try {
+            const session = await auth.registerFounder({ ...input, ip: requestIpAls.getStore() }, founderInvites, founderNow());
             return { ...session, expiresAt: session.expiresAt.toISOString() };
           } catch (err) {
             throw toTrpcError(err);
@@ -1317,7 +1381,7 @@ export function createIdentityRouter(
        * This is what makes identity.apikeys real — create alone is not enough.
        */
       exchange: publicProcedure
-        .input(z.object({ key: z.string().min(8).max(200) }))
+        .input(z.object({ key: z.string().min(8).max(200), request: requestSignWireSchema.optional() }))
         .output(
           z.object({
             accessToken: z.string(),
@@ -1326,14 +1390,18 @@ export function createIdentityRouter(
             keyId: z.string().uuid(),
             scopes: z.array(z.string()),
             mode: z.enum(['live', 'sandbox']),
+            requireSignature: z.boolean().optional(),
+            requireNonEmptyIpAllowlist: z.boolean().optional(),
+            ipAllowlist: z.array(z.string()).optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
           try {
             // Origin is read from the trusted edge request, never from the body.
             // A non-empty domain_whitelist refuses foreign or missing origins.
+            assertEdgeSignedRequest(ctx.service, input.request);
             const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
-            const result = await auth.exchangeApiKey(input.key, clientOrigin);
+            const result = await requestSignAls.run(input.request, () => auth.exchangeApiKey(input.key, clientOrigin));
             return {
               accessToken: result.accessToken,
               expiresAt: result.expiresAt.toISOString(),
@@ -1341,6 +1409,9 @@ export function createIdentityRouter(
               keyId: result.keyId,
               scopes: result.scopes,
               mode: result.mode,
+              ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
+              ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
+              ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
             };
           } catch (err) {
             throw toTrpcError(err);

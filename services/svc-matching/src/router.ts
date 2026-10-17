@@ -30,8 +30,7 @@ import { missingSessionRefuse } from './engine/session.js';
 import { operatorRefuse, readConfirmOperatorId, readOperatorId } from './engine/halt.js';
 import {
   ActionApprovalConsumeError,
-  matchingActionPayloadHash,
-  readApprovalIds,
+  consumeMatchingApproval,
   unwiredApprovalConsumer,
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
@@ -548,15 +547,7 @@ export function registerRoutes(
       return { ok: false, status: 200, operatorId, confirmOperatorId: confirmTyped, rejected: missing ?? operatorRefuse(null)! };
     }
     try {
-      const ids = readApprovalIds(parsed);
-      const consumed = await approvals.consume({
-        approvalId: ids.approvalId,
-        operationId: ids.operationId,
-        payloadHash: matchingActionPayloadHash(actionType, fields),
-        targetService: 'svc-matching',
-        targetId,
-        expectedVersion: '1',
-      });
+      const consumed = await consumeMatchingApproval(approvals, parsed, actionType, fields, targetId);
       return {
         ok: true,
         operatorId,
