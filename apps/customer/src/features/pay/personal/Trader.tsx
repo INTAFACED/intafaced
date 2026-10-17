@@ -52,6 +52,12 @@ export function TraderSummary({ record }: { record: ApiResult<Reputation> | null
   if (!record.ok) return <span className="muted">{t('traderRecordOff')}</span>;
   const summary = makerSummary(record.data);
   if (summary.kind === 'new') return <span className="muted">{t('traderNew')}</span>;
+  if (summary.kind === 'unfinished')
+    return (
+      <span className="muted">
+        {t('traderRecordOpen', { orders: new Intl.NumberFormat(requestedLocale, { maximumFractionDigits: 0 }).format(summary.orders) })}
+      </span>
+    );
   const rate = new Intl.NumberFormat(requestedLocale, { style: 'percent', maximumFractionDigits: 1 }).format(summary.completionRate);
   const orders = new Intl.NumberFormat(requestedLocale, { maximumFractionDigits: 0 }).format(summary.orders);
   if (summary.releaseSecs === null) return <span className="muted">{t('traderRecord', { orders, rate })}</span>;

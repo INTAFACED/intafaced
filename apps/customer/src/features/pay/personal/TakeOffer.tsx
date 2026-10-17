@@ -1,18 +1,22 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { uiCopy } from '../../../shared/ui-copy';
 import { navigate } from '../../../app/location';
+import { useResource } from '../../../shared/resource';
 import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
 import { PayDetails } from '../components';
-import type { PersonalPayApi } from '../pay-api';
+import { wasPlacedUnderHeldReference, type PersonalPayApi } from '../pay-api';
 import type { Offer, TakeQuote, Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
+import { TraderName, useTraders } from './Trader';
 import {
   checkTake,
+  exceedsAvailable,
   feePercent,
   isOwnOffer,
   offerMethodIds,
+  placedNotice,
   takeFailureKind,
   tradeMovedFromQuote,
   takeRequest,
@@ -119,6 +123,47 @@ export function TakeQuoteDetails({ offer, quote }: { offer: Pick<Offer, 'side' |
   );
 }
 
+/** What the seller has available of the asset, from the balance read Money uses. Nothing is shown while it is still loading. */
+export function TakeAvailable({ state, asset }: { state: ApiResult<string> | 'loading' | null; asset: string }) {
+  const { t } = p2pDepth.useCopy();
+  if (state === null || state === 'loading') return null;
+  return (
+    <p className="muted" data-testid="take-available">
+      {state.ok ? t('takeAvailable', { amount: displayAmount(state.data), asset }) : t('takeAvailableOff')}
+    </p>
+  );
+}
+
+/**
+ * The order being reviewed: who it is with, the payment method by its name, and every figure the service quoted. The
+ * counterparty is the maker as the taker sees them (@handle, or "Member"); never an account id.
+ */
+export function TakeReviewDetails({
+  offer,
+  quote,
+  methodLabel,
+  counterparty,
+}: {
+  offer: Pick<Offer, 'side' | 'asset' | 'fiatCurrency'>;
+  quote: TakeQuote;
+  methodLabel: string;
+  counterparty: ReactNode;
+}) {
+  const { t } = p2pDepth.useCopy();
+  const buying = takerRole(offer) === 'buyer';
+  return (
+    <>
+      <PayDetails
+        values={[
+          [t(buying ? 'takeSellerLabel' : 'takeBuyerLabel'), counterparty],
+          [t('takeMethod'), methodLabel],
+        ]}
+      />
+      <TakeQuoteDetails offer={offer} quote={quote} />
+    </>
+  );
+}
+
 type QuoteState = { key: string; result: ApiResult<TakeQuote> | 'loading' } | null;
 
 /**
@@ -134,9 +179,22 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('');
   const check = checkTake(offer, amount);
-  const request = takeRequest(offer, amount, method);
-  const requestKey = request.ok ? `${request.request.offerId}|${request.request.amount}|${request.request.method}` : null;
   const journalKey = `${userId}:take:${offer.id.toLowerCase()}`;
+  const selling = takerRole(offer) === 'seller';
+  const wantsBalance = selling && !own && Boolean(userId);
+  const [available, setAvailable] = useState<ApiResult<string> | 'loading' | null>(null);
+  // While an earlier take is held its escrow may already have used part of the balance, so the figure can't judge a retry.
+  const over =
+    wantsBalance && !pay.guard.status(journalKey) && check.kind === 'ok' && available !== null && available !== 'loading' && available.ok
+      ? exceedsAvailable(amount, available.data)
+      : false;
+  // A quantity above what the seller has is refused here, before any quote is asked for.
+  const request = over ? ({ ok: false, kind: 'aboveAvailable' } as const) : takeRequest(offer, amount, method);
+  const labels = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
+  const methodLabel = (methodId: string) =>
+    (labels.resource.status === 'ready' ? labels.resource.data.find((entry) => entry.methodId === methodId)?.label : undefined) ?? methodId;
+  const traders = useTraders(pay, own ? [] : [offer.makerId]);
+  const requestKey = request.ok ? `${request.request.offerId}|${request.request.amount}|${request.request.method}` : null;
   const mounted = useRef(true);
   const reviewToken = useRef(0);
   const [, notify] = useState(0);
@@ -149,7 +207,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
   const [checking, setChecking] = useState(false);
   const [checked, setChecked] = useState<ApiResult<Trade> | null>(null);
   // An order that exists but should not be opened silently: an earlier one, or one priced differently from the review.
-  const [placed, setPlaced] = useState<{ trade: Trade; why: 'earlier' | 'moved' } | null>(null);
+  const [placed, setPlaced] = useState<{ trade: Trade; why: 'earlier' | 'moved' | 'resent' } | null>(null);
   const locked = !own && Boolean(userId) && Boolean(pay.guard.status(journalKey));
 
   useLayoutEffect(() => {
@@ -163,6 +221,19 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
       reviewToken.current++;
     };
   }, [pay, journalKey]);
+
+  useEffect(() => {
+    if (!wantsBalance) {
+      setAvailable(null);
+      return;
+    }
+    const controller = new AbortController();
+    setAvailable('loading');
+    void pay.availableBalance(offer.asset, controller.signal).then((result) => {
+      if (!controller.signal.aborted) setAvailable(result);
+    });
+    return () => controller.abort();
+  }, [pay, offer.asset, wantsBalance]);
 
   // The quote follows the request: fetched once the quantity and method are valid, a moment after typing stops.
   useEffect(() => {
@@ -209,7 +280,9 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             ? t('takeAboveMax')
             : check.kind === 'aboveRemaining'
               ? t('takeAboveRemaining')
-              : null;
+              : over
+                ? t('takeAboveAvailable')
+                : null;
   const shown = quote && quote.key === requestKey ? quote.result : null;
   const ready = shown !== null && shown !== 'loading' && shown.ok ? shown.data : null;
   const heldReference = locked ? pay.guard.reference(journalKey) : null;
@@ -234,8 +307,12 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
     if (result.ok) {
       // The order exists. Open it, unless it is an older order or is priced differently from the review: say so first.
       // The form stays locked so a second click can't place another.
-      const why =
-        earlier && result.data.id.toLowerCase() === earlier ? 'earlier' : tradeMovedFromQuote(result.data, review.quote) ? 'moved' : null;
+      const why = placedNotice({
+        heldReference: earlier,
+        trade: result.data,
+        quote: review.quote,
+        placedNow: wasPlacedUnderHeldReference(result.data),
+      });
       if (!why) {
         goToOrder(result.data);
         return;
@@ -298,13 +375,15 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
           <p>
             {placed.why === 'earlier'
               ? t('takeFound')
-              : t('takePriceMoved', {
-                  price: displayAmount(placed.trade.price),
-                  fiat: offer.fiatCurrency,
-                  asset: offer.asset,
-                  total: displayAmount(placed.trade.fiatAmount),
-                  reviewed: displayAmount(placedQuotePrice.current ?? placed.trade.price),
-                })}
+              : placed.why === 'resent'
+                ? t('takeResent')
+                : t('takePriceMoved', {
+                    price: displayAmount(placed.trade.price),
+                    fiat: offer.fiatCurrency,
+                    asset: offer.asset,
+                    total: displayAmount(placed.trade.fiatAmount),
+                    reviewed: displayAmount(placedQuotePrice.current ?? placed.trade.price),
+                  })}
           </p>
           <Button variant="primary" onClick={() => goToOrder(placed.trade)} data-testid="take-open-order">
             {t('takeOpenOrder')}
@@ -345,6 +424,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
         <p className="muted">
           {t('takeLimits', { min: displayAmount(offer.minAmount), max: displayAmount(offer.maxAmount), asset: offer.asset })}
         </p>
+        {wantsBalance ? <TakeAvailable state={available} asset={offer.asset} /> : null}
         <label className="field">
           <span>{t('takeAmount', { asset: offer.asset })}</span>
           <input
@@ -362,7 +442,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             <option value="">{methods.length ? '—' : t('takeNoMethods')}</option>
             {methods.map((id) => (
               <option key={id} value={id}>
-                {id}
+                {methodLabel(id)}
               </option>
             ))}
           </select>
@@ -406,7 +486,12 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
                 asset: offer.asset,
               })}
             </p>
-            <TakeQuoteDetails offer={offer} quote={review.quote} />
+            <TakeReviewDetails
+              offer={offer}
+              quote={review.quote}
+              methodLabel={methodLabel(review.request.method)}
+              counterparty={<TraderName record={traders[offer.makerId.toLowerCase()] ?? null} />}
+            />
             {outcome && !outcome.ok ? <TakeFailureNote failure={outcome} context="take" /> : null}
             <div className="actions">
               <Button variant="ghost" disabled={busy} onClick={closeReview}>
