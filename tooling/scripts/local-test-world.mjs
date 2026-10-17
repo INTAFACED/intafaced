@@ -2578,7 +2578,9 @@ async function openDisputeByApprovalPair(log, fields, reasonCode) {
     return { ok: false, refusal: `dispute not opened: the approver session could not be used (${oneLine(err.message)})` };
   }
 
-  const payloadHash = openDisputePayloadHash({ ...fields, reasonCode, markPaymentDisputed: true });
+  // One object is both hashed and sent, so the approved fields and the request can never differ.
+  const bound = { ...fields, reasonCode, markPaymentDisputed: true };
+  const payloadHash = openDisputePayloadHash(bound);
   let open = [];
   try {
     open = psql(gctx.secrets, 'svc_identity', openDisputeApprovalSql(payloadHash)).map(
@@ -2631,7 +2633,7 @@ async function openDisputeByApprovalPair(log, fields, reasonCode) {
   const opened = await gctx.edge.mutate(
     'pay',
     'fraud.openDispute',
-    { ...fields, reasonCode, markPaymentDisputed: true, approvalId: approval.approvalId, operationId: approval.operationId },
+    { ...bound, approvalId: approval.approvalId, operationId: approval.operationId },
     treasury,
   );
   const data = trpcData(opened);
