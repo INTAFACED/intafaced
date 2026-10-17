@@ -1,54 +1,13 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
 import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, hex, iso, ok, page, refuse } from '../mock/shared.mjs';
+import { fromU, isTaken, toU } from '../mock/world.mjs';
 
 /** Payments, disputes and customers. */
 export function createPaymentsMock(ctx) {
   const { now, state, activity } = ctx;
+  const world = ctx.world;
   Object.assign(state, {
-    disputes: [
-      {
-        disputeId: 'd0000001-0000-4000-8000-000000000001',
-        paymentId: 'p0000001-0000-4000-8000-000000000001',
-        amount: '49.99',
-        assetId: 'USDT',
-        reasonCode: 'fraudulent',
-        status: 'open',
-        openedAt: iso(now - 3 * DAY),
-        contestedAt: null,
-        closedAt: null,
-        responseDueAt: null,
-        ledgerWire: 'refused',
-        ledgerRefuseCode: 'pay.chargeback_wire_absent',
-      },
-      {
-        disputeId: 'd0000002-0000-4000-8000-000000000002',
-        paymentId: 'p0000002-0000-4000-8000-000000000002',
-        amount: '120',
-        assetId: 'USDT',
-        reasonCode: 'product_not_received',
-        status: 'contested',
-        openedAt: iso(now - 9 * DAY),
-        contestedAt: iso(now - 7 * DAY),
-        closedAt: null,
-        responseDueAt: null,
-        ledgerWire: 'refused',
-        ledgerRefuseCode: 'pay.chargeback_wire_absent',
-      },
-      {
-        disputeId: 'd0000003-0000-4000-8000-000000000003',
-        paymentId: 'p0000003-0000-4000-8000-000000000003',
-        amount: '15.5',
-        assetId: 'USDT',
-        reasonCode: null,
-        status: 'won',
-        openedAt: iso(now - 30 * DAY),
-        contestedAt: iso(now - 28 * DAY),
-        closedAt: iso(now - 20 * DAY),
-        responseDueAt: null,
-        ledgerWire: 'refused',
-        ledgerRefuseCode: 'pay.chargeback_wire_absent',
-      },
-    ],
+    disputes: world.disputes,
     evidence: {
       'd0000002-0000-4000-8000-000000000002': [
         {
@@ -77,71 +36,13 @@ export function createPaymentsMock(ctx) {
         },
       ],
     },
-    customers: Array.from({ length: 30 }, (_, i) => ({
-      customerRef: `TEST-cust-${String(30 - i).padStart(3, '0')}`,
-      paymentCount: 1 + (i % 5),
-      subscriptionCount: i % 7 === 0 ? 1 : 0,
-      mandateCount: 0,
-      firstSeenAt: iso(now - (60 - i) * DAY),
-      lastSeenAt: iso(now - i * DAY),
-      totals: [
-        { assetId: 'USDT', capturedAmount: `${100 + i * 12}.5`, refundedAmount: i % 6 === 0 ? '10' : '0', paymentCount: 1 + (i % 5) },
-      ],
-    })),
+    customers: world.customers,
   });
 
   // ---- links, subscriptions, mandates (TEST data; real-shaped ids; lists come back as pages, as on main) ----
-  state.links = activity
-    ? Array.from({ length: 8 }, (_, i) => ({
-        id: hex('1c', i + 1),
-        prefix: `TESTl${i + 1}`,
-        label: `TEST link ${i + 1}`,
-        amount: i % 2 ? '25.00' : null,
-        currency: i % 2 ? 'USDT' : null,
-        active: i !== 3,
-        expiresAt: iso(now + (i === 5 ? -2 : 20) * DAY),
-        maxUses: i % 3 === 0 ? 10 : null,
-        uses: i,
-        createdAt: iso(now - (i + 1) * DAY),
-      }))
-    : [];
-  state.mandates = activity
-    ? Array.from({ length: 4 }, (_, i) => ({
-        id: hex('1d', i + 1),
-        merchantId: MERCHANT_ID,
-        customerId: `TEST-cust-${String(i + 1).padStart(3, '0')}`,
-        assetId: 'USDT',
-        amount: '19.00',
-        ceiling: i % 2 ? '25.00' : null,
-        cadence: 'monthly',
-        startsAt: iso(now - 40 * DAY),
-        endsAt: null,
-        railAdapter: 'crypto-native',
-        railMandateRef: null,
-        status: i === 3 ? 'cancelled' : 'active',
-        cancelledAt: i === 3 ? iso(now - DAY) : null,
-        createdAt: iso(now - 40 * DAY),
-      }))
-    : [];
-  state.subscriptions = activity
-    ? state.mandates.map((m, i) => ({
-        id: hex('1e', i + 1),
-        mandateId: m.id,
-        merchantId: MERCHANT_ID,
-        customerId: m.customerId,
-        nextRunAt: iso(now + (i + 1) * DAY),
-        status: ['active', 'active', 'paused', 'cancelled'][i],
-        cancelledAt: i === 3 ? iso(now - DAY) : null,
-        path: 'crypto_invoice',
-        createdAt: iso(now - 40 * DAY),
-        anchorAt: iso(now - 40 * DAY),
-        anchorOccurrence: 1,
-        pausedAt: i === 2 ? iso(now - 2 * DAY) : null,
-        resumedAt: null,
-        stalledAt: i === 2 ? iso(now - 2 * DAY) : null,
-        stallReason: i === 2 ? 'arrears' : null,
-      }))
-    : [];
+  state.links = world.links;
+  state.mandates = world.mandates;
+  state.subscriptions = world.subscriptions;
 
   // ---- invoices (TEST data): every status, so the list, the filters and each action can be shown ----
   const invoiceRow = (n, status, extra = {}) => ({
@@ -164,7 +65,12 @@ export function createPaymentsMock(ctx) {
     ? [
         invoiceRow(1, 'draft', { amount: '250.5', customerRef: null }),
         invoiceRow(2, 'sent', { amount: '47.13', customerRef: 'TEST-cust-001' }),
-        invoiceRow(3, 'paid', { amount: '54.26', paymentId: hex('aa', 2), paidAt: iso(now - DAY) }),
+        invoiceRow(3, 'paid', {
+          amount: '54.26',
+          customerRef: world.payments[1].customerRef,
+          paymentId: world.payments[1].id,
+          paidAt: world.payments[1].createdAt,
+        }),
         invoiceRow(4, 'void'),
         invoiceRow(5, 'sent', { amount: '1999.999999' }),
         ...Array.from({ length: 24 }, (_, i) => invoiceRow(6 + i, ['draft', 'sent', 'paid', 'void'][i % 4], { amount: `${100 + i}.00` })),
@@ -179,55 +85,14 @@ export function createPaymentsMock(ctx) {
     token: `TEST-token-${invoice.id.slice(0, 8)}`,
     alreadyIssued: false,
   });
-  const STATUSES = ['captured', 'settled', 'captured', 'refunded', 'failed', 'settled', 'authorized', 'captured', 'disputed', 'created'];
-  const payments = activity
-    ? Array.from({ length: 60 }, (_, i) => {
-        // newest first, as the service returns them
-        const n = i + 1;
-        const status = STATUSES[n % STATUSES.length];
-        const asset = n % 7 === 0 ? 'USD' : 'USDT';
-        const amount = `${40 + n * 7}.${String((n * 13) % 100).padStart(2, '0')}`;
-        const taken = ['captured', 'settled', 'refunded', 'disputed'].includes(status);
-        return {
-          id: n === 3 ? 'aa000003-0000-4000-8000-000000000003' : hex('aa', n),
-          merchantId: MERCHANT_ID,
-          profileId: null,
-          customerRef: `TEST-cust-${String(((n - 1) % 12) + 1).padStart(3, '0')}`,
-          description: `TEST order ${1000 + n}`,
-          amount,
-          assetId: asset,
-          method: n % 2 ? 'TEST-crypto-transfer' : 'TEST-card-sandbox',
-          railAdapter: n % 2 ? 'crypto-native' : 'card-sandbox',
-          railRef: status === 'created' ? null : `TEST-rail-${String(n).padStart(4, '0')}`,
-          status,
-          capturedAmount: taken ? amount : '0',
-          refundedAmount: status === 'refunded' ? amount : '0',
-          createdAt: iso(now - n * 3 * 3600_000),
-          pricingSnapshot:
-            n % 5 === 0
-              ? null
-              : {
-                  fee: '1.20',
-                  assetCode: asset,
-                  appliedLayer: 'tier',
-                  ruleId: hex('ab', 1),
-                  feeBps: 150,
-                  flatFee: '0.30',
-                  spreadBps: null,
-                  roundingBeneficiary: 'platform',
-                  roundingMode: 'ceil',
-                  bookedFee: null,
-                  reserveAmount: null,
-                  recordedAt: iso(now - n * 3 * 3600_000),
-                },
-          failure: status === 'failed' ? { code: 'card_declined', message: 'The card was declined.' } : null,
-        };
-      })
-    : [];
+  const payments = world.payments;
+  /** A payment as the service sends it: the world's bookkeeping fields (link, fee, ids of what it belongs to) stay behind. */
+  const asPayment = ({ n: _n, linkId: _l, fee: _f, settlementId: _s, disputeId: _d, refundId: _r, ...row }) => row;
   const historyOf = (p) => {
     const t0 = Date.parse(p.createdAt);
+    let seq = 0;
     const ev = (event, payload, k) => ({
-      id: hex('ee', Math.floor(Math.random() * 1e6)),
+      id: hex('ee', p.n * 100 + ++seq),
       event,
       payload,
       railEventId: null,
@@ -239,7 +104,7 @@ export function createPaymentsMock(ctx) {
         {
           amount: p.amount,
           assetId: p.assetId,
-          customerRef: 'TEST-cust-001',
+          customerRef: p.customerRef,
           instrument: { kind: 'token', token: 'tok_TEST_must_never_show' },
         },
         0,
@@ -249,17 +114,30 @@ export function createPaymentsMock(ctx) {
     if (p.status !== 'created' && p.status !== 'failed') out.push(ev('authorized', { amount: p.amount, railRef: p.railRef }, 2));
     if (['captured', 'settled', 'refunded', 'disputed'].includes(p.status))
       out.push(ev('captured', { amount: p.amount, railRef: p.railRef, ledgerTxId: 'TEST-ledger-tx-0001' }, 5));
-    if (p.status === 'settled')
-      out.push(ev('settled', { settlementId: 'bb000002-0000-4000-8000-000000000002', window: 'TEST-2026-W40', assetId: p.assetId }, 600));
-    if (p.status === 'refunded') {
-      out.push(
-        ev('refund.posted', { refundId: 'TEST-refund-1', amount: p.amount, source: 'balance', ledgerTxId: 'TEST-ledger-tx-0002' }, 900),
-      );
-      out.push(ev('refunded', { refundId: 'TEST-refund-1', amount: p.amount, source: 'balance', railRef: 'TEST-rail-refund' }, 901));
+    const settlement = p.settlementId ? world.settlementById(p.settlementId) : null;
+    if (settlement) {
+      const at = Math.max(Date.parse(settlement.createdAt) - t0, 6 * 60_000) / 60_000;
+      out.push(ev('settled', { settlementId: settlement.id, window: settlement.window, assetId: p.assetId }, at));
     }
-    if (p.status === 'disputed')
+    const refund = p.refundId ? world.refunds.find((r) => r.refundId === p.refundId) : null;
+    if (refund && refund.status !== 'reversed') {
+      const at = (Date.parse(refund.createdAt) - t0) / 60_000;
       out.push(
-        ev('disputed', { disputeId: 'd0000001-0000-4000-8000-000000000001', reasonCode: 'fraudulent', ledgerWire: 'refused' }, 1200),
+        ev('refund.posted', { refundId: refund.refundId, amount: refund.amount, source: 'balance', ledgerTxId: 'TEST-ledger-tx-0002' }, at),
+      );
+      if (p.status === 'refunded')
+        out.push(
+          ev('refunded', { refundId: refund.refundId, amount: refund.amount, source: 'balance', railRef: 'TEST-rail-refund' }, at + 1),
+        );
+    }
+    const dispute = p.disputeId ? world.disputes.find((d) => d.disputeId === p.disputeId) : null;
+    if (dispute)
+      out.push(
+        ev(
+          'disputed',
+          { disputeId: dispute.disputeId, reasonCode: dispute.reasonCode ?? 'other', ledgerWire: 'refused' },
+          (Date.parse(dispute.openedAt) - t0) / 60_000,
+        ),
       );
     if (p.status === 'failed') out.push(ev('failed', { failureCode: 'rail.TEST_internal_code' }, 3));
     return out;
@@ -275,52 +153,15 @@ export function createPaymentsMock(ctx) {
               (!input.assetId || p.assetId === input.assetId) &&
               (!input.from || p.createdAt >= input.from) &&
               (!input.to || p.createdAt < input.to) &&
+              (!input.linkId || p.linkId === input.linkId) &&
               (!input.search || p.customerRef === input.search || p.id === input.search.toLowerCase()),
           );
-          return ok(route, page(rows, input));
-        }
-        case 'payment.refunds.list': {
-          const p = payments.find((x) => x.id === input.paymentId);
-          if (!p || p.status !== 'refunded') return ok(route, { items: [], nextCursor: null });
-          return ok(route, {
-            items: [
-              {
-                id: hex('rf', 1),
-                refundId: 'TEST-refund-1',
-                paymentId: p.id,
-                merchantId: MERCHANT_ID,
-                amount: p.amount,
-                assetId: p.assetId,
-                reason: null,
-                actor: null,
-                status: 'posted',
-                createdAt: iso(Date.parse(p.createdAt) + 900_000),
-                settledAt: null,
-                source: 'clearing',
-                ledgerEffect: { recorded: true, pot: 'clearing', ledgerTxId: null, direction: 'credit' },
-                payment: { paymentId: p.id, status: p.status },
-              },
-            ],
-            nextCursor: null,
-          });
-        }
-        case 'merchantOps.activity.list': {
-          const items = input.search
-            ? ['created', 'captured'].map((action, k) => ({
-                id: `act-${k}`,
-                occurredAt: iso(now - (k + 1) * 3600_000),
-                actorId: 'system',
-                action: `payment_${action}`,
-                objectType: 'payment',
-                objectId: input.search,
-                detail: { status: action },
-              }))
-            : [];
-          return ok(route, { items, nextCursor: null });
+          const paged = page(rows, input);
+          return ok(route, { ...paged, items: paged.items.map(asPayment) });
         }
         case 'payment.get': {
           const p = payments.find((x) => x.id === input.paymentId);
-          return p ? ok(route, p) : refuse(route, 404, 'pay.payment_not_found');
+          return p ? ok(route, asPayment(p)) : refuse(route, 404, 'pay.payment_not_found');
         }
         case 'payment.history': {
           const p = payments.find((x) => x.id === input.paymentId);
@@ -408,12 +249,31 @@ export function createPaymentsMock(ctx) {
           i.updatedAt = iso(Date.now());
           return ok(route, i);
         }
-        case 'merchant.listLinks':
-          return ok(route, page(state.links, input));
-        case 'subscription.list':
-          return ok(route, page(state.subscriptions, input));
-        case 'mandate.list':
-          return ok(route, page(state.mandates, input));
+        case 'merchant.listLinks': {
+          const rows = state.links.filter(
+            (l) =>
+              (input.active === undefined || l.active === input.active) &&
+              (!input.assetId || l.currency === input.assetId) &&
+              (!input.search || l.label.toLowerCase().includes(input.search.toLowerCase()) || l.prefix === input.search),
+          );
+          return ok(route, page(rows, input));
+        }
+        case 'subscription.list': {
+          const rows = state.subscriptions.filter(
+            (x) =>
+              (!input.status || x.status === input.status) &&
+              (input.active === undefined || (x.status === 'active' || x.status === 'paused') === input.active) &&
+              (!input.mandateId || x.mandateId === input.mandateId) &&
+              (!input.customerId || x.customerId === input.customerId),
+          );
+          return ok(route, page(rows, input));
+        }
+        case 'mandate.list': {
+          const rows = state.mandates.filter(
+            (x) => (!input.status || x.status === input.status) && (!input.customerId || x.customerId === input.customerId),
+          );
+          return ok(route, page(rows, input));
+        }
         case 'subscription.get': {
           const x = state.subscriptions.find((y) => y.id === input.subscriptionId);
           return x ? ok(route, x) : refuse(route, 404, 'pay.subscription_not_found');
@@ -423,25 +283,9 @@ export function createPaymentsMock(ctx) {
           return x ? ok(route, x) : refuse(route, 404, 'pay.mandate_not_found');
         }
         case 'subscription.listExecutions':
-          return ok(
-            route,
-            [1, 2].map((n) => ({
-              id: hex('1f', n),
-              subscriptionId: input.subscriptionId,
-              occurrence: n,
-              amount: '19.00',
-              status: n === 1 ? 'settled' : 'rejected',
-              paymentId: n === 1 ? hex('aa', 1) : null,
-              rejectionCode: n === 1 ? null : 'pay.insufficient_funds',
-              attemptedAt: iso(now - (3 - n) * 10 * DAY),
-              settledAt: n === 1 ? iso(now - 29 * DAY) : null,
-              createdAt: iso(now - (3 - n) * 10 * DAY),
-              notifyStatus: null,
-              notifyCode: null,
-            })),
-          );
+          return ok(route, world.executionsOf(input.subscriptionId));
         case 'subscription.cycles':
-          return ok(route, { subscriptionId: input.subscriptionId, cycles: [] });
+          return ok(route, { subscriptionId: input.subscriptionId, cycles: world.cyclesOf(input.subscriptionId) });
         case 'subscription.productReady':
           return ok(route, {
             paths: [{ path: 'crypto_invoice', charge: 'open_crypto_invoice', opensMoney: true, posture: 'TEST posture' }],
@@ -474,10 +318,29 @@ export function createPaymentsMock(ctx) {
         case 'merchantOps.disputes.summary': {
           const by = { open: 0, contested: 0, accepted: 0, won: 0, lost: 0 };
           for (const d of state.disputes) by[d.status] += 1;
-          return ok(route, { total: state.disputes.length, byStatus: by, amountAtRisk: [{ assetId: 'USDT', amount: '169.99' }] });
+          const atRisk = new Map();
+          for (const d of state.disputes.filter((x) => x.status === 'open' || x.status === 'contested'))
+            atRisk.set(d.assetId, (atRisk.get(d.assetId) ?? 0n) + toU(d.amount));
+          return ok(route, {
+            total: state.disputes.length,
+            byStatus: by,
+            amountAtRisk: [...atRisk].map(([assetId, amount]) => ({ assetId, amount: fromU(amount) })),
+          });
         }
         case 'merchantOps.disputes.list':
-          return ok(route, page(input.status ? state.disputes.filter((d) => d.status === input.status) : state.disputes, input));
+          return ok(
+            route,
+            page(
+              state.disputes.filter(
+                (d) =>
+                  (!input.status || d.status === input.status) &&
+                  (!input.assetId || d.assetId === input.assetId) &&
+                  (!input.from || d.openedAt >= input.from) &&
+                  (!input.to || d.openedAt < input.to),
+              ),
+              input,
+            ),
+          );
         case 'merchantOps.disputes.get': {
           const d = state.disputes.find((x) => x.disputeId === input.disputeId);
           if (!d) return refuse(route, 404, 'pay.dispute_not_found');
@@ -486,7 +349,10 @@ export function createPaymentsMock(ctx) {
             canRespond: d.status === 'open' || d.status === 'contested',
             evidence: state.evidence[d.disputeId] ?? [],
             responses: state.responses[d.disputeId] ?? [],
-            payment: { paymentId: d.paymentId, status: 'disputed', assetId: d.assetId, amount: d.amount, createdAt: iso(now - 12 * DAY) },
+            payment: (() => {
+              const p = world.paymentById(d.paymentId);
+              return { paymentId: p.id, status: p.status, assetId: p.assetId, amount: p.amount, createdAt: p.createdAt };
+            })(),
           });
         }
         case 'merchantOps.disputes.addEvidence': {
@@ -529,8 +395,8 @@ export function createPaymentsMock(ctx) {
         case 'merchantOps.customers.summary':
           return ok(route, {
             customerCount: state.customers.length,
-            activeSinceCount: 18,
-            repeatCustomerCount: 22,
+            activeSinceCount: state.customers.filter((c) => !input.activeSince || c.lastSeenAt >= input.activeSince).length,
+            repeatCustomerCount: state.customers.filter((c) => c.paymentCount > 1).length,
             activeSince: input.activeSince,
           });
         case 'merchantOps.customers.list': {
@@ -540,18 +406,27 @@ export function createPaymentsMock(ctx) {
           return ok(route, page(rows, input));
         }
         case 'merchantOps.customers.series': {
-          const days = [0, 1, 2, 4, 9, 20];
+          // the customer's own payments, one row per day and asset, newest first
+          const from = Date.parse(input.from);
+          const to = Date.parse(input.to);
+          const rows = new Map();
+          for (const p of payments.filter((x) => x.customerRef === input.customerRef && isTaken(x.status))) {
+            const at = Date.parse(p.createdAt);
+            if (at < from || at >= to + DAY) continue;
+            const key = `${world.day(at)}|${p.assetId}`;
+            const row = rows.get(key) ?? { period: world.day(at), assetCode: p.assetId, count: 0, volume: 0n };
+            row.count += 1;
+            row.volume += toU(p.capturedAmount);
+            rows.set(key, row);
+          }
           return ok(route, {
             customerRef: input.customerRef,
             bucket: 'day',
             from: input.from.slice(0, 10),
             to: input.to.slice(0, 10),
-            items: days.map((d) => ({
-              period: iso(now - d * DAY).slice(0, 10),
-              assetCode: 'USDT',
-              count: 1 + (d % 3),
-              volume: `${40 + d * 7}.50`,
-            })),
+            items: [...rows.values()]
+              .sort((x, y) => y.period.localeCompare(x.period))
+              .map((r) => ({ period: r.period, assetCode: r.assetCode, count: r.count, volume: fromU(r.volume) })),
             nextCursor: null,
           });
         }
@@ -560,13 +435,10 @@ export function createPaymentsMock(ctx) {
           if (!c) return refuse(route, 404, 'pay.customer_not_found');
           return ok(route, {
             ...c,
-            recentPayments: Array.from({ length: 5 }, (_, i) => ({
-              paymentId: `${i}0000000-aaaa-4bbb-8ccc-dddddddddddd`,
-              status: i === 1 ? 'refunded' : 'captured',
-              assetId: 'USDT',
-              amount: `${40 + i * 15}.25`,
-              createdAt: iso(now - (i + 1) * 3 * DAY),
-            })),
+            recentPayments: payments
+              .filter((p) => p.customerRef === c.customerRef)
+              .slice(0, 5)
+              .map((p) => ({ paymentId: p.id, status: p.status, assetId: p.assetId, amount: p.amount, createdAt: p.createdAt })),
           });
         }
         default:

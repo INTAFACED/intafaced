@@ -31,9 +31,15 @@ const profileFields = {
   statementDescriptor: z.string().nullable(),
   industry: z.string().nullable(),
 };
-export const profileSchema = z.object({ merchantId: z.string(), version: z.string(), ...profileFields });
+export const profileSchema = z.object({
+  merchantId: z.string(),
+  version: z.string(),
+  ...profileFields,
+  /** Not sent by the service today; shown if it ever is. */
+  secondApprovalEnabled: z.boolean().optional(),
+});
 export type BusinessProfile = z.infer<typeof profileSchema>;
-export type ProfileFields = Omit<BusinessProfile, 'merchantId' | 'version'>;
+export type ProfileFields = Omit<BusinessProfile, 'merchantId' | 'version' | 'secondApprovalEnabled'>;
 
 export const SENSITIVE_KEYS = ['legalName', 'address', 'statementDescriptor', 'industry'] as const;
 export type SensitiveKey = (typeof SENSITIVE_KEYS)[number];

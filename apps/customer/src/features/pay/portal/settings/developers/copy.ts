@@ -78,6 +78,8 @@ const en = {
   // keys
   testOnlyTitle: 'Test keys only.',
   testOnlyBody: 'Keys made here work with test money. Live keys open once INTAFACED has approved your business.',
+  testOnlyBodyApproved:
+    'Keys made here work with test money. Your business is approved; INTAFACED hasn’t opened live keys yet, and there is nothing for you to do.',
   keysBody: 'Revoking a key stops it working straight away. Open a key to sign its requests or limit where it can be used.',
   keysCount: 'Showing {shown} of {total} keys',
   newestKeys: 'Newest {n} keys',
@@ -149,6 +151,8 @@ const en = {
   ipsReview: 'This replaces the whole list saved for the key.',
   ipsEffect: 'After this, only these addresses can use the key:',
   ipsEffectEmpty: 'After this, the list is empty and the key works from any address.',
+  ipsSigningWarning:
+    'Careful: saving address rules can change whether this key needs signed requests, and we can’t show the key’s current signing setting yet. Check the signing section above after you save.',
   ipsRemoveLabel: 'Remove one address',
   ipsRemove: 'Remove address',
   ipsRemoveReview: 'The key stops working from this address.',
@@ -183,6 +187,7 @@ const en = {
   deliveredTile: 'Delivered',
   waitingTile: 'Waiting',
   failedTile: 'Failed',
+  failedOrGaveUpTile: 'Failed or gave up',
   gaveUpTile: 'Gave up',
   addEndpoint: 'Add endpoint',
   addEndpointBody: 'We send events to this address over HTTPS. A private or internal address is refused.',

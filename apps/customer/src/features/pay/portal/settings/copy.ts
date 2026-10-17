@@ -19,6 +19,7 @@ const en = {
   actRequestExport: 'Request an export',
   pageNotifications: 'Notifications',
   purposeNotifications: 'What needs your attention, and which kinds of message you want.',
+  purposeNotificationPrefs: 'Choose which kinds of message you want to hear about.',
 
   filterKind: 'Kind',
   // columns

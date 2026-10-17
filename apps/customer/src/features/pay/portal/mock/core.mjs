@@ -1,5 +1,6 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
 import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, iso, ok, page, refuse } from './shared.mjs';
+import { fromU, isTaken, toU } from './world.mjs';
 
 const PERMISSIONS = [
   'team.read',
@@ -67,10 +68,10 @@ export function createCoreMock(ctx) {
         notificationId: 'n0000001-0000-4000-8000-000000000001',
         kind: 'dispute_opened',
         title: 'A customer challenged a payment',
-        body: 'TEST dispute for 49.99 USDT',
+        body: ctx.world.disputes[0] ? `TEST dispute for ${ctx.world.disputes[0].amount} ${ctx.world.disputes[0].assetId}` : null,
         subjectType: 'dispute',
         subjectId: 'd0000001-0000-4000-8000-000000000001',
-        createdAt: iso(now - 3 * DAY),
+        createdAt: ctx.world.disputes[0]?.openedAt ?? iso(now - 3 * DAY),
         readAt: null,
       },
       {
@@ -79,7 +80,7 @@ export function createCoreMock(ctx) {
         title: 'Your payments export is ready',
         body: null,
         subjectType: 'export',
-        subjectId: 'f0000001-0000-4000-8000-000000000001',
+        subjectId: 'f1000000-0000-4000-8000-000000000001',
         createdAt: iso(now - 3600_000),
         readAt: null,
       },
@@ -109,81 +110,70 @@ export function createCoreMock(ctx) {
     'team_change',
   ];
   const fresh = { asOf: iso(now - 4000), lagSeconds: 4 };
+  const world = ctx.world;
+  const WINDOW = { today: DAY, rolling_7d: 7 * DAY, rolling_30d: 30 * DAY };
+  /** Every figure on Home and in the metrics reads is worked out from the world's payments in the window. */
   const snapshot = (preset) => {
-    const k = preset === 'today' ? 1 : preset === 'rolling_7d' ? 6 : 24;
-    if (!activity)
-      return {
-        merchantId: MERCHANT_ID,
-        freshness: fresh,
-        balances: [],
-        paymentCount: 0,
-        statusMix: [],
-        captured: [],
-        refunded: [],
-        net: [],
-        settlements: [],
-        averagePayment: [],
-        largestPayment: [],
-        linkUsage: { linksUsed: 0, paymentsViaLinks: 0 },
-        feeRevenue: [],
-        conversionVolume: null,
-      };
+    const empty = {
+      merchantId: MERCHANT_ID,
+      freshness: fresh,
+      balances: [],
+      paymentCount: 0,
+      statusMix: [],
+      captured: [],
+      refunded: [],
+      net: [],
+      settlements: [],
+      averagePayment: [],
+      largestPayment: [],
+      linkUsage: { linksUsed: 0, paymentsViaLinks: 0 },
+      feeRevenue: [],
+      conversionVolume: null,
+    };
+    if (!activity) return empty;
+    const f = world.figures(now - (WINDOW[preset] ?? WINDOW.rolling_30d));
     return {
       merchantId: MERCHANT_ID,
       freshness: fresh,
-      balances: [
-        { assetCode: 'USDT', clearing: '240.75', available: '8123.456789' },
-        { assetCode: 'USD', clearing: '0', available: '512.4' },
-      ],
-      paymentCount: 9 * k,
-      statusMix: [
-        { status: 'captured', count: 7 * k },
-        { status: 'settled', count: 4 * k },
-        { status: 'refunded', count: k },
-        { status: 'disputed', count: 1 },
-        { status: 'failed', count: k },
-      ],
-      captured: [
-        { assetCode: 'USDT', amount: `${1250 * k}.75` },
-        { assetCode: 'USD', amount: `${80 * k}` },
-      ],
-      refunded: [{ assetCode: 'USDT', amount: `${20 * k}` }],
-      net: [
-        { assetCode: 'USDT', amount: `${1230 * k}.75` },
-        { assetCode: 'USD', amount: `${80 * k}` },
-      ],
-      settlements: [
-        { assetCode: 'USDT', gross: `${2400 * k}.5`, fees: `${36 * k}`, net: `${2364 * k}.5` },
-        { assetCode: 'USD', gross: `${300 * k}`, fees: `${5 * k}`, net: `${295 * k}` },
-      ],
-      averagePayment: [
-        { assetCode: 'USDT', amount: '138.97' },
-        { assetCode: 'USD', amount: '26.5' },
-      ],
-      largestPayment: [
-        { assetCode: 'USDT', amount: '900' },
-        { assetCode: 'USD', amount: '75' },
-      ],
-      linkUsage: { linksUsed: 3, paymentsViaLinks: 4 * k },
-      feeRevenue: [{ assetCode: 'USDT', amount: `${18.75 * k}`.replace(/(\.\d{0,2}).*/, '$1') }],
+      balances: world.assets.map((assetCode) => {
+        const held = world.balance(assetCode);
+        return { assetCode, clearing: fromU(held.clearing), available: fromU(held.proceeds) };
+      }),
+      paymentCount: f.count,
+      statusMix: f.statusMix,
+      captured: f.captured,
+      refunded: f.refunded,
+      net: f.net,
+      settlements: f.settled,
+      averagePayment: f.average,
+      largestPayment: f.largest,
+      linkUsage: f.links,
+      feeRevenue: f.fees,
       conversionVolume: null,
     };
   };
-  const series = () => ({
-    merchantId: MERCHANT_ID,
-    freshness: fresh,
-    points: activity
-      ? Array.from({ length: 30 }, (_, i) => {
-          const day = new Date(now - (29 - i) * DAY).toISOString().slice(0, 10);
-          return {
-            day,
-            assetCode: 'USDT',
-            volume: i % 9 === 4 ? '0' : `${300 + ((i * 137) % 900)}.${(i * 7) % 100}`.replace(/\.(\d)$/, '.0$1'),
-            feeRevenue: '3.1',
-          };
-        })
-      : [],
-  });
+  const series = (input) => {
+    if (!activity) return { merchantId: MERCHANT_ID, freshness: fresh, points: [] };
+    const from = input?.from ? Date.parse(input.from) : now - 30 * DAY;
+    const to = input?.to ? Date.parse(input.to) : now;
+    const byDay = new Map();
+    for (const p of world.payments) {
+      const at = Date.parse(p.createdAt);
+      if (!isTaken(p.status) || at < from || at >= to) continue;
+      const key = `${world.day(at)}|${p.assetId}`;
+      const row = byDay.get(key) ?? { day: world.day(at), assetCode: p.assetId, volume: 0n, feeRevenue: 0n };
+      row.volume += toU(p.capturedAmount);
+      row.feeRevenue += toU(p.fee);
+      byDay.set(key, row);
+    }
+    return {
+      merchantId: MERCHANT_ID,
+      freshness: fresh,
+      points: [...byDay.values()]
+        .sort((x, y) => x.day.localeCompare(y.day) || x.assetCode.localeCompare(y.assetCode))
+        .map((r) => ({ day: r.day, assetCode: r.assetCode, volume: fromU(r.volume), feeRevenue: fromU(r.feeRevenue) })),
+    };
+  };
 
   return {
     /** Returns NOT_MINE for a procedure this part does not own. */
@@ -221,8 +211,8 @@ export function createCoreMock(ctx) {
                 identityChangePending: false,
                 sessionInteractive: true,
                 mode: ctx.myAccess === 'payfac' ? 'payfac' : state.merchant.mode,
-                displayName: 'TEST Coffee Co',
-                legalName: 'TEST Coffee Company Ltd',
+                displayName: 'TEST Shop',
+                legalName: 'TEST Shop Ltd',
                 capabilities: capabilitiesFor(role),
                 pricingVisibility: role === 'viewer' || role === 'developer' ? 'fee_only' : 'full',
               },
@@ -237,7 +227,7 @@ export function createCoreMock(ctx) {
         case 'merchantMetrics.snapshot':
           return ok(route, snapshot(input.window?.preset ?? 'today'));
         case 'merchantMetrics.series':
-          return ok(route, series());
+          return ok(route, series(input));
         case 'merchantOps.team.me':
           return scenario === 'new'
             ? refuse(route, 403, 'pay.merchant_ops_not_merchant')

@@ -37,6 +37,8 @@ test('Home-style default, accordion keyboard control, chart table and reviewed p
   await trigger.focus();
   await page.keyboard.press('Enter');
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  // two assets are paid in, so the chart offers both; this check follows USDT
+  await page.locator('.plo-volume').getByRole('group', { name: 'Asset' }).getByRole('button', { name: 'USDT', exact: true }).click();
   await page.getByRole('button', { name: 'View data table', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Payment volume USDT', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Pay out', exact: true }).click();

@@ -41,7 +41,7 @@ export async function startServer(port) {
     } catch {
       /* not up yet */
     }
-    if (Date.now() - started > 60_000) {
+    if (Date.now() - started > 240_000) {
       stopChild(child);
       throw new Error(`The dev server did not come up on ${url}`);
     }

@@ -118,7 +118,8 @@ const en = {
   whoMayEditNot: 'Only the account owner or an admin can change business details.',
   needVerifiedSession: 'Sign in with two-step verification to change business details.',
   pendingTitle: 'A change is waiting.',
-  pendingBody: '{n} change(s) to your details haven’t taken effect yet. See where each one stands below.',
+  pendingBodyOne: '1 change to your details hasn’t taken effect yet. See where it stands below.',
+  pendingBodyMany: '{n} changes to your details haven’t taken effect yet. See where each one stands below.',
   profileEditBlocked: 'Editing business details isn’t open yet. You can see your name and status above. Nothing you need is lost.',
   profileFormTitle: 'Business details',
   profileFormBody: 'Change what customers and INTAFACED see. Say why, then review before saving.',
@@ -166,6 +167,11 @@ const en = {
   secondApprovalTitle: 'Second approval',
   secondApprovalBody:
     'When on, a legal-detail change also needs someone else on your team to confirm it before INTAFACED reviews it. When off, it goes straight to INTAFACED.',
+  secondApprovalIsOn: 'Second approval is on.',
+  secondApprovalIsOff: 'Second approval is off.',
+  secondApprovalUnknown:
+    'We can’t read this setting yet, so we can’t tell you whether it is on. Turning it on or off here sets it either way.',
+  secondApprovalRemembered: 'Last set from this browser {when}.',
   secondApprovalOn: 'Turn on second approval',
   secondApprovalOnBody: 'Legal-detail changes will need a second person on your team to confirm them.',
   secondApprovalOff: 'Turn off second approval',

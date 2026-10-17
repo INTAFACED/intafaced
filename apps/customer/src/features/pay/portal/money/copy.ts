@@ -296,7 +296,7 @@ const en = {
 
   // ---- settlements
   settleTiles: 'Settlements at a glance',
-  settleGross: 'Paid in',
+  settleGross: 'Settled gross',
   settleFees: 'Fees',
   settleNet: 'Net',
   settleReady: 'Ready to pay out',

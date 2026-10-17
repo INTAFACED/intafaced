@@ -241,6 +241,9 @@ export function AllowedIps({ api, keyId }: { api: Pick<SettingsBApi, 'ipsBind' |
           disabledReason={t('errIpFix')}
           review={
             <>
+              <p className="pp-callout" role="note">
+                {t('ipsSigningWarning')}
+              </p>
               <p>{list.length ? t('ipsEffect') : t('ipsEffectEmpty')}</p>
               {list.length > 0 && (
                 <ul>
@@ -268,9 +271,14 @@ export function AllowedIps({ api, keyId }: { api: Pick<SettingsBApi, 'ipsBind' |
           disabled={!one.trim() || Boolean(oneBad)}
           disabledReason={t('errIpFix')}
           review={
-            <p>
-              <code>{one.trim()}</code>
-            </p>
+            <>
+              <p className="pp-callout" role="note">
+                {t('ipsSigningWarning')}
+              </p>
+              <p>
+                <code>{one.trim()}</code>
+              </p>
+            </>
           }
           perform={() => api.ipsUnbind(keyId, one.trim())}
           onConfirmed={(result) => {

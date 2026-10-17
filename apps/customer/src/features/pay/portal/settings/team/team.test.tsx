@@ -81,6 +81,11 @@ describe('team', () => {
     expect(out).not.toContain('user-viewer');
     expect(out).not.toContain('user-finance');
   });
+  it('says plainly what an admin cannot do: refund, make links, send a payout, add a destination', () => {
+    const out = html('owner');
+    expect(out).toContain('Only the owner can refund payments, make payment links, send a payout or add a payout destination.');
+    expect(out).not.toContain('Everything the owner can');
+  });
   it('says role changes need a verified session', () => {
     expect(html('owner')).toContain('verified with two-step sign-in (MFA)');
   });

@@ -66,6 +66,16 @@ const health = (): Health => ({
 const keysView = (keys: ApiKey[], scopes: string[] = ['pay:read', 'pay:write']) =>
   renderToString(<KeysView resource={ready(keys)} reload={() => {}} api={api} scopes={scopes} />);
 
+describe('what the keys page says about live keys', () => {
+  it('says live keys wait for approval until the business is approved, then says what is true instead', () => {
+    const waiting = keysView([]);
+    expect(waiting).toContain('Live keys open once INTAFACED has approved your business');
+    const approved = renderToString(<KeysView resource={ready([])} reload={() => {}} api={api} scopes={['pay:read']} approved />);
+    expect(approved).toContain('Your business is approved');
+    expect(approved).not.toContain('once INTAFACED has approved your business');
+  });
+});
+
 describe('webhook address guard', () => {
   it.each([
     ['https://receiver.example/events', null],

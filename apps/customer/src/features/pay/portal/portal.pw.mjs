@@ -16,7 +16,7 @@ const session = {
 };
 const reply = (route, data) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: { data } }) });
 
-async function setup(page, scenario = 'active') {
+async function setup(page, scenario = 'active', options = {}) {
   const seen = [];
   page.on('request', (request) => request.url().includes('/api/') && seen.push(request.url()));
   await page.route('**/api/**', (route) =>
@@ -28,7 +28,7 @@ async function setup(page, scenario = 'active') {
   );
   await page.route('**/api/identity/trpc/auth.login', (route) => reply(route, session));
   await page.route('**/api/identity/trpc/webauthn.list?*', (route) => reply(route, []));
-  const mock = createPortalMock(scenario);
+  const mock = createPortalMock(scenario, options);
   await mock.install(page);
   return { mock, seen };
 }
@@ -94,10 +94,15 @@ test('dashboard: Home-style figures, daily chart, retained insights and phone wi
   await expect(page.getByRole('heading', { name: 'Business overview', level: 1 })).toHaveCount(1);
   await expect(page.locator('.plo-kpi-strip')).toBeVisible();
   await expect(page.getByText('4 s behind').first()).toBeVisible();
-  await expect(page.locator('.plo-number')).toHaveText('8,123.46');
+  // the big number is the USDT balance you can pay out, worked out from the settlements
+  await expect(page.locator('.plo-number')).toHaveText(
+    (Number(mock.world.balance('USDT').proceeds) / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+  );
   await page.getByRole('button', { name: '30 days', exact: true }).click();
   expect(mock.calls.some((c) => c.procedure === 'merchantMetrics.snapshot' && c.input.window.preset === 'rolling_30d')).toBe(true);
   await page.getByRole('button', { name: 'Payment volume', exact: true }).click();
+  // two assets are paid in, so the chart offers both; this check follows USDT
+  await page.locator('.plo-volume').getByRole('group', { name: 'Asset' }).getByRole('button', { name: 'USDT', exact: true }).click();
   await expect(page.getByRole('img', { name: /Payment volume · USDT/ })).toBeVisible();
   await page.getByRole('button', { name: 'View data table', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Payment volume USDT', exact: true })).toBeVisible();
@@ -366,7 +371,9 @@ const PAY_REFUNDED = 'aa000003-0000-4000-8000-000000000003';
 const PAY_DISPUTED = 'aa000008-0000-4000-8000-000000000008';
 const STL_PAID = 'bb000002-0000-4000-8000-000000000002';
 const STL_WAITING = 'bb000003-0000-4000-8000-000000000003';
-const STL_OWN = 'bb000006-0000-4000-8000-000000000006';
+// the newest settlement (the one whose fee record is kept), and the one this person asked to pay out
+const STL_NEWEST = 'bb000006-0000-4000-8000-000000000006';
+const STL_OWN = 'bb000004-0000-4000-8000-000000000004';
 const STL_FAILED = 'bb000005-0000-4000-8000-000000000005';
 
 test('payments: totals with their period, filters the service applies, load more, export, and a phone layout', async ({ page }) => {
@@ -416,7 +423,7 @@ test('payments: an empty account explains how the first payment appears', async 
 });
 
 test('payment detail: facts, amounts, timeline, refunds, dispute card; never the payer instrument', async ({ page }) => {
-  await setup(page);
+  const { mock } = await setup(page);
   await signIn(page, `/pay/payments/${PAY_REFUNDED}`);
   await expect(page.getByRole('heading', { level: 2 }).first()).toContainText('Refunded');
   await expect(page.getByText('Still refundable')).toBeVisible();
@@ -437,7 +444,7 @@ test('payment detail: facts, amounts, timeline, refunds, dispute card; never the
   await go(page, `/pay/payments/${PAY_SETTLED}`);
   await expect(page.getByRole('link', { name: 'The settlement this payment is in' })).toHaveAttribute(
     'href',
-    '/pay/settlements/bb000002-0000-4000-8000-000000000002',
+    `/pay/settlements/${mock.world.paymentById(PAY_SETTLED).settlementId}`,
   );
   await axe(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -476,7 +483,7 @@ test('settlements: a tile strip, server filters in the address, status words, an
   await expect(page.getByText('TEST-tx-0xabc123')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Payments in this settlement' })).toBeVisible();
   await snap(page, '27-settlement-statement');
-  await go(page, `/pay/settlements/${STL_OWN}`);
+  await go(page, `/pay/settlements/${STL_NEWEST}`);
   await expect(page.getByText('How the fee was worked out')).toBeVisible();
   await expect(page.getByText('1.50%').first()).toBeVisible();
   await axe(page);
@@ -526,7 +533,17 @@ test('payout detail: the checker approves with a reason, the service gets the fi
   const dialog = page.getByRole('dialog', { name: 'Review: Approve payout' });
   // the review names where the money goes, masked, and the exact amount
   await expect(dialog.getByText(/Wallet 0x7a3f…4421/)).toBeVisible();
-  await expect(dialog.getByText('965.55')).toBeVisible();
+  // the amount is the settlement's net, worked out from its payments
+  await expect(
+    dialog.getByText(
+      new RegExp(
+        mock.world
+          .settlementById(STL_WAITING)
+          .net.split('.')[0]
+          .replace(/\B(?=(\d{3})+(?!\d))/g, ','),
+      ),
+    ),
+  ).toBeVisible();
   await expect(dialog.getByText('Checked the destination')).toBeVisible();
   await dialog.getByRole('button', { name: /^Confirm/ }).click();
   await expect(page.getByText('Approved').first()).toBeVisible();
@@ -623,8 +640,8 @@ test('pricing: the fee table, the calculator uses the live engine, and an unconf
   await page.getByLabel('Payment amount *').fill('100');
   await page.getByRole('button', { name: 'Work out the fee' }).click();
   await expect(page.getByRole('heading', { name: 'Result for 100.00 USDT' })).toBeVisible();
-  // 1.20% of 100 plus a flat 0.25, in the band that starts at 10,000 (the mock's month so far is 12,500)
-  await expect(page.getByText('1.45').first()).toBeVisible();
+  // 1.50% of 100 plus a flat 0.30: the one fee rule every payment in the stand-in follows
+  await expect(page.getByText('1.80').first()).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantControl.pricing.preview').input).toEqual({
     merchantId: expect.any(String),
     assetCode: 'USDT',
@@ -655,11 +672,18 @@ test('pricing: not configured shows the words "not configured" and not one place
 });
 
 test('limits: usage bars with exact figures and reset times, and nothing invented for what is not set', async ({ page }) => {
-  await setup(page);
+  const { mock } = await setup(page);
   await signIn(page, '/pay/limits');
   await expect(page.getByRole('heading', { name: 'Limits and tier', level: 1 })).toBeVisible();
   await expect(page.getByRole('progressbar')).toHaveCount(4);
-  await expect(page.getByText('14,200.5').first()).toBeVisible();
+  // today's intake is what the payments of the last day add up to
+  const usedToday = mock.world.figures(Date.now() - 86_400_000).captured.find((row) => row.assetCode === 'USDT').amount;
+  const [whole, fraction = ''] = usedToday.split('.');
+  await expect(
+    page
+      .getByText(`${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction.replace(/0+$/, '') ? `.${fraction.replace(/0+$/, '')}` : ''}`)
+      .first(),
+  ).toBeVisible();
   await expect(page.getByText('What unlocks next')).toBeVisible();
   await expect(page.getByText('Ask for a higher limit')).toBeVisible();
   await expect(page.getByText('TEST VALUE')).toHaveCount(0);
@@ -843,7 +867,8 @@ test('payouts: when approvals cannot be read, a payout shows "Approval unknown",
 });
 
 test('finance can read payments, settlements and approvals, and is told links are owner-only', async ({ page }) => {
-  await setup(page);
+  // `myAccess: 'off'`: the service does not say what this member may do, so the portal works it out from the team read.
+  await setup(page, 'active', { myAccess: 'off' });
   await page.route('**/api/pay/trpc/merchant.me*', (route) => json(route, null));
   await page.route('**/api/pay/trpc/merchantOps.team.me*', (route) =>
     json(route, { merchantId: '11111111-1111-4111-8111-111111111111', userId: '22222222-2222-4222-8222-222222222222', role: 'finance' }),

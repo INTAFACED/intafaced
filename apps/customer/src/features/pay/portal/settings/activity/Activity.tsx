@@ -86,7 +86,7 @@ export function ActivityView(props: {
     if (d.role) parts.push(`${t('detailRole')}: ${p(`role_${d.role}` as 'role_owner')}`);
     if (d.destinationKind && d.destinationMasked) parts.push(`${t('detailDestination')}: ${d.destinationKind} ${d.destinationMasked}`);
     if (d.host) parts.push(`${t('detailHost')}: ${d.host}`);
-    if (d.eventType) parts.push(`${t('detailEvent')}: ${d.eventType}`);
+    if (d.eventType) parts.push(`${t('detailEvent')}: ${d.eventType.replace(/[._]+/g, ' ')}`);
     if (d.attempts) parts.push(t('detailAttempts', { n: d.attempts }));
     if (d.status && item.objectType !== 'kyb') parts.push(actionWords('', d.status));
     return parts.length ? (
@@ -144,12 +144,14 @@ export function ActivityView(props: {
                 ]}
                 card={(r) => ({
                   title: title(r),
+                  // the details go under the time, where they can wrap: a long line in the amount slot pushes the page sideways
                   time: (
                     <>
                       {who(r)} · <DateTime value={r.occurredAt} />
+                      <br />
+                      {details(r)}
                     </>
                   ),
-                  amount: details(r),
                 })}
               />
               {props.state.status === 'ready' && <MoreFooter state={props.state} onMore={props.loadMore} />}

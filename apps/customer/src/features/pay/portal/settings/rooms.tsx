@@ -16,11 +16,18 @@ const link = (href: string, label: string, variant: 'primary' | 'secondary' = 's
 );
 const t = portalCopy.t;
 
-const settingsHeader = (room: 'settings' | 'settings-notifications') => ({
-  title: extensionCopy.t(room === 'settings-notifications' ? 'notificationSettings' : 'settingsTitle'),
-  purpose: extensionCopy.t('settingsPurpose'),
-  action: link('/pay/settings/notifications', extensionCopy.t('notificationSettings')),
-});
+const settingsHeader = (room: 'settings' | 'settings-notifications') =>
+  room === 'settings-notifications'
+    ? {
+        title: extensionCopy.t('notificationSettings'),
+        purpose: t('purposeNotificationPrefs'),
+        action: link('/pay/settings', extensionCopy.t('settingsTitle')),
+      }
+    : {
+        title: extensionCopy.t('settingsTitle'),
+        purpose: extensionCopy.t('settingsPurpose'),
+        action: link('/pay/settings/notifications', extensionCopy.t('notificationSettings')),
+      };
 export const settingsRooms: RoomTable = {
   ...accountRooms,
   'settings-notifications': {

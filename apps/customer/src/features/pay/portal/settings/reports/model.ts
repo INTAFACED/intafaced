@@ -1,5 +1,6 @@
 import type { ExportJob, ExportKind } from './schemas';
 import { exportKinds } from './schemas';
+import { portalCopy } from '../../copy';
 
 /** The columns each report can carry. This mirrors the service's allowlist: anything else is refused there. */
 export const kindColumns: Record<ExportKind, readonly string[]> = {
@@ -96,3 +97,17 @@ export function rangeParts(job: Pick<ExportJob, 'filters'>): {
 export const isBuilding = (job: Pick<ExportJob, 'status'>) => job.status === 'queued' || job.status === 'running';
 /** A file can be deleted unless it is being built right now or is already gone. */
 export const canDelete = (job: Pick<ExportJob, 'status'>) => job.status !== 'running' && job.status !== 'expired';
+
+const KNOWN_STATUS = {
+  chipPayment: paymentStatuses as readonly string[],
+  chipSettlement: settlementStatuses as readonly string[],
+  chipDispute: disputeStatuses as readonly string[],
+} as const;
+/** The status of a payment, settlement or dispute in the words the rest of the portal uses ("paid_out" reads "Paid out"). */
+export function statusWord(kind: ExportKind | string | undefined, status: string): string {
+  const family = kind === 'disputes' ? 'chipDispute' : kind === 'settlements' || kind === 'payouts' ? 'chipSettlement' : 'chipPayment';
+  // a status this screen has no word for keeps its own words, with the underscores taken out and a capital letter
+  if (KNOWN_STATUS[family].includes(status)) return portalCopy.t(`${family}_${status}` as Parameters<typeof portalCopy.t>[0], {} as never);
+  const words = status.replaceAll('_', ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}

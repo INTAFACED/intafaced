@@ -4,6 +4,7 @@
 // owner, engineer words in the page, sideways scrolling at phone width, and lime outside the primary action, the
 // active tab and the focus ring. Exit code 1 when anything failed. TEST data throughout.
 import { allRoutes, go, launch, openPortal, parseArgs, startServer } from './harness.mjs';
+import { lintRenderedText } from './lint.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 const BANNED = [
@@ -19,6 +20,7 @@ const BANNED = [
   /\bpay\.[a-z_]{3,}/,
   /\b[a-z]+_[a-z]+_[a-z]+\b/,
 ];
+
 const REDIRECTS = { '/pay/settings/team': '/pay/team', '/pay/exports': '/pay/reports/exports', '/pay/developer': '/pay/developer/keys' };
 const failures = [];
 const warnings = [];
@@ -43,6 +45,8 @@ async function inspect(page, where, who, width) {
     const m = text.match(pattern);
     if (m) fail(where, `engineer word "${m[0]}"`);
   }
+  const path = [...where.matchAll(/\/pay\/[^\s@:]*/g)].at(-1)?.[0] ?? '';
+  for (const problem of lintRenderedText(text, path)) fail(where, `rendered text has ${problem}`);
   if (width < 700) {
     const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
     if (over > 1) fail(where, `scrolls sideways by ${over}px at phone width`);

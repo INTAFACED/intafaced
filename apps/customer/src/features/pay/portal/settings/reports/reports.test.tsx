@@ -20,6 +20,7 @@ import {
   kindColumns,
   rangeParts,
   statusesFor,
+  statusWord,
   windowOf,
   windowProblem,
 } from './model';
@@ -167,6 +168,15 @@ describe('files', () => {
     expect(renderToString(<Covers job={job()} />)).toContain('2026-10-01 to 2026-10-07');
     expect(renderToString(<Covers job={job({ kind: 'ledger_statement', filters: {} })} />)).toContain('Balances when the file was made');
     expect(renderToString(<Covers job={job({ filters: {} })} />)).toContain('All dates');
+  });
+  it('writes a status as a word, never as the raw value', () => {
+    // the sample file filters on the status "captured", which the payments pages call Paid
+    const out = renderToString(<Covers job={job()} />);
+    expect(out).toContain('Paid');
+    expect(out).not.toContain('captured');
+    expect(statusWord('settlements', 'paid_out')).toBe('Paid out');
+    expect(statusWord('disputes', 'won')).toBe('Won');
+    expect(statusWord('payments', 'brand_new_status')).toBe('Brand new status');
   });
 });
 

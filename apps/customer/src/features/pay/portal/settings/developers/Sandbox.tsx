@@ -48,7 +48,7 @@ export function SandboxView({ keys, health, reload }: { keys: Resource<ApiKey[]>
             href: '/pay/developer/deliveries?status=delivered',
             value: delivered ?? dash,
           },
-          { label: t('failedTile'), period: t('allEndpoints'), href: '/pay/developer/deliveries?status=failed', value: failed ?? dash },
+          { label: t('failedOrGaveUpTile'), period: t('allEndpoints'), href: '/pay/developer/deliveries', value: failed ?? dash },
         ]}
       />
       {(keys.status === 'failed' || health.status === 'failed') && (

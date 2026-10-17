@@ -6,6 +6,7 @@ export function createPortalMock(
   calls: { procedure: string; method: string; input: any }[];
   unmounted: string[];
   state: Record<string, any>;
+  world: any;
   handle(route: unknown): Promise<unknown>;
   install(page: unknown): Promise<void>;
 };

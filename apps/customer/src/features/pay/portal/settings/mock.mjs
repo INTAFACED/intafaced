@@ -2,7 +2,7 @@
 import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, iso, ok, page, refuse } from '../mock/shared.mjs';
 import { createAccountMock } from './account/mock.mjs';
 
-/** Onboarding, verification, the team and exports. */
+/** Onboarding, verification and the team. Report files are answered by reports/mock.mjs. */
 export function createSettingsMock(ctx) {
   const { scenario, now, state } = ctx;
   Object.assign(state, {
@@ -124,44 +124,6 @@ export function createSettingsMock(ctx) {
               at: iso(now - 85 * DAY),
             },
           ],
-    exports: [
-      {
-        jobId: 'f0000001-0000-4000-8000-000000000001',
-        kind: 'payments',
-        filters: { from: iso(now - 30 * DAY).slice(0, 10) + 'T00:00:00.000Z', status: 'captured' },
-        status: 'ready',
-        failureCode: null,
-        fileName: 'payments.csv',
-        sizeBytes: '20480',
-        rowCount: 312,
-        sha256: 'cd'.repeat(32),
-        requestedBy: USER_ID,
-        columns: ['payment_id', 'amount'],
-        generatedAt: iso(now - 3590_000),
-        asOf: iso(now - 3600_000),
-        expiresAt: null,
-        createdAt: iso(now - 3600_000),
-        completedAt: iso(now - 3590_000),
-      },
-      {
-        jobId: 'f0000002-0000-4000-8000-000000000002',
-        kind: 'settlements',
-        filters: {},
-        status: 'failed',
-        failureCode: 'pay.export_failed',
-        fileName: null,
-        sizeBytes: null,
-        rowCount: null,
-        sha256: null,
-        requestedBy: USER_ID,
-        columns: ['settlement_id', 'net'],
-        generatedAt: null,
-        asOf: null,
-        expiresAt: null,
-        createdAt: iso(now - 2 * DAY),
-        completedAt: iso(now - 2 * DAY),
-      },
-    ],
     destination: null,
   });
 
@@ -263,58 +225,6 @@ export function createSettingsMock(ctx) {
         case 'merchantOps.team.declineInvite':
           state.invitations = [];
           return ok(route, { declined: true });
-        case 'merchantOps.exports.list':
-          return ok(
-            route,
-            page(
-              state.exports.filter((e) => (!input.kind || e.kind === input.kind) && (!input.status || e.status === input.status)),
-              input,
-            ),
-          );
-        case 'merchantOps.exports.create': {
-          const job = {
-            jobId: `f${state.exports.length}000000-0000-4000-8000-000000000000`,
-            kind: input.kind,
-            filters: input.filters ?? {},
-            status: 'queued',
-            failureCode: null,
-            fileName: null,
-            sizeBytes: null,
-            rowCount: null,
-            sha256: null,
-            requestedBy: USER_ID,
-            columns: [],
-            generatedAt: null,
-            asOf: null,
-            expiresAt: null,
-            createdAt: iso(Date.now()),
-            completedAt: null,
-          };
-          state.exports.unshift(job);
-          setTimeout(
-            () =>
-              Object.assign(job, {
-                status: 'ready',
-                fileName: `${input.kind}.csv`,
-                sizeBytes: '1024',
-                rowCount: 12,
-                sha256: 'ef'.repeat(32),
-                generatedAt: iso(Date.now()),
-                asOf: iso(Date.now()),
-                completedAt: iso(Date.now()),
-              }),
-            1500,
-          );
-          return ok(route, job);
-        }
-        case 'merchantOps.exports.download':
-          return ok(route, {
-            fileName: 'payments.csv',
-            contentType: 'text/csv; charset=utf-8',
-            content: 'id,amount,asset\nTEST-1,10.5,USDT\n',
-            sha256: 'cd'.repeat(32),
-            rowCount: 1,
-          });
         default:
           return NOT_MINE;
       }

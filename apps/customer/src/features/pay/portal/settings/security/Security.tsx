@@ -4,6 +4,7 @@ import { Chip } from '../../components';
 import { IdentitySessions } from '../../../../account/IdentitySessions';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
+import { portalCopy } from '../copy';
 import { Blocker } from '../account/ui';
 
 /**
@@ -20,6 +21,7 @@ export function Security() {
 
 export function SecurityView({ role, interactive, verified }: { role: string | null; interactive: boolean | null; verified: boolean }) {
   const { t } = accountCopy.useCopy();
+  const { t: p } = portalCopy.useCopy();
   return (
     <div className="stack">
       <PaySection title={t('secProtectionTitle')} description={t('secProtectionBody')}>
@@ -30,7 +32,7 @@ export function SecurityView({ role, interactive, verified }: { role: string | n
           </div>
           <div>
             <dt>{t('secYourRole')}</dt>
-            <dd>{role ?? t('secUnknown')}</dd>
+            <dd>{role ? p(`role_${role}` as 'role_owner') : t('secUnknown')}</dd>
           </div>
           <div>
             <dt>{t('secBusinessVerified')}</dt>

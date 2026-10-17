@@ -15,10 +15,12 @@ import { developersCopy as c } from './copy';
 import { keyScopes, isPayKey } from './model';
 import { SecretReveal, type Revealed } from './SecretReveal';
 import type { ApiKey } from './schemas';
+import { useMerchantAccess, readyAccess } from '../../access/MerchantAccess';
 
 export function Keys({ api, scopes }: { api: SettingsBApi; scopes: readonly string[] }) {
   const keys = useResource((signal) => api.keysList(signal), 'dev:keys');
-  return <KeysView resource={keys.resource} reload={keys.reload} api={api} scopes={scopes} />;
+  const approved = readyAccess(useMerchantAccess())?.kybStatus === 'approved';
+  return <KeysView resource={keys.resource} reload={keys.reload} api={api} scopes={scopes} approved={approved} />;
 }
 
 export function KeyRevoke({ api, apiKey, onDone }: { api: Pick<SettingsBApi, 'keyRevoke'>; apiKey: ApiKey; onDone: () => void }) {
@@ -53,11 +55,14 @@ export function KeysView({
   reload,
   api,
   scopes,
+  approved = false,
 }: {
   resource: Resource<ApiKey[]>;
   reload: () => void;
   api: SettingsBApi;
   scopes: readonly string[];
+  /** The business has been approved, so the note must not say live keys are waiting for that approval. */
+  approved?: boolean;
 }) {
   const { t } = c.useCopy();
   const [q, setQ] = useUrlParam('q');
@@ -66,7 +71,7 @@ export function KeysView({
   return (
     <div className="stack">
       <p className="pp-callout">
-        <strong>{t('testOnlyTitle')}</strong> {t('testOnlyBody')}
+        <strong>{t('testOnlyTitle')}</strong> {approved ? t('testOnlyBodyApproved') : t('testOnlyBody')}
       </p>
       {revealed && <SecretReveal {...revealed} onHide={() => setRevealed(null)} />}
       <PaySection

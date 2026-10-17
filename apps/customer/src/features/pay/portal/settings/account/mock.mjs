@@ -134,71 +134,60 @@ export function createAccountMock(ctx) {
       createdAt: iso(now - 10 * DAY),
     },
   ];
-  const activity = [
-    {
-      id: 'a1',
-      occurredAt: iso(now - 1 * 3600_000),
-      actorId: USER_ID,
-      action: 'role_changed',
-      objectType: 'team',
-      objectId: 'TEST-user-finance',
-      detail: { role: 'finance' },
-    },
-    {
-      id: 'a2',
-      occurredAt: iso(now - 2 * 3600_000),
-      actorId: 'system',
-      action: 'captured',
-      objectType: 'payment',
-      objectId: hex('b1', 1),
-      detail: { amount: '120.50', asset: 'USDT' },
-    },
-    {
-      id: 'a3',
-      occurredAt: iso(now - 5 * 3600_000),
-      actorId: 'intafaced',
-      action: 'approved',
-      objectType: 'kyb',
-      objectId: hex('b2', 1),
-      detail: { fromStatus: 'pending', toStatus: 'approved' },
-    },
-    {
-      id: 'a4',
-      occurredAt: iso(now - 8 * 3600_000),
-      actorId: 'TEST-user-finance',
-      action: 'payout_pending',
-      objectType: 'approval',
-      objectId: hex('b3', 1),
-      detail: { status: 'pending', amount: '40', asset: 'USDT', destinationKind: 'bank', destinationMasked: '••••1234' },
-    },
-    {
-      id: 'a5',
-      occurredAt: iso(now - 1 * DAY),
-      actorId: 'system',
-      action: 'delivery_failed',
-      objectType: 'webhook',
-      objectId: hex('b4', 1),
-      detail: { status: 'failed', eventType: 'payment.captured', attempts: '3' },
-    },
-    {
-      id: 'a6',
-      occurredAt: iso(now - 2 * DAY),
-      actorId: 'TEST-user-dev',
-      action: 'export_ready',
-      objectType: 'export',
-      objectId: hex('b5', 1),
-      detail: { status: 'ready' },
-    },
-    {
-      id: 'a7',
-      occurredAt: iso(now - 3 * DAY),
-      actorId: USER_ID,
-      action: 'responded',
-      objectType: 'dispute',
-      objectId: 'TEST-dispute-1',
-      detail: { status: 'contested' },
-    },
-  ];
+  /**
+   * The account's activity feed, newest first, drawn from the same records the other pages show: payments and disputes
+   * from the world, team and verification changes from the team and compliance pages, exports, payout requests and
+   * webhook deliveries from theirs. Read when asked, so a change made on another page shows up here.
+   */
+  const activityRows = () => {
+    const w = ctx.world;
+    const rows = [];
+    const add = (at, actorId, action, objectType, objectId, detail = {}) =>
+      rows.push({
+        id: `act-${rows.length + 1}`,
+        occurredAt: typeof at === 'number' ? iso(at) : at,
+        actorId,
+        action,
+        objectType,
+        objectId,
+        detail,
+      });
+    for (const p of w.payments.filter((x) => ['captured', 'settled', 'refunded'].includes(x.status)).slice(0, 4))
+      add(p.createdAt, 'system', 'captured', 'payment', p.id, { amount: p.amount, asset: p.assetId });
+    for (const r of w.refunds.filter((x) => x.status !== 'reversed'))
+      add(r.createdAt, USER_ID, 'refunded', 'payment', r.paymentId, { amount: r.amount, asset: r.assetId });
+    for (const d of w.disputes) {
+      add(d.openedAt, 'system', 'opened', 'dispute', d.disputeId, { amount: d.amount, asset: d.assetId, status: 'open' });
+      if (d.contestedAt) add(d.contestedAt, USER_ID, 'responded', 'dispute', d.disputeId, { status: 'contested' });
+    }
+    for (const e of state.teamHistory ?? []) add(e.createdAt, e.actorId, e.action, 'team', e.memberUserId, { role: e.toRole ?? undefined });
+    for (const e of state.kybHistory ?? [])
+      add(e.at, e.decidedBy === 'merchant' ? USER_ID : e.decidedBy, e.toStatus, 'kyb', e.kybRef ?? 'kyb', {
+        fromStatus: e.fromStatus,
+        toStatus: e.toStatus,
+      });
+    for (const e of state.reportJobs ?? [])
+      add(e.completedAt ?? e.createdAt, e.requestedBy, `export_${e.status === 'failed' ? 'failed' : 'ready'}`, 'export', e.jobId, {
+        status: e.status,
+      });
+    for (const a of state.approvals ?? [])
+      add(a.createdAt, a.makerUserId, `payout_${a.status === 'pending' ? 'pending' : a.status}`, 'approval', a.approvalId, {
+        status: a.status,
+        amount: a.amount,
+        asset: a.assetCode,
+        destinationKind: a.destinationKind,
+        destinationMasked: a.destinationMasked,
+      });
+    for (const d of (state.dev?.deliveries ?? []).filter((x) => x.status === 'failed' || x.status === 'dead').slice(0, 2))
+      add(d.createdAt, 'system', 'delivery_failed', 'webhook', d.endpointId, {
+        status: d.status,
+        eventType: d.eventType,
+        attempts: String(d.attempts),
+      });
+    return rows
+      .sort((x, y) => y.occurredAt.localeCompare(x.occurredAt))
+      .map((r, i) => ({ ...r, id: `act-${String(i + 1).padStart(3, '0')}` }));
+  };
 
   return {
     async handle(procedure, input, route) {
@@ -213,7 +202,11 @@ export function createAccountMock(ctx) {
             terms: { state: 'not_configured' },
             destination: {
               present: Boolean(state.destination) || !quiet,
-              destinations: state.destination || !quiet ? [{ railId: 'bank-sandbox', kind: 'bank', destinationMasked: '••••4321' }] : [],
+              // the same destinations the Destinations page lists: one list, one set of ids
+              destinations:
+                state.destination || !quiet
+                  ? ctx.world.destinations.map((d) => ({ railId: d.railId, kind: d.kind, destinationMasked: d.destinationMasked }))
+                  : [],
             },
             kybStatus: state.kyb?.kybStatus ?? 'approved',
             merchantStatus: 'active',
@@ -283,7 +276,7 @@ export function createAccountMock(ctx) {
         }
         case 'merchantOps.activity.list': {
           const needle = input.search;
-          const rows = activity.filter(
+          const rows = activityRows().filter(
             (r) =>
               (!input.objectType || r.objectType === input.objectType) &&
               (!input.actorId || r.actorId === input.actorId) &&

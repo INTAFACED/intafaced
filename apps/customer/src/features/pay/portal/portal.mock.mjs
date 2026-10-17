@@ -2,12 +2,15 @@
 // EVERYTHING HERE IS TEST DATA. No real merchant, customer, amount or id. Refs are prefixed TEST so they cannot be mistaken for real ones.
 //
 // This file only routes. Each package owns the fixtures and answers for its own procedures:
-//   mock/core.mjs (account, headline numbers, halts, notifications), money/mock.mjs, payments/mock.mjs, settings/mock.mjs,
+//   mock/world.mjs (the ONE set of payments, settlements, refunds, customers and ledger that every number is worked out from),
+//   mock/core.mjs (account, headline numbers, halts, notifications), mock/writes.mjs (refund, links, subscriptions, sessions),
+//   money/mock.mjs, payments/mock.mjs, settings/mock.mjs,
 //   settings/b-mock.mjs (developers, reports and analytics).
 // A part returns NOT_MINE for a procedure it does not own. `mock-contract.test.ts` parses every answer with the same
 // schemas the client uses, so a fixture that drifts from the real shape fails a test instead of a screenshot.
 import { NOT_MINE, USER_ID, mockContext, refuse } from './mock/shared.mjs';
 import { createCoreMock } from './mock/core.mjs';
+import { createWritesMock } from './mock/writes.mjs';
 import { createMoneyMock } from './money/mock.mjs';
 import { createPaymentsMock } from './payments/mock.mjs';
 import { createSettingsMock } from './settings/mock.mjs';
@@ -19,12 +22,19 @@ export { USER_ID };
  * scenario: 'active' (verified merchant with activity), 'new' (no merchant), 'quiet' (merchant, no activity yet),
  * 'soon' (operations service not switched on), 'down' (service unreachable), 'halted' (as 'active' with payouts paused).
  */
-export function createPortalMock(scenario = 'active', { now = Date.now(), myAccess = 'off', role = 'owner' } = {}) {
+export function createPortalMock(scenario = 'active', { now = Date.now(), myAccess = 'owner', role = 'owner' } = {}) {
   const calls = [];
   /** Procedures nothing answered, so the review board can list what a not-live card is waiting for. */
   const unmounted = [];
   const ctx = mockContext(scenario, now, { myAccess, role });
-  const parts = [createCoreMock(ctx), createMoneyMock(ctx), createPaymentsMock(ctx), createSettingsBMock(ctx), createSettingsMock(ctx)];
+  const parts = [
+    createCoreMock(ctx),
+    createMoneyMock(ctx),
+    createPaymentsMock(ctx),
+    createWritesMock(ctx),
+    createSettingsBMock(ctx),
+    createSettingsMock(ctx),
+  ];
 
   async function handle(route) {
     const url = new URL(route.request().url());
@@ -67,6 +77,8 @@ export function createPortalMock(scenario = 'active', { now = Date.now(), myAcce
     calls,
     unmounted,
     state: ctx.state,
+    /** The one fixture world, so a test can read the figures a page should show. */
+    world: ctx.world,
     /** Answer one request directly. Used by the contract test, which has no browser. */
     handle,
     async install(page) {

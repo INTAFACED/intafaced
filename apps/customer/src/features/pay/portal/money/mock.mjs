@@ -1,133 +1,47 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
 import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, hex, iso, ok, page, refuse } from '../mock/shared.mjs';
+import { RULE, fromU, isTaken, toU } from '../mock/world.mjs';
 
 /** Settlements, approvals, pricing and limits. */
 export function createMoneyMock(ctx) {
   const { now, activity, state } = ctx;
-  const settlements = activity
-    ? [
-        ['bb000006', 'TEST-2026-W41', 'USDT', '2200.50', '33.01', '2167.49', 'posted', null, null],
-        ['bb000005', 'TEST-2026-W40b', 'USD', '310', '4.65', '305.35', 'failed', null, null],
-        ['bb000004', 'TEST-2026-W41b', 'USDT', '120', '1.8', '118.2', 'pending', null, null],
-        ['bb000003', 'TEST-2026-W40a', 'USDT', '980.25', '14.7', '965.55', 'posted', null, null],
-        ['bb000002', 'TEST-2026-W40', 'USDT', '4100.75', '61.51', '4039.24', 'paid_out', 'crypto-native', 'TEST-tx-0xabc123'],
-        ['bb000001', 'TEST-2026-W39', 'USDT', '3900', '58.5', '3841.5', 'paid_out', 'crypto-native', 'TEST-tx-0xdef456'],
-      ].map(([short, window, assetId, gross, fees, net, status, payoutMethod, payoutRef], i) => ({
-        id: `${short}-0000-4000-8000-00000000000${6 - i}`,
-        merchantId: MERCHANT_ID,
-        window,
-        assetId,
-        gross,
-        fees,
-        net,
-        payoutMethod,
-        payoutRef,
-        status,
-        createdAt: iso(now - (i + 1) * 3 * DAY),
-        sentAt: status === 'paid_out' ? iso(now - (i + 1) * 3 * DAY + 3600_000) : null,
-        settledAt: status === 'paid_out' ? iso(now - (i + 1) * 3 * DAY + 7200_000) : null,
-        failedAt: status === 'failed' ? iso(now - (i + 1) * 3 * DAY + 3600_000) : null,
-        failure: status === 'failed' ? { code: 'pay.rail_declined', message: 'The payment network declined this payout.' } : null,
-        pricingSnapshot:
-          i === 0
-            ? {
-                fee: fees,
-                assetCode: assetId,
-                appliedLayer: 'tier',
-                ruleId: 'dd000001-0000-4000-8000-000000000001',
-                feeBps: 150,
-                flatFee: null,
-                spreadBps: null,
-                roundingBeneficiary: 'platform',
-                roundingMode: 'ceil',
-                bookedFee: fees,
-                reserveAmount: null,
-                recordedAt: iso(now - 3 * DAY),
-              }
-            : null,
-      }))
-    : [];
+  // The settlements, refunds, destinations and ledger come from the one fixture world (mock/world.mjs), so the money
+  // pages, Home, the payments list and the statement all add up to the same figures.
+  const world = ctx.world;
+  const settlements = world.settlements;
   const HASH = (c) => `sha256:${c.repeat(64)}`;
-  const DEST = { railId: 'crypto-native', destinationKind: 'crypto', destinationMasked: '0x7a3f…4421' };
+  const DEST = (({ railId, kind, destinationMasked }) => ({ railId, destinationKind: kind, destinationMasked }))(
+    world.destinations[0] ?? { railId: 'crypto-native', kind: 'crypto', destinationMasked: '0x7a3f…4421' },
+  );
+  const settlementNo = (short) => settlements.find((x) => x.short === short);
+  // [id, settlement, status, maker, checker, created (h ago), decided (h after created) or null, expires (h from now)]
   const approvals = activity
     ? [
-        {
-          approvalId: 'cc000001-0000-4000-8000-000000000001',
+        ['cc000001', 'bb000003', 'pending', 'TEST-user-finance', null, 5, null, 43, 'a'],
+        ['cc000002', 'bb000004', 'pending', USER_ID, null, 1.5, null, 22, 'b'],
+        ['cc000003', 'bb000002', 'consumed', 'TEST-user-finance', USER_ID, 9 * 24, 1, -7 * 24, 'c'],
+        ['cc000004', 'bb000005', 'voided', USER_ID, null, 3 * 24, 1 / 6, -24, 'd'],
+        ['cc000005', 'bb000001', 'rejected', USER_ID, 'TEST-user-finance', 16 * 24, 2, -14 * 24, 'e'],
+      ].map(([short, stl, status, maker, checker, createdHoursAgo, decidedAfter, expiresIn, hash]) => {
+        const settlement = settlementNo(stl);
+        return {
+          approvalId: `${short}-0000-4000-8000-00000000000${short.slice(-1)}`,
           merchantId: MERCHANT_ID,
-          settlementId: 'bb000003-0000-4000-8000-000000000003',
-          amount: '965.55',
-          assetCode: 'USDT',
-          payloadHash: HASH('a'),
-          status: 'pending',
-          makerUserId: 'TEST-user-finance',
-          checkerUserId: null,
-          createdAt: iso(now - 5 * 3600_000),
-          decidedAt: null,
-          expiresAt: iso(now + 43 * 3600_000),
+          settlementId: settlement.id,
+          amount: settlement.net,
+          assetCode: settlement.assetId,
+          payloadHash: HASH(hash),
+          status,
+          makerUserId: maker,
+          checkerUserId: checker,
+          createdAt: iso(now - createdHoursAgo * 3600_000),
+          decidedAt: decidedAfter === null ? null : iso(now - createdHoursAgo * 3600_000 + decidedAfter * 3600_000),
+          expiresAt: iso(now + expiresIn * 3600_000),
           ...DEST,
-        },
-        {
-          approvalId: 'cc000002-0000-4000-8000-000000000002',
-          merchantId: MERCHANT_ID,
-          settlementId: 'bb000006-0000-4000-8000-000000000006',
-          amount: '2167.49',
-          assetCode: 'USDT',
-          payloadHash: HASH('b'),
-          status: 'pending',
-          makerUserId: USER_ID,
-          checkerUserId: null,
-          createdAt: iso(now - 90 * 60_000),
-          decidedAt: null,
-          expiresAt: iso(now + 22 * 3600_000),
-          ...DEST,
-        },
-        {
-          approvalId: 'cc000003-0000-4000-8000-000000000003',
-          merchantId: MERCHANT_ID,
-          settlementId: 'bb000002-0000-4000-8000-000000000002',
-          amount: '4039.24',
-          assetCode: 'USDT',
-          payloadHash: HASH('c'),
-          status: 'consumed',
-          makerUserId: 'TEST-user-finance',
-          checkerUserId: USER_ID,
-          createdAt: iso(now - 9 * DAY),
-          decidedAt: iso(now - 9 * DAY + 3600_000),
-          expiresAt: iso(now - 7 * DAY),
-          ...DEST,
-        },
-        {
-          approvalId: 'cc000004-0000-4000-8000-000000000004',
-          merchantId: MERCHANT_ID,
-          settlementId: 'bb000005-0000-4000-8000-000000000005',
-          amount: '305.35',
-          assetCode: 'USD',
-          payloadHash: HASH('d'),
-          status: 'voided',
-          makerUserId: USER_ID,
-          checkerUserId: null,
-          createdAt: iso(now - 3 * DAY),
-          decidedAt: iso(now - 3 * DAY + 600_000),
-          expiresAt: iso(now - 1 * DAY),
-          ...DEST,
-        },
-        {
-          approvalId: 'cc000005-0000-4000-8000-000000000005',
-          merchantId: MERCHANT_ID,
-          settlementId: 'bb000001-0000-4000-8000-000000000001',
-          amount: '3841.5',
-          assetCode: 'USDT',
-          payloadHash: HASH('e'),
-          status: 'rejected',
-          makerUserId: USER_ID,
-          checkerUserId: 'TEST-user-finance',
-          createdAt: iso(now - 16 * DAY),
-          decidedAt: iso(now - 16 * DAY + 7200_000),
-          expiresAt: iso(now - 14 * DAY),
-          ...DEST,
-        },
-      ]
+        };
+      })
     : [];
+  state.approvals = approvals;
   const configured = activity;
   const control = {
     merchantId: MERCHANT_ID,
@@ -149,17 +63,17 @@ export function createMoneyMock(ctx) {
             scopeId: 'test-tier-a',
             assetCode: 'USDT',
             bands: [
-              { fromAmount: '0', feeBps: 150, flatFee: null },
-              { fromAmount: '10000', feeBps: 120, flatFee: '0.25' },
+              { fromAmount: '0', feeBps: RULE.feeBps, flatFee: RULE.flatFee },
+              { fromAmount: '100000', feeBps: 120, flatFee: '0.25' },
             ],
             spreadBps: 40,
             roundingBeneficiary: 'platform',
           },
           {
-            layer: 'global',
-            scopeId: null,
+            layer: 'tier',
+            scopeId: 'test-tier-a',
             assetCode: 'USD',
-            bands: [{ fromAmount: '0', feeBps: 175, flatFee: '0.1' }],
+            bands: [{ fromAmount: '0', feeBps: RULE.feeBps, flatFee: RULE.flatFee }],
             spreadBps: null,
             roundingBeneficiary: 'merchant',
           },
@@ -169,6 +83,12 @@ export function createMoneyMock(ctx) {
     version: configured ? '4' : '0',
     updatedAt: configured ? iso(now - 12 * DAY) : null,
   };
+  const intake = (windowMs) => {
+    const f = world.figures(now - windowMs);
+    return f.captured.find((row) => row.assetCode === 'USDT')?.amount ?? '0';
+  };
+  const dayEnd = Math.ceil(now / DAY) * DAY;
+  const left = (limit, used) => fromU(toU(limit) - toU(used));
   const usage = {
     merchantId: MERCHANT_ID,
     tierId: control.tierId,
@@ -180,34 +100,21 @@ export function createMoneyMock(ctx) {
             kind: 'daily_intake',
             assetCode: 'USDT',
             limit: '20000',
-            used: '14200.5',
-            remaining: '5799.5',
-            resetsAt: iso(Math.ceil(now / DAY) * DAY),
+            used: intake(DAY),
+            remaining: left('20000', intake(DAY)),
+            resetsAt: iso(dayEnd),
           },
           {
             kind: 'monthly_intake',
             assetCode: 'USDT',
             limit: '250000',
-            used: '61250.25',
-            remaining: '188749.75',
-            resetsAt: iso(Math.ceil(now / DAY) * DAY + 14 * DAY),
+            used: intake(30 * DAY),
+            remaining: left('250000', intake(30 * DAY)),
+            resetsAt: iso(dayEnd + 14 * DAY),
           },
-          {
-            kind: 'daily_payout',
-            assetCode: 'USDT',
-            limit: '10000',
-            used: '9800',
-            remaining: '200',
-            resetsAt: iso(Math.ceil(now / DAY) * DAY),
-          },
-          {
-            kind: 'beneficiaries_per_day',
-            assetCode: null,
-            limit: '5',
-            used: '2',
-            remaining: '3',
-            resetsAt: iso(Math.ceil(now / DAY) * DAY),
-          },
+          // TEST figure: today's payouts are already near the daily limit, so a large approval can show its warning.
+          { kind: 'daily_payout', assetCode: 'USDT', limit: '10000', used: '9800', remaining: '200', resetsAt: iso(dayEnd) },
+          { kind: 'beneficiaries_per_day', assetCode: null, limit: '5', used: '2', remaining: '3', resetsAt: iso(dayEnd) },
         ]
       : [],
   };
@@ -227,7 +134,8 @@ export function createMoneyMock(ctx) {
     const month = input.monthlyVolume ?? '12500';
     const band = [...rule.bands].reverse().find((b) => toS(month) >= toS(b.fromAmount)) ?? rule.bands[0];
     const amt = toS(input.amount);
-    const bpsFee = (amt * BigInt(band.feeBps) + 9999n) / 10000n;
+    const unit = 10n ** BigInt(18 - (input.assetCode === 'USD' ? 2 : 6));
+    const bpsFee = (((amt * BigInt(band.feeBps) + 9999n) / 10000n + unit - 1n) / unit) * unit;
     const flat = band.flatFee ? toS(band.flatFee) : 0n;
     const spread = input.conversion && rule.spreadBps !== null ? (amt * BigInt(rule.spreadBps) + 9999n) / 10000n : null;
     const fee = bpsFee + flat;
@@ -264,48 +172,8 @@ export function createMoneyMock(ctx) {
     createdAt: x.createdAt,
   });
   const inWindow = (at, input) => (!input.from || at >= input.from) && (!input.to || at < input.to);
-  const refunds = activity
-    ? [
-        ['cc100001', 'TEST-refund-1', '10', 'settled', 'settled', 'merchantProceeds'],
-        ['cc100002', 'TEST-refund-2', '4.25', 'posted', 'clearing', 'clearing'],
-        ['cc100003', 'TEST-refund-3', '0.000001', 'reversed', 'clearing', 'clearing'],
-      ].map(([short, refundId, amount, status, source, pot], i) => ({
-        id: `${short}-0000-4000-8000-00000000010${i + 1}`,
-        refundId,
-        paymentId: `a0000001-0000-4000-8000-00000000000${i + 1}`,
-        merchantId: MERCHANT_ID,
-        amount,
-        assetId: 'USDT',
-        reason: null,
-        actor: null,
-        status,
-        createdAt: iso(now - (i + 1) * DAY),
-        settledAt: status === 'settled' ? iso(now - (i + 1) * DAY + 3600_000) : null,
-        source,
-        ledgerEffect: { recorded: true, pot, ledgerTxId: `cc2000${i}1-0000-4000-8000-000000000001`, direction: 'credit' },
-        payment: { paymentId: `a0000001-0000-4000-8000-00000000000${i + 1}`, status: 'refunded' },
-      }))
-    : [];
-  const destinations = activity
-    ? [
-        {
-          id: 'dd100001-0000-4000-8000-000000000001',
-          railId: 'crypto-native',
-          kind: 'crypto',
-          destinationMasked: '0x7a3f…4421',
-          createdAt: iso(now - 30 * DAY),
-          lastUsedAt: iso(now - 9 * DAY),
-        },
-        {
-          id: 'dd100002-0000-4000-8000-000000000002',
-          railId: 'card-sandbox',
-          kind: 'bank',
-          destinationMasked: '••••8821',
-          createdAt: iso(now - 12 * DAY),
-          lastUsedAt: null,
-        },
-      ].map((d) => ({ merchantId: MERCHANT_ID, screeningState: 'not_recorded', defaultFlag: 'unset', ...d }))
-    : [];
+  const refunds = world.refunds;
+  const destinations = world.destinations;
   const orders = (state.conversions ??= activity
     ? [
         {
@@ -327,51 +195,57 @@ export function createMoneyMock(ctx) {
       ]
     : []);
   state.limitRequest ??= null;
+  /** The ledger statement: lines from the world's ledger, newest first, with the balances the lines add up to. */
   const statement = (input) => {
     const ambiguous = input.assetId === 'USD';
-    const at = (h) => iso(now - h * 3600_000);
-    const lines = [
-      ['payment_captured', '120', 'clearing', 'debit', 1, '2200.5', null],
-      ['fee', '1.8', 'houseFees', 'credit', 2, null, null],
-      ['settlement', '118.2', 'proceeds', 'debit', 5, null, '2318.7'],
-      ['refund', '4.25', 'proceeds', 'credit', 20, null, '2314.45'],
-      ['payout', '965.55', 'proceeds', 'credit', 50, null, '1348.9'],
-    ].map(([kind, amount, account, direction, h, clearing, proceeds], i) => ({
-      id: hex('ff', i + 1),
-      at: at(h),
-      assetId: input.assetId || 'USDT',
-      kind,
-      amount,
-      account,
-      direction,
-      runningClearing: ambiguous ? null : account === 'clearing' ? clearing : null,
-      runningProceeds: ambiguous ? null : account === 'proceeds' ? proceeds : null,
+    const assetId = input.assetId || 'USDT';
+    const all = world.ledgerLines(assetId);
+    const from = Date.parse(input.from);
+    const to = Date.parse(input.to);
+    const inRange = all.filter((l) => l.at >= from && l.at < to);
+    const before = all.filter((l) => l.at < from).at(-1);
+    const opening = { clearing: before?.runningClearing ?? 0n, proceeds: before?.runningProceeds ?? 0n };
+    const end = inRange.at(-1) ?? before;
+    const items = [...inRange].reverse().map((l) => ({
+      id: hex('ff', l.index),
+      at: iso(l.at),
+      assetId,
+      kind: l.kind,
+      amount: l.amount,
+      account: l.account,
+      direction: l.direction,
+      runningClearing: ambiguous || l.clearing === undefined ? null : fromU(l.runningClearing),
+      runningProceeds: ambiguous || l.proceeds === undefined ? null : fromU(l.runningProceeds),
       windowNet: null,
       runningOrder: ambiguous ? 'order_ambiguous' : 'clear',
       runningReason: ambiguous ? 'order_ambiguous' : null,
-      paymentId: kind === 'payment_captured' ? 'a0000001-0000-4000-8000-000000000001' : null,
-      settlementId: kind === 'settlement' || kind === 'payout' ? 'bb000006-0000-4000-8000-000000000006' : null,
-      ledgerTxId: hex('fe', i + 1),
+      paymentId: l.paymentId ?? null,
+      settlementId: l.settlementId ?? null,
+      ledgerTxId: hex('fe', l.index),
     }));
+    const held = (asset) => world.balance(asset);
+    const stated = end ? { clearing: end.runningClearing, proceeds: end.runningProceeds } : opening;
+    const side = (statement, ledger, blind) => ({
+      statement: blind ? null : fromU(statement),
+      ledger: fromU(ledger),
+      matches: blind ? null : statement === ledger,
+    });
     return {
-      items: lines,
-      nextCursor: null,
-      runningBalances: 'within_range',
-      opening: null,
+      ...page(items, input),
+      runningBalances: 'from_opening',
+      opening: [{ assetId, clearing: fromU(opening.clearing), proceeds: fromU(opening.proceeds) }],
       tieOut: {
         reserve: 'not_booked',
-        accounts: [
-          {
-            assetId: 'USDT',
-            clearing: { statement: '2200.5', ledger: '2200.5', matches: ambiguous ? null : true },
-            proceeds: { statement: '1348.9', ledger: '1348.9', matches: ambiguous ? null : true },
-          },
-          {
-            assetId: 'USD',
-            clearing: { statement: null, ledger: '0', matches: null },
-            proceeds: { statement: null, ledger: '305.35', matches: null },
-          },
-        ],
+        accounts: world.assets.map((asset) => {
+          const blind = asset !== assetId || ambiguous;
+          // the ledger figure is the balance at the end of the range; a range that stops early shows the balance then
+          const ledgerAt = asset === assetId && end ? stated : held(asset);
+          return {
+            assetId: asset,
+            clearing: side(stated.clearing, ledgerAt.clearing, blind),
+            proceeds: side(stated.proceeds, ledgerAt.proceeds, blind),
+          };
+        }),
       },
     };
   };
@@ -381,7 +255,9 @@ export function createMoneyMock(ctx) {
       switch (procedure) {
         case 'settlement.list':
           return ok(route, {
-            items: settlements.filter((x) => !input.status || x.status === input.status).slice(0, input.limit ?? 25),
+            items: settlements
+              .filter((x) => (!input.status || x.status === input.status) && (!input.assetId || x.assetId === input.assetId))
+              .slice(0, input.limit ?? 25),
             nextCursor: null,
           });
         case 'settlement.get': {
@@ -438,13 +314,17 @@ export function createMoneyMock(ctx) {
         }
         case 'settlement.lines': {
           if (!SETTLEMENT(input.settlementId)) return refuse(route, 404, 'pay.settlement_not_found');
-          const lines = [0, 1, 2].map((i) => ({
-            paymentId: `a0000001-0000-4000-8000-00000000000${i + 1}`,
-            amount: i === 2 ? null : `${100 + i * 20}.5`,
-            assetId: 'USDT',
-            createdAt: iso(now - (i + 4) * DAY),
-            includedAmountKnown: i !== 2,
-          }));
+          const lines = SETTLEMENT(input.settlementId).members.map((paymentId, i) => {
+            const p = world.paymentById(paymentId);
+            return {
+              paymentId,
+              // the oldest line of the oldest settlement predates amount recording, so its included amount is not known
+              amount: i === 0 && SETTLEMENT(input.settlementId).short === 'bb000001' ? null : p.amount,
+              assetId: p.assetId,
+              createdAt: p.createdAt,
+              includedAmountKnown: !(i === 0 && SETTLEMENT(input.settlementId).short === 'bb000001'),
+            };
+          });
           return ok(route, page(lines, input));
         }
         case 'settlement.lifecycle': {
@@ -462,7 +342,7 @@ export function createMoneyMock(ctx) {
             failure: null,
             ...extra,
           });
-          const dest = { railId: 'crypto-native', destinationKind: 'crypto', destinationMasked: '0x7a3f…4421' };
+          const dest = DEST;
           const events =
             x.status === 'paid_out'
               ? [
@@ -495,6 +375,7 @@ export function createMoneyMock(ctx) {
           const rows = refunds.filter(
             (r) =>
               (!input.status || r.status === input.status) &&
+              (!input.assetId || r.assetId === input.assetId) &&
               (!input.paymentId || r.paymentId === input.paymentId) &&
               inWindow(r.createdAt, input),
           );
@@ -584,7 +465,7 @@ export function createMoneyMock(ctx) {
         case 'merchantControl.approvals.request': {
           const x = SETTLEMENT(input.settlementId);
           if (!x) return refuse(route, 404, 'pay.settlement_not_found');
-          if (x.status !== 'posted') return refuse(route, 412, 'pay.settlement_not_payable');
+          if (x.status !== 'posted' && x.status !== 'failed') return refuse(route, 412, 'pay.settlement_not_payable');
           if (Number(x.net) < 1000) return refuse(route, 412, 'pay.approval_not_required');
           const a = {
             approvalId: hex('cc', approvals.length + 10),
@@ -607,8 +488,10 @@ export function createMoneyMock(ctx) {
         case 'settlement.payout': {
           const x = SETTLEMENT(input.settlementId);
           if (!x) return refuse(route, 404, 'pay.settlement_not_found');
-          if (x.status !== 'posted') return refuse(route, 412, 'pay.settlement_not_payable');
+          if (x.status !== 'posted' && x.status !== 'failed') return refuse(route, 412, 'pay.settlement_not_payable');
           Object.assign(x, {
+            failedAt: null,
+            failure: null,
             status: 'paid_out',
             payoutMethod: input.railId,
             payoutRef: 'TEST-tx-0x999',

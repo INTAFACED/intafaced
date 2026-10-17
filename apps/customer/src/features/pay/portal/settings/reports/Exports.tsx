@@ -26,6 +26,7 @@ import {
   isKnownKind,
   rangeParts,
   statusesFor,
+  statusWord,
   windowOf,
   windowProblem,
 } from './model';
@@ -237,7 +238,7 @@ export function Covers({ job }: { job: Pick<ExportJob, 'filters' | 'kind'> }) {
       : p.from || p.to
         ? t('rangeFromTo', { from: p.from ?? t('rangeStart'), to: p.to ?? t('rangeNow') })
         : t('rangeAll');
-  return <>{[range, p.status ? p.status.replaceAll('_', ' ') : null, p.asset].filter(Boolean).join(' · ')}</>;
+  return <>{[range, p.status ? statusWord(job.kind, p.status) : null, p.asset].filter(Boolean).join(' · ')}</>;
 }
 
 export function JobActions({
@@ -364,7 +365,7 @@ export function RequestForm({
                 setStatus(v);
                 setRequestId(newRequestId());
               }}
-              options={[['', t('allStatuses')], ...statuses.map((s) => [s, s.replaceAll('_', ' ')] as const)]}
+              options={[['', t('allStatuses')], ...statuses.map((s) => [s, statusWord(kind, s)] as const)]}
             />
           )}
         </div>

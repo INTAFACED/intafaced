@@ -153,3 +153,35 @@ describe('business details model', () => {
     expect(validateProfile(blank)).toEqual({});
   });
 });
+
+describe('second approval and the name', () => {
+  it('offers one control, never both turn-on and turn-off', () => {
+    const out = html();
+    expect(out).toContain('Turn on second approval');
+    expect(out).not.toContain('Turn off second approval');
+    // nothing tells it whether the setting is on, and the page says so instead of guessing
+    expect(out).toContain('We can’t read this setting yet');
+  });
+  it('shows the state, and the opposite action, when the service reports it', () => {
+    const on = html({ profile: ready({ ...profile, secondApprovalEnabled: true }) });
+    expect(on).toContain('Second approval is on.');
+    expect(on).toContain('Turn off second approval');
+    expect(on).not.toContain('Turn on second approval');
+    const off = html({ profile: ready({ ...profile, secondApprovalEnabled: false }) });
+    expect(off).toContain('Second approval is off.');
+    expect(off).toContain('Turn on second approval');
+  });
+  it('shows the name from the details on the page, not "Not set up yet"', () => {
+    const out = html({ who: { ...base.who, displayName: null, legalName: null } });
+    expect(out).toContain('TEST Shop');
+    expect(out).not.toContain('Not set up yet');
+  });
+  it('says 1 change, not "1 change(s)"', () => {
+    const waiting = change({ status: 'pending_review' });
+    const one = html({ history: list([waiting]) });
+    expect(one).toContain('1 change to your details hasn’t taken effect yet');
+    expect(one).not.toMatch(/change\(s\)/);
+    const two = html({ history: list([waiting, change({ status: 'pending', requestId: '44444444-4444-4444-8444-444444444444' })]) });
+    expect(two).toContain('2 changes to your details haven’t taken effect yet');
+  });
+});

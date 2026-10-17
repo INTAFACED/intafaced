@@ -126,6 +126,17 @@ test('signing: nothing is saved until a choice is made; the secret is shown once
   expect(b.calls.filter((c) => c.procedure === 'setApiKeyRequestSigning')).toHaveLength(1);
 });
 
+test('allowed addresses: the review warns that saving can change whether the key needs signed requests', async ({ page }) => {
+  const { b } = await setup(page);
+  await signIn(page, '/pay/developer/signing?key=TEST-key-1');
+  await page.getByLabel('Addresses').fill('203.0.113.10');
+  await page.getByRole('button', { name: 'Replace allowed addresses' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText(/can change whether this key needs signed requests/)).toBeVisible();
+  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await expect.poll(() => b.calls.filter((c) => c.procedure === 'bindApiKeyIpAllowlist').length).toBe(1);
+});
+
 test('webhooks: a private address is refused before sending; a good one shows its secret once', async ({ page }) => {
   const { b } = await setup(page);
   await signIn(page, '/pay/developer/webhooks');

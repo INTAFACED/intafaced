@@ -86,12 +86,15 @@ export function BusinessSettingsView(props: {
   const waiting = history.status === 'ready' ? history.items.filter((c) => isWaiting(c.status)) : [];
   const lastApplied =
     history.status === 'ready' ? history.items.find((c) => c.status === 'applied' || c.status === 'applied_pre_kyb') : undefined;
+  // the name on this very page comes from the details shown below it, so the two can never disagree
+  const read = profile.status === 'ready' ? profile.data : null;
+  const shownName = read?.displayName ?? read?.legalName ?? who.displayName ?? who.legalName;
   return (
     <div className="stack">
       <PaySection title={t('profileAccountTitle')}>
         <PayDetails
           values={[
-            [t('fName'), who.displayName ?? who.legalName ?? t('notSet')],
+            [t('fName'), shownName ?? t('notSet')],
             [t('fAccountStatus'), <Chip kind="merchant" value={who.accountStatus} />],
             [t('fVerification'), who.kybStatus ? <Chip kind="kyb" value={who.kybStatus} /> : t('notSet')],
             [t('fAccountId'), <CopyReference value={who.merchantId} what={t('fAccountId')} />],
@@ -105,7 +108,7 @@ export function BusinessSettingsView(props: {
 
       {waiting.length > 0 && (
         <p className="pp-callout" role="status">
-          <strong>{t('pendingTitle')}</strong> {t('pendingBody', { n: waiting.length })}
+          <strong>{t('pendingTitle')}</strong> {waiting.length === 1 ? t('pendingBodyOne') : t('pendingBodyMany', { n: waiting.length })}
         </p>
       )}
 
@@ -118,26 +121,13 @@ export function BusinessSettingsView(props: {
         {(data) => <ProfileForm key={data.version} {...props} profile={data} />}
       </ReadGate>
 
-      <PaySection title={t('secondApprovalTitle')} description={t('secondApprovalBody')}>
-        <div className="pp-actions">
-          <PortalReview
-            title={t('secondApprovalOn')}
-            description={t('secondApprovalOnBody')}
-            perform={() => props.portal.profileSecondApproval(who.merchantId, true)}
-            onConfirmed={props.reload}
-            disabled={!props.mayEdit}
-            disabledReason={t('whoMayEditNot')}
-          />
-          <PortalReview
-            title={t('secondApprovalOff')}
-            description={t('secondApprovalOffBody')}
-            perform={() => props.portal.profileSecondApproval(who.merchantId, false)}
-            onConfirmed={props.reload}
-            disabled={!props.mayEdit}
-            disabledReason={t('whoMayEditNot')}
-          />
-        </div>
-      </PaySection>
+      <SecondApproval
+        portal={props.portal}
+        merchantId={who.merchantId}
+        mayEdit={props.mayEdit}
+        fromService={read?.secondApprovalEnabled}
+        reload={props.reload}
+      />
 
       <PaySection title={t('profileHistoryTitle')} description={t('profileHistoryBody')}>
         <ListShell state={history} retry={props.reload} empty={{ title: t('profileHistoryEmpty'), body: t('profileHistoryEmptyBody') }}>
@@ -419,5 +409,72 @@ function ChangeRow({
         </div>
       )}
     </article>
+  );
+}
+
+const rememberedKey = (merchantId: string) => `intafaced.pay.second-approval.v1:${merchantId}`;
+type Remembered = { enabled: boolean; at: string };
+function readRemembered(merchantId: string): Remembered | null {
+  try {
+    const raw = window.localStorage.getItem(rememberedKey(merchantId));
+    const value = raw ? (JSON.parse(raw) as Partial<Remembered>) : null;
+    return value && typeof value.enabled === 'boolean' && typeof value.at === 'string' ? { enabled: value.enabled, at: value.at } : null;
+  } catch {
+    return null;
+  }
+}
+function remember(merchantId: string, value: Remembered) {
+  try {
+    window.localStorage.setItem(rememberedKey(merchantId), JSON.stringify(value));
+  } catch {
+    /* private window or blocked storage: the page still works, it just forgets */
+  }
+}
+
+/**
+ * Second approval: whether a legal-detail change also needs a teammate. The service takes the setting but does not
+ * report it, so this shows what the service says when it does, and otherwise the last value set from this browser.
+ * Never both buttons: one control that moves the setting to the other state.
+ */
+function SecondApproval({
+  portal,
+  merchantId,
+  mayEdit,
+  fromService,
+  reload,
+}: {
+  portal: PortalApi;
+  merchantId: string;
+  mayEdit: boolean;
+  fromService: boolean | undefined;
+  reload: () => void;
+}) {
+  const { t } = accountCopy.useCopy();
+  const [last, setLast] = useState<Remembered | null>(() => readRemembered(merchantId));
+  const current = fromService ?? last?.enabled ?? null;
+  const turnOn = current !== true;
+  return (
+    <PaySection title={t('secondApprovalTitle')} description={t('secondApprovalBody')}>
+      <p role="status">
+        <strong>{current === null ? t('secondApprovalUnknown') : current ? t('secondApprovalIsOn') : t('secondApprovalIsOff')}</strong>
+        {fromService === undefined && last && <> {t('secondApprovalRemembered', { when: new Date(last.at).toLocaleString() })}</>}
+      </p>
+      <div className="pp-actions">
+        <PortalReview
+          key={turnOn ? 'on' : 'off'}
+          title={turnOn ? t('secondApprovalOn') : t('secondApprovalOff')}
+          description={turnOn ? t('secondApprovalOnBody') : t('secondApprovalOffBody')}
+          perform={() => portal.profileSecondApproval(merchantId, turnOn)}
+          onConfirmed={(result) => {
+            const value = { enabled: result.enabled, at: new Date().toISOString() };
+            remember(merchantId, value);
+            setLast(value);
+            reload();
+          }}
+          disabled={!mayEdit}
+          disabledReason={t('whoMayEditNot')}
+        />
+      </div>
+    </PaySection>
   );
 }
