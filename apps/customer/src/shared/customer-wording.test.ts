@@ -71,7 +71,6 @@ const ENGINEERING = new RegExp(
 /** The same kind of words in Spanish and French. */
 const ENGINEERING_TRANSLATED =
   /límite solicitado|limite demandée|lecture limitée|proyecci[oó]n|curseur|\bcursor\b|(registros|respuestas?|ventana) devuelt|(enregistrements?|réponses?|fenêtre) renvoy/i;
-/devuelt[oa]s?|límite solicitado|renvoy[ée]s?|limite demandée|lecture limitée|proyecci[oó]n|curseur|\bcursor\b/i;
 /** Letters that look like internal codes: dotted snake_case such as bank.earn_rate_unset. */
 const RAW_CODE = /\b[a-z]+\.[a-z0-9]+_[a-z0-9_]+\b/;
 /** Written by and for staff or people; customer copy names neither. */
