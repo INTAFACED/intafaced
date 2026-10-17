@@ -7,6 +7,7 @@ import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { formatAmount, parseAmount as amt, railBoundary, userAvailable } from '@intafaced/ledger-client';
 import { PostgresLedger } from './postgres-ledger.js';
 import { HISTORY_MAX_ENTRIES, HistoryTooLargeError } from './history.js';
+import { disableBalanceTrigger } from '../db/journal-guards.testkit.js';
 
 /**
  * THE READ `/bank/analytics` 500-ed ON, against a real book.
@@ -115,6 +116,9 @@ describe('PostgresLedger.history', () => {
     const admin = await openH8aAdmin();
     adminStop = admin.stop;
     db = await createTestDb({ service: 'ledger_history', url: admin.url, migrations });
+    // Raw fixtures below insert one-sided entries on purpose (they test other guards).
+    // 0023's balance-at-commit trigger has its own file: journal-immutable.db.test.ts.
+    await disableBalanceTrigger(db.sql);
     engine = new PostgresLedger(db.sql);
 
     // An 18-decimal amount, deliberately: the whole point of `numeric(38,18)`

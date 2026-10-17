@@ -159,6 +159,26 @@ describe('applyRoundUp duplicate client run id', () => {
     expect(updates[0]!.values).toContain(RUN_ID);
   });
 
+  it('a pending row whose deposit has an UNKNOWN outcome stays pending and is re-driven on the same run id', async () => {
+    let attempt = 0;
+    const { svc, calls, updates } = serviceFor({ id: RUN_ID, status: 'pending', position_id: null }, async (input) => {
+      attempt += 1;
+      if (attempt === 1) throw new Error('svc-ledger unreachable');
+      return { id: input.positionId };
+    });
+
+    const first = await apply(svc);
+
+    expect(first).toEqual({ status: 'refused', amount: spare, reason: 'bank.ledger_outcome_unknown' });
+    // No `rejected` write: the deposit may have committed.
+    expect(updates).toHaveLength(0);
+
+    const second = await apply(svc);
+
+    expect(calls.map((c) => c.positionId)).toEqual([RUN_ID, RUN_ID]);
+    expect(second).toEqual({ status: 'settled', amount: spare, positionId: RUN_ID });
+  });
+
   it('a rejected row whose deposit refuses stays refused with the deposit code', async () => {
     const { svc, calls, updates } = serviceFor({ id: RUN_ID, status: 'rejected', position_id: null }, async () => {
       throw new InsufficientFundsError('user-available', 'USDT', formatAmount(spare), '0');

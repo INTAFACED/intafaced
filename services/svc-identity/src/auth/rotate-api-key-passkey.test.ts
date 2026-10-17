@@ -79,6 +79,7 @@ describe('rotateApiKeyAfterPasskey', () => {
       prefix: 'ifk_live',
       mode: 'live',
       revokedKeyId: 'old',
+      signingSecret: null,
     });
     expect(created).toHaveLength(1);
     expect(revoked).toEqual(['old']);

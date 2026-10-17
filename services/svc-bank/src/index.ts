@@ -16,6 +16,8 @@ import { createLedgerClient, createLedgerHistory, createLedgerHistoryPages } fro
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
 import { createBankRouter, type BankRouter } from './router.js';
+import { createStepUpGate } from './step-up/step-up-gate.js';
+import { SqlStepUpUseStore } from './step-up/step-up-store.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { BankError } from './errors.js';
 import {
@@ -198,6 +200,10 @@ const bank = createBankServices(sql, ledger, history, {
 const cardProgramme = bank.cards.programme();
 const rampProgramme = bank.ramps.programmeInfo();
 
+const approvalConsumer = env.IDENTITY_URL
+  ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
+  : unwiredApprovalConsumer();
+
 export const appRouter = createBankRouter(bank, {
   scheduledTransfersEnabled: env.SCHEDULED_TRANSFERS_ENABLED,
   interestAccrualEnabled: env.INTEREST_ACCRUAL_ENABLED,
@@ -205,7 +211,8 @@ export const appRouter = createBankRouter(bank, {
   loanRiskSweepEnabled: env.LOAN_RISK_SWEEP_ENABLED,
   autoInvestEnabled: env.AUTO_INVEST_ENABLED,
   autoInvestConvertWired: usableTradeConvertUrl(env.TRADE_URL),
-  approvals: env.IDENTITY_URL ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : unwiredApprovalConsumer(),
+  approvals: approvalConsumer,
+  stepUp: createStepUpGate({ mode: env.BANK_STEP_UP_MONEY_OUT, approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
 });
 export type AppRouter = typeof appRouter;
 
@@ -511,12 +518,18 @@ if (!env.IDENTITY_URL) {
     'IDENTITY_URL is unset: svc-bank cannot check whether a recipient is frozen or closed, so every payment to ANOTHER user refuses (bank.recipient_check_unset). Moves between your own spaces still work.',
   );
 }
+if (env.BANK_STEP_UP_MONEY_OUT === 'required' && !env.IDENTITY_URL) {
+  app.log.warn(
+    'BANK_STEP_UP_MONEY_OUT=required but IDENTITY_URL is unset: svc-bank cannot confirm step-up approvals, so every send to another person, business payment and card unfreeze/issue refuses (bank.step_up_unavailable).',
+  );
+}
 app.log.info(
   {
     port: env.HTTP_PORT,
     scheduledTransfers: env.SCHEDULED_TRANSFERS_ENABLED,
     interestAccrual: env.INTEREST_ACCRUAL_ENABLED,
     autoInvest: env.AUTO_INVEST_ENABLED,
+    stepUpMoneyOut: env.BANK_STEP_UP_MONEY_OUT,
     // In the boot line, not only on `/ready`: the first place anyone looks after
     // a deploy is the log, and "this deployment is running a card SIMULATOR" is
     // exactly the fact that must not be discovered later from a support ticket.

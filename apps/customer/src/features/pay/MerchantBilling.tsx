@@ -1,3 +1,6 @@
+import { createSubscriptionWithRecovery } from './portal/subscription-recovery';
+import { useUnsavedForm } from './portal/useUnsavedForm';
+import { extensionCopy } from './portal/extension-copy';
 import { payCopy, PayCopy } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
@@ -17,11 +20,27 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
   const [path, setPath] = useState('');
   const [projectedEnd, setProjectedEnd] = useState<string | null | undefined>();
   const mandates = useResource(
-    (signal) => pay.query('mandate.list', { merchantId, limit }, z.array(s.mandateSchema), signal),
+    (signal) =>
+      pay
+        .query(
+          'mandate.list',
+          { merchantId, limit },
+          z.object({ items: z.array(s.mandateSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:mandates:${merchantId}:${limit}`,
   );
   const subscriptions = useResource(
-    (signal) => pay.query('subscription.list', { merchantId, limit }, z.array(s.subscriptionSchema), signal),
+    (signal) =>
+      pay
+        .query(
+          'subscription.list',
+          { merchantId, limit },
+          z.object({ items: z.array(s.subscriptionSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:subscriptions:${merchantId}:${limit}`,
   );
   const posture = useResource(
@@ -97,17 +116,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                     ]}
                   />
                 }
-                perform={() =>
-                  validatedMutation(
-                    pay,
-                    'subscription.create',
-                    { mandateId, path },
-                    z.object({ mandateId: s.id, path: z.enum(['crypto_invoice', 'card', 'card_mandate']) }),
-                    s.subscriptionSchema,
-                    'pay:write',
-                    'subscription-create',
-                  )
-                }
+                perform={() => createSubscriptionWithRecovery(pay, mandateId, path)}
                 disabled={!mandateId || !path || Boolean(pay.access('pay:write'))}
                 onConfirmed={(data) => {
                   setSelected(data.id);
@@ -241,7 +250,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
     </div>
   );
 }
-function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => void }) {
+export function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [customer, setCustomer] = useState('');
   const [asset, setAsset] = useState('');
@@ -253,6 +262,10 @@ function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => v
   const [rail, setRail] = useState('');
   const [reference, setReference] = useState('');
   const [created, setCreated] = useState('');
+  useUnsavedForm(
+    expanded && Boolean(customer || asset || amount || ceiling || starts || ends || rail || reference),
+    extensionCopy.t('draftWarning'),
+  );
   return (
     <PaySection
       title={payCopy.t('recordACustomerMandate')}
@@ -374,6 +387,14 @@ function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => v
             disabled={!customer || !amount || !asset || !starts || Boolean(pay.access('pay:write'))}
             onConfirmed={(data) => {
               setCreated(data.id);
+              setCustomer('');
+              setAsset('');
+              setAmount('');
+              setCeiling('');
+              setStarts('');
+              setEnds('');
+              setRail('');
+              setReference('');
               refresh();
               setExpanded(false);
             }}
