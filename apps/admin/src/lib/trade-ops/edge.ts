@@ -38,7 +38,7 @@ export function errorParts(body: unknown, status: number): { code: string; messa
   const json = (err.json && typeof err.json === 'object' ? err.json : err) as Record<string, unknown>;
   const data = (json.data && typeof json.data === 'object' ? json.data : {}) as Record<string, unknown>;
   const pick = (...v: unknown[]) => v.find((x): x is string => typeof x === 'string' && x.length > 0);
-  const code = pick(root.code, json.code, data.appCode, data.code, typeof root.error === 'string' ? root.error : undefined) ?? `http.${status}`;
+  const code = pick(root.intafacedCode, json.intafacedCode, root.code, json.code, data.appCode, data.code, typeof root.error === 'string' ? root.error : undefined) ?? `http.${status}`;
   const message = pick(root.message, json.message, root.detail, root.reason) ?? `The service answered ${status} (${code}).`;
   return { code, message };
 }

@@ -74,6 +74,12 @@ export const BLOCKERS = {
     'A trading restriction is applied by one operator. There is no two-person action type for it yet, so this desk will not apply it from a single click here.',
     'TRD-0036, TRD-0117',
   ),
+  approvals_list_missing: b(
+    'approvals_list_missing',
+    'svc-identity',
+    'Two-person approvals can be proposed, approved, rejected and revoked by id, but there is no procedure that lists pending approvals or reads one back.',
+    'TRD-0036, ACC-0056',
+  ),
   reconcile_route_missing: b(
     'reconcile_route_missing',
     'svc-trade',
