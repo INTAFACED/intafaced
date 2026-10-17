@@ -186,7 +186,7 @@ export function InputSection() {
       ))}
 
       <Part title="Field, horizontal (dense desk forms)">
-        <div className="flex w-120 flex-col gap-3">
+        <div className="flex w-120 max-w-full flex-col gap-3">
           <Field label="Price" orientation="horizontal" density="dense" hint="Tick 0.1">
             <Input kind="decimal" precision={1} value="100.5" onValueChange={noop} trailing="USDT" />
           </Field>
