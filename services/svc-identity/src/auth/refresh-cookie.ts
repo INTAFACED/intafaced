@@ -1,8 +1,9 @@
 /**
  * Browser refresh cookie.
  *
- * The access token stays in page memory. The refresh token is this cookie and
- * is not readable from script. Name is `ifc_rt` (not `__Host-` or `__Secure-`):
+ * The access token stays in page memory. The refresh token is also this
+ * httpOnly cookie, which script cannot read. Name is `ifc_rt` (not `__Host-`
+ * or `__Secure-`):
  * those prefixes require `Secure` on every host, and localhost dev omits
  * `Secure`. Each line has an exact Path, so the cookie is not attached to
  * trade, pay, or the WebSocket upgrade. The edge rewrites that path to the
@@ -22,12 +23,15 @@
  *   and logout.
  * - `auth.refresh` and `auth.logout` read this cookie when the body omits
  *   `refreshToken`. A body `refreshToken` still wins (API and mobile).
- * - A request that sends `Origin` is a browser: the JSON omits `refreshToken`.
- *   A request with no `Origin` still receives `refreshToken` in the JSON.
+ * - The JSON always includes `refreshToken`, including when the request
+ *   sends `Origin`. The customer app requires the field. Hiding it from the
+ *   page is a later change that must land with, or after, that app change.
+ *   The cookie is still set either way.
  * - Refuse codes: `auth.session_invalid`, `auth.session_reused` (HTTP 401,
  *   `error.data.intafacedCode`). Edge CSRF: `edge.origin_not_allowed` (HTTP 403).
  */
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { Readable } from 'node:stream';
+import type { FastifyInstance } from 'fastify';
 
 export const REFRESH_COOKIE_NAME = 'ifc_rt';
 /**
@@ -56,8 +60,6 @@ export interface RefreshCookieBag {
   issue(token: string, maxAgeSeconds: number): void;
   clear(): void;
 }
-
-export const refreshCookieAls = new AsyncLocalStorage<RefreshCookieBag>();
 
 export function refreshCookieSecure(host: string | undefined): boolean {
   const bare = (host ?? '')
@@ -145,6 +147,46 @@ export function openRefreshCookieBag(headers: {
     },
   };
   return bag;
+}
+
+/**
+ * Registers the cookie hooks and returns the per-request lookup.
+ *
+ * The bag lives on the request, then on the tRPC context. An ambient store
+ * does not survive Fastify's POST body parsing the same way on Node 22
+ * (the production image) and Node 26 (this machine). index.ts and the
+ * acceptance test both call this, so the test does not keep a second copy
+ * of the hooks.
+ */
+export function installRefreshCookieHooks(app: FastifyInstance): (req: object) => RefreshCookieBag | undefined {
+  const bags = new WeakMap<object, RefreshCookieBag>();
+  app.addHook('onRequest', (req, _reply, done) => {
+    // A refresh with no body has no Content-Type. Fastify refuses that with 415
+    // before the procedure can say the session is missing.
+    const path = req.url.split('?')[0] ?? '';
+    if (req.method === 'POST' && path.endsWith('/auth.refresh') && req.headers['content-type'] === undefined) {
+      req.headers['content-type'] = 'application/json';
+    }
+    bags.set(req, openRefreshCookieBag(req.headers));
+    done();
+  });
+  app.addHook('preParsing', (req, _reply, payload, done) => {
+    const path = req.url.split('?')[0] ?? '';
+    if (req.method === 'POST' && path.endsWith('/auth.refresh') && req.headers['content-length'] === '0') {
+      req.headers['content-length'] = String(Buffer.byteLength('{}'));
+      done(null, Readable.from(['{}']));
+      return;
+    }
+    done(null, payload);
+  });
+  app.addHook('onSend', async (req, reply, payload) => {
+    const lines = bags.get(req)?.setCookie;
+    if (lines) {
+      for (const line of lines) reply.header('set-cookie', line);
+    }
+    return payload;
+  });
+  return (req) => bags.get(req);
 }
 
 /**

@@ -673,6 +673,15 @@ export class AuthService {
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
+        // disable-user freezes the account and leaves sessions live, so the
+        // successor of a rotation inside the grace window is still usable.
+        // Refuse before any token is minted, and revoke that successor here.
+        if (session.user_status !== 'active') {
+          if (session.successor_id) {
+            await tx`UPDATE sessions SET revoked = true WHERE id = ${session.successor_id}`;
+          }
+          return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
+        }
         const grace = await this.graceTokens(tx, session);
         if (grace) return { kind: 'grace', tokens: grace };
         // A rotation stamps the predecessor. Presenting that token again,

@@ -1,5 +1,6 @@
 import { createHash, generateKeyPairSync, randomBytes, sign as cryptoSign, type KeyObject } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
+import http from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
@@ -12,14 +13,7 @@ import { createIdentityRouter } from '../router.js';
 import { AuthService, AuthError } from './auth-service.js';
 import { RankService } from '../rank/rank-service.js';
 import { createTestDb } from '../fixture-truncate.testkit.js';
-import {
-  openRefreshCookieBag,
-  refreshCookieAls,
-  cookiePathMatches,
-  REFRESH_COOKIE_NAME,
-  REFRESH_COOKIE_PATHS,
-  type RefreshCookieBag,
-} from './refresh-cookie.js';
+import { cookiePathMatches, installRefreshCookieHooks, REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATHS } from './refresh-cookie.js';
 import { hashToken } from './passwords.js';
 import { encodeCbor } from './cbor.js';
 import {
@@ -114,8 +108,8 @@ function softAuthenticator() {
   };
 }
 
-function cookieLines(res: { headers: Record<string, unknown> }): string[] {
-  const raw = res.headers['set-cookie'];
+function cookieLines(res: { headers: object }): string[] {
+  const raw = (res.headers as { 'set-cookie'?: unknown })['set-cookie'];
   const lines = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? [raw] : [];
   expect(lines).toHaveLength(REFRESH_COOKIE_PATHS.length);
   return lines;
@@ -145,6 +139,49 @@ function wireData(res: { json: () => unknown }): Record<string, unknown> {
   return body.result.data;
 }
 
+function httpPost(
+  port: number,
+  agent: http.Agent,
+  path: string,
+  body: string | undefined,
+  headers: Record<string, string>,
+): Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; json: () => unknown }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: 'POST',
+        path,
+        agent,
+        headers: {
+          host: 'localhost',
+          origin: 'http://localhost:3000',
+          ...headers,
+          ...(body === undefined
+            ? { 'content-type': 'application/json', 'content-length': '0' }
+            : { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) }),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            statusCode: res.statusCode ?? 0,
+            headers: res.headers,
+            json: () => JSON.parse(text) as unknown,
+          });
+        });
+      },
+    );
+    req.on('error', reject);
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
+}
+
 const available = await postgresAvailable(URL);
 
 if (!available) {
@@ -165,28 +202,21 @@ if (!available) {
   let n = 0;
   const unique = () => `sr${process.pid}${++n}`;
 
-  const bags = new WeakMap<object, RefreshCookieBag>();
   async function app(): Promise<FastifyInstance> {
     const router = createIdentityRouter(auth, rank, { registrationOpen: true, webauthnEnabled: true });
     const server = Fastify({ logger: false });
-    server.addHook('onRequest', (req, _reply, done) => {
-      const bag = openRefreshCookieBag(req.headers);
-      bags.set(req, bag);
-      refreshCookieAls.enterWith(bag);
-      refreshCookieAls.run(bag, () => done());
-    });
-    server.addHook('onSend', async (req, reply, payload) => {
-      const setCookie = bags.get(req)?.setCookie;
-      if (setCookie) {
-        for (const line of setCookie) reply.header('set-cookie', line);
-      }
-      return payload;
-    });
+    const refreshCookieOf = installRefreshCookieHooks(server);
     await server.register(fastifyTRPCPlugin, {
       prefix: '/trpc',
       trpcOptions: {
         router,
-        createContext: () => ({ principal: null, service: null, region: 'DE', requestId: 'req-session-restore' }),
+        createContext: ({ req }) => ({
+          principal: null,
+          service: null,
+          region: 'DE',
+          requestId: 'req-session-restore',
+          refreshCookie: refreshCookieOf(req) ?? null,
+        }),
       } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
     });
     await server.ready();
@@ -207,7 +237,7 @@ if (!available) {
     return handle;
   }
 
-  it('password sign-in sets an httpOnly Strict path-scoped cookie and hides the refresh token from a browser', async () => {
+  it('password sign-in sets an httpOnly Strict path-scoped cookie and returns the refresh token', async () => {
     const handle = await registerUser();
     const server = await app();
     try {
@@ -227,8 +257,8 @@ if (!available) {
       expect(lines.some((line) => line.toLowerCase().includes('domain='))).toBe(false);
       const token = cookieValue(lines);
       const body = wireData(browser);
-      expect(body.refreshToken).toBeUndefined();
-      expect(JSON.stringify(body)).not.toContain(token);
+      expect(lines.length).toBe(REFRESH_COOKIE_PATHS.length);
+      expect(body.refreshToken).toBe(token);
       expect(typeof body.accessToken).toBe('string');
 
       const secure = await server.inject({
@@ -271,7 +301,7 @@ if (!available) {
       expect(refreshed.statusCode).toBe(200);
       const second = cookieValue(cookieLines(refreshed));
       expect(second).not.toBe(first);
-      expect(JSON.stringify(wireData(refreshed))).not.toContain(second);
+      expect(wireData(refreshed).refreshToken).toBe(second);
       const access = wireData(refreshed).accessToken;
       expect(typeof access).toBe('string');
       await expect(verifyAccessToken(access as string, tokenConfig)).resolves.toMatchObject({ userId: expect.any(String) });
@@ -361,10 +391,69 @@ if (!available) {
       expect(lines.every((line) => line.includes('SameSite=Strict'))).toBe(true);
       expectCookiePaths(lines);
       const token = cookieValue(lines);
-      expect(JSON.stringify(wireData(res))).not.toContain(token);
+      expect(wireData(res).refreshToken).toBe(token);
       const principal = await verifyAccessToken(wireData(res).accessToken as string, tokenConfig);
       expect(principal.mfa).toBe(true);
     } finally {
+      await server.close();
+    }
+  });
+
+  it('grace refresh refuses a frozen account and revokes the successor', async () => {
+    const handle = await registerUser();
+    const t0 = await auth.login({ identifier: handle, password: PASSWORD });
+    const t1 = await auth.refresh(t0.refreshToken);
+    await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${t0.userId}`;
+    await expect(auth.refresh(t0.refreshToken)).rejects.toMatchObject({ code: 'auth.account_frozen' });
+    const successor = await db.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sessions WHERE id = ${t1.sessionId}`;
+    expect(successor[0]?.revoked).toBe(true);
+    await expect(auth.refresh(t1.refreshToken)).rejects.toThrow(AuthError);
+  });
+
+  it('two callers on one keep-alive socket each receive their own cookie', async () => {
+    const handleA = await registerUser();
+    const handleB = await registerUser();
+    const server = await app();
+    const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+    try {
+      await server.listen({ port: 0, host: '127.0.0.1' });
+      const address = server.server.address();
+      if (address === null || typeof address === 'string') throw new Error('expected a tcp port');
+      const port = address.port;
+      const loginA = await httpPost(port, agent, '/trpc/auth.login', JSON.stringify({ identifier: handleA, password: PASSWORD }), {});
+      const loginB = await httpPost(port, agent, '/trpc/auth.login', JSON.stringify({ identifier: handleB, password: PASSWORD }), {});
+      expect(loginA.statusCode).toBe(200);
+      expect(loginB.statusCode).toBe(200);
+      const cookieA = cookieValue(cookieLines(loginA));
+      const cookieB = cookieValue(cookieLines(loginB));
+      const userA = wireData(loginA).userId;
+      const userB = wireData(loginB).userId;
+      expect(userA).not.toBe(userB);
+
+      const refreshA = await httpPost(port, agent, '/trpc/auth.refresh', JSON.stringify({}), {
+        cookie: `${REFRESH_COOKIE_NAME}=${cookieA}`,
+      });
+      const refreshB = await httpPost(port, agent, '/trpc/auth.refresh', JSON.stringify({}), {
+        cookie: `${REFRESH_COOKIE_NAME}=${cookieB}`,
+      });
+      expect(refreshA.statusCode).toBe(200);
+      expect(refreshB.statusCode).toBe(200);
+      const setA = cookieValue(cookieLines(refreshA));
+      const setB = cookieValue(cookieLines(refreshB));
+      expect(setA).not.toBe(setB);
+      expect(setA).not.toBe(cookieA);
+      expect(setB).not.toBe(cookieB);
+      expect(wireData(refreshA).userId).toBe(userA);
+      expect(wireData(refreshB).userId).toBe(userB);
+      expect(wireData(refreshA).refreshToken).toBe(setA);
+      expect(wireData(refreshB).refreshToken).toBe(setB);
+
+      const missing = await httpPost(port, agent, '/trpc/auth.refresh', undefined, {});
+      expect(missing.statusCode).toBe(401);
+      const err = missing.json() as { error?: { data?: { intafacedCode?: string; cause?: { code?: string } } } };
+      expect(err.error?.data?.intafacedCode ?? err.error?.data?.cause?.code).toBe('auth.session_invalid');
+    } finally {
+      agent.destroy();
       await server.close();
     }
   });

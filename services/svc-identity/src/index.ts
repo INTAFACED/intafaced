@@ -48,7 +48,7 @@ import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
-import { openRefreshCookieBag, refreshCookieAls, type RefreshCookieBag } from './auth/refresh-cookie.js';
+import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
 import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
@@ -328,7 +328,7 @@ const identityRequestContext = createIdentityRequestContext({
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 auth.useLogger(app.log);
 
-const refreshCookieBags = new WeakMap<object, RefreshCookieBag>();
+const refreshCookieOf = installRefreshCookieHooks(app);
 
 app.addHook('onRequest', (req, _reply, done) => {
   const rawIp = req.headers['x-forwarded-for'] ?? req.headers['x-real-ip'];
@@ -337,22 +337,9 @@ app.addHook('onRequest', (req, _reply, done) => {
   const rawProduct = req.headers['x-product'];
   const productHeader = Array.isArray(rawProduct) ? rawProduct[0] : rawProduct;
   const clientProduct = typeof productHeader === 'string' ? productHeader.trim() : undefined;
-  const bag = openRefreshCookieBag(req.headers);
-  refreshCookieBags.set(req, bag);
-  refreshCookieAls.enterWith(bag);
-  refreshCookieAls.run(bag, () => {
-    requestIpAls.run(clientIp || undefined, () => {
-      requestProductAls.run(clientProduct || undefined, () => done());
-    });
+  requestIpAls.run(clientIp || undefined, () => {
+    requestProductAls.run(clientProduct || undefined, () => done());
   });
-});
-
-app.addHook('onSend', async (req, reply, payload) => {
-  const setCookie = refreshCookieBags.get(req)?.setCookie;
-  if (setCookie) {
-    for (const line of setCookie) reply.header('set-cookie', line);
-  }
-  return payload;
 });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
@@ -524,7 +511,8 @@ await app.register(fastifyTRPCPlugin, {
       // Origin for apiKeys.exchange domain_whitelist (edge-forwarded; not body).
       const raw = req.headers.origin ?? req.headers['x-forwarded-origin'];
       const clientOrigin = Array.isArray(raw) ? raw[0] : raw;
-      return clientOrigin ? { ...base, clientOrigin } : base;
+      const refreshCookie = refreshCookieOf(req) ?? null;
+      return clientOrigin ? { ...base, clientOrigin, refreshCookie } : { ...base, refreshCookie };
     },
   } satisfies FastifyTRPCPluginOptions<AppRouter>['trpcOptions'],
 });
