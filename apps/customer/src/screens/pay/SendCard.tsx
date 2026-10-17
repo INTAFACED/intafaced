@@ -277,7 +277,9 @@ function SendForm({
   useEffect(() => {
     if (!prefill || prefillKey === '' || appliedLink.current === prefillKey) return;
     appliedLink.current = prefillKey;
-    const notices: string[] = [prefill.note ? personal.t('requestBanner', { note: prefill.note }) : personal.t('requestBannerPlain')];
+    // The warning is always shown first. The link's own words are quoted after it and never replace it.
+    const notices: string[] = [personal.t('requestBannerPlain')];
+    if (prefill.note) notices.push(personal.t('requestBanner', { note: prefill.note }));
     lookup.current.id += 1;
     lookup.current.controller?.abort();
     lookup.current.controller = null;

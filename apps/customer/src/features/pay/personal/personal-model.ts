@@ -52,9 +52,11 @@ export function requestPath(input: { to: string; amount?: string | null; asset?:
   const params = new URLSearchParams();
   params.set('to', input.to);
   const amount = cleanAmount(input.amount);
-  if (amount) params.set('amount', amount);
   const asset = (input.asset ?? '').trim().toUpperCase();
-  if (asset && ASSET.test(asset)) params.set('asset', asset);
+  if (asset && ASSET.test(asset)) {
+    if (amount) params.set('amount', amount);
+    params.set('asset', asset);
+  }
   const note = cleanNote(input.note);
   if (note) params.set('note', note);
   return `/pay/send?${params.toString()}`;
@@ -71,10 +73,12 @@ export function parseRequestSearch(search: string): PaymentRequest | null {
   const who = payee(params.get('to'));
   if (!who) return null;
   const asset = (params.get('asset') ?? '').trim().toUpperCase();
+  const knownAsset = ASSET.test(asset) ? asset : null;
   return {
     ...who,
-    amount: cleanAmount(params.get('amount')),
-    asset: ASSET.test(asset) ? asset : null,
+    // An amount with no asset means nothing (which balance?), so it is dropped.
+    amount: knownAsset ? cleanAmount(params.get('amount')) : null,
+    asset: knownAsset,
     note: cleanNote(params.get('note')),
   };
 }
@@ -270,10 +274,8 @@ export function applyPrefill(
   request: PaymentRequest,
   sources: readonly Source[],
 ): { sourceId: string | null; amount: string; problem: null | 'assetNotHeld' | 'amountTooLarge' } {
-  if (!request.asset) {
-    const first = sources[0] ?? null;
-    return { sourceId: null, amount: first && request.amount && fits(request.amount, first.balance) ? request.amount : '', problem: null };
-  }
+  // An amount without an asset says nothing about which balance it is in, so it is never filled.
+  if (!request.asset) return { sourceId: null, amount: '', problem: null };
   const match = sources.find((row) => row.asset === request.asset) ?? null;
   if (!match) return { sourceId: null, amount: '', problem: request.amount ? 'assetNotHeld' : null };
   if (request.amount && !fits(request.amount, match.balance)) return { sourceId: match.id, amount: '', problem: 'amountTooLarge' };

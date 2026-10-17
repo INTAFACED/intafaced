@@ -82,9 +82,13 @@ describe('payment links', () => {
     expect(parseRequestSearch('?amount=5')).toBeNull();
     expect(parseRequestSearch('?to=not+valid')).toBeNull();
   });
+  it('drops an amount that comes without an asset', () => {
+    expect(parseRequestSearch('?to=maya_test&amount=5')).toMatchObject({ amount: null, asset: null });
+    expect(requestPath({ to: 'maya_test', amount: '5' })).toBe('/pay/send?to=maya_test');
+  });
   it('only reads this app’s own /pay/send links', () => {
     const origin = 'https://app.example.test';
-    expect(parseRequestLink(`${origin}/pay/send?to=maya_test&amount=2`, origin)?.amount).toBe('2');
+    expect(parseRequestLink(`${origin}/pay/send?to=maya_test&amount=2&asset=USDT`, origin)?.amount).toBe('2');
     expect(parseRequestLink('/pay/send/?to=maya_test', origin)?.to).toBe('maya_test');
     expect(parseRequestLink('https://evil.example/pay/send?to=maya_test', origin)).toBeNull();
     expect(parseRequestLink(`${origin}/pay/receive?to=maya_test`, origin)).toBeNull();
@@ -193,9 +197,8 @@ describe('applyPrefill', () => {
       problem: 'amountTooLarge',
     });
   });
-  it('with no asset, keeps the default source and an amount that fits it', () => {
-    expect(applyPrefill({ ...base, amount: '9.99' }, sources)).toEqual({ sourceId: null, amount: '9.99', problem: null });
-    expect(applyPrefill({ ...base, amount: '99' }, sources)).toEqual({ sourceId: null, amount: '', problem: null });
+  it('with no asset, never fills an amount', () => {
+    expect(applyPrefill({ ...base, amount: '9.99' }, sources)).toEqual({ sourceId: null, amount: '', problem: null });
     expect(applyPrefill(base, [])).toEqual({ sourceId: null, amount: '', problem: null });
   });
 });

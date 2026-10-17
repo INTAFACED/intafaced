@@ -225,13 +225,16 @@ export function OrderFilterTabs({
     [t('ordersCancelled'), 'cancelled'],
   ];
   return (
-    <div className="p2p-seg" role="group" aria-label={t('ordersFilterLabel')} data-testid="order-filters">
-      {tabs.map(([label, key]) => (
-        <button key={key} type="button" aria-pressed={value === key} onClick={() => onChange(key)}>
-          {`${label} (${counts[key]})`}
-        </button>
-      ))}
-    </div>
+    <>
+      <div className="p2p-seg" role="group" aria-label={t('ordersFilterLabel')} data-testid="order-filters">
+        {tabs.map(([label, key]) => (
+          <button key={key} type="button" aria-pressed={value === key} onClick={() => onChange(key)}>
+            {`${label} (${counts[key]})`}
+          </button>
+        ))}
+      </div>
+      <p className="muted">{t('ordersCountsNote')}</p>
+    </>
   );
 }
 

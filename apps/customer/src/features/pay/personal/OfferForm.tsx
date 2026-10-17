@@ -73,9 +73,16 @@ function EditLive({ pay, userId, offerId }: { pay: PersonalPayApi; userId: strin
     <PayState resource={offer.resource} retry={offer.reload}>
       {(live) => (
         <>
-          {live.makerId !== userId ? <p className="error-text">{t('editNotYours')}</p> : null}
-          {live.status === 'closed' ? <p className="muted">{t('editClosed')}</p> : null}
-          <Fields key={live.id} pay={pay} baseline={offerToForm(live)} mode="edit" />
+          {live.makerId !== userId ? (
+            <p className="error-text" data-testid="offer-not-yours">
+              {t('editNotYours')}
+            </p>
+          ) : (
+            <>
+              {live.status === 'closed' ? <p className="muted">{t('editClosed')}</p> : null}
+              <Fields key={live.id} pay={pay} baseline={offerToForm(live)} mode="edit" />
+            </>
+          )}
         </>
       )}
     </PayState>
