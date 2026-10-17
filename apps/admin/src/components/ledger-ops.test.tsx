@@ -62,7 +62,7 @@ describe('freeze and unfreeze take two founders', () => {
     expect(html).toContain(`<code>${FREEZE_CONFIRM_PHRASE}</code>`);
     expect(html).not.toContain(`<code>${UNFREEZE_CONFIRM_PHRASE}</code> to confirm`);
     expect(html).toContain('Ask a second founder to approve the freeze');
-    expect(html).toContain('Two different current founders must agree');
+    expect(html).toContain('Two different operators must agree');
     // The request button starts disabled: no reason, nothing typed.
     expect(html).toMatch(/<button type="submit"[^>]*disabled=""[^>]*>Ask a second founder to approve the freeze/);
   });
