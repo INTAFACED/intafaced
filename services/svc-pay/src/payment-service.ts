@@ -329,6 +329,8 @@ export type PayErrorCode =
   | 'pay.payout_destination_not_found'
   /** Remove refused: a payout that still names this destination has not finished. */
   | 'pay.payout_destination_in_flight'
+  /** Remove refused: a verified destination changes only through step-up plus the hold. */
+  | 'pay.payout_destination_verified_locked'
   /** Refund list page size unpublished. Blank is not 50. */
   | 'pay.refund_list_limit_unset'
   /** Statement page size unpublished. Blank is not 50. */
@@ -5795,7 +5797,7 @@ export class PayService {
     return setDefaultMerchantPayoutDestination(this.sql, input, (message, code) => this.portalFail(message, code));
   }
 
-  /** Owner write. Refuses while a payout that names this destination is in flight. */
+  /** Unverified rows only. A verified destination is refused. An in-flight payout still blocks an unverified row. */
   removePayoutDestination(input: { merchantId: string; destinationId: string }) {
     return removeMerchantPayoutDestination(this.sql, input, (message, code) => this.portalFail(message, code));
   }

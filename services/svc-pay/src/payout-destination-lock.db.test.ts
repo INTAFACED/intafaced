@@ -2,13 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
+import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
+import type { ActionApproval, ActionApprovalConsumeInput, Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ActionApprovalConsumer } from './action-approval-consume.js';
 import { MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
 import { PayService } from './payment-service.js';
+import { createPayRouter } from './router.js';
+import { UserMoneyService } from './user-money-service.js';
 import {
   PAY_DESTINATION_STEP_UP,
   PayoutDestinationChange,
@@ -28,6 +31,12 @@ const migrations = readdirSync(drizzleDir)
   .map((name) => readFileSync(join(drizzleDir, name), 'utf8'));
 
 const SECRET = 'svc-pay-payout-dest-lock-secret-at-least-32';
+const authConfig = {
+  secret: 'a-test-signing-secret-that-is-long-enough',
+  issuer: 'intafaced',
+  audience: 'intafaced.api',
+  accessTtlSeconds: 900,
+};
 const A = '0x0000000000000000000000000000000000000f01';
 const B = '0x0000000000000000000000000000000000000f02';
 const RAIL = 'crypto-native';
@@ -36,6 +45,23 @@ function openAdmin(): { url: string; stop: () => Promise<void> } {
   const url = process.env.TEST_DATABASE_URL?.trim();
   if (!url) throw new Error('TEST_DATABASE_URL is required');
   return { url, stop: async () => undefined };
+}
+
+async function ownerContext(userId: string): Promise<Context> {
+  const { token } = await issueAccessToken(
+    { userId, sessionId: randomUUID(), scopes: ['pay:read', 'pay:write'], tier: 'full', mfa: true },
+    authConfig,
+  );
+  return { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: randomUUID() };
+}
+
+async function refused(run: Promise<unknown>): Promise<{ trpc?: string; pay?: string; value?: unknown }> {
+  try {
+    return { value: await run };
+  } catch (err) {
+    const error = err as { code?: string; message?: string };
+    return { trpc: error.code, pay: /pay\.[a-z0-9_.]+/.exec(error.message ?? '')?.[0] };
+  }
 }
 
 function acceptingApprovals(): ActionApprovalConsumer {
@@ -251,5 +277,79 @@ describe('payout destination lock', () => {
     const paidNew = await pay.payoutSettlement({ settlementId: second.id, railId: RAIL });
     expect(paidNew.status).toBe('paid_out');
     expect(chain.outboundTransfers().at(-1)?.to).toBe(B);
+  });
+
+  it('refuses to remove a verified destination, and a blank hold still refuses the replacement', async () => {
+    const previousHold = process.env.PAY_DESTINATION_HOLD_SECONDS;
+    delete process.env.PAY_DESTINATION_HOLD_SECONDS;
+    try {
+      const owner = randomUUID();
+      const merchant = await pay.createMerchant({ userId: owner, pricing: { feeBps: 0 } });
+      await book.seedVerified({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: A });
+      const [row] = await sql<Array<{ id: string; ref: string; verified: boolean }>>`
+        SELECT id, ref, verified FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}
+      `;
+      expect(row).toMatchObject({ ref: A, verified: true });
+      const rails = new RailRegistry([new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 })]);
+      const caller = createPayRouter(
+        pay,
+        rails,
+        new UserMoneyService(sql, ledger, rails, { operatorCreditRails: [] }),
+        null,
+        book,
+        acceptingApprovals(),
+        null,
+        undefined,
+        sql,
+      ).createCaller(await ownerContext(owner));
+
+      const removal = await refused(caller.merchant.payoutDestinations.remove({ merchantId: merchant.id, destinationId: row!.id }));
+      expect(removal).toEqual({ trpc: 'CONFLICT', pay: 'pay.payout_destination_verified_locked' });
+      const [kept] = await sql<Array<{ ref: string; verified: boolean }>>`
+        SELECT ref, verified FROM pay.merchant_payout_destinations WHERE id = ${row!.id}
+      `;
+      expect(kept).toEqual({ ref: A, verified: true });
+
+      const change = await refused(
+        caller.merchant.setPayoutDestination({
+          merchantId: merchant.id,
+          railId: RAIL,
+          kind: 'crypto',
+          ref: B,
+          stepUpApprovalId: 'ok',
+        }),
+      );
+      expect(change).toEqual({ trpc: 'PRECONDITION_FAILED', pay: 'pay.destination_hold_unset' });
+      expect((await book.require({ merchantId: merchant.id, railId: RAIL })).ref).toBe(A);
+    } finally {
+      if (previousHold === undefined) delete process.env.PAY_DESTINATION_HOLD_SECONDS;
+      else process.env.PAY_DESTINATION_HOLD_SECONDS = previousHold;
+    }
+  });
+
+  it('still removes an unverified destination', async () => {
+    const owner = randomUUID();
+    const merchant = await pay.createMerchant({ userId: owner, pricing: { feeBps: 0 } });
+    await book.persist({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: A });
+    const [row] = await sql<Array<{ id: string; verified: boolean }>>`
+      SELECT id, verified FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}
+    `;
+    expect(row?.verified).toBe(false);
+    const rails = new RailRegistry([new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 })]);
+    const caller = createPayRouter(
+      pay,
+      rails,
+      new UserMoneyService(sql, ledger, rails, { operatorCreditRails: [] }),
+      null,
+      book,
+      acceptingApprovals(),
+      null,
+      undefined,
+      sql,
+    ).createCaller(await ownerContext(owner));
+    expect(await caller.merchant.payoutDestinations.remove({ merchantId: merchant.id, destinationId: row!.id })).toEqual({
+      removed: true,
+    });
+    expect(await sql`SELECT id FROM pay.merchant_payout_destinations WHERE id = ${row!.id}`).toHaveLength(0);
   });
 });

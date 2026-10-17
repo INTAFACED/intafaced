@@ -860,8 +860,11 @@ export function createPayRouter(
        * so that field stays `not_recorded`. A default flag is `default` only
        * after the owner marks the row, otherwise `unset`.
        * `change` and `merchant.setPayoutDestination` are the step-up door.
-       * set-default and remove are owner writes: no second approval.
-       * Remove refuses while a payout that names the destination is in flight.
+       * Remove applies only to unverified rows. A verified destination
+       * changes only through step-up plus the hold. set-default is an owner
+       * write and does not change the paid ref.
+       * Remove of an unverified row refuses while a payout that names the
+       * destination is in flight.
        */
       payoutDestinations: router({
         change: scopedProcedure('pay:write', { module: 'pay' })
@@ -2290,6 +2293,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.chargeback_plan_conflict':
       case 'pay.settlement_in_flight':
       case 'pay.payout_destination_in_flight':
+      case 'pay.payout_destination_verified_locked':
       case 'pay.settlement_desynced':
       case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':
