@@ -37,6 +37,7 @@ import { isActiveMerchant, programmeVouch, reputationOnPublicDoor } from './merc
 import type { MerchantEvent, MerchantRecord, MerchantService } from './merchant-service.js';
 import { BlockRfqError, type BlockRfqService } from './block-rfq.js';
 import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
+import { instrumentKeyHealth } from './instrument-key-provider.js';
 
 export type P2pRouterOptions = {
   /** Natural-person ids from `P2P_MODERATOR_USER_IDS`. Empty = unconfigured. */
@@ -50,6 +51,11 @@ export type P2pRouterOptions = {
   blockRfq?: BlockRfqService;
   /** Identity action-bound approval. Unset → refuse-closed (no invented second person). */
   approvals?: ActionApprovalConsumer;
+  /**
+   * `local-test` lets `offers.create` run. Anything else keeps today's refusal.
+   * This is not owner KMS: health still reports `instrumentKmsConfigured: false`.
+   */
+  instrumentKeyProvider?: 'none' | 'local-test';
   /**
    * Public handle and member-since from identity. Unset → reputation.get names
    * `p2p.public_profile_unwired` and returns nulls. Never a made-up handle.
@@ -750,6 +756,8 @@ export function createP2pRouter(
            * protection without the substance.
            */
           instrumentKmsConfigured: z.literal(false),
+          /** `local-test` is a test seal, not a configured KMS. */
+          instrumentKeyProvider: z.enum(['none', 'local-test']),
         }),
       )
       .query(() => ({
@@ -758,7 +766,7 @@ export function createP2pRouter(
         ...moderationPublic,
         offerLimitsConfigured,
         offerLimitsPosture: offerLimitsPostureValue,
-        instrumentKmsConfigured: false as const,
+        ...instrumentKeyHealth(options.instrumentKeyProvider),
       })),
 
     /**
@@ -810,7 +818,28 @@ export function createP2pRouter(
             }),
         )
         .output(offerOutput)
-        .mutation(async () => guard(async () => refuseLiveOffersUntilOwnerKms())),
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+            return presentOffer(
+              await p2p.createOffer({
+                makerId: ctx.principal.userId,
+                side: input.side,
+                asset: input.asset,
+                fiatCurrency: input.fiatCurrency,
+                priceType: input.priceType,
+                price: parseAmount(input.price),
+                minAmt: parseAmount(input.minAmount),
+                maxAmt: parseAmount(input.maxAmount),
+                ...(input.totalAmount === undefined ? {} : { totalAmt: parseAmount(input.totalAmount) }),
+                methods: input.methods,
+                ...(input.terms === undefined ? {} : { terms: input.terms }),
+                ...(input.offerId === undefined ? {} : { offerId: input.offerId }),
+                ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+              }),
+            );
+          }),
+        ),
 
       list: merchantApiProcedure('p2p:read')
         .input(z.object(offerListShape).optional())

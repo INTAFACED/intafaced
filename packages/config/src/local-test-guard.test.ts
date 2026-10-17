@@ -113,6 +113,27 @@ describe.each(ENV_MATRIX)('assertNoLocalTestFixtures under APP_ENV=%s', (_label,
   });
 });
 
+describe('LOCAL_TEST_KMS outside explicit dev/test', () => {
+  it('refuses a production-shaped env that sets the flag', () => {
+    const env = { APP_ENV: 'production', NODE_ENV: 'production', LOCAL_TEST_KMS: '1' };
+    expect(() => assertNoLocalTestFixtures(env)).toThrow(LocalTestFixtureError);
+    try {
+      assertNoLocalTestFixtures(env);
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(LocalTestFixtureError);
+      const err = e as LocalTestFixtureError;
+      expect(err.code).toBe('config.local_test_fixture_outside_dev_test');
+      expect(err.issues).toContain('LOCAL_TEST_KMS is set');
+    }
+  });
+
+  it('does not treat the flag as a stand-in when APP_ENV is exactly dev or test', () => {
+    expect(localTestFixtureIssues({ APP_ENV: 'dev', LOCAL_TEST_KMS: '1' })).toEqual([]);
+    expect(localTestFixtureIssues({ APP_ENV: 'test', LOCAL_TEST_KMS: '1' })).toEqual([]);
+  });
+});
+
 describe('error shape', () => {
   it('names the env, the code, and says unset counts as not dev', () => {
     try {

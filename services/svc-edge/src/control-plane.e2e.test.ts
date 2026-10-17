@@ -932,7 +932,7 @@ describe('emissions off: the mint fails closed', () => {
 
     const res = await h.app.inject({ method: 'POST', url: '/api/token/trpc/emissions.mintEpoch' });
     expect(res.statusCode).toBeGreaterThanOrEqual(500);
-    // The S2S mint is not a public door — 404 here, never a 200 that reached token.
+    // The internal mint is not a public door — 404 here, never a 200 that reached token.
     const s2s = await h.app.inject({ method: 'POST', url: '/api/token/internal/emissions/mint-next' });
     expect(s2s.statusCode).toBe(404);
     expect(s2s.json()).toMatchObject({ code: 'edge.s2s_not_proxied' });
@@ -940,7 +940,7 @@ describe('emissions off: the mint fails closed', () => {
   });
 });
 
-describe('S2S /internal/ is not a public door', () => {
+describe('service /internal/ is not a public door', () => {
   it('404s pay/identity/token internals even when the module is live', async () => {
     const h = await edge();
     for (const url of [

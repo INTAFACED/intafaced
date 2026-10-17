@@ -45,6 +45,11 @@ const schema = baseEnvSchema
        */
       MATCHING_URL: blankAsAbsent(z.string().url().optional()),
       /**
+       * Identity base for founder execution halt consume. Blank → halt refuses
+       * action_approval.identity_unwired. In-flight read does not need it.
+       */
+      IDENTITY_URL: blankAsAbsent(z.string().url().optional()),
+      /**
        * JSONL path for durable EMS ack journal. Parent/pause/fill journals sit beside it.
        * Blank → boot throws execution.algo_store_path_unset (never in-memory parents/pauses/fills).
        * Tests inject in-memory stores; they do not boot this process.

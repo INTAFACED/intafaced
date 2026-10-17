@@ -131,6 +131,7 @@ registerRoutes(app, engine, env.INTERNAL_SERVICE_SECRET, {
   rulebookVersion: env.MATCHING_RULEBOOK_VERSION,
   approvals: actionApprovals,
   operatorIds: parseOperatorIds(env.MATCHING_OPERATOR_IDS),
+  ...(env.EDGE_PRINCIPAL_SECRET ? { edgePrincipalSecret: env.EDGE_PRINCIPAL_SECRET } : {}),
 });
 
 const holds = env.LEDGER_URL

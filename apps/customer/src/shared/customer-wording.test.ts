@@ -15,6 +15,7 @@ import '../features/more/copy';
 import '../features/more/academy-grant-copy';
 import '../features/more/agents-session-copy';
 import '../features/more/blueprint-crew-copy';
+import '../features/more/blueprint-session-copy';
 import '../features/more/blueprint-shared-card-copy';
 import '../features/more/campaigns-depth-copy';
 import '../features/more/launch-copy';
@@ -96,6 +97,7 @@ const CHECKED = new Set([
   'academy-grant',
   'more.agentSessions',
   'more.blueprintCrew',
+  'more.blueprint.session',
   'more.blueprintSharedCard',
   'more.campaigns.depth',
   'more.launch.availability',

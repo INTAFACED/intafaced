@@ -204,8 +204,8 @@ describe('delegation — an API key cannot exceed the session that minted it', (
     // stored it verbatim. Any logged-in account could mint a key holding
     // `admin:compliance`, approve its own KYC record to `institutional`, and
     // clear the tier gate on every custodial module in the platform.
-    expect(() => assertDelegatableScopes(['admin:compliance'], [...SESSION_SCOPES])).toThrow(/does not hold/);
-    expect(() => assertDelegatableScopes(['admin:write'], [...SESSION_SCOPES])).toThrow(/does not hold/);
+    expect(() => assertDelegatableScopes(['admin:compliance'], [...SESSION_SCOPES])).toThrow(/cannot be granted to an API key/);
+    expect(() => assertDelegatableScopes(['admin:write'], [...SESSION_SCOPES])).toThrow(/cannot be granted to an API key/);
   });
 
   it('allows a key to carry what its session actually holds', () => {
@@ -297,6 +297,92 @@ describe('guards', () => {
   it('requires MFA explicitly', async () => {
     const p = await principal({ mfa: false });
     expect(() => requireMfa(p)).toThrow(AuthError);
+  });
+
+  it('refuses a key-authenticated request carrying admin:write', async () => {
+    const keyed = await principal({
+      scopes: ['admin:write', 'trade:read'],
+      mfa: true,
+      apiKeyId: '55555555-5555-4555-8555-555555555555',
+    });
+    expect(keyed.kid).toBe('55555555-5555-4555-8555-555555555555');
+
+    expect(() => requireScope(keyed, 'admin:write')).toThrow(AuthError);
+    try {
+      requireScope(keyed, 'admin:write');
+    } catch (err) {
+      expect(err).toMatchObject({ code: 'scope.interactive_only' });
+    }
+    // The same key still uses the scopes that are allowed on a long-lived key.
+    expect(() => requireScope(keyed, 'trade:read')).not.toThrow();
+  });
+
+  it('refuses desk scopes on a key even when the token claims MFA', async () => {
+    const keyId = '66666666-6666-4666-8666-666666666666';
+    for (const scope of ['admin:read', 'admin:write', 'admin:compliance', 'admin:treasury', 'support:ops', 'market:ops'] as const) {
+      const keyed = await principal({ scopes: [scope], mfa: true, apiKeyId: keyId });
+      let thrown: unknown;
+      try {
+        requireScope(keyed, scope);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown, scope).toMatchObject({ code: 'scope.interactive_only' });
+    }
+  });
+
+  it('lets a founder session use desk scopes interactively', async () => {
+    const session = await principal({
+      scopes: ['admin:read', 'admin:write', 'admin:treasury', 'support:ops', 'market:ops', 'admin:compliance'],
+      mfa: true,
+    });
+    expect(session.kid).toBeUndefined();
+    expect(() => requireScope(session, 'admin:write')).not.toThrow();
+    expect(() => requireScope(session, 'admin:read')).not.toThrow();
+    expect(() => requireScope(session, 'support:ops')).not.toThrow();
+    expect(() => requireScope(session, 'admin:treasury')).not.toThrow();
+    expect(() => requireScope(session, 'market:ops')).not.toThrow();
+    expect(() => requireScope(session, 'admin:compliance')).not.toThrow();
+  });
+
+  it('still lets a founder read the desk before MFA', async () => {
+    const session = await principal({ scopes: ['admin:read', 'support:ops', 'admin:treasury'], mfa: false });
+    expect(() => requireScope(session, 'admin:read')).not.toThrow();
+    expect(() => requireScope(session, 'support:ops')).not.toThrow();
+    let thrown: unknown;
+    try {
+      requireScope(session, 'admin:treasury');
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toMatchObject({ code: 'mfa.required' });
+  });
+
+  it('keeps pay:onboard off a key and still demands 2FA on a session', async () => {
+    const session = await principal({ scopes: ['pay:onboard'], mfa: false });
+    let withoutMfa: unknown;
+    try {
+      requireScope(session, 'pay:onboard');
+    } catch (err) {
+      withoutMfa = err;
+    }
+    expect(withoutMfa).toMatchObject({ code: 'mfa.required' });
+
+    const stepped = await principal({ scopes: ['pay:onboard'], mfa: true });
+    expect(() => requireScope(stepped, 'pay:onboard')).not.toThrow();
+
+    const keyed = await principal({
+      scopes: ['pay:onboard'],
+      mfa: true,
+      apiKeyId: '77777777-7777-4777-8777-777777777777',
+    });
+    let fromKey: unknown;
+    try {
+      requireScope(keyed, 'pay:onboard');
+    } catch (err) {
+      fromKey = err;
+    }
+    expect(fromKey).toMatchObject({ code: 'scope.interactive_only' });
   });
 });
 
