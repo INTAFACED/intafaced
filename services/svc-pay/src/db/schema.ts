@@ -819,10 +819,15 @@ export const merchantPayoutDestinations = pay.table(
     railId: text('rail_id').notNull(),
     kind: text('kind').notNull(),
     ref: text('ref').notNull(),
+    /** Page key for the inventory cursor. Not a second destination. */
+    id: uuid('id').notNull().defaultRandom(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] })],
+  (t) => [
+    primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] }),
+    uniqueIndex('merchant_payout_destinations_id_idx').on(t.id),
+  ],
 );
 
 const evidenceBytea = customType<{ data: Buffer; driverData: Buffer }>({
@@ -910,6 +915,23 @@ export const merchantInvoices = pay.table(
   (t) => [index('merchant_invoices_list_idx').on(t.merchantId, t.createdAt, t.id)],
 );
 
+/**
+ * One screening case per custodial send. Status is clear, review, refuse, or
+ * unavailable. Factors are codes only: no name, address, or list contents.
+ */
+export const screeningCases = pay.table(
+  'screening_cases',
+  {
+    subjectKind: text('subject_kind').notNull(),
+    subjectKey: text('subject_key').notNull(),
+    status: text('status').notNull(),
+    factors: jsonb('factors').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ name: 'screening_cases_pkey', columns: [t.subjectKind, t.subjectKey] })],
+);
+
 export const merchantInvoiceActions = pay.table(
   'merchant_invoice_actions',
   {
@@ -923,9 +945,23 @@ export const merchantInvoiceActions = pay.table(
   (t) => [primaryKey({ name: 'merchant_invoice_actions_pkey', columns: [t.merchantId, t.requestId] })],
 );
 
+/**
+ * One in-flight merchant statement scan. Not a balance. The scan deletes its
+ * row when it finishes. `expires_at` is only the bound after which a crashed
+ * scan can be replaced.
+ */
+export const merchantStatementLeases = pay.table('merchant_statement_leases', {
+  merchantId: uuid('merchant_id')
+    .primaryKey()
+    .references(() => merchants.id, { onDelete: 'cascade' }),
+  leaseId: uuid('lease_id').notNull(),
+  expiresAt: tstz('expires_at').notNull(),
+});
+
 export const schema = {
   merchants,
   merchantPayoutDestinations,
+  merchantStatementLeases,
   merchantPermissionEvents,
   paymentProfiles,
   paymentLinks,
@@ -949,4 +985,5 @@ export const schema = {
   merchantDisputeEvidenceContent,
   merchantInvoices,
   merchantInvoiceActions,
+  screeningCases,
 };

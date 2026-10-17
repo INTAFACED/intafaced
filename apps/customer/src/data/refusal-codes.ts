@@ -34,9 +34,15 @@ export type RefusalKind =
   | 'priceInvalid'
   | 'belowMinimum'
   | 'selfTrade'
+  | 'orderTypeUnsupported'
+  | 'postOnlyWouldCross'
+  | 'fokUnfillable'
+  | 'tifInvalid'
+  | 'ordersPaused'
   | 'accountOnHold'
   | 'notFound'
   | 'duplicate'
+  | 'notSetUp'
   | 'unknown';
 
 /** Exact codes first. */
@@ -89,6 +95,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.price_not_accepted': 'priceMoved',
   'trade.convert_quote_expired': 'quoteExpired',
   'trade.convert_insufficient_depth': 'insufficientDepth',
+  'trade.matching_market_missing': 'noBook',
   // A size the screen should never send (both or neither of qty and quoteQty): an internal mistake, not the customer's.
   'trade.convert_invalid_qty': 'quoteFailed',
 
@@ -109,6 +116,15 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.outside_collar': 'priceInvalid',
   'trade.missing_collar': 'priceInvalid',
   'trade.self_trade': 'selfTrade',
+  'trade.order_type_unsupported': 'orderTypeUnsupported',
+  'trade.post_only_would_cross': 'postOnlyWouldCross',
+  post_only_would_cross: 'postOnlyWouldCross',
+  'trade.fok_unfillable': 'fokUnfillable',
+  fok_unfillable: 'fokUnfillable',
+  'trade.invalid_tif': 'tifInvalid',
+  'trade.orders_paused': 'ordersPaused',
+  'trade.below_min_notional': 'belowMinimum',
+  'trade.below_min_qty': 'belowMinimum',
 
   'trade.market_not_found': 'notFound',
   'bank.space_not_found': 'notFound',
@@ -131,6 +147,7 @@ const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
   ['denied.', 'screening'],
   ['kyc.', 'verify'],
   ['kyc_', 'verify'],
+  ['token.params_', 'notSetUp'],
   ['trade.lifecycle', 'marketNotOpen'],
   ['trade.market_', 'marketNotOpen'],
   ['trade.venue_', 'marketNotOpen'],
@@ -141,7 +158,12 @@ const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
   ['trade.fx_', 'marketNotOpen'],
 ];
 
-const SUFFIXES: ReadonlyArray<readonly [suffix: string, kind: RefusalKind]> = [['.tier_required', 'verify']];
+// `*_unset` / `*_unwired` are the services' "an operator has not configured this yet" refusals.
+const SUFFIXES: ReadonlyArray<readonly [suffix: string, kind: RefusalKind]> = [
+  ['.tier_required', 'verify'],
+  ['_unset', 'notSetUp'],
+  ['_unwired', 'notSetUp'],
+];
 
 /** Sort a service code into a kind; unknown and empty codes are `unknown`. */
 export function classifyRefusal(code: string | null | undefined): RefusalKind {

@@ -7,6 +7,7 @@
  */
 
 import { formatAmount, mulBps, parseAmount, recipes, type Amount, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { COPY_FEE_SHARE_RESIDUAL, CopyError } from './errors.js';
 import { requirePublishedCopyFeeShareLaw, type CopyFeeShareLaw } from './fee-share-law.js';
 
@@ -188,8 +189,9 @@ export async function postCopyFeeShareSettle(ledger: LedgerClient, plan: FeeShar
 
 /** Explicit ban — any P&L-linked fee is forbidden in v1 (SPEC §3). */
 export function refusePnlLinkedCopyFee(): never {
+  logRefusalSpec('trade.copy_pnl_fee_forbidden');
   throw new CopyError(
-    'P&L-linked copy fees (performance / HWM / success) are forbidden — volume fee-share only after §8 rates',
+    'Copy trading does not charge a fee on profit. Only a share of the trading fee is allowed, and that share is not set.',
     'trade.copy_pnl_fee_forbidden',
     COPY_FEE_SHARE_RESIDUAL,
   );

@@ -8,6 +8,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readProcessIdentity } from './local-test-state.mjs';
 import {
   GuardError,
   assertLocalTarget,
@@ -176,7 +177,11 @@ try {
   mkdirSync(supRun, { recursive: true });
   mkdirSync(join(supState, 'logs'), { recursive: true });
   writeFileSync(join(supState, 'LOCAL-TEST-STACK.json'), marker({ ports: { edge: 14500, closed: deadEdge } }));
-  const setPid = (pid, extra = {}) => writeFileSync(pidFile, JSON.stringify({ pid, startedAt: '2026-10-14T00:00:00.000Z', ...extra }));
+  const setPid = (pid, extra = {}) => {
+    const fake = fakes.find((child) => child.pid === pid);
+    const startedAt = fake ? new Date(readProcessIdentity(pid).startedAt).toISOString() : '2026-10-14T00:00:00.000Z';
+    writeFileSync(pidFile, JSON.stringify({ pid, startedAt, ...(fake ? { argv: fake.spawnargs } : {}), ...extra }));
+  };
 
   // 9a. A stray word never starts a copy (`pnpm local:market status` once meant `start status`).
   let r = run(sup, ['start', 'status']);
@@ -232,6 +237,13 @@ try {
   assert.match(r.stderr, /background test market is running/);
 
   // 9d. stop: ends the process and forgets it, so ensure then leaves it off.
+  // PID reuse with the exact same argv must not authorize a signal.
+  setPid(fake.pid, { startedAt: '2026-10-14T00:00:00.000Z' });
+  r = run(sup, ['stop']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /already down; forgot it/);
+  assert.equal(alive(fake.pid), true, 'a reused PID must not receive SIGTERM');
+  setPid(fake.pid);
   r = run(sup, ['stop']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /test market stopped/);

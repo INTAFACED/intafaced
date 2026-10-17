@@ -62,10 +62,25 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   amountInvalid: { title: 'Check the amount', body: 'Enter an amount that is more than zero and fits this market.' },
   priceInvalid: { title: 'Check the price', body: 'Enter a price that is close to the market price.' },
   belowMinimum: { title: 'Amount is too small', body: 'Enter a larger amount to continue.' },
+  orderTypeUnsupported: { title: "That order type isn't offered yet", body: 'This market takes limit and market orders only.' },
+  postOnlyWouldCross: {
+    title: 'Post-only order not placed',
+    body: 'It would have matched an order on the book right away, so it was refused. Nothing was traded.',
+  },
+  fokUnfillable: {
+    title: 'Fill-or-kill order not placed',
+    body: "The book couldn't fill the whole amount, so nothing was traded.",
+  },
+  ordersPaused: {
+    title: 'Orders are paused right now',
+    body: "Orders can't go through at the moment, and this one wasn't placed. Try again later.",
+  },
+  tifInvalid: { title: 'Check the order type', body: 'Post only needs a limit price. Choose a limit order, or another time in force.' },
   selfTrade: { title: 'You would trade with yourself', body: 'Change the price so it does not match one of your own orders.' },
   accountOnHold: { title: 'Your account is on hold', body: 'Money cannot move right now. Contact support to find out why.' },
   notFound: { title: "We couldn't find that", body: 'It may have been removed. Go back and try again.' },
   duplicate: { title: 'That was already sent', body: 'We saw this request a moment ago, so we kept the first one.' },
+  notSetUp: { title: 'Not set up yet', body: 'This part of INTAFACED has not been switched on yet. Nothing was changed.' },
   unknown: { title: "This can't be done right now", body: 'Try again later. If it keeps happening, contact support.' },
 };
 

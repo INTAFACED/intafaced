@@ -97,7 +97,7 @@ export const CCXT_REFUSE_ARMS: readonly CcxtRefuseArm[] = [
     ccxtCode: 'BadRequest',
     intafacedCode: 'trade.leverage_too_high',
     wireShape: 'domain',
-    when: 'requested leverage is above the sealed 10× cap (DIRECTION §1) — refused, never clamped',
+    when: 'requested leverage is above the sealed 10× cap — refused, never clamped',
   },
   {
     id: 'setLeverageWouldLiquidate',
@@ -240,7 +240,7 @@ export const CCXT_REFUSE_ARMS: readonly CcxtRefuseArm[] = [
     ccxtCode: 'PermissionDenied',
     intafacedCode: 'trade.adl_disclosure_required',
     wireShape: 'domain',
-    when: 'futures open without ack of current ADL disclosure version — DIRECTION:34',
+    when: 'futures open without acknowledgement of the current auto-deleveraging disclosure',
   },
   {
     id: 'futuresUnconfiguredOnOpen',
@@ -417,7 +417,7 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
     scope: 'trade:read',
     kind: 'supported',
     refuseArmIds: [],
-    notes: 'DIRECTION:34 in-product ADL copy + ack state (D26-P1-T1g)',
+    notes: 'In-product auto-deleveraging disclosure and whether this account has acknowledged it',
   },
   {
     name: 'ackAdlDisclosure',

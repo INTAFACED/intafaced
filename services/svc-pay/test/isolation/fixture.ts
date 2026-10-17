@@ -107,6 +107,8 @@ export interface Entity {
   readonly inviteId: string;
   /** W1: the pending payout approval this merchant's owner (the maker) requested on `settlementId`. */
   readonly approvalId: string;
+  /** Portal refund list: the `refund.posted` event id. No ledger movement. */
+  readonly refundEventId: string;
   /** Draft standalone invoice for `paymentId`'s amount and asset. */
   readonly invoiceId: string;
   /** Evidence bytes stored for `disputeId`. */
@@ -253,10 +255,12 @@ function composeRouter(parts: {
       parts.destinations,
       actionApprovals,
       teamReadFromSql(parts.sql),
+      undefined,
+      parts.sql,
     ),
     createMerchantStateRouter(new MerchantStateService(parts.sql), new MerchantAccountControls(parts.sql, parts.founderAuthority)),
     createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), actionApprovals, parts.pay),
-    createSubMerchantRouter(parts.subMerchants, parts.pay),
+    createSubMerchantRouter(parts.subMerchants, parts.pay, parts.sql),
     // One mount list, as in src/index.ts. A workstream that adds a mount there adds ONE line here.
     createPayNamespaces({
       founderAuthority: parts.founderAuthority,
@@ -277,6 +281,7 @@ function composeRouter(parts: {
       // W1: as src/index.ts, the approver is whoever holds payout.approve on the merchant team (W15 roles).
       control: new ControlService(parts.sql, teamAccessPorts(parts.sql)),
       conversion: parts.conversion,
+      pay: parts.pay,
     }),
   );
 }
@@ -422,6 +427,14 @@ export async function createWorld(): Promise<World> {
     const inviteRows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by)
       VALUES (${merchantId}, ${userId}, 'viewer', 'invited', ${userId}) RETURNING id`;
+    const refundRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (
+        ${first.id},
+        'refund.posted',
+        ${sql.json({ refundId: `iso-${tag}`, amount: '1', source: 'clearing' })}
+      )
+      RETURNING id`;
     entities[tag] = {
       tag,
       userId,
@@ -440,6 +453,7 @@ export async function createWorld(): Promise<World> {
       memberId: memberRows[0]!.id,
       inviteId: inviteRows[0]!.id,
       approvalId: '', // set by seedControl below, once every merchant has a tier
+      refundEventId: refundRows[0]!.id,
       invoiceId: invoiceRows[0]!.id,
       evidenceId,
     };
@@ -542,6 +556,7 @@ export async function createWorld(): Promise<World> {
         x.memberId,
         x.inviteId,
         x.approvalId,
+        x.refundEventId,
         x.invoiceId,
         x.evidenceId,
       ];

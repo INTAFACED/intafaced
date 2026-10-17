@@ -122,17 +122,7 @@ export class DisputeOpsService {
     if (input.from && input.to && Date.parse(input.from) > Date.parse(input.to)) {
       throw new MerchantOpsError('pay.cursor_invalid', 'bad_request');
     }
-    if (input.deadline === 'unset' && (input.dueAfter !== undefined || input.dueBefore !== undefined)) {
-      throw new MerchantOpsError('pay.dispute_deadline_filter_invalid', 'bad_request');
-    }
-    const afterMs = input.dueAfter === undefined ? null : Date.parse(input.dueAfter);
-    const beforeMs = input.dueBefore === undefined ? null : Date.parse(input.dueBefore);
-    if ((input.dueAfter !== undefined && Number.isNaN(afterMs)) || (input.dueBefore !== undefined && Number.isNaN(beforeMs))) {
-      throw new MerchantOpsError('pay.dispute_deadline_filter_invalid', 'bad_request');
-    }
-    if (afterMs !== null && beforeMs !== null && afterMs > beforeMs) {
-      throw new MerchantOpsError('pay.dispute_deadline_filter_invalid', 'bad_request');
-    }
+    const { afterMs, beforeMs } = deadlineBounds(input);
     // Newest first. The store keys by ISO millisecond timestamps, so the cursor does too.
     const all = (await this.store.listForMerchant(caller.merchantId))
       .filter((c) => (input.status ? c.status === input.status : true))
@@ -154,6 +144,90 @@ export class DisputeOpsService {
       limit,
       (c) => view(c, dues.get(c.disputeId) ?? null),
       (c) => encodeCursor(MICRO(c.openedAt), c.disputeId),
+    );
+  }
+
+  /**
+   * The same case fields and deadline rules as `list`, across merchants.
+   * Pages in SQL so a founder queue does not load every case first.
+   * The founder router is the only caller.
+   */
+  async listAcross(input: DisputeListFilter) {
+    const limit = requireLimit(input.limit);
+    const after = decodeCursor(input.cursor);
+    if (input.from && input.to && Date.parse(input.from) > Date.parse(input.to)) {
+      throw new MerchantOpsError('pay.cursor_invalid', 'bad_request');
+    }
+    deadlineBounds(input);
+    const sql = this.sql;
+    const rows = await sql<
+      Array<{
+        dispute_id: string;
+        payment_id: string;
+        merchant_id: string;
+        amount: string;
+        asset_id: string;
+        reason_code: string | null;
+        status: DisputeCaseStatus;
+        opened_at: Date;
+        updated_at: Date;
+        contested_at: Date | null;
+        closed_at: Date | null;
+        payment_marked_disputed: boolean;
+        ledger_wire: 'posted' | 'refused';
+        ledger_tx_id: string | null;
+        ledger_refuse: DisputeCase['ledgerRefuse'];
+        response_due_at: Date | null;
+        cursor_ts: string;
+      }>
+    >`
+      SELECT c.dispute_id, c.payment_id, c.merchant_id::text AS merchant_id, c.amount, c.asset_id, c.reason_code,
+             c.status, c.opened_at, c.updated_at, c.contested_at, c.closed_at, c.payment_marked_disputed,
+             c.ledger_wire, c.ledger_tx_id, c.ledger_refuse, d.response_due_at,
+             to_char(c.opened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
+        FROM pay.dispute_cases c
+        LEFT JOIN pay.dispute_response_deadlines d
+          ON d.dispute_id = c.dispute_id AND d.merchant_id = c.merchant_id
+       WHERE true
+         ${input.status ? sql`AND c.status = ${input.status}` : sql``}
+         ${input.paymentId ? sql`AND c.payment_id = ${input.paymentId}` : sql``}
+         ${input.search ? sql`AND (c.dispute_id = ${input.search} OR c.payment_id = ${input.search})` : sql``}
+         ${input.from ? sql`AND c.opened_at >= (${input.from}::text)::timestamptz` : sql``}
+         ${input.to ? sql`AND c.opened_at < (${input.to}::text)::timestamptz` : sql``}
+         ${input.deadline === 'set' ? sql`AND d.response_due_at IS NOT NULL` : sql``}
+         ${input.deadline === 'unset' ? sql`AND d.response_due_at IS NULL` : sql``}
+         ${input.dueAfter ? sql`AND d.response_due_at >= (${input.dueAfter}::text)::timestamptz` : sql``}
+         ${input.dueBefore ? sql`AND d.response_due_at <= (${input.dueBefore}::text)::timestamptz` : sql``}
+         ${after ? sql`AND (c.opened_at, c.dispute_id) < ((${after.ts}::text)::timestamptz, ${after.key})` : sql``}
+       ORDER BY c.opened_at DESC, c.dispute_id DESC
+       LIMIT ${limit + 1}`;
+    return toPage(
+      rows,
+      limit,
+      (row) => ({
+        merchantId: row.merchant_id,
+        ...view(
+          {
+            disputeId: row.dispute_id,
+            paymentId: row.payment_id,
+            merchantId: row.merchant_id,
+            amount: row.amount,
+            assetId: row.asset_id,
+            reasonCode: row.reason_code,
+            status: row.status,
+            openedAt: row.opened_at.toISOString(),
+            updatedAt: row.updated_at.toISOString(),
+            contestedAt: row.contested_at ? row.contested_at.toISOString() : null,
+            closedAt: row.closed_at ? row.closed_at.toISOString() : null,
+            paymentMarkedDisputed: row.payment_marked_disputed,
+            ledgerWire: row.ledger_wire,
+            ledgerRefuse: row.ledger_wire === 'posted' ? null : row.ledger_refuse,
+            ledgerTxId: row.ledger_tx_id,
+          },
+          row.response_due_at,
+        ),
+      }),
+      (row) => encodeCursor(row.cursor_ts, row.dispute_id),
     );
   }
 
@@ -405,6 +479,22 @@ export class DisputeOpsService {
     }
     if (verdict !== 'clean') throw new MerchantOpsError('pay.dispute_evidence_rejected', 'precondition');
   }
+}
+
+/** Inclusive deadline window. A missing due date never matches a bound. Shared by the in-memory and SQL lists. */
+function deadlineBounds(input: DisputeListFilter): { afterMs: number | null; beforeMs: number | null } {
+  if (input.deadline === 'unset' && (input.dueAfter !== undefined || input.dueBefore !== undefined)) {
+    throw new MerchantOpsError('pay.dispute_deadline_filter_invalid', 'bad_request');
+  }
+  const afterMs = input.dueAfter === undefined ? null : Date.parse(input.dueAfter);
+  const beforeMs = input.dueBefore === undefined ? null : Date.parse(input.dueBefore);
+  if ((input.dueAfter !== undefined && Number.isNaN(afterMs)) || (input.dueBefore !== undefined && Number.isNaN(beforeMs))) {
+    throw new MerchantOpsError('pay.dispute_deadline_filter_invalid', 'bad_request');
+  }
+  if (afterMs !== null && beforeMs !== null && afterMs > beforeMs) {
+    throw new MerchantOpsError('pay.dispute_deadline_filter_invalid', 'bad_request');
+  }
+  return { afterMs, beforeMs };
 }
 
 function dueMatches(due: Date | null, deadline: 'set' | 'unset' | undefined, afterMs: number | null, beforeMs: number | null): boolean {

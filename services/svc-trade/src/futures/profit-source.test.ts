@@ -112,7 +112,7 @@ describe('profitSourceFromConfig — refuse to boot rather than default', () => 
     } catch (err) {
       expect((err as Error).message).toContain('is not a bound');
       expect((err as Error).message).toContain('ledger recipe change');
-      expect((err as Error).message).toContain('DIRECTION §3');
+      expect((err as Error).message).toContain('will not do on its own');
     }
   });
 

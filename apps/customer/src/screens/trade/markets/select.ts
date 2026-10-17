@@ -3,7 +3,7 @@
  * small text/number helpers a row needs. No React here, so every rule is unit tested (select.test.ts).
  * Money is decimal strings and bigint only; floats appear once, to place the range marker (drawing).
  */
-import { compareDecimal, dec, fmtAmount, fmtPrice, fmtUsd, normalizePair, ratio, signOf, SCALE } from './deps';
+import { add, compareDecimal, dec, fmtAmount, fmtPct, fmtPrice, fmtUsd, normalizePair, ratio, signOf, str, sub, SCALE } from './deps';
 import type { Decimal, MarketData, TickerRow } from './deps';
 
 export type TickerMap = Record<string, TickerRow> | undefined;
@@ -57,9 +57,15 @@ export interface Entry {
   ticker: TickerRow | undefined;
 }
 
-export function entriesFor(markets: readonly MarketData[], tickers: TickerMap): Entry[] {
-  return markets.filter((market) => market.orderable).map((market) => ({ market, ticker: tickers?.[market.symbol] }));
+/** Open markets only, or with `includePaused` the ones the service lists as not orderable too (they draw a Paused badge). */
+export function entriesFor(markets: readonly MarketData[], tickers: TickerMap, options: { includePaused?: boolean } = {}): Entry[] {
+  return markets
+    .filter((market) => market.orderable || options.includePaused)
+    .map((market) => ({ market, ticker: tickers?.[market.symbol] }));
 }
+
+/** The service lists this market but does not take orders on it right now. */
+export const isPaused = (entry: Entry) => !entry.market.orderable;
 
 /** Quote currencies present, USDT and USDC first. */
 export function quotesOf(markets: readonly MarketData[]): string[] {
@@ -199,4 +205,21 @@ export function rangePosition(ticker: TickerRow | undefined): number | null {
   const share = ratio(clamped - low, high - low);
   if (share === null) return null;
   return Number((share * 10000n) / SCALE) / 100;
+}
+
+/**
+ * Spread as a ratio string: (ask - bid) / midpoint, in exact bigint decimals. Null when either side is unknown, not
+ * above zero, or the book is crossed (ask below bid), so a bad quote shows "—" and never a made-up number.
+ */
+export function spreadRatio(ticker: TickerRow | undefined): Decimal | null {
+  const bid = dec(ticker?.bid);
+  const ask = dec(ticker?.ask);
+  if (bid === null || ask === null || bid <= 0n || ask < bid) return null;
+  const share = ratio(sub(ask, bid) * 2n, add(ask, bid));
+  return share === null ? null : str(share);
+}
+
+/** "0.012%" for a known spread, else "—". Three places because spreads on liquid markets are tiny. */
+export function spreadText(ticker: TickerRow | undefined): string {
+  return fmtPct(spreadRatio(ticker), { places: 3, signed: false });
 }

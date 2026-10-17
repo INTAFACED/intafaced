@@ -61,6 +61,14 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof LedgerError && err.code === 'ledger.freeze_attributed') {
     return new TRPCError({ code: 'CONFLICT', message: userCopy(err.code), cause: err });
   }
+  // Operator reconcile: another run holds the single-flight lock, or the proof could not
+  // finish. Operator-only procedure, so the message is the operator's to read as written.
+  if (err instanceof LedgerError && err.code === 'ledger.reconcile_in_progress') {
+    return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+  }
+  if (err instanceof LedgerError && err.code === 'ledger.reconcile_incomplete') {
+    return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: err.message, cause: err });
+  }
   // Caller-actionable, and retrying the same body never will succeed. Same
   // status as `s2s-http.httpError`: a history window that cannot be answered,
   // and an assembled body that is not a recipe. Copy stays on the error.
@@ -485,7 +493,7 @@ export function createLedgerRouter(
           const prior = await ledger.freezeState();
           const consumed = await consumeLedgerApproval(approvals, input, 'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {});
           const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
-          const state = await ledger.unfreeze(ctx.principal.userId);
+          const state = await ledger.unfreeze(ctx.principal.userId, confirmOperatorId);
           return { postingEnabled: !state.frozen, frozenReason: state.reason, frozenBy: state.actor, confirmOperatorId };
         } catch (err) {
           throw toTrpcError(err);

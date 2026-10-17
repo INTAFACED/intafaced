@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, pbkdf2Sync } from 'node:crypto';
 import { createPublicClient, createWalletClient, defineChain, getContract, http, toHex } from 'viem';
-import { mnemonicToAccount } from 'viem/accounts';
+import { HDKey, hdKeyToAccount } from 'viem/accounts';
 import type { Address, Hex, HDAccount, PublicClient, WalletClient } from 'viem';
 import { loadArtifact } from '../src/chain/artifacts.js';
 
@@ -48,6 +48,52 @@ export const PUBLIC_ANVIL_DEV_MNEMONIC = 'test test test test test test test tes
 export const PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS: Address = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
 /**
+ * BIP-39 seed, derived once on first use. Child accounts are cached by path
+ * so a repeated path returns the same object. Suites that never ask for an
+ * account never pay this cost.
+ *
+ * The KDF is PBKDF2-HMAC-SHA512, 2048 rounds, 64 bytes: the same inputs as
+ * `@scure/bip39`'s `mnemonicToSeedSync`. That helper runs the rounds in pure
+ * JavaScript, and one call plus the module load exceeds the 5s budget of the
+ * derivation test on a loaded CI runner. Node's `pbkdf2Sync` is the OpenSSL
+ * implementation of that same KDF.
+ */
+let devRoot: HDKey | undefined;
+const devAccountByPath = new Map<string, HDAccount>();
+
+const BIP39_ROUNDS = 2048;
+const BIP39_SEED_BYTES = 64;
+
+function devMnemonicSeed(mnemonic: string, passphrase = ''): Uint8Array {
+  const password = Buffer.from(mnemonic.normalize('NFKD'), 'utf8');
+  const salt = Buffer.from(`mnemonic${passphrase}`.normalize('NFKD'), 'utf8');
+  return Uint8Array.from(pbkdf2Sync(password, salt, BIP39_ROUNDS, BIP39_SEED_BYTES, 'sha512'));
+}
+
+function devHdPath(accountIndex: number, addressIndex: number): string {
+  return `m/44'/60'/${accountIndex}'/0/${addressIndex}`;
+}
+
+function devRootKey(): HDKey {
+  if (!devRoot) {
+    devRoot = HDKey.fromMasterSeed(devMnemonicSeed(PUBLIC_ANVIL_DEV_MNEMONIC));
+  }
+  return devRoot;
+}
+
+function accountAt(accountIndex: number, addressIndex: number): HDAccount {
+  const path = devHdPath(accountIndex, addressIndex);
+  const cached = devAccountByPath.get(path);
+  if (cached) return cached;
+  const child = devRootKey().derive(path);
+  // `derive('m')` returns the same key. viem's path type only allows a BIP-44
+  // string, so the master path is asserted and the child is not derived again.
+  const account = hdKeyToAccount(child, { path: 'm' as `m/44'/60'/${string}` });
+  devAccountByPath.set(path, account);
+  return account;
+}
+
+/**
  * One of anvil's ten pre-funded accounts (`m/44'/60'/0'/0/{index}`).
  *
  * Index 0 is reserved for `deploy-dev.ts`, because the addresses it produces
@@ -58,7 +104,7 @@ export const PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS: Address = '0xf39Fd6e51aad88F6F4
  * see the banner there for why a hand-picked index is the wrong tool.
  */
 export function devAccount(index = 0): HDAccount {
-  return mnemonicToAccount(PUBLIC_ANVIL_DEV_MNEMONIC, { addressIndex: index });
+  return accountAt(0, index);
 }
 
 export const devChain = (rpcUrl: string, chainId: number = DEV_CHAIN_ID) =>
@@ -215,10 +261,7 @@ export function suiteSenderIndex(suiteFileUrl: string): number {
 
 /** The account a given suite sends from. Never one of anvil's ten. */
 export function suiteAccount(suiteFileUrl: string): HDAccount {
-  return mnemonicToAccount(PUBLIC_ANVIL_DEV_MNEMONIC, {
-    accountIndex: SUITE_BRANCH_ACCOUNT_INDEX,
-    addressIndex: suiteSenderIndex(suiteFileUrl),
-  });
+  return accountAt(SUITE_BRANCH_ACCOUNT_INDEX, suiteSenderIndex(suiteFileUrl));
 }
 
 /**

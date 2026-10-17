@@ -17,6 +17,8 @@ interface Props {
   zone: Preferences['timeZone'];
   /** The pair picker (a popover with the markets list) for widths where the left panel is hidden. */
   picker: ReactNode;
+  /** The data status chip, at the strip's right edge. */
+  status?: ReactNode;
 }
 
 function Stat({ label, value, loading }: { label: string; value: string; loading: boolean }) {
@@ -29,7 +31,7 @@ function Stat({ label, value, loading }: { label: string; value: string; loading
 }
 
 /** Ticker strip, 48 px (UI-SPEC 5.7): pair, last price, 24h change, low, high, volume, turnover. All from /ticker. */
-export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite, onToggleFavorite, zone, picker }: Props) {
+export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite, onToggleFavorite, zone, picker, status }: Props) {
   const { t } = deskCopy.useCopy();
   const row = ticker.status === 'ready' ? ticker.data : null;
   const last = row?.last ?? null;
@@ -99,6 +101,7 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
           loading={loading}
         />
       </div>
+      {status ? <div className="dk-ticker-status">{status}</div> : null}
     </header>
   );
 });

@@ -237,10 +237,10 @@ export function TopBar({
 }) {
   const { t } = shellCopy.useCopy();
   const { language, layoutMode } = usePreferences();
-  const { session } = useSession();
+  const { session, restoring } = useSession();
   useBannerOffset();
   const notificationsLive = isFeatureLive('notifications');
-  const tabs = tabSpecs(layoutMode, Boolean(session));
+  const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
   return (
     <>
@@ -263,6 +263,9 @@ export function TopBar({
               {notificationsLive && <BellPopover path={path} />}
               <AccountButton onSignOut={onSignOut} />
             </>
+          ) : restoring ? (
+            // The boot refresh has not answered: show neither the signed-in controls nor Log in / Sign up.
+            <span className="tb-restoring" aria-hidden="true" />
           ) : (
             <>
               <a className="tb-login" href={signIn}>
@@ -284,10 +287,10 @@ export function TopBar({
 export function MobileTabs({ door, language }: { door: Door | undefined; language: Parameters<typeof doorLabel>[1] }) {
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
-  const { session } = useSession();
+  const { session, restoring } = useSession();
   return (
     <nav className="mobile-doors" aria-label={t('Customer doors on phone')}>
-      {tabSpecs(layoutMode, Boolean(session)).map((tab) => (
+      {tabSpecs(layoutMode, Boolean(session) || restoring).map((tab) => (
         <a key={tab.door} href={tab.href} aria-current={door === tab.door ? 'page' : undefined}>
           <ShellIcon name={tab.icon} />
           {doorLabel(tab.door, language)}

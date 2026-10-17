@@ -76,6 +76,7 @@
  * mismatch as a silent overdraw.
  */
 import { accountKey, formatAmount, recipes, type AccountKind, type AccountRef, type Amount, type Balance } from '@intafaced/ledger-client';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 
 /** Owner types the ledger knows. Kept explicit so a typo in config is a boot failure. */
 const OWNER_TYPES = ['user', 'subaccount', 'house', 'module', 'treasury'] as const;
@@ -180,10 +181,7 @@ export interface ProfitSource {
 
 /** The one sentence every "futures has no profit pot" refusal says. Written once. */
 export const PROFIT_SOURCE_UNCONFIGURED =
-  'TRADE_FUTURES_PROFIT_SOURCE is not set, so no account has been named to fund realised futures profit and futures is ' +
-  'not open for business on this deployment. There is no safe default — a fee pot is not a risk budget. Set it to ' +
-  'ownerType:ownerId:kind[:purpose] (which account, and how it is capitalised, is an owner decision: ' +
-  'docs/adr/2026-08-05-futures-risk-and-mark-law.md, DIRECTION §8 item 6).';
+  'Futures profit payouts are not available yet: TRADE_FUTURES_PROFIT_SOURCE is not set, so no account has been named to fund realised profit. There is no safe default — a fee pot is not a risk budget. Naming that account is an owner decision.';
 
 /**
  * Build the profit source from configuration.
@@ -201,6 +199,7 @@ export const PROFIT_SOURCE_UNCONFIGURED =
 export function profitSourceFromConfig(raw: string | undefined): ProfitSource {
   const configured = (raw ?? '').trim();
   if (configured === '') {
+    logRefusalSpec('ProfitSourceConfigError');
     throw new ProfitSourceConfigError(PROFIT_SOURCE_UNCONFIGURED);
   }
 
@@ -210,11 +209,11 @@ export function profitSourceFromConfig(raw: string | undefined): ProfitSource {
   const recipeAccount = recipeProfitFundingAccount('__probe__');
 
   if (accountKey(probe) !== accountKey(recipeAccount)) {
+    logRefusalSpec('ProfitSourceConfigError');
     throw new ProfitSourceConfigError(
       `TRADE_FUTURES_PROFIT_SOURCE names ${formatAccountRef(probe)}, but recipes.futuresRealizeProfit draws from ` +
         `${formatAccountRef(recipeAccount)}. Bounding one account while debiting another is not a bound. Paying from a ` +
-        'different account needs a ledger recipe change, which is an owner carve-out (DIRECTION §3) — this service will ' +
-        'not do it implicitly.',
+        'different account needs a ledger recipe change, which this service will not do on its own.',
     );
   }
 

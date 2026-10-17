@@ -1,27 +1,42 @@
 import { z } from 'zod';
+import type { Sql } from 'postgres';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import {
+  payCheckoutSettingsGetInputSchema,
+  payCheckoutSettingsSchema,
   payMerchantFailureSchema,
   payPageSchema,
   payPaymentListInputSchema,
   payPricingSnapshotViewSchema,
   paySettlementLineSchema,
   paySettlementLinesInputSchema,
+  payPayoutDestinationItemSchema,
+  payPayoutDestinationListInputSchema,
+  payPayoutLifecycleInputSchema,
+  payPayoutLifecycleSchema,
+  payRefundGetInputSchema,
+  payRefundItemSchema,
+  payRefundListInputSchema,
   paySettlementListInputSchema,
+  payStatementListInputSchema,
+  payStatementPageSchema,
   router,
   scopedProcedure,
   publicProcedure,
   TRPCError,
 } from '@intafaced/contracts';
+import { merchantPortalExtensions } from './merchant-portal/router.js';
 import { credentialAuthority } from './payment-authority.js';
 import { formatAmount, LedgerError, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
   consumePayApproval,
+  readApprovalIds,
   type ActionApprovalConsumer,
   unwiredApprovalConsumer,
 } from './action-approval-consume.js';
+import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { PayError, type PayService } from './payment-service.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
@@ -34,6 +49,7 @@ import type { RailRegistry } from './rails/registry.js';
 import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { PayGuardRefusal } from './seams/guards.js';
+import { seesFullPricing } from './merchant-ops/roles.js';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { allowMerchantRead, type MerchantReadAudience } from './merchant-read-access.js';
 import { logPaymentFactsReadFailure } from './payment-facts-log.js';
@@ -206,6 +222,8 @@ export function createPayRouter(
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   teamReads: MerchantTeamRead | null = null,
   disputeCases: DisputeCaseStore = defaultDisputeCaseStore,
+  /** Portal profile, onboarding, and analytics. Absent in unit stubs that do not pass a database. */
+  portalSql: Sql | null = null,
 ) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -286,6 +304,8 @@ export function createPayRouter(
     const detail = toSettlementDetail(row);
     return { ...detail, pricingSnapshot: projectPricingSnapshot(detail.pricingSnapshot, audience) };
   };
+
+  const portal = portalSql && teamReads ? merchantPortalExtensions({ sql: portalSql, pay, trees, team: teamReads, approvals }) : null;
 
   return router({
     health: publicProcedure
@@ -423,6 +443,7 @@ export function createPayRouter(
       ),
 
     merchant: router({
+      ...(portal?.merchant ?? {}),
       /**
        * Ownership: userId is always the authenticated principal. Body userId
        * was dropped so a caller with pay:write cannot create a merchant under
@@ -533,6 +554,12 @@ export function createPayRouter(
        * Identity action-bound approval is the second person. Typed-in
        * `confirmOperatorId` is attribution at most. MFA is still required locally
        * (`admin:compliance` is not INTERACTIVE_ONLY). Missing approval ids refuse.
+       *
+       * The approval hash is the live identity hash. A proposal filed against
+       * an older identity does not consume. The proposer reads
+       * `kyb.decisionBinding` and sends the same fields to identity
+       * (`kybDecisionPayloadHash`). The consume runs under the merchant row
+       * lock, after that identity still matches, and before the status write.
        */
       decideKyb: scopedProcedure('admin:compliance', { module: 'pay' })
         .input(
@@ -555,11 +582,30 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             requireMfa(ctx.principal);
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.merchant_decide_kyb', {
+            readApprovalIds(input);
+            if (!portalSql) {
+              throw new PayError('KYB decide cannot bind the merchant profile', 'pay.kyb_profile_unbound');
+            }
+            const binding = await loadKybDecisionBinding(portalSql, input.merchantId);
+            if (!binding) throw new PayError(`Merchant ${input.merchantId} not found`, 'pay.merchant_not_found');
+            let confirmOperatorId = '';
+            const merchant = await pay.decideKyb({
               merchantId: input.merchantId,
               decision: input.decision,
+              identityHash: binding.identityHash,
+              beforeWrite: async () => {
+                confirmOperatorId = await consumePayApproval(
+                  approvals,
+                  input,
+                  PAY_MERCHANT_DECIDE_KYB,
+                  kybApprovalFields({
+                    merchantId: binding.merchantId,
+                    decision: input.decision,
+                    identityHash: binding.identityHash,
+                  }),
+                );
+              },
             });
-            const merchant = await pay.decideKyb({ merchantId: input.merchantId, decision: input.decision });
             return { id: merchant.id, kybStatus: merchant.kybStatus, kybRef: merchant.kybRef, confirmOperatorId };
           }),
         ),
@@ -601,6 +647,30 @@ export function createPayRouter(
             return pay.createProfile(input);
           }),
         ),
+
+      /**
+       * The checkout profile the write above stored, newest row for this merchant.
+       * No row is `not_configured`. Same area as the write (`checkout.profile`).
+       * `feeRouting` is null unless the caller sees full pricing. `checkoutConfig` stays.
+       */
+      checkoutSettings: router({
+        get: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payCheckoutSettingsGetInputSchema)
+          .output(payCheckoutSettingsSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              const audience = await assertRead(
+                ctx.principal?.userId,
+                input.merchantId,
+                'trpc.merchant.checkoutSettings.get',
+                'profile.read',
+              );
+              const settings = await pay.getCheckoutSettings(input.merchantId);
+              if (settings.status !== 'configured' || seesFullPricing(audience)) return settings;
+              return { ...settings, feeRouting: null };
+            }),
+          ),
+      }),
 
       /** Hosted checkout pointer — token returned once. */
       createLink: scopedProcedure('pay:write', { module: 'pay' })
@@ -721,7 +791,44 @@ export function createPayRouter(
             };
           }),
         ),
+
+      /**
+       * Saved destinations for this merchant. Masked. Screening and a default
+       * flag are not stored, so those fields are the literals `not_recorded`
+       * and `unset`. There is no set-default and no remove: changing a
+       * destination is still the owner's direct overwrite.
+       */
+      payoutDestinations: router({
+        list: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payPayoutDestinationListInputSchema)
+          .output(payPageSchema(payPayoutDestinationItemSchema))
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.list', 'settlements.read');
+              return pay.listPayoutDestinations(input);
+            }),
+          ),
+      }),
+
+      /**
+       * Ledger statement. Needs both the payment read and the settlement read:
+       * one page shows captures and payouts. Reserve is `not_booked`.
+       */
+      statement: router({
+        list: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payStatementListInputSchema)
+          .output(payStatementPageSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
+              return pay.listStatement(input);
+            }),
+          ),
+      }),
     }),
+
+    ...(portal ? { merchantAnalytics: portal.merchantAnalytics } : {}),
 
     payment: router({
       create: scopedProcedure('pay:write', { module: 'pay' })
@@ -905,6 +1012,33 @@ export function createPayRouter(
             return events.map((e) => projectTeamHistoryEvent(e));
           }),
         ),
+
+      /** Account-wide refund projection. The write stays on `payment.refund`. */
+      refunds: router({
+        list: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payRefundListInputSchema)
+          .output(payPageSchema(payRefundItemSchema))
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.payment.refunds.list', 'payments.read');
+              return pay.listRefunds(input);
+            }),
+          ),
+
+        get: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payRefundGetInputSchema)
+          .output(payRefundItemSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              const located = await pay.locateRefund(input.refundEventId);
+              await refuseAsMissing(
+                assertRead(ctx.principal.userId, located.merchantId, 'trpc.payment.refunds.get', 'payments.read'),
+                () => new PayError(`Refund ${input.refundEventId} not found`, 'pay.refund_not_found'),
+              );
+              return pay.readRefund(input.refundEventId);
+            }),
+          ),
+      }),
     }),
 
     settlement: router({
@@ -1004,6 +1138,23 @@ export function createPayRouter(
             const settlement = await pay.getSettlement(input.settlementId);
             await assertSettlementAccess(ctx.principal?.userId, input.settlementId, settlement.merchantId, 'trpc.settlement.release');
             return toSettlementOut(await pay.releasePendingSettlement(input));
+          }),
+        ),
+
+      /**
+       * Composed payout timeline. `status` is derived from the events.
+       * When the status column is ahead of the recorded timestamps, one
+       * synthetic event (`timeKnown: false`) floors that status. The read
+       * never reports a status lower than the column.
+       */
+      lifecycle: scopedProcedure('pay:read', { module: 'pay' })
+        .input(payPayoutLifecycleInputSchema)
+        .output(payPayoutLifecycleSchema)
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            const settlement = await pay.getSettlement(input.settlementId);
+            await assertSettlementRead(ctx.principal.userId, input.settlementId, settlement.merchantId);
+            return pay.readPayoutLifecycle(input.settlementId);
           }),
         ),
     }),
@@ -1942,6 +2093,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.profile_not_found':
       case 'pay.link_not_found':
       case 'pay.settlement_not_found':
+      case 'pay.refund_not_found':
       case 'pay.checkout_session_not_found':
         return 'NOT_FOUND' as const;
       case 'pay.link_expired':
@@ -1959,6 +2111,8 @@ function toTrpcError(err: unknown): unknown {
         return 'CONFLICT' as const;
       /** The caller is anonymous and opening rows in our database. */
       case 'pay.checkout_busy':
+      /** One statement scan per merchant, and at most two on this process. A further call is refused. */
+      case 'pay.statement_busy':
         return 'TOO_MANY_REQUESTS' as const;
       case 'pay.routing_input_missing':
         return 'BAD_REQUEST' as const;
@@ -1978,6 +2132,12 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.payment_history_limit_unset':
       case 'pay.payment_link_list_limit_unset':
       case 'pay.settlement_list_limit_unset':
+      case 'pay.destination_list_limit_unset':
+      case 'pay.refund_list_limit_unset':
+      case 'pay.statement_list_limit_unset':
+      case 'pay.statement_range_required':
+      case 'pay.statement_range_too_wide':
+      case 'pay.statement_too_large':
       case 'pay.withdrawal_list_limit_unset':
       case 'pay.webhook_delivery_list_limit_unset':
       case 'pay.webhook_endpoint_list_limit_unset':
@@ -1989,6 +2149,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.due_webhook_deliveries_batch_limit_unset':
       case 'pay.capture_reconcile_disabled':
       case 'pay.capture_reconcile_batch_limit_unset':
+      case 'pay.kyb_profile_unbound':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':
@@ -2025,6 +2186,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.kyb_required':
         return 'FORBIDDEN' as const;
       case 'pay.kyb_invalid':
+      case 'pay.kyb_identity_changed':
         return 'CONFLICT' as const;
       default:
         return 'BAD_REQUEST' as const;

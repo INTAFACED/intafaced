@@ -9,7 +9,20 @@ import {
   loadTreasury,
   type TreasuryData,
 } from '@/lib/merchants/loaders';
+import type { FounderMerchantSection, FounderMerchantSectionPage, MerchantMetricsSnapshot } from '@intafaced/contracts';
 import type { FounderScreen } from './screens';
+import type { NotePage } from './notes';
+import { parseRiskWindow, one, SCREEN_SECTIONS, slugOf, type Query, type RiskWindowKey } from './read-model';
+import {
+  loadBalances,
+  loadDisputeList,
+  loadNotes,
+  loadLiveSummary,
+  loadPayoutList,
+  loadRecentMerchants,
+  loadRiskSummary,
+  loadSection,
+} from './reads';
 
 export interface FraudRow {
   id: string;
@@ -64,8 +77,31 @@ export interface OpsData {
   treasury?: TreasuryData;
   metrics?: DashboardData;
   approvals?: PayCallResult<ApprovalQueueData>;
+  /** F07-F23: each merchant section the page shows, read on its own so one failure never hides the rest. */
+  sections?: Partial<Record<FounderMerchantSection, PayCallResult<FounderMerchantSectionPage>>>;
+  balances?: PayCallResult<MerchantMetricsSnapshot>;
+  notes?: PayCallResult<NotePage>;
+  recent?: PayCallResult<ReadOf<typeof loadRecentMerchants>>;
+  payouts?: PayCallResult<ReadOf<typeof loadPayoutList>>;
+  disputes?: PayCallResult<ReadOf<typeof loadDisputeList>>;
+  live?: PayCallResult<ReadOf<typeof loadLiveSummary>>;
+  risk?: PayCallResult<ReadOf<typeof loadRiskSummary>>;
+  riskWindow?: RiskWindowKey;
 }
-export async function loadOps(ctx: PayCallContext, screen: FounderScreen, merchant?: string, days: 1 | 7 | 30 = 7): Promise<OpsData> {
+type ReadOf<F extends (...args: never[]) => Promise<PayCallResult<unknown>>> = Extract<Awaited<ReturnType<F>>, { kind: 'ok' }>['data'];
+export interface OpsOptions {
+  /** Present on a merchant drilldown page. */
+  readonly merchantId?: string | undefined;
+  /** The page's own query string: cursors, status filters and search per list. */
+  readonly query?: Query | undefined;
+}
+export async function loadOps(
+  ctx: PayCallContext,
+  screen: FounderScreen,
+  merchant?: string,
+  days: 1 | 7 | 30 = 7,
+  options: OpsOptions = {},
+): Promise<OpsData> {
   const data: OpsData = {
     testData: isTestData(),
     readAt: new Date().toISOString(),
@@ -95,5 +131,24 @@ export async function loadOps(ctx: PayCallContext, screen: FounderScreen, mercha
   if (screen.id === 'F02' || screen.id === 'F03' || screen.id === 'F51' || screen.id === 'F61') data.treasury = await loadTreasury(ctx);
   if (screen.id === 'F69' || screen.id === 'F70') data.metrics = await loadDashboard(ctx, new Date(), days);
   if (screen.id === 'F25') data.approvals = await loadApprovalQueue(ctx);
+  const { merchantId, query } = options;
+  if (merchantId) {
+    const sections = SCREEN_SECTIONS[slugOf(screen.route)] ?? [];
+    const [pages, balances] = await Promise.all([
+      Promise.all(sections.map((section) => loadSection(ctx, merchantId, section, query))),
+      screen.id === 'F11' ? loadBalances(ctx, merchantId) : Promise.resolve(undefined),
+    ]);
+    data.sections = Object.fromEntries(sections.map((section, i) => [section, pages[i]!]));
+    if (balances) data.balances = balances;
+  }
+  if (merchantId && screen.id === 'F22') data.notes = await loadNotes(ctx, merchantId, query);
+  if (screen.id === 'F05') data.recent = await loadRecentMerchants(ctx, query);
+  if (screen.id === 'F37') data.payouts = await loadPayoutList(ctx, query);
+  if (screen.id === 'F32') data.disputes = await loadDisputeList(ctx, query);
+  if (screen.id === 'F02') data.live = await loadLiveSummary(ctx);
+  if (screen.id === 'F03') {
+    data.riskWindow = parseRiskWindow(one(query, 'window'));
+    data.risk = await loadRiskSummary(ctx, data.riskWindow);
+  }
   return data;
 }

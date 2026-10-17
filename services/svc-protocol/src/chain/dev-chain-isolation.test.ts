@@ -2,8 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { mnemonicToAccount } from 'viem/accounts';
-import { devAccount, PUBLIC_ANVIL_DEV_MNEMONIC, suiteAccount, suiteId, suiteSenderIndex } from '../../scripts/dev-chain.js';
+import { devAccount, suiteAccount, suiteId, suiteSenderIndex } from '../../scripts/dev-chain.js';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -48,9 +47,7 @@ const label = (f: string) => relative(serviceRoot, f).replace(/\\/g, '/');
 const onChainSuites = testFiles.filter((f) => /devSuiteClients\(\s*import\.meta\.url/.test(readFileSync(f, 'utf8')));
 
 /** anvil's ten pre-funded accounts — `deploy-dev.ts` territory, off limits to suites. */
-const PREFUNDED = new Set(
-  Array.from({ length: 10 }, (_, i) => mnemonicToAccount(PUBLIC_ANVIL_DEV_MNEMONIC, { addressIndex: i }).address.toLowerCase()),
-);
+const PREFUNDED = new Set(Array.from({ length: 10 }, (_, i) => devAccount(i).address.toLowerCase()));
 
 describe('every on-chain suite sends from an account no other suite sends from', () => {
   it('found the on-chain suites at all', () => {
@@ -69,7 +66,8 @@ describe('every on-chain suite sends from an account no other suite sends from',
     const collisions = [...byAddress.entries()].filter(([, files]) => files.length > 1);
     expect(collisions.map(([address, files]) => `${address} ← ${files.join(' + ')}`)).toEqual([]);
     expect(byAddress.size).toBe(onChainSuites.length);
-  });
+    // BIP-32 derivation for every on-chain suite is CPU-bound; under CI load it runs past vitest's 5 s default.
+  }, 30_000);
 
   it('never lands a suite on one of anvil\u2019s ten pre-funded accounts', () => {
     // Those are `deploy-dev.ts`'s, and docker-compose.apps.yml names the CREATE
@@ -80,7 +78,7 @@ describe('every on-chain suite sends from an account no other suite sends from',
       expect(PREFUNDED.has(address), `${label(file)} derived a pre-funded account`).toBe(false);
     }
     expect(PREFUNDED.has(devAccount(0).address.toLowerCase())).toBe(true);
-  });
+  }, 30_000);
 
   it('leaves no suite picking an anvil index by hand', () => {
     // The thing that actually drifted. `devChainClients(url, id, N)` is for

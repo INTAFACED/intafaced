@@ -1,0 +1,128 @@
+import { z } from 'zod';
+import type { ApiClient } from '../../shared/api';
+import { deskCopy } from './support-desk-copy';
+import { plainSupportResult } from './support-refusal';
+import { ticketSchema } from './support-schemas';
+
+/**
+ * The calls the support desk makes to the support service for close, rate, attach and help-article feedback: which
+ * procedure, which input, and which answer is believed. Each answer is checked against the request and the signed-in
+ * account before it is used, and each refusal is turned into a plain sentence (see support-refusal.ts).
+ *
+ * Every send carries a request id that the caller makes once per decision. The service answers a repeat of the same id with
+ * the first result instead of doing it twice, so a double tap or a retry cannot close, rate, attach or vote twice.
+ */
+const mismatch = () => deskCopy.t('answerMismatch');
+
+export const ratingSchema = z.object({
+  ticketId: z.string().uuid(),
+  userId: z.string().uuid(),
+  score: z.number().int(),
+  note: z.string().nullable(),
+  createdAt: z.string(),
+});
+export const attachmentSchema = z.object({
+  id: z.string().uuid(),
+  ticketId: z.string().uuid(),
+  ownerId: z.string().uuid(),
+  contentType: z.string(),
+  byteLength: z.number().int().nonnegative(),
+  storeKey: z.string(),
+  createdAt: z.string(),
+});
+const feedbackSchema = z.object({
+  articleId: z.string(),
+  version: z.number().int().positive(),
+  userId: z.string().uuid(),
+  helpful: z.boolean(),
+});
+
+export function readRating(api: ApiClient, ticketId: string, userId: string | null, signal?: AbortSignal) {
+  return api.query(
+    'support',
+    'rating',
+    { ticketId },
+    ratingSchema.nullable().refine((row) => row === null || (row.ticketId === ticketId && row.userId === userId), mismatch()),
+    { signal },
+  );
+}
+
+export async function closeRequest(api: ApiClient, input: { ticketId: string; userId: string | null; clientRequestId: string }) {
+  return plainSupportResult(
+    await api.mutate(
+      'support',
+      'close',
+      { ticketId: input.ticketId, clientRequestId: input.clientRequestId },
+      ticketSchema.refine((row) => row.id === input.ticketId && row.userId === input.userId && row.status === 'closed', mismatch()),
+    ),
+  );
+}
+
+export async function rateRequest(
+  api: ApiClient,
+  input: { ticketId: string; userId: string | null; score: number; note: string; clientRequestId: string },
+) {
+  const note = input.note.trim();
+  return plainSupportResult(
+    await api.mutate(
+      'support',
+      'rate',
+      { ticketId: input.ticketId, score: input.score, ...(note ? { note } : {}), clientRequestId: input.clientRequestId },
+      ratingSchema.refine((row) => row.ticketId === input.ticketId && row.userId === input.userId && row.score === input.score, mismatch()),
+    ),
+  );
+}
+
+export async function attachFile(
+  api: ApiClient,
+  input: { ticketId: string; userId: string | null; contentType: string; bodyBase64: string; byteLength: number; clientRequestId: string },
+) {
+  return plainSupportResult(
+    await api.mutate(
+      'support',
+      'attach',
+      {
+        ticketId: input.ticketId,
+        clientRequestId: input.clientRequestId,
+        contentType: input.contentType,
+        bodyBase64: input.bodyBase64,
+      },
+      attachmentSchema.refine(
+        (row) => row.ticketId === input.ticketId && row.ownerId === input.userId && row.byteLength === input.byteLength,
+        mismatch(),
+      ),
+    ),
+  );
+}
+
+export async function sendArticleFeedback(
+  api: ApiClient,
+  input: { articleId: string; userId: string | null; helpful: boolean; clientRequestId: string },
+) {
+  return plainSupportResult(
+    await api.mutate(
+      'support',
+      'kbFeedback',
+      { id: input.articleId, helpful: input.helpful, clientRequestId: input.clientRequestId },
+      feedbackSchema.refine((row) => row.articleId === input.articleId && row.userId === input.userId, mismatch()),
+    ),
+  );
+}
+
+export function readRelated(api: ApiClient, articleId: string, signal?: AbortSignal) {
+  return api.query(
+    'support',
+    'kbRelated',
+    { id: articleId },
+    z.array(
+      z.object({
+        id: z.string(),
+        titleKey: z.string(),
+        bodyKey: z.string(),
+        version: z.number().int().positive().optional(),
+        published: z.boolean().optional(),
+      }),
+    ),
+    { signal },
+  );
+}

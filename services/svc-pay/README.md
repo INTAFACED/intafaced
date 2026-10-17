@@ -58,6 +58,24 @@ Internal tRPC (`src/router.ts`). Money is a **decimal string** in both direction
 
 Refunds and payouts carry their own scopes. Taking a payment and sending money back out are not the same authority. Bad destinations refuse as `pay.invalid_destination_ref` / `pay.destination_kind_mismatch` **before** any hold.
 
+### Merchant statement (`merchant.statement.list`)
+
+The page is one window, not the merchant's whole history. `from` and `to` are required (`pay.statement_range_required`). The span is at most 92 days (`pay.statement_range_too_wide`). One request resolves at most 2000 candidate ledger keys (`pay.statement_too_large`). Those two numbers are technical safety bounds so a read cannot walk every capture, settlement, refund, dispute, and payout the merchant has ever had. They are not a retention policy and not a fee.
+
+Running balances need a ledger balance at `from`. `LedgerClient` does not expose one, so the response says `runningBalances: "within_range"` and `opening: null`. In that mode each line carries `windowNet`, the signed net of that line's account inside the window after the line (a debit is positive). `runningClearing` and `runningProceeds` are null and `runningReason` is `no_opening`. A negative window net is an outflow recorded without an opening balance, and the line stays `runningOrder: "clear"`.
+
+When the client exposes `balanceAsOf`, `runningBalances` is `from_opening`, lines start from that opening, and `windowNet` is null. A reconstructed balance that would go negative is `runningOrder: "order_ambiguous"` and `runningReason: "order_ambiguous"`. Later lines for that asset drop their balances. The page still returns.
+
+Same-timestamp lines from different ledger transactions follow `seq` or `sequence` when every line at that instant has one, otherwise the hash chain (`previousHash`). When neither a sequence nor a distinct chain position orders those transactions, the line is `order_ambiguous` in either mode.
+
+One `merchant.statement.list` runs per merchant at a time. The slot is a row in `pay.merchant_statement_leases`, kept for at most 60 seconds and deleted when the scan finishes. This process also runs at most two scans at once. A second call for that merchant, or a third scan on that process, is `pay.statement_busy`. Those bounds are a concurrency limit. They are not a quota and not a fee. The scan does not hold a pooled connection across the ledger reads.
+
+TODO: svc-ledger should grow a cursor that pages entries by account. This procedure should read that cursor instead of guessing ledger keys from pay rows.
+
+`payment.refunds.get` loads the merchant id and fences before it parses an amount or reads the ledger. A malformed row the caller does not own is `pay.refund_not_found`.
+
+`settlement.lifecycle` derives status from the timeline. When the status column is ahead of `settled_at` / `sent_at` / `failed_at` (migration 0073 did not backfill them), the read adds one synthetic event `{ at: null, timeKnown: false }` so the derived status is not lower than the column.
+
 **HTTP:** `POST /webhooks/:railId` (public, signature-authenticated), `GET /health`, `GET /ready`, hosted checkout `GET /checkout?token=` / `GET /pay/link/:token` (public HTML; browser via edge `/api/pay/checkout?token=`).
 
 ### User money in and out
@@ -237,6 +255,7 @@ Every value movement is a recipe. This service holds no balance of any kind (Doc
 | `withdrawSettle`       | `withdraw.settled`        | hold → rail boundary (completed)                                       |
 | `withdrawReverse`      | `withdraw.reversed`       | hold → available (refused)                                             |
 | `deposit`              | `deposit.credited`        | rail boundary → user available                                         |
+| `depositReverse`       | `deposit.reversed`        | user available → rail boundary (rewritten deposit block)               |
 
 The three `withdraw*` recipes serve **both** outbound paths — a merchant payout keyed on `<settlementId>:<attempt>`, and a user withdrawal keyed on `<withdrawalId>:<attempt>`. Same shape, same reasoning, one set of recipes.
 
@@ -261,6 +280,7 @@ can complete the same recipe plan against a real chain.
 | `withdraw.hold\|settle\|reverse:<settlementId>:<attempt>` | One merchant payout attempt.                                                                                                                                                                                                                    |
 | `withdraw.hold\|settle\|reverse:<withdrawalId>:<attempt>` | One user withdrawal attempt.                                                                                                                                                                                                                    |
 | `deposit:<rail>:<railRef>`                                | A rail reference is credited once, however often it is redelivered.                                                                                                                                                                             |
+| `deposit.reverse:<depositId>`                             | A rewritten block reverses that deposit once. A second report returns the first row.                                                                                                                                                            |
 
 > **Why the asset is in the settlement key.** §6.1's settlement is keyed on merchant and window. A merchant taking USDT and BTC on the same day has two settlements, and without the asset in the key the second would find the first's transaction, return it, and strand a whole currency's takings in clearing. The `settlements` table carries an `asset_id` column for the same reason: `gross`/`fees`/`net` are meaningless without one.
 
