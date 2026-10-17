@@ -236,7 +236,8 @@ export default function AlertsPage() {
                   <Button
                     size={32}
                     onClick={() => {
-                      setReview({ intent: unsure.intent, duplicate: false });
+                      // The first create may still land after the re-check, so warn again from the latest list.
+                      setReview({ intent: unsure.intent, duplicate: list ? findDuplicate(list.items, unsure.intent) !== null : false });
                       setAck(false);
                       setUnsure(null);
                     }}
