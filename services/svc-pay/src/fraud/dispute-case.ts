@@ -4,7 +4,10 @@ import {
   CHARGEBACK_LEDGER_SOCKET_ID,
   CHARGEBACK_LEDGER_UNCOVERED_CODE,
   refuseChargebackLedgerPost,
+  refuseChargebackNothingToReverse,
+  refuseChargebackOpeningPostedShortfallUnfunded,
   refuseChargebackPlanConflict,
+  refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
 } from './chargeback-ledger-socket.js';
@@ -15,9 +18,9 @@ import {
  * Records dispute lifecycle (open → contested | accepted | won | lost) so the
  * `disputed` payment status is no longer a dead end with no writer.
  *
- * `ledgerWire: 'posted'` only when the caller supplies a ledger tx id from
- * `postDisputeOpening`. Anything else is a named refuse — never a silent book
- * entry. Shortfall / won recipes stay unwired. Blocklist content is Class X.
+ * `ledgerWire: 'posted'` only when the caller supplies a ledger tx id.
+ * Anything else is a named refuse — never a silent book entry. Outcome
+ * posts live next to the opening post. Blocklist content is Class X.
  */
 
 export type DisputeCaseStatus = 'open' | 'contested' | 'accepted' | 'won' | 'lost';
@@ -286,7 +289,10 @@ export {
   CHARGEBACK_LEDGER_SOCKET_ID,
   CHARGEBACK_LEDGER_UNCOVERED_CODE,
   refuseChargebackLedgerPost,
+  refuseChargebackNothingToReverse,
+  refuseChargebackOpeningPostedShortfallUnfunded,
   refuseChargebackPlanConflict,
+  refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
 };

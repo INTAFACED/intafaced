@@ -22,6 +22,9 @@ interface HealthEngine {
   readonly isVenueHalted: boolean;
   readonly markets: readonly unknown[];
   readonly restingOrderCount: number;
+  readonly admissionOpen: boolean;
+  readonly admissionReason: string | null;
+  holdHaltedMarkets(): readonly string[];
 }
 type RegisterHealth = (app: FastifyInstance, service: string, engine: HealthEngine, journal: { readonly length: number }) => void;
 
@@ -42,7 +45,15 @@ afterEach(async () => {
 });
 
 function engineWith(venueHalted: boolean): HealthEngine {
-  return { isEnabled: true, isVenueHalted: venueHalted, markets: ['BTC-USDT'], restingOrderCount: 2 };
+  return {
+    isEnabled: true,
+    isVenueHalted: venueHalted,
+    markets: ['BTC-USDT'],
+    restingOrderCount: 2,
+    admissionOpen: true,
+    admissionReason: null,
+    holdHaltedMarkets: () => [],
+  };
 }
 
 async function matchingHealth(venueHalted: boolean): Promise<{ body: unknown; fetch: typeof fetch }> {

@@ -96,6 +96,18 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Critical inbox row + fan-out when a loan is called',
   },
   {
+    event: 'personalRequestCreated',
+    durable: 'notify-personal-request-created',
+    subject: 'intafaced.bank.personal_request.created',
+    effect: 'Inbox row pay.request_created for the person asked to pay',
+  },
+  {
+    event: 'personalRequestSettled',
+    durable: 'notify-personal-request-settled',
+    subject: 'intafaced.bank.personal_request.settled',
+    effect: 'Inbox row pay.request_paid for the person who was paid',
+  },
+  {
     event: 'agentActionRejected',
     durable: 'notify-agent-action-rejected',
     subject: 'intafaced.agents.action.rejected',

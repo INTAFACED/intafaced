@@ -19,6 +19,8 @@ import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { describeBusinessPolicy } from './business/business-policy.js';
 import { createActivityRouter } from './activity/activity.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
+import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
+import { plainNote } from './transfers/personal-pay.js';
 import { stepUpOff, type StepUpGate } from './step-up/step-up-gate.js';
 import {
   addMemberBinding,
@@ -189,11 +191,16 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.position_not_found':
       case 'bank.loan_not_found':
       case 'bank.loan_product_not_found':
+      case 'bank.personal_transfer_not_found':
+      case 'bank.personal_request_not_found':
+      case 'bank.personal_request_payer_unknown':
       case 'bank.auto_invest_not_found':
       case 'bank.business_not_found':
       case 'bank.business_approval_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
       case 'bank.not_owner':
+      case 'bank.personal_request_not_payer':
+      case 'bank.personal_request_not_payee':
         return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
       case 'bank.pool_underfunded':
       case 'bank.earn_principal_mismatch':
@@ -284,6 +291,13 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.schedule_conflict':
       case 'bank.business_payroll_conflict':
       case 'bank.business_request_conflict':
+      case 'bank.personal_transfer_conflict':
+      case 'bank.personal_request_conflict':
+      case 'bank.personal_request_closed':
+      case 'bank.personal_request_expired':
+      case 'bank.personal_request_amount_mismatch':
+      case 'bank.personal_request_payee_mismatch':
+      case 'bank.personal_request_claim_held':
       case 'bank.business_change_pending':
       case 'bank.card_issue_conflict':
       case 'bank.card_command_conflict':
@@ -345,6 +359,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.offramps_list_limit_unset':
       case 'bank.convert_markets_limit_unset':
       case 'bank.validation_failed':
+      case 'bank.personal_note_invalid':
+      case 'bank.personal_transfer_limit_exceeded':
+      case 'bank.personal_transfer_daily_limit_exceeded':
+      case 'bank.personal_request_self':
+      case 'bank.personal_request_list_limit_unset':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
@@ -363,6 +382,16 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.fiat_ramp_no_pay_adapter':
       case 'bank.no_fiat_rail':
       case 'bank.fiat_ramp_socket':
+      case 'bank.onramp_rate_unset':
+      case 'bank.onramp_quote_missing':
+      case 'bank.onramp_quote_expired':
+      case 'bank.onramp_instruction_missing':
+      case 'bank.offramp_fee_unset':
+      case 'bank.offramp_fee_inconsistent':
+      case 'bank.deposit_custody_unset':
+      case 'bank.deposit_catalogue_invalid':
+      case 'bank.deposit_asset_unpublished':
+      case 'bank.deposit_pending_unbounded':
       case 'bank.withdraw_destination_missing':
       case 'bank.dest_user_missing':
       case 'bank.recipient_cannot_receive':
@@ -381,6 +410,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.step_up_required':
       case 'bank.step_up_mismatch':
       case 'bank.step_up_used':
+      case 'bank.personal_transfer_terms_unset':
+      case 'bank.personal_transfer_fee_unwired':
+      case 'bank.pay_request_notify_unwired':
+      case 'bank.party_handles_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
       // Kill switches. Same 503 class as the matching HTTP job endpoints —
@@ -401,6 +434,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.recipient_check_unavailable':
       // Identity could not confirm the step-up approval; nothing was posted.
       case 'bank.step_up_unavailable':
+      case 'bank.party_handles_unavailable':
       case 'bank.business_directory_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
@@ -860,14 +894,26 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           fromSpaceId: z.string().uuid(),
           toUserId: z.string().min(1).max(64),
           amount: amountString,
+          /** Recipient-visible plain text. Omitted means no note. */
+          note: z.string().max(140).optional(),
+          /** Settles this open payment request. One payment, one request. */
+          requestId: z.string().uuid().optional(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
-      .output(z.object({ ledgerTxId: z.string(), amount: amountString }))
+      .output(
+        z.object({
+          ledgerTxId: z.string(),
+          amount: amountString,
+          note: z.string().nullable(),
+          requestId: z.string().uuid().nullable(),
+        }),
+      )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
           assertSelf(ctx.principal.userId, from.userId);
+          const note = plainNote(input.note) ?? undefined;
           if (stepUpEnforced && input.toUserId !== ctx.principal.userId) {
             await requireStepUp(
               ctx.principal,
@@ -878,18 +924,83 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                 toUserId: input.toUserId,
                 assetId: from.assetId,
                 amount: input.amount,
+                ...(note ? { note } : {}),
+                ...(input.requestId ? { requestId: input.requestId } : {}),
               }),
               input.stepUpApprovalId,
             );
           }
-          const result = await bank.transfers.transferToUser({
+          const result = await bank.personalPay.send({
+            actorUserId: ctx.principal.userId,
             transferId: input.transferId,
             fromSpaceId: input.fromSpaceId,
             toUserId: input.toUserId,
             amount: parseAmount(input.amount),
+            note,
+            requestId: input.requestId ?? null,
           });
-          return { ledgerTxId: result.ledgerTxId, amount: result.amount };
+          return { ledgerTxId: result.ledgerTxId, amount: result.amount, note: result.note, requestId: result.requestId };
         }),
+      ),
+
+    /** Receipt for one personal send. Parties only. A stranger gets the same not-found as a missing id. */
+    get: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ ledgerTxId: z.string().min(1).max(128) }))
+      .output(
+        z.object({
+          ledgerTxId: z.string(),
+          transferId: z.string(),
+          createdAt: z.string().datetime(),
+          fromHandle: z.string().nullable(),
+          toHandle: z.string().nullable(),
+          handlesBlocker: z.string().nullable(),
+          fee: z.null(),
+          status: z.literal('posted'),
+          amount: amountString,
+          assetId: z.string(),
+          note: z.string().nullable(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const row = await bank.personalPay.get(ctx.principal.userId, input.ledgerTxId);
+          return {
+            ledgerTxId: row.ledgerTxId,
+            transferId: row.transferId,
+            createdAt: row.createdAt,
+            fromHandle: row.fromHandle,
+            toHandle: row.toHandle,
+            handlesBlocker: row.handlesBlocker,
+            fee: row.fee,
+            status: row.status,
+            amount: row.amount,
+            assetId: row.assetId,
+            note: row.note,
+          };
+        }),
+      ),
+
+    /**
+     * Limits and fee for a personal send, before the review step.
+     * Refuses when nothing is published. Never fills a zero fee or a default cap.
+     */
+    quote: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ assetId: z.string().min(1).max(16), amount: amountString }))
+      .output(
+        z.object({
+          assetId: z.string(),
+          amount: amountString,
+          perTransferLimit: amountString,
+          dailyLimit: amountString,
+          spentToday: amountString,
+          fee: amountString,
+          feeBlocker: z.string().nullable(),
+          withinPerTransfer: z.boolean(),
+          withinDaily: z.boolean(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => bank.personalPay.quote(ctx.principal.userId, input.assetId, parseAmount(input.amount))),
       ),
 
     scheduleToUser: scopedProcedure('bank:write', { module: 'bank' })
@@ -3208,10 +3319,195 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     // `auth.stepUp` mints it for five minutes against a second factor (§9). `bank:write` alone let a leaked
     // key or an XSS-stolen access token change where money is sent and send it.
     setWithdrawDestination: scopedProcedure('trade:withdraw', { module: 'bank' })
-      .input(z.object({ kind: z.enum(['crypto', 'bank']), ref: z.string().min(1).max(256) }))
+      .input(
+        z.object({
+          kind: z.enum(['crypto', 'bank']),
+          ref: z.string().min(1).max(256),
+          label: z.string().min(1).max(64).optional(),
+        }),
+      )
       .output(z.object({ kind: z.string(), ref: z.string() }))
       .mutation(async ({ ctx, input }) =>
-        guard(async () => bank.ramps.setWithdrawDestination({ userId: ctx.principal.userId, kind: input.kind, ref: input.ref })),
+        guard(async () =>
+          bank.ramps.setWithdrawDestination({
+            userId: ctx.principal.userId,
+            kind: input.kind,
+            ref: input.ref,
+            ...(input.label !== undefined ? { label: input.label } : {}),
+          }),
+        ),
+      ),
+
+    /**
+     * Saved wallets and bank accounts. Cooling end uses the owner window.
+     * When that window is unpublished, `coolingOffEndsAt` is null and
+     * `coolingBlocker` names `bank.offramp_cooling_unset`. No 24h default.
+     */
+    destinations: router({
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .output(
+          z.array(
+            z.object({
+              destinationId: z.string(),
+              label: z.string().nullable(),
+              kind: z.enum(['crypto', 'bank']),
+              ref: z.string(),
+              addedAt: z.string(),
+              coolingOffEndsAt: z.string().nullable(),
+              coolingBlocker: z.literal('bank.offramp_cooling_unset').nullable(),
+            }),
+          ),
+        )
+        .query(async ({ ctx }) => guard(async () => bank.ramps.listDestinations(ctx.principal.userId))),
+
+      remove: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ destinationId: z.string().uuid(), idempotencyKey: z.string().min(1).max(128) }))
+        .output(z.object({ destinationId: z.string(), removed: z.literal(true) }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            bank.ramps.removeDestination({
+              userId: ctx.principal.userId,
+              destinationId: input.destinationId,
+              idempotencyKey: input.idempotencyKey,
+            }),
+          ),
+        ),
+    }),
+
+    /**
+     * On-ramp quote. Pay amount, fee, and rate come from the rate source.
+     * A blank PSP or a blank source refuses. This door does not invent them.
+     */
+    onrampQuote: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          assetId: z.string().min(1).max(16),
+          amount: amountString,
+          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+          country: z.string().regex(/^[A-Za-z]{2}$/),
+        }),
+      )
+      .output(
+        z.object({
+          quoteId: z.string(),
+          assetId: z.string(),
+          amount: amountString,
+          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+          country: z.string(),
+          payAmount: amountString,
+          fee: amountString,
+          rate: amountString,
+          payCurrency: z.string(),
+          expiresAt: z.string(),
+          simulated: z.literal(true),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () =>
+          bank.ramps.onrampQuote({
+            userId: ctx.principal.userId,
+            assetId: input.assetId,
+            amount: input.amount,
+            method: input.method,
+            country: input.country,
+          }),
+        ),
+      ),
+
+    /**
+     * Customer on-ramp. Idempotent by `onrampId`. Stores the partner's hosted
+     * URL or bank-transfer instruction and does not credit the ledger.
+     * A blank partner refuses `bank.fiat_ramp_socket` before any row.
+     */
+    onrampCreate: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          onrampId: z.string().uuid(),
+          quoteId: z.string().uuid(),
+          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+        }),
+      )
+      .output(
+        z.object({
+          onrampId: z.string(),
+          quoteId: z.string(),
+          assetId: z.string(),
+          amount: amountString,
+          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+          payAmount: amountString,
+          fee: amountString,
+          rate: amountString,
+          payCurrency: z.string(),
+          status: z.literal('pending_payment'),
+          simulated: z.literal(true),
+          partnerRail: z.string(),
+          hostedUrl: z.string().nullable(),
+          bankInstructions: z.object({ reference: z.string(), accountName: z.string(), accountRef: z.string() }).nullable(),
+          createdAt: z.string(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const row = await bank.ramps.onrampCreate({
+            userId: ctx.principal.userId,
+            onrampId: input.onrampId,
+            quoteId: input.quoteId,
+            method: input.method,
+          });
+          return {
+            onrampId: row.onrampId,
+            quoteId: row.quoteId,
+            assetId: row.assetId,
+            amount: row.amount,
+            method: row.method,
+            payAmount: row.payAmount,
+            fee: row.fee,
+            rate: row.rate,
+            payCurrency: row.payCurrency,
+            status: row.status,
+            simulated: row.simulated,
+            partnerRail: row.partnerRail,
+            hostedUrl: row.hostedUrl,
+            bankInstructions: row.bankInstructions,
+            createdAt: row.createdAt,
+          };
+        }),
+      ),
+
+    /**
+     * Off-ramp fee quote. Kind fiat refuses `bank.fiat_ramp_socket`.
+     * Crypto refuses `bank.offramp_fee_unset` until a fee schedule is published.
+     */
+    offrampQuote: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          assetId: z.string().min(1).max(16),
+          amount: amountString,
+          kind: z.enum(['crypto', 'fiat']),
+          destinationRef: z.string().min(1).max(256),
+        }),
+      )
+      .output(
+        z.object({
+          assetId: z.string(),
+          amount: amountString,
+          kind: z.literal('crypto'),
+          destinationRef: z.string(),
+          fee: amountString,
+          netAmount: amountString,
+          expiresAt: z.string(),
+          simulated: z.literal(true),
+        }),
+      )
+      .query(async ({ input }) =>
+        guard(async () =>
+          bank.ramps.offrampQuote({
+            assetId: input.assetId,
+            amount: input.amount,
+            kind: input.kind,
+            destinationRef: input.destinationRef,
+          }),
+        ),
       ),
 
     /**
@@ -3909,6 +4205,72 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     loans,
     cards,
     ramps,
+    deposits: router({
+      /**
+       * Assets custody says can be paid in. A blank port refuses
+       * `bank.deposit_custody_unset`. Minimums are the port's decimals.
+       */
+      assets: scopedProcedure('bank:read', { module: 'bank' })
+        .output(
+          z.object({
+            assets: z.array(
+              z.object({
+                assetId: z.string(),
+                networks: z.array(
+                  z.object({
+                    id: z.string(),
+                    label: z.string(),
+                    minimumDeposit: amountString,
+                    confirmationsRequired: z.number().int().nonnegative(),
+                    estimatedArrivalMinutes: z.number().int().nonnegative(),
+                  }),
+                ),
+              }),
+            ),
+          }),
+        )
+        .query(() => guard(async () => bank.deposits.assets())),
+
+      /**
+       * Idempotent on (asset, network). The address is the one custody issued.
+       * A blank port refuses before any row.
+       */
+      address: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ assetId: z.string().min(1).max(16), networkId: z.string().min(1).max(32) }))
+        .output(
+          z.object({
+            assetId: z.string(),
+            networkId: z.string(),
+            address: z.string(),
+            memo: z.string().nullable(),
+            qrPayload: z.string().nullable(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => bank.deposits.address({ userId: ctx.principal.userId, assetId: input.assetId, networkId: input.networkId })),
+        ),
+
+      /**
+       * Incoming deposits custody is still confirming. A blank port refuses.
+       * An empty list means custody is connected and nothing is incoming.
+       */
+      pending: scopedProcedure('bank:read', { module: 'bank' })
+        .output(
+          z.object({
+            items: z.array(
+              z.object({
+                id: z.string(),
+                assetId: z.string(),
+                networkId: z.string(),
+                amount: amountString,
+                confirmations: z.number().int().nonnegative(),
+                confirmationsRequired: z.number().int().nonnegative(),
+              }),
+            ),
+          }),
+        )
+        .query(async ({ ctx }) => guard(async () => bank.deposits.pending(ctx.principal.userId))),
+    }),
     autoInvest,
     business,
     analytics,
@@ -3916,6 +4278,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     activity: createActivityRouter(bank),
     bills: createBillsRouter(bank, stepUp),
     global: createGlobalRouter(bank, stepUp),
+    personalRequest: createPersonalRequestRouter(bank, guard),
     ops,
   });
 }

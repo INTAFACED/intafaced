@@ -6,7 +6,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
-import { MemoryLedger, formatAmount } from '@intafaced/ledger-client';
+import { MemoryLedger, formatAmount, merchantClearing, parseAmount, railBoundary } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
 import { createFounderAuthority } from '../founder-authority.js';
@@ -852,7 +852,17 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
       RETURNING id`;
     const paymentId = rows[0]!.id;
     const rail = new CardSandboxAdapter({ secret: 'svc-pay-test-secret-at-least-32-characters', toleranceSeconds: 300 });
-    const pay = new PayService(sql, new MemoryLedger(), new RailRegistry([rail]));
+    const ledger = new MemoryLedger();
+    await ledger.post({
+      idempotencyKey: `test.clearing:${nid()}`,
+      module: 'pay',
+      reason: 'test.capture.seed',
+      entries: [
+        { account: railBoundary('card-sandbox', 'USDT'), direction: 'credit', amount: parseAmount('10') },
+        { account: merchantClearing(merchant, 'USDT'), direction: 'debit', amount: parseAmount('10') },
+      ],
+    });
+    const pay = new PayService(sql, ledger, new RailRegistry([rail]));
     const due = '2026-11-01T15:04:05.000Z';
     const disputeId = `dp-hook-${nid()}`;
     await pay.handleWebhook(
@@ -874,8 +884,8 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
     };
     expect(detail.paymentId).toBe(paymentId);
     expect(detail.responseDueAt).toBe(due);
-    expect(detail.openingLedger.wire).toBe('refused');
-    expect(detail.openingLedger.refuseCode).toBeTruthy();
+    expect(detail.openingLedger.wire).toBe('posted');
+    expect(detail.openingLedger.refuseCode).toBeNull();
     await pay.handleWebhook(
       'card-sandbox',
       rail.signWebhook({

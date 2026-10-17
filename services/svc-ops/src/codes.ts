@@ -27,6 +27,19 @@ export const OPS_FUNDRAISING_LIST_LIMIT_UNSET = 'ops.fundraising_list_limit_unse
 export const OPS_FUNDRAISING_MILESTONES_LIST_LIMIT_UNSET = 'ops.fundraising_milestones_list_limit_unset' as const;
 export const OPS_STRUCTURED_LIST_LIMIT_UNSET = 'ops.structured_list_limit_unset' as const;
 export const OPS_CUSTODY_LIST_LIMIT_UNSET = 'ops.custody_list_limit_unset' as const;
+export const OPS_CUSTODY_LEDGER_UNWIRED = 'ops.custody_ledger_unwired' as const;
+export const OPS_CUSTODY_KEYS_UNPUBLISHED = 'ops.custody_keys_unpublished' as const;
+export const OPS_RESTORE_ARCHIVE_UNCONFIGURED = 'ops.restore_archive_unconfigured' as const;
+export const OPS_RESTORE_ARCHIVE_UNPROBED = 'ops.restore_archive_unprobed' as const;
+export const OPS_RESTORE_WATERMARK_REQUIRED = 'ops.restore_watermark_required' as const;
+export const OPS_ALERT_SOURCE_UNCONFIGURED = 'ops.alert_source_unconfigured' as const;
+export const OPS_ALERT_PROBE_UNCONFIGURED = 'ops.alert_probe_unconfigured' as const;
+export const OPS_IDEMPOTENCY_KEY_INVALID = 'ops.idempotency_key_invalid' as const;
+export const OPS_IDEMPOTENCY_CONFLICT = 'ops.idempotency_conflict' as const;
+export const OPS_APPROVAL_UNWIRED = 'action_approval.identity_unwired' as const;
+export const OPS_APPROVAL_MISSING = 'action_approval.missing' as const;
+export const OPS_APPROVAL_WRONG = 'action_approval.wrong_action' as const;
+export const OPS_APPROVAL_NOT_FOUNDERS = 'action_approval.not_founders' as const;
 
 export type OpsRefuseCode =
   | typeof OPS_WAREHOUSE_UNWIRED
@@ -56,7 +69,20 @@ export type OpsRefuseCode =
   | typeof OPS_FUNDRAISING_LIST_LIMIT_UNSET
   | typeof OPS_FUNDRAISING_MILESTONES_LIST_LIMIT_UNSET
   | typeof OPS_STRUCTURED_LIST_LIMIT_UNSET
-  | typeof OPS_CUSTODY_LIST_LIMIT_UNSET;
+  | typeof OPS_CUSTODY_LIST_LIMIT_UNSET
+  | typeof OPS_CUSTODY_LEDGER_UNWIRED
+  | typeof OPS_CUSTODY_KEYS_UNPUBLISHED
+  | typeof OPS_RESTORE_ARCHIVE_UNCONFIGURED
+  | typeof OPS_RESTORE_ARCHIVE_UNPROBED
+  | typeof OPS_RESTORE_WATERMARK_REQUIRED
+  | typeof OPS_ALERT_SOURCE_UNCONFIGURED
+  | typeof OPS_ALERT_PROBE_UNCONFIGURED
+  | typeof OPS_IDEMPOTENCY_KEY_INVALID
+  | typeof OPS_IDEMPOTENCY_CONFLICT
+  | typeof OPS_APPROVAL_UNWIRED
+  | typeof OPS_APPROVAL_MISSING
+  | typeof OPS_APPROVAL_WRONG
+  | typeof OPS_APPROVAL_NOT_FOUNDERS;
 
 export class OpsError extends Error {
   readonly code: OpsRefuseCode;

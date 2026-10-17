@@ -307,6 +307,35 @@ export type BankErrorCode =
    */
   | 'bank.no_fiat_rail'
   | 'bank.fiat_ramp_socket'
+  /**
+   * On-ramp quote has no rate/fee source. A pay amount, fee, or FX rate is not invented.
+   * The missing piece is socket.psp-partners plus a published price.
+   */
+  | 'bank.onramp_rate_unset'
+  /** No quote row for this caller. */
+  | 'bank.onramp_quote_missing'
+  /** The quote's published expiry has passed. Nothing is charged. */
+  | 'bank.onramp_quote_expired'
+  /** The partner answered without a hosted URL or bank-transfer instruction. None is invented. */
+  | 'bank.onramp_instruction_missing'
+  /**
+   * Crypto off-ramp has no published fee schedule. Zero is not assumed.
+   * Kind fiat still refuses `bank.fiat_ramp_socket` before this.
+   */
+  | 'bank.offramp_fee_unset'
+  /** Fee plus net does not equal the amount. The service does not adjust either figure. */
+  | 'bank.offramp_fee_inconsistent'
+  /**
+   * Crypto custody is not connected. No asset list, minimum, address, or
+   * incoming deposit is invented.
+   */
+  | 'bank.deposit_custody_unset'
+  /** Custody published a catalogue or address this service will not repeat. */
+  | 'bank.deposit_catalogue_invalid'
+  /** The asset or network is not in the published catalogue. */
+  | 'bank.deposit_asset_unpublished'
+  /** Custody returned more incoming deposits than this door will publish. None are dropped. */
+  | 'bank.deposit_pending_unbounded'
   | 'bank.ramp_invalid_amount'
   /**
    * Asset id is blank or not a usable crypto ledger symbol. The crypto half
@@ -499,7 +528,35 @@ export type BankErrorCode =
   /** The approval was already spent on a different operation. Ask again. */
   | 'bank.step_up_used'
   /** Identity could not answer, or is not wired. Nothing was posted; fail closed. */
-  | 'bank.step_up_unavailable';
+  | 'bank.step_up_unavailable'
+  /** No operator row publishes a per-transfer limit, a daily limit, and a fee for this asset. */
+  | 'bank.personal_transfer_terms_unset'
+  /** A positive fee is published and bankTransfer has no fee leg. Nothing is posted. */
+  | 'bank.personal_transfer_fee_unwired'
+  | 'bank.personal_transfer_limit_exceeded'
+  | 'bank.personal_transfer_daily_limit_exceeded'
+  /** Same transfer id, different note, payee, amount, or request. */
+  | 'bank.personal_transfer_conflict'
+  | 'bank.personal_transfer_not_found'
+  | 'bank.personal_note_invalid'
+  | 'bank.personal_request_not_found'
+  | 'bank.personal_request_closed'
+  | 'bank.personal_request_expired'
+  | 'bank.personal_request_not_payer'
+  | 'bank.personal_request_not_payee'
+  | 'bank.personal_request_amount_mismatch'
+  /** The transfer's recipient is not the request's payee. Nothing is posted. */
+  | 'bank.personal_request_payee_mismatch'
+  | 'bank.personal_request_claim_held'
+  | 'bank.personal_request_conflict'
+  | 'bank.personal_request_self'
+  | 'bank.personal_request_list_limit_unset'
+  | 'bank.personal_request_payer_unknown'
+  | 'bank.pay_request_notify_unwired'
+  /** IDENTITY_URL is unset, so a request cannot name either person. */
+  | 'bank.party_handles_unset'
+  /** Identity did not answer a handle lookup. Nothing was created. */
+  | 'bank.party_handles_unavailable';
 
 export class BankError extends Error {
   constructor(
