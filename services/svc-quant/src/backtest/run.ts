@@ -11,6 +11,7 @@ import {
   QUANT_BACKTEST_LAKE_MISSING,
   QUANT_BACKTEST_SURFACE_REFUSED,
   QUANT_BACKTEST_WALK_FORWARD_REQUIRED,
+  QUANT_STRATEGY_VERSION_UNSET,
   QuantError,
 } from '../errors.js';
 import { requireSimulatedStamp } from '../honesty.js';
@@ -32,6 +33,8 @@ export interface BacktestRunInput {
   readonly strategyVariantCount?: number;
   readonly environment?: string | null;
   readonly presentedAs?: string | null;
+  /** Head or an older immutable version. Blank is refused, never assumed to be 1. */
+  readonly strategyVersion?: number | null;
 }
 
 export interface FillWindowMetrics {
@@ -48,7 +51,15 @@ export type BacktestRunResult = SimulatedPerformanceStamp & {
   readonly outOfSample: FillWindowMetrics;
   readonly claimLabel: 'Historical simulation — not a forecast';
   readonly outOfSampleLabel: string;
+  readonly strategyVersion: number;
 };
+
+function requireStrategyVersion(value: number | null | undefined): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new QuantError(QUANT_STRATEGY_VERSION_UNSET, 'strategyVersion is unset — version 1 is not assumed');
+  }
+  return value;
+}
 
 function completeWalkForward(raw: Partial<WalkForwardWindow> | null | undefined): WalkForwardWindow | null {
   if (!raw) return null;
@@ -150,6 +161,8 @@ export function runBacktest(input: BacktestRunInput, lake: BacktestLake): Backte
   const inSample = metricsFromFills(inSampleFills);
   const outOfSample = metricsFromFills(outOfSampleFills);
 
+  const strategyVersion = requireStrategyVersion(input.strategyVersion);
+
   const outOfSampleVerdict: OutOfSampleVerdict | null = input.outOfSampleStatus
     ? {
         status: input.outOfSampleStatus,
@@ -160,7 +173,7 @@ export function runBacktest(input: BacktestRunInput, lake: BacktestLake): Backte
     : null;
 
   const assessment = assessBacktestSurface({
-    runId: `bt_${input.strategyId}`,
+    runId: `bt_${input.strategyId}_v${strategyVersion}`,
     strategyId: input.strategyId,
     strategyVariantCount: input.strategyVariantCount,
     outOfSampleVerdict,
@@ -180,5 +193,6 @@ export function runBacktest(input: BacktestRunInput, lake: BacktestLake): Backte
     outOfSample,
     claimLabel: assessment.surface.claimLabel,
     outOfSampleLabel: assessment.surface.outOfSample.label,
+    strategyVersion,
   };
 }

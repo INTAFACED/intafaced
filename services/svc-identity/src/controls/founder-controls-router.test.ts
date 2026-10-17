@@ -73,6 +73,9 @@ function fixture() {
     async currentAuthority(input) {
       return { subject: input, checkedAt: new Date().toISOString(), status: 'unavailable', code: 'authority.unavailable' };
     },
+    async listRestricted() {
+      return { rows: [], nextCursor: null };
+    },
   };
   return { port, calls };
 }
@@ -104,11 +107,14 @@ describe('identity founder control routes', () => {
     for (const body of [
       { ...input, actorUserId: USER },
       { ...input, target: { area: 'merchant', merchantId: TARGET } },
-      { ...input, target: { area: 'trading', userId: TARGET } },
     ]) {
       await expect(caller.accountControls.change(body as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     }
-    expect(calls).toHaveLength(0);
+    await expect(caller.accountControls.change({ ...input, target: { area: 'trading', userId: TARGET } })).resolves.toMatchObject({
+      outcome: 'refused',
+      code: 'operator.denied',
+    });
+    expect(calls).toHaveLength(1);
     expect(await caller.accountControls.operatorStatus({})).toEqual({ userId: USER, status: 'not_operator' });
     await expect(caller.accountControls.operatorStatus({ userId: TARGET } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     await expect(

@@ -93,7 +93,7 @@ describe('merchant drilldown F07-F23 reads every section of the contract', () =>
     async (slug, sections) => {
       const seen = serve();
       const out = await drill(slug);
-      expect(out).not.toContain('Arrives with the next backend update');
+      expect(out).not.toContain('Not connected');
       expect(out).not.toContain('Records cannot be read yet');
       expect(out).not.toContain('Not available from the current backend');
       for (const section of sections) {
@@ -126,7 +126,7 @@ describe('merchant drilldown F07-F23 reads every section of the contract', () =>
   it('F19 names the API key blocker, still lists webhooks and deliveries, and shows no key', async () => {
     serve();
     const out = await drill('developers');
-    expect(out).toContain('API key catalog not in pay service yet');
+    expect(out).toContain('The pay service holds no API key catalog');
     expect(out).toContain('https://merchant.example.test/hooks');
     expect(out).toContain('payment.captured');
     expect(out).toContain('503');
@@ -169,11 +169,11 @@ describe('merchant drilldown F07-F23 reads every section of the contract', () =>
   it('F12 names its blocker and F13/F14 point to Controls; none says "unimplemented"', async () => {
     serve();
     const conversion = await drill('conversion');
-    expect(conversion).toContain('Conversion orders reader not built yet');
+    expect(conversion).toContain('There is no conversion order reader');
     for (const slug of ['pricing', 'limits']) {
       const out = await drill(slug);
       expect(out).toContain('Open Controls');
-      expect(out).not.toContain('Arrives with the next backend update');
+      expect(out).not.toContain('Not connected');
     }
     expect(conversion).not.toContain('still unimplemented');
   });
@@ -265,8 +265,8 @@ describe('F05 recent merchants', () => {
     const out = await founder('/merchants/new');
     expect(out).toContain('TEST DATA Merchant');
     expect(out).toContain('Unnamed merchant');
-    expect(out).toContain('Creating a merchant is not in the pay service yet');
-    expect(out).not.toContain('Arrives with the next backend update');
+    expect(out).toContain('The pay service does not create merchants for someone else');
+    expect(out).not.toContain('Not connected');
   });
   it('follows the cursor', async () => {
     const seen = serve({
@@ -343,8 +343,8 @@ describe('F02 live counters and F03 risk', () => {
     expect(out).toContain('Live counters as of');
     expect(out).toContain('2 h 0 min');
     expect(out).toContain('Nothing waiting');
-    expect(out).toContain('Event stream and pipeline counters not in the live summary yet');
-    expect(out).not.toContain('Arrives with the next backend update');
+    expect(out).toContain('Event stream and pipeline counters are not in the live summary');
+    expect(out).not.toContain('Not connected');
   });
   it('live: an error is not zero', async () => {
     serve({ 'founderAdmin.live.summary': fail503 });

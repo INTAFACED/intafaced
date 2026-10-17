@@ -33,6 +33,7 @@ import {
 } from './auth/auth-service.js';
 import type { RankService } from './rank/rank-service.js';
 import { HANDLE_LOOKUP_RATE_LIMITED, HandleLookupLimiter, normaliseHandleQuery, type HandleLookupLimiterPort } from './handle-lookup.js';
+import { normalisePayeeEmail, normalisePayeePhone } from './payee-search.js';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import {
   AFFILIATE_PAYOUT_RESIDUAL,
@@ -338,6 +339,10 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     case 'auth.email_confirm_rate_limited':
       return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
+    case 'auth.payee_email_unconfirmed':
+    case 'auth.payee_phone_unverified':
+    case 'auth.payee_phone_unset':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
   }
 }
 
@@ -654,6 +659,88 @@ export function createIdentityRouter(
           const hit = await auth.findActiveByHandle(handle);
           if (!hit) return { found: false as const };
           return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
+        }),
+
+      /**
+       * Find a person by exact email or exact phone. Same budget and the same
+       * miss as `resolveHandle`. A hit requires that person's consent flag.
+       * The email and the phone are never in the answer.
+       */
+      searchPayees: protectedProcedure
+        .input(
+          z
+            .object({
+              email: z.string().max(320).optional(),
+              phone: z.string().max(32).optional(),
+            })
+            .strict()
+            .refine((value) => (value.email !== undefined) !== (value.phone !== undefined), 'Send an email or a phone, not both'),
+        )
+        .output(
+          z.discriminatedUnion('found', [
+            z.object({ found: z.literal(false) }),
+            z.object({ found: z.literal(true), userId: z.string().uuid(), handle: z.string(), self: z.boolean() }),
+          ]),
+        )
+        .query(async ({ ctx, input }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search needs a signed-in session' });
+          }
+          if (!(await handleLookupLimiter.tryTake(ctx.principal.userId))) {
+            throw new TRPCError({
+              code: 'TOO_MANY_REQUESTS',
+              message: `Too many lookups. Try again in a minute. [${HANDLE_LOOKUP_RATE_LIMITED}]`,
+            });
+          }
+          const email = input.email === undefined ? undefined : normalisePayeeEmail(input.email);
+          const phone = input.phone === undefined ? undefined : normalisePayeePhone(input.phone);
+          if (email === null || phone === null || (email === undefined && phone === undefined)) return { found: false as const };
+          const hit = await auth.searchPayee(email !== undefined ? { email } : { phone: phone as string });
+          if (!hit) return { found: false as const };
+          return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
+        }),
+
+      /**
+       * Opt in to being found by email or phone, and store the phone people
+       * would match. The stored number is not returned.
+       */
+      setPayeeSearchConsent: protectedProcedure
+        .input(
+          z
+            .object({
+              emailConsent: z.boolean().optional(),
+              phoneConsent: z.boolean().optional(),
+              phone: z.string().max(32).nullable().optional(),
+            })
+            .strict()
+            .refine(
+              (value) => value.emailConsent !== undefined || value.phoneConsent !== undefined || value.phone !== undefined,
+              'Nothing to change',
+            ),
+        )
+        .output(z.object({ emailConsent: z.boolean(), phoneConsent: z.boolean(), phoneOnFile: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search settings need a signed-in session' });
+          }
+          let phone: string | null | undefined;
+          if (input.phone === undefined) phone = undefined;
+          else if (input.phone === null) phone = null;
+          else {
+            phone = normalisePayeePhone(input.phone);
+            if (phone === null) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'Phone numbers are stored as E.164 [identity.payee_phone_invalid]' });
+            }
+          }
+          try {
+            return await auth.setPayeeSearchConsent(ctx.principal.userId, {
+              ...(input.emailConsent !== undefined ? { emailConsent: input.emailConsent } : {}),
+              ...(input.phoneConsent !== undefined ? { phoneConsent: input.phoneConsent } : {}),
+              ...(phone !== undefined ? { phone } : {}),
+            });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
         }),
     }),
 
@@ -1181,15 +1268,12 @@ export function createIdentityRouter(
        * second-factor check.
        *
        * WHY `requireMfa` IS HERE AND NOT IMPLIED BY THE SCOPE.
-       * `INTERACTIVE_ONLY_SCOPES` is what forces 2FA on a scope, and
-       * `admin:compliance` is NOT in that list — its stated membership test is
-       * "does this move value OFF the platform", and approving a record moves
-       * nothing. But it is a privilege-escalation primitive: a leaked operator
-       * key that can self-approve an account to `institutional` unlocks every
-       * custodial module in the OS. So the second factor is enforced here,
-       * locally, and the question of whether the shared list should grow is
-       * argued in the PR rather than settled by editing a shared package inside
-       * a service PR (§15.2). Dual-control reuses four-eyes
+       * `admin:compliance` is in `INTERACTIVE_ONLY_SCOPES`, so an API key that
+       * carries it is refused at `requireScope` (`scope.interactive_only`).
+       * That list does not force 2FA: `SESSION_MFA_SCOPES` is the value-off-
+       * platform subset, and approving a record moves nothing. It is still a
+       * privilege-escalation primitive, so the second factor is enforced here,
+       * locally. Dual-control reuses four-eyes
        * (`confirmOperatorId` mill field → distinct `confirmActorId`) so one
        * operator cannot self-grant `institutional`.
        */

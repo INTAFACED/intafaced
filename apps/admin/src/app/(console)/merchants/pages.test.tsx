@@ -353,7 +353,7 @@ describe('all merchants', () => {
     expect(out).toContain('aria-sort="ascending"');
     expect(out).toContain('Export CSV (1)');
     expect(out).toContain('href="/merchants/all?status=active&amp;cursor=NEXTC"');
-    expect(out).toContain('The tier filter arrives with the control room');
+    expect(out).toContain('The tier filter is not connected');
     expect(decodeURIComponent(seen.find((u) => u.includes('merchants.list'))!)).toContain('"filter":{"status":"active"}');
     expect(decodeURIComponent(seen.find((u) => u.includes('merchants.list'))!)).toContain('"limit":50');
   });
@@ -464,7 +464,7 @@ describe('merchant drill-down', () => {
     expect(out).toContain('Copy id');
     expect(out).toContain('2,500.75');
     expect(out).toContain('Volume and fee revenue, last 30 days');
-    expect(out).toContain('Not built yet'); // conversion volume
+    expect(out).toContain('Not available'); // conversion volume
     expect(out).toContain('aria-current="page"');
   });
 
@@ -871,13 +871,13 @@ describe('merchant drill-down: Controls tab', () => {
     expect(out).not.toMatch(/\d+\.\d\d (USDT|USD)/);
   });
 
-  it('says what is not available yet instead of inventing it: history, pending changes and over-cap captures', async () => {
+  it('says what this tab does not list instead of inventing it: history, pending changes and over-cap captures', async () => {
     services(controlsBase);
     const out = html(await page());
-    expect(out).toContain('Who changed what is not available yet');
-    expect(out).toContain('The list of pending changes is not available yet');
+    expect(out).toContain('Who changed what is on the Activity and audit page');
+    expect(out).toContain('Pending changes are not listed on this tab');
     expect(out).toContain('Captures over a cap');
-    expect(out).toContain('no founder-readable procedure exposes those rows');
+    expect(out).toContain('Captures over a cap are not listed on this tab');
     expect(out).toContain('Version of this merchant’s controls');
   });
 
@@ -968,7 +968,7 @@ describe('merchant drill-down: Approvals tab', () => {
     services({ ...base, 'founderAdmin.approvals.list': queue([approvalRow(2)]) });
     const out = html(await page());
     expect(out).toContain('Nothing waiting for founders');
-    expect(out).toContain('no founder-readable list for that earlier step yet');
+    expect(out).toContain('no founder-readable list for that earlier step');
   });
 
   it('follows the queue’s pages but stops, and says so, when it is longer than one read covers', async () => {
@@ -1315,7 +1315,7 @@ describe('treasury and halts', () => {
     });
     const out = html(await Treasury());
     expect(out).toContain('1,000.00');
-    expect(out).toContain('Not measured yet');
+    expect(out).toContain('Not measured');
     expect(out).toContain('confirmed by a second founder');
     expect(out).toContain('Rail repaired');
     expect(out).toContain('Not set: conversions refuse');

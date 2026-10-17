@@ -1,5 +1,5 @@
 import { createServer } from 'node:net';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Address } from 'viem';
 import { ProtocolChain } from './client.js';
 import { ChainUnavailableError } from './availability.js';
@@ -111,7 +111,9 @@ describe('a real ProtocolChain pointed at a closed socket', () => {
     );
     expect(error).toBeInstanceOf(ChainUnavailableError);
     expect((error as ChainUnavailableError).code).toBe('protocol.chain_unreachable');
-    expect((error as ChainUnavailableError).message).toContain(DEAD_RPC);
+    expect((error as ChainUnavailableError).message).not.toContain(DEAD_RPC);
+    expect((error as ChainUnavailableError).message).not.toContain('SOCKET');
+    expect((error as ChainUnavailableError).operatorDetail).toContain(DEAD_RPC);
   });
 
   it('reports the outage as data on status(), and claims nothing about deployment', async () => {
@@ -317,18 +319,85 @@ describe('launch, with no chain behind it', () => {
  * mismatched RPC makes every prediction an address the user can fund and never
  * reach. Needs a live node to be a real test, so it skips without one.
  */
+describe('a chain id the service does not derive addresses for', () => {
+  it('names both ids on the refusal and on status(), and leaves the endpoint out', async () => {
+    const SECRET = 'fk_test_secret_key';
+    const rpcUrl = `http://user:${SECRET}@127.0.0.1:${await closedPort()}/v1/${SECRET}?apikey=fk_test_query_key`;
+    const chain = new ProtocolChain({
+      chainId: 1,
+      rpcUrl,
+      entryPoint: ENTRYPOINT,
+      factory: FACTORY,
+      implementation: IMPLEMENTATION,
+    });
+    vi.spyOn(chain.client, 'getChainId').mockResolvedValue(DEV_CHAIN_ID);
+
+    const thrown = await chain.assertChainId().then(
+      () => null,
+      (err: unknown) => err,
+    );
+    expect(thrown).toBeInstanceOf(ChainUnavailableError);
+    const refusal = thrown as ChainUnavailableError;
+    expect(refusal.code).toBe('protocol.chain_id_mismatch');
+    expect(refusal.expectedChainId).toBe(1);
+    expect(refusal.actualChainId).toBe(DEV_CHAIN_ID);
+    expect(refusal.message).toContain(String(DEV_CHAIN_ID));
+    expect(refusal.message).toContain('chain 1');
+    expect(refusal.message).toContain('never reach');
+    expect(refusal.message).not.toContain(SECRET);
+    expect(refusal.message).not.toContain('127.0.0.1');
+    expect(refusal.message).not.toContain('SOCKET');
+    expect(refusal.operatorDetail).toContain('http://127.0.0.1');
+    expect(refusal.operatorDetail).not.toContain(SECRET);
+    expect(refusal.operatorDetail).not.toContain('fk_test_query_key');
+
+    const status = await chain.status();
+    expect(status).toMatchObject({
+      reachable: false,
+      observedChainId: null,
+      refusalCode: 'protocol.chain_id_mismatch',
+      expectedChainId: 1,
+      actualChainId: DEV_CHAIN_ID,
+    });
+    expect(status.reason).toContain(String(DEV_CHAIN_ID));
+    expect(status.reason).toContain('chain 1');
+    expect(status.reason).toContain('never reach');
+    const body = JSON.stringify(status);
+    expect(body).not.toContain(SECRET);
+    expect(body).not.toContain('fk_test_query_key');
+    expect(body).not.toContain('127.0.0.1');
+    expect(body).not.toContain('SOCKET');
+    expect(body).not.toContain('/v1/');
+
+    const viaRouter = await routerFor(chain, FACTORY, IMPLEMENTATION).chainStatus();
+    expect(viaRouter).toMatchObject({ expectedChainId: 1, actualChainId: DEV_CHAIN_ID });
+    expect(JSON.stringify(viaRouter)).not.toContain(SECRET);
+    expect(JSON.stringify(viaRouter)).not.toContain('127.0.0.1');
+  });
+});
+
 describe.skipIf(!(await devChainReachable()))('an RPC answering for a different chain', () => {
   it('refuses with chain_id_mismatch and names both ids', async () => {
+    const rpcUrl = devRpcUrl();
     const wrongChain = new ProtocolChain({
       chainId: 1,
-      rpcUrl: devRpcUrl(),
+      rpcUrl,
       entryPoint: ENTRYPOINT,
       factory: FACTORY,
       implementation: IMPLEMENTATION,
     });
     const status = await wrongChain.status();
-    expect(status).toMatchObject({ reachable: false, observedChainId: null, refusalCode: 'protocol.chain_id_mismatch' });
+    expect(status).toMatchObject({
+      reachable: false,
+      observedChainId: null,
+      refusalCode: 'protocol.chain_id_mismatch',
+      expectedChainId: 1,
+      actualChainId: DEV_CHAIN_ID,
+    });
     expect(status.reason).toContain(String(DEV_CHAIN_ID));
+    expect(status.reason).toContain('chain 1');
     expect(status.reason).toContain('never reach');
+    expect(status.reason).not.toContain(new URL(rpcUrl).host);
+    expect(status.reason).not.toContain('SOCKET');
   });
 });

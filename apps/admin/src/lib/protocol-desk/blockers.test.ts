@@ -78,7 +78,7 @@ describe('blockers for every Protocol action', () => {
     )[0]!.text;
     expect(text).toContain('could not load chain status');
     expect(text).toContain('svc-protocol did not answer.');
-    expect(text).toContain(`as of ${AT}`);
+    expect(text).toContain('as of 03:00:00 UTC');
   });
   it('an unreachable chain, a wrong chain, missing contracts and an unwired AMM are each named', () => {
     const unreachable = view(

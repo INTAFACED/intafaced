@@ -28,6 +28,7 @@ import {
 } from './errors.js';
 import type { BacktestLake } from './backtest/lake.js';
 import { createQuantRouter, type QuantRouter } from './router.js';
+import { createMemoryStrategyRepository } from './studio/memory-repository.js';
 
 const SECRET = 'a-quant-mount-test-edge-secret-long-enough';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-quant' });
@@ -209,7 +210,12 @@ describe('svc-quant mount — studio.save', () => {
   const blocks = [{ side: 'buy' as const, symbol: 'BTC-USD', qty: '0.01' }];
 
   it('refuses missing risk block by name and does not persist', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(signed());
+    const caller = createQuantRouter({
+      wired: true,
+      venueVaultSet: false,
+      limits,
+      strategies: createMemoryStrategyRepository(),
+    }).createCaller(signed());
     await expect(caller.studio.save({ name: 'alpha', blocks, cash: '10000', environment: 'paper' })).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_STUDIO_RISK_BLOCK_REQUIRED),
     });
@@ -218,7 +224,12 @@ describe('svc-quant mount — studio.save', () => {
   });
 
   it('refuses studio.save when cash is omitted — never invents 10000', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(signed());
+    const caller = createQuantRouter({
+      wired: true,
+      venueVaultSet: false,
+      limits,
+      strategies: createMemoryStrategyRepository(),
+    }).createCaller(signed());
     await expect(caller.studio.save({ name: 'alpha', blocks, risk, environment: 'paper' })).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_CASH_UNSET),
     });
@@ -227,8 +238,21 @@ describe('svc-quant mount — studio.save', () => {
   });
 
   it('saves a no-code strategy then runs it through existing sandbox.run', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(signed());
-    const saved = await caller.studio.save({ name: 'alpha', blocks, risk, cash: '10000', environment: 'paper' });
+    const caller = createQuantRouter({
+      wired: true,
+      venueVaultSet: false,
+      limits,
+      strategies: createMemoryStrategyRepository(),
+    }).createCaller(signed());
+    const saved = await caller.studio.save({
+      name: 'alpha',
+      blocks,
+      risk,
+      cash: '10000',
+      environment: 'paper',
+      clientStrategyId: 'client-alpha',
+      idempotencyKey: 'idem-alpha',
+    });
     expect(saved.risk.maxDrawdown).toBe('500');
     expect(typeof saved.risk.maxNotional).toBe('string');
     expect(typeof saved.cash).toBe('string');
@@ -267,74 +291,100 @@ describe('svc-quant mount — backtest.run', () => {
     ],
   };
 
+  async function owned(lakeOverride?: BacktestLake) {
+    const caller = createQuantRouter({
+      wired: true,
+      venueVaultSet: false,
+      limits,
+      strategies: createMemoryStrategyRepository(),
+      ...(lakeOverride ? { lake: lakeOverride } : {}),
+    }).createCaller(signed());
+    const saved = await caller.studio.save({
+      name: 'alpha',
+      blocks: [{ side: 'buy' as const, symbol: 'BTC-USD', qty: '0.01' }],
+      risk: { maxDrawdown: '500', maxNotional: '10000', kill: '100' },
+      cash: '10000',
+      environment: 'paper',
+      clientStrategyId: `client-${crypto.randomUUID()}`,
+      idempotencyKey: `idem-${crypto.randomUUID()}`,
+    });
+    return { caller, strategyId: saved.id, strategyVersion: saved.version };
+  }
+
   it('refuses missing lake by name', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const { caller, strategyId } = await owned();
     await expect(
       caller.backtest.run({
-        strategyId: 'alpha',
+        strategyId,
         symbol: 'BTC-USD',
         walkForward,
         outOfSampleStatus: 'passed',
         costModel,
         strategyVariantCount: 1,
         environment: 'backtest',
+        idempotencyKey: 'idem-lake',
       }),
     ).rejects.toMatchObject({ message: expect.stringContaining(QUANT_BACKTEST_LAKE_MISSING) });
   });
 
   it('refuses missing fills by name', async () => {
     const empty: BacktestLake = { wired: true, fills: () => [] };
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits, lake: empty }).createCaller(anonymous());
+    const { caller, strategyId } = await owned(empty);
     await expect(
       caller.backtest.run({
-        strategyId: 'alpha',
+        strategyId,
         symbol: 'BTC-USD',
         walkForward,
         outOfSampleStatus: 'passed',
         costModel,
         strategyVariantCount: 1,
         environment: 'backtest',
+        idempotencyKey: 'idem-fills',
       }),
     ).rejects.toMatchObject({ message: expect.stringContaining(QUANT_BACKTEST_FILLS_MISSING) });
   });
 
   it('refuses missing walk-forward by name', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits, lake }).createCaller(anonymous());
+    const { caller, strategyId } = await owned(lake);
     await expect(
       caller.backtest.run({
-        strategyId: 'alpha',
+        strategyId,
         symbol: 'BTC-USD',
         outOfSampleStatus: 'passed',
         costModel,
         strategyVariantCount: 1,
         environment: 'backtest',
+        idempotencyKey: 'idem-window',
       }),
     ).rejects.toMatchObject({ message: expect.stringContaining(QUANT_BACKTEST_WALK_FORWARD_REQUIRED) });
   });
 
   it('metrics from fills; OOS and cost-model refusals stay named', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits, lake }).createCaller(anonymous());
+    const { caller, strategyId, strategyVersion } = await owned(lake);
     await expect(
       caller.backtest.run({
-        strategyId: 'alpha',
+        strategyId,
         symbol: 'BTC-USD',
         walkForward,
         costModel,
         strategyVariantCount: 1,
         environment: 'backtest',
+        idempotencyKey: 'idem-oos',
       }),
     ).rejects.toMatchObject({ message: expect.stringContaining('missing_out_of_sample_verdict') });
 
     const ran = await caller.backtest.run({
-      strategyId: 'alpha',
+      strategyId,
       symbol: 'BTC-USD',
       walkForward,
       outOfSampleStatus: 'passed',
       costModel,
       strategyVariantCount: 1,
       environment: 'backtest',
+      idempotencyKey: 'idem-metrics',
     });
     expect(ran.ok).toBe(true);
+    expect(ran.strategyVersion).toBe(strategyVersion);
     expect(typeof ran.inSample.notional).toBe('string');
     expect(typeof ran.outOfSample.notional).toBe('string');
     expect(ran.outOfSample.fillCount).toBe(1);
@@ -345,7 +395,6 @@ describe('svc-quant mount — backtest.run', () => {
     expect(ran.claimLabel).toBe('Historical simulation — not a forecast');
   });
 });
-
 describe('svc-quant mount — simulated is never live', () => {
   it('refuses sandbox.run without environment', async () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());

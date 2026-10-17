@@ -1,4 +1,5 @@
 import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
+import { redactUrlsInText } from './chain/availability.js';
 
 /**
  * Tracing (§9, §14 DoD).
@@ -31,8 +32,11 @@ export async function withSpan<T>(name: string, fn: () => Promise<T>): Promise<T
       span.setStatus({ code: SpanStatusCode.OK });
       return result;
     } catch (err) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
-      if (err instanceof Error) span.recordException(err);
+      const safe = redactUrlsInText(err instanceof Error ? err.message : String(err));
+      span.setStatus({ code: SpanStatusCode.ERROR, message: safe });
+      const recorded = new Error(safe);
+      recorded.name = err instanceof Error ? err.name : 'Error';
+      span.recordException(recorded);
       throw err;
     } finally {
       span.end();
@@ -64,9 +68,12 @@ export async function withAuthoritySpan<T>(name: string, attributes: ProtocolSpa
       span.setStatus({ code: SpanStatusCode.OK });
       return result;
     } catch (err) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+      const safe = redactUrlsInText(err instanceof Error ? err.message : String(err));
+      span.setStatus({ code: SpanStatusCode.ERROR, message: safe });
+      const recorded = new Error(safe);
+      recorded.name = err instanceof Error ? err.name : 'Error';
+      span.recordException(recorded);
       if (err instanceof Error) {
-        span.recordException(err);
         span.setAttribute('intafaced.error_code', (err as { code?: string }).code ?? err.name);
       }
       throw err;

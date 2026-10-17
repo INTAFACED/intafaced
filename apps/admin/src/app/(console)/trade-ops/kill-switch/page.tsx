@@ -4,7 +4,7 @@ import { KillSwitchAudit } from '@/components/trade-ops/kill-switch-audit';
 import { KillSwitchExplainer } from '@/components/trade-ops/kill-switch-explainer';
 import { KillSwitchMassCancel } from '@/components/trade-ops/kill-switch-mass-cancel';
 import { KillSwitchDesk } from '@/components/trade-ops/kill-switch-desk';
-import { KillSwitchVenue } from '@/components/trade-ops/kill-switch-venue';
+import { MatchingControls, VENUE_CONTROL_ACTIONS } from '@/components/trade-ops/matching-controls';
 import { BlockerPanel, ReadProblem } from '@/components/trade-ops/blocker-panel';
 import { DeskPage } from '@/components/trade-ops/desk-page';
 import { tradeAudit, tradeSwitchState, killStateOutcome, MASS_CANCEL_TODAY } from '@/lib/trade-ops/kill-switch-model';
@@ -87,8 +87,8 @@ export default async function KillSwitchPage() {
         <div className="grid gap-6 lg:grid-cols-2">
           <PageSection title="Venue halt all / resume all">
             <div className="flex flex-col gap-3">
-              <BlockerPanel blocker={BLOCKERS.matching_not_routed} title="Not routed to operators" size="inline" />
-              <KillSwitchVenue signedInUserId={session.userId} />
+              <p className="text-sm text-fg-2">Needs a two-person approval: you propose, a different operator approves, then you run it.</p>
+              <MatchingControls actions={VENUE_CONTROL_ACTIONS} />
             </div>
           </PageSection>
           <PageSection title="Mass cancel">

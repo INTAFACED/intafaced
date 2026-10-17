@@ -138,6 +138,7 @@ const SERVICE_ROLE_NAMES = [
   'ops',
   'notify',
   'support',
+  'quant',
   'chain',
   'indexer',
   'bridge',

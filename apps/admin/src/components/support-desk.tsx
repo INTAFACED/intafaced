@@ -11,6 +11,7 @@ import { Failed } from './support-action-parts';
 import { TicketActions } from './support-ticket-actions';
 import { TicketExtras } from './support-ticket-extras';
 import './desk.css';
+import { formatAsOf, formatWhen } from '@/lib/as-of';
 
 /**
  * SUPPORT DESK — list, then ticket, then claim, reply, set status, escalate; with the ticket's case file and rating, and the help articles.
@@ -81,7 +82,7 @@ function TicketPanel(p: DeskViewProps) {
         <button type="button" className="adm-btn" onClick={p.onClose}>
           Back to the queue
         </button>
-        <span className="dk-asof">{view ? `As of ${view.asOf}` : 'Reading…'}</span>
+        <span className="dk-asof">{view ? `As of ${formatAsOf(view.asOf)}` : 'Reading…'}</span>
       </div>
       {p.loadingTicket && !view && <p className="dk-muted">Reading the ticket…</p>}
       {view && view.detail.kind === 'failed' && <Failed name="Ticket" part={view.detail} />}
@@ -108,9 +109,9 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
         <dt>Owner</dt>
         <dd>{t.assigneeId === null ? 'Nobody yet' : mine ? 'You' : shortId(t.assigneeId)}</dd>
         <dt>Opened</dt>
-        <dd>{t.createdAt}</dd>
+        <dd>{formatWhen(t.createdAt)}</dd>
         <dt>Last updated</dt>
-        <dd>{t.updatedAt}</dd>
+        <dd>{formatWhen(t.updatedAt)}</dd>
       </dl>
       <div className="adm-callout">
         <strong>What the customer wrote</strong>
@@ -172,7 +173,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
           {detail.comments.data.map((c) => (
             <li key={c.id} className="adm-callout">
               <strong>
-                {c.authorRole === 'operator' ? 'Staff' : 'Customer'} · {c.createdAt}
+                {c.authorRole === 'operator' ? 'Staff' : 'Customer'} · {formatWhen(c.createdAt)}
               </strong>
               <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{c.body}</p>
             </li>
@@ -201,7 +202,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
               {detail.events.data.map((e) => (
                 <tr key={e.id}>
                   <td>{e.sequence}</td>
-                  <td>{e.occurredAt}</td>
+                  <td>{formatWhen(e.occurredAt)}</td>
                   <td>{e.kind === 'status_changed' ? `status ${e.fromStatus} → ${e.toStatus}` : e.kind}</td>
                   <td>
                     {e.actorRole} {shortId(e.actorId)}
@@ -234,7 +235,7 @@ export function SupportDeskView(p: DeskViewProps) {
         <button type="button" className="adm-btn" onClick={p.onRefresh} disabled={p.loadingQueue}>
           {p.loadingQueue ? 'Reading…' : 'Refresh'}
         </button>
-        <span className="dk-asof">{q ? `As of ${q.asOf} (when this console read svc-support)` : 'No read yet'}</span>
+        <span className="dk-asof">{q ? `As of ${formatAsOf(q.asOf)} (when this console read svc-support)` : 'No read yet'}</span>
       </div>
       {!q && <p className="dk-why">svc-support could not be read. Nothing is shown rather than a guess.</p>}
       {q && q.queue.kind === 'failed' && <Failed name="Support queue" part={q.queue} />}

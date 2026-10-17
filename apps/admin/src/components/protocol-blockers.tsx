@@ -2,6 +2,7 @@ import { Chip } from '@/components/chip';
 import { ACTION_LABELS, PROTOCOL_ACTIONS, SOURCE_NAMES, blockersFor, factsFrom, networkLabel } from '@/lib/protocol-desk/blockers';
 import type { DeskView } from '@/lib/ops-desk/types';
 import './desk.css';
+import { formatAsOf } from '@/lib/as-of';
 
 /**
  * The named blockers in front of each Protocol action, worked out from the reads on this desk.
@@ -31,7 +32,7 @@ export function ProtocolBlockers({ view }: { view: DeskView | null }) {
           <li key={key} data-testid={`source-${key}`}>
             {fact.status === 'ok' ? (
               <span className="dk-muted">
-                Read {name}: answered, as of {fact.asOf}.
+                Read {name}: answered, as of {formatAsOf(fact.asOf)}.
               </span>
             ) : (
               <strong>
@@ -39,7 +40,7 @@ export function ProtocolBlockers({ view }: { view: DeskView | null }) {
                 <span className="dk-muted">
                   {' '}
                   ({fact.reason}
-                  {fact.asOf ? `, as of ${fact.asOf}` : ''})
+                  {fact.asOf ? `, as of ${formatAsOf(fact.asOf)}` : ''})
                 </span>
               </strong>
             )}

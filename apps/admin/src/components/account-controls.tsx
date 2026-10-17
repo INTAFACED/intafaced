@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import Link from 'next/link';
 import type { AccountControlResult, AccountControlState, AccountControlTarget } from '@intafaced/contracts';
 import { ACCOUNT_GAPS, ACCOUNT_LINKS } from '@/lib/ops-desk/accounts-gaps';
+import { formatAsOf } from '@/lib/as-of';
 
 function controlExplanation(area: 'identity' | 'trading' | 'merchant'): string {
   if (area === 'identity')
@@ -123,7 +124,7 @@ export function AccountControls({ csrf }: { csrf: string }) {
           <h2>{state.restricted ? 'Restricted' : 'Access permitted'}</h2>
           {readAt && (
             <p className="adm-subtle" data-testid="account-asof">
-              As of {readAt} (when this console read the account)
+              As of {formatAsOf(readAt)} (when this console read the account)
             </p>
           )}
           <p className="adm-subtle">{controlExplanation(area)}</p>

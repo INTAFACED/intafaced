@@ -38,6 +38,6 @@ body {
 }
 .harness-bar .harness-test {
   margin-left: 16px;
-  color: var(--if-warn, #ff9f1a);
+  color: var(--if-warn-text);
   font-weight: 600;
 }

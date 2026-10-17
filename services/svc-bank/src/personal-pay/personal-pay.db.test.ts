@@ -1,0 +1,578 @@
+/**
+ * Bill pay and global send. Acceptance tests enter through the router.
+ * TEST_DATABASE_URL only. This file does not start Docker.
+ */
+import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { Principal } from '@intafaced/auth';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import {
+  createEdgeContext,
+  encodePrincipal,
+  signPrincipalHeader,
+  type ActionApproval,
+  type ActionApprovalConsumeInput,
+} from '@intafaced/contracts';
+import { MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
+import { ActionApprovalConsumeError, bankActionPayloadHash } from '../action-approval-consume.js';
+import { memoryLedgerHistory } from '../analytics/ledger-history.js';
+import { createBankServices, memoryRecipientState, type BankServices } from '../bank-service.js';
+import { createBankRouter } from '../router.js';
+import { createStepUpGate } from '../step-up/step-up-gate.js';
+import type { BillPorts, GlobalPorts } from './ports.js';
+import { billPayStepUp } from './step-up-fields.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const drizzle = join(here, '../..', 'drizzle');
+const migrations = readdirSync(drizzle)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(drizzle, f), 'utf8'));
+
+const SECRET = 'c'.repeat(32);
+const USER = '11111111-1111-4111-8111-111111111111';
+const OTHER = '22222222-2222-4222-8222-222222222222';
+const SID = '77777777-7777-4777-8777-777777777777';
+const QUOTE = {
+  rate: '7.25',
+  fee: '1.10',
+  feeAsset: 'USDT',
+  receiveAmount: '71.41',
+  validUntil: '2099-01-01T00:00:00.000Z',
+  eta: '2099-01-02T00:00:00.000Z',
+};
+
+function principal(userId: string, scopes: string[]): Principal {
+  return {
+    sub: userId,
+    userId,
+    sid: SID,
+    scopes,
+    tier: 'full',
+    mfa: true,
+    expiresAt: new Date(Date.now() + 60_000),
+  } as Principal;
+}
+
+function caller(bank: BankServices, userId: string, scopes: string[], stepUp?: ReturnType<typeof createStepUpGate>) {
+  const raw = encodePrincipal(principal(userId, scopes));
+  const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
+  return createBankRouter(bank, stepUp ? { stepUp } : {}).createCaller(
+    edge({
+      headers: {
+        'x-intafaced-principal': raw,
+        'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+        'x-intafaced-region': 'DE',
+      },
+      id: `req-${randomUUID()}`,
+    }),
+  );
+}
+
+function approvingIdentity() {
+  const rows = new Map<string, { hash: string; userId: string; actionType: string }>();
+  return {
+    approve(actionType: string, fields: Record<string, string>, userId: string) {
+      const id = randomUUID();
+      rows.set(id, { hash: bankActionPayloadHash(actionType, fields), userId, actionType });
+      return id;
+    },
+    async consume(input: ActionApprovalConsumeInput): Promise<ActionApproval> {
+      const row = rows.get(input.approvalId);
+      const refuse = (code: string): never => {
+        throw new ActionApprovalConsumeError(`refused [action_approval.${code}]`, 'action_approval.consume_failed');
+      };
+      if (!row || row.hash !== input.payloadHash || row.actionType !== input.targetId) return refuse('payload_mismatch');
+      if (row.userId !== input.principalUserId || input.principalSessionId !== SID) return refuse('not_requester');
+      const now = new Date().toISOString();
+      return {
+        approvalId: input.approvalId,
+        actionType: row.actionType,
+        targetService: 'svc-bank',
+        targetId: input.targetId,
+        expectedVersion: '1',
+        payloadHash: input.payloadHash,
+        requesterId: row.userId,
+        approverId: row.userId,
+        policyVersion: 'step-up-v1',
+        createdAt: now,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        status: 'CONSUMED',
+        operationId: input.approvalId,
+        kind: 'same_person',
+      };
+    },
+  };
+}
+
+function liveBills(submit: BillPorts['rail']['submit']): BillPorts {
+  return {
+    directory: {
+      status: () => 'live',
+      async search() {
+        return [{ id: 'power-de', name: 'TEST POWER', country: 'DE', category: 'utility' }];
+      },
+    },
+    lookup: {
+      status: () => 'live',
+      async lookup(input) {
+        if (input.reference === 'unknown') return null;
+        return { amountDue: '25.00', dueDate: '2026-11-01', payeeName: 'TEST POWER', currency: 'EUR' };
+      },
+    },
+    rail: { status: () => 'live', railId: () => 'test-bill-rail', submit },
+  };
+}
+
+function liveGlobal(over: Partial<GlobalPorts> = {}): GlobalPorts {
+  return {
+    corridors: {
+      status: () => 'live',
+      async list() {
+        return [
+          {
+            country: 'DE',
+            currency: 'EUR',
+            deliveryMethods: ['bank'],
+            minAmount: '1.00',
+            maxAmount: null,
+            cutOffTime: '16:00 Europe/Berlin',
+          },
+        ];
+      },
+    },
+    bic: {
+      status: () => 'live',
+      async lookup(bic) {
+        return bic === 'DEUTDEFF' ? { bic, bankName: 'TEST BANK' } : null;
+      },
+    },
+    fx: {
+      status: () => 'live',
+      async quote() {
+        return QUOTE;
+      },
+    },
+    payout: {
+      status: () => 'live',
+      railId: () => 'test-payout-rail',
+      async submit() {
+        return { ok: true, providerRef: 'payout-1', status: 'sent' };
+      },
+    },
+    travelRule: { decision: () => ({ decidedBy: 'test-fixture', requiredFields: ['originatorName'] }) },
+    ...over,
+  };
+}
+
+function transfers(ledger: MemoryLedger) {
+  return ledger.journal().filter((tx) => tx.reason === 'bank.transfer.manual');
+}
+
+describe('personal bill pay and global send', () => {
+  let db: TestDatabase | undefined;
+  let sql!: TestDatabase['sql'];
+
+  beforeAll(async () => {
+    const raw = process.env.TEST_DATABASE_URL?.trim();
+    if (!raw) throw new Error('TEST_DATABASE_URL is unset. This suite does not start Docker.');
+    const url = new URL(raw);
+    if (url.pathname === '/test') url.pathname = '/intafaced_test';
+    db = await createTestDatabase({ service: 'bank', url: url.toString(), migrations });
+    sql = db.sql;
+  }, 120_000);
+
+  afterAll(async () => {
+    await db?.drop();
+  });
+
+  beforeEach(async () => {
+    await sql`
+      TRUNCATE bank.bill_recurring_firings, bank.bill_payments, bank.bill_recurring,
+               bank.global_sends, bank.global_recipients, bank.spaces
+      RESTART IDENTITY CASCADE
+    `;
+  });
+
+  function mount(options: { bills?: BillPorts; global?: GlobalPorts } = {}) {
+    const ledger = new MemoryLedger();
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      nativeAssetId: 'IFC',
+      recipients: memoryRecipientState(),
+      bills: options.bills,
+      global: options.global,
+    });
+    return { ledger, bank };
+  }
+
+  async function funded(bank: BankServices, ledger: MemoryLedger, userId = USER) {
+    await ledger.post(recipes.deposit({ userId, assetId: 'USDT', amount: parseAmount('100'), rail: 'test', railRef: randomUUID() }));
+    return bank.spaces.ensurePrimary(userId, 'USDT');
+  }
+
+  const read = ['bank:read'];
+  const write = ['bank:read', 'bank:write'];
+
+  it('refuses biller search, lookup and pay while the PSP port is unset, and a retry does not post', async () => {
+    const { ledger, bank } = mount();
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    await expect(me.bills.billers.search({ query: 'power' })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('socket.psp-partners') as unknown as string,
+      cause: { code: 'bank.bills_directory_unset', blocker: 'socket.psp-partners' },
+    });
+    await expect(me.bills.lookup({ billerId: 'power-de', reference: '100' })).rejects.toMatchObject({
+      cause: { code: 'bank.bills_lookup_unset', blocker: 'socket.psp-partners' },
+    });
+    const input = { idempotencyKey: 'bill-key-01', billerId: 'power-de', reference: '100', amount: '10', fromSpaceId: space.id };
+    await expect(me.bills.pay(input)).rejects.toMatchObject({
+      cause: { code: 'bank.bills_psp_unset', blocker: 'socket.psp-partners' },
+    });
+    await expect(me.bills.pay(input)).rejects.toMatchObject({ cause: { code: 'bank.bills_psp_unset' } });
+    await expect(me.bills.pay({ ...input, amount: '11' })).rejects.toMatchObject({ cause: { code: 'bank.bills_conflict' } });
+    const page = await me.bills.list({ limit: 10 });
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({ status: 'failed', amount: '10', ledgerTxId: null, failureCode: 'bank.bills_psp_unset' });
+    expect(transfers(ledger)).toHaveLength(0);
+    expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(parseAmount('100'));
+    await expect(
+      me.bills.recurring.create({
+        idempotencyKey: 'recur-key-1',
+        billerId: 'power-de',
+        reference: '100',
+        amount: '10',
+        fromSpaceId: space.id,
+        cadence: 'monthly',
+        startsAt: '2026-01-01T00:00:00.000Z',
+      }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.bills_psp_unset' } });
+    expect(await me.bills.recurring.list({ limit: 10 })).toEqual([]);
+  });
+
+  it('refuses a session that lacks the scope, including founder counts', async () => {
+    const { ledger, bank } = mount();
+    const space = await funded(bank, ledger);
+    await expect(caller(bank, USER, ['trade:read']).bills.list({ limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      caller(bank, USER, ['bank:read']).bills.pay({
+        idempotencyKey: 'bill-key-02',
+        billerId: 'power-de',
+        reference: '100',
+        amount: '10',
+        fromSpaceId: space.id,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller(bank, USER, ['bank:write']).bills.list({ limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller(bank, USER, write).bills.ops.summary()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller(bank, USER, write).bills.runDue({ limit: 10 })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    const founder = await caller(bank, USER, ['admin:read']).bills.ops.summary();
+    expect(founder.rails).toEqual({ billerDirectory: 'unset', lookup: 'unset', payRail: 'unset', blocker: 'socket.psp-partners' });
+    expect(founder.counts.failed).toBe(0);
+    expect(founder.volumes).toEqual([]);
+  });
+
+  it("does not pay from another person's space", async () => {
+    const { ledger, bank } = mount();
+    const theirs = await funded(bank, ledger, OTHER);
+    await expect(
+      caller(bank, USER, write).bills.pay({
+        idempotencyKey: 'bill-key-03',
+        billerId: 'power-de',
+        reference: '100',
+        amount: '10',
+        fromSpaceId: theirs.id,
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', cause: { code: 'bank.bills_space_not_found' } });
+    expect(transfers(ledger)).toHaveLength(0);
+  });
+
+  it('requires step-up when the gate is on, and still posts nothing while the rail is blank', async () => {
+    const { ledger, bank } = mount();
+    const space = await funded(bank, ledger);
+    const identity = approvingIdentity();
+    const stepUp = createStepUpGate({ mode: 'required', approvals: identity });
+    const me = caller(bank, USER, write, stepUp);
+    const input = { idempotencyKey: 'bill-key-04', billerId: 'power-de', reference: '100', amount: '10.00', fromSpaceId: space.id };
+    await expect(me.bills.pay(input)).rejects.toMatchObject({ cause: { code: 'bank.step_up_required' } });
+    expect(await me.bills.list({ limit: 10 })).toMatchObject({ items: [] });
+    const binding = billPayStepUp({ actor: USER, ...input, assetId: 'USDT' });
+    const stepUpApprovalId = identity.approve(binding.actionType, binding.fields, USER);
+    await expect(me.bills.pay({ ...input, stepUpApprovalId })).rejects.toMatchObject({ cause: { code: 'bank.bills_psp_unset' } });
+    expect(transfers(ledger)).toHaveLength(0);
+  });
+
+  it('posts a live bill once through the ledger and returns the provider reference', async () => {
+    let submits = 0;
+    const { ledger, bank } = mount({
+      bills: liveBills(async () => {
+        submits += 1;
+        return { ok: true, providerRef: 'bill-ref-1', status: 'accepted' };
+      }),
+    });
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    const found = await me.bills.billers.search({ query: 'power', country: 'DE' });
+    expect(found).toEqual([{ id: 'power-de', name: 'TEST POWER', country: 'DE', category: 'utility' }]);
+    expect(await me.bills.lookup({ billerId: 'power-de', reference: '100' })).toEqual({
+      amountDue: '25.00',
+      dueDate: '2026-11-01',
+      payeeName: 'TEST POWER',
+      currency: 'EUR',
+    });
+    const input = { idempotencyKey: 'bill-key-05', billerId: 'power-de', reference: '100', amount: '10', fromSpaceId: space.id };
+    const paid = await me.bills.pay(input);
+    const again = await me.bills.pay(input);
+    expect(again).toMatchObject({ id: paid.id, status: 'accepted', providerRef: 'bill-ref-1', ledgerTxId: paid.ledgerTxId, amount: '10' });
+    expect(submits).toBe(1);
+    expect(transfers(ledger)).toHaveLength(1);
+    expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(parseAmount('90'));
+    const got = await me.bills.get({ id: paid.id });
+    expect(got.ledgerTxId).toBe(paid.ledgerTxId);
+    await expect(caller(bank, OTHER, read).bills.get({ id: paid.id })).rejects.toMatchObject({ cause: { code: 'bank.bills_not_found' } });
+    const founder = await caller(bank, USER, ['admin:read']).bills.ops.summary();
+    expect(founder.counts.accepted).toBe(1);
+    expect(founder.volumes).toEqual([{ status: 'accepted', assetId: 'USDT', count: 1, amount: '10' }]);
+    expect(founder.rails.payRail).toBe('live');
+  });
+
+  it('reverses a refused live bill and does not reverse it again on retry', async () => {
+    const { ledger, bank } = mount({ bills: liveBills(async () => ({ ok: false })) });
+    const space = await funded(bank, ledger);
+    const input = { idempotencyKey: 'bill-key-06', billerId: 'power-de', reference: '100', amount: '10', fromSpaceId: space.id };
+    const me = caller(bank, USER, write);
+    await expect(me.bills.pay(input)).rejects.toMatchObject({ cause: { code: 'bank.bills_rail_refused' } });
+    await expect(me.bills.pay(input)).rejects.toMatchObject({ cause: { code: 'bank.bills_rail_refused' } });
+    expect(transfers(ledger)).toHaveLength(2);
+    expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(parseAmount('100'));
+    const failed = await caller(bank, USER, ['admin:read']).bills.ops.failed({ limit: 10 });
+    expect(failed.items[0]).toMatchObject({ userId: USER, failureCode: 'bank.bills_rail_refused', ledgerTxId: null });
+    const drill = await caller(bank, USER, ['admin:read']).bills.ops.get({ id: failed.items[0]!.id });
+    expect(drill.userId).toBe(USER);
+  });
+
+  it('refuses an unaffordable live bill before the rail is told, and runs a recurring bill once', async () => {
+    let submits = 0;
+    const { ledger, bank } = mount({
+      bills: liveBills(async () => {
+        submits += 1;
+        return { ok: true, providerRef: 'bill-ref-2', status: 'paid' };
+      }),
+    });
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    await expect(
+      me.bills.pay({
+        idempotencyKey: 'bill-key-07',
+        billerId: 'power-de',
+        reference: '100',
+        amount: '1000',
+        fromSpaceId: space.id,
+      }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.bills_insufficient_funds' } });
+    expect(submits).toBe(0);
+    expect(transfers(ledger)).toHaveLength(0);
+    const schedule = await me.bills.recurring.create({
+      idempotencyKey: 'recur-key-2',
+      billerId: 'power-de',
+      reference: '100',
+      amount: '10',
+      fromSpaceId: space.id,
+      cadence: 'weekly',
+      startsAt: '2020-01-01T00:00:00.000Z',
+    });
+    await me.bills.recurring.pause({ id: schedule.id });
+    expect((await me.bills.recurring.list({ limit: 5 }))[0]?.status).toBe('paused');
+    await expect(caller(bank, OTHER, write).bills.recurring.cancel({ id: schedule.id })).rejects.toMatchObject({
+      cause: { code: 'bank.bill_recurring_not_found' },
+    });
+    const runWhilePaused = await bank.bills.runDue(10, new Date('2026-10-17T00:00:00.000Z'));
+    expect(runWhilePaused.considered).toBe(0);
+    await me.bills.recurring.cancel({ id: schedule.id });
+    const active = await me.bills.recurring.create({
+      idempotencyKey: 'recur-key-3',
+      billerId: 'power-de',
+      reference: '100',
+      amount: '10',
+      fromSpaceId: space.id,
+      cadence: 'weekly',
+      startsAt: '2026-10-17T00:00:00.000Z',
+    });
+    const first = await bank.bills.runDue(10, new Date('2026-10-17T00:00:00.000Z'));
+    const second = await bank.bills.runDue(10, new Date('2026-10-17T00:00:00.000Z'));
+    expect(first.settled).toBe(1);
+    expect(second.settled).toBe(0);
+    expect(transfers(ledger)).toHaveLength(1);
+    expect(active.id).toBeTruthy();
+  });
+
+  it('refuses corridors, quotes and sends while those ports are blank', async () => {
+    const { ledger, bank } = mount();
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    await expect(me.global.corridors.list()).rejects.toMatchObject({
+      message: expect.stringContaining('socket.psp-partners') as unknown as string,
+      cause: { code: 'bank.global_corridors_unset', blocker: 'socket.psp-partners' },
+    });
+    await expect(me.global.quote({ asset: 'USDT', amount: '10', toCurrency: 'EUR' })).rejects.toMatchObject({
+      message: expect.not.stringMatching(/\d+\.\d+/) as unknown as string,
+      cause: { code: 'bank.global_fx_unset' },
+    });
+    const checked = await me.global.recipients.validate({ account: 'GB82WEST12345698765432', bic: 'DEUTDEFF' });
+    expect(checked).toMatchObject({
+      format: 'valid',
+      formatKind: 'iban',
+      bicLookup: { status: 'refused', code: 'bank.global_bic_directory_unset', blocker: 'socket.psp-partners' },
+    });
+    expect(JSON.stringify(checked)).not.toContain('TEST BANK');
+    const saved = await me.global.recipients.add({
+      idempotencyKey: 'recip-key-1',
+      name: 'Ada',
+      account: 'GB82 WEST 1234 5698 7654 32',
+      country: 'GB',
+      bic: 'DEUTDEFF',
+    });
+    expect(saved.accountKind).toBe('iban');
+    expect(await me.global.recipients.list({ limit: 10 })).toHaveLength(1);
+    await expect(
+      me.global.recipients.add({
+        idempotencyKey: 'recip-key-2',
+        name: 'No',
+        account: 'not-an-account',
+        country: 'GB',
+      }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.global_account_format_invalid' } });
+    await expect(
+      me.global.send({
+        idempotencyKey: 'send-key-01',
+        fromSpaceId: space.id,
+        amount: '10',
+        toCurrency: 'EUR',
+        recipientId: saved.id,
+        country: 'DE',
+        deliveryMethod: 'bank',
+      }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.global_corridors_unset' } });
+    expect(transfers(ledger)).toHaveLength(0);
+    await expect(
+      caller(bank, OTHER, write).global.recipients.remove({ recipientId: saved.id, idempotencyKey: 'recip-rm-01' }),
+    ).rejects.toMatchObject({
+      cause: { code: 'bank.global_recipient_not_found' },
+    });
+    expect(await me.global.recipients.remove({ recipientId: saved.id, idempotencyKey: 'recip-rm-02' })).toEqual({ removed: true });
+  });
+
+  it('names the next blank port, then posts one send with the provider quote unchanged', async () => {
+    const fxOnly = liveGlobal();
+    const { ledger, bank } = mount({
+      global: {
+        ...fxOnly,
+        fx: { status: () => 'unset', quote: async () => QUOTE },
+        payout: { status: () => 'unset', railId: () => '', submit: async () => ({ ok: false }) },
+        travelRule: { decision: () => null },
+      },
+    });
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    const saved = await me.global.recipients.add({
+      idempotencyKey: 'recip-key-3',
+      name: 'Ada',
+      account: '123456789',
+      country: 'DE',
+    });
+    const send = {
+      fromSpaceId: space.id,
+      amount: '10',
+      toCurrency: 'EUR',
+      recipientId: saved.id,
+      country: 'DE',
+      deliveryMethod: 'bank',
+      compliance: { originatorName: 'Ada' },
+    };
+    await expect(me.global.send({ ...send, idempotencyKey: 'send-key-02' })).rejects.toMatchObject({
+      cause: { code: 'bank.global_fx_unset' },
+    });
+    expect(transfers(ledger)).toHaveLength(0);
+
+    const { ledger: ledger2, bank: bank2 } = mount({
+      global: liveGlobal({ payout: { status: () => 'unset', railId: () => '', submit: async () => ({ ok: false }) } }),
+    });
+    const space2 = await funded(bank2, ledger2);
+    const me2 = caller(bank2, USER, write);
+    const saved2 = await me2.global.recipients.add({ idempotencyKey: 'recip-key-4', name: 'Ada', account: '123456789', country: 'DE' });
+    const quote = await me2.global.quote({ asset: 'USDT', amount: '10', toCurrency: 'EUR' });
+    expect(quote).toEqual(QUOTE);
+    expect(quote.receiveAmount).toBe('71.41');
+    await expect(
+      me2.global.send({
+        ...send,
+        fromSpaceId: space2.id,
+        recipientId: saved2.id,
+        idempotencyKey: 'send-key-03',
+      }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.global_payout_unset' } });
+
+    const { ledger: ledger3, bank: bank3 } = mount({
+      global: liveGlobal({ travelRule: { decision: () => null } }),
+    });
+    const space3 = await funded(bank3, ledger3);
+    const me3 = caller(bank3, USER, write);
+    const saved3 = await me3.global.recipients.add({ idempotencyKey: 'recip-key-5', name: 'Ada', account: '123456789', country: 'DE' });
+    await expect(
+      me3.global.send({
+        ...send,
+        fromSpaceId: space3.id,
+        recipientId: saved3.id,
+        idempotencyKey: 'send-key-04',
+      }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.global_travel_rule_undecided' } });
+    expect(transfers(ledger3)).toHaveLength(0);
+
+    let submits = 0;
+    const { ledger: ledger4, bank: bank4 } = mount({
+      global: liveGlobal({
+        payout: {
+          status: () => 'live',
+          railId: () => 'test-payout-rail',
+          async submit() {
+            submits += 1;
+            return { ok: true, providerRef: 'payout-1', status: 'sent' };
+          },
+        },
+      }),
+    });
+    const space4 = await funded(bank4, ledger4);
+    const me4 = caller(bank4, USER, write);
+    const saved4 = await me4.global.recipients.add({ idempotencyKey: 'recip-key-6', name: 'Ada', account: '123456789', country: 'DE' });
+    const body = { ...send, fromSpaceId: space4.id, recipientId: saved4.id, idempotencyKey: 'send-key-05' };
+    const sent = await me4.global.send(body);
+    const again = await me4.global.send(body);
+    expect(again).toMatchObject({
+      id: sent.id,
+      status: 'sent',
+      providerRef: 'payout-1',
+      quoteRate: '7.25',
+      quoteFee: '1.10',
+      quoteReceive: '71.41',
+      ledgerTxId: sent.ledgerTxId,
+    });
+    expect(submits).toBe(1);
+    expect(transfers(ledger4)).toHaveLength(1);
+    expect((await ledger4.balance(userAvailable(USER, 'USDT'))).amount).toBe(parseAmount('90'));
+    const listed = await me4.global.list({ limit: 1 });
+    expect(listed.items).toHaveLength(1);
+    expect(listed.nextCursor).toEqual(expect.any(String));
+    const rest = await me4.global.list({ limit: 10, cursor: listed.nextCursor! });
+    expect(rest.items.length).toBeGreaterThan(0);
+    expect([...listed.items, ...rest.items].some((item) => item.id === sent.id && item.status === 'sent')).toBe(true);
+    const founder = await caller(bank4, USER, ['admin:read']).global.ops.summary();
+    expect(founder.counts.sent).toBe(1);
+    expect(founder.rails.travelRule).toBe('recorded');
+    expect(founder.rails.blocker).toBe('socket.psp-partners');
+    const named = await me4.global.recipients.validate({ account: '123456789', bic: 'DEUTDEFF' });
+    expect(named.bicLookup).toEqual({ status: 'matched', bic: 'DEUTDEFF', bankName: 'TEST BANK' });
+  });
+});

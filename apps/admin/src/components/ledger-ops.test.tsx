@@ -24,10 +24,12 @@ describe('standing record', () => {
     const html = render();
     expect(html).toContain('Opaque &lt;script&gt;never execute&lt;/script&gt; &amp; Δ');
     expect(html).toContain(state.actor);
-    expect(html).toContain(state.changedAt);
+    expect(html).toContain('9 Oct 2026, 16:00:00 UTC');
     expect(html).toContain('Last change · not read time');
     expect(html).toContain('As of · when this console read the ledger');
-    expect(html).toContain(READ_AT);
+    expect(html).toContain(`<time dateTime="${READ_AT}">03:00:00 UTC</time>`);
+    expect(html).not.toContain(`>${state.changedAt}<`);
+    expect(html).not.toContain(`>${READ_AT}<`);
     expect(html).toContain('Original operation lookup is unavailable');
     expect(html).not.toContain('Service command receipt');
     expect(html).not.toContain('Not applied');
@@ -48,8 +50,9 @@ describe('standing record', () => {
   it('nullable reason and actor remain explicit and open state is not a live-health claim', () => {
     const html = render({ freeze: { ...base.freeze, state: { ...open, actor: null } } });
     expect(html).toContain('Posting not frozen');
-    expect(html).toContain('No actor recorded (null)');
-    expect(html).toContain('No reason recorded (null)');
+    expect(html).toContain('No actor recorded');
+    expect(html).toContain('No reason recorded');
+    expect(html).not.toContain('(null)');
     expect(html).not.toContain('value moves');
   });
 });
@@ -112,7 +115,7 @@ describe('local language seams', () => {
     it(`${locale} uses local copy while keeping wire bytes, and the two-founder workbench stays English`, () => {
       const html = render({ locale });
       expect(html).toContain(`lang="${locale}"`);
-      expect(html).toContain(state.changedAt);
+      expect(html).toContain(`dateTime="${state.changedAt}"`);
       expect(html).toContain('<div lang="en">');
       expect(html).not.toContain('>Reconciliation</h2>');
     });
@@ -124,7 +127,7 @@ describe('supplied text language boundaries (SSR component seams, no mounted loc
       const html = render({ locale, treasury: { ...base.treasury, configured: false, missing: ['EDGE_URL', 'ADMIN_TREASURY_TOKEN'] } });
       expect(html).toContain('<dd lang="und">Opaque &lt;script&gt;never execute&lt;/script&gt; &amp; Δ</dd>');
       expect(html).toContain(`<dd lang="zxx">${state.actor}</dd>`);
-      expect(html).toContain(`<dd lang="zxx"><time dateTime="${state.changedAt}">${state.changedAt}</time></dd>`);
+      expect(html).toContain(`<dd lang="zxx"><time dateTime="${state.changedAt}">9 Oct 2026, 16:00:00 UTC</time></dd>`);
       expect(html).toContain('<span lang="zxx">EDGE_URL, ADMIN_TREASURY_TOKEN</span>');
       const nulls = render({ locale, freeze: { ...base.freeze, state: { ...state, frozen: false, reason: null, actor: null } } });
       const dds = [...nulls.matchAll(/<dd([^>]*)>(.*?)<\/dd>/g)];
@@ -147,4 +150,19 @@ describe('supplied text language boundaries (SSR component seams, no mounted loc
       const fallback = render({ locale, freeze: { ok: false, status: 403, kind: 'refused', state: null, detail: null } });
       expect(fallback).not.toContain('lang="und"');
     });
+});
+
+describe('who made the last change', () => {
+  const ACTOR_ID = '3faadae7-1111-4111-8111-1234567f1f3a';
+  const withActor = (actor: string, extra: Partial<LedgerOpsViewProps> = {}) =>
+    render({ freeze: { ...base.freeze, state: { ...state, actor } }, ...extra });
+  it('shows a short labelled reference, never the whole id', () => {
+    const html = withActor(ACTOR_ID);
+    expect(html).toContain('Account, id ends …1f3a');
+    expect(html).not.toContain('3faadae7');
+  });
+  it('names the founder when the founder directory gave the name, and says You for the signed-in founder', () => {
+    expect(withActor(ACTOR_ID, { owners: [{ userId: ACTOR_ID, displayName: 'Phantom' }] })).toContain('<dd>Phantom</dd>');
+    expect(withActor(base.userId)).toContain('<dd>You</dd>');
+  });
 });

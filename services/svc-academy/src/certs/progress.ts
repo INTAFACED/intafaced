@@ -24,13 +24,41 @@ export type ItemCompletionRecord = {
   completedAt: Date;
 };
 
+export type CertPath = 'foundations' | 'markets' | 'builder' | 'sovereign';
+
 export type CertDefinition = {
   /** Stable cert id, e.g. foundations-v1 */
   id: string;
   title: string;
-  /** Curriculum item slugs required (all must be complete). */
+  /**
+   * Programme path this certificate belongs to. Required on a published
+   * catalog row. In-memory fixtures that are not a path certificate may omit it.
+   */
+  path?: CertPath;
+  /**
+   * Curriculum item slugs, or `assessment:<slug>` for a passing attempt.
+   * A lesson completion does not satisfy an assessment requirement.
+   */
   requiredItemSlugs: readonly string[];
 };
+
+/** `assessment:<slug>` or null when the requirement is a lesson slug. */
+export function assessmentRequirementSlug(requirement: string): string | null {
+  if (!requirement.startsWith('assessment:')) return null;
+  const slug = requirement.slice('assessment:'.length);
+  if (!slug || slug.includes(':')) return null;
+  return slug;
+}
+
+export function requirementMet(
+  requirement: string,
+  completedSlugs: ReadonlySet<string>,
+  passedAssessmentSlugs: ReadonlySet<string>,
+): boolean {
+  const assessment = assessmentRequirementSlug(requirement);
+  if (assessment !== null) return passedAssessmentSlugs.has(assessment);
+  return completedSlugs.has(requirement);
+}
 
 export type CertGrantRecord = {
   userId: string;
@@ -56,9 +84,17 @@ export function certIdempotencyKey(userId: string, certId: string): string {
   return `cert:${userId}:${certId}`;
 }
 
-/** Pure: whether all required items appear in completed set. */
-export function isComplete(required: readonly string[], completedSlugs: ReadonlySet<string>): boolean {
-  return required.every((s) => completedSlugs.has(s));
+/**
+ * Pure: every requirement is met. An `assessment:<slug>` requirement counts
+ * only when that slug is in `passedAssessmentSlugs`. Lesson slugs ignore it,
+ * so a catalog with no assessment requirements is unchanged.
+ */
+export function isComplete(
+  required: readonly string[],
+  completedSlugs: ReadonlySet<string>,
+  passedAssessmentSlugs: ReadonlySet<string> = new Set(),
+): boolean {
+  return required.every((s) => requirementMet(s, completedSlugs, passedAssessmentSlugs));
 }
 
 /**
@@ -70,9 +106,11 @@ export function decideGrant(input: {
   cert: CertDefinition | null;
   completedSlugs: ReadonlySet<string>;
   existing: CertGrantRecord | null;
+  passedAssessmentSlugs?: ReadonlySet<string>;
   now?: Date;
 }): { grant: CertGrantRecord; alreadyGranted: boolean } {
   const { userId, cert, completedSlugs, existing } = input;
+  const passed = input.passedAssessmentSlugs ?? new Set<string>();
   if (!cert) {
     throw new CertError('Unknown certification', 'academy.cert_not_found');
   }
@@ -83,7 +121,7 @@ export function decideGrant(input: {
     assertCertGrantPathHonest(existing);
     return { grant: existing, alreadyGranted: true };
   }
-  if (!isComplete(cert.requiredItemSlugs, completedSlugs)) {
+  if (!isComplete(cert.requiredItemSlugs, completedSlugs, passed)) {
     throw new CertError('Required curriculum items incomplete', 'academy.cert_incomplete');
   }
   const now = input.now ?? new Date();
@@ -284,6 +322,7 @@ export function progressReport(input: {
   cert: CertDefinition | null;
   completedSlugs: ReadonlySet<string>;
   existingGrant: CertGrantRecord | null;
+  passedAssessmentSlugs?: ReadonlySet<string>;
 }): ProgressReport {
   if (!input.cert) {
     throw new CertError('Unknown certification', 'academy.cert_not_found');
@@ -292,7 +331,8 @@ export function progressReport(input: {
     throw new CertError('Cert definition has no required items', 'academy.cert_invalid');
   }
   const required = input.cert.requiredItemSlugs;
-  const missing = required.filter((s) => !input.completedSlugs.has(s));
+  const passed = input.passedAssessmentSlugs ?? new Set<string>();
+  const missing = required.filter((s) => !requirementMet(s, input.completedSlugs, passed));
   const completedCount = required.length - missing.length;
   const requiredCount = required.length;
   // Fixed 4dp ratio string — progress UI key, not money.

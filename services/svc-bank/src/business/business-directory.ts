@@ -34,6 +34,11 @@ export interface BusinessDirectoryPort {
   /** Public handles for these user ids. Unknown ids are omitted. Never invents a handle. */
   handlesOf(userIds: readonly string[]): Promise<ReadonlyMap<string, string>>;
   /**
+   * Display names the owner chose to show. An id with no published choice is omitted.
+   * Identity does not publish that choice, so the live client returns an empty map.
+   */
+  publishedNames(userIds: readonly string[]): Promise<ReadonlyMap<string, string>>;
+  /**
    * An active account, exact match. Null for unknown, frozen and closed.
    * The caller has already checked the shape. The answer never includes an email.
    */
@@ -74,6 +79,9 @@ export function unconfiguredBusinessDirectory(
     async handlesOf() {
       throw new BusinessDirectoryError(why, 'unset');
     },
+    async publishedNames() {
+      throw new BusinessDirectoryError(why, 'unset');
+    },
     async findActive() {
       throw new BusinessDirectoryError(why, 'unset');
     },
@@ -99,6 +107,9 @@ export interface DirectoryPerson {
   readonly handle: string;
   readonly email: string;
   readonly status: 'active' | 'frozen' | 'closed';
+  /** Shown only when the owner chose to publish it. Absent means handle only. */
+  readonly displayName?: string;
+  readonly showDisplayName?: boolean;
 }
 
 /** Test double. Exact, case-insensitive. Frozen and closed are misses on findActive. */
@@ -109,6 +120,16 @@ export function memoryBusinessDirectory(people: readonly DirectoryPerson[]): Bus
       const out = new Map<string, string>();
       for (const person of people) {
         if (wanted.has(person.userId)) out.set(person.userId, person.handle);
+      }
+      return out;
+    },
+    async publishedNames(userIds) {
+      const wanted = new Set(userIds);
+      const out = new Map<string, string>();
+      for (const person of people) {
+        if (!wanted.has(person.userId) || person.showDisplayName !== true) continue;
+        const name = person.displayName?.trim() ?? '';
+        if (name) out.set(person.userId, name);
       }
       return out;
     },
@@ -203,6 +224,11 @@ export function createIdentityBusinessDirectory(
         if (ids.includes(row.userId)) out.set(row.userId, row.handle);
       }
       return out;
+    },
+    async publishedNames() {
+      // Identity's handle route does not publish a show-name choice. A name
+      // the owner did not choose to show is not returned.
+      return new Map();
     },
     async findActive(query) {
       const body = JSON.stringify(query);

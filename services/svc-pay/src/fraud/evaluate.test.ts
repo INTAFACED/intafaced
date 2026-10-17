@@ -252,9 +252,11 @@ describe('pay.fraud mechanism — evaluateFraud', () => {
     expect(src).not.toMatch(/postTransaction|PostRequest|recipes\./);
     expect(src).toMatch(/parseAmount/);
     expect(src).not.toMatch(/from '@intafaced\/ledger-client\/recipes'/);
-    // payment-service still must not call chargebacks (existing honesty pin).
+    // Outcome posts live in chargeback-ledger.ts. This module stays free of them.
     const pay = readFileSync(join(here, '../payment-service.ts'), 'utf8');
-    expect(pay).not.toMatch(/chargebackOpen|chargebackWon|chargebackShortfall/);
+    expect(pay).not.toMatch(/recipes\.chargeback/);
+    expect(pay).toMatch(/postDisputeWon/);
+    expect(pay).toMatch(/postDisputeShortfall/);
   });
 
   it('compares volume and amount as scaled bigint — never Number()', () => {

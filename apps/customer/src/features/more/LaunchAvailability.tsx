@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SubNav } from '@intafaced/ui';
 import { Tabs } from '../../shared/ui';
 import { launchCopy } from './launch-copy';
 import { launchDepthCopy } from './launch-depth-copy';
@@ -44,14 +45,15 @@ function LaunchRequirements({ orders = false }: { orders?: boolean }) {
   const { Copy, t, languageFor, directionFor } = launchCopy.useCopy();
   return (
     <div className="launch-room" lang={languageFor('launchUnavailable')} dir={directionFor('launchUnavailable')}>
-      <nav className="launch-room-tabs" aria-label={t('nav')}>
-        <a href="/launch" aria-current={orders ? undefined : 'page'}>
-          <Copy k="overview" />
-        </a>
-        <a href="/uc/innovation/myorders" aria-current={orders ? 'page' : undefined}>
-          <Copy k="participation" />
-        </a>
-      </nav>
+      <SubNav
+        aria-label={t('nav')}
+        active={orders ? 'participation' : 'overview'}
+        className="px-0"
+        items={[
+          { id: 'overview', label: t('overview'), href: '/launch' },
+          { id: 'participation', label: t('participation'), href: '/uc/innovation/myorders' },
+        ]}
+      />
       <div className="launch-room-workspace">
         <section className="launch-room-primary">
           <div className="launch-room-status">

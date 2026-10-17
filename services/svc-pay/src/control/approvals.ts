@@ -10,6 +10,7 @@ import type { ControlAccessPorts } from './access.js';
 import { ControlError } from './errors.js';
 import { encodeListCursor, ListQueryError, parseListFilters } from '../list-page.js';
 import { maskDestination, safeDestinationLabel } from './mask-destination.js';
+import { assertApprovalWithinDailyPayoutLimit, dailyPayoutRemainingRows, type DailyPayoutRemainingRow } from './payout-daily-limit.js';
 import { loadMerchantControl } from './store.js';
 
 /**
@@ -27,8 +28,10 @@ import { loadMerchantControl } from './store.js';
  *
  * Any decision re-reads the settlement and the destination: if the amount or the
  * destination moved since the request, the approval is VOIDED and returned as
- * `voided`, not approved. `beforePayoutAdmit` is the other half: it only lets a
- * payout through on a fully decided, unexpired approval for exactly its payload.
+ * `voided`, not approved. An approve also stays inside the remaining daily
+ * payout limit, under the same counter lock the payout admission uses.
+ * `beforePayoutAdmit` is the other half: it only lets a payout through on a
+ * fully decided, unexpired approval for exactly its payload.
  */
 
 interface ApprovalRow {
@@ -106,6 +109,18 @@ export interface ApprovalServiceOptions {
 }
 
 const notFound = () => new ControlError('pay.approval_not_found', 'approval not found');
+
+const uniqueViolation = (error: unknown): boolean => (error as { code?: string } | null)?.code === '23505';
+
+/**
+ * Test seam. Two asks wait here, after the payload is known and before the
+ * live-row lock, so a test can prove they meet on that lock. Unset outside that test.
+ */
+let beforePayoutApprovalRequestLock: (() => Promise<void>) | undefined;
+
+export function setBeforePayoutApprovalRequestLock(next: (() => Promise<void>) | undefined): void {
+  beforePayoutApprovalRequestLock = next;
+}
 
 export class ApprovalService {
   private readonly now: () => Date;
@@ -185,48 +200,65 @@ export class ApprovalService {
     return null;
   }
 
-  /** The maker asks for approval of one payout. Idempotent per exact payload. */
+  /**
+   * The maker asks for approval of one payout. Idempotent for a live same-payload
+   * row (pending or approved, and not past its expiry). An expired row still
+   * occupies the live unique index until it is settled, so this settles it under
+   * the row lock and then inserts a fresh pending request.
+   */
   async request(principal: Principal, input: { merchantId: string; settlementId: string; railId: string }): Promise<ApprovalDetail> {
     const maker = this.actorId(principal);
     if (!(await this.options.access.canViewMerchant(principal, input.merchantId))) throw new ControlError('pay.merchant_not_found');
     const at = this.now();
-    return transaction(
-      this.sql,
-      async (tx) => {
-        const settlement = await tx<Array<{ net: string; asset_id: string; status: string }>>`
+    let payloadHash = '';
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          const settlement = await tx<Array<{ net: string; asset_id: string; status: string }>>`
           SELECT net, asset_id, status FROM pay.settlements WHERE id = ${input.settlementId} AND merchant_id = ${input.merchantId}
         `;
-        const s = settlement[0];
-        if (!s || (s.status !== 'posted' && s.status !== 'failed')) throw new ControlError('pay.settlement_not_payable');
-        const control = await loadMerchantControl(tx, input.merchantId);
-        if (!control.tier) throw new ControlError('pay.tier_unassigned');
-        const approvalThreshold = control.tier.approvalThresholds.get(s.asset_id);
-        const founderThreshold = control.tier.founderThresholds.get(s.asset_id);
-        if (approvalThreshold === undefined || founderThreshold === undefined)
-          throw new ControlError('pay.approval_threshold_unconfigured');
-        const amount = parseAmount(s.net);
-        if (amount < approvalThreshold) throw new ControlError('pay.approval_not_required');
-        const destinationRows = await tx<Array<{ kind: string; ref: string }>>`
+          const s = settlement[0];
+          if (!s || (s.status !== 'posted' && s.status !== 'failed')) throw new ControlError('pay.settlement_not_payable');
+          const control = await loadMerchantControl(tx, input.merchantId);
+          if (!control.tier) throw new ControlError('pay.tier_unassigned');
+          const approvalThreshold = control.tier.approvalThresholds.get(s.asset_id);
+          const founderThreshold = control.tier.founderThresholds.get(s.asset_id);
+          if (approvalThreshold === undefined || founderThreshold === undefined)
+            throw new ControlError('pay.approval_threshold_unconfigured');
+          const amount = parseAmount(s.net);
+          if (amount < approvalThreshold) throw new ControlError('pay.approval_not_required');
+          const destinationRows = await tx<Array<{ kind: string; ref: string }>>`
           SELECT kind, ref FROM pay.merchant_payout_destinations WHERE merchant_id = ${input.merchantId} AND rail_id = ${input.railId}
         `;
-        if (!destinationRows[0]) throw new ControlError('pay.payout_destination_missing');
-        const payload: PayoutPayload = {
-          merchantId: input.merchantId,
-          settlementId: input.settlementId,
-          assetCode: s.asset_id,
-          amount,
-          railId: input.railId,
-          destination: destinationRows[0],
-        };
-        const hash = payoutPayloadHash(payload);
-        // A request for a changed payload voids the earlier ones for this settlement.
-        await voidStaleApprovals(tx, payload, hash);
-        const existing = await tx<ApprovalRow[]>`
+          if (!destinationRows[0]) throw new ControlError('pay.payout_destination_missing');
+          const payload: PayoutPayload = {
+            merchantId: input.merchantId,
+            settlementId: input.settlementId,
+            assetCode: s.asset_id,
+            amount,
+            railId: input.railId,
+            destination: destinationRows[0],
+          };
+          const hash = payoutPayloadHash(payload);
+          payloadHash = hash;
+          if (beforePayoutApprovalRequestLock) await beforePayoutApprovalRequestLock();
+          // A request for a changed payload voids the earlier ones for this settlement.
+          await voidStaleApprovals(tx, payload, hash);
+          const existing = await tx<ApprovalRow[]>`
           SELECT * FROM pay.control_payout_approvals
-           WHERE settlement_id = ${input.settlementId} AND payload_hash = ${hash} AND status IN ('pending', 'approved')
+           WHERE merchant_id = ${input.merchantId}
+             AND settlement_id = ${input.settlementId}
+             AND payload_hash = ${hash}
+             AND status IN ('pending', 'approved')
+           FOR UPDATE
         `;
-        if (existing[0]) return toApprovalView(existing[0], at);
-        const inserted = await tx<ApprovalRow[]>`
+          if (existing[0]) {
+            const settled = await this.settleIfStale(tx, existing[0]);
+            // Null means the row is still live and still this payload: that is the idempotent answer.
+            if (!settled) return toApprovalView(existing[0], at);
+          }
+          const inserted = await tx<ApprovalRow[]>`
           INSERT INTO pay.control_payout_approvals (
             merchant_id, settlement_id, asset_code, amount, rail_id, destination_kind, destination_ref,
             payload_hash, founder_required, maker_user_id, expires_at
@@ -236,21 +268,40 @@ export class ApprovalService {
             ${new Date(at.getTime() + control.tier.approvalTtlSeconds * 1000)}
           ) RETURNING *
         `;
-        const row = inserted[0]!;
-        await writeAudit(tx, {
-          scope: 'approval',
-          scopeId: row.id,
-          merchantId: input.merchantId,
-          kind: 'payout.approval_requested',
-          outcome: 'pending',
-          actorId: maker,
-          reason: 'payout approval requested',
-          after: { settlementId: input.settlementId, payloadHash: hash, founderRequired: row.founder_required },
-        });
-        return toApprovalView(row, at);
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
+          const row = inserted[0]!;
+          await writeAudit(tx, {
+            scope: 'approval',
+            scopeId: row.id,
+            merchantId: input.merchantId,
+            kind: 'payout.approval_requested',
+            outcome: 'pending',
+            actorId: maker,
+            reason: 'payout approval requested',
+            after: { settlementId: input.settlementId, payloadHash: hash, founderRequired: row.founder_required },
+          });
+          return toApprovalView(row, at);
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      );
+    } catch (error) {
+      // Two asks can both pass the row lock after the stale row is settled.
+      // The live unique index keeps one pending row; the loser returns that row.
+      if (!uniqueViolation(error) || payloadHash === '') throw error;
+      const atRetry = this.now();
+      const live = await this.sql<ApprovalRow[]>`
+        SELECT * FROM pay.control_payout_approvals
+         WHERE merchant_id = ${input.merchantId}
+           AND settlement_id = ${input.settlementId}
+           AND payload_hash = ${payloadHash}
+           AND status IN ('pending', 'approved')
+           AND expires_at > ${atRetry}
+         ORDER BY seq DESC
+         LIMIT 1
+      `;
+      const winner = live[0];
+      if (!winner) throw error;
+      return toApprovalView(winner, atRetry);
+    }
   }
 
   async list(
@@ -264,7 +315,7 @@ export class ApprovalService {
       from?: string;
       to?: string;
     },
-  ): Promise<{ items: ApprovalDetail[]; nextCursor: string | null }> {
+  ): Promise<{ items: ApprovalDetail[]; nextCursor: string | null; dailyPayoutRemaining: DailyPayoutRemainingRow[] }> {
     this.actorId(principal);
     if (!(await this.options.access.canViewMerchant(principal, input.merchantId))) throw new ControlError('pay.merchant_not_found');
     let filters;
@@ -309,6 +360,12 @@ export class ApprovalService {
     return {
       items: page.map((row) => toApprovalView(row, at)),
       nextCursor: rows.length > input.limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
+      dailyPayoutRemaining: await dailyPayoutRemainingRows(
+        this.sql,
+        input.merchantId,
+        at,
+        page.map((row) => row.asset_code),
+      ),
     };
   }
 
@@ -351,6 +408,11 @@ export class ApprovalService {
           });
           return toApprovalView(updated[0]!, at);
         }
+        await assertApprovalWithinDailyPayoutLimit(
+          tx,
+          { approvalId: row.id, merchantId: row.merchant_id, assetCode: row.asset_code, amount: row.amount },
+          at,
+        );
         // Approved by the merchant side. Stays `pending` until both founders sign when the amount needs them.
         const updated = await tx<ApprovalRow[]>`
           UPDATE pay.control_payout_approvals
@@ -534,6 +596,11 @@ export class ApprovalService {
           if (error instanceof DualControlError) throw new ControlError('pay.dual_control_required', error.message);
           throw error;
         }
+        await assertApprovalWithinDailyPayoutLimit(
+          tx,
+          { approvalId: row.id, merchantId: row.merchant_id, assetCode: row.asset_code, amount: row.amount },
+          at,
+        );
         const updated = await tx<ApprovalRow[]>`
           UPDATE pay.control_payout_approvals
              SET founder_second_user_id = ${founderUserId}, status = 'approved', decided_at = ${at}

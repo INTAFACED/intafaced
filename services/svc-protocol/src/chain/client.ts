@@ -3,7 +3,14 @@ import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
 import { poolAbi } from '../amm/abi.js';
 import { erc20ReadAbi, tokenFactoryAbi } from './abi.js';
-import { ChainUnavailableError, classifyChainError, isZeroAddress, ZERO_ADDRESS } from './availability.js';
+import {
+  ChainUnavailableError,
+  chainIdMismatchRefusal,
+  classifyChainError,
+  isZeroAddress,
+  publicRefusalText,
+  ZERO_ADDRESS,
+} from './availability.js';
 import type { TokenParams } from '../launch/params.js';
 import { withSpan } from '../tracing.js';
 
@@ -112,6 +119,13 @@ export interface ChainStatus {
   readonly tokenFactoryDeployed: boolean;
   readonly refusalCode: string | null;
   readonly reason: string | null;
+  /**
+   * Populated only when `refusalCode` is `protocol.chain_id_mismatch`.
+   * The chain the service derives addresses for, and the chain the RPC answered as.
+   * Null on every other answer. The endpoint is not here.
+   */
+  readonly expectedChainId: number | null;
+  readonly actualChainId: number | null;
 }
 
 export class ProtocolChain {
@@ -373,11 +387,7 @@ export class ProtocolChain {
   async assertChainId(): Promise<number> {
     const observed = await this.#read('assertChainId', 'chain.chainId', async () => this.client.getChainId());
     if (observed !== this.config.chainId) {
-      throw new ChainUnavailableError(
-        'protocol.chain_id_mismatch',
-        `The RPC at ${this.config.rpcUrl} is chain ${observed}, but this service derives addresses for chain ` +
-          `${this.config.chainId}. Refusing: an address predicted for the wrong chain is an address a user could fund and never reach.`,
-      );
+      throw chainIdMismatchRefusal(this.config.rpcUrl, this.config.chainId, observed);
     }
     return observed;
   }
@@ -412,6 +422,8 @@ export class ProtocolChain {
         tokenFactoryDeployed,
         refusalCode: null,
         reason: null,
+        expectedChainId: null,
+        actualChainId: null,
       };
     } catch (err) {
       const refusal = err instanceof ChainUnavailableError ? err : classifyChainError(err, 'status', this.config.rpcUrl);
@@ -420,7 +432,7 @@ export class ProtocolChain {
         configuredChainId: this.config.chainId,
         // Null even on a chain-id mismatch: the endpoint answered, but not for a
         // chain this service can serve, so there is no id here worth reporting
-        // as ours. The observed id is named in `reason`.
+        // as ours. The observed id is `actualChainId`, and both ids are in `reason`.
         observedChainId: null,
         blockNumber: null,
         suiteConfigured,
@@ -429,7 +441,11 @@ export class ProtocolChain {
         tokenFactoryConfigured,
         tokenFactoryDeployed: false,
         refusalCode: refusal.code,
-        reason: refusal.message,
+        // Customer copy. A message that grew a URL or a spec id falls back to
+        // the fixed sentence for that code.
+        reason: publicRefusalText(refusal),
+        expectedChainId: refusal.expectedChainId,
+        actualChainId: refusal.actualChainId,
       };
     }
   }

@@ -27,7 +27,7 @@ import {
 import type { Position } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { MARKETS_LIMIT_MAX, OpenOrdersLimitUnsetError, type AmendOrderInput, type PlaceOrderInput } from './spot/trade-service.js';
-import type { OwnerFeeSchedule } from './spot/fee-schedule.js';
+import { FEE_SCHEDULE_RESIDUAL, publishedProductBps, type OwnerFeeSchedule } from './spot/fee-schedule.js';
 import {
   TradeError,
   type AmendOrderOutcome,
@@ -53,7 +53,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  * Paths match `REST_ROUTES` in `@intafaced/exchange-contract`:
  *   GET    /api/v1/orders/open     scope: trade:read  (?symbol=&limit=)
  *   GET    /api/v1/admin/orders/open scope: admin:read (canonical order rows)
- *   GET    /api/v1/admin/fees        scope: admin:read (configured market fee strings)
+ *   GET    /api/v1/admin/fees        scope: admin:read (fee schedule customers are charged, per market, with its source)
  *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms)
  *   GET    /api/v1/orders/:id      scope: trade:read
  *   POST   /api/v1/orders          scope: trade:write + jurisdiction(module=trade)
@@ -501,10 +501,6 @@ export function presentCcxtTradingFee(market: Market) {
 }
 
 /**
- * Build `Record<symbol, TradingFee>` from markets that expose integer bps.
- * Markets without usable rates are skipped; zero markets → `{}` (honest empty).
- */
-/**
  * Customer fee card. Maker/taker are the owner schedule, once per symbol.
  * Listing-row bps are not copied onto this wire.
  */
@@ -529,14 +525,49 @@ export function presentAccountFees(
   return out;
 }
 
-export function presentTradingFees(markets: Market[]): Record<string, ReturnType<typeof presentCcxtTradingFee>> {
-  const out: Record<string, ReturnType<typeof presentCcxtTradingFee>> = {};
-  for (const market of markets) {
-    if (!Number.isInteger(market.makerBps) || market.makerBps < 0) continue;
-    if (!Number.isInteger(market.takerBps) || market.takerBps < 0) continue;
-    out[market.symbol] = presentCcxtTradingFee(market);
-  }
-  return out;
+/** Where the operator fee read gets its numbers. Listing-row bps are not charged and never appear on this wire. */
+export const ADMIN_FEE_SOURCE = 'TRADE_FEE_SCHEDULE' as const;
+
+export interface AdminMarketFee {
+  readonly symbol: string;
+  readonly kind: Market['kind'];
+  /** Which published block the fill path reads for this market kind. Options have none. */
+  readonly product: 'spot' | 'perpetual' | null;
+  /** Rates before any per-customer rank discount, as decimal strings. Null with a `refusal` when the block is unpublished. */
+  readonly charged: {
+    readonly makerBps: string;
+    readonly takerBps: string;
+    readonly makerRate: string;
+    readonly takerRate: string;
+  } | null;
+  readonly refusal: 'trade.fee_product_unpublished' | null;
+}
+
+/**
+ * Operator view of the fees customers are charged: the owner `TRADE_FEE_SCHEDULE`, resolved per market kind the way the
+ * fill path does (spot → top-level rates, futures → `perpetual` block, options → unpublished). Bps and rates are decimal
+ * strings. Rank discounts are per customer and are not applied here.
+ */
+export function presentAdminFees(markets: readonly Market[], schedule: Extract<OwnerFeeSchedule, { published: true }>) {
+  const rows: AdminMarketFee[] = markets.map((market) => {
+    const product = market.kind === 'spot' ? 'spot' : market.kind === 'futures' ? 'perpetual' : null;
+    const rates = product ? publishedProductBps(schedule, product) : null;
+    return {
+      symbol: market.symbol,
+      kind: market.kind,
+      product,
+      charged: rates
+        ? {
+            makerBps: String(rates.makerBps),
+            takerBps: String(rates.takerBps),
+            makerRate: bpsToFeeRate(rates.makerBps),
+            takerRate: bpsToFeeRate(rates.takerBps),
+          }
+        : null,
+      refusal: rates ? null : ('trade.fee_product_unpublished' as const),
+    };
+  });
+  return { source: ADMIN_FEE_SOURCE, version: schedule.version, markets: rows };
 }
 
 /**
@@ -906,7 +937,15 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!principal) return;
     try {
       requireScope(principal, 'admin:read');
-      return reply.code(200).send(presentTradingFees(await deps.markets(MARKETS_LIMIT_MAX)));
+      const schedule = deps.feeSchedule;
+      if (!schedule || schedule.published !== true) {
+        return reply.code(503).send({
+          code: 'ExchangeNotAvailable',
+          message: FEE_SCHEDULE_RESIDUAL,
+          intafacedCode: 'trade.fee_schedule_blank',
+        });
+      }
+      return reply.code(200).send(presentAdminFees(await deps.markets(MARKETS_LIMIT_MAX), schedule));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

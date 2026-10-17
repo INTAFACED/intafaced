@@ -770,6 +770,41 @@ export const projectionUpdated = defineEvent(
   'Indexer projection as market-data absolute totals. Empty arrays are empty, not a live $0 book. Venue ABI is not invented here.',
 );
 
+export const personalRequestCreated = defineEvent(
+  'bank',
+  'personal_request',
+  'created',
+  1,
+  z.object({
+    requestId: z.string().uuid(),
+    payerUserId: userIdSchema,
+    payeeHandle: z.string().min(1).max(32),
+    amount: amountSchema,
+    assetId: assetIdSchema,
+    note: z.string().max(140).nullable(),
+    expiresAt: z.string().datetime({ offset: true }),
+    /** 1 when the request is opened. 2 and up are reminds. */
+    sequence: z.number().int().min(1),
+  }),
+  'Someone was asked to pay a personal request. svc-notify writes pay.request_created for the payer.',
+);
+
+export const personalRequestSettled = defineEvent(
+  'bank',
+  'personal_request',
+  'settled',
+  1,
+  z.object({
+    requestId: z.string().uuid(),
+    payeeUserId: userIdSchema,
+    payerHandle: z.string().min(1).max(32),
+    amount: amountSchema,
+    assetId: assetIdSchema,
+    ledgerTxId: z.string().min(1).max(128),
+  }),
+  'A personal request was paid by transfers.toUser. svc-notify writes pay.request_paid for the payee.',
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -784,6 +819,8 @@ export const EVENT_CATALOG = {
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
+  personalRequestCreated,
+  personalRequestSettled,
   blueprintCreated,
   blueprintDeleted,
   crewMemberCreated,

@@ -28,30 +28,29 @@ it('keeps "Save to library" on the form, switched off, with the reason beside it
   const html = renderToStaticMarkup(<QuantSaveOff />);
   expect(html).toMatch(/<button[^>]*disabled[^>]*>Save to library<\/button>/);
   expect(html).toContain('aria-describedby="quant-save-off-reason"');
-  expect(html).toContain('Saved strategies are not private to your account yet, so drafts stay on this device.');
+  expect(html).toContain('Saving to a library is off on this service. Your draft stays on this device.');
   expect(html).toContain('kept in this browser only');
 });
 
 it('says on the page that saving is off and why, without talking about servers', () => {
   const html = renderToStaticMarkup(<QuantMemoryNotice />);
-  expect(html).toContain('Saving to the library is switched off');
-  expect(html).toContain('not private to your account');
-  expect(html).toContain('a restart erases it');
-  expect(html).toContain('no version history');
+  expect(html).toContain('Saving to a library is off on this service');
+  expect(html).toContain('Your draft stays on this device.');
+  expect(html).not.toMatch(/restart|version history|not private|shares one library/i);
   expect(html).not.toMatch(/database|quant service/i);
 });
 
 it('the library says it is shared and that saving is off', () => {
   const html = renderToStaticMarkup(<QuantLibrary strategies={[]} onPick={() => undefined} />);
   expect(html).toContain('Shared library');
-  expect(html).toContain('not private to your account');
-  expect(html).toContain('Saving to it is switched off');
+  expect(html).toContain('Everyone using this service sees the same strategies here.');
+  expect(html).toContain('Saving to a library is off on this service');
 });
 
 it('the library panel in Studio is closed with a plain reason and no rows', () => {
   const html = renderToStaticMarkup(<QuantLibraryClosed />);
   expect(html).toContain('Strategy library');
-  expect(html).toContain('Saved strategies are not private to accounts yet, so the shared library is closed.');
+  expect(html).toContain('Saving to a library is off on this service, so the library is closed.');
   expect(html).not.toMatch(/<article|Use this strategy|Showing \d/);
 });
 
@@ -61,7 +60,7 @@ it('no Quant room reads the shared library until per-account storage ships', () 
   expect(readsSharedLibrary('backtest')).toBe(false);
 });
 
-it('Backtest shows the same closed library in its catalogue and makes no list call', () => {
+it('Backtest has no shared library, asks for a Studio strategy and makes no list call', () => {
   query.mockClear();
   vi.stubGlobal('location', {
     pathname: '/quant/backtest',
@@ -72,7 +71,7 @@ it('Backtest shows the same closed library in its catalogue and makes no list ca
   });
   const html = renderToStaticMarkup(<Quant mode="backtest" />);
   vi.unstubAllGlobals();
-  expect(html).toContain('the shared library is closed');
+  expect(html).toContain('Create a strategy in Studio first');
   expect(html).not.toContain('Use this strategy');
   expect(query.mock.calls.map((call) => (call as unknown[])[1])).not.toContain('studio.list');
 });
@@ -88,7 +87,7 @@ it('Studio shows the closed library and makes no list, load or save call', () =>
     href: 'https://app.test/quant/studio',
   });
   const html = renderToStaticMarkup(<Quant mode="studio" />);
-  expect(html).toContain('the shared library is closed');
+  expect(html).toContain('so the library is closed');
   expect(html).not.toContain('Use this strategy');
   expect(html).toMatch(/<button[^>]*disabled[^>]*>Save to library<\/button>/);
   vi.unstubAllGlobals();

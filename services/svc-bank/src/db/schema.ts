@@ -433,6 +433,13 @@ export const loans = bank.table(
      * Not a live balance (see `loan_collateral_events` + ledger).
      */
     openingCollateral: amount('opening_collateral'),
+    /**
+     * LTV bands agreed at open, copied from the product once. A later edit of
+     * the product does not re-band this loan. Null only on a row the migration
+     * could not fill; the book counts that loan as unpriced.
+     */
+    marginCallLtvBps: integer('margin_call_ltv_bps'),
+    liquidationLtvBps: integer('liquidation_ltv_bps'),
     status: loanStatusEnum('status').notNull().default('pending'),
     /** NULL means the principal has not been released. The crash-safe state. */
     drawLedgerTxId: text('draw_ledger_tx_id'),
@@ -702,6 +709,11 @@ export const cards = bank.table(
     /** Four digits a human recognises the card by. Not a card number, and not part of one. */
     panTail: text('pan_tail').notNull(),
     status: cardStatusEnum('status').notNull().default('active'),
+    /**
+     * Who froze the card. `operator` is a freeze the owner cannot lift.
+     * Null when the card is not frozen by a recorded actor.
+     */
+    frozenBy: text('frozen_by'),
     /** POLICY: the cashback rate this card was issued on. Snapshotted per capture. */
     cashbackBps: integer('cashback_bps').notNull().default(0),
     /**
@@ -991,10 +1003,87 @@ export const userWithdrawDestinations = bank.table(
     userId: text('user_id').notNull(),
     kind: text('kind').notNull(),
     ref: text('ref').notNull(),
+    destinationId: uuid('destination_id').notNull().defaultRandom(),
+    label: text('label'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [primaryKey({ name: 'user_withdraw_destinations_pkey', columns: [t.userId, t.kind] })],
+  (t) => [
+    primaryKey({ name: 'user_withdraw_destinations_pkey', columns: [t.userId, t.kind] }),
+    uniqueIndex('user_withdraw_destinations_id_idx').on(t.destinationId),
+  ],
+);
+
+/** One removal per idempotency key. A retry reads this row and does not delete again. */
+export const withdrawDestinationRemovals = bank.table(
+  'withdraw_destination_removals',
+  {
+    userId: text('user_id').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    destinationId: uuid('destination_id').notNull(),
+    removedAt: tstz('removed_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: 'withdraw_destination_removals_pkey', columns: [t.userId, t.idempotencyKey] })],
+);
+
+/**
+ * Terms a rate source published for one customer on-ramp quote.
+ * Amounts are that source's decimals, not a balance.
+ */
+export const rampOnrampQuotes = bank.table('ramp_onramp_quotes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  assetId: text('asset_id').notNull(),
+  amount: amount('amount').notNull(),
+  method: text('method').notNull(),
+  country: text('country').notNull(),
+  payAmount: amount('pay_amount').notNull(),
+  fee: amount('fee').notNull(),
+  rate: amount('rate').notNull(),
+  payCurrency: text('pay_currency').notNull(),
+  expiresAt: tstz('expires_at').notNull(),
+  simulated: boolean('simulated').notNull().default(true),
+  createdAt: createdAt(),
+});
+
+/**
+ * Partner payment instruction for a customer on-ramp. Status stays
+ * pending_payment: this row is not a ledger credit.
+ */
+export const customerOnramps = bank.table('customer_onramps', {
+  id: uuid('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  quoteId: uuid('quote_id').notNull(),
+  method: text('method').notNull(),
+  assetId: text('asset_id').notNull(),
+  amount: amount('amount').notNull(),
+  payAmount: amount('pay_amount').notNull(),
+  fee: amount('fee').notNull(),
+  rate: amount('rate').notNull(),
+  payCurrency: text('pay_currency').notNull(),
+  status: text('status').notNull().default('pending_payment'),
+  simulated: boolean('simulated').notNull().default(true),
+  partnerRail: text('partner_rail').notNull(),
+  hostedUrl: text('hosted_url'),
+  bankReference: text('bank_reference'),
+  bankAccountName: text('bank_account_name'),
+  bankAccountRef: text('bank_account_ref'),
+  createdAt: createdAt(),
+});
+
+/** Address custody issued. Not a locally derived key and not a balance. */
+export const depositAddresses = bank.table(
+  'deposit_addresses',
+  {
+    userId: text('user_id').notNull(),
+    assetId: text('asset_id').notNull(),
+    networkId: text('network_id').notNull(),
+    address: text('address').notNull(),
+    memo: text('memo'),
+    qrPayload: text('qr_payload'),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ name: 'deposit_addresses_pkey', columns: [t.userId, t.assetId, t.networkId] })],
 );
 
 /**

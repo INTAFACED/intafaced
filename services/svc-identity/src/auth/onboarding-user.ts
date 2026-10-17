@@ -1,20 +1,22 @@
 /**
  * Maps a stored identity row onto the onboarding predicate.
  *
- * `identity.users` has no email-confirmation column, so email is never
- * treated as confirmed yet. Change `emailVerifiedForOnboarding` when a
- * confirmation column exists; `onboardingEligible` stays the formula.
+ * Confirmed email means `users.email_verified_at` is a real instant.
+ * Changing the email clears that stamp (and consumes open proofs), so a
+ * later address is not confirmed. `onboardingEligible` stays the formula:
+ * active account, this confirmation, and a second factor.
  */
 
 import type { OnboardingUser } from '@intafaced/auth';
+import type { Sql } from 'postgres';
+import { isEmailConfirmed } from './email-confirmation.js';
 
 /**
- * Identity has no email-confirmation signal yet, so no address counts as
- * confirmed and onboarding fails closed (Nitro 10-17: confirmed email + 2FA).
- * Read the confirmation column here once email confirmation ships.
+ * True only when the confirmation stamp is a real instant. A missing column,
+ * null, or junk fails closed. The address text is not a confirmation.
  */
-export function emailVerifiedForOnboarding(_email: string | null | undefined): boolean {
-  return false;
+export function emailVerifiedForOnboarding(row: { readonly email_verified_at?: Date | string | null }): boolean {
+  return isEmailConfirmed(row);
 }
 
 export function secondFactorEnrolled(row: { totp_secret: string | null; webauthn_creds: unknown }): boolean {
@@ -22,15 +24,37 @@ export function secondFactorEnrolled(row: { totp_secret: string | null; webauthn
   return Array.isArray(row.webauthn_creds) && row.webauthn_creds.length > 0;
 }
 
+export type OnboardingStoredRow = {
+  status: string;
+  email: string;
+  email_verified_at: Date | string | null;
+  totp_secret: string | null;
+  webauthn_creds: unknown;
+};
+
 export function onboardingUserFromRow(row: {
   status: string;
   email: string;
+  email_verified_at?: Date | string | null;
   totp_secret: string | null;
   webauthn_creds: unknown;
 }): OnboardingUser {
   return {
     accountStatus: row.status,
-    emailVerified: emailVerifiedForOnboarding(row.email),
+    emailVerified: emailVerifiedForOnboarding(row),
     secondFactorEnrolled: secondFactorEnrolled(row),
   };
+}
+
+/**
+ * The one read that builds an onboarding user. Callers must not select a
+ * narrower column list: omitting `email_verified_at` would look unconfirmed.
+ */
+export async function selectOnboardingUser(sql: Sql, userId: string): Promise<OnboardingUser | null> {
+  const rows = await sql<OnboardingStoredRow[]>`
+    SELECT status, email::text AS email, email_verified_at, totp_secret, webauthn_creds
+    FROM users WHERE id = ${userId} LIMIT 1
+  `;
+  const row = rows[0];
+  return row ? onboardingUserFromRow(row) : null;
 }

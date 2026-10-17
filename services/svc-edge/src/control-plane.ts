@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { AuthError } from '@intafaced/auth';
+import { AuthError, type Principal } from '@intafaced/auth';
 import {
   checkNetworkAccess,
   type ComplianceQueueDispositionRequest,
@@ -7,6 +7,7 @@ import {
   type ComplianceQueueKind,
 } from '@intafaced/config';
 import { statusForAuthError, type AdminApi } from './admin-api.js';
+import type { MatchingOperatorCall, MatchingOperatorPath } from './matching-operator-door.js';
 import { DualControlError } from './dual-control.js';
 import { ActionApprovalConsumeError, edgeActionPayloadHash, readApprovalIds } from './action-approval-consume.js';
 import { evaluateGeoBlock, geoBlockErrorMessage, geoBlockHttpStatus, geoBlockOpsHttpStatus, geoBlockPublicBody } from './geo-block.js';
@@ -126,15 +127,15 @@ export function registerKillSwitchGuard(app: FastifyInstance, killSwitches: Kill
     if (!pathname.startsWith('/api/')) return;
 
     /**
-     * S2S `/internal/*` is not a public route. Pay jobs, token stake, identity
+     * Service-to-service `/internal/*` is not a public route. Pay jobs, token stake, identity
      * rank, bank cron — all sit at that path behind a service secret the edge
      * does not hold and will not forward. Refuse here, before the kill-switch
-     * and before the proxy, so a live module cannot 200 an S2S job from the
+     * and before the proxy, so a live module cannot 200 a service job from the
      * internet. 404 + `edge.s2s_not_proxied`, never a green pass-through.
      */
     const routed = resolve(pathname);
     if (routed && isS2sPath(routed.path)) {
-      req.log.warn({ path: pathname, module: routed.upstream.module }, 'edge: refused — S2S path is not a public door');
+      req.log.warn({ path: pathname, module: routed.upstream.module }, 'edge: refused — service path is not a public door');
       return reply.code(404).send({ error: userCopy('edge.s2s_not_proxied'), code: 'edge.s2s_not_proxied' });
     }
 
@@ -281,7 +282,7 @@ export function registerNetworkAccessGuard(app: FastifyInstance): void {
  * than fall through to an upstream. The catch-all proxy is never what decides
  * whether an admin path is real.
  */
-export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void {
+export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, matching: MatchingOperatorCall | null = null): void {
   // Public §29 honesty door — not proxied to svc-quant (that service must not exist yet).
   registerQuantHonestyRoutes(app);
   registerQuantSurfaceRenderRoutes(app);
@@ -718,4 +719,69 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void
     req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILE requested');
     return reply.code(res.status).send(res.body);
   });
+
+  const matchingUnwired = {
+    error: 'MATCHING_URL or EDGE_PRINCIPAL_SECRET is unpublished. This edge does not read the book and does not halt it.',
+    code: 'edge.matching_unwired' as const,
+  };
+
+  // Same resolver the /api proxy uses before signPrincipalHeader. Never a
+  // caller-supplied region: trustProxy and the geo header name come from env.
+  const matchingRegion = (headers: Record<string, string | string[] | undefined>): string =>
+    resolveRequestRegion({
+      defaultRegion: process.env.DEFAULT_REGION ?? 'XX',
+      trustProxy: process.env.EDGE_TRUST_PROXY !== undefined,
+      geoHeaderName: process.env.EDGE_GEO_COUNTRY_HEADER,
+      headers,
+    }).region;
+
+  const forwardMatching = async (
+    path: MatchingOperatorPath,
+    method: 'GET' | 'POST',
+    principal: Principal,
+    body: unknown,
+    reply: { code: (n: number) => { send: (b: unknown) => unknown } },
+    region: string,
+  ) => {
+    if (!matching) return reply.code(503).send(matchingUnwired);
+    const res = await matching(path, method, principal, body, region);
+    return reply.code(res.status).send(res.body);
+  };
+
+  app.get('/admin/matching/in-flight', async (req, reply) => {
+    let principal: Principal;
+    try {
+      principal = await admin.authenticateRead(req.headers.authorization);
+    } catch (err) {
+      if (err instanceof AuthError) return reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
+      throw err;
+    }
+    return forwardMatching(
+      '/operator/in-flight',
+      'GET',
+      principal,
+      undefined,
+      reply,
+      matchingRegion(req.headers as Record<string, string | string[] | undefined>),
+    );
+  });
+
+  const matchingPost = (adminPath: string, upstream: MatchingOperatorPath) => {
+    app.post(adminPath, async (req, reply) => {
+      const auth = await operator(req.headers.authorization, reply, 'module');
+      if (!auth) return reply;
+      return forwardMatching(
+        upstream,
+        'POST',
+        auth.principal,
+        req.body,
+        reply,
+        matchingRegion(req.headers as Record<string, string | string[] | undefined>),
+      );
+    });
+  };
+  matchingPost('/admin/matching/halt', '/operator/halt');
+  matchingPost('/admin/matching/halt-all', '/operator/halt-all');
+  matchingPost('/admin/matching/resume', '/operator/resume');
+  matchingPost('/admin/matching/resume-all', '/operator/resume-all');
 }

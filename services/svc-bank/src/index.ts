@@ -11,6 +11,8 @@ import { bankHttpReady } from './ready.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
+import { createIdentityPartyHandles } from './transfers/party-handles.js';
+import { eventPersonalRequestNotices } from './transfers/request-notices.js';
 import { tickerPriceSource } from './loans/prices.js';
 import { httpTickerSource } from './portfolio/portfolio-service.js';
 import { createLedgerClient, createLedgerHistory, createLedgerHistoryPages } from './ledger-client.js';
@@ -95,6 +97,8 @@ const bank = createBankServices(sql, ledger, history, {
   // `bank.recipient_check_unset` (see the boot warning below). No default of
   // "everyone may receive".
   recipients: env.IDENTITY_URL ? createIdentityRecipientState(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : unconfiguredRecipientState(),
+  handles: env.IDENTITY_URL ? createIdentityPartyHandles(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
+  requestNotices: eventPersonalRequestNotices(bus),
   // Handles and exact recipient lookup. No IDENTITY_URL refuses those reads
   // with bank.business_directory_unset. A 404 from identity is the same refusal:
   // the directory route is not published. No invented handle.

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import {
+  scopedProcedure,
   accountControlInputSchema,
+  identityAccountControlInputSchema,
   accountControlLookupInputSchema,
   accountControlHistoryInputSchema,
   accountControlStateSchema,
@@ -12,14 +14,20 @@ import {
   protectedProcedure,
   serviceProcedure,
   TRPCError,
-  type AccountControlInput,
+  type IdentityAccountControlInput,
   type Context,
 } from '@intafaced/contracts';
 import { FounderControlError, founderEntitlementChangeSchema, type FounderControls } from './founder-controls.js';
+import {
+  RestrictedListCursorError,
+  RestrictedListDeniedError,
+  RestrictedListLimitUnsetError,
+  type RestrictedAccountPage,
+} from './restricted-accounts.js';
 
 export type FounderControlsPort = Pick<
   FounderControls,
-  'change' | 'getState' | 'history' | 'changeEntitlement' | 'operatorEntitlement' | 'operatorStatus' | 'currentAuthority'
+  'change' | 'getState' | 'history' | 'changeEntitlement' | 'operatorEntitlement' | 'operatorStatus' | 'currentAuthority' | 'listRestricted'
 >;
 export const identityRestrictionInputSchema = accountControlInputSchema.refine(
   (input) => input.target.area === 'identity',
@@ -37,7 +45,7 @@ export const identityRestoreInputSchema = identityRestrictionInputSchema.refine(
 export async function callFounderControl(
   controls: Pick<FounderControlsPort, 'change'> | undefined,
   context: Context,
-  input: AccountControlInput,
+  input: IdentityAccountControlInput,
 ) {
   if (!controls)
     throw new TRPCError({
@@ -47,6 +55,24 @@ export async function callFounderControl(
     });
   return controlCall(() => controls.change(context, input));
 }
+async function listRestrictedCall(
+  controls: Pick<FounderControlsPort, 'listRestricted'>,
+  context: Context,
+  input: { area?: 'identity' | 'trading'; limit?: number | null; cursor?: string },
+): Promise<RestrictedAccountPage> {
+  try {
+    return await controls.listRestricted(context, input);
+  } catch (error) {
+    if (error instanceof RestrictedListLimitUnsetError || error instanceof RestrictedListCursorError) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${error.message} [${error.code}]`, cause: error });
+    }
+    if (error instanceof RestrictedListDeniedError || error instanceof FounderControlError) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: error.message, cause: error });
+    }
+    throw error;
+  }
+}
+
 export async function controlCall<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
@@ -65,7 +91,12 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
   return router({
     accountControls: router({
       change: protectedProcedure
-        .input(identityRestrictionInputSchema)
+        .input(
+          identityAccountControlInputSchema.refine(
+            (input) => input.target.area === 'identity' || input.target.area === 'trading',
+            'Identity or trading target required',
+          ),
+        )
         .output(accountControlResultSchema)
         .mutation(({ ctx, input }) => callFounderControl(controls, ctx, input)),
       history: protectedProcedure
@@ -76,6 +107,35 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
         .input(accountControlLookupInputSchema.refine((input) => input.target.area === 'identity', 'Identity target required'))
         .output(accountControlStateSchema.nullable())
         .query(({ ctx, input }) => controlCall(() => controls.getState(ctx, input))),
+      listRestricted: scopedProcedure('admin:read')
+        .input(
+          z
+            .object({
+              area: z.enum(['identity', 'trading']).optional(),
+              limit: z.number().nullable().optional(),
+              cursor: z.string().min(1).max(500).optional(),
+            })
+            .strict(),
+        )
+        .output(
+          z
+            .object({
+              rows: z.array(
+                z
+                  .object({
+                    accountId: z.string().uuid(),
+                    area: z.enum(['identity', 'trading']),
+                    since: z.string().datetime({ offset: true }),
+                    reason: z.string(),
+                    actor: z.string().uuid(),
+                  })
+                  .strict(),
+              ),
+              nextCursor: z.string().nullable(),
+            })
+            .strict(),
+        )
+        .query(({ ctx, input }) => listRestrictedCall(controls, ctx, input)),
       changeOperatorEntitlement: protectedProcedure
         .input(founderEntitlementChangeSchema)
         .mutation(({ ctx, input }) => controlCall(() => controls.changeEntitlement(ctx, input))),

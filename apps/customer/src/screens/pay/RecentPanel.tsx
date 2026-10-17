@@ -12,9 +12,18 @@ import {
   StateBlock,
   useHideBalances,
   useSession,
+  withDeviceHandles,
   type ActivityItem,
 } from './deps';
-import { counterpartyHandle, PAY_SENT_EVENT, paymentsEmpty, receiptHref, recentPayments, recentRecipients } from './recent-model';
+import {
+  counterpartyHandle,
+  PAY_SENT_EVENT,
+  paymentsEmpty,
+  receiptHref,
+  recentPayments,
+  recentRecipients,
+  unnamedSends,
+} from './recent-model';
 import { recentCopy } from './recent-copy';
 
 // The newest 50 ledger entries are read once; transfers are picked out of them. Older ones are one tap away.
@@ -38,11 +47,15 @@ export function RecentPanel() {
     window.addEventListener(PAY_SENT_EVENT, again);
     return () => window.removeEventListener(PAY_SENT_EVENT, again);
   }, []);
-  const items: readonly ActivityItem[] = feed.status === 'ready' ? feed.data.items : [];
+  const sent = useMemo(() => (userId ? readSent(userId) : []), [userId, revision, feed.status]);
+  // The bank does not always name the other person. A payment this device sent is named from the confirmation it kept.
+  const rows = feed.status === 'ready' ? feed.data.items : null;
+  const items: readonly ActivityItem[] = useMemo(() => (rows ? withDeviceHandles(rows, sent) : []), [rows, sent]);
   const hasMore = feed.status === 'ready' && feed.data.hasMore;
   const payments = recentPayments(items);
-  const remembered = useMemo(() => (userId ? contactsFrom(readSent(userId)) : []), [userId, revision, feed.status]);
+  const remembered = useMemo(() => contactsFrom(sent), [sent]);
   const recipients = recentRecipients(items, remembered);
+  const unnamed = recipients.length === 0 ? unnamedSends(items) : [];
   const now = Date.now();
   const failed = feed.status === 'error' || feed.status === 'refused';
   const loading = feed.status === 'loading';
@@ -155,6 +168,27 @@ export function RecentPanel() {
           </>
         ) : failed ? (
           <p className="pay-recent__note">{copy.t('loadFailed')}</p>
+        ) : unnamed.length > 0 ? (
+          <>
+            <ul className="pay-recent__list" aria-label={copy.t('recipientsLabel')}>
+              {unnamed.map((item) => (
+                <li key={item.id} className="pay-recent__row" data-testid="recent-unnamed-send">
+                  <span className="pay-recent__main">
+                    <span className="pay-recent__who">{copy.t('recipientUnknown')}</span>
+                    <span className="pay-recent__meta" lang="zxx">
+                      {stamp(item.postedAt, timeZone, now)}
+                    </span>
+                  </span>
+                  <span className="pay-recent__side">
+                    <a className="pay-recent__link" href={receiptHref(item)}>
+                      {copy.t('receipt')}
+                    </a>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="pay-recent__note">{copy.t('recipientUnknownNote')}</p>
+          </>
         ) : (
           <StateBlock
             kind="empty"

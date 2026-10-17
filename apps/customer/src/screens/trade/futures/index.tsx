@@ -8,6 +8,7 @@ import { useBalances } from '../desk/data';
 import { useNow } from '../desk/hooks';
 import { AdlTab } from './AdlTab';
 import { ContractStrip } from './ContractStrip';
+import { EmptyDesk } from './EmptyDesk';
 import { FundingTab } from './FundingTab';
 import { FuturesChart } from './FuturesChart';
 import { HistoryTab } from './HistoryTab';
@@ -71,15 +72,7 @@ export default function FuturesScreen({ search }: ScreenProps) {
   else if (markets.status === 'error')
     top = <StateBlock kind="error" title={t('Markets error title')} onRetry={markets.retry} retryLabel={t('Try again')} />;
   else if (markets.status === 'refused') top = <EmptyState variant="refused" title={t('Markets error title')} reason={markets.code} />;
-  else if (!market)
-    top = (
-      <EmptyState
-        variant="unavailable"
-        title={t('No contracts title')}
-        reason={t('No contracts reason')}
-        action={{ label: t('See spot markets'), onClick: () => navigate('/trade/spot/BTC-USDT') }}
-      />
-    );
+  else if (!market) top = <EmptyDesk />;
   else {
     top = (
       <ContractStrip
@@ -128,12 +121,14 @@ export default function FuturesScreen({ search }: ScreenProps) {
         />
       ) : null}
       {top}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="flex min-w-0 flex-col">{chart}</div>
-        {side ? <aside className="border-line lg:border-l">{side}</aside> : null}
-      </div>
+      {market ? (
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="flex min-w-0 flex-col">{chart}</div>
+          {side ? <aside className="border-line lg:border-l">{side}</aside> : null}
+        </div>
+      ) : null}
       <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)} className="border-t border-line">
-        <TabsList divider aria-label={t('Desk panels')} className="px-4">
+        <TabsList divider aria-label={t('Desk panels')} className="overflow-x-auto px-4">
           <TabsTab value="positions">{t('Positions')}</TabsTab>
           <TabsTab value="orders">{t('Orders')}</TabsTab>
           <TabsTab value="history">{t('Position history')}</TabsTab>

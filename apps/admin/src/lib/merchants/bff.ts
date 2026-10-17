@@ -33,9 +33,9 @@ export function fromFailure<T>(
           ok: false,
           refusal: {
             ...(options.notBuilt ?? {
-              title: 'This is not built yet',
+              title: 'This is not switched on',
               body: 'The service behind this action has not been switched on for this deployment.',
-              next: 'Nothing was changed. Ask engineering when it arrives.',
+              next: 'Nothing was changed. This control is not connected here.',
             }),
             code: 'pay.not_built',
             requestId: result.requestId,

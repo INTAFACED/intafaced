@@ -36,7 +36,7 @@ const messages = {
   repaymentOffer:
     'The amount is your repayment offer. The service takes no more than the current debt, pays interest first and releases settled collateral when the debt clears.',
   unavailableHistory:
-    'This list isn’t your repayment or collateral history. An earlier request with an unknown outcome stays protected even when a refreshed loan matches.',
+    'This list isn’t your repayment or collateral history. If an earlier request never got a clear answer, new requests stay blocked until you check it, even if a refreshed loan looks the same.',
 } as const;
 
 const es = {
@@ -77,7 +77,7 @@ const es = {
   repaymentOffer:
     'El importe es tu oferta de pago. El servicio no toma más que la deuda actual, paga primero los intereses y libera la garantía al saldar la deuda.',
   unavailableHistory:
-    'Esta lista no es tu historial de pagos ni de garantía. Una solicitud anterior de resultado desconocido sigue protegida aunque un préstamo actualizado coincida.',
+    'Esta lista no es tu historial de pagos ni de garantía. Si una solicitud anterior no recibió una respuesta clara, las nuevas solicitudes quedan bloqueadas hasta que la revises, aunque un préstamo actualizado parezca igual.',
 } as const;
 const fr = {
   statusPending: 'En attente',
@@ -118,7 +118,7 @@ const fr = {
   repaymentOffer:
     'Le montant est ton offre de remboursement. Le service ne prélève pas plus que la dette actuelle, paie d’abord les intérêts et libère la garantie lorsque la dette est soldée.',
   unavailableHistory:
-    'Cette liste n’est pas ton historique de remboursements ni de garantie. Une demande précédente dont l’issue est inconnue reste protégée même si un prêt actualisé correspond.',
+    'Cette liste n’est pas ton historique de remboursements ni de garantie. Si une demande précédente n’a pas reçu de réponse claire, les nouvelles demandes restent bloquées tant que tu ne l’as pas vérifiée, même si un prêt actualisé semble identique.',
 } as const;
 export const loanCopy = defineCopy('customer.money.loans', messages, { es, fr });
 

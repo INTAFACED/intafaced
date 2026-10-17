@@ -166,6 +166,23 @@ function uniqueViolationName(err: unknown): string | null {
   return row.constraint_name ?? '';
 }
 
+function encodeOperatorCursor(at: string, id: string): string {
+  return Buffer.from(JSON.stringify({ at, id }), 'utf8').toString('base64url');
+}
+
+function decodeOperatorCursor(cursor: string): { at: string; id: string } {
+  try {
+    const json = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { at?: unknown; id?: unknown };
+    if (typeof json.at !== 'string' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/.test(json.at)) throw new Error('time');
+    if (typeof json.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(json.id))
+      throw new Error('id');
+    return { at: json.at, id: json.id };
+  } catch (err) {
+    if (err instanceof BankError) throw err;
+    throw new BankError('The approvals page cursor is not valid. Ask for the first page again.', 'bank.business_cursor_invalid');
+  }
+}
+
 function encodeApprovalCursor(createdAt: Date, id: string): string {
   return Buffer.from(JSON.stringify({ at: createdAt.toISOString(), id }), 'utf8').toString('base64url');
 }
@@ -280,11 +297,40 @@ export interface BusinessPendingControl {
   createdAt: Date;
 }
 
+export interface BusinessPartyView {
+  handle: string | null;
+  handleReason: 'handle_unresolved' | null;
+  displayName: string | null;
+}
+
+export interface BusinessPendingView {
+  id: string;
+  accountId: string;
+  makerHandle: string | null;
+  makerHandleReason: 'handle_unresolved' | null;
+  receiverOwnerHandle: string | null;
+  receiverOwnerHandleReason: 'handle_unresolved' | null;
+  receiverOwnerName: string | null;
+  fromSpaceId: string;
+  toSpaceId: string;
+  assetId: string;
+  amount: Amount;
+  status: BusinessApprovalStatus;
+  transferId: string | null;
+  holdLedgerTxId: string | null;
+  ledgerTxId: string | null;
+  createdAt: Date;
+}
+
 export interface BusinessApprovalView {
   id: string;
   accountId: string;
-  makerHandle: string;
+  makerHandle: string | null;
+  makerHandleReason: 'handle_unresolved' | null;
   checkerHandle: string | null;
+  receiverOwnerHandle: string | null;
+  receiverOwnerHandleReason: 'handle_unresolved' | null;
+  receiverOwnerName: string | null;
   fromSpaceId: string;
   toSpaceId: string;
   assetId: string;
@@ -313,23 +359,49 @@ export class BusinessService {
     private readonly lookups: BusinessLookupLimiter = new BusinessLookupLimiter(),
   ) {}
 
-  async createAccount(input: { name: string; assetId: string; spendThreshold: Amount; creatorUserId: string }): Promise<BusinessAccount> {
+  async createAccount(input: {
+    accountId: string;
+    name: string;
+    assetId: string;
+    spendThreshold: Amount;
+    creatorUserId: string;
+  }): Promise<BusinessAccount> {
+    if (!input.accountId) {
+      throw new BankError('Business create needs a caller-stable account id', 'bank.business_request_id_required');
+    }
     if (input.spendThreshold <= 0n) {
       throw new BankError('Business spend threshold must be positive', 'bank.business_invalid_threshold');
     }
     const name = input.name.trim();
     if (!name) throw new BankError('Business account needs a name', 'bank.business_invalid_name');
+    const threshold = formatAmount(input.spendThreshold);
 
-    const rows = await this.sql<AccountRow[]>`
-      INSERT INTO bank.business_accounts (name, asset_id, spend_threshold, status)
-      VALUES (${name}, ${input.assetId}, ${formatAmount(input.spendThreshold)}::numeric, 'active')
-      RETURNING id, name, asset_id, spend_threshold, status, created_at
-    `;
-    const account = toAccount(rows[0]!);
-    await this.sql`
-      INSERT INTO bank.business_members (account_id, user_id, role)
-      VALUES (${account.id}::uuid, ${input.creatorUserId}, 'admin')
-    `;
+    const account = await transaction(this.sql, async (tx) => {
+      const inserted = await tx<AccountRow[]>`
+        INSERT INTO bank.business_accounts (id, name, asset_id, spend_threshold, status)
+        VALUES (${input.accountId}::uuid, ${name}, ${input.assetId}, ${threshold}::numeric, 'active')
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id, name, asset_id, spend_threshold, status, created_at
+      `;
+      if (inserted[0]) {
+        await tx`
+          INSERT INTO bank.business_members (account_id, user_id, role)
+          VALUES (${inserted[0].id}::uuid, ${input.creatorUserId}, 'admin')
+        `;
+        return toAccount(inserted[0]);
+      }
+      const existing = await this.accountIn(tx, input.accountId);
+      const members = await tx<MemberRow[]>`
+        SELECT account_id, user_id, role FROM bank.business_members
+         WHERE account_id = ${input.accountId}::uuid AND user_id = ${input.creatorUserId}
+      `;
+      const sameOwner = members[0]?.role === 'admin';
+      const sameRules = existing.name === name && existing.assetId === input.assetId && formatAmount(existing.spendThreshold) === threshold;
+      if (!sameOwner || !sameRules) {
+        throw new BankError('This business id is already in use on different terms (bank.business_conflict)', 'bank.business_conflict');
+      }
+      return existing;
+    });
     await this.spaces.ensurePrimary(input.creatorUserId, input.assetId);
     return account;
   }
@@ -557,7 +629,7 @@ export class BusinessService {
     });
   }
 
-  async listPending(accountId: string, actorUserId: string, limit?: number): Promise<BusinessApproval[]> {
+  async listPending(accountId: string, actorUserId: string, limit?: number): Promise<BusinessPendingView[]> {
     await this.assertMember(accountId, actorUserId);
     const page = assertBusinessPendingListLimit(limit);
     const rows = await this.sql<ApprovalRow[]>`
@@ -569,7 +641,7 @@ export class BusinessService {
        ORDER BY created_at ASC
        LIMIT ${page}
     `;
-    return rows.map(toApproval);
+    return this.withParties(rows);
   }
 
   /**
@@ -781,27 +853,14 @@ export class BusinessService {
        ORDER BY created_at DESC, id DESC
        LIMIT ${page}
     `;
-    const ids = rows.flatMap((row) => (row.checker_user_id ? [row.maker_user_id, row.checker_user_id] : [row.maker_user_id]));
-    const handles = await this.handlesFor(ids);
-    const items = rows.map((row) => {
-      const approval = toApproval(row);
-      return {
-        id: approval.id,
-        accountId: approval.accountId,
-        makerHandle: handles.get(approval.makerUserId)!,
-        checkerHandle: approval.checkerUserId ? handles.get(approval.checkerUserId)! : null,
-        fromSpaceId: approval.fromSpaceId,
-        toSpaceId: approval.toSpaceId,
-        assetId: approval.assetId,
-        amount: approval.amount,
-        status: approval.status,
-        transferId: approval.transferId,
-        holdLedgerTxId: approval.holdLedgerTxId,
-        ledgerTxId: approval.ledgerTxId,
-        createdAt: approval.createdAt,
-        decidedAt: approval.decidedAt,
-      };
-    });
+    const checkerIds = rows.flatMap((row) => (row.checker_user_id ? [row.checker_user_id] : []));
+    const checkers = checkerIds.length === 0 ? new Map<string, string>() : await this.handlesFor(checkerIds);
+    const named = await this.withParties(rows);
+    const items = named.map((row, index) => ({
+      ...row,
+      checkerHandle: rows[index]?.checker_user_id ? (checkers.get(rows[index]!.checker_user_id!) ?? null) : null,
+      decidedAt: rows[index]?.decided_at ?? null,
+    }));
     const last = rows.at(-1);
     return {
       items,
@@ -1373,6 +1432,140 @@ export class BusinessService {
         ? err.message
         : 'svc-identity did not answer the business directory (bank.business_directory_unavailable)';
     throw new BankError(message, 'bank.business_directory_unavailable');
+  }
+
+  async myRole(accountId: string, userId: string): Promise<BusinessMemberRole> {
+    const rows = await this.sql<Array<{ role: string }>>`
+      SELECT m.role::text AS role
+        FROM bank.business_accounts a
+        JOIN bank.business_members m ON m.account_id = a.id AND m.user_id = ${userId}
+       WHERE a.id = ${accountId}::uuid
+    `;
+    const role = rows[0]?.role;
+    if (role !== 'admin' && role !== 'maker' && role !== 'checker') {
+      throw new BankError(`Business account ${accountId} not found`, 'bank.business_not_found');
+    }
+    return role;
+  }
+
+  /**
+   * Operator queue across businesses. Read-only. A missing directory refuses
+   * the page; a person with no handle is null, not a user id.
+   */
+  async operatorApprovals(input: { status: BusinessApprovalStatus; limit: number; cursor?: string }): Promise<{
+    approvals: Array<{
+      businessId: string;
+      amount: string;
+      assetId: string;
+      ageSeconds: number;
+      makerHandle: string | null;
+      makerHandleReason: 'handle_unresolved' | null;
+      rule: string;
+    }>;
+    nextCursor: string | null;
+  }> {
+    const cursor = input.cursor ? decodeOperatorCursor(input.cursor) : null;
+    const stamp = cursor?.at ?? null;
+    const stampId = cursor?.id ?? null;
+    const rows = await this.sql<Array<ApprovalRow & { spend_threshold: string; at_key: string }>>`
+      SELECT a.id, a.account_id, a.maker_user_id, a.checker_user_id, a.from_space_id, a.to_space_id,
+             a.asset_id, a.amount::text AS amount, a.status, a.transfer_id, a.hold_ledger_tx_id, a.ledger_tx_id,
+             a.rejection_code, a.created_at, a.decided_at, b.spend_threshold::text AS spend_threshold,
+             to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS at_key
+        FROM bank.business_approvals a
+        JOIN bank.business_accounts b ON b.id = a.account_id
+       WHERE a.status::text = ${input.status}
+         AND (
+           ${stamp}::text IS NULL
+           OR to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') > ${stamp}
+           OR (
+             to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') = ${stamp}
+             AND a.id > ${stampId}::uuid
+           )
+         )
+       ORDER BY a.created_at ASC, a.id ASC
+       LIMIT ${input.limit}
+    `;
+    const parties = await this.partiesFor(rows.map((row) => row.maker_user_id));
+    const now = Date.now();
+    const approvals = rows.map((row) => {
+      const party = parties.get(row.maker_user_id);
+      return {
+        businessId: row.account_id,
+        amount: formatAmount(parseAmount(row.amount)),
+        assetId: row.asset_id,
+        ageSeconds: Math.max(0, Math.floor((now - row.created_at.getTime()) / 1000)),
+        makerHandle: party?.handle ?? null,
+        makerHandleReason: party?.handleReason ?? 'handle_unresolved',
+        rule: formatAmount(parseAmount(row.spend_threshold)),
+      };
+    });
+    const last = rows.at(-1);
+    return {
+      approvals,
+      nextCursor: last && rows.length === input.limit ? encodeOperatorCursor(last.at_key, last.id) : null,
+    };
+  }
+
+  private async withParties(rows: readonly ApprovalRow[]): Promise<BusinessPendingView[]> {
+    const owners = await this.spaceOwners(rows.map((row) => row.to_space_id));
+    const parties = await this.partiesFor([...rows.map((row) => row.maker_user_id), ...owners.values()]);
+    const missing: BusinessPartyView = { handle: null, handleReason: 'handle_unresolved', displayName: null };
+    return rows.map((row) => {
+      const approval = toApproval(row);
+      const maker = parties.get(approval.makerUserId) ?? missing;
+      const ownerId = owners.get(approval.toSpaceId);
+      const receiver = ownerId ? (parties.get(ownerId) ?? missing) : missing;
+      return {
+        id: approval.id,
+        accountId: approval.accountId,
+        makerHandle: maker.handle,
+        makerHandleReason: maker.handleReason,
+        receiverOwnerHandle: receiver.handle,
+        receiverOwnerHandleReason: receiver.handleReason,
+        receiverOwnerName: receiver.displayName,
+        fromSpaceId: approval.fromSpaceId,
+        toSpaceId: approval.toSpaceId,
+        assetId: approval.assetId,
+        amount: approval.amount,
+        status: approval.status,
+        transferId: approval.transferId,
+        holdLedgerTxId: approval.holdLedgerTxId,
+        ledgerTxId: approval.ledgerTxId,
+        createdAt: approval.createdAt,
+      };
+    });
+  }
+
+  private async spaceOwners(spaceIds: readonly string[]): Promise<Map<string, string>> {
+    const ids = [...new Set(spaceIds)];
+    if (ids.length === 0) return new Map();
+    const rows = await this.sql<Array<{ id: string; user_id: string }>>`
+      SELECT id, user_id FROM bank.spaces WHERE id IN ${this.sql(ids)}
+    `;
+    return new Map(rows.map((row) => [row.id, row.user_id]));
+  }
+
+  private async partiesFor(userIds: readonly string[]): Promise<Map<string, BusinessPartyView>> {
+    const unique = [...new Set(userIds.filter((id) => id.trim() !== ''))];
+    let handles: ReadonlyMap<string, string>;
+    let names: ReadonlyMap<string, string>;
+    try {
+      handles = await this.directory.handlesOf(unique);
+      names = await this.directory.publishedNames(unique);
+    } catch (err) {
+      this.directoryError(err);
+    }
+    const out = new Map<string, BusinessPartyView>();
+    for (const id of unique) {
+      const handle = handles.get(id) ?? null;
+      out.set(id, {
+        handle,
+        handleReason: handle ? null : 'handle_unresolved',
+        displayName: handle ? (names.get(id) ?? null) : null,
+      });
+    }
+    return out;
   }
 
   /** Every id must have a public handle. A gap refuses the page rather than showing a raw id. */
