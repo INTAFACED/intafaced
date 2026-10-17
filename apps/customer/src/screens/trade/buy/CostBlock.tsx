@@ -1,6 +1,7 @@
 import { KeyValue, fmtAmount, fmtUsd, type KeyValueItem } from './deps';
 import { buyCopy } from './copy';
 import type { CostRows } from './cost';
+import { formatGet } from './cost-format';
 
 /**
  * The all-in cost, in the card before the Review button (spec R2 item 1). Every row is "—" until it is known: the
@@ -9,15 +10,7 @@ import type { CostRows } from './cost';
 export function CostBlock({ rows, side, baseAsset, places }: { rows: CostRows; side: 'buy' | 'sell'; baseAsset: string; places: number }) {
   const { t } = buyCopy.useCopy();
   const buying = side === 'buy';
-  const get = rows.get;
-  const getValue =
-    get === null
-      ? null
-      : get.kind === 'money'
-        ? fmtUsd(get.amount)
-        : get.afterFee
-          ? t('{amount} {coin} after the fee', { amount: fmtAmount(get.amount, { places: 8 }), coin: baseAsset })
-          : `${fmtAmount(get.amount, { places })} ${baseAsset}`;
+  const getValue = formatGet(rows.get, baseAsset, places, t);
   const items: KeyValueItem[] = [
     {
       key: 'cost',

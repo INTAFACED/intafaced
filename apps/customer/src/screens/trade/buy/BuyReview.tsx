@@ -15,7 +15,8 @@ import {
   type Preview,
 } from './deps';
 import { buyCopy } from './copy';
-import { aboutValue, afterFee, limitFor } from './cost';
+import { costRows } from './cost';
+import { formatGet } from './cost-format';
 import { fractionDigits } from './trade-math';
 
 export interface ReviewState {
@@ -51,15 +52,20 @@ export function BuyReview({
   const places = fractionDigits(market.lotSize) ?? 8;
   const protection = review?.preview.protectionPrice ?? null;
   const price = review?.price ?? null;
-  const limit = review ? limitFor(review.draft.side, review.draft.amount, review.preview, market.quote) : null;
-  const about = review && price !== null ? aboutValue(review.draft.amount, price) : null;
-  // The fee comes out of the coins bought, so say what is left: "about 0.00007992 BTC after the fee" (words only; the order is unchanged).
-  const net = review ? afterFee(review.draft.amount, review.preview.estimatedFee, review.preview.feeAsset, market.base) : null;
-  const getValue = review
-    ? net !== null
-      ? t('{amount} {coin} after the fee', { amount: fmtAmount(net, { places: 8 }), coin: market.base })
-      : `${fmtAmount(review.draft.amount, { places })} ${market.base}`
-    : '';
+  // One call feeds the card and this dialog, so every figure here is the card's figure.
+  const rows = review
+    ? costRows({
+        side: review.draft.side,
+        base: review.draft.amount,
+        price,
+        baseAsset: market.base,
+        quoteAsset: market.quote,
+        preview: review.preview,
+      })
+    : null;
+  const getValue = (rows && formatGet(rows.get, market.base, places, t)) ?? '—';
+  const payValue = rows?.estimated == null ? '—' : fmtUsd(rows.estimated);
+  const limitValue = rows?.limit == null ? '—' : fmtUsd(rows.limit);
   return (
     <AlertDialog
       open={review !== null}
@@ -76,7 +82,7 @@ export function BuyReview({
           <dl className="buy-dialog__rows">
             {buying ? (
               <>
-                <Row label={t('You pay about')} value={about === null ? '—' : fmtUsd(about)} data-testid="review-pay" />
+                <Row label={t('You pay about')} value={payValue} data-testid="review-pay" />
                 <Row label={t('You get about')} value={getValue} data-testid="review-get" strong />
               </>
             ) : (
@@ -86,7 +92,7 @@ export function BuyReview({
                   value={`${fmtAmount(review.draft.amount, { places })} ${market.base}`}
                   data-testid="review-pay"
                 />
-                <Row label={t('You get about')} value={about === null ? '—' : fmtUsd(about)} data-testid="review-get" strong />
+                <Row label={t('You get about')} value={getValue} data-testid="review-get" strong />
               </>
             )}
             <Row
@@ -102,11 +108,7 @@ export function BuyReview({
               }
               data-testid="review-fee"
             />
-            <Row
-              label={buying ? t('Most you can pay') : t('Least you get')}
-              value={limit === null ? '—' : fmtUsd(limit)}
-              data-testid="review-limit"
-            />
+            <Row label={buying ? t('Most you can pay') : t('Least you get')} value={limitValue} data-testid="review-limit" />
             {protection !== null ? (
               <Row
                 label={t('Price protection')}

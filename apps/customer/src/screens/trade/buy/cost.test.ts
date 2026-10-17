@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { afterFee, afterQuoteFee, aboutValue, costRows, limitFor, protectedTotal } from './cost';
+import { formatGet } from './cost-format';
 
 describe('protectedTotal', () => {
   it('rounds the most a buyer can pay UP to the cent', () => {
@@ -105,9 +106,41 @@ describe('limitFor (the card and the review dialog share one worst case)', () =>
     const rows = costRows({ side: 'sell', base: '0.001', price: '65000', baseAsset: 'BTC', quoteAsset: 'USDT', preview });
     expect(rows.limit).toBe(limitFor('sell', '0.001', preview, 'USDT'));
   });
-  it('BuyReview.tsx uses limitFor and never the bare 3-argument protectedTotal', () => {
+  it('BuyReview.tsx takes its figures from costRows and never from the bare helpers', () => {
     const source = readFileSync(new URL('./BuyReview.tsx', import.meta.url), 'utf8');
-    expect(source).toMatch(/limitFor\(/);
+    expect(source).toContain('costRows(');
+    expect(source).not.toContain('aboutValue(');
+    expect(source).not.toContain('afterFee(');
+    expect(source).not.toContain('limitFor(');
     expect(source).not.toMatch(/protectedTotal\(/);
+  });
+});
+
+describe('sell review figures (the card and the dialog read the same costRows)', () => {
+  const preview = { estimatedFee: '1.300975', feeAsset: 'USDT', protectionPrice: '2588.94' };
+  const rows = costRows({ side: 'sell', base: '0.5', price: '2601.95', baseAsset: 'ETH', quoteAsset: 'USDT', preview });
+  it('gets the money after the USDT fee, not the gross value', () => {
+    expect(rows.estimated).toBe('1300.975');
+    expect(rows.get).toEqual({ kind: 'money', amount: '1299.674025' });
+  });
+  it('has the least the seller gets, after the fee, rounded down to the cent', () => {
+    // 0.5 * 2588.94 = 1294.47, less 1.300975 = 1293.169025 -> 1293.16
+    expect(rows.limit).toBe('1293.16');
+  });
+});
+
+describe('formatGet', () => {
+  const t = (_key: '{amount} {coin} after the fee', p: { amount: string; coin: string }) => `${p.amount} ${p.coin} after the fee`;
+  it('writes money as dollars', () => {
+    expect(formatGet({ kind: 'money', amount: '1299.674025' }, 'ETH', 4, t)).toBe('$1,299.67');
+  });
+  it('writes coins after a fee in those coins with the words', () => {
+    expect(formatGet({ kind: 'coin', amount: '0.00007992', afterFee: true }, 'BTC', 5, t)).toBe('0.00007992 BTC after the fee');
+  });
+  it('writes coins with the fee paid elsewhere in full, to the lot places', () => {
+    expect(formatGet({ kind: 'coin', amount: '0.0001', afterFee: false }, 'BTC', 5, t)).toBe('0.0001 BTC');
+  });
+  it('is null when it is not known (the caller shows a dash)', () => {
+    expect(formatGet(null, 'BTC', 5, t)).toBeNull();
   });
 });
