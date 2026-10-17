@@ -14,6 +14,26 @@ export const HALT_SCOPE: Record<string, { label: string; hint: string }> = {
 
 export const scopeLabel = (scope: string) => HALT_SCOPE[scope]?.label ?? scope;
 
+export function haltAppliesToMerchant(target: PayHaltState['target'], merchantId: string): boolean {
+  if (target.level === 'global' || target.level === 'rail') return true;
+  if (target.level === 'merchant') return target.merchantId === merchantId;
+  return false;
+}
+
+export function haltCoversLabel(target: PayHaltState['target']): string {
+  if (target.level === 'global') return 'Everyone';
+  if (target.level === 'merchant') return `Merchant ${shortId(target.merchantId)}`;
+  if (target.level === 'user') return `User ${shortId(target.userId)}`;
+  return `Rail ${target.railId}`;
+}
+
+export function haltRowKey(scope: string, target: PayHaltState['target']): string {
+  if (target.level === 'global') return `${scope}:global`;
+  if (target.level === 'merchant') return `${scope}:merchant:${target.merchantId}`;
+  if (target.level === 'user') return `${scope}:user:${target.userId}`;
+  return `${scope}:rail:${target.railId}`;
+}
+
 function who(userId: string | null, currentUserId: string | undefined) {
   if (userId === null) return <span className="mp-muted">unknown</span>;
   return (
@@ -76,11 +96,11 @@ export function HaltStatesTable({ states, caption }: { states: readonly PayHaltS
         </thead>
         <tbody>
           {states.map((s) => (
-            <tr key={`${s.scope}-${s.target.level === 'global' ? 'global' : s.target.merchantId}`}>
+            <tr key={haltRowKey(s.scope, s.target)}>
               <th scope="row" title={HALT_SCOPE[s.scope]?.hint}>
                 {scopeLabel(s.scope)}
               </th>
-              <td>{s.target.level === 'global' ? 'Everyone' : `Merchant ${shortId(s.target.merchantId)}`}</td>
+              <td>{haltCoversLabel(s.target)}</td>
               <td>
                 <StatusChip spec={haltChip(s.halted)} />
               </td>
@@ -147,7 +167,7 @@ export function HaltHistoryTable({
               <th scope="row" title={HALT_SCOPE[h.scope]?.hint}>
                 {scopeLabel(h.scope)}
               </th>
-              {showTarget ? <td>{h.target.level === 'global' ? 'Everyone' : `Merchant ${shortId(h.target.merchantId)}`}</td> : null}
+              {showTarget ? <td>{haltCoversLabel(h.target)}</td> : null}
               <td>
                 <StatusChip spec={haltChip(h.halted)} />
               </td>

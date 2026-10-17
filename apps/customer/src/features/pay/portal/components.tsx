@@ -233,6 +233,7 @@ const chips = {
     running: ['chipExport_running', 'tipExport_running', 'neutral'],
     ready: ['chipExport_ready', 'tipExport_ready', 'good'],
     failed: ['chipExport_failed', 'tipExport_failed', 'bad'],
+    expired: ['chipExport_expired', 'tipExport_expired', 'neutral'],
   },
   member: {
     active: ['chipMember_active', 'tipMember_active', 'good'],
@@ -455,17 +456,21 @@ export function HaltBanner({
   if (halts.length === 0) return null;
   return (
     <div className="pp-callout pp-callout--warn" role="alert">
-      {halts.map((h) => (
-        <p key={`${h.scope}:${h.level}`}>
-          <strong>{t(`haltOp_${h.scope}` as 'haltOp_intake')}</strong> {h.level === 'global' ? t('haltGlobal') : t('haltYours')}{' '}
-          {h.changedAt ? (
-            <>
-              {t('haltSince')} <PayTime value={h.changedAt} />.{' '}
-            </>
-          ) : null}
-          {t('haltEffect')}
-        </p>
-      ))}
+      {halts.map((h) => {
+        const where =
+          h.level === 'merchant' ? t('haltYours') : h.level === 'rail' ? t('haltRail', { rail: h.railId ?? '' }) : t('haltGlobal');
+        return (
+          <p key={`${h.scope}:${h.level}:${h.railId ?? ''}`}>
+            <strong>{t(`haltOp_${h.scope}` as 'haltOp_intake')}</strong> {where}{' '}
+            {h.changedAt ? (
+              <>
+                {t('haltSince')} <PayTime value={h.changedAt} />.{' '}
+              </>
+            ) : null}
+            {t('haltEffect')}
+          </p>
+        );
+      })}
     </div>
   );
 }

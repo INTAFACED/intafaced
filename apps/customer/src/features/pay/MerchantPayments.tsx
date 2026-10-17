@@ -24,12 +24,14 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
   });
   const payments = useResource(
     (signal) =>
-      pay.query(
-        'payment.list',
-        { merchantId, limit, ...(room === 'disputes' ? { status: 'disputed' } : status ? { status } : {}) },
-        z.array(s.paymentSchema),
-        signal,
-      ),
+      pay
+        .query(
+          'payment.list',
+          { merchantId, limit, ...(room === 'disputes' ? { status: 'disputed' } : status ? { status } : {}) },
+          z.object({ items: z.array(s.paymentSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:payments:${merchantId}:${room}:${status}:${limit}`,
   );
   return (

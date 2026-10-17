@@ -9,6 +9,8 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
  * same words, because the service gives the same answer for both (M1).
  */
 const byCode: Record<string, PlainKey> = {
+  'pay.subscription_not_found': 'rSubscriptionNotFound',
+  'pay.mandate_not_found': 'rSubscriptionNotFound',
   'pay.merchant_ops_unavailable': 'rUnavailable',
   'pay.merchant_ops_not_merchant': 'rNotMerchant',
   'pay.merchant_not_found': 'rMerchantNotFound',
