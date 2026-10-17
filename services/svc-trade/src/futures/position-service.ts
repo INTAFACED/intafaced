@@ -34,13 +34,13 @@ import type { Principal } from '@intafaced/auth';
 import { TradingControlError, canonicalPayload, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
 import { positionIdFor } from './ids.js';
-import { formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { div, formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { Position } from '@intafaced/exchange-contract';
 import type { EventBus } from '@intafaced/events';
 import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-margin.js';
 import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen } from './margin-mode.js';
 import { planClose } from './close-planner.js';
-import { planLiquidation } from './liquidation-planner.js';
+import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
 import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
 import { FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
 import {
@@ -107,13 +107,19 @@ export function closeIdFor(positionId: string): string {
 }
 
 export class FuturesError extends Error {
+  readonly rung?: 'closing' | 'partial';
+  readonly addMarginAllowed?: boolean;
+
   constructor(
     message: string,
     readonly code: string,
     readonly status = 400,
+    extra?: { readonly rung?: 'closing' | 'partial'; readonly addMarginAllowed?: boolean },
   ) {
     super(message);
     this.name = 'FuturesError';
+    this.rung = extra?.rung;
+    this.addMarginAllowed = extra?.addMarginAllowed;
   }
 }
 
@@ -318,9 +324,37 @@ export interface PositionRow {
   accepted_mark_at: Date | null;
   /** Non-null only while status=closing. */
   closing_reason: string | null;
+  /** Present on every `p.*` read. Null only if a writer omitted it. */
+  updated_at: Date | null;
+  /** From the joined market. Null where that row recorded no contract size. */
+  contract_size: string | null;
   /** Last posted futuresMarginAdd/Release sequence; close residual uses 1. */
   margin_adjust_seq: number;
   margin_adjust_request: string | null;
+}
+
+/** What a presenter already knows. Omitted mark means this call did not read one. */
+interface PresentExtras {
+  markPrice?: string | null;
+  markReason?: 'mark_missing' | 'mark_unusable' | 'mark_not_read' | null;
+  realizedPnl?: string | null;
+  maintenanceMargin?: string | null;
+  maintenanceReason?: string | null;
+  replayed?: boolean;
+}
+
+/**
+ * Unrealised PnL ÷ initial margin.
+ *
+ * Rounding is `half-up` (`div` in `@intafaced/ledger-client`): a ratio, not a
+ * fee, so neither side is favoured by a one-sided ceil or floor. The PnL
+ * itself is `unrealizedPnl` from `liquidation-planner`, the same truncation
+ * toward zero that `planClose` posts.
+ */
+export const POSITION_PERCENTAGE_ROUNDING = 'half-up' as const;
+
+export function positionPercentage(unrealized: Amount, initialMarginAmount: Amount): Amount {
+  return div(unrealized, initialMarginAmount, POSITION_PERCENTAGE_ROUNDING);
 }
 
 export class PositionService {
@@ -442,13 +476,13 @@ export class PositionService {
       await tx.unsafe(`SET LOCAL lock_timeout = ${CLOSE_LOCK_TIMEOUT_MS}`);
       const rows = input.positionId
         ? await tx<PositionRow[]>`
-            SELECT p.*, m.symbol FROM trade.positions p
+            SELECT p.*, m.symbol, m.contract_size FROM trade.positions p
             JOIN trade.markets m ON m.id = p.market_id
             WHERE p.id = ${input.positionId} AND p.user_id = ${input.userId}
             LIMIT 1 FOR UPDATE OF p
           `
         : await tx<PositionRow[]>`
-            SELECT p.*, m.symbol FROM trade.positions p
+            SELECT p.*, m.symbol, m.contract_size FROM trade.positions p
             JOIN trade.markets m ON m.id = p.market_id
             WHERE p.user_id = ${input.userId} AND m.symbol = ${input.symbol} AND p.status = 'open'
             FOR UPDATE OF p
@@ -572,6 +606,7 @@ export class PositionService {
         `a liquidation of this position is in progress (${hold.live_kind} rung) — retry in a moment`,
         LIQUIDATION_IN_PROGRESS,
         409,
+        { rung: hold.live_kind, addMarginAllowed: hold.live_kind === 'partial' },
       );
     }
     if (operation !== 'add_margin' && (hold.latest_state === 'abandoned' || hold.claimed)) {
@@ -753,7 +788,7 @@ export class PositionService {
     const openId = clientOpenId === undefined ? null : clientOpenId;
     const rows = symbol
       ? await this.sql<PositionRow[]>`
-          SELECT p.*, m.symbol
+          SELECT p.*, m.symbol, m.contract_size
           FROM trade.positions p
           JOIN trade.markets m ON m.id = p.market_id
           WHERE p.user_id = ${userId}
@@ -763,7 +798,7 @@ export class PositionService {
           ORDER BY p.opened_at DESC
         `
       : await this.sql<PositionRow[]>`
-          SELECT p.*, m.symbol
+          SELECT p.*, m.symbol, m.contract_size
           FROM trade.positions p
           JOIN trade.markets m ON m.id = p.market_id
           WHERE p.user_id = ${userId}
@@ -771,8 +806,7 @@ export class PositionService {
             AND (${openId}::text IS NULL OR p.client_open_id = ${openId})
           ORDER BY p.opened_at DESC
         `;
-    // List is not a valuation: no mark source, no invented 0. Close attaches extras.
-    return rows.map((row) => presentPosition(row));
+    return Promise.all(rows.map((row) => this.presentListed(row)));
   }
 
   /**
@@ -788,7 +822,7 @@ export class PositionService {
     const rows =
       symbol && sinceDate
         ? await this.sql<PositionRow[]>`
-            SELECT p.*, m.symbol
+            SELECT p.*, m.symbol, m.contract_size
             FROM trade.positions p
             JOIN trade.markets m ON m.id = p.market_id
             WHERE p.user_id = ${userId}
@@ -800,7 +834,7 @@ export class PositionService {
           `
         : symbol
           ? await this.sql<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.user_id = ${userId}
@@ -811,7 +845,7 @@ export class PositionService {
             `
           : sinceDate
             ? await this.sql<PositionRow[]>`
-                SELECT p.*, m.symbol
+                SELECT p.*, m.symbol, m.contract_size
                 FROM trade.positions p
                 JOIN trade.markets m ON m.id = p.market_id
                 WHERE p.user_id = ${userId}
@@ -821,7 +855,7 @@ export class PositionService {
                 LIMIT ${limit}
               `
             : await this.sql<PositionRow[]>`
-                SELECT p.*, m.symbol
+                SELECT p.*, m.symbol, m.contract_size
                 FROM trade.positions p
                 JOIN trade.markets m ON m.id = p.market_id
                 WHERE p.user_id = ${userId}
@@ -829,7 +863,7 @@ export class PositionService {
                 ORDER BY COALESCE(p.closed_at, p.opened_at) DESC
                 LIMIT ${limit}
               `;
-    return rows.map((row) => presentPosition(row));
+    return Promise.all(rows.map((row) => this.presentListed(row)));
   }
 
   /**
@@ -842,14 +876,14 @@ export class PositionService {
       throw new FuturesError('position id is required', 'trade.bad_request', 400);
     }
     const [row] = await this.sql<PositionRow[]>`
-      SELECT p.*, m.symbol
+      SELECT p.*, m.symbol, m.contract_size
       FROM trade.positions p
       JOIN trade.markets m ON m.id = p.market_id
       WHERE p.id = ${id} AND p.user_id = ${userId}
       LIMIT 1
     `;
     if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
-    return presentPosition(row);
+    return this.presentListed(row);
   }
 
   async open(input: OpenPositionInput, principal?: Principal): Promise<Position> {
@@ -1060,9 +1094,9 @@ export class PositionService {
     const marginMode = String(evidence.marginMode);
     const margin = parseAmount(String(evidence.margin));
     const at = new Date(String(evidence.at));
-    const [existing] = await this.sql<PositionRow[]>`SELECT p.*, m.symbol FROM trade.positions p
+    const [existing] = await this.sql<PositionRow[]>`SELECT p.*, m.symbol, m.contract_size FROM trade.positions p
       JOIN trade.markets m ON m.id = p.market_id WHERE p.id = ${positionId} AND p.user_id = ${input.userId}`;
-    if (existing) return presentPosition(existing);
+    if (existing) return this.presentListed(existing);
     // Money first — never a position row without a ledger claim.
     await this.ledger.post(
       recipes.futuresMarginLock({
@@ -1121,14 +1155,14 @@ export class PositionService {
        */
       {
         const existing = await this.sql<PositionRow[]>`
-          SELECT p.*, m.symbol
+          SELECT p.*, m.symbol, m.contract_size
           FROM trade.positions p
           JOIN trade.markets m ON m.id = p.market_id
           WHERE p.id = ${positionId}
           LIMIT 1
         `;
         if (existing[0]) {
-          return presentPosition(existing[0]);
+          return this.presentListed(existing[0]);
         }
       }
       // Roll margin back if the row failed (unique open, etc.).
@@ -1145,7 +1179,7 @@ export class PositionService {
     }
 
     const [row] = await this.sql<PositionRow[]>`
-      SELECT p.*, m.symbol
+      SELECT p.*, m.symbol, m.contract_size
       FROM trade.positions p
       JOIN trade.markets m ON m.id = p.market_id
       WHERE p.id = ${positionId}
@@ -1156,7 +1190,7 @@ export class PositionService {
       ON CONFLICT (user_id, market_id, client_open_id) DO NOTHING
     `;
     await this.publishPositionUpdated(row!);
-    return presentPosition(row!);
+    return this.presentListed(row!);
   }
 
   /** Owned recovery hook, independent of live credentials; no public receipt is accepted. */
@@ -1209,7 +1243,7 @@ export class PositionService {
 
         const locked = input.positionId
           ? await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.id = ${input.positionId} AND p.user_id = ${input.userId}
@@ -1217,7 +1251,7 @@ export class PositionService {
               FOR UPDATE OF p
             `
           : await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.user_id = ${input.userId}
@@ -1368,7 +1402,7 @@ export class PositionService {
             AND p.user_id = ${input.userId}
             AND p.status = 'open'
             AND m.id = p.market_id
-          RETURNING p.*, m.symbol
+          RETURNING p.*, m.symbol, m.contract_size
         `;
         if (!updated) {
           throw new FuturesError('position changed underneath this leverage update', 'trade.position_not_open', 409);
@@ -1426,7 +1460,7 @@ export class PositionService {
 
         const locked = input.positionId
           ? await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.id = ${input.positionId} AND p.user_id = ${input.userId}
@@ -1434,7 +1468,7 @@ export class PositionService {
               FOR UPDATE OF p
             `
           : await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.user_id = ${input.userId}
@@ -1502,7 +1536,7 @@ export class PositionService {
             AND p.user_id = ${input.userId}
             AND p.status = 'open'
             AND m.id = p.market_id
-          RETURNING p.*, m.symbol
+          RETURNING p.*, m.symbol, m.contract_size
         `;
         if (!updated) {
           throw new FuturesError('position changed underneath this margin add', 'trade.position_not_open', 409);
@@ -1558,7 +1592,7 @@ export class PositionService {
 
         const locked = input.positionId
           ? await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.id = ${input.positionId} AND p.user_id = ${input.userId}
@@ -1566,7 +1600,7 @@ export class PositionService {
               FOR UPDATE OF p
             `
           : await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.user_id = ${input.userId}
@@ -1644,7 +1678,7 @@ export class PositionService {
             AND p.user_id = ${input.userId}
             AND p.status = 'open'
             AND m.id = p.market_id
-          RETURNING p.*, m.symbol
+          RETURNING p.*, m.symbol, m.contract_size
         `;
         if (!updated) {
           throw new FuturesError('position changed underneath this margin reduce', 'trade.position_not_open', 409);
@@ -1738,14 +1772,11 @@ export class PositionService {
    */
   async close(userId: string, positionId: string): Promise<Position> {
     const outcome = await this.closeAtomically(userId, positionId);
-    await this.publishPositionUpdated(outcome.row, outcome.extras);
-    return presentPosition(outcome.row, outcome.extras);
+    if (!outcome.extras.replayed) await this.publishPositionUpdated(outcome.row, outcome.extras);
+    return this.presentListed(outcome.row, outcome.extras);
   }
 
-  private async closeAtomically(
-    userId: string,
-    positionId: string,
-  ): Promise<{ row: PositionRow; extras: { markPrice: string | null; realizedPnl: string | null } }> {
+  private async closeAtomically(userId: string, positionId: string): Promise<{ row: PositionRow; extras: PresentExtras }> {
     try {
       return await this.sql.begin(async (tx) => {
         // Bounded, so a wedged ledger call cannot pin one pooled connection per
@@ -1765,7 +1796,7 @@ export class PositionService {
          * queued behind, not the stale `open` it originally matched.
          */
         const [row] = await tx<PositionRow[]>`
-          SELECT p.*, m.symbol
+          SELECT p.*, m.symbol, m.contract_size
           FROM trade.positions p
           JOIN trade.markets m ON m.id = p.market_id
           WHERE p.id = ${positionId} AND p.user_id = ${userId}
@@ -1773,6 +1804,18 @@ export class PositionService {
           FOR UPDATE OF p
         `;
         if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
+        if (row.status === 'closed') {
+          const storedMark =
+            row.accepted_mark == null || row.accepted_mark.trim() === '' ? null : formatAmount(parseAmount(row.accepted_mark));
+          return {
+            row,
+            extras: {
+              replayed: true,
+              markPrice: storedMark,
+              markReason: storedMark == null ? 'mark_missing' : null,
+            },
+          };
+        }
         if (row.status !== 'open' && row.status !== 'closing') {
           throw new FuturesError(`position is ${row.status}`, 'trade.position_not_open', 400);
         }
@@ -1824,7 +1867,7 @@ export class PositionService {
               AND p.user_id = ${userId}
               AND p.status = 'open'
               AND m.id = p.market_id
-            RETURNING p.*, m.symbol
+            RETURNING p.*, m.symbol, m.contract_size
           `;
           if (!frozen) {
             throw new FuturesError('position changed underneath this close', 'trade.position_not_open', 409);
@@ -1984,7 +2027,7 @@ export class PositionService {
             AND p.user_id = ${userId}
             AND p.status IN ('open', 'closing')
             AND m.id = p.market_id
-          RETURNING p.*, m.symbol
+          RETURNING p.*, m.symbol, m.contract_size
         `;
         /**
          * Unreachable while the lock holds — and asserted rather than assumed,
@@ -2107,7 +2150,7 @@ export class PositionService {
 
     const opposite = input.side === 'long' ? 'short' : 'long';
     const rows = await this.sql<(PositionRow & { lot_size: string })[]>`
-      SELECT p.*, m.symbol, m.lot_size
+      SELECT p.*, m.symbol, m.contract_size, m.lot_size
       FROM trade.positions p
       JOIN trade.markets m ON m.id = p.market_id
       WHERE p.user_id = ${input.userId} AND p.market_id = ${m.id} AND p.status = 'open' AND p.side = ${opposite}
@@ -2160,7 +2203,7 @@ export class PositionService {
         if (prior[0]) return { replay: prior[0].result };
 
         const [row] = await tx<(PositionRow & { lot_size: string | null })[]>`
-          SELECT p.*, m.symbol, m.lot_size
+          SELECT p.*, m.symbol, m.contract_size, m.lot_size
           FROM trade.positions p
           JOIN trade.markets m ON m.id = p.market_id
           WHERE p.id = ${positionId} AND p.user_id = ${userId}
@@ -2293,7 +2336,7 @@ export class PositionService {
                   accepted_mark = ${exitPrice}, accepted_mark_at = ${at}
               FROM trade.markets m
               WHERE p.id = ${positionId} AND p.user_id = ${userId} AND p.status IN ('open', 'closing') AND m.id = p.market_id
-              RETURNING p.*, m.symbol
+              RETURNING p.*, m.symbol, m.contract_size
             `
           : await tx<PositionRow[]>`
               UPDATE trade.positions p
@@ -2306,7 +2349,7 @@ export class PositionService {
                   updated_at = now()
               FROM trade.markets m
               WHERE p.id = ${positionId} AND p.user_id = ${userId} AND p.status IN ('open', 'closing') AND m.id = p.market_id
-              RETURNING p.*, m.symbol
+              RETURNING p.*, m.symbol, m.contract_size
             `;
         if (!updated) throw new FuturesError('position changed underneath this close', 'trade.position_not_open', 409);
         const presented = presentPosition(updated, {
@@ -2359,7 +2402,7 @@ export class PositionService {
     for (const pos of ordered) {
       if (!pos.id) continue;
       const [row] = await this.sql<(PositionRow & { lot_size: string | null })[]>`
-        SELECT p.*, m.symbol, m.lot_size
+        SELECT p.*, m.symbol, m.contract_size, m.lot_size
         FROM trade.positions p
         JOIN trade.markets m ON m.id = p.market_id
         WHERE p.id = ${pos.id} AND p.user_id = ${userId}
@@ -2406,7 +2449,7 @@ export class PositionService {
 
   async marginSummary(userId: string): Promise<MarginSummary> {
     const rows = await this.sql<PositionRow[]>`
-      SELECT p.*, m.symbol
+      SELECT p.*, m.symbol, m.contract_size
       FROM trade.positions p
       JOIN trade.markets m ON m.id = p.market_id
       WHERE p.user_id = ${userId} AND p.status IN ('open', 'closing')
@@ -2473,6 +2516,80 @@ export class PositionService {
     }
     return this.readAccountMode(userId);
   }
+
+  /**
+   * List, get, and a close response. Mark comes from `tryMarkForMarking` unless
+   * the caller already priced this row (the close that just posted). A missing
+   * or unusable mark is null with a reason. Never a zero stand-in.
+   */
+  private async presentListed(row: PositionRow, extras?: PresentExtras): Promise<Position> {
+    let markPrice = extras?.markPrice;
+    let markReason = extras?.markReason ?? null;
+    if (markPrice === undefined) {
+      const got = await this.tryMarkForMarking(row.market_id, row.symbol, this.now(), parseAmount(row.size));
+      if (!got.ok) {
+        markPrice = null;
+        markReason = got.reason === 'trade.mark_missing' ? 'mark_missing' : 'mark_unusable';
+      } else {
+        markPrice = formatAmount(got.mark.price);
+        markReason = null;
+      }
+    }
+    let maintenanceMargin = extras?.maintenanceMargin;
+    let maintenanceReason = extras?.maintenanceReason ?? null;
+    if (maintenanceMargin === undefined) {
+      if (markPrice == null) {
+        maintenanceMargin = null;
+        maintenanceReason = markReason;
+      } else {
+        const maint = await this.maintenanceAt(row, parseAmount(markPrice));
+        maintenanceMargin = maint.amount;
+        maintenanceReason = maint.reason;
+      }
+    }
+    return presentPosition(row, {
+      ...extras,
+      markPrice,
+      markReason,
+      maintenanceMargin,
+      maintenanceReason,
+    });
+  }
+
+  /** Same `planLadderRung` the liquidation tick plans with. No copied ladder. */
+  private async maintenanceAt(row: PositionRow, markPrice: Amount): Promise<{ amount: string | null; reason: string | null }> {
+    const ladder = this.deps.ladder;
+    if (!ladder?.policy) return { amount: null, reason: 'maintenance_policy_unset' };
+    let depthNotional: Amount | null;
+    try {
+      depthNotional = await ladder.depth.depthNotional({ marketId: row.market_id, side: row.side, symbol: row.symbol });
+    } catch (err) {
+      if (err instanceof FuturesLadderError) return { amount: null, reason: err.code };
+      return { amount: null, reason: 'depth_unknown' };
+    }
+    if (depthNotional == null || depthNotional <= 0n) return { amount: null, reason: 'depth_unknown' };
+    try {
+      const rung = planLadderRung({
+        position: {
+          positionId: row.id,
+          userId: row.user_id,
+          side: row.side,
+          size: parseAmount(row.size),
+          entryPrice: parseAmount(row.entry_price),
+          margin: parseAmount(row.margin_current ?? row.margin_initial),
+          marginAsset: row.margin_asset,
+        },
+        markPrice,
+        depthNotional,
+        policy: ladder.policy,
+      });
+      if (rung.action === 'refuse') return { amount: null, reason: rung.reason };
+      return { amount: formatAmount(rung.maintenanceRequired), reason: null };
+    } catch (err) {
+      if (err instanceof FuturesLadderError) return { amount: null, reason: err.code };
+      throw err;
+    }
+  }
 }
 
 type ReduceOnlyOutcome = { refused: true; code: string; message: string } | { refused: false; position: Position };
@@ -2495,7 +2612,14 @@ export interface CloseAllResult {
   readonly results: readonly CloseAllItem[];
 }
 
-function presentPosition(row: PositionRow, extras?: { markPrice?: string | null; realizedPnl?: string | null }): Position {
+function isoOf(value: Date | string | null | undefined): string | null {
+  if (value == null) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
   const size = parseAmount(row.size);
   const entry = parseAmount(row.entry_price);
   const leverage = row.leverage == null ? null : parseAmount(row.leverage);
@@ -2508,6 +2632,69 @@ function presentPosition(row: PositionRow, extras?: { markPrice?: string | null;
   const notional = (size * entry) / SCALE;
   const opened = row.opened_at instanceof Date ? row.opened_at : new Date(row.opened_at);
   const liq = row.liq_price != null ? formatAmount(parseAmount(row.liq_price)) : null;
+
+  const markPrice = extras?.markPrice === undefined ? null : extras.markPrice;
+  let markReason = extras?.markReason ?? null;
+  if (markPrice != null) markReason = null;
+  else if (markReason == null) {
+    if (row.status === 'closing' && row.closing_reason === 'trade.mark_unusable') markReason = 'mark_unusable';
+    else if (row.status === 'closing') markReason = 'mark_missing';
+    else if (extras?.markPrice === undefined) markReason = 'mark_not_read';
+    else markReason = 'mark_missing';
+  }
+
+  let unrealized: Amount | null = null;
+  let unrealizedReason: string | null = null;
+  if (markPrice == null) unrealizedReason = markReason;
+  else {
+    unrealized = unrealizedPnl(row.side, size, entry, parseAmount(markPrice));
+  }
+
+  let percentage: string | null = null;
+  let percentageReason: string | null = null;
+  if (unrealized == null) percentageReason = unrealizedReason;
+  else if (marginInitial <= 0n) percentageReason = 'initial_margin_missing';
+  else percentage = formatAmount(positionPercentage(unrealized, marginInitial));
+
+  const maintenanceMargin = extras?.maintenanceMargin === undefined ? null : extras.maintenanceMargin;
+  let maintenanceReason = extras?.maintenanceReason ?? null;
+  if (maintenanceMargin != null) maintenanceReason = null;
+  else if (maintenanceReason == null) maintenanceReason = markReason;
+
+  let contractSize: string | null = null;
+  let contractReason: string | null = null;
+  if (row.contract_size == null || row.contract_size.trim() === '') contractReason = 'contract_size_not_recorded';
+  else contractSize = formatAmount(parseAmount(row.contract_size));
+
+  const closedAt = isoOf(row.closed_at);
+  let closedReason: string | null = null;
+  if ((row.status === 'closed' || row.status === 'liquidated') && closedAt == null) closedReason = 'closed_at_not_recorded';
+
+  const updatedAt = isoOf(row.updated_at);
+  const updatedReason = updatedAt == null ? 'updated_at_not_recorded' : null;
+
+  let realizedPnl = extras?.realizedPnl === undefined ? null : extras.realizedPnl;
+  let realizedReason: string | null = null;
+  if (extras?.realizedPnl !== undefined) {
+    realizedReason =
+      realizedPnl == null ? (row.status === 'closed' || row.status === 'liquidated' ? 'realized_pnl_not_recorded' : 'not_realized') : null;
+  } else if (row.status === 'closed' || row.status === 'liquidated') {
+    if (row.accepted_mark == null || row.accepted_mark.trim() === '') realizedReason = 'realized_pnl_not_recorded';
+    else realizedPnl = formatAmount(unrealizedPnl(row.side, size, entry, parseAmount(row.accepted_mark)));
+  } else {
+    realizedReason = 'not_realized';
+  }
+
+  const fieldReasons: Record<string, string> = {};
+  if (markPrice == null && markReason) fieldReasons.markPrice = markReason;
+  if (maintenanceMargin == null && maintenanceReason) fieldReasons.maintenanceMargin = maintenanceReason;
+  if (unrealized == null && unrealizedReason) fieldReasons.unrealizedPnl = unrealizedReason;
+  if (percentage == null && percentageReason) fieldReasons.percentage = percentageReason;
+  if (contractSize == null && contractReason) fieldReasons.contractSize = contractReason;
+  if (realizedPnl == null && realizedReason) fieldReasons.realizedPnl = realizedReason;
+  if (closedAt == null && closedReason) fieldReasons.closedAt = closedReason;
+  if (updatedAt == null && updatedReason) fieldReasons.updatedAt = updatedReason;
+
   return {
     id: row.id,
     symbol: row.symbol,
@@ -2519,20 +2706,24 @@ function presentPosition(row: PositionRow, extras?: { markPrice?: string | null;
     status: row.status,
     closingReason: row.status === 'closing' ? (row.closing_reason ?? null) : null,
     contracts: formatAmount(size),
-    contractSize: null,
+    contractSize,
     entryPrice: formatAmount(entry),
-    markPrice: extras?.markPrice ?? null,
+    markPrice,
     notional: formatAmount(notional),
     leverage: leverage == null ? null : formatAmount(leverage),
     leverageReason: leverage == null ? 'leverage_not_recorded' : null,
     collateral: formatAmount(marginCurrent),
     initialMargin: formatAmount(marginInitial),
-    maintenanceMargin: null,
-    unrealizedPnl: null,
-    realizedPnl: extras?.realizedPnl ?? null,
+    maintenanceMargin,
+    unrealizedPnl: unrealized == null ? null : formatAmount(unrealized),
+    realizedPnl,
     liquidationPrice: liq,
     marginMode: row.margin_mode,
-    percentage: null,
+    percentage,
+    closedAt,
+    updatedAt,
+    ...(extras?.replayed === true ? { replayed: true } : {}),
+    fieldReasons,
   };
 }
 

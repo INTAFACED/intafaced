@@ -428,6 +428,14 @@ export const positionSchema = z.object({
   liquidationPrice: decimal.nullable(),
   marginMode: z.enum(['cross', 'isolated']).nullable(),
   percentage: decimal.nullable(),
+  /** When the position closed. Null on an open row, and on a legacy closed row that never recorded one. */
+  closedAt: isoDatetime.nullable().optional(),
+  /** Row update time. Distinct from `timestamp`, which stays the open time. */
+  updatedAt: isoDatetime.nullable().optional(),
+  /** Set on a repeated close of a position this caller already closed. */
+  replayed: z.boolean().optional(),
+  /** Why a field above is null. Absent when that field has a value. */
+  fieldReasons: z.record(z.string(), z.string()).optional(),
 });
 export type Position = z.infer<typeof positionSchema>;
 

@@ -15,6 +15,9 @@ describe('Installed futures policies preserve live admission authority', () => {
     vi.stubEnv('TRADE_COLLATERAL_HAIRCUT_BPS', '0');
     const received: Array<Principal | undefined> = [];
     class Owner {
+      async readAccountMode() {
+        return { mode: 'one_way' as const, source: 'stored' as const };
+      }
       async open(input: OpenPositionInput, principal?: Principal) {
         received.push(principal);
         return input;
