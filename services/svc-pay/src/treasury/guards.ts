@@ -71,7 +71,7 @@ export function createTreasuryGuards(deps: {
       if (ctx.replay.kind !== 'fresh') return;
       // An unwired source measured nothing, so it is not evidence of an empty book.
       if (!deps.inventory.wired) throw new PayGuardRefusal(GUARD_TREASURY_INVENTORY_UNWIRED, 'unavailable');
-      await admit(ctx.sql, ctx.fromAsset, ctx.fromAmount);
+      await admit(ctx.tx, ctx.fromAsset, ctx.fromAmount);
     },
     beforeUserMoneyWithdrawal: async (ctx) => {
       if (ctx.replay.kind !== 'fresh') return;

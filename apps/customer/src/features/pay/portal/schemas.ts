@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { amount, asset } from '../schemas';
+import { amount, asset, paymentEventSchema, paymentSchema, settlementSchema } from '../schemas';
+
+export { paymentEventSchema, paymentSchema, settlementSchema };
 
 // Browser projections of svc-pay `merchantMetrics.*`, `merchantOps.*` and `merchant.*`.
 // Authorities: packages/contracts/src/merchant-metrics.ts, svc-pay/src/merchant-ops/*.
@@ -175,7 +177,7 @@ export const customerDetailSchema = customerSchema.extend({
 });
 export type CustomerDetail = z.infer<typeof customerDetailSchema>;
 
-export const exportKinds = ['payments', 'settlements', 'payouts'] as const;
+export const exportKinds = ['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees'] as const;
 export type ExportKind = (typeof exportKinds)[number];
 export const exportJobSchema = z.object({
   jobId: z.string(),
@@ -186,13 +188,15 @@ export const exportJobSchema = z.object({
     status: z.string().optional(),
     assetId: z.string().optional(),
   }),
-  status: z.enum(['queued', 'running', 'ready', 'failed']),
+  columns: z.array(z.string()),
+  status: z.enum(['queued', 'running', 'ready', 'failed', 'expired']),
   failureCode: z.string().nullable(),
   fileName: z.string().nullable(),
   sizeBytes: z.string().nullable(),
   rowCount: z.number().int().nullable(),
   sha256: z.string().nullable(),
   requestedBy: z.string(),
+  generatedAt: timestamp.nullable(),
   asOf: timestamp.nullable(),
   expiresAt: timestamp.nullable(),
   createdAt: timestamp,
@@ -264,3 +268,115 @@ export const railSchema = z.array(
     reason: z.string().optional(),
   }),
 );
+
+// ---- payments, settlements and payouts (W3b) -----------------------------------------------------------
+// `payment.*` and `settlement.*` are the pay service's own reads; both are checked on the server against the signed session.
+export type Payment = z.infer<typeof paymentSchema>;
+export type PaymentEvent = z.infer<typeof paymentEventSchema>;
+export type Settlement = z.infer<typeof settlementSchema>;
+export type SettlementStatus = Settlement['status'];
+export const settlementStatuses = ['pending', 'posted', 'paid_out', 'failed'] as const;
+
+// ---- control room (W1) ----------------------------------------------------------------------------------
+// Authority: packages/contracts/src/merchant-control.ts and svc-pay/src/control/schemas.ts. Every number here comes from
+// an operator; a null section is "not configured" and is shown as such, never as a default.
+const capSchema = z.union([
+  z.object({ kind: z.enum(['per_payment', 'daily_intake', 'monthly_intake', 'daily_payout']), assetCode: asset, limit: amount }),
+  z.object({ kind: z.literal('beneficiaries_per_day'), limit: z.number().int().min(0) }),
+]);
+export const capKinds = ['per_payment', 'daily_intake', 'monthly_intake', 'daily_payout', 'beneficiaries_per_day'] as const;
+export type CapKind = (typeof capKinds)[number];
+const bps = z.number().int().min(0).max(10_000);
+export const pricingLayers = ['global', 'tier', 'merchant'] as const;
+const pricingRuleSchema = z.object({
+  layer: z.enum(pricingLayers),
+  scopeId: z.string().nullable(),
+  assetCode: asset,
+  bands: z.array(z.object({ fromAmount: amount, feeBps: bps, flatFee: amount.nullable() })).min(1),
+  spreadBps: bps.nullable(),
+  roundingBeneficiary: z.enum(['platform', 'merchant']),
+});
+export type PricingRule = z.infer<typeof pricingRuleSchema>;
+export const controlProfileSchema = z.object({
+  merchantId: z.string(),
+  tierId: z.string().nullable(),
+  archetypeId: z.string().nullable(),
+  caps: z.array(capSchema).nullable(),
+  pricing: z.array(pricingRuleSchema).nullable(),
+  reserve: z.object({ rollingReserveBps: bps.nullable(), holdDays: z.number().int().min(0).nullable() }).nullable(),
+  version: z.string(),
+  updatedAt: timestamp.nullable(),
+});
+export type ControlProfile = z.infer<typeof controlProfileSchema>;
+export const usageSchema = z.object({
+  merchantId: z.string(),
+  tierId: z.string().nullable(),
+  asOf: timestamp,
+  rows: z.array(
+    z.object({
+      kind: z.enum(capKinds),
+      assetCode: asset.nullable(),
+      // Counts (new destinations per day) travel as digit strings too, so one exact-decimal rule covers every row.
+      limit: amount,
+      used: amount.nullable(),
+      remaining: amount.nullable(),
+      resetsAt: timestamp.nullable(),
+    }),
+  ),
+});
+export type Usage = z.infer<typeof usageSchema>;
+export type UsageRow = Usage['rows'][number];
+export const quoteSchema = z.object({
+  ruleId: z.string(),
+  appliedLayer: z.enum(pricingLayers),
+  monthlyVolumeBefore: amount,
+  bandFrom: amount,
+  feeBps: bps,
+  flatFee: amount.nullable(),
+  spreadBps: bps.nullable(),
+  roundingBeneficiary: z.enum(['platform', 'merchant']),
+  roundingMode: z.enum(['ceil', 'floor']),
+  bpsFee: amount,
+  feeBeforeClamp: amount,
+  fee: amount,
+  spread: amount.nullable(),
+  net: z.string().regex(/^-?\d+(\.\d{1,18})?$/),
+});
+export type Quote = z.infer<typeof quoteSchema>;
+
+export const approvalStatuses = ['pending', 'approved', 'rejected', 'voided', 'expired', 'consumed'] as const;
+export type ApprovalStatus = (typeof approvalStatuses)[number];
+export const approvalSchema = z.object({
+  approvalId: z.string(),
+  merchantId: z.string(),
+  settlementId: z.string(),
+  amount,
+  assetCode: asset,
+  payloadHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  status: z.enum(approvalStatuses),
+  makerUserId: z.string(),
+  checkerUserId: z.string().nullable(),
+  createdAt: timestamp,
+  decidedAt: timestamp.nullable(),
+  expiresAt: timestamp,
+});
+export type Approval = z.infer<typeof approvalSchema>;
+
+export const haltScopes = ['intake', 'conversion', 'payout', 'settlement'] as const;
+export type HaltScope = (typeof haltScopes)[number];
+export const haltStatusSchema = z.object({
+  readable: z.boolean(),
+  states: z.array(
+    z.object({
+      scope: z.enum(haltScopes),
+      target: z.discriminatedUnion('level', [
+        z.object({ level: z.literal('global') }),
+        z.object({ level: z.literal('merchant'), merchantId: z.string() }),
+        z.object({ level: z.literal('rail'), railId: z.string() }),
+      ]),
+      halted: z.boolean(),
+      changedAt: timestamp.nullable(),
+    }),
+  ),
+});
+export type HaltStatus = z.infer<typeof haltStatusSchema>;

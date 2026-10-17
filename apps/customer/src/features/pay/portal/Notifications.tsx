@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { Arrives } from './ExtensionTools';
+import { extensionCopy as c } from './extension-copy';
+import { useUnsavedForm } from './useUnsavedForm';
+import { useCallback, useEffect, useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Button, Field, Tabs } from '../../../shared/ui';
 import { PayTime, PaySection } from '../components';
@@ -13,7 +16,7 @@ import { notificationKinds, type Notification, type NotificationKind, type Prefe
 type View = 'feed' | 'preferences';
 
 /** `/pay/notifications`: what needs your attention, and which kinds you want to see. In-app only: nothing is emailed or texted. */
-export function Notifications({ portal }: { portal: PortalApi }) {
+export function Notifications({ portal, preferencesOnly = false }: { portal: PortalApi; preferencesOnly?: boolean }) {
   const [view, setView] = useUrlParam('view', 'feed');
   const [kind, setKind] = useUrlParam('kind', '');
   const [unread, setUnread] = useUrlParam('unread', '');
@@ -26,7 +29,8 @@ export function Notifications({ portal }: { portal: PortalApi }) {
   return (
     <NotificationsView
       portal={portal}
-      view={view === 'preferences' ? 'preferences' : 'feed'}
+      hideTabs={preferencesOnly}
+      view={preferencesOnly || view === 'preferences' ? 'preferences' : 'feed'}
       setView={setView}
       feed={feed.state}
       kind={kind}
@@ -43,6 +47,7 @@ export function Notifications({ portal }: { portal: PortalApi }) {
 
 export function NotificationsView({
   portal,
+  hideTabs = false,
   view,
   setView,
   feed,
@@ -56,6 +61,7 @@ export function NotificationsView({
   reloadPrefs,
 }: {
   portal: PortalApi;
+  hideTabs?: boolean;
   view: View;
   setView: (view: View) => void;
   feed: ListState<Notification>;
@@ -73,13 +79,15 @@ export function NotificationsView({
   const unread = feed.status === 'ready' ? feed.items.filter((n) => n.readAt === null).length : 0;
   return (
     <div className="stack">
-      <Tabs
-        items={['feed', 'preferences']}
-        value={view}
-        onChange={(v) => setView(v as View)}
-        label={t('notifViews')}
-        labels={{ feed: t('tabFeed'), preferences: t('tabPreferences') }}
-      />
+      {!hideTabs && (
+        <Tabs
+          items={['feed', 'preferences']}
+          value={view}
+          onChange={(v) => setView(v as View)}
+          label={t('notifViews')}
+          labels={{ feed: t('tabFeed'), preferences: t('tabPreferences') }}
+        />
+      )}
       {view === 'feed' ? (
         <PaySection
           title={t('feedTitle')}
@@ -146,14 +154,9 @@ export function NotificationsView({
             {t('inAppOnly')}
           </p>
           <Gate resource={prefs} retry={reloadPrefs} rows={4}>
-            {(rows) => (
-              <ul className="pp-prefs">
-                {rows.map((p) => (
-                  <PrefRow key={p.kind} pref={p} portal={portal} />
-                ))}
-              </ul>
-            )}
+            {(rows) => <PreferenceRows rows={rows} portal={portal} />}
           </Gate>
+          <Arrives>{c.t('preferenceAuditGap')}</Arrives>
         </PaySection>
       )}
     </div>
@@ -213,20 +216,38 @@ function FeedItem({ n, portal, reload }: { n: Notification; portal: PortalApi; r
   );
 }
 
-function PrefRow({ pref, portal }: { pref: Preference; portal: PortalApi }) {
+function PrefRow({
+  pref,
+  portal,
+  onDirty,
+}: {
+  pref: Preference;
+  portal: PortalApi;
+  onDirty: (kind: NotificationKind, dirty: boolean) => void;
+}) {
   const { t } = portalCopy.useCopy();
+  const [saved, setSaved] = useState(pref);
   const [on, setOn] = useState(pref.inApp);
   const [threshold, setThreshold] = useState(pref.threshold ?? '');
   const [state, setState] = useState<'idle' | 'busy' | 'saved' | string>('idle');
   const hasThreshold = pref.kind === 'limit_threshold';
   const invalid = hasThreshold && threshold.trim() !== '' && !isDecimalThreshold(threshold);
-  const dirty = on !== pref.inApp || (hasThreshold && threshold.trim() !== (pref.threshold ?? ''));
+  const dirty = on !== saved.inApp || (hasThreshold && threshold.trim() !== (saved.threshold ?? ''));
+  useEffect(() => {
+    onDirty(pref.kind, dirty);
+    return () => onDirty(pref.kind, false);
+  }, [pref.kind, dirty, onDirty]);
   const kind: NotificationKind = pref.kind;
   return (
     <li className="pp-pref">
       <div>
         <strong>{t(`notifKind_${kind}` as 'notifKind_dispute_due')}</strong>
         <p className="muted">{t(`notifHelp_${kind}` as 'notifHelp_dispute_due')}</p>
+        {saved.updatedAt && (
+          <small className="muted">
+            {c.t('preferenceChanged')} <PayTime value={saved.updatedAt} />
+          </small>
+        )}
         {hasThreshold && (
           <Field
             label={t('fThreshold')}
@@ -253,6 +274,7 @@ function PrefRow({ pref, portal }: { pref: Preference; portal: PortalApi }) {
               inApp: on,
               ...(hasThreshold ? { threshold: threshold.trim() === '' ? null : threshold.trim() } : {}),
             });
+            if (result.ok) setSaved(result.data);
             setState(result.ok ? 'saved' : refusalText(result));
           }}
         >
@@ -270,5 +292,26 @@ function PrefRow({ pref, portal }: { pref: Preference; portal: PortalApi }) {
         )}
       </div>
     </li>
+  );
+}
+
+function PreferenceRows({ rows, portal }: { rows: Preference[]; portal: PortalApi }) {
+  const [dirtyKinds, setDirtyKinds] = useState<ReadonlySet<NotificationKind>>(() => new Set());
+  const onDirty = useCallback((kind: NotificationKind, dirty: boolean) => {
+    setDirtyKinds((current) => {
+      if (current.has(kind) === dirty) return current;
+      const next = new Set(current);
+      if (dirty) next.add(kind);
+      else next.delete(kind);
+      return next;
+    });
+  }, []);
+  useUnsavedForm(dirtyKinds.size > 0, c.t('draftWarning'));
+  return (
+    <ul className="pp-prefs">
+      {rows.map((pref) => (
+        <PrefRow key={pref.kind} pref={pref} portal={portal} onDirty={onDirty} />
+      ))}
+    </ul>
   );
 }

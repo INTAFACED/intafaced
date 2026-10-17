@@ -9,6 +9,8 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
  * same words, because the service gives the same answer for both (M1).
  */
 const byCode: Record<string, PlainKey> = {
+  'pay.subscription_not_found': 'rSubscriptionNotFound',
+  'pay.mandate_not_found': 'rSubscriptionNotFound',
   'pay.merchant_ops_unavailable': 'rUnavailable',
   'pay.merchant_ops_not_merchant': 'rNotMerchant',
   'pay.merchant_not_found': 'rMerchantNotFound',
@@ -39,6 +41,21 @@ const byCode: Record<string, PlainKey> = {
   'pay.invalid_destination_ref': 'rDestinationRef',
   'pay.destination_kind_mismatch': 'rDestinationKind',
   'pay.submerchant_permission_denied': 'rForbidden',
+  'pay.merchant_forbidden': 'rForbidden',
+  'pay.payment_not_found': 'rPaymentNotFound',
+  'pay.settlement_not_found': 'rSettlementNotFound',
+  'pay.approval_not_found': 'rApprovalNotFound',
+  'pay.approval_forbidden': 'rApprovalForbidden',
+  'pay.approval_self_approval': 'rApprovalSelf',
+  'pay.approval_not_pending': 'rApprovalNotPending',
+  'pay.approval_expired': 'rApprovalExpired',
+  'pay.approval_payload_mismatch': 'rApprovalMismatch',
+  'pay.approval_mfa_required': 'rApprovalMfa',
+  'pay.approval_state_invalid': 'rApprovalState',
+  'pay.pricing_unconfigured': 'rPricingUnconfigured',
+  'pay.control_invalid': 'rControlInvalid',
+  'pay.control_unreadable': 'rControlUnavailable',
+  'pay.tier_unassigned': 'rTierUnassigned',
 };
 const byReason: Record<RefusalReason, PlainKey> = {
   unauthorized: 'rSignIn',

@@ -4,10 +4,10 @@ import { displayAmount } from '../../../shared/money';
 import { Button, EmptyState } from '../../../shared/ui';
 import { PayTime } from '../components';
 import type { ListState } from './hooks';
-import { staleness, lagParts } from './model';
+import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
 import { portalCopy, type PlainKey } from './copy';
 import { isComingSoon, refusalText, refusalTitle } from './refusal';
-import type { AssetAmount, Freshness } from './schemas';
+import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -233,6 +233,7 @@ const chips = {
     running: ['chipExport_running', 'tipExport_running', 'neutral'],
     ready: ['chipExport_ready', 'tipExport_ready', 'good'],
     failed: ['chipExport_failed', 'tipExport_failed', 'bad'],
+    expired: ['chipExport_expired', 'tipExport_expired', 'neutral'],
   },
   member: {
     active: ['chipMember_active', 'tipMember_active', 'good'],
@@ -253,6 +254,30 @@ const chips = {
     active: ['chipMerchant_active', 'tipMerchant_active', 'good'],
     suspended: ['chipMerchant_suspended', 'tipMerchant_suspended', 'bad'],
     closed: ['chipMerchant_closed', 'tipMerchant_closed', 'neutral'],
+  },
+  settlement: {
+    pending: ['chipSettlement_pending', 'tipSettlement_pending', 'neutral'],
+    posted: ['chipSettlement_posted', 'tipSettlement_posted', 'attention'],
+    paid_out: ['chipSettlement_paid_out', 'tipSettlement_paid_out', 'good'],
+    failed: ['chipSettlement_failed', 'tipSettlement_failed', 'bad'],
+  },
+  payout: {
+    not_ready: ['chipPayout_not_ready', 'tipPayout_not_ready', 'neutral'],
+    unknown: ['chipPayout_unknown', 'tipPayout_unknown', 'attention'],
+    ready: ['chipPayout_ready', 'tipPayout_ready', 'attention'],
+    awaiting_approval: ['chipPayout_awaiting_approval', 'tipPayout_awaiting_approval', 'attention'],
+    approved: ['chipPayout_approved', 'tipPayout_approved', 'good'],
+    rejected: ['chipPayout_rejected', 'tipPayout_rejected', 'bad'],
+    paid_out: ['chipPayout_paid_out', 'tipPayout_paid_out', 'good'],
+    failed: ['chipPayout_failed', 'tipPayout_failed', 'bad'],
+  },
+  approval: {
+    pending: ['chipApproval_pending', 'tipApproval_pending', 'attention'],
+    approved: ['chipApproval_approved', 'tipApproval_approved', 'good'],
+    rejected: ['chipApproval_rejected', 'tipApproval_rejected', 'bad'],
+    voided: ['chipApproval_voided', 'tipApproval_voided', 'bad'],
+    expired: ['chipApproval_expired', 'tipApproval_expired', 'neutral'],
+    consumed: ['chipApproval_consumed', 'tipApproval_consumed', 'good'],
   },
 } as const satisfies Record<string, Record<string, readonly [PlainKey, PlainKey, Tone]>>;
 export type ChipKind = keyof typeof chips;
@@ -360,3 +385,132 @@ export function Gate<T>({
   if (resource.status === 'failed') return <PortalFailure result={resource.failure} retry={retry} />;
   return <>{children(resource.data)}</>;
 }
+
+// ---- W3b -------------------------------------------------------------------------------------------------
+
+/** "As of" for a list the page read straight from the account's records (B12): there is no projection, so no lag. */
+export function ReadAt({ at }: { at: string | null }) {
+  const { t } = portalCopy.useCopy();
+  if (!at) return null;
+  return (
+    <p className="pp-asof" role="status">
+      {t('readAt')} <PayTime value={at} />
+    </p>
+  );
+}
+
+/** A figure or setting nobody has configured. It is never a zero and never a default. */
+export function NotConfigured({ children }: { children?: ReactNode }) {
+  const { t } = portalCopy.useCopy();
+  return <span className="pp-notconf">{children ?? t('notConfigured')}</span>;
+}
+export function TestTag() {
+  const { t } = portalCopy.useCopy();
+  return (
+    <span className="pp-test" title={t('testValueTip')}>
+      {t('testValue')}
+    </span>
+  );
+}
+
+/** A length of time in words ("3 h", "just now"). Used for the age and the time left on a request. */
+export function SpanText({ ms }: { ms: number }) {
+  const { t } = portalCopy.useCopy();
+  const span = spanParts(ms);
+  if (span.unit === 'minutes' && span.n === 0) return <>{t('spanNow')}</>;
+  return (
+    <>
+      {span.unit === 'minutes'
+        ? t('spanMinutes', { n: span.n })
+        : span.unit === 'hours'
+          ? t('spanHours', { n: span.n })
+          : t('spanDays', { n: span.n })}
+    </>
+  );
+}
+
+/** Operation pauses (B11): which operation is paused and since when. An unreadable pause store counts as paused. */
+export function HaltBanner({
+  resource,
+  scopes,
+}: {
+  resource: import('../../../shared/resource').Resource<HaltStatus>;
+  scopes: readonly HaltScope[];
+}) {
+  const { t } = portalCopy.useCopy();
+  if (resource.status === 'loading') return null;
+  // A refused or failed read (a team member's read is refused too) is not "nothing is paused": say we could not check.
+  if (resource.status === 'failed')
+    return (
+      <p className="pp-callout pp-callout--warn" role="alert">
+        {t('haltCheckFailed', { ops: scopes.map((s) => t(`haltOpName_${s}` as 'haltOpName_intake')).join(t('haltOr')) })}
+      </p>
+    );
+  const { unreadable, halts } = activeHalts(resource.data, scopes);
+  if (unreadable)
+    return (
+      <p className="pp-callout pp-callout--warn" role="alert">
+        {t('haltUnreadable')}
+      </p>
+    );
+  if (halts.length === 0) return null;
+  return (
+    <div className="pp-callout pp-callout--warn" role="alert">
+      {halts.map((h) => {
+        const where =
+          h.level === 'merchant' ? t('haltYours') : h.level === 'rail' ? t('haltRail', { rail: h.railId ?? '' }) : t('haltGlobal');
+        return (
+          <p key={`${h.scope}:${h.level}:${h.railId ?? ''}`}>
+            <strong>{t(`haltOp_${h.scope}` as 'haltOp_intake')}</strong> {where}{' '}
+            {h.changedAt ? (
+              <>
+                {t('haltSince')} <PayTime value={h.changedAt} />.{' '}
+              </>
+            ) : null}
+            {t('haltEffect')}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Ordered steps with no clock where the service keeps none: it says so once instead of inventing times. */
+export function Steps({
+  items,
+  label,
+}: {
+  items: ReadonlyArray<{ title: string; detail?: string; state: 'done' | 'current' | 'todo' | 'bad' }>;
+  label: string;
+}) {
+  const { t } = portalCopy.useCopy();
+  return (
+    <ol className="pp-timeline pp-steps-list" aria-label={label}>
+      {items.map((item, i) => (
+        <li key={i} className={`pp-stepitem pp-stepitem--${item.state}`}>
+          <span className="pp-timeline-dot" aria-hidden="true" />
+          <div>
+            <strong>
+              {item.title}
+              <span className="pp-sr"> ({t(`stepItem_${item.state}` as 'stepItem_done')})</span>
+            </strong>
+            {item.detail && <p className="muted">{item.detail}</p>}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** A used-against-limit bar. The numbers beside it are exact; the bar is only a picture of them. */
+export function UsageBar({ pct, label }: { pct: number; label: string }) {
+  const { t } = portalCopy.useCopy();
+  const full = pct >= 100;
+  return (
+    <div className="pp-usage" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
+      <span className={`pp-usage-fill${full ? ' pp-usage-fill--full' : ''}`} style={{ width: `${pct}%` }} />
+      <span className="pp-sr">{full ? t('usageFull') : t('usagePct', { pct: Math.round(pct) })}</span>
+    </div>
+  );
+}
+export type { PayoutState };

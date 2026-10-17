@@ -32,6 +32,8 @@ const migrations = [
   '0058_pay_halts.sql',
   '0059_pay_treasury_exposure_indexes.sql',
   '0071_pay_merchant_names.sql',
+  '0073_pay_settlement_read.sql',
+  '0079_pay_halt_autotrip_window.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
@@ -90,11 +92,12 @@ describe('payHalts.* with a real halt store', () => {
   let db: TestDatabase;
   let sql!: TestDatabase['sql'];
   let pay!: PayService;
-  const store = () => new PayHaltStore(sql, loadHaltAutoTripConfig({}));
-  const router = (fetcher: typeof fetch) =>
+  const store = (knownRails: { has(railId: string): boolean } = { has: () => false }) =>
+    new PayHaltStore(sql, loadHaltAutoTripConfig({}), knownRails);
+  const router = (fetcher: typeof fetch, knownRails?: { has(railId: string): boolean }) =>
     createPayNamespaces({
       founderAuthority: createFounderAuthority({ ...identity, fetcher }),
-      payHalts: { store: store(), merchants: pay },
+      payHalts: { store: knownRails ? store(knownRails) : store(), merchants: pay },
     });
 
   beforeAll(async () => {
@@ -109,7 +112,7 @@ describe('payHalts.* with a real halt store', () => {
     await truncatePayForTest(
       sql,
       'pay',
-      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
+      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.halt_autotrip_window, pay.halt_autotrip_counted, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
     );
   });
 
@@ -127,8 +130,9 @@ describe('payHalts.* with a real halt store', () => {
     expectedVersion: '0',
     ...over,
   });
-  const founderOnly = ['payHalts.set', 'payHalts.history', 'payHalts.operatorStatus'] as const;
-  const inputFor = (path: string) => (path === 'payHalts.set' ? setBody() : path === 'payHalts.history' ? { limit: 10 } : undefined);
+  const founderOnly = ['payHalts.set', 'payHalts.history', 'payHalts.operatorStatus', 'payHalts.pendingClears'] as const;
+  const inputFor = (path: string) =>
+    path === 'payHalts.set' ? setBody() : path === 'payHalts.history' || path === 'payHalts.pendingClears' ? { limit: 10 } : undefined;
   const haltRows = async () => (await sql`SELECT scope FROM pay.halts`).length;
 
   describe('G1-G3: set, history and operatorStatus are founder-only', () => {
@@ -188,6 +192,98 @@ describe('payHalts.* with a real halt store', () => {
       const operator = await a.payHalts.operatorStatus();
       expect(operator.autoTrip).toEqual({ enabled: false, consecutiveFailures: null });
       expect(operator.states.find((s) => s.scope === 'payout')).toMatchObject({ halted: false, version: '2' });
+    });
+
+    it('refuses a user or rail halt off payout, refuses an unknown rail, and accepts a payout rail', async () => {
+      const known = { has: (railId: string) => railId === 'crypto-native' };
+      const caller = router(fetcherFor([founderA]), known).createCaller(ctxOf(principalFor(founderA)));
+      const refused = async (body: Record<string, unknown>) =>
+        caller.payHalts.set(setBody(body) as never).then(
+          () => null,
+          (e: unknown) => e as { code: string; message: string },
+        );
+      const user = { level: 'user', userId: founderA };
+      for (const scope of ['intake', 'settlement', 'conversion'] as const) {
+        expect(await refused({ scope, target: user })).toMatchObject({ code: 'BAD_REQUEST', message: 'pay.halt_target_unsupported' });
+        expect(await refused({ scope, target: { level: 'rail', railId: 'crypto-native' } })).toMatchObject({
+          code: 'BAD_REQUEST',
+          message: 'pay.halt_target_unsupported',
+        });
+      }
+      expect(await refused({ scope: 'payout', target: { level: 'rail', railId: 'missing-rail' } })).toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'pay.halt_target_unknown_rail',
+      });
+      const set = await caller.payHalts.set(setBody({ scope: 'payout', target: { level: 'rail', railId: 'crypto-native' } }) as never);
+      expect(set).toMatchObject({ outcome: 'changed', state: { halted: true, target: { level: 'rail', railId: 'crypto-native' } } });
+      const userSet = await caller.payHalts.set(setBody({ scope: 'payout', target: user }) as never);
+      expect(userSet).toMatchObject({ outcome: 'changed', state: { halted: true, target: { level: 'user', userId: founderA } } });
+      expect(await sql`SELECT target FROM pay.halts WHERE scope <> 'payout'`).toHaveLength(0);
+    });
+
+    it('pendingClears names the founder who proposed, pages by request id, and drops a clear once it is confirmed or expired', async () => {
+      const r = router(fetcherFor([founderA, founderB]));
+      const a = r.createCaller(ctxOf(principalFor(founderA)));
+      const b = r.createCaller(ctxOf(principalFor(founderB)));
+      const scopes = ['intake', 'payout', 'settlement'] as const;
+      const ids: string[] = [];
+      for (const scope of scopes) {
+        await a.payHalts.set(setBody({ scope, halted: true, expectedVersion: '0' }) as never);
+        const requestId = id();
+        ids.push(requestId);
+        expect(
+          (await a.payHalts.set(setBody({ scope, requestId, halted: false, expectedVersion: '1', reason: 'rail repaired' }) as never))
+            .outcome,
+        ).toBe('pending_confirmation');
+      }
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      for (let n = 0; n < 5; n += 1) {
+        const page = await a.payHalts.pendingClears({ limit: 1, ...(cursor ? { cursor } : {}) });
+        expect(page.proposals.length).toBeLessThanOrEqual(1);
+        if (page.proposals[0]) expect(page.proposals[0].requestedByUserId).toBe(founderA);
+        seen.push(...page.proposals.map((p) => p.requestId));
+        if (!page.nextCursor) break;
+        expect(page.nextCursor).not.toBe(cursor);
+        cursor = page.nextCursor;
+      }
+      expect(seen.sort()).toEqual([...ids].sort());
+
+      expect(
+        (
+          await b.payHalts.set(
+            setBody({ scope: 'intake', requestId: ids[0], halted: false, expectedVersion: '1', reason: 'rail repaired' }) as never,
+          )
+        ).outcome,
+      ).toBe('changed');
+      const expiredId = ids[1];
+      if (expiredId === undefined) throw new Error('expected a second clear proposal');
+      await sql`UPDATE pay.halt_clear_requests SET requested_at = now() - interval '2 hours' WHERE request_id = ${expiredId}`;
+      const live = await a.payHalts.pendingClears({ limit: 10 });
+      expect(live.proposals.map((p) => p.requestId)).toEqual([ids[2]]);
+      expect(live.nextCursor).toBeNull();
+    });
+
+    it('pendingClears omits a proposal whose expected version no longer matches the halt', async () => {
+      const r = router(fetcherFor([founderA, founderB]));
+      const a = r.createCaller(ctxOf(principalFor(founderA)));
+      const requestId = id();
+      await a.payHalts.set(setBody({ scope: 'intake', halted: true, expectedVersion: '0' }) as never);
+      expect(
+        (
+          await a.payHalts.set(
+            setBody({ scope: 'intake', requestId, halted: false, expectedVersion: '1', reason: 'rail repaired' }) as never,
+          )
+        ).outcome,
+      ).toBe('pending_confirmation');
+      expect((await a.payHalts.pendingClears({ limit: 10 })).proposals.map((p) => p.requestId)).toEqual([requestId]);
+      await sql`UPDATE pay.halts SET version = version + 1 WHERE scope = 'intake' AND target = 'global'`;
+      const [still] = await sql<Array<{ status: string; expected_version: string }>>`
+        SELECT status, expected_version FROM pay.halt_clear_requests WHERE request_id = ${requestId}
+      `;
+      expect(still).toMatchObject({ status: 'pending' });
+      expect((await a.payHalts.pendingClears({ limit: 10 })).proposals).toEqual([]);
     });
   });
 

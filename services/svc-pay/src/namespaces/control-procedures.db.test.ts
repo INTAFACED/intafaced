@@ -1,3 +1,4 @@
+import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
@@ -95,7 +96,7 @@ describe('control-room procedures', () => {
     const router = createPayNamespaces({ founderAuthority, control: new ControlService(sql, ownerAccessPorts(sql)) });
     expect(findUnguardedFounderProcedures(router, FOUNDER_ONLY_PREFIXES)).toEqual([]);
     const paths = Object.keys((router as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
-    expect(paths.filter((p) => p.startsWith('founderAdmin.control.')).length).toBe(7);
+    expect(paths.filter((p) => p.startsWith('founderAdmin.control.')).length).toBe(10);
   });
 
   describe('M1: merchant A cannot reach merchant B through any merchantControl procedure', () => {
@@ -106,6 +107,20 @@ describe('control-room procedures', () => {
       'merchantControl.pricing.preview': { merchantId: target, assetCode: 'USDT', amount: '10' },
       'merchantControl.approvals.list': { merchantId: target, limit: 10 },
       'merchantControl.approvals.request': { merchantId: target, settlementId: randomUUID(), railId: 'crypto-native' },
+      'merchantControl.tiers.list': { merchantId: target },
+      'merchantControl.pricing.history': { merchantId: target, limit: 10 },
+      'merchantControl.limits.open': { merchantId: target },
+      'merchantControl.limits.requestIncrease': {
+        merchantId: target,
+        requestId: randomUUID(),
+        caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '1' }],
+        reason: 'isolation probe',
+      },
+      'merchantControl.limits.withdraw': {
+        merchantId: target,
+        requestId: randomUUID(),
+        reason: 'isolation probe',
+      },
     });
     for (const path of Object.keys(calls(missing))) {
       it(`${path}: B's id and a non-existent id get the identical refusal`, async () => {
@@ -165,7 +180,12 @@ describe('control-room procedures', () => {
         reason: 'try it',
         expectedVersion: '0',
       },
-      'founderAdmin.control.configure.confirm': { requestId: randomUUID(), decision: 'confirm', reason: 'confirm it' },
+      'founderAdmin.control.configure.confirm': {
+        requestId: randomUUID(),
+        decision: 'confirm',
+        reason: 'confirm it',
+        expectedChangeHash: `sha256:${'a'.repeat(64)}`,
+      },
       'founderAdmin.control.approvals.decide': {
         approvalId: randomUUID(),
         decision: 'approve',
@@ -179,8 +199,18 @@ describe('control-room procedures', () => {
         reason: 'try it',
         expectedVersion: '0',
       },
-      'founderAdmin.changes.confirm': { requestId: randomUUID(), decision: 'confirm', reason: 'confirm it' },
+      'founderAdmin.changes.confirm': {
+        requestId: randomUUID(),
+        decision: 'confirm',
+        reason: 'confirm it',
+        expectedChangeHash: `sha256:${'a'.repeat(64)}`,
+      },
       'founderAdmin.approvals.list': { limit: 10 },
+      'founderAdmin.control.limitRequests.list': { limit: 10 },
+      'founderAdmin.control.limitRequests.close': { requestId: randomUUID(), reason: 'not yours' },
+      'founderAdmin.approvals.destination': { approvalId: randomUUID() },
+      'founderAdmin.changes.pending': { limit: 10 },
+      'founderAdmin.control.audit.list': { limit: 10 },
     };
     for (const [path, input] of Object.entries(founderCalls)) {
       it(`${path}: a merchant session with every pay scope is refused; so is an API key and a founder without MFA`, async () => {
@@ -198,6 +228,7 @@ describe('control-room procedures', () => {
     const f2 = caller(FOUNDER_2);
     const tier = { ...TEST_TIER, id: 'second-tier', name: 'TEST VALUE second' };
     const requestId = randomUUID();
+    const tierHash = founderChangeHash({ scope: 'tier', change: { kind: 'upsert_tier', tier } }, '0');
     const submitted = (await at(
       f1,
       'founderAdmin.control.configure.submit',
@@ -207,9 +238,16 @@ describe('control-room procedures', () => {
     };
     expect(submitted).toMatchObject({ outcome: 'pending_second_approval', actorUserId: FOUNDER_1 });
     expect(
-      await failure(at(f1, 'founderAdmin.control.configure.confirm')({ requestId, decision: 'confirm', reason: 'self' })),
+      await failure(
+        at(f1, 'founderAdmin.control.configure.confirm')({ requestId, decision: 'confirm', reason: 'self', expectedChangeHash: tierHash }),
+      ),
     ).toMatchObject({ code: 'PRECONDITION_FAILED', cause: 'pay.dual_control_required' });
-    expect(await at(f2, 'founderAdmin.control.configure.confirm')({ requestId, decision: 'confirm', reason: 'agreed' })).toMatchObject({
+    expect(
+      await at(
+        f2,
+        'founderAdmin.control.configure.confirm',
+      )({ requestId, decision: 'confirm', reason: 'agreed', expectedChangeHash: tierHash }),
+    ).toMatchObject({
       outcome: 'changed',
       scope: 'tier',
       version: '1',
@@ -231,13 +269,45 @@ describe('control-room procedures', () => {
     })) as { outcome: string; profile: { tierId: string | null } };
     expect(sub.outcome).toBe('pending_second_approval');
     expect(sub.profile.tierId).toBeNull();
-    const done = (await at(f2, 'founderAdmin.changes.confirm')({ requestId: changeId, decision: 'confirm', reason: 'agreed' })) as {
+    const changeHash = founderChangeHash(
+      { scope: 'merchant', merchantId: merchantB, change: { kind: 'set_tier', tierId: 'second-tier', archetypeId: 'standard' } },
+      '0',
+    );
+    // The same change shown for a different merchant is not this change: refused through the router, nothing applied.
+    expect(
+      await failure(
+        at(
+          f2,
+          'founderAdmin.changes.confirm',
+        )({
+          requestId: changeId,
+          decision: 'confirm',
+          reason: 'wrong merchant',
+          expectedChangeHash: founderChangeHash(
+            { scope: 'merchant', merchantId: merchantA, change: { kind: 'set_tier', tierId: 'second-tier', archetypeId: 'standard' } },
+            '0',
+          ),
+        }),
+      ),
+    ).toMatchObject({ code: 'CONFLICT', cause: 'pay.change_hash_mismatch' });
+    // A confirm with no hash at all is not a valid request.
+    expect(
+      await failure(at(f2, 'founderAdmin.changes.confirm')({ requestId: changeId, decision: 'confirm', reason: 'no hash' })),
+    ).not.toBeNull();
+    const done = (await at(
+      f2,
+      'founderAdmin.changes.confirm',
+    )({ requestId: changeId, decision: 'confirm', reason: 'agreed', expectedChangeHash: changeHash })) as {
       outcome: string;
       profile: { tierId: string; archetypeId: string };
     };
     expect(done).toMatchObject({ outcome: 'changed', profile: { tierId: 'second-tier', archetypeId: 'standard' } });
     // A tier change confirmed through the merchant-shaped procedure is not offered.
-    expect(await failure(at(f2, 'founderAdmin.changes.confirm')({ requestId, decision: 'confirm', reason: 'wrong door' }))).toMatchObject({
+    expect(
+      await failure(
+        at(f2, 'founderAdmin.changes.confirm')({ requestId, decision: 'confirm', reason: 'wrong door', expectedChangeHash: tierHash }),
+      ),
+    ).toMatchObject({
       cause: 'pay.change_not_found',
     });
 

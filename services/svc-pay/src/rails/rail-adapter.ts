@@ -399,6 +399,12 @@ export interface RailEvent {
   /** The scheme's own reason code ('4855', 'fraudulent'). Never translated. */
   readonly reasonCode?: string;
 
+  /**
+   * When the rail says evidence must be in, on a `dispute.*` delivery.
+   * Absent means the rail did not provide a deadline. Do not invent one.
+   */
+  readonly evidenceDueBy?: Date;
+
   /** The mandate this delivery is about, on `mandate.*`. */
   readonly mandateRef?: string;
 }

@@ -10,7 +10,7 @@ import { assertDelegatableScopes } from '@intafaced/auth';
 import type { Sql } from 'postgres';
 import { assertDelegateCannotGrant } from './auth-service.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
-import { rotateApiKey } from './rotate-api-key.js';
+import { rotateApiKey, type RotatedApiKey } from './rotate-api-key.js';
 import { assertOwnLiveApiKey, assertOwnLiveSession, redeemRecoveryCode, type RecoveryRedeemCode } from './recovery-redeem.js';
 
 export class RedeemRecoveryRotateError extends Error {
@@ -36,7 +36,7 @@ export async function rotateApiKeyAfterRecoveryCode(
   minter: ApiKeyMinter,
   sql: Sql,
   input: { userId: string; sessionId: string; keyId: string; code: string; grantorScopes: readonly string[]; grantorKid?: string | null },
-): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; revokedKeyId: string; sessionId: string }> {
+): Promise<RotatedApiKey & { sessionId: string }> {
   recoveryCodeRotatesApiKey(input.code);
   const live = await assertOwnLiveSession(sql, input.userId, input.sessionId);
   const old = await assertOwnLiveApiKey(sql, input.userId, input.keyId, make);
