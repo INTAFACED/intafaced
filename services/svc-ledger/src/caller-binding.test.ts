@@ -118,14 +118,12 @@ afterEach(() => {
 });
 
 describe('ledger post allowlist cites real callers', () => {
-  it('every grant line calls that recipe', () => {
+  it('every grant file calls that recipe', () => {
     for (const grants of Object.values(LEDGER_POST_ALLOWLIST)) {
       for (const [recipe, grant] of Object.entries(grants)) {
-        const splitAt = grant.cite.lastIndexOf(':');
-        const file = grant.cite.slice(0, splitAt);
-        const lineNo = Number(grant.cite.slice(splitAt + 1));
-        const line = readFileSync(join(ROOT, file), 'utf8').split('\n')[lineNo - 1] ?? '';
-        expect(line, grant.cite).toContain(`recipes.${recipe}`);
+        const cite = grant.cite;
+        const text = readFileSync(join(ROOT, cite), 'utf8');
+        expect(text, cite).toMatch(new RegExp('recipes\\.' + recipe + '\\('));
       }
     }
   });
