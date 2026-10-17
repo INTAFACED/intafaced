@@ -831,6 +831,9 @@ services:
       # Host can pin ping cadence. Default matches env.ts (30_000). Without
       # this name, a host `.env` never reaches the container.
       WS_HEARTBEAT_MS: ${WS_HEARTBEAT_MS:-30000}
+      # Owner-published futures mark freshness. Blank refuses futures.mark
+      # with ws.freshness_limit_unset. Never invent 300.
+      WS_MARK_FRESHNESS_SECONDS: ${WS_MARK_FRESHNESS_SECONDS:-}
       # Owner-published outbound high-water — pass-through, no compose default.
       # Blank stays refuse-closed (ws.high_water_bytes_unset). Host may set
       # 1048576 explicitly. Never invent 1048576.

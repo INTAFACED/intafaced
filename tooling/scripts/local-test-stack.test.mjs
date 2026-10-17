@@ -2,6 +2,7 @@
 // local:fund refuses outside its own stack, and the script never supplies a sanctions list.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import {
   existsSync,
@@ -362,4 +363,73 @@ console.log('local-test-stack: customer folder override checks passed');
   assert.match(source, /async function cmdRestart[\s\S]*?await cmdStart\(\[\]\);/);
   assert.match(source, /local-test-market\.mjs'\), 'ensure'\]/);
   console.log('local-test-stack: market supervision checks passed');
+}
+
+// /ws names the missing upstream. The upgrade body is the same JSON, not an empty 503.
+{
+  const home = mkdtempSync(join(tmpdir(), 'local-test-stack-ws-'));
+  const port = await new Promise((ok) => {
+    const probe = createServer();
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const pt = typeof address === 'object' && address ? address.port : 0;
+      probe.close(() => ok(pt));
+    });
+  });
+  const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
+    env: { ...process.env, HOME: home, CUSTOMER_WS_URL: 'ws://127.0.0.1:4014' },
+    stdio: 'ignore',
+  });
+  try {
+    const get = async (path) => {
+      for (let i = 0; i < 50; i++) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}${path}`, { headers: { host: `127.0.0.1:${port}` } });
+          return { status: res.status, text: await res.text() };
+        } catch {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      }
+      throw new Error('throwaway server did not answer');
+    };
+    const http = await get('/ws/stream');
+    assert.equal(http.status, 503);
+    const body = JSON.parse(http.text);
+    assert.equal(body.code, 'ws.upstream_unset');
+    assert.equal(body.key, 'CUSTOMER_WS_URL');
+    assert.match(body.message, /CUSTOMER_WS_URL is not wired/);
+    const upgrade = await new Promise((resolve, reject) => {
+      const req = httpRequest(
+        {
+          host: '127.0.0.1',
+          port,
+          path: '/ws/stream',
+          method: 'GET',
+          headers: {
+            Host: `127.0.0.1:${port}`,
+            Connection: 'Upgrade',
+            Upgrade: 'websocket',
+            'Sec-WebSocket-Version': '13',
+            'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+          },
+        },
+        (res) => {
+          const chunks = [];
+          res.on('data', (chunk) => chunks.push(chunk));
+          res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+    assert.equal(upgrade.status, 503);
+    assert.equal(upgrade.text.length > 0, true);
+    const upgradeBody = JSON.parse(upgrade.text);
+    assert.equal(upgradeBody.key, 'CUSTOMER_WS_URL');
+    assert.equal(upgradeBody.code, 'ws.upstream_unset');
+    console.log('local-test-stack: /ws refusal names CUSTOMER_WS_URL');
+  } finally {
+    server.kill('SIGTERM');
+    rmSync(home, { recursive: true, force: true });
+  }
 }

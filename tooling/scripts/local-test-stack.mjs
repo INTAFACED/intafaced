@@ -1388,6 +1388,15 @@ async function cmdRestart(names) {
   await cmdStart([]);
 }
 
+// The local customer server does not start svc-ws and does not read
+// CUSTOMER_WS_URL into a proxy. The typed refusal names that key. Wiring the
+// upstream is the local-stack owner's job; this default stays a refusal.
+const WS_UPSTREAM_REFUSAL = {
+  code: 'ws.upstream_unset',
+  key: 'CUSTOMER_WS_URL',
+  message: 'CUSTOMER_WS_URL is not wired. The local test stack has no WebSocket upstream and does not start svc-ws.',
+};
+
 // ── Customer static server + reverse proxy ──────────────────────────────────
 
 const MIME = {
@@ -1442,12 +1451,7 @@ function serveCustomer(port = PORTS.customer) {
 
     if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     if (p.startsWith('/ws/')) {
-      return send(
-        res,
-        503,
-        'application/json',
-        JSON.stringify({ error: 'ws_not_started', message: 'The WebSocket service is not part of the local test stack.' }),
-      );
+      return send(res, 503, 'application/json', JSON.stringify(WS_UPSTREAM_REFUSAL));
     }
     if (p.startsWith('/api/')) {
       const headers = {};
@@ -1524,9 +1528,13 @@ function serveCustomer(port = PORTS.customer) {
     res.writeHead(200, { 'content-type': MIME['.html'], 'content-length': Buffer.byteLength(html), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : html);
   });
-  // No WebSocket service: refuse upgrades instead of hanging.
+  // No WebSocket upstream is published. The refusal names CUSTOMER_WS_URL and
+  // does not start svc-ws or proxy when that key is set.
   server.on('upgrade', (req, socket) => {
-    socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+    const body = JSON.stringify(WS_UPSTREAM_REFUSAL);
+    socket.end(
+      `HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+    );
   });
   server.listen(port, HOST);
 }
