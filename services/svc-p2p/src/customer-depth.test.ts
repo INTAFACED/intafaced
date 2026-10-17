@@ -175,6 +175,51 @@ describe('svc-p2p customer depth', () => {
     });
   });
 
+  it('refuses an offer edit that lifts maxAmt past the standard ceiling', async () => {
+    const capped = new P2pService(sql, ledger, bus, {
+      instruments,
+      offerLimits: {
+        standardMaxAmount: parseAmount('100'),
+        merchantMaxAmount: null,
+        standardMode: 'capped',
+        merchantMode: 'unset',
+      },
+    });
+    const offer = await capped.createOffer({
+      makerId: MAKER,
+      side: 'sell',
+      asset: ASSET,
+      fiatCurrency: 'USD',
+      priceType: 'fixed',
+      price: parseAmount('1'),
+      minAmt: parseAmount('10'),
+      maxAmt: parseAmount('100'),
+      totalAmt: parseAmount('500'),
+      methods: ['sepa'],
+      idempotencyKey: 'ceiling-create',
+    });
+    await expect(
+      capped.updateOffer({
+        offerId: offer.id,
+        makerId: MAKER,
+        idempotencyKey: 'ceiling-up',
+        maxAmt: parseAmount('101'),
+        totalAmt: parseAmount('101'),
+      }),
+    ).rejects.toMatchObject({ code: 'p2p.offer_limit_exceeded' });
+    const stored = await sql<Array<{ max_amt: string }>>`
+      SELECT max_amt::text AS max_amt FROM p2p.offers WHERE id = ${offer.id}
+    `;
+    expect(formatAmount(parseAmount(stored[0]!.max_amt))).toBe('100');
+    const lowered = await capped.updateOffer({
+      offerId: offer.id,
+      makerId: MAKER,
+      idempotencyKey: 'ceiling-down',
+      maxAmt: parseAmount('90'),
+    });
+    expect(formatAmount(lowered.maxAmt)).toBe('90');
+  });
+
   it('quotes fee, net and reservation expiry without writing a trade', async () => {
     const offer = await sell();
     const before = new Date();
@@ -238,10 +283,35 @@ describe('svc-p2p customer depth', () => {
     expect(fiat.offers.every((o) => o.priceType === 'fixed')).toBe(true);
     expect(fiat.offers.map((o) => formatAmount(o.price)).sort()).toEqual(['2', '4']);
 
+    vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', 'none');
+    vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', 'test-fixture:p2p-depth');
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'false');
+    const secret = 'p2p-depth-edge-secret-long-enough-ok';
+    const edge = createEdgeContext({ secret, serviceName: 'svc-p2p' });
+    const viewer = {
+      sub: TAKER,
+      userId: TAKER,
+      sid: '55555555-5555-4555-8555-555555555555',
+      scopes: ['p2p:read'],
+      tier: 'basic',
+      mfa: false,
+      expiresAt: new Date(Date.now() + 60_000),
+    } as Principal;
+    const raw = encodePrincipal(viewer);
+    const board = createP2pRouter(p2p, instruments).createCaller(
+      edge({
+        headers: {
+          'x-intafaced-principal': raw,
+          'x-intafaced-principal-sig': signPrincipalHeader(raw, secret, 'DE'),
+          'x-intafaced-region': 'DE',
+        },
+        id: 'req-board-page',
+      }),
+    );
     const seen: string[] = [];
     let cursor: string | null = null;
     for (let i = 0; i < 6; i++) {
-      const page = await p2p.listOfferBoard({ limit: 1, viewerId: TAKER, ...(cursor ? { cursor } : {}) });
+      const page = await board.offers.page({ limit: 1, ...(cursor ? { cursor } : {}) });
       seen.push(...page.offers.map((o) => o.id));
       if (!page.nextCursor) break;
       cursor = page.nextCursor;
@@ -393,10 +463,10 @@ describe('svc-p2p customer depth', () => {
     vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'false');
     const secret = 'p2p-depth-edge-secret-long-enough-ok';
     const edge = createEdgeContext({ secret, serviceName: 'svc-p2p' });
-    const sign = (scopes: string[]) => {
+    const sign = (scopes: string[], userId: string = TAKER) => {
       const principal = {
-        sub: TAKER,
-        userId: TAKER,
+        sub: userId,
+        userId,
         sid: '55555555-5555-4555-8555-555555555555',
         scopes,
         tier: 'basic',
@@ -428,6 +498,7 @@ describe('svc-p2p customer depth', () => {
 
     const notified: string[] = [];
     const wired = createP2pRouter(p2p, instruments, undefined, {
+      moderatorUserIds: [MODERATOR],
       chatNotify: {
         async messageSent(input) {
           notified.push(input.messageId);
@@ -447,13 +518,38 @@ describe('svc-p2p customer depth', () => {
       method: 'sepa',
       tradeId: crypto.randomUUID(),
     });
-    const sent = await wired.createCaller(sign(['p2p:read'])).chat.messages.send({
+    await expect(
+      wired.createCaller(sign(['p2p:read'])).chat.messages.send({
+        tradeId: trade.id,
+        text: 'hello',
+        clientId: 'router-1',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const unreadParty = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM p2p.chat_messages`;
+    expect(unreadParty[0]?.n).toBe(0);
+    const sent = await wired.createCaller(sign(['p2p:read', 'p2p:write'])).chat.messages.send({
       tradeId: trade.id,
       text: 'hello',
       clientId: 'router-1',
     });
     expect(sent.notify).toEqual({ delivered: true, code: 'p2p.chat_notify_delivered' });
     expect(notified).toEqual([sent.id]);
+    await expect(
+      wired.createCaller(sign(['p2p:read'], MODERATOR)).chat.messages.send({
+        tradeId: trade.id,
+        text: 'too early',
+        clientId: 'mod-early',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const beforeDispute = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM p2p.chat_messages`;
+    expect(beforeDispute[0]?.n).toBe(1);
+    await p2p.openDispute({ tradeId: trade.id, openedBy: TAKER, reason: 'not released' });
+    const modSent = await wired.createCaller(sign(['p2p:read'], MODERATOR)).chat.messages.send({
+      tradeId: trade.id,
+      text: 'send the receipt',
+      clientId: 'mod-router-1',
+    });
+    expect(modSent.senderId).toBe(MODERATOR);
     const profile = await wired.createCaller(sign(['p2p:read'])).reputation.get({ userId: MAKER });
     expect(profile.handle).toBeNull();
     expect(profile.profile).toEqual({ status: 'absent', code: 'p2p.public_profile_absent' });

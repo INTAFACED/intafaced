@@ -1082,6 +1082,7 @@ describe('svc-p2p payment instruments', () => {
         health: undefined,
         'fiat.list': undefined,
         'offers.list': { limit: 50 },
+        'offers.page': { limit: 50 },
         'offers.get': { offerId: offer.id },
         'offers.create': {
           side: 'sell',
@@ -1279,7 +1280,7 @@ describe('svc-p2p payment instruments', () => {
       // safe to publish.
       const board = await callerFor(STRANGER).offers.list({ limit: 50 });
       expect(JSON.stringify(board)).not.toContain(CANARY);
-      expect(board.offers.find((o) => o.id === offer.id)?.methods).toEqual([METHOD]);
+      expect(board.find((o) => o.id === offer.id)?.methods).toEqual([METHOD]);
       expect(trade.id).toBeTruthy();
     });
   });

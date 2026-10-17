@@ -85,6 +85,27 @@ export type P2pRouterOptions = {
 /** Decimal string on the wire. Rejects anything a float could have mangled. */
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18dp');
 
+/**
+ * Shared board filters. `offers.list` stays an array for the live customer
+ * parser. `offers.page` is the cursor page. Cursor is not a list input.
+ */
+const offerListShape = {
+  asset: z.string().optional(),
+  fiatCurrency: z.string().length(3).optional(),
+  side: z.enum(['buy', 'sell']).optional(),
+  /**
+   * Page size. Optional here so omit reaches the service named refuse
+   * (`p2p.offer_list_limit_unset`) instead of a Zod "Required" that looks
+   * like a typo. Blank is not 50; pass 50 explicitly when that is the page
+   * you want.
+   */
+  limit: z.number().int().min(1).max(200).optional(),
+  methodId: z.string().min(1).max(64).optional(),
+  makerId: z.string().min(1).max(128).optional(),
+  /** Minimum fiat the offer can still trade, as an exact decimal. Float offers are left out: no reference is invented. */
+  minFiat: amountString.optional(),
+};
+
 const offerOutput = z.object({
   id: z.string().uuid(),
   makerId: z.string(),
@@ -572,6 +593,40 @@ export function createP2pRouter(
     return toOfferOut(offer, counts.get(offer.id) ?? 0);
   };
 
+  const presentBoard = async (
+    viewerId: string,
+    input:
+      | {
+          asset?: string;
+          fiatCurrency?: string;
+          side?: 'buy' | 'sell';
+          limit?: number;
+          methodId?: string;
+          makerId?: string;
+          minFiat?: string;
+          cursor?: string | null;
+        }
+      | undefined,
+    includeCursor: boolean,
+  ) => {
+    const page = await p2p.listOfferBoard({
+      ...(input?.asset ? { asset: input.asset } : {}),
+      ...(input?.fiatCurrency ? { fiatCurrency: input.fiatCurrency } : {}),
+      ...(input?.side ? { side: input.side } : {}),
+      ...(input?.methodId ? { methodId: input.methodId } : {}),
+      ...(input?.makerId ? { makerId: input.makerId } : {}),
+      ...(input?.minFiat ? { minFiat: input.minFiat } : {}),
+      ...(includeCursor && input?.cursor ? { cursor: input.cursor } : {}),
+      limit: input?.limit,
+      viewerId,
+    });
+    const counts = await p2p.releasedTradeCounts(page.offers.map((offer) => offer.id));
+    return {
+      offers: page.offers.map((offer) => toOfferOut(offer, counts.get(offer.id) ?? 0)),
+      nextCursor: page.nextCursor,
+    };
+  };
+
   const requireUser = (ctx: { principal?: { userId?: string } | null }): string => {
     const userId = ctx.principal?.userId;
     if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'This action is about your own account, so it needs one.' });
@@ -758,48 +813,15 @@ export function createP2pRouter(
         .mutation(async () => guard(async () => refuseLiveOffersUntilOwnerKms())),
 
       list: merchantApiProcedure('p2p:read')
-        .input(
-          z
-            .object({
-              asset: z.string().optional(),
-              fiatCurrency: z.string().length(3).optional(),
-              side: z.enum(['buy', 'sell']).optional(),
-              /**
-               * Page size. Optional here so omit reaches the service named
-               * refuse (`p2p.offer_list_limit_unset`) instead of a Zod
-               * "Required" that looks like a typo. Blank is not 50; pass 50
-               * explicitly when that is the page you want.
-               */
-              limit: z.number().int().min(1).max(200).optional(),
-              methodId: z.string().min(1).max(64).optional(),
-              makerId: z.string().min(1).max(128).optional(),
-              /** Minimum fiat the offer can still trade, as an exact decimal. Float offers are left out: no reference is invented. */
-              minFiat: amountString.optional(),
-              cursor: z.string().max(500).nullable().optional(),
-            })
-            .optional(),
-        )
+        .input(z.object(offerListShape).optional())
+        .output(z.array(offerOutput))
+        .query(async ({ ctx, input }) => guard(async () => (await presentBoard(ctx.principal.userId, input, false)).offers)),
+
+      /** Cursor page. The live customer board still calls `offers.list` and parses an array. */
+      page: merchantApiProcedure('p2p:read')
+        .input(z.object({ ...offerListShape, cursor: z.string().max(500).nullable().optional() }).optional())
         .output(z.object({ offers: z.array(offerOutput), nextCursor: z.string().nullable() }))
-        .query(async ({ ctx, input }) =>
-          guard(async () => {
-            const page = await p2p.listOfferBoard({
-              ...(input?.asset ? { asset: input.asset } : {}),
-              ...(input?.fiatCurrency ? { fiatCurrency: input.fiatCurrency } : {}),
-              ...(input?.side ? { side: input.side } : {}),
-              ...(input?.methodId ? { methodId: input.methodId } : {}),
-              ...(input?.makerId ? { makerId: input.makerId } : {}),
-              ...(input?.minFiat ? { minFiat: input.minFiat } : {}),
-              ...(input?.cursor ? { cursor: input.cursor } : {}),
-              limit: input?.limit,
-              viewerId: ctx.principal.userId,
-            });
-            const counts = await p2p.releasedTradeCounts(page.offers.map((offer) => offer.id));
-            return {
-              offers: page.offers.map((offer) => toOfferOut(offer, counts.get(offer.id) ?? 0)),
-              nextCursor: page.nextCursor,
-            };
-          }),
-        ),
+        .query(async ({ ctx, input }) => guard(async () => presentBoard(ctx.principal.userId, input, true))),
 
       get: merchantApiProcedure('p2p:read')
         .input(z.object({ offerId: z.string().uuid() }))
@@ -1940,6 +1962,16 @@ export function createP2pRouter(
           )
           .mutation(async ({ ctx, input }) =>
             guard(async () => {
+              const moderator = isModerator(ctx.principal, moderatorUserIds);
+              if (!ctx.principal.scopes.includes('p2p:write')) {
+                const disputeOpen = moderator && (await p2p.disputeOpen(input.tradeId));
+                if (!disputeOpen) {
+                  throw new TRPCError({
+                    code: 'FORBIDDEN',
+                    message: 'Sending in a trade chat requires p2p:write.',
+                  });
+                }
+              }
               const sent = await p2p.sendChatMessage({
                 tradeId: input.tradeId,
                 senderId: ctx.principal.userId,

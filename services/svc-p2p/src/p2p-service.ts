@@ -935,12 +935,13 @@ export class P2pService {
      * scams. The merchant programme is the record that justifies a bigger
      * promise, so the badge and the ceiling are one control seen from two sides.
      *
-     * CREATE only. Standing is read on every create (or treated as not-in-
+     * CREATE always. Standing is read on every create (or treated as not-in-
      * programme when no reader is wired) so a non-approved maker never inherits
      * the merchant slot. Missing reader + armed policy still applies the
      * standard band — skipping the check would let every size through.
-     * Existing offers are never re-judged: breaking live liquidity to apply a
-     * new rule costs makers real money for a change they did not ask for.
+     * An edit checks the same ceiling when the maker sends a new maxAmt,
+     * whether or not the size goes up. An edit that does not send maxAmt
+     * leaves the existing promise alone.
      */
     const standing = this.merchantStatusOf ? await this.merchantStatusOf(input.makerId) : null;
     const verdict = checkOfferLimit({ status: standing, maxAmt: input.maxAmt, asset: input.asset, policy: this.offerLimits });
@@ -2849,6 +2850,11 @@ export class P2pService {
           throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
         }
         const remainingAmt = sub(totalAmt, filled);
+        if (input.maxAmt !== undefined) {
+          const standing = this.merchantStatusOf ? await this.merchantStatusOf(input.makerId) : null;
+          const verdict = checkOfferLimit({ status: standing, maxAmt, asset: offer.asset, policy: this.offerLimits });
+          if (!verdict.withinLimit) throw new P2pError(verdict.reason, 'p2p.offer_limit_exceeded');
+        }
         const methods = input.methods ?? offer.methods;
         const terms = input.terms ?? offer.terms;
         if (!Array.isArray(methods) || methods.length === 0) {
@@ -2982,6 +2988,11 @@ export class P2pService {
 
   async tradesInWindow(userId: string): Promise<number> {
     return tradesReleasedIn30Days(this.sql, userId);
+  }
+
+  /** Read-only. True when this trade has a dispute that is still open. */
+  async disputeOpen(tradeId: string): Promise<boolean> {
+    return disputeOpenForTrade(this.sql, tradeId);
   }
 
   async sendChatMessage(input: {
