@@ -82,6 +82,7 @@ export function OrdersTab({
   const [cancelling, setCancelling] = useState<Order | null>(null);
   const [rowNote, setRowNote] = useState<Record<string, string>>({});
   const [checking, setChecking] = useState<string | null>(null);
+  const [cancellingAll, setCancellingAll] = useState(false);
 
   const note = (id: string, text: string) => setRowNote((prev) => ({ ...prev, [id]: text }));
 
@@ -91,6 +92,24 @@ export function OrdersTab({
     refresh();
     if (outcome.kind === 'refused') note(order.id, outcome.words.body);
     if (outcome.kind === 'blocked') note(order.id, t('Cancel blocked'));
+  }
+
+  async function cancelAll() {
+    setCancellingAll(false);
+    if (open.status !== 'ready') return;
+    for (const order of open.data) {
+      const outcome = await writer.run({ kind: 'cancel', id: order.id, symbol: order.symbol, call: () => api.cancel(order) });
+      if (outcome.kind === 'done') note(order.id, t('Cancelled row'));
+      else if (outcome.kind === 'refused') note(order.id, outcome.words.body);
+      else if (outcome.kind === 'blocked') {
+        note(order.id, t('Cancel blocked'));
+        break;
+      } else {
+        note(order.id, outcome.words.body);
+        break;
+      }
+    }
+    refresh();
   }
 
   async function checkRow(order: Order) {
@@ -149,6 +168,13 @@ export function OrdersTab({
 
   return (
     <div className="flex flex-col gap-5">
+      {open.status === 'ready' && open.data.length > 1 ? (
+        <div className="flex justify-end">
+          <Button variant="secondary" size={28} disabled={writer.busy} onClick={() => setCancellingAll(true)}>
+            {t('Cancel all orders')}
+          </Button>
+        </div>
+      ) : null}
       <Section title={t('Open orders')} load={open} rows={rowsOf(open)} columns={openColumns} emptyText={t('No open option orders')} />
       <Section title={t('Order history')} load={closed} rows={rowsOf(closed)} columns={base} emptyText={t('No closed option orders')} />
       <AlertDialog open={cancelling !== null} onOpenChange={(next) => !next && setCancelling(null)}>
@@ -179,6 +205,20 @@ export function OrdersTab({
               </Button>
             </AlertDialogFooter>
           </form>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={cancellingAll} onOpenChange={(next) => !next && setCancellingAll(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Cancel all title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('Cancel all body', { count: String(open.status === 'ready' ? open.data.length : 0) })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="secondary" size={40} type="button" />}>{t('Keep order')}</AlertDialogClose>
+            <Button size={40} variant="primary" onClick={() => void cancelAll()}>
+              {t('Cancel all go', { count: String(open.status === 'ready' ? open.data.length : 0) })}
+            </Button>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

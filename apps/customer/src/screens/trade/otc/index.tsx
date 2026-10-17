@@ -84,7 +84,7 @@ function Room({ linkedId }: { linkedId: string | null }) {
             {checkNote}
           </p>
         ) : null}
-        <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
           <RequestForm
             api={api}
             writer={writer}
@@ -97,7 +97,7 @@ function Room({ linkedId }: { linkedId: string | null }) {
             }}
           />
           <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-            <TabsList divider>
+            <TabsList divider className="overflow-x-auto">
               <TabsTab value="quotes">{t('Tab quotes')}</TabsTab>
               <TabsTab value="export">{t('Tab export')}</TabsTab>
               <TabsTab value="allocation">{t('Tab allocation')}</TabsTab>

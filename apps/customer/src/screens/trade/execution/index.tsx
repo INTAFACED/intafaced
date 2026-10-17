@@ -7,7 +7,6 @@ import type { ScreenProps } from '../../../app/screen-types';
 import { Badge, EmptyState, Tabs, TabsList, TabsPanel, TabsTab, useSession } from '../rooms/ui';
 import { Freshness } from '../rooms/RoomNotices';
 import { RoomFrame } from '../rooms/RoomFrame';
-import { useBalances } from '../desk/data';
 import { AlgoTab } from './AlgoTab';
 import { BlotterTab } from './BlotterTab';
 import { IcebergTab } from './IcebergTab';
@@ -22,7 +21,6 @@ export default function Screen(_props: ScreenProps) {
   const { userId } = useSession();
   const policy = useAlgoPolicy();
   const markets = useExecMarkets();
-  const balances = useBalances();
   const ids = useStoredIds('algo', userId);
   const parents = useParents(ids);
 
@@ -33,9 +31,6 @@ export default function Screen(_props: ScreenProps) {
         <Badge tone={policy.data.capability.jobsEnabled ? 'lime' : 'warn'}>
           {policy.data.capability.jobsEnabled ? t('Scheduler running') : t('Scheduler off chip')}
         </Badge>
-      ) : null}
-      {balances.status === 'ready' && balances.data.USDT ? (
-        <Badge variant="outline">{t('Free USDT {amount}', { amount: balances.data.USDT.free })}</Badge>
       ) : null}
     </>
   );
@@ -51,7 +46,7 @@ export default function Screen(_props: ScreenProps) {
         />
       ) : (
         <Tabs defaultValue="algo">
-          <TabsList divider aria-label={t('Execution tabs')}>
+          <TabsList divider aria-label={t('Execution tabs')} className="overflow-x-auto">
             <TabsTab value="algo">{t('Algo orders')}</TabsTab>
             <TabsTab value="iceberg">{t('Iceberg')}</TabsTab>
             <TabsTab value="scaled">{t('Scaled')}</TabsTab>

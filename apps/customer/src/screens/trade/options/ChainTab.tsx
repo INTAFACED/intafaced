@@ -105,6 +105,7 @@ export function ChainTab({
     {
       id: 'expiry',
       header: t('Expires'),
+      width: 230,
       sortable: true,
       value: (m) => m.expiryDatetime ?? null,
       cell: (m) => {
@@ -129,8 +130,9 @@ export function ChainTab({
     {
       id: 'status',
       header: t('Status'),
+      width: 200,
       cell: (m) => (
-        <span className="inline-flex gap-1">
+        <span className="inline-flex flex-wrap gap-1 whitespace-nowrap">
           <Badge variant="outline">{m.paper ? t('Paper') : t('Live')}</Badge>
           {!isComplete(m) ? (
             <Badge tone="warn">{t('Terms incomplete')}</Badge>

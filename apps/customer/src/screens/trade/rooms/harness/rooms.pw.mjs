@@ -93,6 +93,28 @@ test.describe('Options', () => {
     await clean(page, mock);
   });
 
+  test('orders: cancel all open option orders, one answer per row', async ({ page }) => {
+    const mock = await start(page, 'options', { at: OTC_NOW });
+    for (const price of ['500', '510']) {
+      await grid(page, 'Option contracts').getByText('TEST-BTC-25DEC26-60000-C').click();
+      const ticket = page.getByRole('region', { name: 'Order ticket' });
+      await ticket.getByLabel('Size in contracts').fill('1');
+      await ticket.getByLabel('Limit price').fill(price);
+      await ticket.getByRole('button', { name: 'Review order' }).click();
+      await ticket.getByRole('button', { name: 'Place order' }).click();
+      await dialog(page).getByRole('button', { name: 'Place order' }).click();
+      await expect(page.getByText('Done. Your order list will update in a moment.')).toBeVisible();
+    }
+    await page.getByRole('tab', { name: 'Orders' }).click();
+    await page.getByRole('button', { name: 'Cancel all open orders' }).click();
+    await expect(dialog(page).getByText('Cancel all open option orders')).toBeVisible();
+    await shot(page, 'options-04b-cancel-all-confirm');
+    await dialog(page).getByRole('button', { name: /Cancel 2 orders/ }).click();
+    await expect(page.getByText('Cancelled', { exact: true }).first()).toBeVisible();
+    await shot(page, 'options-04c-cancel-all-result');
+    await clean(page, mock);
+  });
+
   test('ticket: a live contract is disabled with its reason', async ({ page }) => {
     const mock = await start(page, 'options', { at: OTC_NOW });
     await grid(page, 'Option contracts').getByText('TEST-BTC-LIVE-65000-C').click();

@@ -98,12 +98,13 @@ export function AlgoList({
       numeric: true,
       value: (r) => (r.ok ? String(r.progress?.missesRecorded ?? r.parent.missesRecorded) : null),
     },
-    { id: 'status', header: t('Status'), cell: (r) => <StatusCell row={r} /> },
+    { id: 'status', header: t('Status'), width: 220, cell: (r) => <StatusCell row={r} /> },
     { id: 'next', header: t('Next slice'), value: (r) => (r.ok && r.parent.status === 'active' ? when(r.parent.nextDueAt) : null) },
     { id: 'ends', header: t('Ends'), value: (r) => (r.ok ? when(r.parent.projectedEndsAt) : null) },
     {
       id: 'actions',
       header: t('Actions'),
+      width: 270,
       cell: (r) => {
         if (!r.ok) return null;
         const { parent } = r;

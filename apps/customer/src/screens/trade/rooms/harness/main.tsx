@@ -67,6 +67,7 @@ function Page() {
             </a>
             <a href="/pay">Pay</a>
             <a href="/more">More</a>
+            <span className="harness-test" role="status">TEST DATA — not real money. Every figure here is a labelled stand-in.</span>
             <span>harness stand-in for the top bar</span>
           </nav>
           <main id="main">{Room ? <Room path={path} search={search} params={{}} /> : <p>Unknown room. Use ?room=options|execution|otc</p>}</main>

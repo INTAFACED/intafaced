@@ -95,6 +95,7 @@ export function QuotesTable({
       {
         id: 'when',
         header: t('Expires or settled'),
+        width: 190,
         value: (r) => {
           const quote = q(r);
           if (!quote) return null;

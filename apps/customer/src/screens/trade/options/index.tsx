@@ -56,7 +56,7 @@ export default function Screen(_props: ScreenProps) {
             {note}
           </p>
         ) : null}
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <Tabs value={tab} onValueChange={(v) => setTab(v as TabId)}>
             <TabsList divider className="overflow-x-auto">
               {TABS.map((id) => (
