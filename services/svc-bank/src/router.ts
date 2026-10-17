@@ -616,15 +616,24 @@ export type BankRouterOptions = {
    */
   approvals?: ActionApprovalConsumer;
   /**
-   * Money-out step-up (BANK_STEP_UP_MONEY_OUT). Omitted or `off` leaves every door as it was. When
-   * `required`, sends to other users, business payments and membership, card unfreeze/issue and
-   * standing orders to other people need `stepUpApprovalId` (a same-person identity approval).
+   * Money-out step-up (BANK_STEP_UP_MONEY_OUT). Omitted or `off` leaves the money-out doors as they
+   * were. Card number, CVV and PIN reveal/set are the exception: they refuse
+   * `bank.step_up_unavailable` until the mode is `required`. When `required`, sends to other users,
+   * business payments and membership, card unfreeze/issue and standing orders to other people need
+   * `stepUpApprovalId` (a same-person identity approval).
    */
   stepUp?: StepUpGate;
 };
 
 /** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
 const stepUpApprovalField = z.string().min(1).max(128).optional();
+
+function refuseCardSecretWithoutStepUp(): never {
+  throw new BankError(
+    'Showing or setting card secrets needs step-up, and step-up is not switched on in this deployment.',
+    'bank.step_up_unavailable',
+  );
+}
 
 const actionApprovalFields = {
   confirmOperatorId: z.string().max(128).nullish(),
@@ -1936,7 +1945,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
     /**
      * PAN, expiry and CVV from a live issuer. Step-up every time. Not stored.
-     * card-sim refuses `bank.card_pan_issuer_unset`.
+     * card-sim refuses `bank.card_pan_issuer_unset` before step-up. With step-up
+     * not `required`, the call refuses `bank.step_up_unavailable` and the issuer is not called.
      */
     reveal: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ cardId: z.string().uuid(), revealId: z.string().uuid(), stepUpApprovalId: stepUpApprovalField }))
@@ -1945,14 +1955,14 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         guard(async () => {
           const card = await bank.cards.card(input.cardId);
           assertSelf(ctx.principal.userId, card.userId);
-          if (stepUpEnforced) {
-            await requireStepUp(
-              ctx.principal,
-              revealCardBinding({ actor: ctx.principal.userId, cardId: input.cardId, revealId: input.revealId }),
-              input.stepUpApprovalId,
-              false,
-            );
-          }
+          bank.cards.assertSecretIssuer('pan', 'revealCredentials');
+          if (!stepUpEnforced) refuseCardSecretWithoutStepUp();
+          await requireStepUp(
+            ctx.principal,
+            revealCardBinding({ actor: ctx.principal.userId, cardId: input.cardId, revealId: input.revealId }),
+            input.stepUpApprovalId,
+            false,
+          );
           return bank.cards.reveal({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
         }),
       ),
@@ -1965,14 +1975,14 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           guard(async () => {
             const card = await bank.cards.card(input.cardId);
             assertSelf(ctx.principal.userId, card.userId);
-            if (stepUpEnforced) {
-              await requireStepUp(
-                ctx.principal,
-                revealCardPinBinding({ actor: ctx.principal.userId, cardId: input.cardId, revealId: input.revealId }),
-                input.stepUpApprovalId,
-                false,
-              );
-            }
+            bank.cards.assertSecretIssuer('pin', 'revealPin');
+            if (!stepUpEnforced) refuseCardSecretWithoutStepUp();
+            await requireStepUp(
+              ctx.principal,
+              revealCardPinBinding({ actor: ctx.principal.userId, cardId: input.cardId, revealId: input.revealId }),
+              input.stepUpApprovalId,
+              false,
+            );
             return bank.cards.revealPin({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
           }),
         ),
@@ -1990,13 +2000,14 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           guard(async () => {
             const card = await bank.cards.card(input.cardId);
             assertSelf(ctx.principal.userId, card.userId);
-            if (stepUpEnforced) {
-              await requireStepUp(
-                ctx.principal,
-                setCardPinBinding({ actor: ctx.principal.userId, cardId: input.cardId, commandId: input.commandId }),
-                input.stepUpApprovalId,
-              );
-            }
+            bank.cards.assertPinDigits(input.pin);
+            bank.cards.assertSecretIssuer('pin', 'setPin');
+            if (!stepUpEnforced) refuseCardSecretWithoutStepUp();
+            await requireStepUp(
+              ctx.principal,
+              setCardPinBinding({ actor: ctx.principal.userId, cardId: input.cardId, commandId: input.commandId }),
+              input.stepUpApprovalId,
+            );
             return bank.cards.setPin({
               cardId: input.cardId,
               userId: ctx.principal.userId,

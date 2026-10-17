@@ -30,6 +30,7 @@ const USER_VISIBLE_CODES = new Set<BankErrorCode>([
   'bank.card_pin_issuer_unset',
   'bank.card_pin_invalid',
   'bank.card_wallet_issuer_unset',
+  'bank.step_up_unavailable',
   'bank.card_not_found',
   'bank.card_not_active',
   'bank.card_limit_exceeded',

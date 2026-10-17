@@ -631,6 +631,28 @@ export class CardService {
   }
 
   /**
+   * Refuse a card-number or PIN call when this deployment has no live issuer
+   * method. card-sim and `none` stay `bank.card_pan_issuer_unset` /
+   * `bank.card_pin_issuer_unset`, and the router runs this before step-up.
+   */
+  assertSecretIssuer(kind: 'pan' | 'pin', op: 'revealCredentials' | 'revealPin' | 'setPin'): void {
+    this.assertModuleEnabled();
+    this.assertLiveSecret(kind);
+    const present =
+      op === 'revealCredentials' ? this.issuer.revealCredentials : op === 'revealPin' ? this.issuer.revealPin : this.issuer.setPin;
+    if (present) return;
+    if (kind === 'pan') throw new BankError(PAN_UNSET, 'bank.card_pan_issuer_unset');
+    throw new BankError(PIN_UNSET, 'bank.card_pin_issuer_unset');
+  }
+
+  /** A PIN that is not 4–12 digits. The message does not echo the PIN. */
+  assertPinDigits(pin: string): void {
+    if (!/^\d{4,12}$/.test(pin)) {
+      throw new BankError('A PIN must be 4 to 12 digits', 'bank.card_pin_invalid');
+    }
+  }
+
+  /**
    * PAN, expiry and CVV from a live issuer. Not stored. The audit row names the
    * reveal and not the secret. `expiresAt` is when the caller should drop it.
    */
@@ -674,9 +696,7 @@ export class CardService {
   /** The PIN is sent to the issuer and is not written, hashed, or put in an error. */
   async setPin(input: { cardId: string; userId: string; commandId: string; pin: string }): Promise<{ ok: true }> {
     this.assertModuleEnabled();
-    if (!/^\d{4,12}$/.test(input.pin)) {
-      throw new BankError('A PIN must be 4 to 12 digits', 'bank.card_pin_invalid');
-    }
+    this.assertPinDigits(input.pin);
     const card = await this.ownedCard(input.cardId, input.userId);
     this.assertLiveSecret('pin');
     if (!this.issuer.setPin) throw new BankError(PIN_UNSET, 'bank.card_pin_issuer_unset');

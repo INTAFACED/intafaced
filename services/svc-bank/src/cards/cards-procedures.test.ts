@@ -127,6 +127,32 @@ function liveIssuer(): CardIssuerAdapter {
   };
 }
 
+function countingLiveIssuer(): {
+  issuer: CardIssuerAdapter;
+  calls: { revealCredentials: number; revealPin: number; setPin: number };
+} {
+  const inner = liveIssuer();
+  const calls = { revealCredentials: 0, revealPin: 0, setPin: 0 };
+  return {
+    calls,
+    issuer: {
+      ...inner,
+      revealCredentials: async (input) => {
+        calls.revealCredentials += 1;
+        return inner.revealCredentials!(input);
+      },
+      revealPin: async (input) => {
+        calls.revealPin += 1;
+        return inner.revealPin!(input);
+      },
+      setPin: async (input) => {
+        calls.setPin += 1;
+        await inner.setPin!(input);
+      },
+    },
+  };
+}
+
 describe('cards.procedures (source)', () => {
   it('is not skip-green', () => {
     const src = readFileSync(fileURLToPath(import.meta.url), 'utf8');
@@ -356,6 +382,34 @@ describe('customer card procedures (PG-hard)', () => {
     expect(dump).not.toContain(PIN);
     expect(audits).not.toContain(PIN);
     expect(audits).toBe('[]');
+  });
+
+  it('refuses PAN, PIN reveal and PIN set when step-up is not switched on', async () => {
+    await sql`TRUNCATE bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
+    const ledger = new MemoryLedger();
+    const { issuer, calls } = countingLiveIssuer();
+    const cards = new CardService(sql, ledger, { issuer, clock: () => NOW });
+    const bank = { cards } as unknown as BankServices;
+    const user = caller(bank, ['bank:read', 'bank:write']);
+    await sql.unsafe(SIMULATED_DOWN);
+    try {
+      const cardId = randomUUID();
+      await cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+      await expect(user.cards.reveal({ cardId, revealId: randomUUID() })).rejects.toMatchObject({
+        message: expect.stringContaining('bank.step_up_unavailable'),
+      });
+      await expect(user.cards.pin.reveal({ cardId, revealId: randomUUID() })).rejects.toMatchObject({
+        message: expect.stringContaining('bank.step_up_unavailable'),
+      });
+      await expect(user.cards.pin.set({ cardId, commandId: randomUUID(), pin: PIN })).rejects.toMatchObject({
+        message: expect.stringContaining('bank.step_up_unavailable'),
+      });
+      expect(calls).toEqual({ revealCredentials: 0, revealPin: 0, setPin: 0 });
+      const counted = await sql<Array<{ count: string }>>`SELECT count(*)::text AS count FROM bank.card_secret_audits`;
+      expect(counted[0]?.count).toBe('0');
+    } finally {
+      await sql.unsafe(SIMULATED_UP);
+    }
   });
 
   it('returns a live issuer secret once, audits the reveal, and does not store the secret', async () => {
