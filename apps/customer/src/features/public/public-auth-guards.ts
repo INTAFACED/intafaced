@@ -63,7 +63,7 @@ export function finishAuth(record: AuthRecord): boolean {
 export function validAuthSession(value: Session): boolean {
   if (!sessionSchema.safeParse(value).success) return false;
   const time = Date.parse(value.expiresAt);
-  return Number.isFinite(time) && time > Date.now() && value.accessToken.trim().length > 0 && value.refreshToken.trim().length > 0;
+  return Number.isFinite(time) && time > Date.now() && value.accessToken.trim().length > 0;
 }
 /** Codes below occur before account/session issuance in these exact procedures.
  * A refused passkey verification can consume its challenge: no assertion is kept or reused.
