@@ -17,6 +17,14 @@ import type { CardRecord } from './cards/card-service.js';
 import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { describeBusinessPolicy } from './business/business-policy.js';
+import { poolTotalsProcedure } from './ops/pool-totals.js';
+import { loanBookProcedure } from './ops/loan-book.js';
+import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
+import { rampHealthProcedure } from './ops/ramp-health.js';
+import { transferHealthProcedure } from './ops/transfer-health.js';
+import { failedTransfersProcedure } from './ops/failed-transfers.js';
+import { transferDetailProcedure } from './ops/transfer-detail.js';
+import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
@@ -194,6 +202,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.loan_not_found':
       case 'bank.loan_product_not_found':
       case 'bank.personal_transfer_not_found':
+      case 'bank.ops_transfer_not_found':
       case 'bank.personal_request_not_found':
       case 'bank.personal_request_payer_unknown':
       case 'bank.auto_invest_not_found':
@@ -304,6 +313,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.card_issue_conflict':
       case 'bank.card_command_conflict':
       case 'bank.card_replace_conflict':
+      case 'bank.card_operator_frozen':
+      case 'bank.business_conflict':
       case 'bank.transfer_message_conflict':
       case 'bank.activity_note_conflict':
       case 'bank.activity_dispute_conflict':
@@ -373,6 +384,15 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.personal_transfer_daily_limit_exceeded':
       case 'bank.personal_request_self':
       case 'bank.personal_request_list_limit_unset':
+      case 'bank.ops_reason_too_short':
+      case 'bank.card_programme_span_unset':
+      case 'bank.card_programme_span_too_long':
+      case 'bank.ramp_health_window_unset':
+      case 'bank.transfer_health_window_unset':
+      case 'bank.failed_transfers_window_unset':
+      case 'bank.failed_transfers_limit_unset':
+      case 'bank.failed_transfers_cursor_invalid':
+      case 'bank.ops_business_approvals_limit_unset':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
@@ -3021,6 +3041,16 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           };
         }),
       ),
+
+    poolTotals: poolTotalsProcedure(() => bank.earn.poolTotals(), guard),
+    loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
+    cardProgramme: cardProgrammeProcedure(bank, guard),
+    setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
+    rampHealth: rampHealthProcedure(bank, guard),
+    transferHealth: transferHealthProcedure(bank, guard),
+    failedTransfers: failedTransfersProcedure(bank, guard),
+    transferDetail: transferDetailProcedure(bank, guard),
+    businessApprovals: businessApprovalsProcedure(bank, guard),
   });
 
   /**
@@ -3661,6 +3691,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     create: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
+          accountId: z.string().uuid(),
           name: z.string().min(1).max(128),
           assetId: z.string().min(1).max(16),
           spendThreshold: amountString,
@@ -3670,6 +3701,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const a = await bank.business.createAccount({
+            accountId: input.accountId,
             name: input.name,
             assetId: input.assetId,
             spendThreshold: parseAmount(input.spendThreshold),
@@ -3834,15 +3866,39 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           limit: z.number().int().min(1).max(200).optional(),
         }),
       )
-      .output(z.array(businessApprovalOutput))
+      .output(
+        z.array(
+          z.object({
+            id: z.string(),
+            accountId: z.string(),
+            makerHandle: z.string().nullable(),
+            makerHandleReason: z.enum(['handle_unresolved']).nullable(),
+            receiverOwnerHandle: z.string().nullable(),
+            receiverOwnerHandleReason: z.enum(['handle_unresolved']).nullable(),
+            receiverOwnerName: z.string().nullable(),
+            fromSpaceId: z.string(),
+            toSpaceId: z.string(),
+            assetId: z.string(),
+            amount: amountString,
+            status: z.enum(['pending', 'approved', 'rejected', 'cancelled']),
+            transferId: z.string().nullable(),
+            holdLedgerTxId: z.string().nullable(),
+            ledgerTxId: z.string().nullable(),
+            createdAt: z.string(),
+          }),
+        ),
+      )
       .query(async ({ ctx, input }) =>
         guard(async () => {
           const rows = await bank.business.listPending(input.accountId, ctx.principal.userId, input.limit);
           return rows.map((a) => ({
             id: a.id,
             accountId: a.accountId,
-            makerUserId: a.makerUserId,
-            checkerUserId: a.checkerUserId,
+            makerHandle: a.makerHandle,
+            makerHandleReason: a.makerHandleReason,
+            receiverOwnerHandle: a.receiverOwnerHandle,
+            receiverOwnerHandleReason: a.receiverOwnerHandleReason,
+            receiverOwnerName: a.receiverOwnerName,
             fromSpaceId: a.fromSpaceId,
             toSpaceId: a.toSpaceId,
             assetId: a.assetId,
@@ -4015,8 +4071,12 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             z.object({
               id: z.string(),
               accountId: z.string(),
-              makerHandle: z.string(),
+              makerHandle: z.string().nullable(),
+              makerHandleReason: z.enum(['handle_unresolved']).nullable(),
               checkerHandle: z.string().nullable(),
+              receiverOwnerHandle: z.string().nullable(),
+              receiverOwnerHandleReason: z.enum(['handle_unresolved']).nullable(),
+              receiverOwnerName: z.string().nullable(),
               fromSpaceId: z.string(),
               toSpaceId: z.string(),
               assetId: z.string(),
@@ -4045,7 +4105,11 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
               id: a.id,
               accountId: a.accountId,
               makerHandle: a.makerHandle,
+              makerHandleReason: a.makerHandleReason,
               checkerHandle: a.checkerHandle,
+              receiverOwnerHandle: a.receiverOwnerHandle,
+              receiverOwnerHandleReason: a.receiverOwnerHandleReason,
+              receiverOwnerName: a.receiverOwnerName,
               fromSpaceId: a.fromSpaceId,
               toSpaceId: a.toSpaceId,
               assetId: a.assetId,
@@ -4165,6 +4229,11 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * Atomic multi-recipient payroll. One ledger post. Cross-asset lines
      * refuse `bank.business_payroll_rate_unset` — rates are owner law, never invented.
      */
+    myRole: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ accountId: z.string().uuid() }))
+      .output(z.object({ role: z.enum(['admin', 'maker', 'checker']) }))
+      .query(async ({ ctx, input }) => guard(async () => ({ role: await bank.business.myRole(input.accountId, ctx.principal.userId) }))),
+
     runPayroll: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({

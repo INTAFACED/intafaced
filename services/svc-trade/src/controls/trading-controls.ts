@@ -20,6 +20,8 @@ import {
   type IdentityOperationDecisionPort,
   type IdentityOperationIntent,
 } from '@intafaced/contracts';
+import { writeRestrictionAudit } from '../admin/common.js';
+import { currentTradingRestrictApprovals, tradingRestrictGate, tradingRestrictRequiresApproval } from '../admin/trading-restrict.js';
 
 export class TradingControlError extends Error {
   constructor(
@@ -154,11 +156,20 @@ export class TradingControls implements TradingAdmissionPort {
       WHERE target_user_id = ${userId} ORDER BY occurred_at DESC, audit_id DESC LIMIT ${input.limit}`;
     return rows.map((row) => accountControlResultSchema.parse(row.result));
   }
-  async change(context: Context & { principal: Principal }, raw: AccountControlInput): Promise<AccountControlResult> {
-    const parsed = accountControlInputSchema.parse(raw);
+  async change(context: Context & { principal: Principal }, raw: AccountControlInput, approvalId?: string): Promise<AccountControlResult> {
+    const rawRecord = raw as AccountControlInput & { approvalId?: string };
+    const approvalFromBody = rawRecord.approvalId;
+    const { approvalId: _bodyApproval, ...withoutApproval } = rawRecord;
+    void _bodyApproval;
+    const parsed = accountControlInputSchema.parse(withoutApproval);
+    const boundApproval = approvalId ?? approvalFromBody;
     const userId = this.target(parsed);
     const input = { ...parsed, requestId: parsed.requestId.toLowerCase(), target: { area: 'trading' as const, userId } };
-    const fingerprint = hash({ ...input, actorUserId: context.principal.userId });
+    const fingerprint = hash({
+      ...input,
+      actorUserId: context.principal.userId,
+      ...(tradingRestrictRequiresApproval() ? { approvalId: boundApproval ?? null } : {}),
+    });
     try {
       return await transaction(
         this.sql,
@@ -199,18 +210,32 @@ export class TradingControls implements TradingAdmissionPort {
             if (prior) result = { ...base, outcome: 'refused', code: 'request.conflict', current: before };
             else if (before.version !== input.expectedVersion)
               result = { ...base, outcome: 'conflict', code: 'restriction.version_conflict', current: before };
-            else if (input.action === 'restrict' && !(await this.drain(tx, userId))) {
-              result = { ...base, outcome: 'refused', code: 'authority.unavailable', current: before };
-            } else {
-              const restricted = input.action === 'restrict';
-              const changed = before.restricted !== restricted;
-              const after = { ...before, restricted, version: changed ? (BigInt(before.version) + 1n).toString() : before.version };
-              await tx`INSERT INTO trade.account_restrictions(user_id, restricted, version)
-              VALUES (${userId}, ${restricted}, ${after.version}::bigint)
-              ON CONFLICT (user_id) DO UPDATE SET restricted = EXCLUDED.restricted, version = EXCLUDED.version`;
-              result = changed
-                ? { ...base, outcome: 'changed', changed: true, before, after }
-                : { ...base, outcome: 'noop', before, after };
+            else {
+              const gated = await tradingRestrictGate({
+                approvalId: boundApproval,
+                actorId: context.principal.userId,
+                userId,
+                action: input.action,
+                reason: input.reason,
+                expectedVersion: input.expectedVersion,
+                before,
+                base,
+                book: currentTradingRestrictApprovals(),
+              });
+              if (gated) result = gated;
+              else if (input.action === 'restrict' && !(await this.drain(tx, userId))) {
+                result = { ...base, outcome: 'refused', code: 'authority.unavailable', current: before };
+              } else {
+                const restricted = input.action === 'restrict';
+                const changed = before.restricted !== restricted;
+                const after = { ...before, restricted, version: changed ? (BigInt(before.version) + 1n).toString() : before.version };
+                await tx`INSERT INTO trade.account_restrictions(user_id, restricted, version)
+                VALUES (${userId}, ${restricted}, ${after.version}::bigint)
+                ON CONFLICT (user_id) DO UPDATE SET restricted = EXCLUDED.restricted, version = EXCLUDED.version`;
+                result = changed
+                  ? { ...base, outcome: 'changed', changed: true, before, after }
+                  : { ...base, outcome: 'noop', before, after };
+              }
             }
             // A dependency refusal can be retried with the same request after recovery.
             if (!prior && !(result.outcome === 'refused' && result.code === 'authority.unavailable')) {
@@ -219,6 +244,15 @@ export class TradingControls implements TradingAdmissionPort {
             }
           }
           result = accountControlResultSchema.parse(result);
+          if (result.outcome === 'changed' || result.outcome === 'noop') {
+            await writeRestrictionAudit(tx, {
+              actorUserId: result.actorUserId,
+              userId,
+              action: result.action,
+              reason: result.reason,
+              requestId: result.requestId,
+            });
+          }
           await tx`INSERT INTO trade.account_control_history(audit_id, request_id, target_user_id, result, occurred_at)
           VALUES (${result.auditId}, ${input.requestId}, ${userId}, ${tx.json(result)}::jsonb, ${result.occurredAt})`;
           return result;

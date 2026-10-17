@@ -1,18 +1,18 @@
 import { defineCopy } from '../../shared/i18n';
 const en = {
   scope: 'Your workers, shares and mining credits',
-  unavailableTitle: 'Mining activity unavailable',
+  unavailableTitle: 'Pool status',
   unavailableBody:
-    'This room cannot connect a worker or read your shares and credits. Unavailable records do not mean zero activity or rewards.',
+    'This tab shows whether the pool is running. Your workers, shares and credits are in their own tabs, and each one says so plainly when it can’t be read.',
   support: 'Ask about mining access',
-  required: 'What this room needs',
-  unavailable: 'Unavailable',
+  required: 'Where your records are',
+  unavailable: 'Read-only',
   workers: 'Workers',
-  workersBody: 'Worker connection, registration, your roster and hashrate are unavailable.',
+  workersBody: 'The workers the pool lists for you, with their accepted share weight. Registering a worker isn’t open to customers yet.',
   shares: 'Accepted shares',
-  sharesBody: 'Your accepted-share history cannot be read. No share count is guessed.',
+  sharesBody: 'Your accepted and rejected shares and their weight, by payout window.',
   credits: 'Credits and payouts',
-  creditsBody: 'Your mining credits and payout history are unavailable. No reward amount or payout is guessed.',
+  creditsBody: 'Estimates for open windows and the credits already paid to you.',
   publicStatus: 'Public service status',
   readScope:
     'These results only show whether the pool is running. They do not identify your workers or prove accepted shares, credits or a payout.',
@@ -26,23 +26,24 @@ const en = {
   noJobs: 'No jobs registered',
   refresh: 'Refresh service status',
   boundaries:
-    'Connections that are set up have not been tested. A registered job does not prove a successful run or a payment. The pool offers no customer access, so nothing can be submitted here.',
+    'Connections that are set up have not been tested. A registered job does not prove a successful run or a payment. Nothing is submitted from this room.',
   more: 'Explore More →',
 } as const;
 const es = {
   scope: 'Tus trabajadores, aportaciones y créditos de minería',
-  unavailableTitle: 'La actividad de minería no está disponible',
+  unavailableTitle: 'Estado del pool',
   unavailableBody:
-    'Esta sala no puede conectar un trabajador ni leer tus aportaciones y créditos. Que los registros no estén disponibles no significa que no haya actividad ni recompensas.',
+    'Esta pestaña muestra si el pool está en marcha. Tus trabajadores, aportaciones y créditos están en sus propias pestañas, y cada una lo dice claramente cuando no se puede leer.',
   support: 'Consultar el acceso a minería',
-  required: 'Lo que necesita esta sala',
-  unavailable: 'No disponible',
+  required: 'Dónde están tus registros',
+  unavailable: 'Solo lectura',
   workers: 'Trabajadores',
-  workersBody: 'La conexión y el registro de trabajadores, tu lista y la tasa de hash no están disponibles.',
+  workersBody:
+    'Los trabajadores que el pool lista para ti, con el peso de sus aportaciones aceptadas. Registrar un trabajador aún no está abierto a los clientes.',
   shares: 'Aportaciones aceptadas',
-  sharesBody: 'No se puede leer tu historial de aportaciones aceptadas. No se adivina ningún recuento.',
+  sharesBody: 'Tus aportaciones aceptadas y rechazadas y su peso, por ventana de pago.',
   credits: 'Créditos y pagos',
-  creditsBody: 'Tus créditos de minería y tu historial de pagos no están disponibles. No se adivina ninguna recompensa ni pago.',
+  creditsBody: 'Estimaciones de las ventanas abiertas y los créditos que ya se te han pagado.',
   publicStatus: 'Estado público del servicio',
   readScope:
     'Estos resultados solo indican si el pool está en marcha. No identifican tus trabajadores ni prueban aportaciones aceptadas, créditos o pagos.',
@@ -56,24 +57,24 @@ const es = {
   noJobs: 'No hay tareas registradas',
   refresh: 'Actualizar el estado del servicio',
   boundaries:
-    'Las conexiones configuradas no se han probado. Una tarea registrada no prueba una ejecución correcta ni un pago. El pool no ofrece acceso a los clientes, así que no se puede enviar nada aquí.',
+    'Las conexiones configuradas no se han probado. Una tarea registrada no prueba una ejecución correcta ni un pago. Desde esta sala no se envía nada.',
   more: 'Explorar More →',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   scope: 'Tes workers, shares et crédits de minage',
-  unavailableTitle: 'L’activité de minage est indisponible',
+  unavailableTitle: 'État du pool',
   unavailableBody:
-    'Cette salle ne peut pas connecter de worker ni lire tes shares et crédits. Des dossiers indisponibles ne signifient pas une absence d’activité ou de récompenses.',
+    'Cet onglet indique si le pool fonctionne. Tes workers, shares et crédits sont dans leurs propres onglets, et chacun le dit clairement quand il ne peut pas être lu.',
   support: 'Consulter l’accès au minage',
-  required: 'Ce dont cette salle a besoin',
-  unavailable: 'Indisponible',
+  required: 'Où se trouvent tes relevés',
+  unavailable: 'Lecture seule',
   workers: 'Workers',
-  workersBody: 'La connexion et l’inscription des workers, ta liste et le taux de hachage sont indisponibles.',
+  workersBody:
+    'Les workers que le pool liste pour toi, avec le poids de leurs shares acceptées. L’enregistrement d’un worker n’est pas encore ouvert aux clients.',
   shares: 'Shares acceptées',
-  sharesBody: 'Ton historique de shares acceptées ne peut pas être consulté. Aucun nombre de shares n’est deviné.',
+  sharesBody: 'Tes shares acceptées et refusées et leur poids, par fenêtre de paiement.',
   credits: 'Crédits et paiements',
-  creditsBody:
-    'Tes crédits de minage et ton historique de paiements sont indisponibles. Aucun montant de récompense ni paiement n’est deviné.',
+  creditsBody: 'Les estimations des fenêtres ouvertes et les crédits qui t’ont déjà été versés.',
   publicStatus: 'État public du service',
   readScope:
     'Ces résultats indiquent seulement si le pool fonctionne. Ils n’identifient pas tes workers et ne prouvent ni shares acceptées, ni crédits, ni paiement.',
@@ -87,7 +88,7 @@ const fr = {
   noJobs: 'Aucune tâche enregistrée',
   refresh: 'Actualiser l’état du service',
   boundaries:
-    'Les connexions configurées n’ont pas été testées. Une tâche enregistrée ne prouve ni exécution réussie ni paiement. Le pool n’offre aucun accès aux clients : rien ne peut être soumis ici.',
+    'Les connexions configurées n’ont pas été testées. Une tâche enregistrée ne prouve ni exécution réussie ni paiement. Rien n’est envoyé depuis cette salle.',
   more: 'Explorer More →',
 } satisfies Record<keyof typeof en, string>;
 export const miningCopy = defineCopy('more.mining.availability', en, { es, fr });

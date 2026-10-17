@@ -1,10 +1,12 @@
-import { useMemo, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Failure, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import type { Space } from './client';
 import { funds } from './components';
+import { stamp } from '../../screens/money/time';
 import { Text } from './copy';
 import { usePreferences } from '../../shared/preferences';
+import { GoalProgress } from './GoalAndMovement';
 import { currentSpace, type SpaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 
@@ -22,19 +24,7 @@ export function SelectedSpace({
   actions: (space: Space) => ReactNode;
 }) {
   const { Copy, t, languageFor, directionFor } = spaceCopy.useCopy();
-  const { language, timeZone } = usePreferences();
-  const timestamp = useMemo(() => {
-    const formatter = new Intl.DateTimeFormat(language, {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric',
-      second: 'numeric',
-      ...(timeZone === 'device' ? {} : { timeZone: timeZone === 'UTC+8' ? 'Etc/GMT-8' : 'UTC' }),
-    });
-    return { formatter, language: formatter.resolvedOptions().locale };
-  }, [language, timeZone]);
+  const { timeZone } = usePreferences();
   if (context.status === 'none') return null;
   const reference = context.status === 'valid' ? context.id : null;
   const space = reference && resource.status === 'ready' ? currentSpace(resource.data, reference, owner) : undefined;
@@ -106,8 +96,8 @@ export function SelectedSpace({
               </dt>
               <dd>
                 {space.lockedUntil && Number.isFinite(Date.parse(space.lockedUntil)) ? (
-                  <time lang={timestamp.language} dir="auto" dateTime={space.lockedUntil}>
-                    {timestamp.formatter.format(new Date(space.lockedUntil))}
+                  <time lang="en-GB" dir="auto" dateTime={space.lockedUntil}>
+                    {stamp(space.lockedUntil, timeZone)}
                   </time>
                 ) : space.lockedUntil ? (
                   <Text k="components.date.unavailable" />
@@ -147,6 +137,7 @@ export function SelectedSpace({
               </dd>
             </div>
           </dl>
+          <GoalProgress balance={space.balance} target={space.goalTarget} assetId={space.assetId} />
         </>
       ) : (
         <>

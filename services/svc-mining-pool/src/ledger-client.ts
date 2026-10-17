@@ -27,8 +27,9 @@ const POST_BUDGET = { timeoutMs: 10_000, retries: 2, deadlineMs: 25_000 } as con
 /**
  * The pool writes only through svc-ledger; it never owns a balance. The shared HTTP client, signed as `svc-mining-pool`.
  *
- * Narrow on purpose: `Pick<LedgerClient, 'post'>` is all a payout needs, and handing the pool `balance` would let a
- * service that must never hold a balance start reading the book. The shared client's reads are not exposed here.
+ * Narrow on purpose: payouts post, and a payout read looks up the transaction the
+ * payout job booked (`getTxByKey` on `reward:mining:pplns:<window>:<miner>`).
+ * `balance` and `balances` stay unexposed. The pool does not hold a book.
  *
  * Service credentials (§2, L2-6): the shared transport signs the exact bytes it sends, once per attempt, so a captured
  * header stops working after the skew window and cannot be replayed against another post body.
@@ -41,7 +42,7 @@ const POST_BUDGET = { timeoutMs: 10_000, retries: 2, deadlineMs: 25_000 } as con
  * keys only on `mining.epoch_unset` and `mining.emission_unpublished` and rethrows everything else to the job host's
  * `onError`, as before.
  */
-export function createLedgerClient(baseUrl: string, internalSecret: string): Pick<LedgerClient, 'post'> {
+export function createLedgerClient(baseUrl: string, internalSecret: string): Pick<LedgerClient, 'post' | 'getTxByKey'> {
   const writer = createHttpLedgerClient({
     baseUrl,
     sign: (payload) => serviceAuthHeadersForBody('svc-mining-pool', internalSecret, payload),
@@ -51,5 +52,8 @@ export function createLedgerClient(baseUrl: string, internalSecret: string): Pic
     ...POST_BUDGET,
   });
 
-  return { post: (request) => writer.post(request) };
+  return {
+    post: (request) => writer.post(request),
+    getTxByKey: (idempotencyKey) => writer.getTxByKey(idempotencyKey),
+  };
 }

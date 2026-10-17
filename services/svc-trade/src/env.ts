@@ -160,6 +160,17 @@ const schema = serviceEnvSchema
         .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
 
       /**
+       * Local TEST swap listing on GET /markets. Default OFF.
+       * Does not enable TRADE_FUTURES_ENABLED or TRADE_FUTURES_JOBS_ENABLED,
+       * and does not publish a leverage cap, a mark, or a liquidation policy.
+       * The listing itself comes only from the local seed script.
+       */
+      TRADE_FUTURES_TEST_SEED: z
+        .union([z.boolean(), z.string()])
+        .default(false)
+        .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
+
+      /**
        * OPTIONS SETTLEMENT ASSET LAW stamp (trade.options / D26-P0-05).
        *
        * EMPTY BY DEFAULT — and empty is a refusal, not a crash. listMarket with

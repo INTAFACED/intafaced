@@ -9,12 +9,19 @@ import {
   QUANT_BACKTEST_SURFACE_REFUSED,
   QUANT_BACKTEST_WALK_FORWARD_REQUIRED,
   QUANT_CASH_UNSET,
+  QUANT_CLIENT_STRATEGY_ID_UNSET,
+  QUANT_DATABASE_POOL_MAX_UNSET,
+  QUANT_DATABASE_URL_UNSET,
   QUANT_ENVIRONMENT_REQUIRED,
   QUANT_ENVIRONMENT_UNKNOWN,
+  QUANT_IDEMPOTENCY_CONFLICT,
+  QUANT_IDEMPOTENCY_KEY_UNSET,
+  QUANT_LIST_CURSOR_INVALID,
   QUANT_SANDBOX_MAX_OPS_UNSET,
   QUANT_SANDBOX_MAX_SOURCE_UNSET,
   QUANT_SANDBOX_UNWIRED,
   QUANT_SIMULATED_AS_LIVE,
+  QUANT_STRATEGY_VERSION_UNSET,
   QUANT_STUDIO_LIST_LIMIT_UNSET,
   QUANT_STUDIO_NOT_FOUND,
   QUANT_STUDIO_RISK_BLOCK_REQUIRED,
@@ -23,10 +30,12 @@ import {
 import { claimMarketplace } from './marketplace/claim.js';
 import { sandboxSourceInputMax } from './sandbox/max.js';
 import { runSandbox, type SandboxDeps } from './sandbox/run.js';
-import { replaceStudio, saveStudio } from './studio/save.js';
+import { buildSavedStrategy } from './studio/save.js';
 import { assertStudioListLimit, STUDIO_LIST_LIMIT_CAP } from './studio/list-limit.js';
+import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } from './studio/keys.js';
+import { openStrategyRepository } from './studio/open.js';
+import { draftOf, type StrategyRepository, type WriteReceipt } from './studio/repository.js';
 import { requireStudioOperator, resolveStudioAccount, STUDIO_SERVICE_ALLOWLIST } from './studio/scope.js';
-import { createStudioStore } from './studio/store.js';
 import { withQuantSpan } from './tracing.js';
 
 const simulatedStamp = z.object({
@@ -81,17 +90,24 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
-          : err.code === QUANT_STUDIO_RISK_BLOCK_REQUIRED ||
-              err.code === QUANT_BACKTEST_WALK_FORWARD_REQUIRED ||
-              err.code === QUANT_BACKTEST_SURFACE_REFUSED ||
-              err.code === QUANT_ENVIRONMENT_REQUIRED ||
-              err.code === QUANT_ENVIRONMENT_UNKNOWN ||
-              err.code === QUANT_SIMULATED_AS_LIVE ||
-              err.code === QUANT_CASH_UNSET
-            ? 'BAD_REQUEST'
-            : err.code === 'quant.sandbox_timeout'
-              ? 'TIMEOUT'
-              : 'BAD_REQUEST';
+          : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
+            ? 'PRECONDITION_FAILED'
+            : err.code === QUANT_STUDIO_RISK_BLOCK_REQUIRED ||
+                err.code === QUANT_BACKTEST_WALK_FORWARD_REQUIRED ||
+                err.code === QUANT_BACKTEST_SURFACE_REFUSED ||
+                err.code === QUANT_ENVIRONMENT_REQUIRED ||
+                err.code === QUANT_ENVIRONMENT_UNKNOWN ||
+                err.code === QUANT_SIMULATED_AS_LIVE ||
+                err.code === QUANT_CASH_UNSET ||
+                err.code === QUANT_CLIENT_STRATEGY_ID_UNSET ||
+                err.code === QUANT_IDEMPOTENCY_KEY_UNSET ||
+                err.code === QUANT_IDEMPOTENCY_CONFLICT ||
+                err.code === QUANT_STRATEGY_VERSION_UNSET ||
+                err.code === QUANT_LIST_CURSOR_INVALID
+              ? 'BAD_REQUEST'
+              : err.code === 'quant.sandbox_timeout'
+                ? 'TIMEOUT'
+                : 'BAD_REQUEST';
     throw new TRPCError({ code, message: err.message, cause: err });
   }
   throw err;
@@ -111,9 +127,10 @@ const studioRisk = z
   })
   .optional();
 
-const savedStrategy = z
+const strategyVersionRecord = z
   .object({
-    id: z.string(),
+    version: z.number().int().positive(),
+    createdAt: z.string(),
     name: z.string(),
     language: z.literal('javascript'),
     source: z.string(),
@@ -126,6 +143,17 @@ const savedStrategy = z
     }),
   })
   .merge(simulatedStamp);
+
+const strategyHead = strategyVersionRecord.extend({
+  id: z.string(),
+  accountId: z.string().uuid(),
+  clientStrategyId: z.string(),
+  deletedAt: z.string().nullable(),
+});
+
+const strategyDetail = strategyHead.extend({
+  versions: z.array(strategyVersionRecord),
+});
 
 const costEvidence = z.object({
   kind: z.string(),
@@ -147,6 +175,7 @@ const backtestOutput = z
     outOfSample: z.object({ fillCount: z.number().int(), notional: decimal }),
     claimLabel: z.literal('Historical simulation — not a forecast'),
     outOfSampleLabel: z.string(),
+    strategyVersion: z.number().int().positive(),
   })
   .merge(simulatedStamp);
 
@@ -157,6 +186,8 @@ export interface QuantRouterDeps extends SandboxDeps {
    * `src/index.ts` does not set this.
    */
   readonly studioServiceAllowlist?: readonly string[];
+  /** Omitted only when DATABASE_URL is unset: studio and backtest then refuse by name. */
+  readonly strategies?: StrategyRepository;
 }
 
 const strategyMetadata = z.object({
@@ -172,11 +203,19 @@ const strategyMetadata = z.object({
 });
 
 const accountField = { accountId: z.string().uuid().optional() };
+const writeKeyField = { idempotencyKey: z.string().optional().nullable() };
+const clientIdField = { clientStrategyId: z.string().optional().nullable() };
 
 export function createQuantRouter(deps: QuantRouterDeps) {
-  const studio = createStudioStore();
+  const strategies = deps.strategies ?? openStrategyRepository({}).repository;
   const lake = deps.lake ?? missingLake();
   const studioServices = new Set(deps.studioServiceAllowlist ?? STUDIO_SERVICE_ALLOWLIST);
+
+  async function replayOf(accountId: string, idempotencyKey: string | null | undefined): Promise<WriteReceipt | null> {
+    const key = idempotencyKey?.trim() ?? '';
+    if (!key) return null;
+    return strategies.replay(accountId, key);
+  }
 
   function accountOf(ctx: Context, bodyAccountId: string | undefined): string {
     return resolveStudioAccount(ctx, bodyAccountId, studioServices);
@@ -200,14 +239,26 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               risk: studioRisk,
               cash: decimal.optional().nullable(),
               ...accountField,
+              ...writeKeyField,
+              ...clientIdField,
             })
             .merge(environmentInput),
         )
-        .output(savedStrategy)
+        .output(strategyDetail)
         .mutation(async ({ input, ctx }) =>
           withQuantSpan('quant.studio.save', { language: 'javascript' }, async () => {
             try {
-              return saveStudio(input, studio, accountOf(ctx, input.accountId));
+              const accountId = accountOf(ctx, input.accountId);
+              const prior = await replayOf(accountId, input.idempotencyKey);
+              if (prior?.operation === 'create') return prior.response;
+              if (prior) idempotencyConflict(prior.operation);
+              const built = buildSavedStrategy(input, 'studio_pending');
+              return strategies.create({
+                accountId,
+                clientStrategyId: requireClientStrategyId(input.clientStrategyId),
+                idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
+                draft: draftOf(built),
+              });
             } catch (err) {
               toTrpc(err);
             }
@@ -218,23 +269,25 @@ export function createQuantRouter(deps: QuantRouterDeps) {
        * Saved strategies for the caller's account. `limit` is optional so omit
        * reaches `quant.studio_list_limit_unset` instead of a Zod "Required".
        * Blank is not 50; pass 50 explicitly when that is the page you want.
-       * A body accountId does not select another account.
+       * A body accountId does not select another account. Deleted rows are absent.
        */
       list: publicJurisdictionProcedure('quant', 'fiat')
         .input(
           z
             .object({
               limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
+              cursor: z.string().optional().nullable(),
               ...accountField,
             })
             .optional(),
         )
-        .output(z.object({ strategies: z.array(savedStrategy) }))
-        .query(({ input, ctx }) => {
+        .output(z.object({ strategies: z.array(strategyHead), nextCursor: z.string().nullable() }))
+        .query(async ({ input, ctx }) => {
           try {
             const accountId = accountOf(ctx, input?.accountId);
             const limit = assertStudioListLimit(input?.limit);
-            return { strategies: studio.list(accountId).slice(0, limit) };
+            const page = await strategies.list({ accountId, limit, cursor: input?.cursor });
+            return { strategies: page.strategies.slice(0, limit), nextCursor: page.nextCursor };
           } catch (err) {
             toTrpc(err);
           }
@@ -242,10 +295,10 @@ export function createQuantRouter(deps: QuantRouterDeps) {
 
       get: publicJurisdictionProcedure('quant', 'fiat')
         .input(z.object({ id: z.string().min(1), ...accountField }))
-        .output(savedStrategy)
-        .query(({ input, ctx }) => {
+        .output(strategyDetail)
+        .query(async ({ input, ctx }) => {
           try {
-            const found = studio.get(accountOf(ctx, input.accountId), input.id);
+            const found = await strategies.get({ accountId: accountOf(ctx, input.accountId), id: input.id });
             if (!found) missingStrategy();
             return found;
           } catch (err) {
@@ -263,25 +316,47 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               risk: studioRisk,
               cash: decimal.optional().nullable(),
               ...accountField,
+              ...writeKeyField,
             })
             .merge(environmentInput),
         )
-        .output(savedStrategy)
+        .output(strategyDetail)
         .mutation(async ({ input, ctx }) => {
           try {
-            return replaceStudio(input, studio, accountOf(ctx, input.accountId), input.id);
+            const accountId = accountOf(ctx, input.accountId);
+            const prior = await replayOf(accountId, input.idempotencyKey);
+            if (prior?.operation === 'revise') return prior.response;
+            if (prior) idempotencyConflict(prior.operation);
+            const existing = await strategies.get({ accountId, id: input.id });
+            if (!existing) missingStrategy();
+            const built = buildSavedStrategy(input, input.id);
+            return strategies.revise({
+              accountId,
+              id: input.id,
+              idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
+              draft: draftOf(built),
+            });
           } catch (err) {
             toTrpc(err);
           }
         }),
 
       delete: publicJurisdictionProcedure('quant', 'fiat')
-        .input(z.object({ id: z.string().min(1), ...accountField }))
+        .input(z.object({ id: z.string().min(1), ...accountField, ...writeKeyField }))
         .output(z.object({ ok: z.literal(true) }))
         .mutation(async ({ input, ctx }) => {
           try {
-            if (!studio.remove(accountOf(ctx, input.accountId), input.id)) missingStrategy();
-            return { ok: true as const };
+            const accountId = accountOf(ctx, input.accountId);
+            const prior = await replayOf(accountId, input.idempotencyKey);
+            if (prior?.operation === 'delete') return prior.response;
+            if (prior) idempotencyConflict(prior.operation);
+            const existing = await strategies.get({ accountId, id: input.id });
+            if (!existing) missingStrategy();
+            return strategies.softDelete({
+              accountId,
+              id: input.id,
+              idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
+            });
           } catch (err) {
             toTrpc(err);
           }
@@ -294,16 +369,21 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               id: z.string().min(1),
               name: z.string().min(1).max(128).optional(),
               ...accountField,
+              ...writeKeyField,
+              ...clientIdField,
             })
             .merge(environmentInput),
         )
-        .output(savedStrategy)
+        .output(strategyDetail)
         .mutation(async ({ input, ctx }) => {
           try {
             const accountId = accountOf(ctx, input.accountId);
-            const found = studio.get(accountId, input.id);
+            const prior = await replayOf(accountId, input.idempotencyKey);
+            if (prior?.operation === 'create') return prior.response;
+            if (prior) idempotencyConflict(prior.operation);
+            const found = await strategies.get({ accountId, id: input.id });
             if (!found) missingStrategy();
-            return saveStudio(
+            const built = buildSavedStrategy(
               {
                 name: input.name ?? found.name,
                 blocks: found.blocks,
@@ -312,9 +392,14 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 environment: input.environment ?? found.environment,
                 presentedAs: input.presentedAs ?? found.environment,
               },
-              studio,
-              accountId,
+              'studio_pending',
             );
+            return strategies.create({
+              accountId,
+              clientStrategyId: requireClientStrategyId(input.clientStrategyId),
+              idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
+              draft: draftOf(built),
+            });
           } catch (err) {
             toTrpc(err);
           }
@@ -327,7 +412,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         .mutation(async ({ input, ctx }) =>
           withQuantSpan('quant.studio.run', { language: 'javascript' }, async () => {
             try {
-              const found = studio.get(accountOf(ctx, input.accountId), input.id);
+              const found = await strategies.get({ accountId: accountOf(ctx, input.accountId), id: input.id });
               if (!found) missingStrategy();
               return runSandbox(
                 {
@@ -359,13 +444,14 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             .optional(),
         )
         .output(z.object({ strategies: z.array(strategyMetadata), quarantineCount: z.number().int().nonnegative() }))
-        .query(({ input, ctx }) => {
+        .query(async ({ input, ctx }) => {
           try {
             requireStudioOperator(ctx);
             const limit = assertStudioListLimit(input?.limit);
+            const page = await strategies.operatorList({ limit });
             return {
-              strategies: studio.listMetadata().slice(0, limit),
-              quarantineCount: studio.quarantineCount(),
+              strategies: page.strategies.slice(0, limit),
+              quarantineCount: page.quarantineCount,
             };
           } catch (err) {
             toTrpc(err);
@@ -379,6 +465,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           z
             .object({
               strategyId: z.string(),
+              strategyVersion: z.number().int().positive().optional().nullable(),
               symbol: z.string(),
               walkForward: z
                 .object({
@@ -399,16 +486,31 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 .optional()
                 .nullable(),
               strategyVariantCount: z.number().int().optional(),
+              ...accountField,
+              ...writeKeyField,
             })
             .merge(environmentInput),
         )
         .output(backtestOutput)
-        .mutation(async ({ input }) =>
+        .mutation(async ({ input, ctx }) =>
           withQuantSpan('quant.backtest.run', { language: 'fills' }, async () => {
             try {
-              return runBacktest(
+              const accountId = accountOf(ctx, input.accountId);
+              const prior = await replayOf(accountId, input.idempotencyKey);
+              if (prior?.operation === 'backtest') return prior.response;
+              if (prior) idempotencyConflict(prior.operation);
+              const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
+              const found = await strategies.get({ accountId, id: input.strategyId });
+              if (!found) missingStrategy();
+              const version =
+                input.strategyVersion == null
+                  ? found.version
+                  : found.versions.find((row) => row.version === input.strategyVersion)?.version;
+              if (!version) missingStrategy();
+              const ran = runBacktest(
                 {
-                  strategyId: input.strategyId,
+                  strategyId: found.id,
+                  strategyVersion: version,
                   symbol: input.symbol,
                   walkForward: input.walkForward,
                   outOfSampleStatus: input.outOfSampleStatus,
@@ -419,6 +521,14 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 },
                 lake,
               );
+              return strategies.saveBacktest({
+                accountId,
+                idempotencyKey,
+                strategyId: found.id,
+                strategyVersion: version,
+                symbol: input.symbol,
+                result: ran,
+              });
             } catch (err) {
               toTrpc(err);
             }

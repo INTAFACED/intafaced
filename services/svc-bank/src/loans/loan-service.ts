@@ -55,6 +55,7 @@ import {
   type Mark,
   type PortfolioMark,
 } from './risk.js';
+import { readLoanBook, type LoanBook } from '../ops/loan-book.js';
 
 /**
  * LOANS (§8.1) — collateral lock, LTV marking, margin call, liquidation, accrual.
@@ -578,11 +579,13 @@ export class LoanService {
 
     const inserted = await this.sql<Array<Record<string, unknown>>>`
       INSERT INTO bank.loans (
-        id, product_id, user_id, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, principal, opening_collateral, opened_at
+        id, product_id, user_id, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, principal, opening_collateral, opened_at,
+        margin_call_ltv_bps, liquidation_ltv_bps
       ) VALUES (
         ${loanId}, ${product.id}, ${input.userId}, ${product.debtAssetId}, ${product.collateralAssetId},
         ${product.quoteAssetId}, ${product.aprBps}, ${formatAmount(input.principal)}::numeric,
-        ${formatAmount(input.collateralAmount)}::numeric, ${now}
+        ${formatAmount(input.collateralAmount)}::numeric, ${now},
+        ${product.policy.marginCallLtvBps}, ${product.policy.liquidationLtvBps}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING *
@@ -2762,6 +2765,28 @@ export class LoanService {
       drift,
       independent,
     };
+  }
+
+  /**
+   * Marks that pass the marking guards. A missing asset is omitted.
+   * The loan book uses that omission as `unpriced` rather than as healthy.
+   */
+  marksAccepted(assetIds: readonly string[], quoteAssetId: string, now: Date): Promise<Map<string, QuotedMark>> {
+    return this.acceptedMarks(assetIds, quoteAssetId, now);
+  }
+
+  /** Open book: counts, principal per asset, bands at the thresholds stored on each loan. */
+  loanBook(now = new Date()): Promise<LoanBook> {
+    return readLoanBook(
+      {
+        sql: this.sql,
+        loan: (id) => this.loan(id),
+        outstanding: (id) => this.outstanding(id),
+        collateralOf: (loan) => this.collateralOf(loan as LoanRecord),
+        marksAccepted: (assetIds, quote, at) => this.marksAccepted(assetIds, quote, at),
+      },
+      now,
+    );
   }
 
   /** Insurance-fund balance — the platform's declared capacity to absorb bad debt. */

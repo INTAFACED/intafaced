@@ -7,12 +7,16 @@ import {
   MoneyError,
   parseAmount,
   recipes,
+  sub,
   type Amount,
   type LedgerClient,
   type LedgerTx,
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { decimalPriceFromDriver, purchasePriceTermsMatch } from './commerce-price.js';
+import type { ActionApproval } from '@intafaced/contracts';
+import { marketActionPayloadHash, readApprovalIds, type ActionApprovalConsumer } from '../action-approval-consume.js';
+import { commissionOfSnapshot, queryOpsSales, type OpsSalesPage, type OpsSalesQuery } from '../ops/ops-sales.js';
 import {
   affiliateLegAfterMarketPurchase,
   fireAffiliateAccrue,
@@ -20,7 +24,7 @@ import {
   type AffiliateAccruePort,
 } from '../affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from '../affiliate-payout.js';
-import { MarketError, type VendorService } from '../vendor-service.js';
+import { MARKET_OPS_SCOPE, MarketError, type VendorService } from '../vendor-service.js';
 
 /** Public `listings` page size unpublished. Blank is not 50. */
 export const MARKET_PUBLIC_LISTINGS_LIST_LIMIT_UNSET = 'market.public_listings_list_limit_unset' as const;
@@ -95,7 +99,23 @@ export function assertMyPurchasesListLimit(limit: number | undefined): number {
  */
 
 export type OfferType = 'one_time' | 'subscription';
-export type ListingStatus = 'active' | 'archived';
+export type ListingStatus = 'active' | 'archived' | 'taken_down';
+export type ListingSort = 'newest' | 'priceAsc' | 'priceDesc' | 'title';
+
+export const MARKET_LISTINGS_SORT_UNSET = 'market.listings_sort_unset' as const;
+export const MARKET_LISTINGS_SORT_UNKNOWN = 'market.listings_sort_unknown' as const;
+export const MARKET_LISTINGS_CURSOR_INVALID = 'market.listings_cursor_invalid' as const;
+export const MARKET_LISTING_TAKEN_DOWN = 'market.listing_taken_down' as const;
+export const MARKET_TAKEDOWN_REASON_SHORT = 'market.takedown_reason_short' as const;
+export const MARKET_TAKEDOWN_APPROVAL_MISMATCH = 'market.takedown_approval_mismatch' as const;
+export const MARKET_CLIENT_REQUEST_ID_REQUIRED = 'market.client_request_id_required' as const;
+export const MARKET_IDEMPOTENCY_CONFLICT = 'market.idempotency_conflict' as const;
+export const MARKET_EARNINGS_WINDOW_UNSET = 'market.earnings_window_unset' as const;
+export const MARKET_EARNINGS_VENDOR_REQUIRED = 'market.earnings_vendor_required' as const;
+export const MARKET_OPS_REQUIRED = 'market.ops_required' as const;
+
+const LISTING_SORTS: readonly ListingSort[] = ['newest', 'priceAsc', 'priceDesc', 'title'];
+const CATALOGUE_BATCH = 64;
 export type PurchaseStatus = 'pending' | 'settled' | 'rejected';
 
 export interface ListingRecord {
@@ -115,6 +135,50 @@ export interface ListingRecord {
   status: ListingStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PublicListingRecord extends ListingRecord {
+  /** That vendor's listings with status `active`. Integer, not a float. */
+  vendorListingCount: number;
+}
+
+export interface PublicListingsPage {
+  items: PublicListingRecord[];
+  nextCursor: string | null;
+}
+
+export interface EarningsSale {
+  purchaseId: string;
+  listingId: string;
+  assetId: string;
+  gross: string;
+  commission: string;
+  net: string;
+  ledgerTxId: string;
+  settledAt: string;
+}
+
+export interface EarningsAsset {
+  assetId: string;
+  gross: string;
+  commission: string;
+  net: string;
+}
+
+export interface EarningsReport {
+  from: string;
+  to: string;
+  assets: EarningsAsset[];
+  /** Settled sales in the window. Each ledger id is the purchase posting. */
+  sales: EarningsSale[];
+}
+
+export interface TakedownResult {
+  listingId: string;
+  status: 'taken_down';
+  reason: string;
+  actorId: string;
+  takenDownAt: string;
 }
 
 export interface PurchaseRecord {
@@ -153,6 +217,9 @@ interface ListingRow {
   status: ListingStatus;
   created_at: Date;
   updated_at: Date;
+  vendor_listing_count?: string;
+  /** Microseconds since epoch, text, for the newest keyset. */
+  created_us?: string;
 }
 
 interface PurchaseRow {
@@ -356,6 +423,9 @@ export class CommerceService {
 
   async archiveListing(input: { userId: string; listingId: string }): Promise<ListingRecord> {
     const listing = await this.requireOwnedListing(input.userId, input.listingId);
+    if (listing.status === 'taken_down') {
+      throw new MarketError(MARKET_LISTING_TAKEN_DOWN, MARKET_LISTING_TAKEN_DOWN);
+    }
     if (listing.status === 'archived') return listing;
 
     const updated = await this.sql<ListingRow[]>`
@@ -409,9 +479,10 @@ export class CommerceService {
    *
    * Subscription listings appear only when they carry a period — leftover rows
    * without one cannot be sold, so they stay off the shopfront.
+   * `taken_down` and `archived` are not `active`, so they never appear.
    *
-   * Order is registration (`created_at ASC`), same boring rule as `listed`
-   * vendors — ranking / featured / newest-first is DIRECTION §8 and owner-only.
+   * Order is registration (`created_at ASC, id ASC`), same boring rule as `listed`
+   * vendors — ranking / featured / newest-first is the paged procedure and owner-only.
    * Oldest-first also matches over-capacity prune (entitled slots keep the
    * earliest listings).
    *
@@ -453,6 +524,47 @@ export class CommerceService {
   }
 
   /**
+   * Paged public catalogue. Same visibility as `publicListings`: active rows
+   * only, so a taken-down listing stays out. Search, offer, asset, and sort
+   * live here. `sort` is required — omit or blank is `market.listings_sort_unset`.
+   * There is no default order. Price order is the numeric column, with id as
+   * the tie-break. The cursor is an opaque keyset of that pair.
+   * Page size is owner-published — omit is not 50. Blank house commission
+   * returns an empty page after the limit and sort checks.
+   */
+  async publicListingsPage(opts?: {
+    q?: string | undefined;
+    offerType?: OfferType | undefined;
+    assetId?: string | undefined;
+    sort?: string | undefined;
+    limit?: number | undefined;
+    cursor?: string | undefined;
+  }): Promise<PublicListingsPage> {
+    const limit = assertPublicListingsListLimit(opts?.limit);
+    const sort = resolveListingSort(opts?.sort);
+    if (this.config.commissionBps === null) return { items: [], nextCursor: null };
+    const cursor = decodeListingCursor(opts?.cursor, sort);
+    const offerType = opts?.offerType ?? null;
+    const assetId = opts?.assetId?.trim() ? opts.assetId.trim() : null;
+    const needle = opts?.q?.trim() ? opts.q.trim().toLowerCase() : null;
+    const items: PublicListingRecord[] = [];
+    let scan = cursor;
+    for (;;) {
+      const rows = await this.catalogueBatch(sort, scan, offerType, assetId, needle);
+      if (rows.length === 0) return { items, nextCursor: null };
+      for (const row of rows) {
+        scan = cursorFromRow(sort, row);
+        if (!(await this.catalogueRowVisible(row))) continue;
+        items.push(toPublicListing(row));
+        if (items.length === limit) {
+          return { items, nextCursor: encodeListingCursor(scan) };
+        }
+      }
+      if (rows.length < CATALOGUE_BATCH) return { items, nextCursor: null };
+    }
+  }
+
+  /**
    * Automatic recurring charge is not a second recipe. One period is `purchase`.
    * Named refuse so this door cannot be mistaken for a silent scheduler.
    */
@@ -487,6 +599,9 @@ export class CommerceService {
     const commissionBps = this.requireCommissionConfigured();
 
     const listing = await this.getListing(input.listingId);
+    if (listing?.status === 'taken_down') {
+      throw new MarketError(MARKET_LISTING_TAKEN_DOWN, MARKET_LISTING_TAKEN_DOWN);
+    }
     if (!listing || listing.status !== 'active') {
       throw new MarketError('No active listing with that id', 'market.listing_not_found');
     }
@@ -530,6 +645,9 @@ export class CommerceService {
 
     // Re-check after claim so a stake drop / suspend between claim and post cannot sell.
     const liveListing = await this.getListing(claimed.listingId);
+    if (liveListing?.status === 'taken_down') {
+      throw new MarketError(MARKET_LISTING_TAKEN_DOWN, MARKET_LISTING_TAKEN_DOWN);
+    }
     if (!liveListing || liveListing.status !== 'active') {
       throw new MarketError('No active listing with that id', 'market.listing_not_found');
     }
@@ -655,6 +773,185 @@ export class CommerceService {
        LIMIT ${limit}
     `;
     return rows.map(toPurchase);
+  }
+
+  /**
+   * Vendor earnings for a required window. Gross, commission, and net are exact
+   * decimals. Commission is each settled row's own `commission_bps`, floored
+   * the same way `marketPurchase` floors. The sale list is those ledger postings.
+   * No payout schedule and no payout batch.
+   */
+  opsSales(input: OpsSalesQuery): Promise<OpsSalesPage> {
+    return queryOpsSales(this.sql, input);
+  }
+
+  async myEarnings(input: { userId: string; from?: string | undefined; to?: string | undefined }): Promise<EarningsReport> {
+    const window = requireEarningsWindow(input.from, input.to);
+    const mine = await this.vendors.myVendor(input.userId);
+    if (!mine || (mine.status !== 'approved' && mine.status !== 'suspended')) {
+      throw new MarketError(MARKET_EARNINGS_VENDOR_REQUIRED, MARKET_EARNINGS_VENDOR_REQUIRED);
+    }
+    const fromIso = window.from.toISOString();
+    const toIso = window.to.toISOString();
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        listing_id: string;
+        asset_id: string;
+        price: string;
+        commission_bps: number;
+        ledger_tx_id: string | null;
+        settled_at: Date;
+      }>
+    >`
+      SELECT id, listing_id, asset_id, price::text AS price, commission_bps, ledger_tx_id, settled_at
+        FROM market.purchases
+       WHERE vendor_id = ${mine.id}
+         AND status = 'settled'
+         AND settled_at >= ${fromIso}::timestamptz
+         AND settled_at <= ${toIso}::timestamptz
+       ORDER BY settled_at ASC, id ASC
+    `;
+    const byAsset = new Map<string, { gross: Amount; commission: Amount; net: Amount }>();
+    const sales: EarningsSale[] = [];
+    for (const row of rows) {
+      if (!row.ledger_tx_id || !row.settled_at) {
+        throw new MarketError('Settled purchase is missing its ledger posting', 'market.purchase_not_written');
+      }
+      const gross = parseAmount(row.price);
+      const commission = commissionOfSnapshot(row.price, row.commission_bps);
+      const net = sub(gross, commission);
+      const bucket = byAsset.get(row.asset_id) ?? { gross: 0n, commission: 0n, net: 0n };
+      bucket.gross += gross;
+      bucket.commission += commission;
+      bucket.net += net;
+      byAsset.set(row.asset_id, bucket);
+      sales.push({
+        purchaseId: row.id,
+        listingId: row.listing_id,
+        assetId: row.asset_id,
+        gross: formatAmount(gross),
+        commission: formatAmount(commission),
+        net: formatAmount(net),
+        ledgerTxId: row.ledger_tx_id,
+        settledAt: row.settled_at.toISOString(),
+      });
+    }
+    const assets = [...byAsset.entries()]
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([assetId, bucket]) => ({
+        assetId,
+        gross: formatAmount(bucket.gross),
+        commission: formatAmount(bucket.commission),
+        net: formatAmount(bucket.net),
+      }));
+    return { from: fromIso, to: toIso, assets, sales };
+  }
+
+  /**
+   * Operator takedown. Identity consume is the gate; the status, audit columns,
+   * slot release, and client-id row commit together. A replay of the same client
+   * id returns the stored result and does not consume again or post a ledger entry.
+   */
+  async takedownListing(
+    input: {
+      actorId: string;
+      actorScope: string;
+      listingId: string;
+      reason: string;
+      approvalId?: string | null;
+      operationId?: string | null;
+      clientRequestId: string;
+    },
+    approvals: ActionApprovalConsumer,
+  ): Promise<TakedownResult> {
+    if (input.actorScope !== MARKET_OPS_SCOPE) {
+      throw new MarketError(MARKET_OPS_REQUIRED, MARKET_OPS_REQUIRED);
+    }
+    const clientRequestId = input.clientRequestId?.trim() ?? '';
+    if (!clientRequestId || clientRequestId.length > 128) {
+      throw new MarketError(MARKET_CLIENT_REQUEST_ID_REQUIRED, MARKET_CLIENT_REQUEST_ID_REQUIRED);
+    }
+    const reason = input.reason?.trim() ?? '';
+    if (reason.length < 10 || reason.length > 2000) {
+      throw new MarketError(MARKET_TAKEDOWN_REASON_SHORT, MARKET_TAKEDOWN_REASON_SHORT);
+    }
+    const ids = readApprovalIds(input);
+    const [prior] = await this.sql<Array<{ listing_id: string; result: TakedownResult }>>`
+      SELECT listing_id, result FROM market.listing_takedowns WHERE client_request_id = ${clientRequestId}
+    `;
+    if (prior) {
+      if (prior.listing_id !== input.listingId) {
+        throw new MarketError(MARKET_IDEMPOTENCY_CONFLICT, MARKET_IDEMPOTENCY_CONFLICT);
+      }
+      const stored = prior.result as TakedownResult | string;
+      return typeof stored === 'string' ? (JSON.parse(stored) as TakedownResult) : stored;
+    }
+    const listing = await this.getListing(input.listingId);
+    if (!listing) throw new MarketError('No listing with that id', 'market.listing_not_found');
+    if (listing.status === 'taken_down') {
+      throw new MarketError(MARKET_LISTING_TAKEN_DOWN, MARKET_LISTING_TAKEN_DOWN);
+    }
+    const payloadHash = marketActionPayloadHash('market.takedown', { listingId: input.listingId, reason });
+    const consumed = await approvals.consume({
+      approvalId: ids.approvalId,
+      operationId: ids.operationId,
+      payloadHash,
+      targetService: 'svc-market',
+      targetId: input.listingId,
+      expectedVersion: '1',
+    });
+    assertTakedownApproval(consumed, input.listingId, payloadHash);
+    return transaction(this.sql, async (tx) => {
+      const [locked] = await tx<ListingRow[]>`
+        SELECT * FROM market.listings WHERE id = ${input.listingId} FOR UPDATE
+      `;
+      if (!locked) throw new MarketError('No listing with that id', 'market.listing_not_found');
+      if (locked.status === 'taken_down') {
+        throw new MarketError(MARKET_LISTING_TAKEN_DOWN, MARKET_LISTING_TAKEN_DOWN);
+      }
+      const [updated] = await tx<Array<{ taken_down_at: Date }>>`
+        UPDATE market.listings
+           SET status = 'taken_down',
+               taken_down_reason = ${reason},
+               taken_down_actor_id = ${input.actorId},
+               taken_down_at = now(),
+               updated_at = now()
+         WHERE id = ${input.listingId}
+           AND status <> 'taken_down'
+        RETURNING taken_down_at
+      `;
+      if (!updated?.taken_down_at) {
+        throw new MarketError(MARKET_LISTING_TAKEN_DOWN, MARKET_LISTING_TAKEN_DOWN);
+      }
+      await tx`
+        UPDATE market.vendor_slots
+           SET released_at = now()
+         WHERE vendor_id = ${locked.vendor_id}
+           AND ref = ${input.listingId}
+           AND released_at IS NULL
+      `;
+      const result: TakedownResult = {
+        listingId: input.listingId,
+        status: 'taken_down',
+        reason,
+        actorId: input.actorId,
+        takenDownAt: updated.taken_down_at.toISOString(),
+      };
+      await tx`
+        INSERT INTO market.listing_takedowns (
+          client_request_id, listing_id, actor_id, approval_id, reason, result
+        ) VALUES (
+          ${clientRequestId},
+          ${input.listingId},
+          ${input.actorId},
+          ${ids.approvalId},
+          ${reason},
+          ${tx.json(JSON.parse(JSON.stringify(result)))}
+        )
+      `;
+      return result;
+    });
   }
 
   /**
@@ -1126,5 +1423,186 @@ export class CommerceService {
       }
       return toPurchase(row);
     }
+  }
+
+  private async catalogueRowVisible(row: ListingRow): Promise<boolean> {
+    try {
+      const elig = await this.vendors.listingEligibility({ vendorId: row.vendor_id });
+      if (!elig.listed) return false;
+      if (!(await this.listingHoldsLiveSlot(row.id, row.vendor_id))) return false;
+      const entitled = await this.vendors.entitledListingRefs(row.vendor_id);
+      return entitled.has(row.id);
+    } catch (err) {
+      if (err instanceof MarketError && err.code === 'market.stake_unavailable') return false;
+      throw err;
+    }
+  }
+
+  private catalogueBatch(
+    sort: ListingSort,
+    cursor: ListingCursor | null,
+    offerType: string | null,
+    assetId: string | null,
+    needle: string | null,
+  ): Promise<ListingRow[]> {
+    const createdUs = sort === 'newest' ? (cursor?.createdAt ?? null) : null;
+    const price = sort === 'priceAsc' || sort === 'priceDesc' ? (cursor?.price ?? null) : null;
+    const title = sort === 'title' ? (cursor?.title ?? null) : null;
+    const id = cursor?.id ?? null;
+    const where = this.sql`
+      l.status = 'active'
+      AND (
+        l.offer_type = 'one_time'
+        OR (l.offer_type = 'subscription' AND l.period_seconds IS NOT NULL)
+      )
+      AND (${offerType}::text IS NULL OR l.offer_type = ${offerType})
+      AND (${assetId}::text IS NULL OR l.asset_id = ${assetId})
+      AND (${needle}::text IS NULL OR strpos(lower(l.title), ${needle}) > 0)
+    `;
+    const count = this.sql`
+      (
+        SELECT count(*)::text FROM market.listings c
+         WHERE c.vendor_id = l.vendor_id AND c.status = 'active'
+      ) AS vendor_listing_count,
+      floor(extract(epoch FROM l.created_at) * 1000000)::text AS created_us
+    `;
+    if (sort === 'newest') {
+      return this.sql<ListingRow[]>`
+        SELECT l.*, ${count}
+          FROM market.listings l
+         WHERE ${where}
+           AND (
+             ${createdUs}::numeric IS NULL
+             OR (floor(extract(epoch FROM l.created_at) * 1000000), l.id) < (${createdUs}::numeric, ${id}::uuid)
+           )
+         ORDER BY l.created_at DESC, l.id DESC
+         LIMIT ${CATALOGUE_BATCH}
+      `;
+    }
+    if (sort === 'priceAsc') {
+      return this.sql<ListingRow[]>`
+        SELECT l.*, ${count}
+          FROM market.listings l
+         WHERE ${where}
+           AND (
+             ${price}::numeric IS NULL
+             OR (l.price, l.id) > (${price}::numeric, ${id}::uuid)
+           )
+         ORDER BY l.price ASC, l.id ASC
+         LIMIT ${CATALOGUE_BATCH}
+      `;
+    }
+    if (sort === 'priceDesc') {
+      return this.sql<ListingRow[]>`
+        SELECT l.*, ${count}
+          FROM market.listings l
+         WHERE ${where}
+           AND (
+             ${price}::numeric IS NULL
+             OR (l.price, l.id) < (${price}::numeric, ${id}::uuid)
+           )
+         ORDER BY l.price DESC, l.id DESC
+         LIMIT ${CATALOGUE_BATCH}
+      `;
+    }
+    return this.sql<ListingRow[]>`
+      SELECT l.*, ${count}
+        FROM market.listings l
+       WHERE ${where}
+         AND (
+           ${title}::text IS NULL
+           OR (l.title, l.id) > (${title}, ${id}::uuid)
+         )
+       ORDER BY l.title ASC, l.id ASC
+       LIMIT ${CATALOGUE_BATCH}
+    `;
+  }
+}
+
+interface ListingCursor {
+  sort: ListingSort;
+  id: string;
+  createdAt?: string;
+  price?: string;
+  title?: string;
+}
+
+function toPublicListing(row: ListingRow): PublicListingRecord {
+  const count = Number(row.vendor_listing_count);
+  if (!Number.isInteger(count) || count < 0) {
+    throw new MarketError('market.vendor_listing_count_unreadable', 'market.vendor_listing_count_unreadable');
+  }
+  return { ...toListing(row), vendorListingCount: count };
+}
+
+function resolveListingSort(sort: string | undefined): ListingSort {
+  if (sort === undefined || sort.trim() === '') {
+    throw new MarketError(MARKET_LISTINGS_SORT_UNSET, MARKET_LISTINGS_SORT_UNSET);
+  }
+  if ((LISTING_SORTS as readonly string[]).includes(sort)) return sort as ListingSort;
+  throw new MarketError(MARKET_LISTINGS_SORT_UNKNOWN, MARKET_LISTINGS_SORT_UNKNOWN);
+}
+
+function cursorFromRow(sort: ListingSort, row: ListingRow): ListingCursor {
+  if (sort === 'newest') {
+    if (!row.created_us) throw new MarketError(MARKET_LISTINGS_CURSOR_INVALID, MARKET_LISTINGS_CURSOR_INVALID);
+    return { sort, id: row.id, createdAt: row.created_us };
+  }
+  if (sort === 'title') return { sort, id: row.id, title: row.title };
+  return { sort, id: row.id, price: decimalPriceFromDriver(row.price) };
+}
+
+function encodeListingCursor(cursor: ListingCursor): string {
+  return Buffer.from(JSON.stringify({ v: 1, ...cursor }), 'utf8').toString('base64url');
+}
+
+function decodeListingCursor(cursor: string | undefined, sort: ListingSort): ListingCursor | null {
+  if (cursor === undefined || cursor.trim() === '') return null;
+  try {
+    const raw = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      v?: unknown;
+      sort?: unknown;
+      id?: unknown;
+      createdAt?: unknown;
+      price?: unknown;
+      title?: unknown;
+    };
+    if (raw.v !== 1 || raw.sort !== sort || typeof raw.id !== 'string') {
+      throw new MarketError(MARKET_LISTINGS_CURSOR_INVALID, MARKET_LISTINGS_CURSOR_INVALID);
+    }
+    if (sort === 'newest' && typeof raw.createdAt === 'string') return { sort, id: raw.id, createdAt: raw.createdAt };
+    if (sort === 'title' && typeof raw.title === 'string') return { sort, id: raw.id, title: raw.title };
+    if ((sort === 'priceAsc' || sort === 'priceDesc') && typeof raw.price === 'string') {
+      return { sort, id: raw.id, price: raw.price };
+    }
+    throw new MarketError(MARKET_LISTINGS_CURSOR_INVALID, MARKET_LISTINGS_CURSOR_INVALID);
+  } catch (err) {
+    if (err instanceof MarketError) throw err;
+    throw new MarketError(MARKET_LISTINGS_CURSOR_INVALID, MARKET_LISTINGS_CURSOR_INVALID);
+  }
+}
+
+function requireEarningsWindow(from: string | undefined, to: string | undefined): { from: Date; to: Date } {
+  const start = from && from.trim() ? new Date(from) : null;
+  const end = to && to.trim() ? new Date(to) : null;
+  if (!start || !end || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end.getTime() < start.getTime()) {
+    throw new MarketError(MARKET_EARNINGS_WINDOW_UNSET, MARKET_EARNINGS_WINDOW_UNSET);
+  }
+  return { from: start, to: end };
+}
+
+function assertTakedownApproval(row: ActionApproval, listingId: string, payloadHash: string): void {
+  const approver = row.approverId?.trim() ?? '';
+  const requester = row.requesterId.trim();
+  if (
+    row.status !== 'CONSUMED' ||
+    row.actionType !== 'market.takedown' ||
+    row.targetService !== 'svc-market' ||
+    row.targetId !== listingId ||
+    row.payloadHash !== payloadHash ||
+    !approver ||
+    approver.toLowerCase() === requester.toLowerCase()
+  ) {
+    throw new MarketError(MARKET_TAKEDOWN_APPROVAL_MISMATCH, MARKET_TAKEDOWN_APPROVAL_MISMATCH);
   }
 }

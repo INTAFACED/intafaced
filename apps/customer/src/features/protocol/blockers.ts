@@ -87,6 +87,8 @@ export type BlockerCode =
   | 'no_chain_service'
   | 'no_bridge_service'
   | 'source_down'
+  | 'source_no_reply'
+  | 'source_checking'
   | 'source_not_connected'
   | 'chain_unreachable'
   | 'chain_mismatch'
@@ -140,12 +142,12 @@ function needs<K extends keyof ProtocolSnapshot>(
     if (source.status === 'ok') return then(source.data as never, snap);
     if (source.status === 'down' && isServiceNotConnected(source.code))
       return blocker('source_not_connected', { service: serviceName[key] });
-    return blocker('source_down', {
-      source: sourceName[key],
-      // An unreachable source's message is the generic "didn't answer, try again", which repeats the sentence and
-      // offers a button the blocker list doesn't have.
-      reason: source.status !== 'down' ? 'still checking' : source.reason === 'unreachable' ? 'no reply' : inSentence(source.message),
-    });
+    // Still loading: not confirmed yet, so it blocks like "no".
+    if (source.status !== 'down') return blocker('source_checking', { source: sourceName[key] });
+    // An unreachable source's message is the generic "didn't answer, try again", which repeats the sentence and
+    // offers a button the blocker list doesn't have: say which service did not answer instead.
+    if (source.reason === 'unreachable') return blocker('source_no_reply', { source: sourceName[key], service: serviceName[key] });
+    return blocker('source_down', { source: sourceName[key], reason: inSentence(source.message) });
   };
 }
 

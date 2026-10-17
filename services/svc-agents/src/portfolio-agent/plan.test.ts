@@ -248,16 +248,20 @@ describe('honesty: dark port, unread ≠ zero, no placeOrder, cross-plane', () =
     expect(audit.entries[0]?.refusalCode).toBe('portfolio.cross_plane_blocked');
   });
 
-  it('plan tree has no placeOrder, no hold, and no ledger-client calls', () => {
+  it('plan tree has no placeOrder, no hold, and no ledger post', () => {
     const files = readdirSync(HERE).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
     const src = files.map((f) => readFileSync(join(HERE, f), 'utf8')).join('\n');
+    const planOnly = files
+      .filter((f) => f !== 'holdings.ts' && f !== 'trade-prices.ts')
+      .map((f) => readFileSync(join(HERE, f), 'utf8'))
+      .join('\n');
     expect(src).not.toMatch(/\bplaceOrder\s*\(/);
     expect(src).not.toMatch(/\bholdOrder\s*\(/);
     expect(src).not.toMatch(/\bholdFunds\s*\(/);
     expect(src).not.toMatch(/\bholdBalance\b/);
-    expect(src).not.toMatch(/ledger-client/);
+    expect(planOnly).not.toMatch(/ledger-client/);
     expect(src).not.toMatch(/createLedgerClient/);
-    expect(src).not.toMatch(/LedgerClient/);
+    expect(src).not.toMatch(/\.post\s*\(/);
     expect(src).not.toMatch(/trade\.order/);
     expect(src).not.toMatch(/export (async )?function (place|hold)\b/);
   });

@@ -126,6 +126,14 @@ const schema = serviceEnvSchema
       TRADE_URL: blankAsAbsent(z.string().url().optional()),
 
       /**
+       * Quote asset for portfolio.plan marks (`GET /api/v1/ticker/:asset/:quote`).
+       * Blank / unset leaves the price port unwired: plan stays `portfolio.port_dark`.
+       * Never invent a quote (no USD default). An asset with no ticker refuses
+       * `portfolio.price_unset` once this and TRADE_URL are both set.
+       */
+      PORTFOLIO_QUOTE_ASSET: blankAsAbsent(z.string().trim().min(1).max(32).optional()),
+
+      /**
        * svc-pay base for merchant approval-rate watch
        * (`GET /internal/agents/merchant-watch-metrics`). Unset / blank → merchant
        * watch refuses `no_live_metrics`. No localhost default.

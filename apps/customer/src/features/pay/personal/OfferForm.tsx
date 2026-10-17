@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useResource } from '../../../shared/resource';
-import { EmptyState } from '../../../shared/ui';
+import { EmptyState } from '../ui-kit';
 import { PayDetails, PayFailure, PayState } from '../components';
 import type { PersonalPayApi } from '../pay-api';
 import { id } from '../schemas';
@@ -15,7 +15,7 @@ import {
   type OfferFormValues,
 } from './p2p-model';
 import { P2PReason } from './P2PDepth';
-import { Button } from '../../../shared/ui';
+import { Button } from '@intafaced/ui';
 import './p2p-depth.css';
 
 /**

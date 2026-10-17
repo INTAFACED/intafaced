@@ -212,6 +212,8 @@ export const newLinkSchema = z.object({
   label: z.string(),
   expiresAt: z.string().datetime({ offset: true }),
   maxUses: z.number().int().nullable(),
+  /** The service's own checkout address: a path from its public base, or a full web address. Older services omit it. */
+  checkoutUrl: z.string().min(1).max(2048).nullish(),
 });
 export const resolvedLinkSchema = z.object({
   id,
@@ -236,6 +238,8 @@ export const checkoutSchema = z.object({
 });
 export const paymentSchema = z.object({
   id,
+  customerRef: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
   merchantId: id,
   profileId: id.nullable(),
   amount,

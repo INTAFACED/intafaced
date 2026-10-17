@@ -322,6 +322,7 @@ export class UsageMeter {
           UPDATE agents.usage_windows
              SET sealed_at = now(),
                  charged_amount = ${formatAmount(amount)}::numeric,
+                 charged_asset = ${this.assetId},
                  charge_key = ${chargeKey},
                  charge_tx_id = ${txId}
            WHERE session_id = ${input.sessionId} AND window_id = ${input.windowId}

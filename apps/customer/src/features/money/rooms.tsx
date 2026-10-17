@@ -43,6 +43,7 @@ import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
 import { splitAnalytics } from './analytics-model';
+import { GoalProgress, MovementBars } from './GoalAndMovement';
 import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows } from './form-preview';
 import { RecipientPicker } from './RecipientPicker';
 import { BusinessBank } from './BusinessBank';
@@ -266,6 +267,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
                             </dd>
                           </div>
                         </dl>
+                        <GoalProgress balance={space.balance} target={space.goalTarget} assetId={space.assetId} />
                         <SpaceActions space={space} open={open} />
                       </article>
                     ))
@@ -1403,6 +1405,7 @@ function Analytics() {
                     <strong className="numeric">{funds(summary.net, summary.assetId)}</strong>
                   </div>
                 </div>
+                <MovementBars inflow={summary.totalInflow} outflow={summary.totalOutflow} net={summary.net} assetId={summary.assetId} />
                 <p className="money-caption">
                   {summary.movements}
                   <Text k="rooms.ledger.movements.transfers.between.your.spaces.may" />

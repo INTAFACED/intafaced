@@ -16,6 +16,13 @@ export const QUANT_SIMULATED_AS_LIVE = 'quant.simulated_as_live' as const;
 export const QUANT_CASH_UNSET = 'quant.cash_unset' as const;
 export const QUANT_STUDIO_LIST_LIMIT_UNSET = 'quant.studio_list_limit_unset' as const;
 export const QUANT_STUDIO_NOT_FOUND = 'quant.studio_not_found' as const;
+export const QUANT_CLIENT_STRATEGY_ID_UNSET = 'quant.client_strategy_id_unset' as const;
+export const QUANT_IDEMPOTENCY_KEY_UNSET = 'quant.idempotency_key_unset' as const;
+export const QUANT_IDEMPOTENCY_CONFLICT = 'quant.idempotency_conflict' as const;
+export const QUANT_STRATEGY_VERSION_UNSET = 'quant.strategy_version_unset' as const;
+export const QUANT_LIST_CURSOR_INVALID = 'quant.list_cursor_invalid' as const;
+export const QUANT_DATABASE_URL_UNSET = 'quant.database_url_unset' as const;
+export const QUANT_DATABASE_POOL_MAX_UNSET = 'quant.database_pool_max_unset' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -36,6 +43,13 @@ export type QuantCode =
   | typeof QUANT_CASH_UNSET
   | typeof QUANT_STUDIO_LIST_LIMIT_UNSET
   | typeof QUANT_STUDIO_NOT_FOUND
+  | typeof QUANT_CLIENT_STRATEGY_ID_UNSET
+  | typeof QUANT_IDEMPOTENCY_KEY_UNSET
+  | typeof QUANT_IDEMPOTENCY_CONFLICT
+  | typeof QUANT_STRATEGY_VERSION_UNSET
+  | typeof QUANT_LIST_CURSOR_INVALID
+  | typeof QUANT_DATABASE_URL_UNSET
+  | typeof QUANT_DATABASE_POOL_MAX_UNSET
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

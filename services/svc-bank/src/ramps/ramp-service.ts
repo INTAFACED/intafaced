@@ -246,6 +246,21 @@ export class RampService {
     return this.programme;
   }
 
+  /** On-ramp and off-ramp attempts opened at or after `since`. Health reads this; it invents no probe. */
+  async attemptsSince(since: Date): Promise<Array<{ rail: string; status: string; created_at: Date; settled_at: Date | null }>> {
+    const onramps = await this.sql<Array<{ rail: string; status: string; created_at: Date; settled_at: Date | null }>>`
+      SELECT rail, status::text AS status, created_at, settled_at
+        FROM bank.ramp_onramps
+       WHERE created_at >= ${since}
+    `;
+    const offramps = await this.sql<Array<{ rail: string; status: string; created_at: Date; settled_at: Date | null }>>`
+      SELECT rail, status::text AS status, created_at, settled_at
+        FROM bank.ramp_offramps
+       WHERE created_at >= ${since}
+    `;
+    return [...onramps, ...offramps];
+  }
+
   /**
    * Live cash movement stays refused. The programme remains simulated.
    * An amount on the call is not posted.

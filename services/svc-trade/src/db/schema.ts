@@ -153,6 +153,10 @@ export const markets = trade.table(
     schedule: tradingScheduleEnum('schedule').notNull().default('crypto-24x7'),
     /** Paper/sim market — placeOrder never posts real ledger holds. */
     paper: boolean('paper').notNull().default(false),
+    /** Local TEST listing. Default false. Hidden unless TRADE_FUTURES_TEST_SEED is on. */
+    test: boolean('test').notNull().default(false),
+    /** Explicit seed values. Null on production rows. */
+    testFixture: jsonb('test_fixture'),
     /**
      * European option terms (0017) — all null unless kind=options.
      * CHECK `markets_options_terms_ck` makes half-listed options impossible.
@@ -515,4 +519,27 @@ export const positionFundingApplied = trade.table(
   (t) => [primaryKey({ columns: [t.positionId, t.periodId] }), index('position_funding_applied_period_idx').on(t.periodId)],
 );
 
-export const schema = { markets, orders, orderReplaceRequests, fills, positions, positionMarginAdjustments, positionFundingApplied };
+/** Observed futures marks. A 24h change is two of these, or null when the span is short. */
+export const futuresMarkSamples = trade.table(
+  'futures_mark_samples',
+  {
+    marketId: uuid('market_id')
+      .notNull()
+      .references(() => markets.id, { onDelete: 'cascade' }),
+    price: amount('price').notNull(),
+    observedAt: tstz('observed_at').notNull(),
+    source: text('source').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.marketId, t.observedAt] })],
+);
+
+export const schema = {
+  markets,
+  orders,
+  orderReplaceRequests,
+  fills,
+  positions,
+  positionMarginAdjustments,
+  positionFundingApplied,
+  futuresMarkSamples,
+};

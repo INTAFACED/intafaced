@@ -433,6 +433,13 @@ export const loans = bank.table(
      * Not a live balance (see `loan_collateral_events` + ledger).
      */
     openingCollateral: amount('opening_collateral'),
+    /**
+     * LTV bands agreed at open, copied from the product once. A later edit of
+     * the product does not re-band this loan. Null only on a row the migration
+     * could not fill; the book counts that loan as unpriced.
+     */
+    marginCallLtvBps: integer('margin_call_ltv_bps'),
+    liquidationLtvBps: integer('liquidation_ltv_bps'),
     status: loanStatusEnum('status').notNull().default('pending'),
     /** NULL means the principal has not been released. The crash-safe state. */
     drawLedgerTxId: text('draw_ledger_tx_id'),
@@ -702,6 +709,11 @@ export const cards = bank.table(
     /** Four digits a human recognises the card by. Not a card number, and not part of one. */
     panTail: text('pan_tail').notNull(),
     status: cardStatusEnum('status').notNull().default('active'),
+    /**
+     * Who froze the card. `operator` is a freeze the owner cannot lift.
+     * Null when the card is not frozen by a recorded actor.
+     */
+    frozenBy: text('frozen_by'),
     /** POLICY: the cashback rate this card was issued on. Snapshotted per capture. */
     cashbackBps: integer('cashback_bps').notNull().default(0),
     /**

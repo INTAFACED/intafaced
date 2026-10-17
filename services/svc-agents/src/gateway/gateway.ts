@@ -74,6 +74,11 @@ export class ModelGateway {
     return this.table;
   }
 
+  /** The adapter registered under this id, or undefined when the route is unwired. Does not throw. */
+  registeredProvider(providerId: string): ModelProvider | undefined {
+    return this.providers.get(providerId);
+  }
+
   routeFor(task: string): RouteDef {
     return resolveRoute(this.table, task);
   }

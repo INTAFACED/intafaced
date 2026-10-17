@@ -9,6 +9,7 @@ import { AcademyService } from '../academy-service.js';
 import { NullStreamProvider } from '../stream/provider.js';
 import { createAcademyRouter } from '../router.js';
 import { FOUNDATIONS_V1 } from '../certs/catalog.js';
+import { listCurriculum } from '../curriculum/catalog.js';
 import { formatUtcIcs } from './calendar.js';
 import type { ProgrammeDefinition } from '../curriculum/programmes.js';
 import type { VideoSpineEntry } from '../video/catalog.js';
@@ -423,5 +424,95 @@ describe('academy customer learning reads and writes', () => {
     await expect(operator.admin.opsMetrics({ from: '2026-02-31', to: '2026-03-01' })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
+  });
+
+  it('counts enrolments by path inside the UTC window and hides account ids', async () => {
+    const third = '44444444-4444-4444-8444-444444444444';
+    await sql`
+      INSERT INTO academy.cert_enrollments (user_id, path_slug, enrolled_at, left_at) VALUES
+        (${USER}, 'foundations', '2026-10-17T00:00:00Z', NULL),
+        (${OTHER}, 'foundations', '2026-10-17T12:00:00Z', '2026-10-17T18:00:00Z'),
+        (${USER}, 'markets', '2026-10-18T23:59:59Z', NULL),
+        (${OTHER}, 'builder', '2026-09-01T00:00:00Z', NULL),
+        (${third}, 'sovereign', '2026-10-19T00:00:00Z', NULL)
+    `;
+    const academy = service();
+    const operator = createAcademyRouter(academy).createCaller(signed());
+    const counts = await operator.admin.enrolments({ from: '2026-10-17', to: '2026-10-18' });
+    expect(counts).toEqual({
+      from: '2026-10-17',
+      to: '2026-10-18',
+      total: 3,
+      paths: [
+        { pathSlug: 'foundations', count: 2 },
+        { pathSlug: 'markets', count: 1 },
+      ],
+    });
+    const empty = await operator.admin.enrolments({ from: '2020-01-01', to: '2020-01-02' });
+    expect(empty).toEqual({ from: '2020-01-01', to: '2020-01-02', total: 0, paths: [] });
+    const body = JSON.stringify({ counts, empty });
+    expect(body).not.toContain(USER);
+    expect(body).not.toContain(OTHER);
+    expect(body).not.toContain(third);
+    const reader = createAcademyRouter(academy).createCaller(signed(principal({ scopes: ['academy:read'] })));
+    await expect(reader.admin.enrolments({ from: '2026-10-17', to: '2026-10-18' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(operator.admin.enrolments({ from: '2026-10-18', to: '2026-10-17' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(operator.admin.enrolments({ from: '2025-01-01', to: '2026-01-02' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  });
+
+  it('counts completions per catalogue item, applies the path filter, and refuses an unknown path', async () => {
+    const third = '44444444-4444-4444-8444-444444444444';
+    const fourth = '55555555-5555-4555-8555-555555555555';
+    await sql`
+      INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at) VALUES
+        (${USER}, 'foundations-risk-first', '2026-10-17T01:00:00Z'),
+        (${OTHER}, 'foundations-risk-first', '2026-10-17T02:00:00Z'),
+        (${third}, 'foundations-risk-first', '2026-10-18T03:00:00Z'),
+        (${fourth}, 'foundations-risk-first', '2026-10-16T03:00:00Z'),
+        (${USER}, 'markets-reading-the-book', '2026-10-17T04:00:00Z'),
+        (${USER}, 'builder-first-automation', '2026-10-17T05:00:00Z'),
+        (${OTHER}, 'builder-first-automation', '2026-10-18T06:00:00Z'),
+        (${USER}, 'not-in-spine', '2026-10-17T07:00:00Z')
+    `;
+    const academy = service();
+    const operator = createAcademyRouter(academy).createCaller(signed());
+    const all = await operator.admin.completionsByItem({ from: '2026-10-17', to: '2026-10-18' });
+    const bySlug = new Map(all.items.map((row) => [row.itemSlug, row]));
+    expect(bySlug.get('foundations-risk-first')).toEqual({ itemSlug: 'foundations-risk-first', pathSlug: 'foundations', count: 3 });
+    expect(bySlug.get('markets-reading-the-book')).toEqual({
+      itemSlug: 'markets-reading-the-book',
+      pathSlug: 'markets',
+      count: 1,
+    });
+    expect(bySlug.get('builder-first-automation')).toEqual({
+      itemSlug: 'builder-first-automation',
+      pathSlug: 'builder',
+      count: 2,
+    });
+    expect(bySlug.get('foundations-order-types')).toEqual({
+      itemSlug: 'foundations-order-types',
+      pathSlug: 'foundations',
+      count: 0,
+    });
+    expect(bySlug.get('not-in-spine')).toEqual({ itemSlug: 'not-in-spine', pathSlug: null, count: 1 });
+    expect(all.pathSlug).toBeNull();
+    const markets = await operator.admin.completionsByItem({ from: '2026-10-17', to: '2026-10-18', pathSlug: 'markets' });
+    const marketSlugs = listCurriculum({ path: 'markets' }).map((item) => item.slug);
+    expect(markets.pathSlug).toBe('markets');
+    expect(markets.items.map((row) => row.itemSlug).sort()).toEqual([...marketSlugs].sort());
+    expect(markets.items.find((row) => row.itemSlug === 'markets-reading-the-book')?.count).toBe(1);
+    expect(markets.items.filter((row) => row.itemSlug !== 'markets-reading-the-book').every((row) => row.count === 0)).toBe(true);
+    expect(markets.items.some((row) => row.itemSlug === 'foundations-risk-first' || row.itemSlug === 'not-in-spine')).toBe(false);
+    const body = JSON.stringify({ all, markets });
+    expect(body).not.toContain(USER);
+    expect(body).not.toContain(OTHER);
+    expect(body).not.toContain(third);
+    expect(body).not.toContain(fourth);
+    await expect(operator.admin.completionsByItem({ from: '2026-10-17', to: '2026-10-17', pathSlug: 'no-such' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      cause: { code: 'academy.path_not_found' },
+    });
+    const reader = createAcademyRouter(academy).createCaller(signed(principal({ scopes: ['academy:write'] })));
+    await expect(reader.admin.completionsByItem({ from: '2026-10-17', to: '2026-10-17' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });

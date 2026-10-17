@@ -9,7 +9,8 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { DualControlError, requireDualControl } from './dual-control.js';
-import { TokenError, type BuybackRunResult, type TokenService, type YieldRunResult } from './token-service.js';
+import { TokenError, previewStakeTerms, type BuybackRunResult, type TokenService, type YieldRunResult } from './token-service.js';
+import { publishedStakeTiers, stakingAssetPublication } from './terms.js';
 import { requireTokenJobService } from './job-hmac.js';
 import { userCopy } from './user-copy.js';
 
@@ -65,6 +66,31 @@ const stakeOutput = z.object({
   startedAt: z.string(),
   unlocksAt: z.string().nullable(),
   status: z.enum(['pending', 'active', 'unstaking', 'closed']),
+});
+
+/**
+ * Page size is optional so an omit reaches the named refuse
+ * (`token.history_list_limit_unset`) instead of a Zod "Required".
+ * Blank is not 50. Cursor omit is the first page.
+ */
+const historyInput = z
+  .object({
+    limit: z.number().int().min(1).max(200).optional(),
+    cursor: z.string().min(1).max(512).optional(),
+  })
+  .default({});
+
+const payoutHistoryOutput = z.object({
+  items: z.array(
+    z.object({
+      windowId: z.string(),
+      amount: amountString.nullable(),
+      assetId: z.string().nullable(),
+      ledgerTxId: z.string().nullable(),
+      reason: z.literal('ledger_tx_unread').nullable(),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
 });
 
 const proposalKind = z.enum(['listing', 'fee_param', 'curriculum', 'grant']);
@@ -166,8 +192,15 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.governance_execute_unwired':
       case 'token.proposal_list_limit_unset':
       case 'token.stakes_list_limit_unset':
+      case 'token.history_list_limit_unset':
+      case 'token.emission_schedule_count_unset':
+      case 'token.staking_asset_unpublished':
       case 'token.stake_ledger_mismatch':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+      case 'token.stake_tier_unknown':
+      case 'token.stake_amount_invalid':
+      case 'token.history_cursor_invalid':
+        return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     }
@@ -298,6 +331,75 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
+    terms: scopedProcedure('token:read', { module: 'token' })
+      .output(
+        z.object({
+          tiers: z.array(
+            z.object({
+              name: stakeTier,
+              label: z.string(),
+              lockDays: z.number().int().nonnegative(),
+              multiplierBps: z.number().int().nonnegative(),
+              minimumStake: z.null(),
+              minimumStakeReason: z.literal('stake_minimum_unpublished'),
+            }),
+          ),
+          stakingAsset: z.discriminatedUnion('published', [
+            z.object({ published: z.literal(true), assetId: z.string().min(1) }),
+            z.object({
+              published: z.literal(false),
+              assetId: z.null(),
+              reason: z.literal('staking_asset_unpublished'),
+            }),
+          ]),
+        }),
+      )
+      .query(() => ({
+        tiers: publishedStakeTiers(),
+        stakingAsset: stakingAssetPublication(),
+      })),
+
+    stakePreview: scopedProcedure('token:read', { module: 'token' })
+      .input(z.object({ amount: amountString, tier: z.string().min(1).max(32) }))
+      .output(
+        z.object({
+          tier: stakeTier,
+          unlocksAt: z.string().nullable(),
+          multiplierBps: z.number().int().nonnegative(),
+          effectiveWeight: amountString,
+        }),
+      )
+      .query(({ input }) =>
+        guard(async () => {
+          const amount = parseAmount(input.amount);
+          return previewStakeTerms({
+            amount,
+            tier: input.tier,
+            at: new Date(),
+            stakingAssetPublished: stakingAssetPublication().published,
+          });
+        }),
+      ),
+
+    unstakePreview: scopedProcedure('token:read', { module: 'token' })
+      .input(z.object({ stakeId: z.string().uuid() }))
+      .output(
+        z.object({
+          status: z.enum(['locked_until', 'ready', 'closing', 'pending', 'closed']),
+          unlocksAt: z.string().nullable(),
+          amount: amountString,
+          afterUnlock: z.literal('full_principal').nullable(),
+          refusal: z.enum(['token.stake_locked', 'token.stake_closed']).nullable(),
+        }),
+      )
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const userId = ctx.principal.userId;
+          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+          return token.previewUnstake(input.stakeId, userId);
+        }),
+      ),
+
     // ── Staking (live path) ────────────────────────────────────────────────
     // Jurisdiction matrix on every custodial mutation (L2-TOKEN-JURIS).
 
@@ -393,6 +495,78 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
     nextEmissionEpoch: scopedProcedure('token:read')
       .output(z.object({ epoch: z.number().int().nonnegative() }))
       .query(async () => guard(async () => ({ epoch: await token.nextEmissionEpoch() }))),
+
+    emissionSchedule: scopedProcedure('token:read', { module: 'token' })
+      .input(z.object({ count: z.number().int().min(1).max(200).optional() }).default({}))
+      .output(
+        z.object({
+          params: z
+            .object({
+              initialEpochReward: amountString,
+              halvingIntervalEpochs: z.number().int().positive(),
+              maxSupply: amountString,
+            })
+            .nullable(),
+          epochs: z
+            .array(
+              z.object({
+                epoch: z.number().int().nonnegative(),
+                reward: amountString,
+              }),
+            )
+            .nullable(),
+          missing: z.string().nullable(),
+          reason: z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']).nullable(),
+        }),
+      )
+      .query(({ input }) => guard(async () => token.emissionSchedule(input.count))),
+
+    yieldHistory: scopedProcedure('token:read', { module: 'token' })
+      .input(historyInput)
+      .output(payoutHistoryOutput)
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const userId = ctx.principal.userId;
+          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+          return token.yieldHistory(userId, input.limit, input.cursor);
+        }),
+      ),
+
+    revenueShareHistory: scopedProcedure('token:read', { module: 'token' })
+      .input(historyInput)
+      .output(payoutHistoryOutput)
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const userId = ctx.principal.userId;
+          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+          return token.revenueShareHistory(userId, input.limit, input.cursor);
+        }),
+      ),
+
+    myVotes: scopedProcedure('token:read', { module: 'token' })
+      .input(historyInput)
+      .output(
+        z.object({
+          items: z.array(
+            z.object({
+              proposalId: z.string().uuid(),
+              title: z.string().nullable(),
+              titleReason: z.literal('proposal_title_unset').nullable(),
+              choice: voteChoice,
+              weight: amountString,
+              castAt: z.string(),
+            }),
+          ),
+          nextCursor: z.string().nullable(),
+        }),
+      )
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const userId = ctx.principal.userId;
+          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+          return token.myVotes(userId, input.limit, input.cursor);
+        }),
+      ),
 
     // ── Yield aggregation job + operator settlement + burn ────────────────
     // `yield.runWindow` is the §4.3 weekly job: `{ windowId }` only, amounts

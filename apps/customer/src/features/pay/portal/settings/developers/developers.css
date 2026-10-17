@@ -1,0 +1,93 @@
+/* Developer pages. Colours come from the kit tokens. */
+.pp-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line, rgb(255 255 255 / 0.08));
+}
+.pp-subnav a[aria-current='page'] {
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.35em;
+}
+.pp-secret {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--line-strong, rgb(255 255 255 / 0.2));
+  border-radius: 0.5rem;
+}
+.pp-secret h3 {
+  margin: 0;
+}
+.pp-code {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  background: var(--field, rgb(255 255 255 / 0.05));
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  max-width: 100%;
+  white-space: pre;
+}
+.pp-code-tabs {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.pp-check {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.pp-check > span {
+  display: grid;
+  gap: 0.125rem;
+}
+.pp-fieldset {
+  display: grid;
+  gap: 0.5rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.pp-fieldset legend {
+  padding: 0;
+  margin-bottom: 0.5rem;
+}
+.pp-effect ul,
+.pp-steps-list,
+.pp-checklist,
+.pp-tool-list {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+}
+.pp-checklist,
+.pp-tool-list {
+  list-style: none;
+  padding-left: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.pp-checklist li,
+.pp-tool-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  justify-content: space-between;
+}
+.pp-tool-list li {
+  flex-direction: column;
+  justify-content: flex-start;
+}
+.pp-wrap {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .pp-secret {
+    padding: 0.75rem;
+  }
+}

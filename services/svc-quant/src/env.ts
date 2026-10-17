@@ -4,8 +4,10 @@ import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema } f
 /**
  * svc-quant environment.
  *
- * No DATABASE_URL and no INTERNAL_SERVICE_SECRET: this process holds no
- * balances and cannot reach ledger.post. Paper book state lives for one run.
+ * No INTERNAL_SERVICE_SECRET: this process cannot reach ledger.post.
+ * DATABASE_URL is optional and has no default. Unset, studio and backtest
+ * refuse quant.database_url_unset. A URL without DATABASE_POOL_MAX refuses
+ * quant.database_pool_max_unset. Pool size is never invented.
  *
  * QUANT_VENUE_VAULT is the Venue Vault trade-only pin. Blank = venue OMS
  * refuses `quant.venue_vault_unset`. Internal book still runs.
@@ -49,6 +51,20 @@ const schema = baseEnvSchema
        * Unset/blank → venue OMS refuses by name. Never invent a key.
        */
       QUANT_VENUE_VAULT: z
+        .string()
+        .optional()
+        .transform((v) => (v === undefined || v.trim() === '' ? undefined : v.trim())),
+
+      /**
+       * Paper strategy library. Blank refuses studio writes. Never a default URL.
+       * Not a ledger connection.
+       */
+      DATABASE_URL: z
+        .string()
+        .optional()
+        .transform((v) => (v === undefined || v.trim() === '' ? undefined : v.trim())),
+      /** Required only when DATABASE_URL is set. Blank is not 10. */
+      DATABASE_POOL_MAX: z
         .string()
         .optional()
         .transform((v) => (v === undefined || v.trim() === '' ? undefined : v.trim())),

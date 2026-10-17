@@ -153,6 +153,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('posts under threshold without a checker', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('500'),
@@ -179,6 +180,7 @@ describe('maker/checker dual control with ledger holds', () => {
   it('an under-threshold propose remembers its client id', async () => {
     const clientId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('500'),
@@ -250,6 +252,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('a conflicting propose is not reported as pending', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -375,6 +378,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('reserves over-threshold on propose; checker settle lands at destination', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -424,6 +428,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   async function approvalFixture() {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Recovery Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -842,6 +847,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('a failing settle posts the release once and a second approve does not settle', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -909,6 +915,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('a release that throws after a failed settle leaves the row unapproved and a later approve does not settle', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -974,6 +981,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('a release that dies after reject returns the hold on the next reject', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -1019,6 +1027,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('held funds cannot be double-spent while pending', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('50'),
@@ -1062,6 +1071,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('reject releases the hold back to available', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('10'),
@@ -1096,6 +1106,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('maker cancel releases the hold', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('10'),
@@ -1123,6 +1134,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('pays every payroll recipient in one post, or none when short', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -1183,12 +1195,14 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('a matching payroll retry completes lines that are not all visible yet', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
       creatorUserId: MAKER,
     });
     const otherAccount = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Other Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -1429,6 +1443,7 @@ describe('maker/checker dual control with ledger holds', () => {
       recipients: memoryRecipientState(),
     });
     const account = await bankStub.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -1619,6 +1634,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('a shorter payroll conflicts when the booked payment still includes the dropped recipient', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -1674,6 +1690,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('refuses mixed-asset payroll as rate unset — never invents FX', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('10'),
@@ -1698,6 +1715,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('refuses an over-threshold payroll from one admin or maker and still posts under it', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -1781,6 +1799,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('refuses an empty payroll', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('10'),
@@ -1800,6 +1819,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
   it('refuses a non-member checker', async () => {
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('10'),

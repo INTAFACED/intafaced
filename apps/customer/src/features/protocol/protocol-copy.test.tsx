@@ -13,7 +13,7 @@ vi.mock('../session/session', async (original) => {
 });
 import { blockersFor, chainReasonWords, plainReason, type ProtocolSnapshot } from './blockers';
 import { protocolCopy } from './copy';
-import { Answer, ParkedProtocolRoom } from './ParkedProtocolRoom';
+import { Answer, NoAnswerNote, ParkedProtocolRoom } from './ParkedProtocolRoom';
 import type { ApiResult } from '../../shared/api';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -36,7 +36,7 @@ describe('Protocol rooms speak plainly', () => {
     const snapshot = { chain: down, audit: down, indexer: down, dex: down, health: down } as unknown as ProtocolSnapshot;
     const sources = new Set<string>();
     for (const action of ['swap', 'addLiquidity', 'smartAccount', 'stake'] as const)
-      for (const found of blockersFor(action, snapshot)) if (found.code === 'source_down') sources.add(found.params.source!);
+      for (const found of blockersFor(action, snapshot)) if (found.code === 'source_no_reply') sources.add(found.params.source!);
     expect([...sources].sort()).toEqual(['DEX status', 'network status', 'service health', 'indexer status'].sort());
   });
 
@@ -53,10 +53,24 @@ describe('Protocol rooms speak plainly', () => {
     );
     // A 502 or 504 is a crash, a restart or a timeout: a second attempt can help, so Retry stays.
     expect(render(failed({ reason: 'unreachable', status: 502, code: 'edge.upstream_unavailable' }))).toMatch(/Try again|Retry/);
+    // ...and it says so honestly: the service did not answer, not "can't connect" and not "not connected".
+    const crashed = render(failed({ reason: 'unreachable', status: 502, code: 'edge.upstream_unavailable' }));
+    expect(crashed).toContain('The Protocol service didn’t answer.');
+    expect(crashed).not.toMatch(/not connected|Can’t connect/);
     expect(render(failed({ reason: 'unreachable', status: 504 }))).toMatch(/Try again|Retry/);
     expect(render(failed({ reason: 'unreachable', message: 'The service could not be reached.' }))).toContain('Try again');
     expect(render(failed({ reason: 'error', code: 'protocol.chain_unset' }))).not.toMatch(/Try again|Retry/);
     expect(render(failed({ reason: 'not_mounted', status: 404 }))).not.toMatch(/Try again|Retry/);
+  });
+
+  it('keeps Try again inside the retry window and drops it once the service has stayed silent', () => {
+    const open = renderToStaticMarkup(<NoAnswerNote service="Protocol" closed={false} reload={() => undefined} t={t} />);
+    expect(open).toContain('The Protocol service didn’t answer.');
+    expect(open).toMatch(/Try again/);
+    const closed = renderToStaticMarkup(<NoAnswerNote service="Protocol" closed reload={() => undefined} t={t} />);
+    expect(closed).toContain('The Protocol service isn’t running here.');
+    expect(closed).not.toMatch(/Try again|Retry/);
+    expect(closed).not.toMatch(/edge\.|upstream|502/);
   });
 
   it('says "Not INTACHAIN, not audited" once in the banner and does not repeat it above the page', () => {
@@ -117,7 +131,7 @@ describe('Protocol rooms speak plainly', () => {
       code: 'edge.upstream_unavailable',
     };
     const crashedSnapshot = { ...snapshot, chain: crashed } as unknown as ProtocolSnapshot;
-    expect(blockersFor('swap', crashedSnapshot)[0]!.code).toBe('source_down');
+    expect(blockersFor('swap', crashedSnapshot)[0]!.code).toBe('source_no_reply');
   });
 
   it('never prints the chain status reason: no address, no spec text', () => {

@@ -741,6 +741,7 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.video_not_found':
     case 'academy.enrollment_not_found':
+    case 'academy.path_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
 
     case 'academy.assessment_unpublished':
@@ -2463,6 +2464,42 @@ export function createAcademyRouter(
           }),
         )
         .query(({ input }) => guard(() => academy.opsMetrics({ from: input.from, to: input.to }))),
+      enrolments: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ from: z.string(), to: z.string() }))
+        .output(
+          z.object({
+            from: z.string(),
+            to: z.string(),
+            total: z.number().int().nonnegative(),
+            paths: z.array(z.object({ pathSlug: z.string(), count: z.number().int().nonnegative() })),
+          }),
+        )
+        .query(({ input }) => guard(() => academy.enrolments({ from: input.from, to: input.to }))),
+      completionsByItem: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ from: z.string(), to: z.string(), pathSlug: z.string().min(1).max(64).optional() }))
+        .output(
+          z.object({
+            from: z.string(),
+            to: z.string(),
+            pathSlug: z.string().nullable(),
+            items: z.array(
+              z.object({
+                itemSlug: z.string(),
+                pathSlug: z.string().nullable(),
+                count: z.number().int().nonnegative(),
+              }),
+            ),
+          }),
+        )
+        .query(({ input }) =>
+          guard(() =>
+            academy.completionsByItem({
+              from: input.from,
+              to: input.to,
+              pathSlug: input.pathSlug ?? null,
+            }),
+          ),
+        ),
     }),
   });
 }
