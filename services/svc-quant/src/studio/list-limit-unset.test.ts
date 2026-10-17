@@ -23,6 +23,7 @@ import {
 } from '@intafaced/contracts';
 import { QUANT_STUDIO_LIST_LIMIT_UNSET, QuantError } from '../errors.js';
 import { createQuantRouter } from '../router.js';
+import { createMemoryStrategyRepository } from './memory-repository.js';
 import { assertStudioListLimit, STUDIO_LIST_LIMIT_CAP } from './list-limit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -93,9 +94,30 @@ describe('studio.list limit unset refuse', () => {
   });
 
   it('omit / empty input refuses PRECONDITION_FAILED — never dumps both saves', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(signed());
-    await caller.studio.save({ name: 'alpha', blocks, risk, cash: '10000', environment: 'paper' });
-    await caller.studio.save({ name: 'beta', blocks, risk, cash: '10000', environment: 'paper' });
+    const caller = createQuantRouter({
+      wired: true,
+      venueVaultSet: false,
+      limits,
+      strategies: createMemoryStrategyRepository(),
+    }).createCaller(signed());
+    await caller.studio.save({
+      name: 'alpha',
+      blocks,
+      risk,
+      cash: '10000',
+      environment: 'paper',
+      clientStrategyId: 'client-alpha',
+      idempotencyKey: 'idem-alpha',
+    });
+    await caller.studio.save({
+      name: 'beta',
+      blocks,
+      risk,
+      cash: '10000',
+      environment: 'paper',
+      clientStrategyId: 'client-beta',
+      idempotencyKey: 'idem-beta',
+    });
 
     await expect(caller.studio.list()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',

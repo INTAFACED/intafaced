@@ -22,15 +22,16 @@ export function poolVerdict(health: MiningHealth | null): PoolVerdict {
 }
 
 export type MiningStepId = 'worker' | 'shares' | 'window' | 'payout';
-export type MiningStep = { id: MiningStepId; blocker: 'no_customer_api'; dependency: 'none' | 'ledger' | 'store' | 'job' };
+/** `refused`: the pool turns the customer's request away. `read`: the pool lists the customer's own records and nothing here writes. */
+export type MiningStep = { id: MiningStepId; access: 'refused' | 'read'; dependency: 'none' | 'ledger' | 'store' | 'job' };
 
-/** The miner journey, in order. Each step names why a customer cannot run it:
- * the pool exposes no customer-scoped read or write for any of them. */
+/** The miner journey, in order. The pool lists a customer's own workers, shares, open windows and paid credits, so three
+ * steps are read-only here. It refuses to register a worker, so that step cannot start. */
 export const MINING_STEPS: readonly MiningStep[] = [
-  { id: 'worker', blocker: 'no_customer_api', dependency: 'none' },
-  { id: 'shares', blocker: 'no_customer_api', dependency: 'store' },
-  { id: 'window', blocker: 'no_customer_api', dependency: 'store' },
-  { id: 'payout', blocker: 'no_customer_api', dependency: 'ledger' },
+  { id: 'worker', access: 'refused', dependency: 'none' },
+  { id: 'shares', access: 'read', dependency: 'store' },
+  { id: 'window', access: 'read', dependency: 'store' },
+  { id: 'payout', access: 'read', dependency: 'ledger' },
 ];
 
 /** Whether the dependency a step needs is configured, not checked. */

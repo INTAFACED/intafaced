@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
 
@@ -178,6 +179,26 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(86_400).optional()),
       /**
+       * Owner-published lifetime for an email or phone change proof, in seconds.
+       * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).
+       * Never git-default a lifetime. One day is the ceiling.
+       */
+      IDENTITY_CONTACT_CHANGE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published wrong-code cap for a contact-change proof.
+       * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).
+       * The ceiling is 5. A higher number is not a published cap.
+       */
+      IDENTITY_CONTACT_CHANGE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /**
        * Mail transport. Blank / unset → unwired; confirmation and reset requests
        * refuse. `local-outbox` is the only implemented transport and is refused
        * at boot unless APP_ENV is exactly dev or test. Any other name refuses
@@ -231,6 +252,24 @@ const schema = serviceEnvSchema
        * does not start requiring two people, and does not apply trading restrictions.
        * Any other string refuses boot. This ships off. Turning it on is a lead decision.
        */
+      /**
+       * Operator scopes added to a live founder's interactive MFA session.
+       * Comma-separated allowlist. Blank or unset grants nothing — which
+       * founder holds which scope is the lead's decision, not a default here.
+       * A name outside the allowlist, or any unknown scope, refuses boot
+       * (`identity.founder_scope_invalid`). Do not set this in compose.
+       */
+      IDENTITY_FOUNDER_SESSION_SCOPES: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return founderSessionScopesFromEnv(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : 'identity.founder_scope_invalid' });
+            return z.NEVER;
+          }
+        }),
       IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v !== 'string') return v;

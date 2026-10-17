@@ -2,6 +2,7 @@ import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
+import { createMoneyClient } from '../money/client';
 import { createMerchantRefundApi } from './merchant-refund-api';
 import * as s from './schemas';
 import {
@@ -322,7 +323,17 @@ function sendContextChanged() {
   return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.send_context_changed', reason: 'aborted' });
 }
 
-const isNotFound = (result: { reason: string; code?: string }) => result.reason === 'not_mounted' || result.code === 'p2p.trade_not_found';
+/** Only the service's own "no such order" answer. A bare 404 (a route that is not mounted) proves nothing about the order. */
+const isTradeAbsent = (result: { code?: string }) => result.code === 'p2p.trade_not_found';
+
+const placedUnderHeld = new WeakSet<object>();
+/**
+ * True for an order that a resend placed for the first time under the reference held from the earlier attempt, as
+ * opposed to one the service already had. The screen tells the two apart in words.
+ */
+export function wasPlacedUnderHeldReference(trade: object): boolean {
+  return placedUnderHeld.has(trade);
+}
 
 /** A refusal this module makes itself. The screen picks the words from `code`; this text is only a fallback. */
 function takeRefusal(code: string, reason: Extract<ApiResult<never>, { ok: false }>['reason']): Extract<ApiResult<never>, { ok: false }> {
@@ -469,6 +480,20 @@ export function createPersonalPayApi(
       )
         return payRefusal('p2pPaymentProjectionMismatch', { code: 'pay.trade_destination_mismatch', reason: 'invalid_response' });
       return result;
+    },
+    /**
+     * What the person can use of one asset right now: the `free` quantity from the same balance read Money shows. An
+     * asset the read does not list is held in no quantity, so it is "0". A failed read is returned as the failure.
+     */
+    availableBalance: async (asset: string, signal?: AbortSignal): Promise<ApiResult<string>> => {
+      const denied = signedIn();
+      if (denied) return denied;
+      const result = await createMoneyClient(api).balances(signal);
+      if (!result.ok) return result;
+      // The lock draws from the asset exactly as the order names it; another casing is only a fallback.
+      const names = Object.keys(result.data.balances);
+      const key = names.find((name) => name === asset) ?? names.find((name) => name.toLowerCase() === asset.toLowerCase());
+      return { ok: true, data: key === undefined ? '0' : result.data.balances[key]!.free };
     },
     reputation: async (counterparty: string, signal?: AbortSignal) => {
       const denied = signedIn();
@@ -729,7 +754,7 @@ export function createPersonalPayApi(
           if (refusal.reason === 'aborted') return refusal;
           const again = await readOrder(heldId, null);
           if (again.ok) return again;
-          if (isNotFound(again)) {
+          if (isTradeAbsent(again)) {
             proven = true;
             return refusal;
           }
@@ -740,11 +765,15 @@ export function createPersonalPayApi(
           async () => {
             const existing = await readOrder(heldId, null);
             if (existing.ok) return existing;
-            if (!isNotFound(existing)) return takeRefusal('pay.take_unconfirmed', 'uncertain');
+            if (!isTradeAbsent(existing)) return takeRefusal('pay.take_unconfirmed', 'uncertain');
             const refused = await preflight();
             if (refused) return afterRefusal(refused);
             const replayed = await place(heldId);
-            if (replayed.ok) return replayed;
+            if (replayed.ok) {
+              // The look-up just before proved there was no such order, so this one was placed by this resend.
+              placedUnderHeld.add(replayed.data);
+              return replayed;
+            }
             return takeRefusalIsDefinite(replayed) ? afterRefusal(replayed) : replayed;
           },
           current,
@@ -777,7 +806,9 @@ export function createPersonalPayApi(
           if (!tradeId || !s.id.safeParse(tradeId).success) return takeRefusal('pay.take_unconfirmed', 'uncertain');
           const latest = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema);
           if (!latest.ok)
-            return isNotFound(latest) ? takeRefusal('pay.take_not_found', 'uncertain') : takeRefusal('pay.take_unconfirmed', 'uncertain');
+            return isTradeAbsent(latest)
+              ? takeRefusal('pay.take_not_found', 'uncertain')
+              : takeRefusal('pay.take_unconfirmed', 'uncertain');
           return tradeMatchesTake(latest.data, offer, me, null, tradeId) ? latest : takeRefusal('pay.take_unconfirmed', 'uncertain');
         },
         () => p2pCurrent() && frameCurrent(),
@@ -855,7 +886,7 @@ export function createBusinessPayApi(
     return result;
   }
   /**
-   * `subscription.create` takes `idempotencyKey` on the procedure input.
+   * `subscription.create` and `merchant.createLink` take `idempotencyKey` on the procedure input.
    * `api.mutate` has no header slot, so this is not an Idempotency-Key header.
    * The journal lock stays `${userId}:subscription-create:${mandateId}`.
    * A new create stores a fresh attempt id on that lock and sends
@@ -883,7 +914,8 @@ export function createBusinessPayApi(
     );
     // Pause, resume, and cancel store the expected status in the journal.
     // subscription.create ignores that argument: its reference is the attempt id below.
-    if (procedure !== 'subscription.create') return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
+    if (procedure !== 'subscription.create' && procedure !== 'merchant.createLink')
+      return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
     const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
     const sendAttempt = async (attemptId: string, path?: string): Promise<ApiResult<T>> => {
       const result = await api.mutate(
@@ -893,7 +925,13 @@ export function createBusinessPayApi(
         outcome,
       );
       if (!result.ok && ['pay.idempotency_conflict', 'pay.subscription_mandate_open'].includes(result.code ?? ''))
-        return { ...result, message: 'A subscription request for this mandate is already recorded. Open Subscriptions to check it.' };
+        return {
+          ...result,
+          message:
+            procedure === 'merchant.createLink'
+              ? 'A request to create this link is already recorded with different details. Open Payment links to check it.'
+              : 'A subscription request for this mandate is already recorded. Open Subscriptions to check it.',
+        };
       return result;
     };
     // A lost response leaves the attempt id on the lock. Reuse it. Do not mint

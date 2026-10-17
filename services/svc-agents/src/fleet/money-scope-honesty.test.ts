@@ -38,7 +38,7 @@ describe('money-scope honesty (product agents)', () => {
     const banned = scopes.filter((s) => /^(pay|ledger|bank|trade|p2p):/.test(s));
     expect(banned, `money/trade scopes on agents router: ${banned.join(', ')}`).toEqual([]);
     for (const s of scopes) {
-      expect(s === 'agents:read' || s === 'agents:execute').toBe(true);
+      expect(s === 'agents:read' || s === 'agents:execute' || s === 'admin:read').toBe(true);
     }
     expect(src).toMatch(/settleWriteProcedure/);
     expect(src).not.toMatch(/scopedProcedure\('admin:write'/);

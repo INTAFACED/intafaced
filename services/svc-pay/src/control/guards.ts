@@ -3,6 +3,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { merchantIdsWithLegacySettlement, type SettlementBookReader } from '../settlement-book.js';
 import type { PartialPayGuards, PaymentAdmitContext, PaymentCaptureBookedContext } from '../seams/guards.js';
 import { recordMerchantNotification, type NewNotification } from '../merchant-ops/notifications.js';
+import { enqueueHeldPayment } from '../fraud/review-queue-store.js';
 import { writeAudit } from './audit.js';
 import { emitCapturedOverCap, type CapturedOverCapSignal } from './over-cap-signal.js';
 import { requirePayoutApproval } from './approval-gate.js';
@@ -268,6 +269,16 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
         actorId: 'system:capture_guard',
         reason: `captured payment exceeded: ${over.join(', ')}`,
         after: { paymentId: ctx.paymentId, assetCode, amount: amountText, exceeded: over },
+      });
+      await enqueueHeldPayment(tx, {
+        paymentRef: ctx.paymentId,
+        merchantId: ctx.merchantId,
+        amount: amountText,
+        assetId: assetCode,
+        reason: `captured payment exceeded: ${over.join(', ')}`,
+        reasons: over.map((code) => ({ ruleId: 'captured_over_cap', detail: code })),
+        createdBy: 'system:capture_guard',
+        source: 'control.captured_over_cap',
       });
       // Same transaction as the audit row, but its own savepoint: a notice-table
       // failure must not roll back a capture whose ledger post already landed.

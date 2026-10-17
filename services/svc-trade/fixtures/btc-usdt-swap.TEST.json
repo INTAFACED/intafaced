@@ -1,0 +1,16 @@
+{
+  "marked": "TEST",
+  "symbol": "BTC/USDT:USDT",
+  "displayName": "BTC/USDT:USDT TEST",
+  "baseAsset": "BTC",
+  "quoteAsset": "USDT",
+  "leverageCap": "5",
+  "markFeed": "TEST-mark-feed",
+  "liquidationPolicy": "TEST-liquidation-policy",
+  "tickSize": "0.01",
+  "lotSize": "0.0001",
+  "minQty": "0.0001",
+  "minNotional": "5",
+  "makerBps": "10",
+  "takerBps": "20"
+}

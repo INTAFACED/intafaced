@@ -62,7 +62,12 @@ describe('GET bank desk', () => {
       }),
     );
     const json = await (await bank.GET(get('/api/bank-ops'))).json();
-    expect(urls).toHaveLength(allReads(DESKS.bank).length);
+    // One call per distinct procedure and input: the loan book answers two reads (facts and the unpriced list) from one call.
+    const distinct = new Set(
+      allReads(DESKS.bank).map((r) => JSON.stringify([r.module, r.procedure, r.input ?? null, r.windowDays ?? null])),
+    );
+    expect(urls).toHaveLength(distinct.size);
+    expect(distinct.size).toBeLessThan(allReads(DESKS.bank).length);
     expect(urls.some((u) => u.startsWith('http://edge:4000/api/bank/trpc/earn.pools?input='))).toBe(true);
     expect(json.deskId).toBe('bank');
     expect(Number.isFinite(Date.parse(json.asOf))).toBe(true);
@@ -97,9 +102,10 @@ describe('GET bank desk', () => {
 });
 
 describe('read-only desks have no way to change anything', () => {
-  it('bank and p2p export a GET and nothing else', () => {
+  it('bank and p2p export a GET and one POST each, and nothing else', () => {
     for (const route of [bank, p2p]) {
-      expect(Object.keys(route).filter((k) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(k))).toEqual([]);
+      expect(Object.keys(route).filter((k) => ['PUT', 'PATCH', 'DELETE'].includes(k))).toEqual([]);
+      expect(Object.keys(route).filter((k) => k === 'POST')).toEqual(['POST']);
     }
   });
   it('p2p reads the dispute list with a status and page size and never asks for a single dispute', async () => {

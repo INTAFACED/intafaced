@@ -629,11 +629,19 @@ export async function submitOwnedAccounts(ctx, { users, approved, pending }) {
   return out;
 }
 
-/** Approve every pending `full` record through the two-person path. Returns one row per record. */
-export async function approvePending(ctx, sessions = null) {
+/** Pending `full`/`basic` records to approve; with `userIds`, only those users' records. */
+export function selectPendingForApproval(pending, userIds = null) {
+  return pending.filter((r) => (r.tier === 'full' || r.tier === 'basic') && (!userIds || userIds.includes(r.userId)));
+}
+
+/**
+ * Approve pending `full`/`basic` records through the two-person path. Returns one row per record.
+ * `userIds` limits it to those users, so a request that arrives while this runs is never approved by accident.
+ */
+export async function approvePending(ctx, sessions = null, { userIds = null } = {}) {
   const secrets = ctx.secrets;
   const { users, pending } = listAccountsAndTiers(secrets);
-  const todo = pending.filter((r) => r.tier === 'full' || r.tier === 'basic');
+  const todo = selectPendingForApproval(pending, userIds);
   const out = [];
   if (todo.length === 0) return out;
   const s = sessions ?? (await operatorSessions(ctx));

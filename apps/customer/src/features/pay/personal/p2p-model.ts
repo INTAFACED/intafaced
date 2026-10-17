@@ -244,6 +244,18 @@ export function feePercent(feeBps: number): string {
   return fraction ? `${whole}.${fraction}` : String(whole);
 }
 
+/**
+ * True when a typed quantity is more than the seller has available. Only a complete, valid number is judged; anything
+ * else is left to the quantity checks. Exact decimals, no rounding.
+ */
+export function exceedsAvailable(amountText: string, available: string): boolean {
+  const text = amountText.trim();
+  if (!/^\d+(\.\d{1,18})?$/.test(text)) return false;
+  const typed = dec(text);
+  const have = dec(available);
+  return typed !== null && have !== null && typed > 0n && typed > have;
+}
+
 export type TakeRequest = { offerId: string; amount: string; method: string };
 export type TakeRequestCheck =
   { ok: true; request: TakeRequest } | { ok: false; kind: Exclude<TakeCheck['kind'], 'ok'> | 'noMethod' | 'inactive' };
@@ -443,15 +455,39 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
 export const tradeMovedFromQuote = (trade: Pick<Trade, 'price' | 'fiatAmount'>, quote: Pick<TakeQuote, 'price' | 'fiatAmount'>): boolean =>
   !same(trade.price, quote.price) || !same(trade.fiatAmount, quote.fiatAmount);
 
+/**
+ * Why a placed order is shown with a notice before it opens, or null when it opens straight away.
+ *  - `earlier`: the service already had it from an earlier attempt, so its figures may differ from the review;
+ *  - `moved`: it is priced differently from the quote just reviewed;
+ *  - `resent`: this attempt placed it for the first time, under the reference held from the earlier attempt.
+ */
+export function placedNotice(input: {
+  heldReference: string | null;
+  trade: Pick<Trade, 'id' | 'price' | 'fiatAmount'>;
+  quote: Pick<TakeQuote, 'price' | 'fiatAmount'>;
+  placedNow: boolean;
+}): 'earlier' | 'moved' | 'resent' | null {
+  const held = input.heldReference !== null && input.trade.id.toLowerCase() === input.heldReference.toLowerCase();
+  if (held && !input.placedNow) return 'earlier';
+  if (tradeMovedFromQuote(input.trade, input.quote)) return 'moved';
+  return held ? 'resent' : null;
+}
+
 // ── Who is on the other side ────────────────────────────────────────────────────────────────────────────────────
 
-export type MakerSummary = { kind: 'new' } | { kind: 'record'; orders: number; completionRate: number; releaseSecs: number | null };
+export type MakerSummary =
+  | { kind: 'new' }
+  | { kind: 'unfinished'; orders: number }
+  | { kind: 'record'; orders: number; completionRate: number; releaseSecs: number | null };
 
 /** What to say about a maker from the reputation the service returned. Only returned fields; nothing is derived or filled in. */
 export function makerSummary(
-  reputation: Pick<Reputation, 'tradesTotal' | 'completed' | 'completionRate' | 'avgReleaseSecs'>,
+  reputation: Pick<Reputation, 'tradesTotal' | 'completed' | 'cancelled' | 'completionRate' | 'avgReleaseSecs'>,
 ): MakerSummary {
   if (reputation.tradesTotal === 0) return { kind: 'new' };
+  // Trades are counted when they are escrowed, but completed and cancelled only when they finish, so a trader whose
+  // trades are all still open has a rate of 0% that says nothing about how they trade.
+  if (reputation.completed + reputation.cancelled === 0) return { kind: 'unfinished', orders: reputation.tradesTotal };
   return {
     kind: 'record',
     orders: reputation.tradesTotal,

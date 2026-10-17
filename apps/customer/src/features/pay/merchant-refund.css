@@ -1,105 +1,110 @@
-.merchant-refund {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 0;
-  padding: 20px 0;
-}
-.merchant-refund h3,
-.merchant-refund p {
-  margin: 0;
-}
-.merchant-refund header,
-.merchant-refund-note,
-.merchant-refund-actions,
-.merchant-refund-proof {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-.merchant-refund h3 {
-  font-size: 24px;
-  line-height: 32px;
-  letter-spacing: -0.02em;
-}
-.merchant-refund p {
-  font-size: 16px;
-  line-height: 24px;
-}
-.merchant-refund .muted,
-.merchant-refund dt {
-  color: var(--color-muted);
-}
-.merchant-refund-note {
-  padding: 16px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-}
-.merchant-refund-note h4 {
-  margin: 0;
-  font-size: 18px;
-  line-height: 26px;
-}
-.merchant-refund-actions {
-  gap: 12px;
-}
-.merchant-refund .button {
-  min-height: 44px;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.merchant-refund dl {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  margin: 0;
-}
-.merchant-refund dl > div {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 16px;
-  border-top: 1px solid var(--color-border);
-  min-width: 0;
-}
-.merchant-refund dt,
-.merchant-refund dd,
-.merchant-refund time {
-  margin: 0;
-  font-size: 14px;
-  line-height: 22px;
-}
-.merchant-refund dd {
-  overflow-wrap: anywhere;
-}
-.merchant-refund-review {
-  padding: 0;
-}
-.merchant-refund-review .pay-amount-value {
-  font-size: clamp(28px, 8vw, 60px);
-  line-height: 1.15;
-}
-.merchant-refund-proof strong {
-  font-size: 18px;
-  line-height: 26px;
-}
-.merchant-refund-proof time {
-  color: var(--color-muted);
-}
-.merchant-refund .field,
-.merchant-refund input {
-  min-width: 0;
-  width: 100%;
-}
-@media (min-width: 700px) {
-  .merchant-refund {
-    max-width: 680px;
-  }
-  .merchant-refund-review .merchant-refund-actions {
-    flex-direction: row;
-  }
-  .merchant-refund-review .merchant-refund-actions > .button {
-    min-width: 160px;
+@layer theme, base, components, utilities;
+@layer components {
+  .if-business {
+    .merchant-refund {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      min-width: 0;
+      padding: 20px 0;
+    }
+    .merchant-refund h3,
+    .merchant-refund p {
+      margin: 0;
+    }
+    .merchant-refund header,
+    .merchant-refund-note,
+    .merchant-refund-actions,
+    .merchant-refund-proof {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+    }
+    .merchant-refund h3 {
+      font-size: 24px;
+      line-height: 32px;
+      letter-spacing: -0.02em;
+    }
+    .merchant-refund p {
+      font-size: 16px;
+      line-height: 24px;
+    }
+    .merchant-refund .muted,
+    .merchant-refund dt {
+      color: var(--if-fg-2);
+    }
+    .merchant-refund-note {
+      padding: 16px;
+      border: 1px solid var(--if-line);
+      border-radius: 8px;
+    }
+    .merchant-refund-note h4 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 26px;
+    }
+    .merchant-refund-actions {
+      gap: 12px;
+    }
+    .merchant-refund .button {
+      min-height: 44px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    .merchant-refund dl {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      margin: 0;
+    }
+    .merchant-refund dl > div {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-top: 16px;
+      border-top: 1px solid var(--if-line);
+      min-width: 0;
+    }
+    .merchant-refund dt,
+    .merchant-refund dd,
+    .merchant-refund time {
+      margin: 0;
+      font-size: 14px;
+      line-height: 22px;
+    }
+    .merchant-refund dd {
+      overflow-wrap: anywhere;
+    }
+    .merchant-refund-review {
+      padding: 0;
+    }
+    .merchant-refund-review .pay-amount-value {
+      font-size: clamp(28px, 8vw, 60px);
+      line-height: 1.15;
+    }
+    .merchant-refund-proof strong {
+      font-size: 18px;
+      line-height: 26px;
+    }
+    .merchant-refund-proof time {
+      color: var(--if-fg-2);
+    }
+    .merchant-refund .field,
+    .merchant-refund input {
+      min-width: 0;
+      width: 100%;
+    }
+    @media (min-width: 700px) {
+      .merchant-refund {
+        max-width: 680px;
+      }
+      .merchant-refund-review .merchant-refund-actions {
+        flex-direction: row;
+      }
+      .merchant-refund-review .merchant-refund-actions > .button {
+        min-width: 160px;
+      }
+    }
   }
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { formatWhen } from '@/lib/as-of';
 import { postStep, type ApprovalEndpoint } from '@/lib/desk/approval-browser';
 import {
   confirmPhrase,
@@ -55,7 +56,7 @@ export function StepReplyView({ reply }: { reply: StepReply }) {
           <dt>Approved by</dt>
           <dd className="dk-packet">{shortId(reply.approval.approverId)}</dd>
           <dt>Expires</dt>
-          <dd>{reply.approval.expiresAt}</dd>
+          <dd>{formatWhen(reply.approval.expiresAt)}</dd>
         </dl>
         {reply.matchesReviewedRequest === false && (
           <p className="dk-why" role="alert">
@@ -150,7 +151,7 @@ export function ApprovalWorkbenchView(props: WorkbenchViewProps) {
                 {role === 'requester' ? ' (you)' : ''}
               </dd>
               <dt>Approval expires</dt>
-              <dd>{packet.expiresAt}</dd>
+              <dd>{formatWhen(packet.expiresAt)}</dd>
               <dt>Approval id</dt>
               <dd className="dk-packet">{packet.approvalId}</dd>
             </dl>

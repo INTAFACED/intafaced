@@ -18,8 +18,13 @@ import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js
 import { createLedgerClient } from './ledger-client.js';
 import { subscribeMatchingEvents } from './events.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
+import { identityApprovalBook } from './admin/identity-approval.js';
+import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
+import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
+import { wireTradeOpsAdmin } from './admin/wire.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
+import { listCallerLiquidations, listFundingPayments, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { registerPrivateRest } from './private-rest.js';
 import { attachExpireStash, bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
 import { attachReduceOnlyStash, bindReduceOnly, installReduceOnlyPlace } from './spot/reduce-only-place.js';
@@ -96,6 +101,7 @@ import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
+import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
@@ -129,6 +135,7 @@ await sql`SELECT 1 FROM trade.markets LIMIT 1`.catch(() => {
 await assertNoLocalTestLifecycleRows(sql, process.env);
 
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET));
 const tradingControls = new TradingControls(
   sql,
   createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, edgeSecret: env.EDGE_PRINCIPAL_SECRET }),
@@ -166,6 +173,7 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   marketLifecycle,
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
+  futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
   optionsSettlementAssetLaw: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW,
   optionsSettlementFixing: env.TRADE_OPTIONS_SETTLEMENT_FIXING,
   futuresSettlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
@@ -228,6 +236,7 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 });
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
+const copyDisclosureLaw = parseCopyDisclosureLawJson(env.TRADE_COPY_DISCLOSURE_LAW);
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
@@ -251,6 +260,7 @@ const copy = new CopyService(ledger, {
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
+  disclosureLaw: copyDisclosureLaw,
   store: copyStore,
   placeFollowerOrder,
   flattenCopyPosition: createFollowerFlattenPort({
@@ -308,7 +318,18 @@ const copy = new CopyService(ledger, {
     };
   },
 });
-export const appRouter = createTradeRouter(trade, otc, copy, tradingControls);
+export const appRouter = createTradeRouter(
+  trade,
+  otc,
+  copy,
+  tradingControls,
+  wireTradeOpsAdmin({
+    sql,
+    trade,
+    ledger,
+    approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
+  }),
+);
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 if (venueBookPort && venuePublicAdapter) {
@@ -437,6 +458,7 @@ const mmSeedJobs = startMmSeedJobs({
     targets: mmSeedTargets,
   },
   statePath: env.TRADE_MM_SEED_STATE_PATH,
+  operatorSeedAllows: (marketId) => readOperatorSeedAllows(sql, marketId),
   recordSeededOrder: async (row) => {
     await sql`INSERT INTO trade.orders (id, user_id, market_id, side, type, price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, seeded, lifecycle_proof, session_id, api_key_id) VALUES (${row.orderId}, ${HOUSE_MM_USER_UUID}, ${row.marketId}, ${row.side}, ${'limit'}, ${row.price}::numeric, ${row.qty}::numeric, ${'open'}, ${'PO'}, ${row.holdAsset}, ${row.holdAmount}::numeric, ${0}, ${true}, ${JSON.stringify(row.lifecycleProof)}::text::jsonb, ${null}, ${HOUSE_MM_API_KEY_ID}) ON CONFLICT (id) DO NOTHING`;
   },
@@ -573,6 +595,7 @@ registerPublicRest(app, {
       indexPrice: null,
     };
   },
+  futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
   algo: { createEnabled: env.TRADE_ALGO_ENABLED, jobsEnabled: env.TRADE_ALGO_JOBS_ENABLED },
   futures: {
     jobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,
@@ -589,6 +612,7 @@ registerFuturesTickerRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   markForMarket: (marketId, symbol) => futuresJobs.publicMark(marketId, symbol),
   fundingForMarket: (marketId) => futuresJobs.getPublishedRate(marketId),
+  factsForMarket: (marketId, nowMs) => readFuturesTickerFacts(sql, marketId, new Date(nowMs)),
 });
 registerPositionPreviewRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
@@ -811,6 +835,9 @@ registerPrivateRest(app, {
     presentAdlDisclosureWire(await adlDisclosureAcks.recordAck(principal.userId, ADL_DISCLOSURE_VERSION, new Date())),
   listAdlDisclosureEvents: async (principal, limit) =>
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
+  convertExport: (principal, query) => trade.convertExport(principal, query),
+  listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
+  listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
 });
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',

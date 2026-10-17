@@ -57,15 +57,23 @@ export const SAME_PERSON_ACTION_TYPES = [
   'bank.step_up.bills.pay',
   'bank.step_up.bills.recurring',
   'bank.step_up.global.send',
+  // Customer contact changes. Identity mints and consumes these itself.
+  // They are not bank doors and not a sign-in factor.
+  'identity.step_up.email_change',
+  'identity.step_up.phone_change',
+  'identity.step_up.phone_remove',
 ] as const;
 
 /**
  * Same-person rows are consumed only by the service named on the row.
- * Bank doors stay `svc-bank`. Pay destination step-up is `svc-pay`, because
- * identity refuses a consume whose caller is not the target service.
+ * Bank doors stay `svc-bank`. Pay destination step-up is `svc-pay`.
+ * Identity contact changes are `svc-identity`, because identity consumes them
+ * itself and refuses a consume whose caller is not the target service.
  */
-export function samePersonTargetService(actionType: string): 'svc-bank' | 'svc-pay' {
-  return actionType.startsWith('pay.step_up.') ? 'svc-pay' : 'svc-bank';
+export function samePersonTargetService(actionType: string): 'svc-bank' | 'svc-pay' | 'svc-identity' {
+  if (actionType.startsWith('pay.step_up.')) return 'svc-pay';
+  if (actionType.startsWith('identity.step_up.')) return 'svc-identity';
+  return 'svc-bank';
 }
 export type SamePersonActionType = (typeof SAME_PERSON_ACTION_TYPES)[number];
 

@@ -83,6 +83,19 @@ export interface Market {
   readonly schedule: ScheduleKey;
   /** Paper / simulated market — never posts real ledger holds (academy paper drills). */
   readonly paper: boolean;
+  /** Human label. Absent on rows loaded before the column was selected. */
+  readonly displayName?: string;
+  /**
+   * Local TEST swap. Hidden from the public board unless TRADE_FUTURES_TEST_SEED
+   * is on. Never set by production config.
+   */
+  readonly test?: boolean;
+  /** Explicit seed values. Null on every production listing. */
+  readonly testFixture?: {
+    readonly leverageCap: string;
+    readonly markFeed: string;
+    readonly liquidationPolicy: string | Record<string, unknown>;
+  } | null;
   /**
    * Futures constitution style. `dated` requires expiry + owner fixing stamp.
    * Omitted / null on non-futures. kind=futures with null → perpetual (legacy rows).
@@ -589,7 +602,15 @@ export type TradeErrorCode =
    * Place/fill/ledger without session or API-key id from the signed principal
    * (R-auth / PTX-M01-R05). Trade does not invent a session.
    */
-  | 'trade.auth_attribution_missing';
+  | 'trade.auth_attribution_missing'
+  /** Operator fat-finger notional is set and this order is past it. */
+  | 'trade.operator_fat_finger'
+  /** Operator collar (max price) is set and this order is past it. */
+  | 'trade.operator_collar'
+  /** Operator throttle is set and this account is already at it. */
+  | 'trade.operator_throttle'
+  /** Operator circuit breaker is set and no reference mark is configured. */
+  | 'trade.circuit_breaker_reference_unset';
 
 export class TradeError extends Error {
   constructor(

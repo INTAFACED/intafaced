@@ -1,5 +1,7 @@
 import { envScreeningList, screeningMoneyGrade } from '@intafaced/config/screening';
+import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
+import { enqueueHeldPayment } from '../fraud/review-queue-store.js';
 import { PayGuardRefusal, type PartialPayGuards, type PayoutExecuteContext, type UserMoneyWithdrawalContext } from '../seams/guards.js';
 import { applyListPosture, screeningCaseFromAnswer, type ScreeningAnswer, type ScreeningDecision } from './decision.js';
 import {
@@ -74,7 +76,12 @@ export function createScreeningGuards(deps: ScreeningGuardDeps): PartialPayGuard
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const posture = listPostureOf(deps);
 
-  async function decide(kind: ScreeningSubjectKind, parts: readonly string[], replayKind: 'fresh' | 'replay' | 'recovery'): Promise<void> {
+  async function decide(
+    kind: ScreeningSubjectKind,
+    parts: readonly string[],
+    replayKind: 'fresh' | 'replay' | 'recovery',
+    party: { merchantId: string; amount: Amount; assetId: string },
+  ): Promise<void> {
     if (replayKind === 'replay') return;
     const answer = await answerFrom(screener, timeoutMs);
     const decision = applyListPosture(screeningCaseFromAnswer(answer), posture);
@@ -88,6 +95,19 @@ export function createScreeningGuards(deps: ScreeningGuardDeps): PartialPayGuard
     if (refusal) {
       refusal.afterRollback = async () => {
         await store.save(record);
+        if (decision.status !== 'review') return;
+        const codes = decision.factors.map((item) => item.code);
+        const details = codes.length > 0 ? codes : ['screening_review'];
+        await enqueueHeldPayment(deps.sql, {
+          paymentRef: `screening:${kind}:${record.subjectKey}`,
+          merchantId: party.merchantId,
+          amount: formatAmount(party.amount),
+          assetId: party.assetId,
+          reason: details.join(', '),
+          reasons: details.map((code) => ({ ruleId: 'screening_review', detail: code })),
+          createdBy: 'screening',
+          source: 'screening.review',
+        });
       };
       throw refusal;
     }
@@ -101,7 +121,17 @@ export function createScreeningGuards(deps: ScreeningGuardDeps): PartialPayGuard
   }
 
   return {
-    beforePayoutExecute: (ctx: PayoutExecuteContext) => decide('payout', [ctx.settlementId, String(ctx.attempt)], ctx.replay.kind),
-    beforeUserMoneyWithdrawal: (ctx: UserMoneyWithdrawalContext) => decide('withdrawal', [ctx.userId, ctx.clientRef], ctx.replay.kind),
+    beforePayoutExecute: (ctx: PayoutExecuteContext) =>
+      decide('payout', [ctx.settlementId, String(ctx.attempt)], ctx.replay.kind, {
+        merchantId: ctx.merchantId,
+        amount: ctx.amount,
+        assetId: ctx.assetId,
+      }),
+    beforeUserMoneyWithdrawal: (ctx: UserMoneyWithdrawalContext) =>
+      decide('withdrawal', [ctx.userId, ctx.clientRef], ctx.replay.kind, {
+        merchantId: ctx.userId,
+        amount: ctx.amount,
+        assetId: ctx.assetId,
+      }),
   };
 }

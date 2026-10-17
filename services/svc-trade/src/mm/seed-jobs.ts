@@ -123,6 +123,11 @@ export interface MmSeedJobsDeps {
   statePath?: string;
   /** SD-2 recorder — persist resting seed orders as seeded (optional). */
   recordSeededOrder?: (row: SeededOrderRecord) => Promise<void>;
+  /**
+   * Operator seed switch. Absent: the env arm is the only gate (previous behaviour).
+   * Present and false: this market stays unseeded. Default in the table is off.
+   */
+  operatorSeedAllows?: (marketId: string) => Promise<boolean>;
 }
 
 export interface MmSeedJobsHandle {
@@ -174,6 +179,10 @@ export function startMmSeedJobs(deps: MmSeedJobsDeps): MmSeedJobsHandle {
     for (const target of deps.config.targets) {
       if (!target.marketId.trim() || !target.baseAsset.trim() || !target.quoteAsset.trim()) {
         deps.onResult?.(target.marketId, { skipped: 'invalid_target' });
+        continue;
+      }
+      if (deps.operatorSeedAllows && !(await deps.operatorSeedAllows(target.marketId))) {
+        deps.onResult?.(target.marketId, { skipped: 'operator_seed_off' });
         continue;
       }
 

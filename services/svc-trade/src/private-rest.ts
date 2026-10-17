@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
+import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { checkAccess } from '@intafaced/config';
 import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
 import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
@@ -74,6 +75,8 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/futures/adl-disclosure     scope: trade:read  (copy + ack — DIRECTION:34)
  *   POST   /api/v1/futures/adl-disclosure/ack scope: trade:write (ack before open)
  *   GET    /api/v1/futures/adl-events         scope: trade:read  (disclosure-before-action; ?limit= 1..500)
+ *   GET    /api/v1/futures/liquidations      scope: trade:read  (caller's rungs; adlRank null until published)
+ *   GET    /api/v1/positions/:id/funding-payments scope: trade:read (?cursor=)
  *   POST   /api/v1/positions       scope: trade:write (open funded position — F3)
  *   DELETE /api/v1/positions/:id   scope: trade:write (close + release margin — F3)
  *
@@ -109,6 +112,7 @@ export interface PrivateRestDeps {
   /** Shared EDGE_PRINCIPAL_SECRET — same value tRPC uses. */
   edgeSecret: string;
   serviceName: string;
+  convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   openOrders(principal: Principal, marketId: string | undefined, limit: number): Promise<OrderRecord[]>;
   /** Operator projection. Unset mounts a typed refuse, never a fallback book. Limit required — never invent 100. */
   adminOpenOrders?(principal: Principal, limit: number): Promise<OrderRecord[]>;
@@ -239,6 +243,20 @@ export interface PrivateRestDeps {
    * (candidate side). Empty [] when none — never invents events.
    */
   listAdlDisclosureEvents(principal: Principal, limit: number): Promise<AdlActionDisclosureWire[]>;
+  /**
+   * Funding settlement postings for one position the caller owns.
+   * Empty payments means no funding yet. Another account's id is not found.
+   */
+  listFundingPayments?(
+    principal: Principal,
+    positionId: string,
+    cursor: string | undefined,
+  ): Promise<{
+    payments: readonly { time: string; rate: string | null; rateReason: string | null; amount: string; direction: 'paid' | 'received' }[];
+    nextCursor: string | null;
+  }>;
+  /** The caller's liquidation rungs. adlRank stays null until a rank is actually computed. */
+  listLiquidations?(principal: Principal): Promise<{ events: readonly unknown[] }>;
 }
 
 /**
@@ -862,6 +880,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     return principal;
   }
 
+  attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
+
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
    * Scope is still enforced inside TradeService; this refuses a region that may not trade.
@@ -1365,6 +1385,46 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const rows = await deps.listAdlDisclosureEvents(principal, limit);
       return reply.code(200).send(rows);
     } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get('/api/v1/futures/liquidations', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.listLiquidations) {
+      return reply.code(503).send({
+        error: 'trade.liquidations_unwired',
+        message: 'liquidation history is not wired on this process',
+      });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.listLiquidations(principal));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { cursor?: string } }>('/api/v1/positions/:id/funding-payments', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.listFundingPayments) {
+      return reply.code(503).send({
+        error: 'trade.funding_payments_unwired',
+        message: 'funding payment history is not wired on this process',
+      });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.listFundingPayments(principal, req.params.id, req.query.cursor));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;

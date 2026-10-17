@@ -6,12 +6,14 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { presentAlgoCapabilityNote } from './algo/algo-capability.js';
 import { presentFuturesJobsCapabilityNote } from './futures/futures-jobs-capability.js';
 import { readTradePlanes } from './futures/plane-capabilities.js';
+import { visibleOnPublicBoard } from './futures/futures-reads.js';
 import { badRequest, badSymbol, notSupported, toCcxtError, type CcxtErrorResponse } from './ccxt-errors.js';
 import type { EngineDepth } from './spot/matching-client.js';
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { fxNamedDegrade, isFxProduct } from './spot/fx-product.js';
 import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
+import { publicMarketLifecycle } from './public-market-lifecycle.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 
 /**
@@ -118,6 +120,11 @@ export interface PublicRestDeps {
     /** Explicit owner/listing cap. Null means futures leverage is refuse-closed. */
     readonly maxLeverage?: string | null;
   };
+  /**
+   * TRADE_FUTURES_TEST_SEED. Default off. The only switch that lets a `test: true`
+   * listing appear on GET /markets. Does not enable TRADE_FUTURES_ENABLED.
+   */
+  futuresTestSeed?: boolean;
 }
 
 /** Send an already-mapped CCXT error. */
@@ -401,6 +408,12 @@ export function presentCcxtMarket(
      * being silently untrue while it is open.
      */
     paper: market.paper === true,
+    /** Local TEST listing. Production rows are false. Hidden unless the seed flag is on. */
+    test: market.test === true,
+    displayName: market.displayName ?? market.symbol,
+    /** Explicit TEST seed values. Null when this listing did not record them. */
+    markFeed: market.test === true ? (market.testFixture?.markFeed ?? null) : null,
+    liquidationPolicy: market.test === true ? (market.testFixture?.liquidationPolicy ?? null) : null,
     /** Not stock CCXT — names FX vs crypto so a shared pair label is not fungible. */
     assetClass: market.assetClass,
     ...(isFxProduct(market) ? { product: 'fx' as const, degrade: fxNamedDegrade() } : {}),
@@ -409,7 +422,7 @@ export function presentCcxtMarket(
     nextSessionChange: session.nextSessionChange,
     hours: session.hours,
     /** PX-S01 authority state; null is explicit when this mount has no publisher. */
-    lifecycle: flags.lifecycle ?? null,
+    lifecycle: publicMarketLifecycle(flags.lifecycle),
     lifecycleReasonCode: flags.lifecycle?.reasonCode ?? null,
     taker: bpsToRate(market.takerBps),
     maker: bpsToRate(market.makerBps),
@@ -441,7 +454,12 @@ export function presentCcxtMarket(
        */
       leverage: {
         min: null as string | null,
-        max: market.kind === 'futures' ? (flags.futuresMaxLeverage ?? null) : null,
+        max:
+          market.kind !== 'futures'
+            ? null
+            : market.test === true && market.testFixture?.leverageCap
+              ? market.testFixture.leverageCap
+              : (flags.futuresMaxLeverage ?? null),
       },
     },
   };
@@ -633,7 +651,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     if (limit === undefined) {
       return sendCcxt(reply, badRequest('markets limit is unset — refuse to invent 50', TRADE_MARKETS_LIMIT_UNSET));
     }
-    const markets = await deps.markets(limit);
+    const markets = (await deps.markets(limit)).filter((m) => visibleOnPublicBoard(m, deps.futuresTestSeed === true));
     const ts = now();
     const futuresOrderable = deps.futures?.orderableEnabled === true;
     const presented = await Promise.all(

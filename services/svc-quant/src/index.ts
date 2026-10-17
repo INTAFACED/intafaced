@@ -5,6 +5,8 @@ import { missingLake } from './backtest/lake.js';
 import { env } from './env.js';
 import { quantReadyHonesty } from './ready-honesty.js';
 import { createQuantRouter } from './router.js';
+import { openRunRepository } from './runs/open.js';
+import { openStrategyRepository } from './studio/open.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 registerProcessHooks(
@@ -19,8 +21,9 @@ registerProcessHooks(
 /**
  * svc-quant — sandboxed strategy runtime (§29).
  *
- * Paper book in this process — no INTERNAL_SERVICE_SECRET, no DATABASE_URL.
- * Saved strategies are keyed by the session account and die with the process.
+ * Paper book — no INTERNAL_SERVICE_SECRET. Saved strategies are keyed by the
+ * session account in Postgres when DATABASE_URL and DATABASE_POOL_MAX are set.
+ * Otherwise studio and backtest refuse by naming the missing key.
  * That is not a certified non-custodial plane.
  * Isolate is the restricted VM in ./sandbox — user code never reaches Node
  * eval, fetch, or the network. Unwired → named refuse, never a fake PnL.
@@ -28,12 +31,16 @@ registerProcessHooks(
 const isolateWired = true;
 const lake = missingLake();
 const venueVaultSet = env.QUANT_VENUE_VAULT !== undefined;
+const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 
 export const appRouter = createQuantRouter({
   wired: isolateWired,
   venueVaultSet,
   limits: { maxOps: env.SANDBOX_MAX_OPS, maxSource: env.SANDBOX_MAX_SOURCE },
   lake,
+  strategies: strategies.repository,
+  runs: runs.repository,
 });
 export type AppRouter = typeof appRouter;
 
@@ -64,6 +71,8 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       await app.close();
+      await strategies.close();
+      await runs.close();
       process.exit(0);
     })();
   });

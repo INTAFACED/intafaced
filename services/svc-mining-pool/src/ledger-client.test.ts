@@ -477,9 +477,11 @@ describe('against a fake ledger door', () => {
   });
 });
 
-/** A PPLNS payout needs `post` and nothing else: the narrow type is the enforcement, this pins the runtime shape. */
-describe('capability — post only', () => {
-  it('hands the pool nothing but post: no balance, no balances, no lookups', () => {
-    expect(Object.keys(client())).toEqual(['post']);
+/** A payout posts, and a payout read looks up that transaction. Balances stay off this client. */
+describe('capability — post and payout lookup', () => {
+  it('hands the pool post and getTxByKey, never balance or balances', () => {
+    expect(Object.keys(client()).sort()).toEqual(['getTxByKey', 'post']);
+    expect(client()).not.toHaveProperty('balance');
+    expect(client()).not.toHaveProperty('balances');
   });
 });

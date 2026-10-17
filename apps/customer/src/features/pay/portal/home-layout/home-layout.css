@@ -1,0 +1,542 @@
+@layer theme, base, components, utilities;
+@layer components {
+  .plo {
+    width: min(var(--if-container-max), calc(100% - 56px));
+    margin: 0 auto;
+    padding: 24px 0 100px;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .plo * {
+    box-sizing: border-box;
+  }
+  .plo :where(h1, h2, h3, p, ul) {
+    margin: 0;
+    padding: 0;
+  }
+  .plo :where(a),
+  .plo-grouped a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .plo :where(a, button):focus-visible,
+  .plo-grouped :where(a, button):focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 4px;
+  }
+  .plo-content {
+    min-width: 0;
+  }
+  .plo-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 32px 0;
+  }
+  .plo-heading h1 {
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.6px;
+    margin-top: 8px;
+  }
+  .plo-heading p {
+    color: var(--if-fg-2);
+    font-size: 14px;
+    margin-top: 8px;
+  }
+  .plo-eyebrow {
+    font-size: 12px;
+    color: var(--if-fg-2) !important;
+  }
+  .plo-tabs {
+    display: flex;
+    gap: 28px;
+    border-bottom: 1px solid var(--if-line);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .plo-tabs a {
+    flex-shrink: 0;
+    font-size: 14px;
+    color: var(--if-fg-2);
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    border-bottom: 2px solid transparent;
+  }
+  .plo-tabs a[aria-current] {
+    color: var(--if-fg);
+    border-color: var(--if-lime);
+  }
+  .plo-subtabs {
+    display: flex;
+    gap: 24px;
+    padding: 18px 0 0;
+    overflow-x: auto;
+  }
+  .plo-subtabs a {
+    font-size: 13px;
+    color: var(--if-fg-2);
+    white-space: nowrap;
+    min-height: 30px;
+  }
+  .plo-subtabs a[aria-current] {
+    color: var(--if-fg);
+  }
+  .plo-home-grid {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 792fr) minmax(0, 408fr);
+    gap: 24px;
+  }
+  .plo-main,
+  .plo-rail {
+    min-width: 0;
+  }
+  .plo-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .plo-balance {
+    padding: 0 0 32px;
+  }
+  .plo-label {
+    color: var(--if-fg-2);
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .plo-balance-asset {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin: 4px 0 8px;
+    flex-wrap: wrap;
+  }
+  .plo-number {
+    font-size: 48px;
+    line-height: 56px;
+    font-weight: 600;
+    letter-spacing: -1.8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .plo-unit {
+    font-size: 16px;
+    color: var(--if-fg-2);
+  }
+  .plo .pp-asof {
+    font-size: 11px;
+    margin: 8px 0 0;
+    color: var(--if-fg-2);
+    line-height: 18px;
+  }
+  .plo .pp-asof p {
+    margin-top: 6px;
+  }
+  .plo-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 24px;
+  }
+  .plo-actions [data-slot='button'] {
+    border-radius: 999px;
+    font-size: 13px;
+    gap: 8px;
+  }
+  .plo-card {
+    border-radius: 16px;
+    background: var(--if-panel);
+    padding: 24px;
+    margin: 0 0 24px;
+  }
+  .plo-rail .plo-card {
+    margin: 0;
+  }
+  .plo h2 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+  }
+  .plo-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .plo-section-head > a {
+    font-size: 12px;
+    color: var(--if-fg-2);
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+  }
+  .plo-section-head > a:hover {
+    color: var(--if-fg);
+  }
+  .plo-account-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+    margin-bottom: 16px;
+  }
+  .plo-account p {
+    font-size: 12px;
+    color: var(--if-fg-2);
+    line-height: 20px;
+  }
+  .plo-pending {
+    font-size: 22px;
+  }
+  .plo-metrics {
+    padding: 8px 0 28px;
+  }
+  .plo-kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .plo-kpi-strip a {
+    min-width: 0;
+  }
+  .plo-kpi-strip a > span {
+    display: block;
+    font-size: 11px;
+    color: var(--if-fg-2);
+    margin-bottom: 8px;
+  }
+  .plo-kpi-strip strong {
+    font-size: 18px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+  .plo-kpi-strip .pp-money-lines {
+    gap: 4px;
+  }
+  .plo .pp-unit {
+    font-size: 11px;
+  }
+  .plo-payment-feed {
+    list-style: none;
+  }
+  .plo-payment-feed li + li {
+    border-top: 1px solid var(--if-line);
+  }
+  .plo-payment-feed a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 80px;
+    padding: 12px 0;
+  }
+  .plo-payment-icon {
+    display: inline-flex;
+    flex: 0 0 36px;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--if-hover);
+    color: var(--if-fg-2);
+  }
+  .plo-payment-label {
+    min-width: 0;
+    flex: 1;
+  }
+  .plo-payment-label strong {
+    font-size: 13px;
+    font-weight: 500;
+    display: block;
+    margin-bottom: 6px;
+  }
+  .plo-payment-label > span {
+    font-size: 11px;
+    color: var(--if-fg-2);
+  }
+  .plo-payment-label [data-slot='status-tag'] {
+    font-size: 10px;
+  }
+  .plo-payment-amount {
+    font-size: 14px;
+    text-align: right;
+  }
+  .plo-payment-amount .pp-unit {
+    display: block;
+  }
+  .plo-rail .plo-payment-icon {
+    display: none;
+  }
+  .plo-rail .plo-payment-label strong {
+    font-size: 12px;
+  }
+  .plo-rail .plo-payment-amount {
+    font-size: 12px;
+  }
+  .plo-rail .plo-payment-feed a {
+    gap: 8px;
+    min-height: 72px;
+  }
+  .plo-volume {
+    margin-bottom: 24px;
+  }
+  .plo-chart-caption {
+    font-size: 12px;
+    color: var(--if-fg-2);
+    margin-bottom: 12px !important;
+  }
+  .plo-chart {
+    height: 230px;
+    display: flex;
+    gap: 5px;
+    align-items: end;
+    padding-top: 24px;
+    margin-top: 8px;
+    border-bottom: 1px solid var(--if-line);
+    background: repeating-linear-gradient(to top, transparent 0, transparent calc(25% - 1px), var(--if-line) 25%);
+  }
+  .plo-chart-slot {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    align-items: end;
+    justify-content: center;
+  }
+  .plo-chart-slot span {
+    width: 100%;
+    max-width: 48px;
+    background: var(--if-fg-2);
+    border-radius: 3px 3px 0 0;
+  }
+  .plo-chart-axis {
+    display: flex;
+    justify-content: space-between;
+    color: var(--if-fg-2);
+    font-size: 11px;
+    margin: 12px 0;
+  }
+  .plo-grouped a {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    color: var(--if-fg-2);
+  }
+  .plo-grouped a[aria-current],
+  .plo-grouped a:hover {
+    color: var(--if-fg);
+    background: var(--if-hover);
+  }
+  .tb-menu:has(.plo-grouped) {
+    width: 340px;
+    padding: 12px 20px;
+    max-height: 75vh;
+    overflow-y: auto;
+  }
+  /* The existing Payments component keeps its data, filters, export and review flows. */
+  .if-business .plo .pay-section {
+    background: transparent;
+    padding: 0 0 28px;
+    border: 0;
+    border-radius: 0;
+  }
+  .if-business .plo .pay-section > header {
+    margin-bottom: 20px;
+  }
+  .if-business .plo .pp-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 20px;
+    border-top: 1px solid var(--if-line);
+    border-bottom: 1px solid var(--if-line);
+    padding: 20px 0;
+  }
+  .if-business .plo .pp-kpi {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    background: transparent;
+  }
+  .if-business .plo .pp-kpi strong,
+  .if-business .plo .pp-kpi-value {
+    font-size: 23px;
+  }
+  .if-business .plo .pp-filter-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    align-items: start;
+  }
+  .if-business .plo .pp-filter-row > * {
+    min-width: 0;
+  }
+  .if-business .plo .pp-filter-row > :nth-child(5) {
+    grid-column: span 2;
+  }
+  .if-business .plo .pp-payout-filters {
+    align-items: end;
+  }
+  .if-business .plo [data-slot='table-container'] {
+    border-radius: 12px;
+  }
+  .plo-content {
+    padding-top: 28px;
+  }
+  .plo-subtabs {
+    padding-top: 4px;
+    gap: 24px;
+    scrollbar-width: thin;
+  }
+  .plo-subtabs a {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    border-bottom: 2px solid transparent;
+  }
+  .plo-subtabs a[aria-current] {
+    border-color: var(--if-line);
+  }
+  .if-business .plo [data-slot='button'] {
+    border-radius: 999px;
+  }
+  .if-business .plo .pay-section {
+    background: var(--if-panel);
+    padding: 24px;
+    border-radius: 16px;
+  }
+  .plo-heading {
+    margin-top: 0;
+  }
+  .plo [data-slot='status-tag'] {
+    border-radius: 999px;
+    border-color: transparent;
+    padding-inline: 8px;
+  }
+  .plo-money-exact {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .plo-money-exact button {
+    font-size: 11px;
+    min-height: 32px;
+    padding: 2px 6px;
+  }
+  .if-business .plo .pp-kpi-value {
+    overflow-wrap: anywhere;
+  }
+  .plo [data-slot='accordion-panel'] .pp-dashboard {
+    padding-top: 20px;
+  }
+  @media (max-width: 1000px) {
+    .plo-home-grid {
+      grid-template-columns: minmax(0, 1fr) 320px;
+    }
+    .plo-kpi-strip {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      row-gap: 24px;
+    }
+  }
+  @media (max-width: 760px) {
+    .plo {
+      width: calc(100% - 32px);
+      padding: 12px 0 120px;
+    }
+    .plo-home-grid {
+      display: block;
+    }
+    .plo-rail {
+      margin-top: 24px;
+    }
+    .plo-tabs {
+      gap: 24px;
+    }
+    .plo-tabs a {
+      font-size: 12px;
+      min-height: 48px;
+    }
+    .plo-subtabs {
+      gap: 24px;
+    }
+    .plo-content {
+      padding-top: 24px;
+    }
+    .plo-number {
+      font-size: 40px;
+      line-height: 48px;
+      letter-spacing: -1.4px;
+    }
+    .plo-balance-asset {
+      gap: 8px;
+    }
+    .plo-unit {
+      font-size: 14px;
+    }
+    .plo-balance {
+      padding-bottom: 28px;
+    }
+    .plo-heading {
+      margin: 0 0 24px;
+      flex-wrap: wrap;
+    }
+    .plo-heading h1 {
+      font-size: 24px;
+    }
+    .plo-actions {
+      gap: 8px;
+      margin-top: 20px;
+    }
+    .plo-actions [data-slot='button'] {
+      font-size: 12px;
+      padding-inline: 14px;
+      min-height: 44px;
+    }
+    .plo-actions [data-slot='button'] svg {
+      width: 14px;
+    }
+    .plo-card,
+    .if-business .plo .pay-section {
+      padding: 20px;
+    }
+    .plo .pp-asof {
+      font-size: 10px;
+    }
+    .plo-chart {
+      height: 180px;
+      gap: 3px;
+    }
+    .plo-payment-label strong {
+      font-size: 12px;
+    }
+    .plo-payment-amount {
+      font-size: 13px;
+    }
+    .if-business .plo .pp-kpis {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .if-business .plo .pp-filter-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .if-business .plo .pp-filter-row > :nth-child(5) {
+      grid-column: span 2;
+    }
+    .if-business .plo .pay-section > header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .plo--payments .pay-section table :is(th, td):is(:nth-child(2), :nth-child(4), :nth-child(5), :nth-child(7)) {
+      display: none;
+    }
+    .plo--payments .pay-section table {
+      min-width: 100%;
+      width: 100%;
+    }
+  }
+}

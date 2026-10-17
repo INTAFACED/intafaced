@@ -35,6 +35,8 @@ import { signPayload } from './rails/webhook-signature.js';
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
+// Main loads every up migration. That includes 0009_pay_submerchant_tree.sql,
+// which createMerchant needs for parent_merchant_id.
 const drizzleDir = join(here, '..', 'drizzle');
 const migrations = readdirSync(drizzleDir)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))

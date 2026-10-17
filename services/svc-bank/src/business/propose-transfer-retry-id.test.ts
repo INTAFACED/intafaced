@@ -163,6 +163,7 @@ describe('BusinessService.proposeTransfer — retry with the same clientId is on
   it('omit clientId refuses bank.business_request_id_required', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('500'),
@@ -186,6 +187,7 @@ describe('BusinessService.proposeTransfer — retry with the same clientId is on
   it('under-threshold retry — one manual transfer', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('500'),
@@ -218,6 +220,7 @@ describe('BusinessService.proposeTransfer — retry with the same clientId is on
   it('over-threshold retry — one approval hold', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('100'),
@@ -255,12 +258,14 @@ describe('BusinessService.proposeTransfer — retry with the same clientId is on
   it('under-threshold clientId with different terms conflicts and does not post again', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('500'),
       creatorUserId: MAKER,
     });
     const otherAccount = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Other Co',
       assetId: 'USDT',
       spendThreshold: account.spendThreshold,
@@ -307,12 +312,14 @@ describe('BusinessService.proposeTransfer — retry with the same clientId is on
   it('over-threshold clientId with different terms conflicts and does not hold again', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('500'),
       creatorUserId: MAKER,
     });
     const otherAccount = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Other Co',
       assetId: 'USDT',
       spendThreshold: account.spendThreshold,
@@ -357,6 +364,7 @@ describe('BusinessService.proposeTransfer — retry with the same clientId is on
   it('an amount that moves from below spendThreshold to at or above it conflicts and does not hold', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('500'),
@@ -405,6 +413,7 @@ describe('BusinessService.proposeTransfer — retry with the same clientId is on
   it('an amount that moves from at or above spendThreshold to below it conflicts and does not post', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('500'),
@@ -479,6 +488,7 @@ describe('HTTP /trpc/business.proposeTransfer — retry with the same clientId i
   it('HTTP without clientId is 400', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('500'),
@@ -502,6 +512,7 @@ describe('HTTP /trpc/business.proposeTransfer — retry with the same clientId i
   it('two HTTP posts with the same clientId are one transfer', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
     const account = await bank.business.createAccount({
+      accountId: randomUUID(),
       name: 'Ops Co',
       assetId: 'USDT',
       spendThreshold: amt('500'),

@@ -1,12 +1,16 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { z } from 'zod';
 import { P2P } from './P2P';
-import { BusinessPay, BusinessHomeSection } from './BusinessPay';
-import { MerchantPortal } from './portal/MerchantPortal';
-import { parsePortalRoute } from './portal/routes';
+import { BusinessPay } from './BusinessPay';
+import { MerchantPortal, PortalFrame } from './portal/MerchantPortal';
+import { NoBusiness } from './portal/access/NoBusiness';
+import { isLegacyTool, parsePortalRoute, portalRedirect } from './portal/routes';
 import { Checkout } from './Checkout';
 import type { PayBusinessAuthority } from './pay-api';
 import { payCopy } from './copy';
+import { PortalNotFound, Redirect } from './portal/chrome/PortalNotFound';
+import { MerchantAccessProvider, useMerchantAccess } from './portal/access/MerchantAccess';
+import { authorityFromAccess } from './portal/access/authority';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import './pay.css';
@@ -18,6 +22,7 @@ const starterFeeRead = z.object({
 const BusinessContext = createContext<PayBusinessAuthority | null>(null);
 /** A future authoritative company membership source may supply this context.
  * Do not construct it from identity.me.modes, a strategy subaccount or merchant.me alone.
+ * The merchant portal makes its own from the resolved business access (`portal/access/`); this wins when supplied.
  */
 export function PayBusinessProvider({ authority, children }: { authority: PayBusinessAuthority | null; children: ReactNode }) {
   return <BusinessContext.Provider value={authority}>{children}</BusinessContext.Provider>;
@@ -47,11 +52,20 @@ function PayRooms({ path }: { path: string }) {
     current.startsWith('/uc/ad')
   )
     return <P2P key={path} path={path} />;
-  if (current === '/pay' && authority) return <BusinessPay path="/pay/merchant" authority={authority} />;
+  const redirect = portalRedirect(path);
+  if (redirect) return <Redirect to={redirect} />;
   if (parsePortalRoute(path)) return <PortalEntry key={path} path={path} authority={authority} />;
-  return <BusinessPay key={path} path={path} authority={authority} />;
+  // The older sandbox tools stay reachable by address only (`?view=tools`).
+  if (isLegacyTool(path))
+    return (
+      <MerchantAccessProvider>
+        <LegacyTools key={path} path={path} authority={authority} />
+      </MerchantAccessProvider>
+    );
+  return <PortalNotFound />;
 }
 
+/** The fee INTAFACED has published for new accounts (#4897), read once so onboarding can show it. */
 function PortalEntry({ path, authority }: { path: string; authority: PayBusinessAuthority | null }) {
   const { api, userId } = useSession();
   const fee = useResource(
@@ -59,13 +73,19 @@ function PortalEntry({ path, authority }: { path: string; authority: PayBusiness
     `pay:starter-fee:${userId ?? 'anon'}`,
   );
   const starterFeeBps = fee.resource.status === 'ready' ? (fee.resource.data.starterFee?.bps ?? null) : null;
-  return (
-    <MerchantPortal
-      path={path}
-      authority={authority}
-      starterFeeBps={starterFeeBps}
-      legacyHome={authority ? <BusinessHomeSection authority={authority} /> : null}
-    />
-  );
+  return <MerchantPortal path={path} authority={authority} starterFeeBps={starterFeeBps} />;
 }
 export type { PayBusinessAuthority } from './pay-api';
+
+function LegacyTools({ path, authority }: { path: string; authority: PayBusinessAuthority | null }) {
+  const { userId } = useSession();
+  const { access } = useMerchantAccess();
+  // The older sandbox tools need a business too: no account means the one calm state, like every other business page.
+  if (access.status === 'none' && !authority)
+    return (
+      <PortalFrame route={{ room: 'dashboard' }}>
+        <NoBusiness />
+      </PortalFrame>
+    );
+  return <BusinessPay path={path} authority={authority ?? authorityFromAccess(access, userId)} />;
+}

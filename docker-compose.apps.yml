@@ -621,6 +621,8 @@ services:
       # in .env.example; compose still has no default). This flag governs
       # orderability only.
       TRADE_FUTURES_ENABLED: ${TRADE_FUTURES_ENABLED:-false}
+      # Local TEST swap on the public board. Default OFF. Does not enable futures.
+      TRADE_FUTURES_TEST_SEED: ${TRADE_FUTURES_TEST_SEED:-false}
       # Residual jobs (liquidation scan + funding ticks). Default OFF — same
       # shape as TRADE_FUTURES_ENABLED. `${VAR:-true}` here would start funding
       # ticks on a clean clone while env.ts still read as off. Does not invent
@@ -697,6 +699,8 @@ services:
       # Published JSON lives in `.env.example`. Blank host still refuse-closed.
       TRADE_COPY_FEE_SHARE_LAW: ${TRADE_COPY_FEE_SHARE_LAW:-}
       TRADE_COPY_JURISDICTION_LAW: ${TRADE_COPY_JURISDICTION_LAW:-}
+      # TRD-0773 disclosure wording. Empty = unpublished. Compose does not invent text.
+      TRADE_COPY_DISCLOSURE_LAW: ${TRADE_COPY_DISCLOSURE_LAW:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}
@@ -984,6 +988,9 @@ services:
       P2P_OFFER_MAX_STANDARD: ${P2P_OFFER_MAX_STANDARD:-}
       P2P_OFFER_MAX_MERCHANT: ${P2P_OFFER_MAX_MERCHANT:-}
       P2P_MODERATOR_USER_IDS: ${P2P_MODERATOR_USER_IDS:-}
+      # Dispute rulings stay single-moderator until a lead turns this on.
+      # Empty is off. Do not set true here.
+      P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL: ${P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL:-}
       # Kill new offers/takes. Default ON matches env.ts; host can set false.
       P2P_TRADING_ENABLED: ${P2P_TRADING_ENABLED:-true}
       # Escrow clocks + sweep. env.ts already names these; without compose
@@ -1519,9 +1526,14 @@ services:
       SANDBOX_MAX_SOURCE: ${SANDBOX_MAX_SOURCE:-}
       # Venue Vault trade-only pin. Blank = venue OMS refuses quant.venue_vault_unset.
       QUANT_VENUE_VAULT: ${QUANT_VENUE_VAULT:-}
+      # Role svc_quant and schema quant come from postgres-init.
+      # migrate-all applies the drizzle files. Blank DATABASE_POOL_MAX (x-service-env)
+      # still refuses quant.database_pool_max_unset.
+      DATABASE_URL: postgres://svc_quant:${SVC_QUANT_DB_PASSWORD:-svc_quant}@postgres:5432/intafaced
     expose: ['4021']
     healthcheck: *healthcheck
-    depends_on: {}
+    depends_on:
+      <<: *needs-schema
 
   # CRM / team / warehouse revenue / projects (ops.business-systems).
   # Non-custodial. Blank analytics replica → ops.warehouse_unwired.
