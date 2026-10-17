@@ -326,11 +326,13 @@ describe('a lost create is checked before anything is sent again', () => {
     expect(f.creates).toHaveLength(1);
   });
 
-  it('a gateway 404 on the check itself is also never an outcome to wait for', async () => {
+  it('a gateway 404 on the check keeps the original unresolved and never says nothing was changed', async () => {
     const f = build((href) => (href.includes('subscription.get') ? new Response('{}', { status: 404 }) : json(null)));
     await f.pay.guard.run(`${userId}:subscription:${subscriptionId}`, async () => uncertain, 'paused');
     const result = await checkSubscriptionOriginal(f.pay, subscriptionId, () => true);
-    expect(result).toMatchObject({ ok: false, reason: 'not_supported' });
+    expect(result).toMatchObject({ ok: false });
+    expect(result.ok ? '' : result.message).toMatch(/still unconfirmed/);
+    expect(result.ok ? '' : result.message).not.toMatch(/nothing was changed/i);
     expect(f.pay.guard.status(`${userId}:subscription:${subscriptionId}`)).toBe('uncertain');
   });
 

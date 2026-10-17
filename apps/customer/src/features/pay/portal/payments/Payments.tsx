@@ -394,7 +394,12 @@ export function PaymentDetailView({
                             ? ([
                                 [
                                   t('pay_netAfterRefunds'),
-                                  <Money value={formatAmount(parseAmount(fee.net) - parseAmount(p.refundedAmount))} asset={fee.assetId} />,
+                                  <>
+                                    <Money value={formatAmount(parseAmount(fee.net) - parseAmount(p.refundedAmount))} asset={fee.assetId} />
+                                    {parseAmount(fee.net) - parseAmount(p.refundedAmount) < 0n && (
+                                      <small className="pay-cell-note">{t('pay_netNegativeWhy')}</small>
+                                    )}
+                                  </>,
                                 ],
                               ] as const)
                             : []),

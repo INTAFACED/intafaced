@@ -5,6 +5,16 @@ vi.mock('../../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
+// `null` is "no business frame" (the service's own canRespond decides); otherwise the role's answer to `disputes.respond`.
+let respondRole: boolean | null = null;
+vi.mock('../access/MerchantAccess', async (original) => {
+  const real = await original<typeof import('../access/MerchantAccess')>();
+  return {
+    ...real,
+    useOptionalMerchantAccess: () =>
+      respondRole === null ? null : { can: (need: string) => (need === 'disputes.respond' ? respondRole : true) },
+  };
+});
 import type { ReactElement } from 'react';
 import type { ApiResult } from '../../../../shared/api';
 import type { Resource } from '../../../../shared/resource';
@@ -259,6 +269,22 @@ describe('disputes', () => {
     expect(out).toContain('Accept liability');
     expect(out).toContain('Not recorded');
     expectPlain(out);
+  });
+  it('lets a role with disputes.respond answer, and tells a viewer who can instead', () => {
+    try {
+      respondRole = true;
+      const allowed = html(<DisputeDetailView portal={portal} dispute={ready(detail())} reload={noop} />);
+      expect(allowed).not.toContain('Your role can view disputes but not answer them');
+      expect(allowed).not.toMatch(/<button[^>]*disabled=""[^>]*>Accept liability<\/button>/);
+      respondRole = false;
+      const viewer = html(<DisputeDetailView portal={portal} dispute={ready(detail())} reload={noop} />);
+      expect(viewer).toContain('Your role can view disputes but not answer them. An owner, admin or finance team member can');
+      for (const label of ['Contest the dispute', 'Accept liability'])
+        expect(viewer).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*>${label}</button>`));
+      expect(viewer).toMatch(/<button[^>]*disabled=""[^>]*>Add evidence<\/button>/);
+    } finally {
+      respondRole = null;
+    }
   });
   it('blocks contesting until there is evidence, and says why', () => {
     const out = html(<DisputeDetailView portal={portal} dispute={ready(detail({ evidence: [] }))} reload={noop} />);

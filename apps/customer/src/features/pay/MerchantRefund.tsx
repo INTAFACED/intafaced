@@ -9,7 +9,7 @@ import { PayAmount } from './components';
 import { DateTime } from './portal/ui/DateTime';
 import type { BusinessPayApi } from './pay-api';
 import type { RefundLookup, RefundReceipt, RefundSnapshot } from './merchant-refund-api';
-import { refundCopy } from './merchant-refund-copy';
+import { HISTORY_WINDOW, refundCopy, refundFailureKey } from './merchant-refund-copy';
 import * as s from './schemas';
 import './merchant-refund.css';
 
@@ -336,15 +336,11 @@ export function MerchantRefund({
     </details>
   );
   const failure = shown?.failure;
-  const authoredFailure = failure?.code?.startsWith('pay.refund_');
-  const failureText =
-    snapshot.problem === 'busy'
-      ? t('busy')
-      : failure?.code === 'pay.refund_amount_invalid' || failure?.code === 'pay.refund_input_invalid'
-        ? t('invalidAmount')
-        : failure?.code === 'pay.refund_context_changed'
-          ? t('contextChanged')
-          : t('unavailableBody');
+  const failureKey = refundFailureKey({
+    code: failure?.code,
+    busy: snapshot.problem === 'busy',
+    referenceHeld: snapshot.status !== 'empty',
+  });
   if (!live() || pay.access('pay:read')) return null;
   return (
     <section className="merchant-refund" aria-labelledby={titleId} ref={form} lang={requestedLocale}>
@@ -435,7 +431,7 @@ export function MerchantRefund({
                 <Copy k="noMatch" />
               </h4>
               <p className="muted">
-                <Copy k="historyWindow" params={{ count: shown.count }} />
+                <Copy k={shown.count >= HISTORY_WINDOW ? 'historyWindow' : 'historyAll'} params={{ count: shown.count }} />
               </p>
               <p>
                 <Copy k="noProof" />
@@ -496,7 +492,7 @@ export function MerchantRefund({
         ))}
       {failure && (
         <p role="alert" lang={requestedLocale}>
-          {authoredFailure ? failureText : t('readFailed')}
+          {t(failureKey)}
         </p>
       )}
       {shown?.busy && (

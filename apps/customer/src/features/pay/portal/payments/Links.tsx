@@ -23,6 +23,7 @@ import { useServerList } from '../ui/useServerList';
 import { paymentLabel } from '../presentation';
 import type { Payment } from '../schemas';
 import { useAssetChoices } from './asset-choices';
+import { checkoutAddressFor } from './checkout-address';
 import { isWebAddress, LinkAddress } from './LinkAddress';
 import { definite } from './not-available';
 import { linkRowSchema } from './schemas';
@@ -45,8 +46,17 @@ export function addressOf(link: { checkoutUrl?: string | null; token?: string | 
   if (link.checkoutUrl && isWebAddress(link.checkoutUrl)) return link.checkoutUrl;
   // The service sends a path from its public base; the browser's own origin completes it.
   if (link.checkoutUrl && link.checkoutUrl.startsWith('/')) return `${globalThis.location?.origin ?? ''}${link.checkoutUrl}`;
-  if (link.token) return `${globalThis.location?.origin ?? ''}/pay/checkout?token=${encodeURIComponent(link.token)}`;
+  if (link.token) return checkoutAddressFor(globalThis.location?.origin ?? '', link.token);
   return null;
+}
+
+/**
+ * A `datetime-local` value ("2026-10-17T18:30") is the merchant's own clock. Convert it to the exact moment (an ISO time in
+ * UTC) the service stores. An unreadable value is returned as typed, so the form's own check refuses it.
+ */
+export function expiryIso(local: string): string {
+  const at = new Date(local);
+  return Number.isFinite(at.getTime()) ? at.toISOString() : local;
 }
 
 /** Matches the mounted createLink input, with a stricter UI requirement to pair a fixed amount and its asset. */
@@ -137,7 +147,12 @@ export function LinksView({
     <Gate resource={resource} retry={retry}>
       {(links) => {
         const selected = linkId ? links.find((link) => link.id === linkId) : null;
-        if (linkId && !selected) return <EmptyState title={t('linkNotFound')}>{t('linkNotFoundBody')}</EmptyState>;
+        if (linkId && !selected)
+          return (
+            <div className="stack">
+              <FetchedLinkDetail pay={pay} merchantId={merchantId} linkId={linkId} now={now} portal={portal} retry={retry} />
+            </div>
+          );
         const rows = links
           .filter(
             (link) =>
@@ -145,7 +160,6 @@ export function LinksView({
               (!q || `${link.id} ${link.label} ${link.prefix}`.toLowerCase().includes(q.toLowerCase())),
           )
           .sort((a, b) => (sort === 'oldest' ? 1 : -1) * (Date.parse(a.createdAt) - Date.parse(b.createdAt)));
-        const noWrite = pay.access('pay:write') !== null;
         return (
           <div className="stack">
             <ReadAt at={loadedAt} />
@@ -158,99 +172,7 @@ export function LinksView({
               {t('lk_refresh')}
             </Button>
             {selected ? (
-              <>
-                <Facts
-                  items={[
-                    [t('linkId'), <span className="pp-mono pp-copy">{selected.id}</span>],
-                    [t('linkLabel'), selected.label],
-                    [t('status'), <LinkChip value={linkState(selected, now)} />],
-                    [
-                      t('amount'),
-                      selected.amount === null ? (
-                        t('payerChooses')
-                      ) : selected.currency ? (
-                        <Money value={selected.amount} asset={selected.currency} />
-                      ) : (
-                        '—'
-                      ),
-                    ],
-                    [t('uses'), selected.uses],
-                    [t('maxUses'), selected.maxUses ?? t('noUseCap')],
-                    [t('expiry'), selected.expiresAt ? <DateTime value={selected.expiresAt} /> : '—'],
-                  ]}
-                />
-                <PaySection title={t('linkDetail')}>
-                  <Timeline
-                    label={t('linkDetail')}
-                    items={[
-                      { at: selected.createdAt, title: t('created') },
-                      ...(selected.expiresAt && Date.parse(selected.expiresAt) <= now
-                        ? [{ at: selected.expiresAt, title: t('expired') }]
-                        : []),
-                      // The service does not record when a link was switched off, so the page says so rather than guess.
-                      ...(!selected.active ? [{ title: t('lk_deactivatedEvent') }] : []),
-                    ]}
-                  />
-                </PaySection>
-                <PaySection
-                  title={t('lk_addressTitle')}
-                  {...(addressOf(selected) && linkState(selected, now) === 'active' ? { description: t('lk_addressBody') } : {})}
-                >
-                  {addressOf(selected) && linkState(selected, now) === 'active' ? (
-                    <LinkAddress url={addressOf(selected)!} />
-                  ) : (
-                    <p className="pp-callout" role="note">
-                      {t(
-                        !selected.active
-                          ? 'lk_addressDeactivated'
-                          : ['expired', 'exhausted'].includes(linkState(selected, now))
-                            ? 'lk_addressClosed'
-                            : 'lk_addressBlocked',
-                      )}
-                    </p>
-                  )}
-                </PaySection>
-                {portal && <LinkPayments portal={portal} merchantId={merchantId} linkId={selected.id} />}
-                {noWrite && (
-                  <p className="muted pp-note" role="note">
-                    {t('linkOwnerOnly')}
-                  </p>
-                )}
-                {selected.active && (
-                  <div title={noWrite ? t('linkOwnerOnly') : undefined}>
-                    <PortalReview
-                      title={t('deactivateLink')}
-                      description={t('deactivateBody')}
-                      variant="sell"
-                      review={
-                        <PayDetails
-                          values={[
-                            [t('linkId'), selected.id],
-                            [t('linkLabel'), selected.label],
-                            [t('uses'), selected.uses],
-                          ]}
-                        />
-                      }
-                      disabled={noWrite}
-                      perform={async () => {
-                        const result = definite(
-                          await pay.mutate(
-                            'merchant.deactivateLink',
-                            { merchantId, linkId: selected.id },
-                            z.object({ deactivated: z.boolean() }),
-                            'pay:write',
-                            `link-deactivate:${selected.id}`,
-                          ),
-                        );
-                        return result.ok && !result.data.deactivated
-                          ? { ok: false as const, reason: 'error' as const, code: 'portal.local', message: t('deactivateNotConfirmed') }
-                          : result;
-                      }}
-                      onConfirmed={retry}
-                    />
-                  </div>
-                )}
-              </>
+              <LinkDetail selected={selected} now={now} pay={pay} merchantId={merchantId} portal={portal} retry={retry} />
             ) : (
               <>
                 <KpiGrid label={t('linksTitle')}>
@@ -399,6 +321,209 @@ export function LinksView({
   );
 }
 
+type LinkDetailProps = {
+  selected: Link;
+  now: number;
+  pay: BusinessPayApi;
+  merchantId: string;
+  portal?: PortalApi;
+  retry: () => void;
+};
+/** One link: its facts, its address, the payments made with it, and the owner's deactivate step. */
+function LinkDetail({ selected, now, pay, merchantId, portal, retry }: LinkDetailProps) {
+  const { t } = w3cCopy.useCopy();
+  const noWrite = pay.access('pay:write') !== null;
+  return (
+    <>
+      <Facts
+        items={[
+          [t('linkId'), <span className="pp-mono pp-copy">{selected.id}</span>],
+          [t('linkLabel'), selected.label],
+          [t('status'), <LinkChip value={linkState(selected, now)} />],
+          [
+            t('amount'),
+            selected.amount === null ? (
+              t('payerChooses')
+            ) : selected.currency ? (
+              <Money value={selected.amount} asset={selected.currency} />
+            ) : (
+              '—'
+            ),
+          ],
+          [t('uses'), selected.uses],
+          [t('maxUses'), selected.maxUses ?? t('noUseCap')],
+          [t('expiry'), selected.expiresAt ? <DateTime value={selected.expiresAt} /> : '—'],
+        ]}
+      />
+      <PaySection title={t('linkDetail')}>
+        <Timeline
+          label={t('linkDetail')}
+          items={[
+            { at: selected.createdAt, title: t('created') },
+            ...(selected.expiresAt && Date.parse(selected.expiresAt) <= now ? [{ at: selected.expiresAt, title: t('expired') }] : []),
+            // The service does not record when a link was switched off, so the page says so rather than guess.
+            ...(!selected.active ? [{ title: t('lk_deactivatedEvent') }] : []),
+          ]}
+        />
+      </PaySection>
+      <PaySection
+        title={t('lk_addressTitle')}
+        {...(addressOf(selected) && linkState(selected, now) === 'active' ? { description: t('lk_addressBody') } : {})}
+      >
+        {addressOf(selected) && linkState(selected, now) === 'active' ? (
+          <LinkAddress url={addressOf(selected)!} />
+        ) : (
+          <p className="pp-callout" role="note">
+            {t(
+              !selected.active
+                ? 'lk_addressDeactivated'
+                : ['expired', 'exhausted'].includes(linkState(selected, now))
+                  ? 'lk_addressClosed'
+                  : 'lk_addressBlocked',
+            )}
+          </p>
+        )}
+      </PaySection>
+      {portal && <LinkPayments portal={portal} merchantId={merchantId} linkId={selected.id} />}
+      {noWrite && (
+        <p className="muted pp-note" role="note">
+          {t('linkOwnerOnly')}
+        </p>
+      )}
+      {selected.active && <DeactivateLink selected={selected} pay={pay} merchantId={merchantId} noWrite={noWrite} retry={retry} />}
+    </>
+  );
+}
+
+/**
+ * A link that is not among the newest 200 the list loads: read it by its own id (`merchant.getLink`), so an older link
+ * still opens and can still be deactivated.
+ */
+function FetchedLinkDetail({ pay, merchantId, linkId, now, portal, retry }: Omit<LinkDetailProps, 'selected'> & { linkId: string }) {
+  const { t } = w3cCopy.useCopy();
+  const query = useResource(
+    (signal) => pay.query('merchant.getLink', { merchantId, linkId }, linkRowSchema, signal),
+    `portal:link:${merchantId}:${linkId}`,
+  );
+  const reload = () => {
+    query.reload();
+    retry();
+  };
+  return (
+    <Gate resource={query.resource} retry={query.reload}>
+      {(link) =>
+        link.id === linkId ? (
+          <LinkDetail selected={link} now={now} pay={pay} merchantId={merchantId} portal={portal} retry={reload} />
+        ) : (
+          <EmptyState title={t('linkNotFound')}>{t('linkNotFoundBody')}</EmptyState>
+        )
+      }
+    </Gate>
+  );
+}
+
+/**
+ * Settle a deactivate whose answer was lost, from the link's own state. The link is read first (a failed read changes
+ * nothing). Then the held attempt is cleared: `inactive` means the first request went through; `active` means it did not,
+ * and the owner may send it again (deactivating twice does no harm).
+ */
+export async function settleDeactivate(pay: BusinessPayApi, merchantId: string, linkId: string): Promise<'inactive' | 'active' | 'failed'> {
+  const lockId = `${pay.authority?.userId}:link-deactivate:${linkId}`;
+  const original = pay.guard.original(lockId);
+  if (!original) return 'failed';
+  // A read of an outcome that may already exist, so it is not wrapped in definite().
+  const read = await pay.query('merchant.getLink', { merchantId, linkId }, linkRowSchema);
+  if (!read.ok || read.data.id !== linkId) return 'failed';
+  if (!(await pay.guard.resolve(lockId, original.raw))) return 'failed';
+  return read.data.active ? 'active' : 'inactive';
+}
+
+/**
+ * The deactivate step. If its answer is lost the device keeps the attempt (`link-deactivate:<id>`) and refuses a second
+ * one until it is settled. "Check this link" reads the link: inactive means the first attempt worked; still active means
+ * it did not, so the old attempt is cleared and the owner can send it again (deactivating twice does no harm).
+ */
+function DeactivateLink({
+  selected,
+  pay,
+  merchantId,
+  noWrite,
+  retry,
+}: {
+  selected: Link;
+  pay: BusinessPayApi;
+  merchantId: string;
+  noWrite: boolean;
+  retry: () => void;
+}) {
+  const { t } = w3cCopy.useCopy();
+  const [, refresh] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const lockId = `${pay.authority?.userId}:link-deactivate:${selected.id}`;
+  const held = Boolean(pay.authority && pay.guard.status(lockId));
+  async function check() {
+    setBusy(true);
+    setMessage('');
+    try {
+      const state = await settleDeactivate(pay, merchantId, selected.id);
+      setMessage(
+        t(state === 'failed' ? 'lk_deactivateCheckFailed' : state === 'inactive' ? 'lk_deactivateWorked' : 'lk_deactivateStillActive'),
+      );
+      if (state === 'inactive') retry();
+    } finally {
+      setBusy(false);
+      refresh((n) => n + 1);
+    }
+  }
+  return (
+    <div title={noWrite ? t('linkOwnerOnly') : undefined}>
+      <PortalReview
+        title={t('deactivateLink')}
+        description={t('deactivateBody')}
+        variant="sell"
+        review={
+          <PayDetails
+            values={[
+              [t('linkId'), selected.id],
+              [t('linkLabel'), selected.label],
+              [t('uses'), selected.uses],
+            ]}
+          />
+        }
+        disabled={noWrite || held}
+        perform={async () => {
+          const result = definite(
+            await pay.mutate(
+              'merchant.deactivateLink',
+              { merchantId, linkId: selected.id },
+              z.object({ deactivated: z.boolean() }),
+              'pay:write',
+              `link-deactivate:${selected.id}`,
+            ),
+          );
+          refresh((n) => n + 1);
+          return result.ok && !result.data.deactivated
+            ? { ok: false as const, reason: 'error' as const, code: 'portal.local', message: t('deactivateNotConfirmed') }
+            : result;
+        }}
+        onConfirmed={retry}
+      />
+      {held && (
+        <div className="stack">
+          <p className="pp-callout" role="status">
+            {t('lk_deactivateUnresolved')}
+          </p>
+          <Button variant="secondary" disabled={busy || noWrite} onClick={() => void check()}>
+            {t('lk_deactivateCheck')}
+          </Button>
+        </div>
+      )}
+      {message && <p role="status">{message}</p>}
+    </div>
+  );
+}
+
 /** The payments made through one link, read from the payments list filtered by that link. */
 function LinkPayments({ portal, merchantId, linkId }: { portal: PortalApi; merchantId: string; linkId: string }) {
   const { t } = w3cCopy.useCopy();
@@ -527,7 +652,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
     ...(form.amount ? { amount: form.amount } : {}),
     ...(form.currency ? { currency: form.currency } : {}),
     ...(form.profileId ? { profileId: form.profileId } : {}),
-    ...(form.expiry ? { expiresAt: `${form.expiry}:00Z` } : {}),
+    ...(form.expiry ? { expiresAt: expiryIso(form.expiry) } : {}),
     ...(form.maxUses ? { maxUses: /^[1-9]\d*$/.test(form.maxUses) ? Number(form.maxUses) : NaN } : {}),
   });
   const noWrite = pay.access('pay:write') !== null;
@@ -589,7 +714,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
                 values={[
                   [t('linkLabel'), form.label],
                   [t('amount'), form.amount ? `${form.amount} ${form.currency}` : t('payerChooses')],
-                  [t('expiry'), form.expiry || t('serviceExpiry')],
+                  [t('expiry'), parsed.success && parsed.data.expiresAt ? <DateTime value={parsed.data.expiresAt} /> : t('serviceExpiry')],
                   [t('maxUses'), form.maxUses || t('noUseCap')],
                 ]}
               />

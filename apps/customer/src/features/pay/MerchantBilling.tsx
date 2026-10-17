@@ -270,6 +270,20 @@ function localTime(value: string) {
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? <DateTime value={date.toISOString()} /> : value;
 }
+/** Has the person typed anything? The asset starts on the default, so only a different asset counts: an untouched form never warns. */
+export function mandateFormDirty(form: {
+  customer: string;
+  asset: string;
+  amount: string;
+  ceiling: string;
+  starts: string;
+  ends: string;
+  rail: string;
+  reference: string;
+}): boolean {
+  const { asset, ...typed } = form;
+  return asset !== DEFAULT_ASSET || Object.values(typed).some(Boolean);
+}
 export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; refresh: () => void; portal?: PortalApi }) {
   const [expanded, setExpanded] = useState(false);
   const [customer, setCustomer] = useState('');
@@ -284,7 +298,7 @@ export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; r
   const [reference, setReference] = useState('');
   const [created, setCreated] = useState('');
   useUnsavedForm(
-    expanded && Boolean(customer || asset || amount || ceiling || starts || ends || rail || reference),
+    expanded && mandateFormDirty({ customer, asset, amount, ceiling, starts, ends, rail, reference }),
     extensionCopy.t('draftWarning'),
   );
   return (
@@ -409,7 +423,7 @@ export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; r
             onConfirmed={(data) => {
               setCreated(data.id);
               setCustomer('');
-              setAsset('');
+              setAsset(DEFAULT_ASSET);
               setAmount('');
               setCeiling('');
               setStarts('');

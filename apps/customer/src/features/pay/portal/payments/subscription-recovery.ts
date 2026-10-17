@@ -6,7 +6,7 @@ import { payRefusal } from '../../copy';
 import * as portalSchemas from '../schemas';
 import { plainFailure } from '../refusal';
 import { extensionCopy as c } from './copy';
-import { definite } from './not-available';
+import { definite, neverRan } from './not-available';
 
 const unresolved = (): ApiResult<z.infer<typeof subscriptionSchema>> => ({
   ok: false,
@@ -84,8 +84,9 @@ export function checkSubscriptionOriginal(pay: BusinessPayApi, subscriptionId: s
   return pay.guard.checkOriginal(
     `${pay.authority!.userId}:subscription:${subscriptionId}`,
     async (original) => {
-      const result = definite(await pay.query('subscription.get', { subscriptionId }, subscriptionSchema));
-      if (!result.ok) return result;
+      // Not wrapped in definite(): this is a read of an outcome that may already exist, so "nothing was changed" would be wrong.
+      const result = await pay.query('subscription.get', { subscriptionId }, subscriptionSchema);
+      if (!result.ok) return neverRan(result) ? { ...result, message: c.t('subscriptionCheckFailed') } : result;
       if (result.data.id !== subscriptionId || result.data.status !== original.reference) return unresolved();
       return result;
     },

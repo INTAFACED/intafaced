@@ -8,7 +8,9 @@ import { PortalReview } from '../ui/PortalReview';
 import { BackLink, Chip, Facts, Gate, MoneyLines, Money, PortalFailure, PortalLoading, SelectField, Timeline } from '../components';
 import { portalCopy } from './copy';
 import { useNow, useUrlParam, type ListState } from '../hooks';
-import { newRequestId, shortId } from '../model';
+import { shortId } from '../model';
+import { useOptionalMerchantAccess } from '../access/MerchantAccess';
+import { useRequestId } from './invoice-model';
 import { refusalText } from '../refusal';
 import type { PortalApi } from '../api';
 import type { z } from 'zod';
@@ -352,6 +354,15 @@ function EvidenceDownload({ portal, evidenceId, fileName }: { portal: PortalApi;
   );
 }
 
+/**
+ * Whether this role may answer disputes (`disputes.respond`: owner, admin, finance). Outside the business frame, as in a
+ * static preview, there is no role to read, so the service's own `canRespond` on each dispute decides.
+ */
+function useMayRespond(): boolean {
+  const access = useOptionalMerchantAccess();
+  return access ? access.can('disputes.respond') : true;
+}
+
 function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispute: DisputeDetail; reload: () => void }) {
   const { t } = portalCopy.useCopy();
   const [kind, setKind] = useState<EvidenceKind>('receipt');
@@ -363,6 +374,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
   const [storageOff, setStorageOff] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const problem = picked ? fileProblem(picked) : null;
+  const mayRespond = useMayRespond();
   const detailsOnly = storageOff || problem !== null;
   return (
     <PaySection title={t('evidenceTitle')} description={t('evidenceBody')}>
@@ -480,8 +492,10 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
               if (input.current) input.current.value = '';
               reload();
             }}
-            disabled={!picked || reading || problem === 'empty'}
+            disabled={!picked || reading || problem === 'empty' || !mayRespond}
+            disabledReason={mayRespond ? undefined : t('disp_noRespond')}
           />
+          {!mayRespond && <p className="muted pp-note">{t('disp_noRespond')}</p>}
         </div>
       ) : (
         <p className="muted pp-note">{t('evidenceClosed')}</p>
@@ -493,9 +507,11 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
 function RespondSection({ portal, dispute, reload }: { portal: PortalApi; dispute: DisputeDetail; reload: () => void }) {
   const { t } = portalCopy.useCopy();
   const [note, setNote] = useState('');
-  // One id per decision: a retried click replays the first answer instead of deciding twice.
-  const [contestId] = useState(newRequestId);
-  const [acceptId] = useState(newRequestId);
+  // One id per decision, kept for this tab (so a reload reuses it): a retried click replays the first answer instead of deciding twice.
+  const contest = useRequestId(`dispute:${dispute.disputeId}:contest`);
+  const accept = useRequestId(`dispute:${dispute.disputeId}:accept`);
+  const mayRespond = useMayRespond();
+  const why = mayRespond ? undefined : t('disp_noRespond');
   const canContest = dispute.status === 'open' && dispute.evidence.length > 0;
   return (
     <PaySection title={t('respondTitle')} description={t('respondBody')}>
@@ -526,14 +542,15 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
               }
               perform={() =>
                 portal.respond({
-                  requestId: contestId,
+                  requestId: contest.id,
                   disputeId: dispute.disputeId,
                   action: 'contest',
                   ...(note.trim() ? { note: note.trim() } : {}),
                 })
               }
               onConfirmed={reload}
-              disabled={!canContest}
+              disabled={!canContest || !mayRespond}
+              disabledReason={why}
             />
             <PortalReview
               title={t('acceptLiability')}
@@ -549,16 +566,19 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
               }
               perform={() =>
                 portal.respond({
-                  requestId: acceptId,
+                  requestId: accept.id,
                   disputeId: dispute.disputeId,
                   action: 'accept_liability',
                   ...(note.trim() ? { note: note.trim() } : {}),
                 })
               }
               onConfirmed={reload}
+              disabled={!mayRespond}
+              disabledReason={why}
             />
           </div>
-          {!canContest && (
+          {!mayRespond && <p className="muted pp-note">{t('disp_noRespond')}</p>}
+          {mayRespond && !canContest && (
             <p className="muted pp-note">{dispute.status !== 'open' ? t('whyNoContestStatus') : t('whyNoContestEvidence')}</p>
           )}
         </div>
