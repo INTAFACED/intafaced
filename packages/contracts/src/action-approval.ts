@@ -178,6 +178,7 @@ export const PROTECTIVE_OPERATOR_APPROVALS: readonly {
   { actionType: 'matching.reduce_only', targetService: 'svc-matching', targetVerb: 'reduce_only' },
   { actionType: 'matching.post_only', targetService: 'svc-matching', targetVerb: 'post_only' },
   { actionType: 'ledger.freeze', targetService: 'svc-ledger', targetVerb: 'posting_freeze' },
+  { actionType: 'execution.halt', targetService: 'svc-execution', targetVerb: 'halt' },
 ];
 
 export type FounderApprovalSubject = {

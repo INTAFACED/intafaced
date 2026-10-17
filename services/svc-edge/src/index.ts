@@ -5,6 +5,7 @@ import { createAdminApi, httpLedgerOperator } from './admin-api.js';
 import { readEdgeAuthority } from './live-authority.js';
 import { createHttpEdgeApprovalConsumer } from './action-approval-consume.js';
 import { registerAdminRoutes, registerGeoBlockGuard, registerKillSwitchGuard, registerNetworkAccessGuard } from './control-plane.js';
+import { httpMatchingOperator } from './matching-operator-door.js';
 import { resolveRequestRegion } from './geo-region.js';
 import { CORS_ENFORCED_ENVS, edgeOriginAllowlist, registerCors } from './cors.js';
 import { env } from './env.js';
@@ -289,7 +290,7 @@ registerGeoBlockGuard(app);
 // Network fail-closed on /api — product Done bar for VPN/signal residual.
 // Must not invent a partner; refuses only when env arms fail-closed / flagged.
 registerNetworkAccessGuard(app);
-registerAdminRoutes(app, admin);
+registerAdminRoutes(app, admin, env.MATCHING_URL ? httpMatchingOperator(env.MATCHING_URL, env.UPSTREAM_TIMEOUT_MS) : null);
 
 registerWidgetRampRoute(app);
 

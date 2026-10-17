@@ -7,6 +7,7 @@ import {
   type ComplianceQueueKind,
 } from '@intafaced/config';
 import { statusForAuthError, type AdminApi } from './admin-api.js';
+import type { MatchingOperatorCall, MatchingOperatorPath } from './matching-operator-door.js';
 import { DualControlError } from './dual-control.js';
 import { ActionApprovalConsumeError, edgeActionPayloadHash, readApprovalIds } from './action-approval-consume.js';
 import { evaluateGeoBlock, geoBlockErrorMessage, geoBlockHttpStatus, geoBlockOpsHttpStatus, geoBlockPublicBody } from './geo-block.js';
@@ -281,7 +282,7 @@ export function registerNetworkAccessGuard(app: FastifyInstance): void {
  * than fall through to an upstream. The catch-all proxy is never what decides
  * whether an admin path is real.
  */
-export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void {
+export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, matching: MatchingOperatorCall | null = null): void {
   // Public §29 honesty door — not proxied to svc-quant (that service must not exist yet).
   registerQuantHonestyRoutes(app);
   registerQuantSurfaceRenderRoutes(app);
@@ -718,4 +719,45 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void
     req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILE requested');
     return reply.code(res.status).send(res.body);
   });
+
+  const matchingUnwired = {
+    error: 'MATCHING_URL is unpublished. This edge does not read the book and does not halt it.',
+    code: 'edge.matching_unwired' as const,
+  };
+
+  const forwardMatching = async (
+    path: MatchingOperatorPath,
+    method: 'GET' | 'POST',
+    bearer: string,
+    body: unknown,
+    reply: { code: (n: number) => { send: (b: unknown) => unknown } },
+  ) => {
+    if (!matching) return reply.code(503).send(matchingUnwired);
+    const res = await matching(path, method, bearer, body);
+    return reply.code(res.status).send(res.body);
+  };
+
+  app.get('/admin/matching/in-flight', async (req, reply) => {
+    try {
+      await admin.authenticateRead(req.headers.authorization);
+    } catch (err) {
+      if (err instanceof AuthError) return reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
+      throw err;
+    }
+    const bearer = req.headers.authorization;
+    if (!bearer) return reply.code(401).send({ error: 'An operator token is required', code: 'token.invalid' });
+    return forwardMatching('/operator/in-flight', 'GET', bearer, undefined, reply);
+  });
+
+  const matchingPost = (adminPath: string, upstream: MatchingOperatorPath) => {
+    app.post(adminPath, async (req, reply) => {
+      const auth = await operator(req.headers.authorization, reply, 'module');
+      if (!auth) return reply;
+      return forwardMatching(upstream, 'POST', auth.bearer, req.body, reply);
+    });
+  };
+  matchingPost('/admin/matching/halt', '/operator/halt');
+  matchingPost('/admin/matching/halt-all', '/operator/halt-all');
+  matchingPost('/admin/matching/resume', '/operator/resume');
+  matchingPost('/admin/matching/resume-all', '/operator/resume-all');
 }
