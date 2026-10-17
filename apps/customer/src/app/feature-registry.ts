@@ -139,9 +139,20 @@ export const features: readonly Feature[] = [
     tab: 'trade',
   },
   {
-    id: 'copy-bots-execution-quote',
-    label: 'Copy, Bots, Execution, Quote desk',
-    paths: ['/trade/copy', '/trade/bots', '/execution', '/otc', '/otc/*'],
+    id: 'copy-bots',
+    label: 'Copy trading and Bots',
+    paths: ['/trade/copy', '/trade/bots'],
+    status: 'live',
+    reason:
+      'Complete rooms (catalogue, set-up, controls); copy follows are refused by the service until its fee-share and country law are published',
+    unlock: 'already live',
+    tab: 'trade',
+    checked: '2026-10-17, local stack as the TEST account: every room and action walked to a result or a typed refusal (TRCOPY receipt).',
+  },
+  {
+    id: 'execution-quote',
+    label: 'Execution, Quote desk',
+    paths: ['/execution', '/otc', '/otc/*'],
     status: 'hidden',
     reason: 'Not a first-release customer path',
     unlock: 'per contract',
