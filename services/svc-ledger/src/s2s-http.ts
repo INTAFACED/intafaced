@@ -27,6 +27,20 @@ import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serial
 import { handleReportExport } from './ledger/report-export.js';
 import { handleResilience } from './ledger/resilience-gate.js';
 import { handleStatementPnlHappyOrRefuse } from './ledger/statement-pnl-reproduce.js';
+import {
+  CALLER_FORBIDDEN,
+  CALLER_UNBOUND,
+  authenticatePostCaller,
+  applyCallerBinding,
+  callerBindingCount,
+  callerBindingWarnAllowed,
+  callerSecretsFromEnv,
+  callerSecretsFromRecord,
+  readCallerBindingMode,
+  type CallerBindingMode,
+  type CallerBindingOptions,
+  type PostCaller,
+} from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
@@ -68,6 +82,14 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
   // a different answer and must stay distinguishable to a calling service.
   if (err instanceof LedgerError && err.code === 'ledger.unauthenticated') {
     return { status: 401, body: { message: err.message, code: err.code } };
+  }
+  // 401: the signature did not prove which service this is (shared secret, or
+  // no key). 403: the service is proven and is not allowed to post this body.
+  if (err instanceof LedgerError && err.code === CALLER_UNBOUND) {
+    return { status: 401, body: { message: err.message, code: err.code } };
+  }
+  if (err instanceof LedgerError && err.code === CALLER_FORBIDDEN) {
+    return { status: 403, body: { message: err.message, code: err.code } };
   }
   // 409: the key is taken by a different movement. Retrying unchanged is guaranteed
   // useless and the caller must NOT record success; a new key is a new movement.
@@ -115,8 +137,11 @@ export interface PortfolioIndexerCompose {
   readonly fetch?: typeof globalThis.fetch;
 }
 
-export async function handleS2sPost(ledger: LedgerService, body: unknown) {
+export async function handleS2sPost(ledger: LedgerService, body: unknown, caller?: PostCaller, binding?: CallerBindingOptions) {
   const input = postRequestSchema.parse(body);
+  // Direct unit calls omit the caller and stay on the recipe gate. Both doors
+  // that accept a network post pass the verified caller in.
+  if (caller) applyCallerBinding(caller, input, binding);
   assertKnownRecipePost(input);
   const entries: EntryInput[] = input.entries.map((e) => ({
     account: e.account,
@@ -371,10 +396,43 @@ export interface S2sHttpOptions {
   /** Optional indexer compose. Unset URL → named `indexer.portfolio_positions_unwired`. */
   indexerUrl?: string;
   indexerFetch?: typeof globalThis.fetch;
+  /**
+   * OPS-0001. Omitted reads `LEDGER_CALLER_BINDING` (default `report`) so a
+   * pull with only `INTERNAL_SERVICE_SECRET` still posts.
+   */
+  callerBinding?: CallerBindingMode;
+  /** Per-service HMAC secrets, keyed by the service name (the key id). */
+  callerSecrets?: Readonly<Record<string, string>>;
+  onCallerViolation?: CallerBindingOptions['onViolation'];
 }
 
 export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, internalSecret: string, options: S2sHttpOptions = {}): void {
   const mode = options.bodyBind ?? DEFAULT_SERVICE_BODY_BIND_MODE;
+  const bindingMode = options.callerBinding ?? readCallerBindingMode();
+  const callerSecrets = options.callerSecrets
+    ? callerSecretsFromRecord(options.callerSecrets, internalSecret)
+    : callerSecretsFromEnv(process.env, internalSecret);
+  const bindingOptions: CallerBindingOptions = {
+    mode: bindingMode,
+    onViolation: (violation) => {
+      options.onCallerViolation?.(violation);
+      if (violation.reason === 'unbound' && !callerBindingWarnAllowed(violation.service)) return;
+      const count = callerBindingCount(violation.reason, violation.service);
+      app.log.warn(
+        {
+          event: 'ledger.caller_binding',
+          code: violation.code,
+          reason: violation.reason,
+          service: violation.service,
+          module: violation.module,
+          recipe: violation.recipe,
+          mode: bindingMode,
+          count,
+        },
+        `ledger caller binding violation count=${count}`,
+      );
+    },
+  };
 
   /**
    * Keep the exact request bytes, so the signed digest can be checked against
@@ -430,7 +488,18 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
       }
     };
 
-  app.post('/trpc/post', guarded(handleS2sPost));
+  // Post keeps the verified key id. The other routes only need "a service
+  // signed this", which the shared secret still answers. Enforce refuses a
+  // post signed only with that shared secret.
+  app.post('/trpc/post', async (req, reply) => {
+    try {
+      const caller = authenticatePostCaller(req.headers, internalSecret, callerSecrets, { rawBody: rawBodyOf(req), mode });
+      return await handleS2sPost(ledger, req.body, caller, bindingOptions);
+    } catch (err) {
+      const { status, body } = httpError(err);
+      return reply.code(status).send(body);
+    }
+  });
   app.post('/trpc/balance', guarded(handleS2sBalance));
   app.post('/trpc/balances', guarded(handleS2sBalances));
   // Read-only existence check by idempotency key; same `guarded` door.
