@@ -26,6 +26,10 @@ const messages = {
   'Your account context is needed before this room can show private information.':
     'Your account context is needed before this room can show private information.',
   'Opening room': 'Opening room',
+  'We could not check your sign-in': 'We could not check your sign-in',
+  'The account service did not answer. Your sign-in is not lost; try again.':
+    'The account service did not answer. Your sign-in is not lost; try again.',
+  Retry: 'Retry',
   'Pick an offer to edit': 'Pick an offer to edit',
   'Open your offers and choose one to review. Changing an offer after it is published is not available yet.':
     'Open your offers and choose one to review. Changing an offer after it is published is not available yet.',
@@ -63,6 +67,10 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
     'Your account context is needed before this room can show private information.':
       'Esta sección necesita el contexto de tu cuenta para mostrar información privada.',
     'Opening room': 'Abriendo sección',
+    'We could not check your sign-in': 'No pudimos comprobar tu inicio de sesión',
+    'The account service did not answer. Your sign-in is not lost; try again.':
+      'El servicio de cuentas no respondió. No se perdió tu sesión; inténtalo de nuevo.',
+    Retry: 'Reintentar',
   },
   fr: {
     'This room could not open': 'Cet espace n’a pas pu s’ouvrir',
@@ -94,5 +102,9 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
     'Your account context is needed before this room can show private information.':
       'Le contexte de votre compte est nécessaire pour afficher des informations privées dans cet espace.',
     'Opening room': 'Ouverture de l’espace',
+    'We could not check your sign-in': 'Nous n’avons pas pu vérifier votre connexion',
+    'The account service did not answer. Your sign-in is not lost; try again.':
+      'Le service des comptes n’a pas répondu. Votre connexion n’est pas perdue ; réessayez.',
+    Retry: 'Réessayer',
   },
 });

@@ -19,12 +19,14 @@ import {
   type MerchantMetricsSnapshot,
   type PayHaltEvent,
   type PayHaltOperatorStatus,
+  type PayHaltPendingClear,
   type PayoutApproval,
 } from '@intafaced/contracts';
 import { asPricingRule, asTier, asUsage, type PricingRuleView, type TierView, type UsageView } from './control-model';
 import { addDays, dayOf, midnight } from './dates';
 import { listInputFor, type MerchantListQuery } from './list-params';
 import { payCall, parseWith, type PayCallContext, type PayCallResult } from './pay-call';
+import { loadPendingClears } from '@/lib/founder-ops/reads';
 import {
   asEvent,
   asList,
@@ -169,17 +171,20 @@ export interface TreasuryData {
   readonly halts: PayCallResult<PayHaltEvent[]>;
   /** Current halt switches and the auto-trip posture (`payHalts.operatorStatus`). */
   readonly status: PayCallResult<PayHaltOperatorStatus>;
+  /** Clears one founder proposed and a different founder has not yet confirmed (`payHalts.pendingClears`). */
+  readonly pending: PayCallResult<{ proposals: PayHaltPendingClear[]; nextCursor: string | null }>;
   /** When the halt reads were taken. Halts are read live from the store, so this is the as-of time. */
   readonly readAt: string;
 }
 
 export async function loadTreasury(ctx: PayCallContext, now: Date = new Date()): Promise<TreasuryData> {
-  const [exposure, halts, status] = await Promise.all([
+  const [exposure, halts, status, pending] = await Promise.all([
     payCall(ctx, 'founderAdmin.treasury.exposure', 'GET', {}, parseWith(founderTreasuryExposureSchema)),
     payCall(ctx, 'payHalts.history', 'GET', { limit: 50 }, parseHalts),
     payCall(ctx, 'payHalts.operatorStatus', 'GET', {}, parseWith(payHaltOperatorStatusSchema)),
+    loadPendingClears(ctx),
   ]);
-  return { exposure, halts, status, readAt: now.toISOString() };
+  return { exposure, halts, status, pending, readAt: now.toISOString() };
 }
 
 // ── merchant drill-down tabs: Controls, Approvals, Halts ────────────────────
@@ -296,15 +301,17 @@ export async function loadMerchantApprovals(ctx: PayCallContext, now: Date = new
 export interface MerchantHaltsData {
   readonly status: PayCallResult<PayHaltOperatorStatus>;
   readonly history: PayCallResult<PayHaltEvent[]>;
+  readonly pending: PayCallResult<{ proposals: PayHaltPendingClear[]; nextCursor: string | null }>;
   readonly readAt: string;
 }
 
 export async function loadMerchantHalts(ctx: PayCallContext, merchantId: string, now: Date = new Date()): Promise<MerchantHaltsData> {
-  const [status, history] = await Promise.all([
+  const [status, history, pending] = await Promise.all([
     payCall(ctx, 'payHalts.operatorStatus', 'GET', {}, parseWith(payHaltOperatorStatusSchema)),
     payCall(ctx, 'payHalts.history', 'GET', { target: { level: 'merchant', merchantId }, limit: 50 }, parseHalts),
+    loadPendingClears(ctx),
   ]);
-  return { status, history, readAt: now.toISOString() };
+  return { status, history, pending, readAt: now.toISOString() };
 }
 
 export interface MerchantListPageData {
