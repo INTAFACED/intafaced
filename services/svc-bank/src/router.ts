@@ -21,6 +21,9 @@ import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
 import { rampHealthProcedure } from './ops/ramp-health.js';
+import { transferHealthProcedure } from './ops/transfer-health.js';
+import { failedTransfersProcedure } from './ops/failed-transfers.js';
+import { transferDetailProcedure } from './ops/transfer-detail.js';
 import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
@@ -199,6 +202,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.loan_not_found':
       case 'bank.loan_product_not_found':
       case 'bank.personal_transfer_not_found':
+      case 'bank.ops_transfer_not_found':
       case 'bank.personal_request_not_found':
       case 'bank.personal_request_payer_unknown':
       case 'bank.auto_invest_not_found':
@@ -384,6 +388,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.card_programme_span_unset':
       case 'bank.card_programme_span_too_long':
       case 'bank.ramp_health_window_unset':
+      case 'bank.transfer_health_window_unset':
+      case 'bank.failed_transfers_window_unset':
+      case 'bank.failed_transfers_limit_unset':
+      case 'bank.failed_transfers_cursor_invalid':
       case 'bank.ops_business_approvals_limit_unset':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
@@ -3039,6 +3047,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     cardProgramme: cardProgrammeProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     rampHealth: rampHealthProcedure(bank, guard),
+    transferHealth: transferHealthProcedure(bank, guard),
+    failedTransfers: failedTransfersProcedure(bank, guard),
+    transferDetail: transferDetailProcedure(bank, guard),
     businessApprovals: businessApprovalsProcedure(bank, guard),
   });
 

@@ -464,6 +464,55 @@ describe('subscription.create attempt ids', () => {
     expect(pay.guard.reference(lockId)).toBeNull();
   });
 
+  it('sends the same key when a payment link create is repeated after a lost reply, and gets the same link back', async () => {
+    const creates: Array<{ idempotencyKey?: string; label?: string }> = [];
+    const stored = new Map<string, object>();
+    const link = {
+      id: firstId,
+      token: 'pl_testtokenvalue',
+      prefix: 'pl_testtok',
+      label: 'Invoice',
+      expiresAt: '2026-03-01T00:00:00.000Z',
+      maxUses: null,
+      checkoutUrl: '/checkout?token=pl_testtokenvalue',
+    };
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        const href = String(url);
+        if (href.includes('merchant.me')) return merchantResponse();
+        if (!href.includes('merchant.createLink')) throw new Error(href);
+        const body = JSON.parse(String(options?.body)) as { idempotencyKey?: string; label?: string };
+        creates.push(body);
+        const key = body.idempotencyKey ?? '';
+        if (!stored.has(key)) {
+          stored.set(key, link);
+          throw new Error('socket hang up');
+        }
+        return response(stored.get(key));
+      },
+    });
+    const pay = createBusinessPayApi(api, userId, authority, createPayMutationGuard());
+    const schema = z.object({
+      id: z.string(),
+      token: z.string(),
+      prefix: z.string(),
+      label: z.string(),
+      expiresAt: z.string(),
+      maxUses: z.number().nullable(),
+      checkoutUrl: z.string().nullish(),
+    });
+    const lock = `${userId}:link-create`;
+    const input = { merchantId, label: 'Invoice' };
+    const lost = await pay.mutate('merchant.createLink', input, schema, 'pay:write', 'link-create');
+    expect(lost).toMatchObject({ ok: false, reason: 'uncertain' });
+    expect(creates[0]?.idempotencyKey?.startsWith(`${lock}:`)).toBe(true);
+    const again = await pay.mutate('merchant.createLink', input, schema, 'pay:write', 'link-create');
+    expect(again).toEqual({ ok: true, data: link });
+    expect(creates[1]?.idempotencyKey).toBe(creates[0]?.idempotencyKey);
+    expect(stored.size).toBe(1);
+    expect(pay.guard.status(lock)).toBeNull();
+  });
+
   it('clears the journal when a replay is a definite refusal so the next click uses a new attempt id', async () => {
     const creates: Array<{ idempotencyKey?: string }> = [];
     let createsSeen = 0;

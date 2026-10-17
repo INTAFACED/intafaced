@@ -448,6 +448,18 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   /** ADR 2026-08-08: resume would more than double the order's own duration. */
   'trade.algo_resume_extends_too_far': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_cancel_incomplete': { ccxt: 'InvalidOrder', status: 409 },
+  /** Operator fat-finger cap. The order is too large. Not retryable unchanged. */
+  'trade.operator_fat_finger': { ccxt: 'InvalidOrder', status: 400 },
+  /** Operator price collar. Not retryable at the same price. */
+  'trade.operator_collar': { ccxt: 'InvalidOrder', status: 400 },
+  /** Operator open-order throttle. Cancel one before placing another. Not a timed retry. */
+  'trade.operator_throttle': { ccxt: 'InvalidOrder', status: 400 },
+  /**
+   * A circuit breaker is set and no reference mark exists. The order may be
+   * well formed; the venue refuses every order until that reference is real.
+   * 400 so a bot does not retry a missing price.
+   */
+  'trade.circuit_breaker_reference_unset': { ccxt: 'ExchangeError', status: 400 },
 };
 
 /**

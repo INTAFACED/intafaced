@@ -4,6 +4,7 @@ import {
   crmJson,
   type CrmBrowserError,
   crmOverdueCalendarDays,
+  crmUpdatedText,
   crmWrite,
   readFailureKeepsValue,
   resolveFetchTime,
@@ -103,5 +104,14 @@ describe('CRM refusal wording', () => {
   });
   it('keeps "could not confirm" for a failure that may have gone through', async () => {
     expect(await refuse(502, { code: 'admin.upstream_invalid' })).toMatchObject({ kind: 'other' });
+  });
+});
+
+describe('the workspace "Updated" line', () => {
+  it('names the time and its zone in the shared form, whatever the Mac’s clock is', () => {
+    expect(crmUpdatedText('2026-10-18T02:58:05.123Z')).toBe('Updated 02:58:05 UTC');
+  });
+  it('says the time is unknown rather than printing the raw text', () => {
+    expect(crmUpdatedText('soon')).toBe('Updated unknown time');
   });
 });

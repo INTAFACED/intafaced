@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AuthError, issueAccessToken, type TokenConfig } from '@intafaced/auth';
+import { actionApprovalConsumeInputSchema, actionApprovalSchema } from '@intafaced/contracts';
 import { createAdminApi, type LedgerOperatorCall } from './admin-api.js';
-import { stubApprovalConsumer } from './action-approval-consume.js';
+import { stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { KillSwitchState } from './kill-switch.js';
 
 const tokens: TokenConfig = {
@@ -180,6 +181,60 @@ describe('applying a toggle', () => {
     const again = await admin.apply(toggle(), operator);
     expect(again.changed).toBe(false);
     expect(again.disabledModules).toEqual(['trade']);
+  });
+
+  it('refuses a halt or resume unless the consumed approver is present and distinct from the operator', async () => {
+    const otherRequester = '55555555-5555-4555-8555-555555555555';
+    const consumed = (approverId: string | null, requesterId = otherRequester): ActionApprovalConsumer => ({
+      async consume(input) {
+        const parsed = actionApprovalConsumeInputSchema.parse(input);
+        return actionApprovalSchema.parse({
+          ...parsed,
+          actionType: parsed.targetId,
+          requesterId,
+          approverId,
+          policyVersion: 'v1',
+          createdAt: '2026-09-09T12:00:00.000Z',
+          expiresAt: '2026-09-09T12:10:00.000Z',
+          status: 'CONSUMED',
+        });
+      },
+    });
+    const withApprover = (approverId: string | null, requesterId?: string) => {
+      const state = new KillSwitchState();
+      return { state, admin: createAdminApi(state, { tokens, ledger: null, approvals: consumed(approverId, requesterId) }) };
+    };
+
+    const same = withApprover(OPERATOR, CONFIRM);
+    await expect(same.admin.apply(toggle(), operator)).rejects.toMatchObject({ name: 'DualControlError', code: 'missing_operator' });
+    expect(same.state.isKilled('trade')).toBe(false);
+    expect(same.admin.read().audit).toHaveLength(0);
+
+    const missing = withApprover(null, CONFIRM);
+    await expect(missing.admin.apply(toggle({ module: 'pay' }), operator)).rejects.toMatchObject({ code: 'missing_operator' });
+    expect(missing.state.isKilled('pay')).toBe(false);
+
+    const blank = withApprover('   ', CONFIRM);
+    await expect(blank.admin.apply(toggle({ module: 'identity' }), operator)).rejects.toMatchObject({ code: 'missing_operator' });
+    expect(blank.state.isKilled('identity')).toBe(false);
+
+    const state = new KillSwitchState();
+    const distinct = createAdminApi(state, { tokens, ledger: null, approvals: consumed(CONFIRM) });
+    const halted = await distinct.apply(toggle(), operator);
+    expect(halted.confirmOperatorId).toBe(CONFIRM);
+    expect(halted.changed).toBe(true);
+    expect(state.isKilled('trade')).toBe(true);
+
+    const oneOperatorResume = createAdminApi(state, { tokens, ledger: null, approvals: consumed(OPERATOR, CONFIRM) });
+    await expect(
+      oneOperatorResume.apply(toggle({ disabled: false, reason: 'feed recovered, resuming the market' }), operator),
+    ).rejects.toMatchObject({ code: 'missing_operator' });
+    expect(state.isKilled('trade')).toBe(true);
+
+    const resumed = await distinct.apply(toggle({ disabled: false, reason: 'feed recovered, resuming the market' }), operator);
+    expect(resumed.confirmOperatorId).toBe(CONFIRM);
+    expect(resumed.changed).toBe(true);
+    expect(state.isKilled('trade')).toBe(false);
   });
 
   it('refuses missing approval ids — a typed-in second name is not enough', async () => {

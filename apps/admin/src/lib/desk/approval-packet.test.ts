@@ -194,3 +194,47 @@ describe('academy appoint and residency decision requests', () => {
     );
   });
 });
+
+describe('card freeze and listing takedown requests', () => {
+  const cardId = '9f8e7d6c-1111-4222-8333-444455556666';
+  const listingId = '5a3b9c10-1111-4222-8333-444455556666';
+  const freeze = { kind: 'bank.card.status', cardId, status: 'frozen', reason: 'owner reported the card stolen' } as const;
+  const takedown = { kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product' } as const;
+  it('round-trip as packets', () => {
+    for (const request of [freeze, { ...freeze, status: 'active' }, takedown] as const) {
+      expect(decodePacket(encodePacket({ ...packet, request }))).toEqual({ ok: true, packet: { ...packet, request } });
+    }
+  });
+  it('are read strictly: uuid ids, a known status, exact keys, a trimmed reason of 12 to 500 characters', () => {
+    expect(readDeskRequest(freeze)).toEqual(freeze);
+    expect(readDeskRequest({ ...freeze, status: 'closed' })).toBeNull();
+    expect(readDeskRequest({ ...freeze, cardId: 'card-1' })).toBeNull();
+    expect(readDeskRequest({ ...freeze, reason: 'short' })).toBeNull();
+    expect(readDeskRequest({ ...freeze, extra: 1 })).toBeNull();
+    const { reason: _r, ...noReason } = freeze;
+    expect(readDeskRequest(noReason)).toBeNull();
+    expect(readDeskRequest(takedown)).toEqual(takedown);
+    expect(readDeskRequest({ ...takedown, listingId: 'x' })).toBeNull();
+    expect(readDeskRequest({ ...takedown, reason: ' padded reason here ' })).toBeNull();
+    expect(readDeskRequest({ ...takedown, status: 'active' })).toBeNull();
+  });
+  it('the phrase to type names the verb and the first eight characters of the id', () => {
+    expect(confirmPhrase(freeze)).toBe('FREEZE CARD 9f8e7d6c');
+    expect(confirmPhrase({ ...freeze, status: 'active' })).toBe('UNFREEZE CARD 9f8e7d6c');
+    expect(confirmPhrase(takedown)).toBe('TAKE DOWN LISTING 5a3b9c10');
+  });
+  it('says in plain words what it does, including what cannot be undone', () => {
+    expect(describeRequest(freeze)).toContain(cardId);
+    expect(describeRequest(freeze)).toContain('its owner cannot unfreeze it');
+    const lift = describeRequest({ ...freeze, status: 'active' });
+    expect(lift).toContain('Lift the freeze on card');
+    expect(lift).toContain('the owner set themselves');
+    expect(lift).toContain('check with the owner first');
+    expect(describeRequest(takedown)).toContain('for good');
+    expect(describeRequest(takedown)).toContain('nothing is refunded');
+  });
+  it('carry their reason', () => {
+    expect(requestReason(freeze)).toBe('owner reported the card stolen');
+    expect(requestReason(takedown)).toBe('sells a forbidden product');
+  });
+});

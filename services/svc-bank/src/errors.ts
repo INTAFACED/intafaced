@@ -574,6 +574,19 @@ export type BankErrorCode =
   | 'bank.card_programme_span_too_long'
   /** Ramp health window was omitted or outside 1..720 hours. */
   | 'bank.ramp_health_window_unset'
+  /** Transfer health window was omitted or outside 1..720 hours. */
+  | 'bank.transfer_health_window_unset'
+  /** Failed-transfer window was omitted or outside 1..720 hours. */
+  | 'bank.failed_transfers_window_unset'
+  /** Failed-transfer page size unpublished. Blank is not 50. */
+  | 'bank.failed_transfers_limit_unset'
+  /** Failed-transfer cursor was not a page this service issued. */
+  | 'bank.failed_transfers_cursor_invalid'
+  /**
+   * Operator transfer drill-down. Unknown and malformed ids share this code
+   * so the shape of the id is not an existence oracle.
+   */
+  | 'bank.ops_transfer_not_found'
   /** Operator business-approval page size unpublished. Blank is not 50. */
   | 'bank.ops_business_approvals_limit_unset'
   /** A transfer id was reused with a different note or reference. */

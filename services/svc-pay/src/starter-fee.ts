@@ -20,6 +20,40 @@ export class MerchantStarterFeeBootError extends Error {
 
 export type MerchantStarterFee = { readonly bps: number; readonly source: 'local_test' };
 
+/** The stored fee on a merchant row is not an integer from 0 to 10000. */
+export class MerchantStoredFeeError extends Error {
+  constructor() {
+    super('Merchant pricing fee is malformed');
+    this.name = 'MerchantStoredFeeError';
+  }
+}
+
+/**
+ * The fee stored on `pay.merchants.pricing.feeBps`.
+ * Absent is null. A present value that is not an integer from 0 to 10000 refuses.
+ * This is the same check `toMerchant` uses before `merchant.me` returns the fee.
+ */
+export function normalizeStoredFeeBps(pricing: unknown): number | null {
+  if (pricing == null) return null;
+  if (typeof pricing !== 'object' || Array.isArray(pricing)) throw new MerchantStoredFeeError();
+  const feeBps = (pricing as { feeBps?: unknown }).feeBps;
+  if (feeBps !== undefined && (typeof feeBps !== 'number' || !Number.isInteger(feeBps) || feeBps < 0 || feeBps > 10_000)) {
+    throw new MerchantStoredFeeError();
+  }
+  return typeof feeBps === 'number' ? feeBps : null;
+}
+
+/**
+ * Fee fields shared by `merchant.me` and the founder merchant profile.
+ * `feeBps` is the merchant row. `starterFee` is the published local-test fee, or null when unset.
+ */
+export function merchantFeeView(
+  pricing: unknown,
+  starterFee: MerchantStarterFee | null,
+): { feeBps: number | null; starterFee: MerchantStarterFee | null } {
+  return { feeBps: normalizeStoredFeeBps(pricing), starterFee };
+}
+
 export type StarterFeeEnv = Record<string, string | undefined>;
 
 function appEnvName(env: StarterFeeEnv): string {

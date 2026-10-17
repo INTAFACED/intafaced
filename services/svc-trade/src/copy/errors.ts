@@ -5,6 +5,8 @@
  * jurisdiction lists to avoid a refuse.
  */
 
+import { logCopyResidual } from './residual-log.js';
+
 export type CopyErrorCode =
   | 'trade.copy_fee_share_blank'
   | 'trade.copy_jurisdiction_blank'
@@ -36,18 +38,47 @@ export type CopyErrorCode =
   | 'trade.copy_flatten_refused'
   | 'trade.copy_flatten_drift'
   | 'trade.copy_flatten_unavailable'
-  | 'trade.copy_flatten_partial';
+  | 'trade.copy_flatten_partial'
+  | 'trade.copy_unavailable'
+  | 'trade.copy_disclosure_unpublished'
+  | 'trade.copy_disclosure_required'
+  | 'trade.copy_disclosure_version_stale';
+
+/**
+ * Closed set for the customer desk and blank-law refusals.
+ * TRD-0722 names no code for an unmounted copy service, so that case is `trade.copy_unavailable`.
+ */
+export const COPY_DESK_BLOCKER_CODES = [
+  'trade.copy_fee_share_blank',
+  'trade.copy_jurisdiction_blank',
+  'trade.copy_place_disabled',
+  'trade.copy_unavailable',
+] as const;
+export type CopyDeskBlockerCode = (typeof COPY_DESK_BLOCKER_CODES)[number];
+export type CopyDeskBlocker = { readonly code: CopyDeskBlockerCode };
+
+const DESK_BLOCKER_CODES = new Set<string>(COPY_DESK_BLOCKER_CODES);
+
+function defaultDeskBlockers(code: CopyErrorCode): readonly CopyDeskBlocker[] | undefined {
+  if (!DESK_BLOCKER_CODES.has(code)) return undefined;
+  return [{ code: code as CopyDeskBlockerCode }];
+}
 
 export class CopyError extends Error {
+  readonly blockers: readonly CopyDeskBlocker[] | undefined;
+
   constructor(
     message: string,
     readonly code: CopyErrorCode,
     readonly residual?: string,
     /** Placed close order ids when a later market refuses (`trade.copy_flatten_partial`). */
     readonly orderIds?: readonly string[],
+    blockers?: readonly CopyDeskBlocker[],
   ) {
     super(message);
     this.name = 'CopyError';
+    this.blockers = blockers ?? defaultDeskBlockers(code);
+    if (residual) logCopyResidual(code, residual);
   }
 }
 

@@ -1,0 +1,11 @@
+DROP TRIGGER IF EXISTS operator_reconcile_sweeps_append_only ON trade.operator_reconcile_sweeps;
+DROP TABLE IF EXISTS trade.operator_reconcile_sweeps;
+DROP TRIGGER IF EXISTS operator_mm_seed_append_only ON trade.operator_mm_seed;
+DROP TABLE IF EXISTS trade.operator_mm_seed;
+DROP TRIGGER IF EXISTS operator_risk_limits_append_only ON trade.operator_risk_limits;
+DROP TABLE IF EXISTS trade.operator_risk_limits;
+DROP TRIGGER IF EXISTS operator_requests_append_only ON trade.operator_requests;
+DROP TABLE IF EXISTS trade.operator_requests;
+DROP TRIGGER IF EXISTS operator_audit_append_only ON trade.operator_audit;
+DROP TABLE IF EXISTS trade.operator_audit;
+DROP FUNCTION IF EXISTS trade.operator_append_only();

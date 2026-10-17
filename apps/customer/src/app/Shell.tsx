@@ -5,6 +5,7 @@ import { usePreferences } from '../shared/preferences';
 import type { Door } from './navigation';
 import { shellCopy } from './shell-copy';
 import { MobileTabs, TopBar } from './TopBar';
+import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { SessionNotice } from './SessionNotice';
 import { Button } from '../shared/ui';
 
@@ -19,7 +20,7 @@ export function Shell({ door, path, children }: { door?: Door; path: string; chi
       <TooltipProvider>
         {/* The one toast host for the whole app: screens call useToast() and never mount their own. */}
         <ToastProvider>
-          <div className="if-app">
+          <div className={isMerchantArea(path) ? 'if-app pfo-app' : 'if-app'}>
             <a href="#main" className="skip-link">
               {t('Skip to content')}
             </a>
@@ -49,7 +50,7 @@ export function Shell({ door, path, children }: { door?: Door; path: string; chi
               <SessionNotice />
               {children}
             </main>
-            <MobileTabs door={door} language={language} />
+            {!isMerchantArea(path) && <MobileTabs door={door} language={language} />}
           </div>
         </ToastProvider>
       </TooltipProvider>

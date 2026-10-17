@@ -13,7 +13,7 @@ vi.mock('../session/session', async (original) => {
 });
 import { blockersFor, chainReasonWords, plainReason, type ProtocolSnapshot } from './blockers';
 import { protocolCopy } from './copy';
-import { Answer, ParkedProtocolRoom } from './ParkedProtocolRoom';
+import { Answer, NoAnswerNote, ParkedProtocolRoom } from './ParkedProtocolRoom';
 import type { ApiResult } from '../../shared/api';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -61,6 +61,16 @@ describe('Protocol rooms speak plainly', () => {
     expect(render(failed({ reason: 'unreachable', message: 'The service could not be reached.' }))).toContain('Try again');
     expect(render(failed({ reason: 'error', code: 'protocol.chain_unset' }))).not.toMatch(/Try again|Retry/);
     expect(render(failed({ reason: 'not_mounted', status: 404 }))).not.toMatch(/Try again|Retry/);
+  });
+
+  it('keeps Try again inside the retry window and drops it once the service has stayed silent', () => {
+    const open = renderToStaticMarkup(<NoAnswerNote service="Protocol" closed={false} reload={() => undefined} t={t} />);
+    expect(open).toContain('The Protocol service didn’t answer.');
+    expect(open).toMatch(/Try again/);
+    const closed = renderToStaticMarkup(<NoAnswerNote service="Protocol" closed reload={() => undefined} t={t} />);
+    expect(closed).toContain('The Protocol service isn’t running here.');
+    expect(closed).not.toMatch(/Try again|Retry/);
+    expect(closed).not.toMatch(/edge\.|upstream|502/);
   });
 
   it('says "Not INTACHAIN, not audited" once in the banner and does not repeat it above the page', () => {

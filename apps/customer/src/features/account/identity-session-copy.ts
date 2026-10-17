@@ -17,7 +17,7 @@ export const identitySessionCopy = defineCopy(
     confirm: 'Sign out this session',
     refresh: 'Refresh sessions',
     window: 'Showing up to {limit} sessions.',
-    more: 'Show more',
+    more: 'Show up to {count} more',
     maximum: 'Up to 200 sessions are shown; older ones are not listed.',
     revoked: 'The service revoked the selected session.',
     unchanged:
@@ -69,7 +69,7 @@ export const identitySessionCopy = defineCopy(
       confirm: 'Revocar esta sesión',
       refresh: 'Actualizar sesiones',
       window: 'Se muestran hasta {limit} sesiones activas recientes. Las más antiguas pueden quedar fuera de este intervalo.',
-      more: 'Mostrar más',
+      more: 'Mostrar hasta {count} más',
       maximum: 'Se muestran hasta 200 sesiones; las más antiguas no aparecen.',
       revoked: 'El servicio revocó la sesión seleccionada.',
       unchanged: 'Esa sesión ya estaba cerrada o no es de esta cuenta, así que no cambió nada. Actualiza la lista para ver lo actual.',
@@ -122,7 +122,7 @@ export const identitySessionCopy = defineCopy(
       confirm: 'Révoquer cette session',
       refresh: 'Actualiser les sessions',
       window: 'Au plus {limit} sessions actives récentes sont affichées. Les plus anciennes peuvent se trouver hors de cette fenêtre.',
-      more: 'Afficher plus',
+      more: 'Afficher jusqu’à {count} de plus',
       maximum: 'Jusqu’à 200 sessions sont affichées ; les plus anciennes ne sont pas listées.',
       revoked: 'Le service a révoqué la session sélectionnée.',
       unchanged:

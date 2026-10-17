@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MODULE_IDS, moduleForApi, moduleForPage } from '@/lib/modules';
@@ -13,6 +14,7 @@ const ROUTER: Record<ReadSpec['module'], string | null> = {
   market: 'svc-market',
   agents: 'svc-agents',
   quant: 'svc-quant',
+  mining: 'svc-mining-pool',
   token: 'svc-token',
   protocol: 'svc-protocol',
   indexer: 'svc-indexer',
@@ -54,11 +56,17 @@ describe('the catalogue is internally consistent', () => {
   it('lists name a stable row id, and the page size matches the limit asked for', () => {
     for (const { read } of all) {
       if (read.shape === 'list') {
-        expect(read.idKey, read.id).toBeTruthy();
-        expect(
-          read.columns.some((c) => c.key === read.idKey),
-          `${read.id} idKey is a column`,
-        ).toBe(true);
+        // A list names a stable row id, or says outright that the service gives its rows none (and then it has no row action).
+        if (read.anonymousRows) {
+          expect(read.idKey, `${read.id} is anonymous, so it has no idKey`).toBeUndefined();
+          expect(read.rowAction, `${read.id} is anonymous, so it has no row action`).toBeUndefined();
+        } else {
+          expect(read.idKey, read.id).toBeTruthy();
+          expect(
+            read.columns.some((c) => c.key === read.idKey),
+            `${read.id} idKey is a column`,
+          ).toBe(true);
+        }
         const limit = read.input?.limit;
         if (typeof limit === 'number') expect(read.page, read.id).toBe(limit);
       }
@@ -92,10 +100,61 @@ describe('the desks cover what the product order asks for', () => {
   it('bank: pools, loans book, card programme, ramp health, business approvals, freezes', () => {
     expect(sections('bank')).toEqual(expect.arrayContaining(['pools', 'loans', 'cards', 'ramps', 'business', 'freezes']));
   });
-  it('p2p: disputes (with escalation shown as not offered), settlements and offers/orders', () => {
+  it('bank: the operator reads of BANKOPS are on the desk, and the card freeze is a two-founder section action', () => {
+    const procedures = allReads(DESKS.bank).map((r) => r.procedure);
+    expect(procedures).toEqual(
+      expect.arrayContaining(['ops.poolTotals', 'ops.loanBook', 'ops.cardProgramme', 'ops.rampHealth', 'ops.businessApprovals']),
+    );
+    const cards = DESKS.bank.sections.find((s) => s.id === 'cards')!;
+    expect(cards.sectionAction).toBe('bank.card.status');
+    expect(cards.disabledActions).toEqual([]);
+    // What the service now gives is not also listed as missing.
+    const unavailable = DESKS.bank.sections.flatMap((s) => s.unavailable.map((u) => u.id));
+    expect(unavailable).not.toEqual(expect.arrayContaining(['bank.pool-totals']));
+    expect(unavailable).not.toEqual(expect.arrayContaining(['bank.loan-book']));
+    expect(unavailable).not.toEqual(expect.arrayContaining(['bank.business-queue']));
+  });
+  it('bank: the windowed reads state their window in the title and stay inside the service’s own limits', () => {
+    for (const read of allReads(DESKS.bank).filter((r) => r.windowDays !== undefined)) {
+      // The card counts are all-time; only the authorisations are windowed, and the title says both.
+      if (read.id === 'bank.card-counts') expect(read.title).toMatch(/all time/);
+      expect(read.title, read.id).toMatch(/last 30 days/);
+      // svc-bank refuses a card programme span over 92 days.
+      expect(read.windowDays, read.id).toBeLessThanOrEqual(92);
+    }
+  });
+  it('p2p: disputes (escalate is a row action, the ruling is shown as not offered), settlements and offers/trades', () => {
     expect(sections('p2p')).toEqual(expect.arrayContaining(['disputes', 'settlements', 'orders']));
     const disputes = DESKS.p2p.sections.find((s) => s.id === 'disputes')!;
-    expect(disputes.disabledActions.map((a) => a.id)).toEqual(expect.arrayContaining(['p2p.escalate', 'p2p.resolve']));
+    expect(disputes.reads.find((r) => r.id === 'p2p.disputes')!.rowAction).toBe('p2p.dispute.escalate');
+    expect(disputes.disabledActions.map((a) => a.id)).toEqual(['p2p.resolve']);
+    const orders = DESKS.p2p.sections.find((s) => s.id === 'orders')!;
+    expect(orders.reads.map((r) => r.procedure)).toEqual(
+      expect.arrayContaining(['ops.counts', 'ops.disputeRate24h', 'ops.offers', 'ops.trades']),
+    );
+    // Every operator read of P2POPS asks for an explicit page size: the service refuses a blank one.
+    for (const r of orders.reads.filter((x) => x.procedure === 'ops.offers' || x.procedure === 'ops.trades')) {
+      expect(r.input?.limit, r.id).toBe(50);
+      expect(['active', 'paused', 'closed', 'created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed']).toContain(
+        r.input?.status,
+      );
+    }
+  });
+  it('more: mining, market sales and takedown, and quant strategies are wired', () => {
+    const more = allReads(DESKS.more);
+    expect(more.filter((r) => r.module === 'mining').map((r) => r.procedure)).toEqual([
+      'terms',
+      'ops.windows',
+      'ops.shares',
+      'ops.workers',
+    ]);
+    expect(more.find((r) => r.id === 'market.sales')).toMatchObject({ procedure: 'ops.sales', windowDays: 30, input: { limit: 50 } });
+    expect(more.find((r) => r.id === 'market.listings')!.rowAction).toBe('market.listing.takedown');
+    expect(more.find((r) => r.id === 'quant.strategies')).toMatchObject({ procedure: 'studio.operatorList', input: { limit: 50 } });
+    // The mining shares read has an object input with every field optional, so it must send one.
+    expect(more.find((r) => r.id === 'mining.shares')!.sendEmptyInput).toBe(true);
+    const market = DESKS.more.sections.find((s) => s.id === 'market')!;
+    expect(market.disabledActions).toEqual([]);
   });
   it('academy: content metrics, certificates and grant audit, ambassadors', () => {
     expect(sections('academy')).toEqual(expect.arrayContaining(['catalogue', 'certificates', 'ambassadors']));
@@ -153,6 +212,21 @@ describe('the desks cover what the product order asks for', () => {
   });
 });
 
+/** Every .ts under a service's src, so a procedure built in its own file (`poolTotalsProcedure`) can be found. */
+function serviceSources(service: string): string[] {
+  const root = fileURLToPath(new URL(`../../../../../services/${service}/src`, import.meta.url));
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (name.endsWith('.ts') && !name.includes('.test.')) out.push(readFileSync(full, 'utf8'));
+    }
+  };
+  walk(root);
+  return out;
+}
+
 describe('every read names a QUERY that exists in the owning router (drift guard)', () => {
   it.each(all.map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
     const service = ROUTER[read.module];
@@ -166,13 +240,32 @@ describe('every read names a QUERY that exists in the owning router (drift guard
       from = group!.index;
     }
     const name = parts[parts.length - 1]!;
-    const proc = new RegExp(`\\b${name}: \\w*Procedure\\b`).exec(text.slice(from));
+    // `operator` is svc-mining-pool's local alias for its admin:read procedure builder.
+    const proc = new RegExp(`\\b${name}: (\\w*Procedure|operator)\\b`).exec(text.slice(from));
     expect(proc, `${service} has ${read.procedure}`).not.toBeNull();
     // From the procedure up to the next procedure definition, the call kind must be a query.
     const rest = text.slice(from + proc!.index + 1);
-    const next = rest.search(/\n\s+[a-zA-Z]+: \w*Procedure\b/);
-    const body = next === -1 ? rest : rest.slice(0, next);
+    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure|operator|customer)\b/);
+    let body = next === -1 ? rest : rest.slice(0, next);
+    // A procedure built in its own file (`poolTotals: poolTotalsProcedure(...)`) is judged by that factory's body.
+    if (!body.includes('.query(') && !body.includes('.mutation(')) {
+      const factory = new RegExp(`\\b${name}: (\\w+Procedure)\\(`).exec(text.slice(from))?.[1];
+      expect(factory, `${read.procedure} is defined inline or by a factory`).toBeTruthy();
+      const file = serviceSources(service!).find((src) => src.includes(`export function ${factory}(`));
+      expect(file, `${factory} is defined in ${service}`).toBeTruthy();
+      const start = file!.indexOf(`export function ${factory}(`);
+      const after = file!.slice(start + 1);
+      const end = after.search(/\nexport function /);
+      body = end === -1 ? after : after.slice(0, end);
+    }
     expect(body.includes('.query('), `${read.procedure} is a query`).toBe(true);
     expect(body.includes('.mutation('), `${read.procedure} is not a mutation`).toBe(false);
+  });
+});
+
+describe('mining pool terms', () => {
+  it('needs only a signed-in session, so its refusal never claims a missing admin permission', () => {
+    const terms = allReads(DESKS.more).find((r) => r.id === 'mining.terms')!;
+    expect(terms.forbiddenText).not.toMatch(/admin:read/);
   });
 });

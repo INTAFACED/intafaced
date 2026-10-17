@@ -1,0 +1,144 @@
+import type { ApiResult } from '../../../../shared/api';
+import type { Resource } from '../../../../shared/resource';
+import { isNotLive } from '../refusal';
+import type { MemberRole, MerchantRecord } from '../schemas';
+import type { Capability, Need } from './capabilities';
+import { memberFromTeam, ownerFromRecord } from './fallback';
+import type { Membership, MyAccess } from './schemas';
+
+type Failed = Extract<ApiResult<unknown>, { ok: false }>;
+type TeamMe = { merchantId: string; userId: string; role: MemberRole };
+
+/** What the portal knows about the signed-in person's place in a business. Only a `ready` value grants anything. */
+export type Access =
+  | { status: 'loading' }
+  | { status: 'none' }
+  | { status: 'failed'; failure: Failed }
+  | {
+      status: 'ready';
+      source: 'my-access' | 'owner-record' | 'team-member';
+      merchantId: string;
+      role: MemberRole;
+      /** The business account's own state, from the service when it says so. */
+      accountStatus: Membership['status'];
+      kybStatus: Membership['kybStatus'] | null;
+      mode: Membership['mode'] | null;
+      /** Null means unknown: the service decides and its refusal is shown plainly. */
+      sessionInteractive: boolean | null;
+      displayName: string | null;
+      legalName: string | null;
+      pricingVisibility: 'full' | 'fee_only' | null;
+      capabilities: ReadonlySet<Capability>;
+    };
+export type Ready = Extract<Access, { status: 'ready' }>;
+
+export type AccessInputs = {
+  sessionUserId: string | null;
+  myAccess: Resource<MyAccess>;
+  merchant: Resource<MerchantRecord | null>;
+  team: Resource<TeamMe>;
+};
+
+const toReady = (m: Membership): Ready => ({
+  status: 'ready',
+  source: 'my-access',
+  merchantId: m.merchantId,
+  role: m.role,
+  accountStatus: m.status,
+  kybStatus: m.kybStatus,
+  mode: m.mode,
+  sessionInteractive: m.sessionInteractive,
+  displayName: m.displayName,
+  legalName: m.legalName,
+  pricingVisibility: m.pricingVisibility,
+  capabilities: new Set((Object.entries(m.capabilities) as [Capability, boolean][]).filter(([, on]) => on).map(([key]) => key)),
+});
+
+/**
+ * Who this person is in a business, in order of trust:
+ *  1. `merchant.myAccess`, when the service answers it. Empty means no business.
+ *  2. If that procedure is not live (and only then), the owner proved by `merchant.me` naming the signed-in user,
+ *     or a team member by `merchantOps.team.me` with the role table copied in `capabilities.ts`.
+ *  3. Any other failure of `myAccess` (forbidden, unreachable) grants nothing. It never falls back.
+ */
+export function resolveAccess({ sessionUserId, myAccess, merchant, team }: AccessInputs): Access {
+  if (myAccess.status === 'ready') {
+    const first = myAccess.data.memberships[0];
+    return first ? toReady(first) : { status: 'none' };
+  }
+  // A refusal for "you may not read this" from someone who holds no business permission is the same fact as "no business
+  // account": the service gives a person who has only the right to start one a 403 here. It is settled below, from the
+  // two reads that person can make. Every other failure grants nothing.
+  const noPermission = myAccess.status === 'failed' && myAccess.failure.reason === 'forbidden' && !isNotLive(myAccess.failure);
+  if (myAccess.status === 'failed' && !noPermission && !isNotLive(myAccess.failure)) return { status: 'failed', failure: myAccess.failure };
+  if (myAccess.status === 'loading' || merchant.status === 'loading') return { status: 'loading' };
+  if (noPermission && myAccess.status === 'failed') return settleWithoutPermission(myAccess.failure, merchant, team, sessionUserId);
+  // From here `merchant.myAccess` is not live: work it out from the two reads that are.
+  const owner = merchant.status === 'ready' ? ownerFromRecord(merchant.data, sessionUserId) : null;
+  if (owner) return fromDerived(owner);
+  if (merchant.status === 'failed' && team.status !== 'ready') return { status: 'failed', failure: merchant.failure };
+  if (team.status === 'loading') return { status: 'loading' };
+  const member = team.status === 'ready' ? memberFromTeam(team.data, sessionUserId) : null;
+  if (member) return fromDerived(member);
+  // No owner record and no team seat. That means "no business" only when the service says so. A lookup that failed or
+  // could not be reached proves nothing, so it fails closed instead of sending a real member to set up a business.
+  if (merchant.status === 'failed') return { status: 'failed', failure: merchant.failure };
+  if (team.status === 'failed' && !isNotAMember(team.failure)) return { status: 'failed', failure: team.failure };
+  return { status: 'none' };
+}
+
+/**
+ * `merchant.myAccess` said 403. A person who holds a business (an owner record, a team seat) and is still refused
+ * keeps that refusal: it grants nothing and says so plainly. A person who holds none is a person with no business
+ * account, whether the other reads said "not a merchant", were refused too, or came back empty. Only a read that
+ * could not be reached (so we cannot tell) fails closed.
+ */
+function settleWithoutPermission(
+  refusal: Failed,
+  merchant: Resource<MerchantRecord | null>,
+  team: Resource<TeamMe>,
+  sessionUserId: string | null,
+): Access {
+  if (team.status === 'loading') return { status: 'loading' };
+  const hasRecord = merchant.status === 'ready' && merchant.data !== null;
+  const hasSeat = team.status === 'ready' && memberFromTeam(team.data, sessionUserId) !== null;
+  if (hasRecord || hasSeat) return { status: 'failed', failure: refusal };
+  const unreadable = (r: Resource<unknown>) => r.status === 'failed' && r.failure.reason !== 'forbidden' && !isNotAMember(r.failure);
+  if (merchant.status === 'failed' && unreadable(merchant)) return { status: 'failed', failure: merchant.failure };
+  if (team.status === 'failed' && unreadable(team)) return { status: 'failed', failure: team.failure };
+  return { status: 'none' };
+}
+
+/** The service's two answers for "this person is not in a business". Not live also reads as none: there is no team to be in. */
+const NOT_A_MEMBER = new Set(['pay.merchant_ops_not_merchant', 'pay.team_member_not_found']);
+function isNotAMember(failure: Failed): boolean {
+  return (failure.code !== undefined && NOT_A_MEMBER.has(failure.code)) || isNotLive(failure);
+}
+
+function fromDerived(d: NonNullable<ReturnType<typeof ownerFromRecord>>): Ready {
+  return {
+    status: 'ready',
+    source: d.source,
+    merchantId: d.merchantId,
+    role: d.role,
+    accountStatus: d.status,
+    kybStatus: d.kybStatus,
+    mode: d.mode,
+    sessionInteractive: null,
+    displayName: null,
+    legalName: null,
+    pricingVisibility: null,
+    capabilities: d.capabilities,
+  };
+}
+
+/** Does this person hold the permission, or is this the account owner? Anything not ready holds nothing. */
+export function allows(access: Access, need: Need): boolean {
+  if (access.status !== 'ready') return false;
+  return need === 'owner' ? access.role === 'owner' : access.capabilities.has(need);
+}
+
+/** The owner of an active account in a session that can change things. Links, refunds and payouts are owner-only on the service. */
+export function canOwnerWrite(access: Access): boolean {
+  return access.status === 'ready' && access.role === 'owner' && access.accountStatus === 'active' && access.sessionInteractive !== false;
+}

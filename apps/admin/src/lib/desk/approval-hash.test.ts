@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { edgeActionPayloadHash } from '../../../../../services/svc-edge/src/action-approval-consume';
 import { academyActionPayloadHash } from '../../../../../services/svc-academy/src/action-approval-consume';
 import { marketActionPayloadHash } from '../../../../../services/svc-market/src/action-approval-consume';
+import { bankActionPayloadHash } from '../../../../../services/svc-bank/src/action-approval-consume';
 import { ledgerActionPayloadHash } from '../../../../../services/svc-ledger/src/ledger/action-approval-consume';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 
@@ -71,6 +72,49 @@ describe('payload hash equals the owning service’s own function', () => {
     const kill = payloadHashFor({ kind: 'edge.kill', module: 'pay', disabled: true, reason: 'twelve chars!' });
     const resume = payloadHashFor({ kind: 'edge.kill', module: 'pay', disabled: false, reason: 'twelve chars!' });
     expect(kill).not.toBe(resume);
+  });
+});
+
+describe('card freeze and listing takedown hashes equal the services’ own functions', () => {
+  const cardId = '9f8e7d6c-1111-4222-8333-444455556666';
+  const listingId = '5a3b9c10-1111-4222-8333-444455556666';
+  it('bank.ops.setCardStatus binds the card and the status, with fields sorted under `fields`; the reason is not in it', () => {
+    for (const status of ['frozen', 'active'] as const) {
+      expect(payloadHashFor({ kind: 'bank.card.status', cardId, status, reason: 'owner reported the card stolen' })).toBe(
+        bankActionPayloadHash('bank.ops.setCardStatus', { cardId, status }),
+      );
+    }
+    expect(payloadHashFor({ kind: 'bank.card.status', cardId, status: 'frozen', reason: 'owner reported the card stolen' })).toBe(
+      payloadHashFor({ kind: 'bank.card.status', cardId, status: 'frozen', reason: 'a different reason entirely' }),
+    );
+    expect(payloadHashFor({ kind: 'bank.card.status', cardId, status: 'frozen', reason: 'owner reported the card stolen' })).not.toBe(
+      payloadHashFor({ kind: 'bank.card.status', cardId, status: 'active', reason: 'owner reported the card stolen' }),
+    );
+  });
+  it('market.takedown binds the listing AND the reason, so a changed reason is a different request', () => {
+    expect(payloadHashFor({ kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product' })).toBe(
+      marketActionPayloadHash('market.takedown', { listingId, reason: 'sells a forbidden product' }),
+    );
+    expect(payloadHashFor({ kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product' })).not.toBe(
+      payloadHashFor({ kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product!' }),
+    );
+  });
+  it('are proposed against the target each service consumes: svc-bank by verb, svc-market by listing id', () => {
+    expect(proposeInputFor({ kind: 'bank.card.status', cardId, status: 'frozen', reason: 'owner reported the card stolen' })).toMatchObject(
+      {
+        actionType: 'bank.ops.setCardStatus',
+        targetService: 'svc-bank',
+        targetId: 'bank.ops.setCardStatus',
+        expectedVersion: '1',
+        policyVersion: 'v1',
+      },
+    );
+    expect(proposeInputFor({ kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product' })).toMatchObject({
+      actionType: 'market.takedown',
+      targetService: 'svc-market',
+      targetId: listingId,
+      expectedVersion: '1',
+    });
   });
 });
 

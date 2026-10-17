@@ -32,3 +32,13 @@ export function rowText(row: Row, key: string): string | null {
   const v = cellOfRow(row, key);
   return typeof v === 'string' ? v : null;
 }
+
+/** A listing can be taken down while it is on sale. A taken-down or archived one is already off the market. */
+export function listingTakedownOffered(status: string): boolean {
+  return status === 'active';
+}
+
+/** A dispute can be escalated while it is open. A resolved one is refused by the service as already resolved. */
+export function disputeEscalationOffered(status: string): boolean {
+  return status === 'open';
+}

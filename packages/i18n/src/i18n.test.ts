@@ -74,7 +74,8 @@ describe('catalog — the key set is closed and complete', () => {
     // Ceiling is a drift alarm, not a hard product law — raise when a real surface lands.
     // Limit-unset refuse keys (kb_search / tickers / markets) landed at 202.
     // Four real guest enquiry templates add eight title/body keys.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(218);
+    // Agents session-list refusals (cursor_invalid, fee_asset_unset) add two.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(220);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

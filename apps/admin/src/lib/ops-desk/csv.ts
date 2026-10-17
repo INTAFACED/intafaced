@@ -1,3 +1,4 @@
+import { formatWhen } from '@/lib/as-of';
 import { formatCell } from './model';
 import type { CellKind, ReadData, ReadSpec } from './types';
 
@@ -55,7 +56,7 @@ export function csvFilename(readId: string, asOf: string): string {
 /** What the page says next to the button, so the file is never mistaken for the whole table. */
 export function exportNote(rows: number, pageFull: boolean, page: number | undefined, asOf: string): string {
   const noun = rows === 1 ? 'row' : 'rows';
-  const base = `Exports the ${rows} ${noun} shown above (not a full table export), as read at ${asOf}.`;
+  const base = `Exports the ${rows} ${noun} shown above (not a full table export), as read at ${formatWhen(asOf)}.`;
   return pageFull && page !== undefined
     ? `${base} This read is capped at ${page} rows and the page is full, so more rows may exist that are not in the file.`
     : base;

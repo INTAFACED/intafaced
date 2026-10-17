@@ -35,6 +35,7 @@ export type HistoricalRequest = {
   };
   environment: 'backtest';
   presentedAs: 'simulated';
+  idempotencyKey: string;
 };
 /** This is a RAM projection of one reply and its declared request. It has no
  * original settlement capability; bt_strategy labels repeat across runs. */

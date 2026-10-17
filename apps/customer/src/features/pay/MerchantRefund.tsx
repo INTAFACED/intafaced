@@ -2,13 +2,16 @@ import { useId, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
-import { Button, Dialog, Field } from '../../shared/ui';
+import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
+import { Field } from './ui-kit';
 import { useSession } from '../session/session';
-import { PayAmount, PayTime } from './components';
+import { PayAmount } from './components';
+import { DateTime } from './portal/ui/DateTime';
 import type { BusinessPayApi } from './pay-api';
 import type { RefundLookup, RefundReceipt, RefundSnapshot } from './merchant-refund-api';
-import { refundCopy } from './merchant-refund-copy';
+import { HISTORY_WINDOW, refundCopy, refundFailureKey } from './merchant-refund-copy';
 import * as s from './schemas';
+import { moneyReason } from './portal/access/money-step';
 import './merchant-refund.css';
 
 type Context = {
@@ -313,32 +316,32 @@ export function MerchantRefund({
       onBack();
     }
   }
+  // The technical references sit behind a disclosure: support asks for them, a merchant seldom does.
   const references = (reference: string | null) => (
-    <dl>
-      <div>
-        <dt>
-          <Copy k="payment" />
-        </dt>
-        <dd lang="zxx">{paymentId}</dd>
-      </div>
-      <div>
-        <dt>
-          <Copy k="reference" />
-        </dt>
-        <dd lang={reference ? 'zxx' : requestedLocale}>{reference ?? t('unavailable')}</dd>
-      </div>
-    </dl>
+    <details className="merchant-refund-details">
+      <summary>{t('details')}</summary>
+      <dl>
+        <div>
+          <dt>
+            <Copy k="payment" />
+          </dt>
+          <dd lang="zxx">{paymentId}</dd>
+        </div>
+        <div>
+          <dt>
+            <Copy k="reference" />
+          </dt>
+          <dd lang={reference ? 'zxx' : requestedLocale}>{reference ?? t('unavailable')}</dd>
+        </div>
+      </dl>
+    </details>
   );
   const failure = shown?.failure;
-  const authoredFailure = failure?.code?.startsWith('pay.refund_');
-  const failureText =
-    snapshot.problem === 'busy'
-      ? t('busy')
-      : failure?.code === 'pay.refund_amount_invalid' || failure?.code === 'pay.refund_input_invalid'
-        ? t('invalidAmount')
-        : failure?.code === 'pay.refund_context_changed'
-          ? t('contextChanged')
-          : t('unavailableBody');
+  const failureKey = refundFailureKey({
+    code: failure?.code,
+    busy: snapshot.problem === 'busy',
+    referenceHeld: snapshot.status !== 'empty',
+  });
   if (!live() || pay.access('pay:read')) return null;
   return (
     <section className="merchant-refund" aria-labelledby={titleId} ref={form} lang={requestedLocale}>
@@ -365,7 +368,7 @@ export function MerchantRefund({
             <Copy k="matched" />
           </p>
           <strong>{t(receipt.kind === 'refunded' ? 'recorded' : 'reversed')}</strong>
-          <PayTime value={receipt.ts} />
+          <DateTime value={receipt.ts} />
         </div>
       )}
       {receipt && cleanupPending && (
@@ -429,7 +432,7 @@ export function MerchantRefund({
                 <Copy k="noMatch" />
               </h4>
               <p className="muted">
-                <Copy k="historyWindow" params={{ count: shown.count, limit: 200 }} />
+                <Copy k={shown.count >= HISTORY_WINDOW ? 'historyWindow' : 'historyAll'} params={{ count: shown.count }} />
               </p>
               <p>
                 <Copy k="noProof" />
@@ -471,6 +474,11 @@ export function MerchantRefund({
                   update({ draft: next, failure: null });
                 }}
               />
+              {pay.access('pay:refund') && (
+                <p role="note" className="muted">
+                  {moneyReason('refund', pay.authority?.scopes)}
+                </p>
+              )}
               <Button
                 onClick={prepare}
                 disabled={!shown.draft?.amount || shown.busy || Boolean(pay.access('pay:refund')) || Boolean(snapshot.problem)}
@@ -489,8 +497,8 @@ export function MerchantRefund({
           </Button>
         ))}
       {failure && (
-        <p role="alert" lang={authoredFailure ? requestedLocale : 'und'}>
-          {authoredFailure ? failureText : failure.message}
+        <p role="alert" lang={requestedLocale}>
+          {t(failureKey)}
         </p>
       )}
       {shown?.busy && (
@@ -502,7 +510,7 @@ export function MerchantRefund({
         <Copy k="back" />
       </Button>
       {currentReview && (
-        <Dialog title={t('review')} onClose={() => dismiss(currentReview, false)}>
+        <Dialog closeLabel={t('back')} title={t('review')} onClose={() => dismiss(currentReview, false)}>
           <div className="merchant-refund merchant-refund-review">
             <p className="muted">
               <Copy k="reviewBody" />

@@ -362,7 +362,7 @@ test('Personal P2P programme application does not create Business authority', as
   await mount(page, '/p2p?view=access');
   await expect(page.locator('nav[aria-label="P2P rooms"] [aria-current="page"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Apply to P2P programme', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm apply to p2p programme' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Apply to p2p programme' }).click();
   await expect(page.getByText('applied', { exact: true })).toBeVisible();
   expect(posted).toEqual([{}]);
   await mount(page, '/pay/links');
@@ -406,7 +406,7 @@ test('Public checkout keeps fixed amount authoritative and never invents a payme
   await page.getByLabel('Your country').fill('ID');
   await page.getByLabel('Payment method', { exact: true }).selectOption('card');
   await page.getByRole('button', { name: 'Open payment session', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm open payment session' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Open payment session' }).click();
   await expect(page.getByRole('heading', { name: 'Payment instructions were not returned' })).toBeVisible();
   expect(posted).toEqual([{ token: 'link-test-capability', geoCountry: 'ID', method: 'card' }]);
   await expect(page.getByRole('button', { name: /paid|capture|pay now/i })).toHaveCount(0);
@@ -425,7 +425,7 @@ test('Developer sandbox key cannot omit its mode or enter the live payment path'
   await page.getByLabel('Key name').fill('Sandbox test fixture');
   await page.getByLabel('pay:read', { exact: true }).check();
   await page.getByRole('button', { name: 'Create sandbox key', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm create sandbox key' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create sandbox key' }).click();
   await expect(page.getByRole('heading', { name: 'Sandbox secret returned once' })).toBeVisible();
   expect(posted).toHaveLength(1);
   expect(posted[0].body).toEqual({ name: 'Sandbox test fixture', scopes: ['pay:read'], mode: 'sandbox' });

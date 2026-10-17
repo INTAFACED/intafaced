@@ -3,6 +3,7 @@ import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, servic
 import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
+import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
 // INTERNAL_SERVICE_SECRET is required because rank.awardXp is a serviceProcedure
@@ -57,6 +58,26 @@ const schema = serviceEnvSchema
        * Default 10. 0 disables the grace window. Ceiling 120.
        */
       REFRESH_REUSE_GRACE_SECONDS: z.coerce.number().int().min(0).max(120).default(10),
+      /**
+       * Owner-published seconds after rotation during which a lost refresh reply
+       * may be presented again, past the grace window. Blank, 0, or unset is off
+       * (today's reuse burn). Never a default — blank is not 120. Ceiling 600.
+       * Do not set this in compose or in a local env file; the lead publishes it.
+       */
+      REFRESH_RECOVERY_SECONDS: z
+        .unknown()
+        .optional()
+        .transform((raw, ctx): number | undefined => {
+          try {
+            return parseRefreshRecoverySeconds(raw);
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'REFRESH_RECOVERY_SECONDS must be an integer',
+            });
+            return z.NEVER;
+          }
+        }),
       /** Existing verified platform UUIDs. Missing/malformed/duplicate pair disables controls. */
       IDENTITY_FOUNDER_NITRO_USER_ID: z.string().optional(),
       IDENTITY_FOUNDER_PHANTOM_USER_ID: z.string().optional(),
@@ -178,6 +199,26 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published lifetime for an email or phone change proof, in seconds.
+       * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).
+       * Never git-default a lifetime. One day is the ceiling.
+       */
+      IDENTITY_CONTACT_CHANGE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published wrong-code cap for a contact-change proof.
+       * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).
+       * The ceiling is 5. A higher number is not a published cap.
+       */
+      IDENTITY_CONTACT_CHANGE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
       /**
        * Mail transport. Blank / unset → unwired; confirmation and reset requests
        * refuse. `local-outbox` is the only implemented transport and is refused

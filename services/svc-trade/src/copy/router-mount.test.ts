@@ -159,15 +159,19 @@ describe('trade.copy product mount', () => {
     expect(status.feeSharePublished).toBe(false);
     expect(status.leaderShareBps).toBeNull();
     expect(status.jurisdictionPublished).toBe(false);
-    expect(status.residual).toContain('leader fee share');
-    expect(status.residual).toContain('served regions');
+    expect(status.blockers.map((b) => b.code)).toEqual([
+      'trade.copy_fee_share_blank',
+      'trade.copy_jurisdiction_blank',
+      'trade.copy_place_disabled',
+    ]);
+    expect(status).not.toHaveProperty('residual');
+    expect(status).not.toHaveProperty('statusLine');
     expect(status.sovereign.shape).toBe('sovereign');
     expect(status.sovereign.custody).toBe(false);
     expect(status.sovereign.pnlFeeForbidden).toBe(true);
     expect(status.sovereign.rankingForbidden).toBe(true);
     expect(status.sovereign.killUnfollowReal).toBe(true);
-    expect(status.residuals.rates).toContain('leader fee share');
-    expect(status.residuals.jurisdiction).toContain('served regions');
+    expect(status).not.toHaveProperty('residuals');
     expect(status.autoMirrorPlace.published).toBe(false);
     expect(status.autoMirrorPlace.socket).toContain('socket.copy-auto-mirror-place');
   });

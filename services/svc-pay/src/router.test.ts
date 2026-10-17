@@ -1458,6 +1458,23 @@ describe('leftover treasury mutates consume identity approval', () => {
     await expect(api.fraud.listOpenReviews()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
     await expect(api.fraud.listOpenReviews({ limit: 50 })).resolves.toEqual(expect.any(Array));
   });
+
+  it('refuses list, claim, and decide to a caller who is not an operator', async () => {
+    const merchant = await caller(['pay:write']);
+    const id = `rev-op-${Date.now()}`;
+    await merchant.fraud.enqueueReview({
+      id,
+      merchantId: MERCHANT,
+      amount: '99',
+      assetId: 'USDT',
+      recentPaymentCount: 50,
+      thresholds: { maxPaymentsInWindow: 5, velocityCountAction: 'review' },
+    });
+    await expect(merchant.fraud.listOpenReviews({ limit: 50 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(merchant.fraud.claimReview({ id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(merchant.fraud.resolveReview({ id, outcome: 'allow' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(defaultFraudReviewQueue.get(id)?.status).toBe('open');
+  });
 });
 
 // ── User money out: the withdrawal ───────────────────────────────────────────

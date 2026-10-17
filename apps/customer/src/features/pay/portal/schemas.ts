@@ -1,7 +1,13 @@
 import { z } from 'zod';
-import { amount, asset, paymentEventSchema, paymentSchema, settlementSchema } from '../schemas';
+import {
+  amount,
+  asset,
+  paymentEventSchema,
+  paymentSchema as basePaymentSchema,
+  settlementSchema as baseSettlementSchema,
+} from '../schemas';
 
-export { paymentEventSchema, paymentSchema, settlementSchema };
+export { paymentEventSchema };
 
 // Browser projections of svc-pay `merchantMetrics.*`, `merchantOps.*` and `merchant.*`.
 // Authorities: packages/contracts/src/merchant-metrics.ts, svc-pay/src/merchant-ops/*.
@@ -11,6 +17,42 @@ export const page = <T extends z.ZodTypeAny>(item: T) => z.object({ items: z.arr
 export type Page<T> = { items: T[]; nextCursor: string | null };
 
 const timestamp = z.string().datetime({ offset: true });
+
+// ---- fields added to payments, settlements and approvals (all optional: an older service simply omits them) -----------
+// Authorities: packages/contracts/src/pay-merchant-reads.ts and merchant-control.ts. Foundation only parses them;
+// the pages decide how to show them.
+const failureSchema = z.object({ code: z.string(), message: z.string() });
+/** The fee as stored when it was decided. Full for owner, admin and finance; fee only for viewer and developer. Never recomputed. */
+export const pricingSnapshotSchema = z.union([
+  z.object({
+    fee: amount,
+    assetCode: asset,
+    appliedLayer: z.enum(['global', 'tier', 'merchant']),
+    ruleId: z.string(),
+    feeBps: z.number(),
+    flatFee: amount.nullable(),
+    spreadBps: z.number().nullable(),
+    roundingBeneficiary: z.enum(['platform', 'merchant']),
+    roundingMode: z.enum(['ceil', 'floor']),
+    bookedFee: amount.nullable(),
+    reserveAmount: amount.nullable(),
+    recordedAt: timestamp,
+  }),
+  z.object({ fee: amount }),
+]);
+export type PricingSnapshot = z.infer<typeof pricingSnapshotSchema>;
+export const paymentSchema = basePaymentSchema.extend({
+  pricingSnapshot: pricingSnapshotSchema.nullable().optional(),
+  failure: failureSchema.nullable().optional(),
+});
+export const settlementSchema = baseSettlementSchema.extend({
+  createdAt: timestamp.nullable().optional(),
+  sentAt: timestamp.nullable().optional(),
+  settledAt: timestamp.nullable().optional(),
+  failedAt: timestamp.nullable().optional(),
+  failure: failureSchema.nullable().optional(),
+  pricingSnapshot: pricingSnapshotSchema.nullable().optional(),
+});
 const assetAmount = z.object({ assetCode: asset, amount });
 export type AssetAmount = z.infer<typeof assetAmount>;
 
@@ -222,6 +264,7 @@ export const notificationKinds = [
   'operator_pause',
   'export_ready',
   'team_change',
+  'payout_destination',
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 export const notificationSchema = z.object({
@@ -363,6 +406,10 @@ export const approvalSchema = z.object({
   createdAt: timestamp,
   decidedAt: timestamp.nullable(),
   expiresAt: timestamp,
+  /** Where the payout would go: the rail, the kind of destination and a masked reference. Never the full account or address. */
+  railId: z.string().optional(),
+  destinationKind: z.string().optional(),
+  destinationMasked: z.string().optional(),
 });
 export type Approval = z.infer<typeof approvalSchema>;
 

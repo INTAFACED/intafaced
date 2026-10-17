@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
-import { ACCESS_TIERS } from './economics/staking.js';
+import { ACCESS_TIERS, STAKE_TIERS } from './economics/staking.js';
 import { ActionApprovalConsumeError, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { createTokenRouter } from './router.js';
 import { TokenError, assertProposalListLimit, assertStakesListLimit, type StakeRecord, type TokenService } from './token-service.js';
@@ -874,5 +874,89 @@ describe('svc-token mount — the public surface', () => {
     });
     expect(userCopy('token.stakes_list_limit_unset')).not.toMatch(/50/);
     await expect(caller.listStakes({ limit: 50 })).resolves.toEqual([]);
+  });
+});
+
+describe('svc-token mount — owner reads', () => {
+  const STAKE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  function reader() {
+    return createTokenRouter(stubToken()).createCaller(signed(principal({ scopes: ['token:read'] })));
+  }
+
+  it('refuses a session without token:read', async () => {
+    const token = stubToken({
+      previewUnstake: vi.fn(),
+      yieldHistory: vi.fn(),
+      revenueShareHistory: vi.fn(),
+      myVotes: vi.fn(),
+      emissionSchedule: vi.fn(),
+    });
+    const caller = createTokenRouter(token).createCaller(signed(principal({ scopes: ['token:stake'] })));
+    await expect(caller.terms()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.stakePreview({ amount: '1', tier: 'flex' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.unstakePreview({ stakeId: STAKE })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.yieldHistory({ limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.revenueShareHistory({ limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.myVotes({ limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.emissionSchedule({ count: 2 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(token.previewUnstake).not.toHaveBeenCalled();
+    expect(token.yieldHistory).not.toHaveBeenCalled();
+    expect(token.revenueShareHistory).not.toHaveBeenCalled();
+    expect(token.myVotes).not.toHaveBeenCalled();
+    expect(token.emissionSchedule).not.toHaveBeenCalled();
+  });
+
+  it('publishes stake tiers from STAKE_TIERS and the staking asset only when TOKEN_ASSET_ID is set', async () => {
+    const previous = process.env.TOKEN_ASSET_ID;
+    try {
+      delete process.env.TOKEN_ASSET_ID;
+      const unpublished = await reader().terms();
+      expect(unpublished.stakingAsset).toEqual({
+        published: false,
+        assetId: null,
+        reason: 'staking_asset_unpublished',
+      });
+      expect(unpublished.tiers.map((tier) => [tier.name, tier.lockDays, tier.multiplierBps])).toEqual(
+        (['flex', 'm3', 'm12'] as const).map((name) => [name, STAKE_TIERS[name].lockDays, STAKE_TIERS[name].multiplierBps]),
+      );
+      expect(unpublished.tiers.every((tier) => tier.minimumStake === null && tier.minimumStakeReason === 'stake_minimum_unpublished')).toBe(
+        true,
+      );
+
+      process.env.TOKEN_ASSET_ID = '  TST  ';
+      const published = await reader().terms();
+      expect(published.stakingAsset).toEqual({ published: true, assetId: 'TST' });
+
+      process.env.TOKEN_ASSET_ID = '   ';
+      const blank = await reader().terms();
+      expect(blank.stakingAsset.published).toBe(false);
+      expect(blank.stakingAsset).not.toHaveProperty('assetId', 'IFC');
+    } finally {
+      if (previous === undefined) delete process.env.TOKEN_ASSET_ID;
+      else process.env.TOKEN_ASSET_ID = previous;
+    }
+  });
+
+  it('refuses stakePreview for an unknown tier or an unpublished asset', async () => {
+    const previous = process.env.TOKEN_ASSET_ID;
+    try {
+      delete process.env.TOKEN_ASSET_ID;
+      await expect(reader().stakePreview({ amount: '1', tier: 'm3' })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: userCopy('token.staking_asset_unpublished'),
+      });
+      process.env.TOKEN_ASSET_ID = 'TST';
+      await expect(reader().stakePreview({ amount: '1', tier: 'nope' })).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+        message: userCopy('token.stake_tier_unknown'),
+      });
+      const preview = await reader().stakePreview({ amount: '2', tier: 'flex' });
+      expect(preview.multiplierBps).toBe(STAKE_TIERS.flex.multiplierBps);
+      expect(preview.unlocksAt).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.TOKEN_ASSET_ID;
+      else process.env.TOKEN_ASSET_ID = previous;
+    }
   });
 });

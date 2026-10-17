@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { navigate } from '../../app/location';
 import { useApi } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
@@ -40,12 +40,60 @@ function toSource<T>(value: Resource<T>): Source<T> {
       : { status: 'down', reason: resource.failure.reason, message: resource.failure.message, code: resource.failure.code };
 }
 
+/** The gateway's answer when the service did not reply: a crash, a restart or a service that is not running. */
+const NO_ANSWER_CODE = 'edge.upstream_unavailable';
+/**
+ * The retry window: the room asks again on its own, and a person may ask again too. After this many no-answer replies in a
+ * row, a second attempt is no longer worth offering, so the room says the service is not running here and hides Try again.
+ */
+export const NO_ANSWER_ATTEMPTS = 3;
+export const NO_ANSWER_RETRY_MS = 4000;
+
+/** The service did not reply. Inside the retry window it offers Try again; once the window has closed it says the service is not running here. */
+export function NoAnswerNote({ service, closed, reload, t }: { service: string; closed: boolean; reload: () => void; t: Translate }) {
+  return closed ? (
+    <div className="failure" role="status">
+      <h3>{t('serviceNotRunning', { service })}</h3>
+      <p>{t('serviceNotRunningBody')}</p>
+    </div>
+  ) : (
+    <div className="failure" role="status">
+      <h3>{t('serviceNoAnswer', { service })}</h3>
+      <p>{t('serviceNoAnswerBody')}</p>
+      <Button variant="secondary" onClick={reload}>
+        {t('tryAgain')}
+      </Button>
+    </div>
+  );
+}
+
+/** True once the retry window has run out of attempts. Any other answer starts the count again. */
+function useNoAnswerWindow<T>({ resource, reload }: Resource<T>): boolean {
+  const [failures, setFailures] = useState(0);
+  const latest = useRef(reload);
+  latest.current = reload;
+  const noAnswer = resource.status === 'failed' && resource.failure.code === NO_ANSWER_CODE;
+  const counted = useRef<unknown>(null);
+  useEffect(() => {
+    if (resource.status === 'loading' || counted.current === resource) return;
+    counted.current = resource;
+    setFailures((count) => (noAnswer ? count + 1 : 0));
+  }, [resource, noAnswer]);
+  useEffect(() => {
+    if (!noAnswer || failures === 0 || failures >= NO_ANSWER_ATTEMPTS) return;
+    const timer = setTimeout(() => latest.current(), NO_ANSWER_RETRY_MS);
+    return () => clearTimeout(timer);
+  }, [noAnswer, failures]);
+  return failures >= NO_ANSWER_ATTEMPTS;
+}
+
 /**
  * Render one service answer: spinner while it is in flight (the API client times out at 15s), a typed refuse when it fails.
  * With a `shell`, a failed answer keeps the table's column headers and says why the table is empty.
  * The gateway's "not connected" answer (edge.upstream_unwired) hides Try again, because a second attempt cannot change it.
  * A plain 502 (edge.upstream_unavailable) only says the service did not answer, which may be a crash or a restart, so it
- * is worded that way and keeps Try again; it is never dressed up as "not connected".
+ * is worded that way and keeps Try again; it is never dressed up as "not connected". If the retry window passes with no reply
+ * (see NO_ANSWER_ATTEMPTS), the room says the service is not running here and Try again goes.
  */
 export function Answer<T>({
   value,
@@ -64,23 +112,18 @@ export function Answer<T>({
   shell?: { label: string; headers: readonly ReactNode[] };
 }) {
   const { resource, reload } = value;
+  const windowClosed = useNoAnswerWindow(value);
   if (resource.status === 'loading') return <Loading label={t('checking', { source })} />;
   if (resource.status === 'failed') {
     const notConnected = isServiceNotConnected(resource.failure.code);
     const words = t('serviceNotConnected', { service: service ?? t('svc_protocol') });
-    const noAnswer = !notConnected && resource.failure.code === 'edge.upstream_unavailable';
+    const noAnswer = !notConnected && resource.failure.code === NO_ANSWER_CODE;
     const reason = notConnected ? (
       <div className="failure" role="status">
         <p>{words}</p>
       </div>
     ) : noAnswer ? (
-      <div className="failure" role="status">
-        <h3>{t('serviceNoAnswer', { service: service ?? t('svc_protocol') })}</h3>
-        <p>{t('serviceNoAnswerBody')}</p>
-        <Button variant="secondary" onClick={reload}>
-          {t('tryAgain')}
-        </Button>
-      </div>
+      <NoAnswerNote service={service ?? t('svc_protocol')} closed={windowClosed} reload={reload} t={t} />
     ) : (
       <Failure result={resource.failure} retry={reload} />
     );
