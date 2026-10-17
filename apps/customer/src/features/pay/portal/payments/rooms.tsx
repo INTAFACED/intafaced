@@ -11,8 +11,8 @@ import { Disputes, DisputeDetailPage } from './Disputes';
 import { Invoices } from './Invoices';
 import { Links } from './Links';
 import { PaymentDetailPage, Payments } from './Payments';
-import { notLiveRoom } from '../ui/notLiveRoom';
 import { Subscriptions, subscriptionHeader } from './Subscriptions';
+import { CheckoutSettingsPage, HomePanels } from './HomePanels';
 
 const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
   <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
@@ -92,7 +92,7 @@ export const paymentsRooms: RoomTable = {
       action: link('/pay/links/new', t('actCreateLink'), 'primary'),
     }),
     here: '/pay/merchant',
-    render: (_route, { portal, access, legacyHome }) => (
+    render: (_route, { portal, access }) => (
       <Gate resource={access.merchant} retry={access.reloadMerchant} rows={5}>
         {(record) => {
           const a = access.access;
@@ -102,7 +102,7 @@ export const paymentsRooms: RoomTable = {
           return (
             <div className="stack">
               <Dashboard portal={portal} merchantId={a.merchantId} merchant={record} role={a.role} />
-              {legacyHome}
+              <HomePanels portal={portal} merchantId={a.merchantId} merchant={record} role={a.role} />
             </div>
           );
         }}
@@ -159,14 +159,20 @@ export const paymentsRooms: RoomTable = {
     ),
   },
   'invoice-new': invoices,
-  'checkout-settings': notLiveRoom(
-    () => ({
+  'checkout-settings': {
+    header: () => ({
       title: paymentsCopy.t('checkoutSettingsTitle'),
       purpose: paymentsCopy.t('checkoutSettingsPurpose'),
-      body: paymentsCopy.t('checkoutSettingsSoon'),
     }),
-    'reasonLists',
-    '/pay/checkout',
-    'a read of the current checkout settings',
-  ),
+    here: '/pay/checkout',
+    render: (_route, { portal, authority }) => (
+      <WithAccount>
+        {({ merchantId }) => (
+          <Requires need="profile.read">
+            <CheckoutSettingsPage portal={portal} merchantId={merchantId} authority={authority} />
+          </Requires>
+        )}
+      </WithAccount>
+    ),
+  },
 };

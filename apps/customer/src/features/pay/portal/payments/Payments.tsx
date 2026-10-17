@@ -212,7 +212,8 @@ function Totals({
           {
             label: t('kpiVolume'),
             period: label,
-            href: list({ status: 'captured' }),
+            // Paid in counts every payment that was captured, including those since settled or refunded, so it opens the whole period.
+            href: list({}),
             value: <MoneyLines items={snap.captured} />,
             note: t('kpiVolumeNote'),
           },

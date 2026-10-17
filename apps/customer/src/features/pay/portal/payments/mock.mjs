@@ -8,7 +8,7 @@ export function createPaymentsMock(ctx) {
     disputes: [
       {
         disputeId: 'd0000001-0000-4000-8000-000000000001',
-        paymentId: 'p0000001-0000-4000-8000-000000000001',
+        paymentId: hex('aa', 8),
         amount: '49.99',
         assetId: 'USDT',
         reasonCode: 'fraudulent',
@@ -22,7 +22,7 @@ export function createPaymentsMock(ctx) {
       },
       {
         disputeId: 'd0000002-0000-4000-8000-000000000002',
-        paymentId: 'p0000002-0000-4000-8000-000000000002',
+        paymentId: hex('aa', 18),
         amount: '120',
         assetId: 'USDT',
         reasonCode: 'product_not_received',
@@ -36,7 +36,7 @@ export function createPaymentsMock(ctx) {
       },
       {
         disputeId: 'd0000003-0000-4000-8000-000000000003',
-        paymentId: 'p0000003-0000-4000-8000-000000000003',
+        paymentId: hex('aa', 28),
         amount: '15.5',
         assetId: 'USDT',
         reasonCode: null,
@@ -103,6 +103,8 @@ export function createPaymentsMock(ctx) {
         maxUses: i % 3 === 0 ? 10 : null,
         uses: i,
         createdAt: iso(now - (i + 1) * DAY),
+        // Only some links carry their address, so the page shows both the address and the "can't be shown again" notice.
+        ...(i < 2 ? { checkoutUrl: `https://checkout.test.invalid/pay/checkout?token=TEST-token-link-${i + 1}` } : {}),
       }))
     : [];
   state.mandates = activity
@@ -224,6 +226,8 @@ export function createPaymentsMock(ctx) {
         };
       })
     : [];
+  // Which payment came through which link (TEST data): payments are dealt across the links in turn, so a link has its own short list.
+  const linkOfPayment = new Map(payments.map((p, i) => [p.id, state.links[i % Math.max(state.links.length, 1)]?.id]));
   const historyOf = (p) => {
     const t0 = Date.parse(p.createdAt);
     const ev = (event, payload, k) => ({
@@ -273,6 +277,7 @@ export function createPaymentsMock(ctx) {
             (p) =>
               (!input.status || p.status === input.status) &&
               (!input.assetId || p.assetId === input.assetId) &&
+              (!input.linkId || linkOfPayment.get(p.id) === input.linkId) &&
               (!input.from || p.createdAt >= input.from) &&
               (!input.to || p.createdAt < input.to) &&
               (!input.search || p.customerRef === input.search || p.id === input.search.toLowerCase()),
@@ -410,6 +415,86 @@ export function createPaymentsMock(ctx) {
         }
         case 'merchant.listLinks':
           return ok(route, page(state.links, input));
+        case 'merchant.createLink': {
+          const n = state.links.length + 1;
+          const row = {
+            id: hex('1c', n),
+            prefix: `TESTl${n}`,
+            label: input.label,
+            amount: input.amount ?? null,
+            currency: input.currency ?? null,
+            active: true,
+            expiresAt: input.expiresAt ?? iso(now + 30 * DAY),
+            maxUses: input.maxUses ?? null,
+            uses: 0,
+            createdAt: iso(Date.now()),
+          };
+          state.links.unshift(row);
+          return ok(route, {
+            id: row.id,
+            token: `TEST-token-link-${n}`,
+            prefix: row.prefix,
+            label: row.label,
+            expiresAt: row.expiresAt,
+            maxUses: row.maxUses,
+          });
+        }
+        case 'merchant.deactivateLink': {
+          const row = state.links.find((l) => l.id === input.linkId);
+          if (row) row.active = false;
+          return ok(route, { deactivated: Boolean(row) });
+        }
+        case 'merchant.checkoutSettings.get':
+          return ok(
+            route,
+            activity
+              ? {
+                  status: 'configured',
+                  profileId: hex('cf', 1),
+                  checkoutConfig: {},
+                  feeRouting: null,
+                  domains: ['shop.test.invalid', 'pay.test.invalid'],
+                  createdAt: iso(now - 30 * DAY),
+                }
+              : { status: 'not_configured' },
+          );
+        case 'subscription.create': {
+          const m = state.mandates.find((x) => x.id === input.mandateId);
+          if (!m) return refuse(route, 404, 'pay.mandate_not_found');
+          if (state.subscriptions.some((x) => x.mandateId === m.id && ['active', 'paused'].includes(x.status)))
+            return refuse(route, 409, 'pay.subscription_mandate_open');
+          const row = {
+            id: hex('1e', state.subscriptions.length + 1),
+            mandateId: m.id,
+            merchantId: MERCHANT_ID,
+            customerId: m.customerId,
+            nextRunAt: iso(now + DAY),
+            status: 'active',
+            cancelledAt: null,
+            path: input.path ?? 'crypto_invoice',
+            createdAt: iso(Date.now()),
+            anchorAt: null,
+            anchorOccurrence: 0,
+            pausedAt: null,
+            resumedAt: null,
+            stalledAt: null,
+            stallReason: null,
+          };
+          state.subscriptions.unshift(row);
+          return ok(route, row);
+        }
+        case 'subscription.pause':
+        case 'subscription.resume':
+        case 'subscription.cancel': {
+          const row = state.subscriptions.find((x) => x.id === input.subscriptionId);
+          if (!row) return refuse(route, 404, 'pay.subscription_not_found');
+          const action = procedure.split('.')[1];
+          row.status = action === 'pause' ? 'paused' : action === 'resume' ? 'active' : 'cancelled';
+          if (action === 'pause') row.pausedAt = iso(Date.now());
+          if (action === 'resume') row.resumedAt = iso(Date.now());
+          if (action === 'cancel') row.cancelledAt = iso(Date.now());
+          return ok(route, action === 'resume' ? { subscription: row, projectedEnd: null } : row);
+        }
         case 'subscription.list':
           return ok(route, page(state.subscriptions, input));
         case 'mandate.list':
@@ -441,7 +526,22 @@ export function createPaymentsMock(ctx) {
             })),
           );
         case 'subscription.cycles':
-          return ok(route, { subscriptionId: input.subscriptionId, cycles: [] });
+          return ok(route, {
+            subscriptionId: input.subscriptionId,
+            cycles: [1, 2].map((n) => ({
+              occurrence: n,
+              amount: '19.00',
+              status: n === 1 ? 'settled' : 'rejected',
+              idempotencyKey: `TEST-cycle-${n}`,
+              attemptCount: 1,
+              rejectionCode: n === 1 ? null : 'pay.insufficient_funds',
+              paymentId: n === 1 ? hex('aa', 1) : null,
+              exhausted: false,
+              settledAt: n === 1 ? iso(now - 29 * DAY) : null,
+              notifyStatus: null,
+              notifyCode: null,
+            })),
+          });
         case 'subscription.productReady':
           return ok(route, {
             paths: [{ path: 'crypto_invoice', charge: 'open_crypto_invoice', opensMoney: true, posture: 'TEST posture' }],

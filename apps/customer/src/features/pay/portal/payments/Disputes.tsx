@@ -46,6 +46,7 @@ export function Disputes({ portal }: { portal: PortalApi }) {
   );
   return (
     <DisputesView
+      portal={portal}
       summary={summary.resource}
       list={list.state}
       filters={filters}
@@ -71,7 +72,26 @@ export function DueChip({ dispute, now }: { dispute: Pick<Dispute, 'status' | 'r
   return <ToneChip tone={tone} label={label} />;
 }
 
+/** The payment a dispute is about: its reference and its customer. Reads the payment once the row is on screen; until then, and if that read fails, the reference alone. */
+function DisputePayment({ portal, paymentId }: { portal?: PortalApi; paymentId: string }) {
+  const { t } = portalCopy.useCopy();
+  const payment = useResource(
+    (s) => (portal ? portal.payment(paymentId, s) : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: '' })),
+    `portal:dispute-payment:${paymentId}`,
+  );
+  const known = payment.resource.status === 'ready' ? payment.resource.data : null;
+  return (
+    <>
+      <a className="text-link" href={`/pay/payments/${encodeURIComponent(paymentId)}`}>
+        {t('disputePaymentRef', { ref: known?.railRef ?? shortId(paymentId) })}
+      </a>
+      {known?.customerRef && <small className="pay-cell-note">{known.customerRef}</small>}
+    </>
+  );
+}
+
 export function DisputesView({
+  portal,
   summary,
   list,
   filters,
@@ -80,6 +100,8 @@ export function DisputesView({
   loadMore,
   retry,
 }: {
+  /** Reads each dispute's payment for its customer. Without it (a static preview) rows show the payment reference only. */
+  portal?: PortalApi;
   summary: Resource<Summary>;
   list: ListState<Dispute>;
   filters: ListFilters;
@@ -174,11 +196,7 @@ export function DisputesView({
                 },
                 {
                   header: t('colPayment'),
-                  cell: (d) => (
-                    <a className="text-link" href={`/pay/payments/${encodeURIComponent(d.paymentId)}`}>
-                      {t('openPayment')}
-                    </a>
-                  ),
+                  cell: (d) => <DisputePayment portal={portal} paymentId={d.paymentId} />,
                 },
                 { header: t('colAmount'), cell: (d) => <Money value={d.amount} asset={d.assetId} /> },
                 { header: t('colStatus'), cell: (d) => <StatusChip entity="dispute" value={d.status} /> },

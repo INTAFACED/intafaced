@@ -120,7 +120,7 @@ describe('payments list (P06)', () => {
     const out = view();
     expect(out).toContain('Last 30 days');
     expect(out).toContain('href="/pay/payments?status=failed&amp;date=30d"');
-    expect(out).toContain('href="/pay/payments?status=captured&amp;date=30d"');
+    expect(out).toContain('href="/pay/payments?date=30d"');
     expect(out).toContain('href="/pay/refunds?from=');
     expect(out).toContain('href="/pay/payments/aa000001-0000-4000-8000-000000000001"');
     expect(out).toContain('Success rate');

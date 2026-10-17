@@ -425,7 +425,7 @@ test('subscription component: create reviews the authorized terms and uses the e
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('cannot pull funds from the customer');
   await expect(dialog).toContainText('29.99');
-  for (const value of ['TEST-customer', 'monthly', 'Open ended', 'No ceiling returned', 'USDT', 'crypto_invoice', D])
+  for (const value of ['TEST-customer', 'Monthly', 'Open ended', 'No limit set', 'USDT', 'Crypto invoice and watch', D])
     await expect(dialog).toContainText(value);
   await expect(dialog.locator('time')).toHaveAttribute('datetime', at);
   if (shots) await page.screenshot({ path: `${shots}/P19-review-fixes-TEST.png`, fullPage: true });
@@ -443,35 +443,199 @@ test('subscription component: create reviews the authorized terms and uses the e
   await expect(page.getByRole('link', { name: `Subscription detail: ${S}`, exact: true })).toBeVisible();
 });
 
-// Open: "Check original action" on the create page replays the create call (`replaySubscriptionCreate`), and this fixture's
-// `mutate` stays uncertain, so the link never appears. The page code and this test are both unchanged from origin/main (not run there); they disagree
-// about whether a check may call the service again. The payments owner decides which one changes.
-test.fixme('subscription review fixes: uncertain create is mandate-scoped and check-original unlocks without another POST', async ({
+// "Check and finish the original request" on the create page. First it asks whether the mandate already has an open
+// subscription (a create that committed but lost its reply shows up there, and nothing is sent). When it does not, it
+// sends the original request once more, with the same key and the same path, so it can never make a second subscription.
+// The lock stays while the answer is uncertain and clears once the request is answered.
+test('subscription review fixes: an uncertain create is checked, then resent once with the same key, and the lock clears only on success', async ({
   page,
 }) => {
-  await developerFixture(page, 'subscription-create', true);
+  const USER = '22222222-2222-4222-8222-222222222222';
+  await page.goto('/login');
+  await page.evaluate(
+    async ({ mandate, subscription, D, USER }) => {
+      const React = (await import('/node_modules/.vite/deps/react.js')).default;
+      const { createRoot } = (await import('/node_modules/.vite/deps/react-dom_client.js')).default;
+      const { CreateSubscriptionView } = await import('/src/features/pay/portal/payments/Subscriptions.tsx');
+      const { createApiClient } = await import('/src/shared/api.ts');
+      const { createBusinessPayApi, createPayMutationGuard } = await import('/src/features/pay/pay-api.ts');
+      await import('/src/features/pay/pay.css');
+      const ready = (data) => ({ status: 'ready', data });
+      const guard = createPayMutationGuard(localStorage);
+      window.__fixtureGuard = guard;
+      window.__fixtureCalls = [];
+      window.__fixtureLists = 0;
+      window.__fixtureAnswer = 'lost';
+      const json = (data) => new Response(JSON.stringify({ result: { data } }));
+      const api = createApiClient({
+        fetch: async (url, options) => {
+          const href = String(url);
+          if (href.includes('merchant.me'))
+            return json({
+              id: mandate.merchantId,
+              userId: USER,
+              mode: 'gateway',
+              status: 'active',
+              kybStatus: 'approved',
+              kybRef: 'TEST-approved',
+              feeBps: null,
+            });
+          if (href.includes('subscription.list')) {
+            window.__fixtureLists += 1;
+            return json({ items: window.__fixtureProof ? [window.__fixtureProof] : [], nextCursor: null });
+          }
+          if (!href.includes('subscription.create')) throw new Error('Unexpected TEST request');
+          window.__fixtureCalls.push(JSON.parse(options.body));
+          if (window.__fixtureAnswer === 'lost') throw new Error('TEST lost response');
+          return json(subscription);
+        },
+      });
+      const pay = createBusinessPayApi(
+        api,
+        USER,
+        {
+          verified: true,
+          companyId: 'TEST-company',
+          companyName: 'TEST company',
+          merchantId: mandate.merchantId,
+          userId: USER,
+          scopes: ['pay:read', 'pay:write'],
+        },
+        guard,
+      );
+      document.getElementById('root').style.display = 'none';
+      const host = document.createElement('div');
+      host.className = 'if-app if-business';
+      document.body.append(host);
+      createRoot(host).render(
+        React.createElement(CreateSubscriptionView, {
+          mandates: ready([mandate]),
+          posture: ready({
+            paths: [{ path: 'crypto_invoice', charge: 'open_crypto_invoice', opensMoney: true, posture: 'invoice-and-watch' }],
+            preChargeNotify: { status: 'unwired', notified: false, merchantReadable: 'none' },
+            card: { status: 'refuse_closed', code: 'pay.mandate_rail_absent' },
+          }),
+          pay,
+          reload: () => {},
+        }),
+      );
+    },
+    { mandate, subscription, D, USER },
+  );
+  const lock = `${USER}:subscription-create:${D}`;
   await page.getByLabel('Active customer mandate *').selectOption(D);
   await page.getByLabel('Supported charge path *').selectOption('crypto_invoice');
   await page.getByRole('button', { name: 'Create subscription', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm create subscription', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('TEST timeout');
+  await expect.poll(() => page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
+  await expect(page.getByRole('dialog')).toContainText('Outcome not confirmed');
   await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
-  const check = page.getByRole('button', { name: 'Check original action', exact: true });
+  const check = page.getByRole('button', { name: 'Check and finish the original request', exact: true });
   await expect(check).toBeVisible();
+  // First check: nothing is open on the mandate, so the original request goes out once more, unchanged.
   await check.click();
   await expect(page.getByText(/original outcome is still unconfirmed/)).toBeVisible();
-  await page.evaluate(
-    ({ subscription }) => {
-      window.__fixtureProof = { ...subscription, createdAt: new Date().toISOString() };
-    },
-    { subscription },
-  );
+  const calls = await page.evaluate(() => window.__fixtureCalls);
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toEqual(calls[0]);
+  expect(calls[1].idempotencyKey).toBe(calls[0].idempotencyKey);
+  expect(calls[1].path).toBe('crypto_invoice');
+  expect(await page.evaluate((lock) => window.__fixtureGuard.status(lock), lock)).toBe('uncertain');
+  await expect(page.getByRole('link', { name: /Subscription/ }).filter({ hasText: S })).toHaveCount(0);
+  // Second check: the service now answers. Same key, one more request, and the lock clears.
+  await page.evaluate(() => {
+    window.__fixtureAnswer = 'created';
+  });
   await check.click();
-  await expect(page.getByRole('link', { name: `Subscription detail: ${S}`, exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: new RegExp(S) })).toBeVisible();
+  const after = await page.evaluate(() => window.__fixtureCalls);
+  expect(after).toHaveLength(3);
+  expect(after[2]).toEqual(after[0]);
+  expect(await page.evaluate((lock) => window.__fixtureGuard.status(lock), lock)).toBeNull();
+  expect(await page.evaluate((lock) => localStorage.getItem(`pay.unresolved:${lock}`), lock)).toBeNull();
+});
+// If the mandate already has an open subscription (the first request had committed), the check finds it in the list and
+// finishes without sending anything.
+test('subscription review fixes: an uncertain create that had committed is found in the subscription list and nothing is resent', async ({
+  page,
+}) => {
+  const USER = '22222222-2222-4222-8222-222222222222';
+  await page.goto('/login');
+  await page.evaluate(
+    async ({ mandate, subscription, D, USER }) => {
+      const React = (await import('/node_modules/.vite/deps/react.js')).default;
+      const { createRoot } = (await import('/node_modules/.vite/deps/react-dom_client.js')).default;
+      const { CreateSubscriptionView } = await import('/src/features/pay/portal/payments/Subscriptions.tsx');
+      const { createApiClient } = await import('/src/shared/api.ts');
+      const { createBusinessPayApi, createPayMutationGuard } = await import('/src/features/pay/pay-api.ts');
+      await import('/src/features/pay/pay.css');
+      const ready = (data) => ({ status: 'ready', data });
+      const guard = createPayMutationGuard(localStorage);
+      window.__fixtureGuard = guard;
+      window.__fixtureCalls = [];
+      const json = (data) => new Response(JSON.stringify({ result: { data } }));
+      const api = createApiClient({
+        fetch: async (url, options) => {
+          const href = String(url);
+          if (href.includes('merchant.me'))
+            return json({
+              id: mandate.merchantId,
+              userId: USER,
+              mode: 'gateway',
+              status: 'active',
+              kybStatus: 'approved',
+              kybRef: 'TEST-approved',
+              feeBps: null,
+            });
+          if (href.includes('subscription.list'))
+            return json({ items: decodeURIComponent(href).includes('"active"') ? [subscription] : [], nextCursor: null });
+          if (!href.includes('subscription.create')) throw new Error('Unexpected TEST request');
+          window.__fixtureCalls.push(JSON.parse(options.body));
+          throw new Error('TEST lost response');
+        },
+      });
+      const pay = createBusinessPayApi(
+        api,
+        USER,
+        {
+          verified: true,
+          companyId: 'TEST-company',
+          companyName: 'TEST company',
+          merchantId: mandate.merchantId,
+          userId: USER,
+          scopes: ['pay:read', 'pay:write'],
+        },
+        guard,
+      );
+      document.getElementById('root').style.display = 'none';
+      const host = document.createElement('div');
+      host.className = 'if-app if-business';
+      document.body.append(host);
+      createRoot(host).render(
+        React.createElement(CreateSubscriptionView, {
+          mandates: ready([mandate]),
+          posture: ready({
+            paths: [{ path: 'crypto_invoice', charge: 'open_crypto_invoice', opensMoney: true, posture: 'invoice-and-watch' }],
+            preChargeNotify: { status: 'unwired', notified: false, merchantReadable: 'none' },
+            card: { status: 'refuse_closed', code: 'pay.mandate_rail_absent' },
+          }),
+          pay,
+          reload: () => {},
+        }),
+      );
+    },
+    { mandate, subscription, D, USER },
+  );
+  await page.getByLabel('Active customer mandate *').selectOption(D);
+  await page.getByLabel('Supported charge path *').selectOption('crypto_invoice');
+  await page.getByRole('button', { name: 'Create subscription', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm create subscription', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
+  await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.getByRole('button', { name: 'Check and finish the original request', exact: true }).click();
+  await expect(page.getByRole('link', { name: new RegExp(S) })).toBeVisible();
   expect(await page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
-  expect(
-    await page.evaluate(() => window.__fixtureGuard.status(`TEST:subscription-create:${'77777777-7777-4777-8777-777777777777'}`)),
-  ).toBeNull();
+  expect(await page.evaluate((lock) => window.__fixtureGuard.status(lock), `${USER}:subscription-create:${D}`)).toBeNull();
 });
 test('subscription review fixes: uncertain pause checks recorded status and releases only the original lock', async ({ page }) => {
   await developerFixture(page, 'subscription', true);
@@ -479,7 +643,7 @@ test('subscription review fixes: uncertain pause checks recorded status and rele
   await page.getByRole('button', { name: 'Confirm pause subscription', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('TEST timeout');
   await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
-  const check = page.getByRole('button', { name: 'Check original action', exact: true });
+  const check = page.getByRole('button', { name: 'Check and finish the original request', exact: true });
   await check.click();
   await expect(page.getByText(/original outcome is still unconfirmed/)).toBeVisible();
   if (shots) await page.screenshot({ path: `${shots}/P18-recovery-fixes-TEST.png`, fullPage: true });
@@ -592,7 +756,7 @@ test('subscription recovery: reload locks the stored path and conflict clears th
   await expect(path).toHaveValue('crypto_invoice');
   await expect(path).toBeDisabled();
   if (shots) await page.screenshot({ path: `${shots}/P19-recovery-reloaded-TEST.png`, fullPage: true });
-  await page.getByRole('button', { name: 'Check original action', exact: true }).click();
+  await page.getByRole('button', { name: 'Check and finish the original request', exact: true }).click();
   await expect(
     page.getByText('A subscription request for this mandate is already recorded. Open Subscriptions to check it.').first(),
   ).toBeVisible();

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../../session/session';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { StatusTag, Button, DataTable } from '@intafaced/ui';
+import { Button, DataTable } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';
 import { PayDetails, PaySection, PayTime } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
@@ -15,7 +15,7 @@ import { DateTime } from '../ui/DateTime';
 import { EntityList } from '../ui/EntityList';
 import { dateRange, FilterRow, useListFilters, type DatePreset, type ListFilters } from '../ui/FilterRow';
 import { Freshness } from '../ui/Freshness';
-import { StatusChip } from '../ui/StatusChip';
+import { StatusChip, ToneChip } from '../ui/StatusChip';
 import { useServerList } from '../ui/useServerList';
 import { useReadAt, useUrlParam, type ListState } from '../hooks';
 import { useUnsavedForm } from '../useUnsavedForm';
@@ -25,6 +25,7 @@ import type { Cycle } from './billing-schemas';
 import type { PortalRoute } from '../routes';
 import type { ApiResult } from '../../../../shared/api';
 import { checkSubscriptionOriginal, createSubscriptionWithRecovery, replaySubscriptionCreate } from './subscription-recovery';
+import { definite } from './not-available';
 
 type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
@@ -48,17 +49,23 @@ export function subscriptionHeader(route: PortalRoute) {
     ),
   };
 }
+/** Plain words for a charge path and a billing cadence, so no raw service value reaches the screen. */
+export const pathLabel = (path: string) =>
+  path === 'crypto_invoice'
+    ? c.t('cryptoInvoice')
+    : path === 'card'
+      ? c.t('pathCard')
+      : path === 'card_mandate'
+        ? c.t('pathCardMandate')
+        : path;
+export const cadenceLabel = (cadence: Mandate['cadence']) => c.t(`cadence_${cadence}`);
+const subscriptionTone = { active: 'done', paused: 'action', cancelled: 'progress', completed: 'done' } as const;
 export function SubscriptionChip({ status }: { status: Subscription['status'] }) {
-  return <StatusTag status={status === 'active' ? 'filled' : 'working'} title={c.t(`subscription_${status}`)} label={c.t(status)} />;
+  return <ToneChip tone={subscriptionTone[status]} label={c.t(status)} tip={c.t(`subscription_${status}`)} />;
 }
+const cycleTone = { settled: 'done', rejected: 'failed', pending: 'progress', invoiced: 'progress', skipped: 'progress' } as const;
 export function CycleChip({ status }: { status: Cycle['status'] }) {
-  return (
-    <StatusTag
-      status={status === 'settled' ? 'filled' : status === 'rejected' ? 'failed' : 'working'}
-      title={c.t(`cycle_${status}`)}
-      label={c.t(status)}
-    />
-  );
+  return <ToneChip tone={cycleTone[status]} label={c.t(status)} tip={c.t(`cycle_${status}`)} />;
 }
 export function Subscriptions({
   portal,
@@ -98,9 +105,12 @@ function SubscriptionsPage({ portal, merchantId }: { portal: PortalApi; merchant
     query,
     (s: Subscription) => s.id,
   );
+  // The amount and cadence belong to the mandate each subscription runs on, so they are read once and joined by mandate.
+  const mandates = useResource((signal) => portal.mandates(merchantId, signal), `portal:mandates:${merchantId}`);
   return (
     <SubscriptionsView
       list={list.state}
+      mandates={mandates.resource}
       filters={filters}
       mandateId={mandateFilter}
       loadMore={list.loadMore}
@@ -110,12 +120,15 @@ function SubscriptionsPage({ portal, merchantId }: { portal: PortalApi; merchant
 }
 export function SubscriptionsView({
   list,
+  mandates,
   filters,
   mandateId,
   loadMore,
   reload,
 }: {
   list: ListState<Subscription>;
+  /** The mandates the subscriptions run on. While they are not read, the amount and cadence columns say so. */
+  mandates?: Resource<Mandate[]>;
   filters: ListFilters;
   mandateId?: string;
   loadMore: () => void;
@@ -124,6 +137,20 @@ export function SubscriptionsView({
   const at = useReadAt(list.status === 'ready', list);
   const rows = list.status === 'ready' ? list.items.filter((s) => !mandateId || s.mandateId === mandateId) : [];
   const filtered = Boolean(filters.status || filters.search || filters.date || mandateId);
+  const terms = (s: Subscription) =>
+    mandates?.status === 'ready'
+      ? (mandates.data.find((m) => m.id === s.mandateId) ?? null)
+      : mandates?.status === 'loading'
+        ? undefined
+        : null;
+  const amountCell = (s: Subscription) => {
+    const m = terms(s);
+    return m ? <Money value={m.amount} asset={m.assetId} /> : m === undefined ? '…' : c.t('termsNotShown');
+  };
+  const cadenceCell = (s: Subscription) => {
+    const m = terms(s);
+    return m ? cadenceLabel(m.cadence) : m === undefined ? '…' : c.t('termsNotShown');
+  };
   return (
     <div className="stack">
       <Freshness asOf={at} />
@@ -166,13 +193,21 @@ export function SubscriptionsView({
                     </>
                   ),
                 },
-                { header: c.t('chargePath'), cell: (s) => s.path },
+                { header: c.t('amountPerCycle'), cell: amountCell },
+                { header: c.t('cadence'), cell: cadenceCell },
+                { header: c.t('chargePath'), cell: (s) => pathLabel(s.path) },
                 { header: c.t('status'), cell: (s) => <StatusChip entity="subscription" value={s.status} /> },
                 { header: c.t('nextRun'), cell: (s) => (s.status === 'active' ? <DateTime value={s.nextRunAt} /> : c.t('noNextRun')) },
               ]}
               card={(s) => ({
                 title: s.customerId,
                 time: s.status === 'active' ? <DateTime value={s.nextRunAt} /> : c.t('noNextRun'),
+                amount: (
+                  <>
+                    {amountCell(s)}
+                    {terms(s) ? ` · ${cadenceCell(s)}` : ''}
+                  </>
+                ),
                 status: <StatusChip entity="subscription" value={s.status} />,
               })}
             />
@@ -185,8 +220,33 @@ export function SubscriptionsView({
               <WindowExport
                 name="subscriptions"
                 at={at}
-                headers={['subscription_id', 'customer_reference', 'mandate_id', 'status', 'charge_path', 'scheduled_run', 'created_at']}
-                rows={rows.map((s) => [s.id, s.customerId, s.mandateId, s.status, s.path, s.nextRunAt, s.createdAt])}
+                headers={[
+                  'subscription_id',
+                  'customer_reference',
+                  'mandate_id',
+                  'amount',
+                  'asset',
+                  'cadence',
+                  'status',
+                  'charge_path',
+                  'scheduled_run',
+                  'created_at',
+                ]}
+                rows={rows.map((s) => {
+                  const m = terms(s);
+                  return [
+                    s.id,
+                    s.customerId,
+                    s.mandateId,
+                    m?.amount ?? '',
+                    m?.assetId ?? '',
+                    m?.cadence ?? '',
+                    s.status,
+                    s.path,
+                    s.nextRunAt,
+                    s.createdAt,
+                  ];
+                })}
               />
             </div>
           </>
@@ -305,7 +365,7 @@ export function SubscriptionDetailView({
             ],
             [c.t('mandate'), <CopyReference value={subscription.mandateId} />],
             [c.t('status'), <SubscriptionChip status={subscription.status} />],
-            [c.t('chargePath'), subscription.path],
+            [c.t('chargePath'), pathLabel(subscription.path)],
             [c.t('nextRun'), subscription.status === 'active' ? <PayTime value={subscription.nextRunAt} /> : c.t('noNextRun')],
           ]}
         />
@@ -334,8 +394,8 @@ export function SubscriptionDetailView({
             <PayDetails
               values={[
                 [c.t('amount'), <Money value={m.amount} asset={m.assetId} />],
-                [c.t('status'), m.status],
-                [c.t('cadence'), m.cadence],
+                [c.t('status'), c.t(`mandate_${m.status}`)],
+                [c.t('cadence'), cadenceLabel(m.cadence)],
                 [c.t('mandateStart'), <PayTime value={m.startsAt} />],
                 [c.t('mandateEnd'), m.endsAt ? <PayTime value={m.endsAt} /> : c.t('openEnded')],
                 [c.t('authorizedCeiling'), m.ceiling !== null ? <Money value={m.ceiling} asset={m.assetId} /> : c.t('noCeiling')],
@@ -379,7 +439,7 @@ export function SubscriptionDetailView({
                     </tr>
                   ))}
                 </DataTable>
-                <p role="status">{c.t('shown', { count: data.cycles.length })}</p>
+                <p role="status">{data.cycles.length === 1 ? c.t('cyclesShownOne') : c.t('cyclesShown', { count: data.cycles.length })}</p>
               </>
             ) : (
               <EmptyState title={c.t('emptyCycles')}>{c.t('emptyCyclesBody')}</EmptyState>
@@ -419,7 +479,7 @@ export function SubscriptionDetailView({
                 ))}
               </DataTable>
             ) : (
-              <EmptyState title={c.t('emptyCycles')}>{c.t('emptyCyclesBody')}</EmptyState>
+              <EmptyState title={c.t('emptyExecutions')}>{c.t('emptyExecutionsBody')}</EmptyState>
             )
           }
         </Gate>
@@ -484,9 +544,9 @@ export function SubscriptionTerms({ mandate: m, path }: { mandate: Mandate; path
       values={[
         [c.t('customer'), m.customerId],
         [c.t('mandate'), m.id],
-        [c.t('chargePath'), path || c.t('unavailable')],
+        [c.t('chargePath'), path ? pathLabel(path) : c.t('unavailable')],
         [c.t('amount'), <Money value={m.amount} asset={m.assetId} />],
-        [c.t('cadence'), m.cadence],
+        [c.t('cadence'), cadenceLabel(m.cadence)],
         [c.t('mandateStart'), <PayTime value={m.startsAt} />],
         [c.t('mandateEnd'), m.endsAt ? <PayTime value={m.endsAt} /> : c.t('openEnded')],
         [c.t('authorizedCeiling'), m.ceiling !== null ? <Money value={m.ceiling} asset={m.assetId} /> : c.t('noCeiling')],
@@ -569,15 +629,17 @@ function SubscriptionActions({
                         'active',
                       );
                       if (result.ok) setProjected(result.data.projectedEnd);
-                      return result.ok ? { ok: true as const, data: result.data.subscription } : result;
+                      return definite(result.ok ? { ok: true as const, data: result.data.subscription } : result);
                     }
-                    return await pay.mutate(
-                      `subscription.${action}`,
-                      { subscriptionId: s.id },
-                      subscriptionSchema,
-                      'pay:write',
-                      `subscription:${s.id}`,
-                      action === 'pause' ? 'paused' : 'cancelled',
+                    return definite(
+                      await pay.mutate(
+                        `subscription.${action}`,
+                        { subscriptionId: s.id },
+                        subscriptionSchema,
+                        'pay:write',
+                        `subscription:${s.id}`,
+                        action === 'pause' ? 'paused' : 'cancelled',
+                      ),
                     );
                   } finally {
                     refreshLock((v) => v + 1);
@@ -656,7 +718,7 @@ export function CreateSubscriptionView({
                   hint={c.t('chooseMandateHint')}
                   options={[
                     ['', c.t('selectMandate')],
-                    ...choices.map((m) => [m.id, `${m.customerId} · ${m.amount} ${m.assetId} · ${m.cadence}`] as const),
+                    ...choices.map((m) => [m.id, `${m.customerId} · ${m.amount} ${m.assetId} · ${cadenceLabel(m.cadence)}`] as const),
                   ]}
                 />
                 <SelectField
@@ -667,11 +729,9 @@ export function CreateSubscriptionView({
                   options={[
                     ['', c.t('selectPath')],
                     ...(recoveredPath
-                      ? [[recoveredPath, recoveredPath === 'crypto_invoice' ? c.t('cryptoInvoice') : recoveredPath] as const]
+                      ? [[recoveredPath, pathLabel(recoveredPath)] as const]
                       : posture.status === 'ready'
-                        ? posture.data.paths
-                            .filter((p) => p.charge !== 'refuse')
-                            .map((p) => [p.path, p.path === 'crypto_invoice' ? c.t('cryptoInvoice') : p.path] as const)
+                        ? posture.data.paths.filter((p) => p.charge !== 'refuse').map((p) => [p.path, pathLabel(p.path)] as const)
                         : []),
                   ]}
                 />

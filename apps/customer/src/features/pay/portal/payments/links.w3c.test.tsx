@@ -41,7 +41,7 @@ it('rejects invalid amounts and use caps; requires an asset for a fixed amount w
 it('shows exact amounts and scoped loaded counts, with no placeholder card on a list that works', () => {
   const out = renderToString(<LinksView {...props} resource={{ status: 'ready', data: [link] }} />);
   expect(out).toContain('9,007,199,254,740,993.00');
-  expect(out).toContain('1 shown from 1 links.');
+  expect(out).toContain('1 shown from 1 link.');
   expect(out).not.toMatch(/You’ll be able to/);
   expect(out).not.toContain('token=');
 });
@@ -49,8 +49,46 @@ it('does not offer a real deactivate action without verified company authority',
   const out = renderToString(<LinksView {...props} linkId={link.id} resource={{ status: 'ready', data: [link] }} />);
   expect(out).toMatch(/disabled=""[^>]*>Deactivate link/);
   expect(out).toContain('Only the account owner can create or turn off payment links.');
+  // The address is shown only when the service sent it; until then the page says plainly that it can't be shown again.
+  expect(out).toContain('Link address');
+  expect(out).toContain('can’t be shown again yet');
+  expect(out).not.toContain('can’t be filtered by payment link yet');
+  expect(out).not.toContain('data-testid="link-address"');
+  const withAddress = renderToString(
+    <LinksView
+      {...props}
+      linkId={link.id}
+      resource={{ status: 'ready', data: [{ ...link, checkoutUrl: 'https://checkout.test.invalid/pay/checkout?token=TEST-token' }] }}
+    />,
+  );
+  expect(withAddress).toContain('data-testid="link-address"');
+  expect(withAddress).toContain('https://checkout.test.invalid/pay/checkout?token=TEST-token');
+  expect(withAddress).toContain('>Copy<');
+  expect(withAddress).toContain('Open the link');
+  expect(withAddress).toContain('QR code for the link address');
+  expect(withAddress).not.toContain('can’t be shown again yet');
+  const unsafe = renderToString(
+    <LinksView
+      {...props}
+      linkId={link.id}
+      resource={{ status: 'ready', data: [{ ...link, checkoutUrl: 'javascript:alert(1)' as never }] }}
+    />,
+  );
+  // An address that is not http or https is never made clickable.
+  expect(unsafe).not.toContain('javascript:');
+  expect(unsafe).toContain('can’t be shown again yet');
+});
+it('reads the payments made through a link once a payments reader is given', () => {
+  const portal = {} as never;
+  const out = renderToString(<LinksView {...props} portal={portal} linkId={link.id} resource={{ status: 'ready', data: [link] }} />);
   expect(out).toContain('Payments made with this link');
-  expect(out).toContain('can’t be filtered by payment link yet');
+  expect(out).not.toContain('can’t be filtered by payment link yet');
+});
+it('offers the asset as a choice, not free text', () => {
+  const out = renderToString(<PaymentLinkForm pay={pay} merchantId={link.id} />);
+  expect(out).toMatch(/<select>(<option[^>]*>[^<]*<\/option>)+<\/select>/);
+  expect(out).toContain('USDT');
+  expect(out).not.toContain('Asset code');
 });
 it('renders grouped creation fields and keeps the review disabled without authority', () => {
   const out = renderToString(<PaymentLinkForm pay={pay} merchantId={link.id} />);

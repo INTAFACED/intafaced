@@ -10,7 +10,7 @@ import { useReadAt } from '../hooks';
 import { bars } from '../model';
 import { seriesAssets } from './model';
 import type { MemberRole, MerchantRecord, MetricPreset, Payment, Series, Snapshot } from '../schemas';
-import { layoutCopy as c } from './copy';
+import { layoutCopy as c, portalCopy } from './copy';
 import { MoneyDisplay, paymentLabel, portalAmount } from '../presentation';
 import { TierUsage } from './TierUsage';
 import { dateRange } from '../ui/FilterRow';
@@ -137,7 +137,7 @@ export function LayoutDashboardView({
             <Chip kind="kyb" value={merchant.kybStatus} />
           </>
         )}
-        {role && <span>{role}</span>}
+        {role && <span>{portalCopy.t(`role_${role}` as 'role_owner')}</span>}
       </div>
       {tier}
       {merchant && (merchant.status !== 'active' || merchant.kybStatus !== 'approved') && <a href={'/pay/onboarding'}>{t('setup')} →</a>}
@@ -226,7 +226,7 @@ export function MetricStrip({ snap, period, when }: { snap: Snapshot; period: st
   return (
     <div className="plo-kpi-strip">
       {[
-        [t('captured'), <MoneyLines items={snap.captured} />, payments('captured')],
+        [t('captured'), <MoneyLines items={snap.captured} />, payments()],
         [t('count'), snap.paymentCount, payments()],
         [t('refunded'), <MoneyLines items={snap.refunded} />, refunds],
         [t('net'), <MoneyLines items={snap.net} />, '/pay/money'],

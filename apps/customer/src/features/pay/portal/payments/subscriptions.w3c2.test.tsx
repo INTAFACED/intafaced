@@ -54,11 +54,16 @@ it('registers list, detail and creation routes', () => {
   expect(parsePortalRoute('/pay/subscriptions/new')).toEqual({ room: 'subscription-new' });
   expect(parsePortalRoute(`/pay/subscriptions/${S}`)).toEqual({ room: 'subscription', param: S });
 });
-function Harness(props: { list: ListState<typeof subscription>; mandateId?: string }) {
+function Harness(props: {
+  list: ListState<typeof subscription>;
+  mandateId?: string;
+  mandates?: ReturnType<typeof ready<(typeof mandate)[]>>;
+}) {
   const filters = useListFilters();
   return (
     <SubscriptionsView
       list={props.list}
+      {...(props.mandates ? { mandates: props.mandates } : {})}
       filters={filters}
       {...(props.mandateId ? { mandateId: props.mandateId } : {})}
       loadMore={noop}
@@ -74,6 +79,51 @@ it('lists recorded schedules with server filters and no estimated revenue or pla
   expect(out).not.toContain('recurring revenue and subscription trends');
   expect(out).toContain('Newest 1');
   expect(out).toContain('Active');
+});
+it('shows each subscription\u2019s amount and cadence from its mandate, and says so when the mandate is not shown', () => {
+  const withTerms = renderToString(<Harness list={listOf([subscription])} mandates={ready([mandate])} />);
+  expect(withTerms).toContain('Amount per cycle');
+  expect(withTerms).toContain('Billing cadence');
+  expect(withTerms).toContain('9,007,199,254,740,993.00');
+  expect(withTerms).toContain('Monthly');
+  expect(withTerms).toContain('Crypto invoice and watch');
+  expect(withTerms).not.toContain('crypto_invoice');
+  const without = renderToString(
+    <Harness list={listOf([{ ...subscription, mandateId: 'TEST-unknown-mandate' }])} mandates={ready([mandate])} />,
+  );
+  expect(without).toContain('Not shown');
+});
+it('says no charge attempts yet (not no billing cycles) when cycles exist but no attempts do', () => {
+  const out = renderToString(
+    <SubscriptionDetailView
+      subscription={subscription}
+      mandate={ready(mandate)}
+      cycles={ready({
+        subscriptionId: S,
+        cycles: [
+          {
+            occurrence: 1,
+            amount: '19.00',
+            status: 'settled',
+            idempotencyKey: null,
+            attemptCount: 1,
+            rejectionCode: null,
+            paymentId: null,
+            exhausted: false,
+            settledAt: null,
+            notifyStatus: null,
+            notifyCode: null,
+          },
+        ],
+      })}
+      executions={ready([])}
+      pay={null}
+      reload={noop}
+    />,
+  );
+  expect(out).not.toContain('No billing cycles recorded yet');
+  expect(out).toContain('No charge attempts yet');
+  expect(out).toContain('1 billing cycle shown');
 });
 it('renders an empty state and a loading skeleton', () => {
   expect(renderToString(<Harness list={listOf([])} />)).toContain('No subscriptions in this view');
@@ -183,9 +233,9 @@ it('uses the same complete mandate summary for selection and confirmation, inclu
   for (const value of [
     mandate.customerId,
     D,
-    'crypto_invoice',
+    'Crypto invoice and watch',
     'USDT',
-    'monthly',
+    'Monthly',
     'Billing cadence',
     'Authorization starts',
     'Authorization ends',
@@ -197,7 +247,8 @@ it('uses the same complete mandate summary for selection and confirmation, inclu
   expect(out).toContain(`dateTime="${endsAt}"`);
   const open = renderToString(<SubscriptionTerms mandate={mandate} path="crypto_invoice" />);
   expect(open).toContain('Open ended');
-  expect(open).toContain('No ceiling returned');
+  expect(open).toContain('No limit set');
+  expect(open).not.toContain('No ceiling returned');
 });
 
 it('prefills and locks the original charge path after reload and links to that mandate subscriptions', async () => {

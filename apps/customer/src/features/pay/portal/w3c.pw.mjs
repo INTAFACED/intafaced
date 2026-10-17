@@ -207,7 +207,7 @@ test('payment-link creation: validates fields and asks for a review before anyth
   await page.getByLabel('Link label *').fill('TEST workshop');
   await page.getByLabel('Fixed amount', { exact: true }).fill('12.000000000000000001');
   await expect(page.getByText('Choose an asset when setting a fixed amount.')).toBeVisible();
-  await page.getByLabel('Asset code', { exact: true }).fill('USDT');
+  await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
   await page.getByLabel('Maximum completed payments', { exact: true }).fill('1.5');
   await expect(page.getByText('Check this field before reviewing the link.')).toBeVisible();
   await page.getByLabel('Maximum completed payments', { exact: true }).fill('10');
