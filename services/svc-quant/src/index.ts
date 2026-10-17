@@ -20,6 +20,7 @@ registerProcessHooks(
  * svc-quant — sandboxed strategy runtime (§29).
  *
  * Paper book in this process — no INTERNAL_SERVICE_SECRET, no DATABASE_URL.
+ * Saved strategies are keyed by the session account and die with the process.
  * That is not a certified non-custodial plane.
  * Isolate is the restricted VM in ./sandbox — user code never reaches Node
  * eval, fetch, or the network. Unwired → named refuse, never a fake PnL.
