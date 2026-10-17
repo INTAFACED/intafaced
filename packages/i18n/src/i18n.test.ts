@@ -75,7 +75,8 @@ describe('catalog — the key set is closed and complete', () => {
     // Limit-unset refuse keys (kb_search / tickers / markets) landed at 202.
     // Four real guest enquiry templates add eight title/body keys.
     // Agents session-list refusals (cursor_invalid, fee_asset_unset) add two.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(220);
+    // Halt notice and deposit-credit notice add four title/body keys (S26).
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(223);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

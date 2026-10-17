@@ -24,6 +24,10 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Copy trading isn’t open',
     body: 'Its fee share and country list haven’t been approved. Nothing was followed.',
   },
+  'trade.copy_unavailable': {
+    title: 'Copy trading isn’t available right now',
+    body: 'The copy service isn’t switched on here. Nothing was followed and no money moved.',
+  },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
   'trade.copy_already_following': { title: 'You already follow this leader', body: 'Open it in My follows to change it.' },
   'trade.copy_not_following': { title: 'You don’t follow that leader', body: 'Check My follows and try again.' },
@@ -70,6 +74,18 @@ const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_flatten_partial': {
     title: 'Only some positions were closed',
     body: 'Part of your copied positions was closed and the rest is still open. Refresh the follow, then close what remains yourself on the spot desk.',
+  },
+  'trade.copy_disclosure_unpublished': {
+    title: 'This leader can’t be followed right now',
+    body: 'The leader’s risk disclosure hasn’t been published, so following is refused. Nothing was followed and no money moved. Choose another leader.',
+  },
+  'trade.copy_disclosure_required': {
+    title: 'Read the leader’s risk disclosure first',
+    body: 'Following needs your acceptance of this leader’s risk disclosure. Nothing was followed and no money moved.',
+  },
+  'trade.copy_disclosure_version_stale': {
+    title: 'The risk disclosure has changed',
+    body: 'The leader’s disclosure was updated after you accepted it. Read and accept the new version, then follow again.',
   },
   'trade.copy_flatten_unavailable': {
     title: 'Closing copied positions isn’t available',

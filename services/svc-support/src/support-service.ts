@@ -31,6 +31,13 @@ import {
 } from './operator-queue.js';
 import { SUPPORT_SETTLE_REFUSE, checkSupportSettlement, type SupportForbiddenSettlementAct } from './settlement-refuse.js';
 import { MemorySupportStore, type AttachmentMeta, type KbFeedbackVote, type SupportStore, type TicketRating } from './store.js';
+import {
+  DarkTicketOrderSource,
+  SUPPORT_ORDER_USER_MISMATCH,
+  supportOrderSnapshotSchema,
+  type TicketOrderRead,
+  type TicketOrderSource,
+} from './ticket-order.js';
 import { withSupportSpan } from './tracing.js';
 
 export class SupportError extends Error {
@@ -176,6 +183,11 @@ export class SupportService implements SupportContract {
     /** Production leaves this blank. Attach then refuses with the missing key. */
     private readonly attachments: AttachmentDesk = UNCONFIGURED_ATTACHMENTS,
     private readonly staff: StaffBook = new MemoryStaffBook(),
+    /**
+     * Where one order is READ from. Defaults dark, so a desk booted without
+     * svc-trade says the read is unknown rather than cancelled.
+     */
+    private readonly orders: TicketOrderSource = new DarkTicketOrderSource(),
   ) {}
 
   private async withIdempotency<T>(key: string, fingerprint: string, run: () => Promise<T>): Promise<T> {
@@ -397,6 +409,52 @@ export class SupportService implements SupportContract {
       });
 
       return grounding;
+    });
+  }
+
+  /**
+   * READ ONE ORDER FOR THIS TICKET.
+   *
+   * The user id comes off the ticket. An order owned by someone else is
+   * refused and its fields are not returned. Trade silence and a matcher
+   * that is down are `unknown` with `cancelled: false`. This method only
+   * calls `orders.read`. It has no ledger client and no cancel, amend, or
+   * delete.
+   */
+  async readTicketOrder(input: { operatorId: string; ticketId: string; orderId: string }): Promise<TicketOrderRead> {
+    return withSupportSpan('support.readTicketOrder', { op: 'readTicketOrder' }, async (span) => {
+      void input.operatorId;
+      const ticket = await this.store.findById(input.ticketId);
+      if (!ticket) throw ticketNotFound();
+
+      span.setAttribute('intafaced.support.ticket_id', ticket.id);
+      const result = await this.orders.read(input.orderId);
+      if (result.kind === 'unknown') {
+        span.setAttribute('intafaced.support.order_read', 'unknown');
+        return { outcome: 'unknown', orderId: input.orderId, reason: result.reason, cancelled: false };
+      }
+
+      const parsed = supportOrderSnapshotSchema.safeParse(result.order);
+      if (!parsed.success || parsed.data.orderId !== input.orderId) {
+        span.setAttribute('intafaced.support.order_read', 'unknown');
+        return { outcome: 'unknown', orderId: input.orderId, reason: 'trade_silent', cancelled: false };
+      }
+      if (parsed.data.userId !== ticket.userId) {
+        span.setAttribute('intafaced.support.order_read', 'user_mismatch');
+        throw new SupportError('order user is not the ticket user', SUPPORT_ORDER_USER_MISMATCH);
+      }
+
+      span.setAttribute('intafaced.support.order_read', parsed.data.status);
+      return {
+        outcome: 'read',
+        orderId: parsed.data.orderId,
+        status: parsed.data.status,
+        symbol: parsed.data.symbol,
+        side: parsed.data.side,
+        filledQuantity: parsed.data.filledQuantity,
+        feeAsset: parsed.data.feeAsset,
+        feeAmount: parsed.data.feeAmount,
+      };
     });
   }
 

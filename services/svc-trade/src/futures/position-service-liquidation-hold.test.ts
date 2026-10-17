@@ -200,7 +200,11 @@ describe('position-service: liquidation hold (Postgres)', () => {
         const potBefore = await pot(id);
         const availableBefore = await available();
 
-        await expect(positions.close(ownerOf(id), id)).rejects.toMatchObject(refused(LIQUIDATION_IN_PROGRESS));
+        await expect(positions.close(ownerOf(id), id)).rejects.toMatchObject({
+          ...refused(LIQUIDATION_IN_PROGRESS),
+          rung: 'partial',
+          addMarginAllowed: true,
+        });
         await expect(reduce(id)).rejects.toMatchObject(refused(LIQUIDATION_IN_PROGRESS));
         await expect(lever(id)).rejects.toMatchObject(refused(LIQUIDATION_IN_PROGRESS));
         expect(await pot(id)).toBe(potBefore);
@@ -224,7 +228,12 @@ describe('position-service: liquidation hold (Postgres)', () => {
     it('a CLOSING rung also refuses add-margin: it would strand the added margin in the pot', async () => {
       const id = await openPosition();
       const rung = await putRung(id, 'closing', 'posted');
-      await expect(add(id)).rejects.toMatchObject(refused(LIQUIDATION_IN_PROGRESS));
+      await expect(add(id)).rejects.toMatchObject({
+        ...refused(LIQUIDATION_IN_PROGRESS),
+        rung: 'closing',
+        addMarginAllowed: false,
+        message: 'a liquidation of this position is in progress (closing rung) — retry in a moment',
+      });
       await expect(reduce(id)).rejects.toMatchObject(refused(LIQUIDATION_IN_PROGRESS));
       await expect(positions.close(ownerOf(id), id)).rejects.toMatchObject(refused(LIQUIDATION_IN_PROGRESS));
       expect(await pot(id)).toBe('7500');

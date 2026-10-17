@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { authoredRefusal, type ApiResult } from '../../shared/api';
+import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { useApi, useSession } from '../session/session';
 import {
@@ -7,14 +7,35 @@ import {
   certDefinition,
   certGrant,
   certProgressRow,
+  completionPage,
+  type CompletionRow,
   lessonCatalogue,
   type Tracking,
   type LessonSummary,
 } from './academy-lms';
 
+/** The service caps a page at 200 and a completion is one per curriculum lesson, so more than a few pages is not a real answer. */
+const COMPLETION_PAGE = 200;
+const COMPLETION_MAX_PAGES = 5;
+/** Every lesson completion on this account, following the service's cursor. */
+export async function readCompletions(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<CompletionRow[]>> {
+  const rows: CompletionRow[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < COMPLETION_MAX_PAGES; page++) {
+    const result = await api.query('academy', 'myCompletions', { limit: COMPLETION_PAGE, ...(cursor ? { cursor } : {}) }, completionPage, {
+      signal,
+    });
+    if (!result.ok) return result;
+    rows.push(...result.data.items);
+    if (!result.data.nextCursor) return { ok: true, data: rows };
+    cursor = result.data.nextCursor;
+  }
+  return authoredRefusal('invalid_response', { key: 'unverifiedRead' });
+}
+
 /**
  * One read of everything Academy knows about this account's learning: the published lessons, every
- * certificate definition, this account's progress against each, and the certificates it holds.
+ * certificate definition, this account's progress against each, the certificates it holds and the lessons it completed.
  * Failure in any part fails the whole read, so a screen never shows progress built from half the facts.
  */
 export function useAcademyTracking() {
@@ -40,7 +61,12 @@ export function useAcademyTracking() {
       const grants = await api.query('academy', 'myCerts', { limit: 200 }, z.array(certGrant), { signal });
       if (!grants.ok) return grants;
       if (grants.data.some((grant) => grant.userId !== userId)) return authoredRefusal('invalid_response', { key: 'loadFailed' });
-      return { ok: true, data: { lessons: lessons.data, tracking: buildTracking(definitions.data, progress, grants.data) } };
+      const completions = await readCompletions(api, signal);
+      if (!completions.ok) return completions;
+      return {
+        ok: true,
+        data: { lessons: lessons.data, tracking: buildTracking(definitions.data, progress, grants.data, completions.data) },
+      };
     },
     `academy-tracking:${userId}`,
   );

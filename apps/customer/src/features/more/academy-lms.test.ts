@@ -9,8 +9,10 @@ import {
   groupByPath,
   lessonHrefFor,
   lessonStatus,
+  formatMoment,
   neighbours,
   nextUp,
+  parseVerifyCode,
   parseVerifyReference,
   pathProgress,
   readLastLesson,
@@ -69,13 +71,29 @@ const grant: CertGrant = {
   idempotencyKey: `cert:${owner}:${definition.id}`,
 };
 
+const completion = (itemSlug: string) => ({ itemSlug, completedAt: '2026-10-11T09:00:00.000Z' });
+
 describe('tracking and lesson status', () => {
-  it('knows recorded and pending only for certificate-required lessons', () => {
+  it('reads recorded and pending from certificate progress, and everything else as open', () => {
     const tracking = buildTracking([definition], [progress(['f-2'])], []);
     expect(lessonStatus('f-1', tracking)).toBe('recorded');
     expect(lessonStatus('f-2', tracking)).toBe('pending');
-    expect(lessonStatus('f-3', tracking)).toBe('untracked');
-    expect(lessonStatus('anything', emptyTracking)).toBe('untracked');
+    expect(lessonStatus('f-3', tracking)).toBe('open');
+    expect(lessonStatus('anything', emptyTracking)).toBe('open');
+  });
+
+  it('records any lesson Academy lists as completed, whether or not a certificate requires it', () => {
+    const tracking = buildTracking([definition], [progress(['f-2'])], [], [completion('f-3'), completion('m-1')]);
+    expect(lessonStatus('f-3', tracking)).toBe('recorded');
+    expect(lessonStatus('m-1', tracking)).toBe('recorded');
+    expect(lessonStatus('f-2', tracking)).toBe('pending');
+    expect(lessonStatus('s-1', tracking)).toBe('open');
+  });
+
+  it('does not leave a completed lesson pending for a certificate', () => {
+    const tracking = buildTracking([definition], [progress(['f-2'])], [], [completion('f-2')]);
+    expect(lessonStatus('f-2', tracking)).toBe('recorded');
+    expect(tracking.pending.has('f-2')).toBe(false);
   });
 
   it('treats a lesson recorded for one certificate as recorded for the account', () => {
@@ -90,7 +108,7 @@ describe('tracking and lesson status', () => {
 
   it('ignores a definition that has no progress answer', () => {
     const tracking = buildTracking([definition], [], []);
-    expect(lessonStatus('f-1', tracking)).toBe('untracked');
+    expect(lessonStatus('f-1', tracking)).toBe('open');
   });
 });
 
@@ -102,22 +120,21 @@ describe('paths and progress', () => {
     expect(groups[0]).toMatchObject({ minutes: 40, playbooks: 1, workbooks: 1, readings: 1 });
   });
 
-  it('draws no percentage when nothing is tracked', () => {
+  it('shows 0 percent for a path with nothing completed, and no percentage for a path with no lessons', () => {
     const marketsOnly = lessons.filter((l) => l.path === 'markets');
     const tracking = buildTracking([definition], [progress(['f-2'])], []);
-    expect(pathProgress(marketsOnly, tracking)).toMatchObject({ total: 1, tracked: 0, untracked: 1, percent: null });
+    expect(pathProgress(marketsOnly, tracking)).toEqual({ total: 1, recorded: 0, pending: 0, open: 1, percent: 0 });
+    expect(pathProgress([], tracking)).toMatchObject({ total: 0, percent: null });
   });
 
-  it('computes progress over tracked lessons only and floors the percentage', () => {
+  it('counts every lesson in the path and floors the percentage', () => {
+    const inPath = groupByPath(lessons)[0]!.lessons;
     const tracking = buildTracking([definition], [progress(['f-2'])], []);
-    const result = pathProgress(groupByPath(lessons)[0]!.lessons, tracking);
-    expect(result).toEqual({ total: 3, tracked: 2, recorded: 1, pending: 1, untracked: 1, percent: 50 });
-    const third = buildTracking(
-      [{ ...definition, requiredItemSlugs: ['f-1', 'f-2', 'f-3'] }],
-      [progress(['f-2', 'f-3'], { requiredCount: 3, completedCount: 1 })],
-      [],
-    );
-    expect(pathProgress(groupByPath(lessons)[0]!.lessons, third).percent).toBe(33);
+    expect(pathProgress(inPath, tracking)).toEqual({ total: 3, recorded: 1, pending: 1, open: 1, percent: 33 });
+    const withCompletion = buildTracking([definition], [progress(['f-2'])], [], [completion('f-3')]);
+    expect(pathProgress(inPath, withCompletion)).toEqual({ total: 3, recorded: 2, pending: 1, open: 0, percent: 66 });
+    const all = buildTracking([definition], [progress([])], [], [completion('f-3')]);
+    expect(pathProgress(inPath, all).percent).toBe(100);
   });
 
   it('finds previous and next within a path and tolerates an unknown slug', () => {
@@ -128,7 +145,7 @@ describe('paths and progress', () => {
     expect(neighbours(inPath, 'nope')).toEqual({ previous: null, next: null, position: 0, total: 3 });
   });
 
-  it('offers the first pending lesson, then the first untracked one, then nothing', () => {
+  it('offers the first pending lesson, then the first one not completed, then nothing', () => {
     const inPath = groupByPath(lessons)[0]!.lessons;
     expect(nextUp(inPath, buildTracking([definition], [progress(['f-2'])], []))?.slug).toBe('f-2');
     expect(nextUp(inPath, buildTracking([definition], [progress([])], []))?.slug).toBe('f-3');
@@ -228,10 +245,22 @@ describe('certificates', () => {
       holder: owner,
       issuedAt: grant.grantedAt,
       reference: grant.idempotencyKey,
+      code: null,
       requirements: 2,
     });
+    const coded = certificateCards(buildTracking([definition], [progress([])], [{ ...grant, publicId: 'a'.repeat(32) }]))[0]!;
+    expect(certificateDocument(coded, owner)?.code).toBe('a'.repeat(32));
     const ready = certificateCards(buildTracking([definition], [progress([])], []))[0]!;
     expect(certificateDocument(ready, owner)).toBeNull();
+  });
+
+  it('tells a verification code from a grant reference and from anything else', () => {
+    const code = '0123456789abcdef0123456789abcdef';
+    expect(parseVerifyCode(` ${code} `)).toEqual({ kind: 'code', code });
+    expect(parseVerifyCode(code.toUpperCase())).toEqual({ kind: 'code', code });
+    expect(parseVerifyCode(`cert:${owner}:foundations-v1`)).toEqual({ kind: 'grant-reference' });
+    for (const bad of ['', code.slice(1), `${code}0`, `${code.slice(1)}g`, 'foundations-v1'])
+      expect(parseVerifyCode(bad)).toEqual({ kind: 'invalid' });
   });
 
   it('parses a grant reference and rejects anything else', () => {
@@ -253,6 +282,13 @@ describe('links and rooms', () => {
       live: 1,
       scheduled: 2,
     });
+  });
+});
+
+describe('moments', () => {
+  it('shows a UTC date and time, and the raw text when it is not a date', () => {
+    expect(formatMoment('2026-10-11T09:05:00.000Z', 'en')).toMatch(/Oct 11, 2026.*9:05.*UTC$/);
+    expect(formatMoment('not a date', 'en')).toBe('not a date');
   });
 });
 
