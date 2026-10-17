@@ -12,36 +12,6 @@
     color: var(--if-fg);
     font-family: var(--if-font-ui);
   }
-  .cb-modes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    border-bottom: 1px solid var(--if-line);
-    padding-top: 8px;
-  }
-  .cb-modes a {
-    display: inline-flex;
-    align-items: center;
-    height: 36px;
-    padding: 0 12px;
-    border-radius: 999px;
-    color: var(--if-fg-2);
-    font-size: 14px;
-    font-weight: 500;
-    text-decoration: none;
-  }
-  .cb-modes a:hover {
-    color: var(--if-fg);
-    background: var(--if-hover);
-  }
-  .cb-modes a[aria-current='page'] {
-    color: var(--if-fg);
-    background: var(--if-field);
-  }
-  .cb-modes a:focus-visible {
-    outline: 2px solid var(--if-lime);
-    outline-offset: 2px;
-  }
   .cb-meta {
     display: inline-flex;
     flex-wrap: wrap;

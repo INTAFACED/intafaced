@@ -9,9 +9,16 @@ import {
   isConsumableApproval,
   isSamePersonActionType,
   namesAreNotActionApproval,
+  samePersonTargetService,
 } from '@intafaced/contracts';
 import { type ApprovalSubject, type FounderDirectory, audienceOfApproval } from './action-approval-audience.js';
-import { type ActionApprovalStore, type StoredApproval, newApprovalIds, toActionApproval } from './action-approval-store.js';
+import {
+  type ActionApprovalStore,
+  type StoredApproval,
+  approvalProvenance,
+  newApprovalIds,
+  toActionApproval,
+} from './action-approval-store.js';
 
 export const ACTION_APPROVAL_TTL_UNSET = 'action_approval.ttl_unset' as const;
 
@@ -29,6 +36,7 @@ export type ActionApprovalErrorCode =
   | 'action_approval.service_mismatch'
   | 'action_approval.type_not_four_eyes'
   | 'action_approval.operator_only'
+  | 'action_approval.trade_ops_only'
   | 'action_approval.founder_only'
   | 'action_approval.founders_unavailable'
   | 'action_approval.type_not_same_person'
@@ -123,8 +131,8 @@ export class ActionApprovalService {
     const row: StoredApproval = {
       approvalId,
       actionType: input.actionType,
-      targetService: 'svc-bank',
-      // Bank consumes with the same constants; the payload hash carries every business field.
+      targetService: samePersonTargetService(input.actionType),
+      // The consuming service recomputes the same hash. The payload carries every business field.
       targetId: input.actionType,
       expectedVersion: '1',
       payloadHash: input.payloadHash,
@@ -193,6 +201,11 @@ export class ActionApprovalService {
 
   async consume(callerService: string, input: ActionApprovalConsumeInput): Promise<ActionApproval> {
     const row = await this.loadLive(input.approvalId);
+    // Already used: a repeat of the same request id replays; any other request id is consumed,
+    // even when the payload also differs. That distinction is not a payload error.
+    if (row.status === 'CONSUMED') {
+      return this.consumedAgain(row, callerService, input);
+    }
     if (callerService !== input.targetService || callerService !== row.targetService) {
       throw new ActionApprovalError('consume is only for the target service', 'action_approval.service_mismatch');
     }
@@ -214,9 +227,6 @@ export class ActionApprovalService {
         'action_approval.not_requester',
       );
     }
-    if (row.status === 'CONSUMED') {
-      throw new ActionApprovalError('approval already consumed', 'action_approval.consumed');
-    }
     if (!isConsumableApproval(toActionApproval(row))) {
       throw this.terminal(row, 'action_approval.not_approved');
     }
@@ -226,16 +236,49 @@ export class ActionApprovalService {
     const founderAttestation =
       audienceOfApproval(row) === 'founder' ? await this.requireFounders(row, { approverId: row.approverId }) : null;
     const consumedAt = this.clock();
-    const next = await this.store.casConsume({ ...input, now: consumedAt });
+    const next = await this.store.casConsume({
+      ...input,
+      now: consumedAt,
+      requestId: input.requestId ?? null,
+      consumedByService: callerService,
+      consumedByPrincipal: input.consumerPrincipalId ?? null,
+    });
     if (!next) {
       const again = await this.loadLive(input.approvalId);
-      if (again.status === 'CONSUMED') {
-        throw new ActionApprovalError('approval already consumed', 'action_approval.consumed');
-      }
+      if (again.status === 'CONSUMED') return this.consumedAgain(again, callerService, input);
       throw this.terminal(again, 'action_approval.not_approved');
     }
     if (next.kind === 'same_person') await this.onSamePersonConsumed?.(next, consumedAt);
-    return { ...toActionApproval(next), ...(founderAttestation ?? {}) };
+    return { ...toActionApproval(next), ...approvalProvenance(next), ...(founderAttestation ?? {}) };
+  }
+
+  /**
+   * A second consume. The same request id, caller and binding returns the original row so a retry
+   * after a lost reply is not the same refusal as someone else's use.
+   */
+  private consumedAgain(row: StoredApproval, callerService: string, input: ActionApprovalConsumeInput): ActionApproval {
+    const sameRequest =
+      input.requestId !== undefined &&
+      row.consumedRequestId === input.requestId &&
+      row.consumedByService === callerService &&
+      (row.consumedByPrincipal ?? null) === (input.consumerPrincipalId ?? null);
+    if (!sameRequest) {
+      throw new ActionApprovalError('approval already consumed', 'action_approval.consumed');
+    }
+    if (!payloadHashesEqual(row.payloadHash, input.payloadHash)) {
+      throw new ActionApprovalError('payload hash does not match the approved action', 'action_approval.payload_mismatch');
+    }
+    if (row.targetId !== input.targetId || row.expectedVersion !== input.expectedVersion || row.operationId !== input.operationId) {
+      throw new ActionApprovalError('target, version, or operation id does not match', 'action_approval.target_mismatch');
+    }
+    if (callerService !== input.targetService || callerService !== row.targetService) {
+      throw new ActionApprovalError('consume is only for the target service', 'action_approval.service_mismatch');
+    }
+    return {
+      ...toActionApproval(row),
+      ...approvalProvenance(row),
+      consumption: 'already_consumed_by_this_request',
+    };
   }
 
   /**
@@ -248,7 +291,7 @@ export class ActionApprovalService {
     callerId: string,
     view: 'pending' | 'mine',
     limit: number,
-    access: { readonly operator: boolean; readonly founder: boolean },
+    access: { readonly operator: boolean; readonly founder: boolean; readonly tradeOps?: boolean },
   ): Promise<{ readonly approvals: ActionApproval[]; readonly pageFull: boolean }> {
     if (view === 'mine') {
       const rows = await this.store.listByRequester(callerId, limit);
@@ -260,6 +303,7 @@ export class ActionApprovalService {
       const audience = audienceOfApproval(row);
       if (audience === 'self') continue;
       if (audience === 'founder' && access.founder) visible.push(toActionApproval(row));
+      else if (audience === 'trade_ops' && access.tradeOps) visible.push(toActionApproval(row));
       else if (audience === 'operator' && access.operator) visible.push(toActionApproval(row));
     }
     return { approvals: visible, pageFull: rows.length === limit };
@@ -272,15 +316,27 @@ export class ActionApprovalService {
   async getForCaller(
     callerId: string,
     approvalId: string,
-    access: { readonly operator: boolean; readonly founder: boolean },
+    access: { readonly operator: boolean; readonly founder: boolean; readonly tradeOps?: boolean; readonly adminRead?: boolean },
   ): Promise<ActionApproval> {
     const row = await this.store.get(approvalId);
     if (!row) throw new ActionApprovalError('approval not found', 'action_approval.not_found');
-    if (row.requesterId === callerId) return toActionApproval(row);
-    const audience = audienceOfApproval(row);
-    const allowed = audience === 'founder' ? access.founder : audience === 'operator' ? access.operator : false;
-    if (!allowed) throw new ActionApprovalError('this approval is not visible to this session', 'action_approval.not_requester');
-    return toActionApproval(row);
+    const party =
+      row.requesterId.toLowerCase() === callerId.toLowerCase() ||
+      (row.approverId !== null && row.approverId.toLowerCase() === callerId.toLowerCase());
+    if (!party) {
+      const audience = audienceOfApproval(row);
+      const allowed =
+        audience === 'founder'
+          ? access.founder
+          : audience === 'trade_ops'
+            ? access.tradeOps === true
+            : audience === 'operator'
+              ? access.operator
+              : false;
+      if (!allowed) throw new ActionApprovalError('this approval is not visible to this session', 'action_approval.not_requester');
+    }
+    if (!party && access.adminRead !== true) return toActionApproval(row);
+    return { ...toActionApproval(row), ...approvalProvenance(row) };
   }
 
   /**

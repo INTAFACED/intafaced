@@ -6,28 +6,35 @@ import { assertPortalPageLimit, portalFilters, pageCursor } from './common.js';
 /**
  * DESTINATION INVENTORY.
  *
- * `merchant.setPayoutDestination` still overwrites the one row for a rail. It
- * is not a reviewed action and it does not ask for step-up. Remove and
- * set-default follow that same owner write: no second approval, because the
- * add does not have one. A payout approval is voided when the destination
- * that payout would use changes afterwards. That voids the payout request.
- * It is not an approval to change the saved destination.
+ * `merchant.setPayoutDestination` and `merchant.payoutDestinations.change`
+ * add or change the one row for a rail. Adding the first one needs step-up.
+ * Changing a verified one needs step-up and the hold. A payout cannot name
+ * a destination. Remove applies only to unverified rows. A verified
+ * destination changes only through step-up plus the hold. Set-default is an
+ * owner write: it does not change the paid ref, and it needs no second
+ * approval.
+ * A payout approval is voided when the stored destination that payout would
+ * use changes afterwards. That voids the payout request. It is not an
+ * approval to change the saved destination.
  *
  * `defaultFlag` is `default` only after the owner marks that row. Existing
  * rows stay `unset`. Removing the marked row does not promote another one.
  * `screeningState` stays `not_recorded`. `lastUsedAt` is the latest paid-out
  * send on that rail, or null.
  *
- * Remove refuses while a payout that still names this rail, kind and ref is
- * in flight: a live approval (pending or approved, not yet expired) or a
- * payout admission that has not reached a terminal outcome.
+ * Remove of an unverified row refuses while a payout that still names this
+ * rail, kind and ref is in flight: a live approval (pending or approved, not
+ * yet expired) or a payout admission that has not reached a terminal outcome.
+ * A verified row is refused before that check, and nothing is deleted.
  *
  * An admission with no outcome stays in flight however old it is: recovery
  * pays to the destination copied onto the admission, so removing it early
  * would not stop that payout. Re-running `payoutSettlement` is what writes
  * the terminal outcome (settled, reversed, rail_refused, or identity_cancelled).
  */
-export const DESTINATION_CHANGE_FLOW = 'owner_write' as const;
+export const DESTINATION_CHANGE_FLOW = 'step_up_hold' as const;
+/** Remove and set-default. They do not consume the step-up change door. */
+export const DESTINATION_DEFAULT_REMOVE_FLOW = 'owner_write' as const;
 
 export interface PayoutDestinationItem {
   id: string;
@@ -170,8 +177,12 @@ export async function setDefaultMerchantPayoutDestination(
 }
 
 /**
- * Delete one saved destination. Refuses while a payout that still names this
- * rail, kind and ref has not finished. Does not promote another default.
+ * Delete one unverified destination. A verified row, including one with a
+ * pending change, is refused (`pay.payout_destination_verified_locked`) and
+ * nothing is deleted. A verified destination changes only through step-up
+ * plus the hold. An unverified row is still refused while a payout that
+ * names this rail, kind and ref has not finished, then deleted. Does not
+ * promote another default.
  */
 export async function removeMerchantPayoutDestination(
   sql: Sql,
@@ -179,14 +190,15 @@ export async function removeMerchantPayoutDestination(
   fail: PayFail,
 ): Promise<{ removed: true }> {
   const outcome = await sql.begin(async (tx) => {
-    const locked = await tx<DestinationRow[]>`
-      SELECT id, rail_id, kind, ref, is_default, created_at
+    const locked = await tx<Array<DestinationRow & { verified: boolean }>>`
+      SELECT id, rail_id, kind, ref, is_default, created_at, verified
         FROM pay.merchant_payout_destinations
        WHERE id = ${input.destinationId} AND merchant_id = ${input.merchantId}
          FOR UPDATE
     `;
     const row = locked[0];
     if (!row) return 'missing' as const;
+    if (row.verified) return 'verified_locked' as const;
     const live = await tx<Array<{ live: boolean }>>`
       SELECT EXISTS (
         SELECT 1 FROM pay.control_payout_approvals a
@@ -217,6 +229,9 @@ export async function removeMerchantPayoutDestination(
     return 'removed' as const;
   });
   if (outcome === 'missing') notFound(fail);
+  if (outcome === 'verified_locked') {
+    fail('a verified payout destination cannot be removed', 'pay.payout_destination_verified_locked');
+  }
   if (outcome === 'in_flight') fail('payout destination is in use', 'pay.payout_destination_in_flight');
   return { removed: true };
 }

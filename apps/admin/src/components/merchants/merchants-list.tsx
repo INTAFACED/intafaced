@@ -92,7 +92,7 @@ export function MerchantsListView({ data, query }: { data: MerchantListPageData;
         <div className="mp-field">
           <label htmlFor="f-tier">Tier</label>
           <select id="f-tier" name="tier" className="mp-input" defaultValue="" disabled aria-describedby="f-tier-hint">
-            <option value="">Not available yet</option>
+            <option value="">Not available</option>
           </select>
         </div>
         <div className="mp-field">
@@ -106,8 +106,8 @@ export function MerchantsListView({ data, query }: { data: MerchantListPageData;
           </select>
         </div>
         <p id="f-tier-hint" className="mp-hint mp-filters__note">
-          The tier filter arrives with the control room (W1); the service refuses it until tiers exist. Search and sort work on the rows of
-          the current page only.
+          The tier filter is not connected: the merchant list service does not filter by tier. Search and sort work on the rows of the
+          current page only.
         </p>
         <div className="mp-filters__actions">
           <button type="submit" className="mp-btn mp-btn--primary">

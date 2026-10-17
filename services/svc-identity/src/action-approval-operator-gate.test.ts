@@ -2,7 +2,7 @@
  * Unit card — four-eyes over operator action types needs an operator (issue #4724, identity half)
  *
  * 1. Promise: only an operator (founder, or an `admin:*` / `market:ops` / `support:ops` scope, never an
- *    API key) can propose, approve or reject an operator action type such as `edge.kill`; money, venue and
+ *    API key) can propose, approve or reject an operator action type such as `matching.halt`; money, venue and
  *    treasury types (`matching.open`, ...) are founder-only (see action-approval-founder.test.ts).
  * 2. Break: the router had no role check, so any two self-registered users with a TOTP could propose and
  *    approve `matching.open` between themselves.
@@ -64,6 +64,7 @@ const matchingOpen = {
   policyVersion: 'v1',
 };
 const edgeKill = { ...matchingOpen, actionType: 'edge.kill', targetService: 'svc-edge', targetId: 'kill:trade' };
+const marketHalt = { ...matchingOpen, actionType: 'matching.halt', targetService: 'svc-matching', targetId: 'halt:market-1' };
 const unknownType = { ...matchingOpen, actionType: 'some.unregistered.thing', targetId: 'some.unregistered.thing' };
 
 describe('operator action types need an operator principal', () => {
@@ -79,7 +80,7 @@ describe('operator action types need an operator principal', () => {
     const { r } = build();
     const o1 = r.createCaller(await operator(O1));
     const u2 = r.createCaller(await ordinary(U2));
-    const pending = await o1.actionApproval.propose(edgeKill);
+    const pending = await o1.actionApproval.propose(marketHalt);
     const bound = { approvalId: pending.approvalId, expectedPayloadHash: pending.payloadHash };
     await expect(u2.actionApproval.approve(bound)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(u2.actionApproval.reject({ approvalId: pending.approvalId })).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -95,7 +96,7 @@ describe('operator action types need an operator principal', () => {
     const { r } = build();
     const o1 = r.createCaller(await operator(O1));
     const o2 = r.createCaller(await operator(O2));
-    const pending = await o1.actionApproval.propose(edgeKill);
+    const pending = await o1.actionApproval.propose(marketHalt);
     const bound = { approvalId: pending.approvalId, expectedPayloadHash: pending.payloadHash };
     await expect(o1.actionApproval.approve(bound)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
     await expect(o2.actionApproval.approve(bound)).resolves.toMatchObject({ status: 'APPROVED' });
@@ -149,10 +150,11 @@ describe('operator action types need an operator principal', () => {
 describe('action type audience registry', () => {
   it('lists the same-person types as self, money/venue/treasury types as founder; every other type, known or not, is operator', () => {
     for (const t of SAME_PERSON_ACTION_TYPES) expect(audienceOf(t)).toBe('self');
-    for (const t of ['matching.open', 'ledger.unfreeze', 'bank.fund_pool', 'token.revenue.distribute']) {
+    for (const t of ['matching.open', 'ledger.unfreeze', 'ledger.freeze', 'edge.kill', 'bank.fund_pool', 'token.revenue.distribute']) {
       expect(audienceOf(t)).toBe('founder');
     }
-    for (const t of ['edge.kill', 'market.vendor.vet', 'academy.ambassador.appoint', 'halt:BTC-USDT', 'other', '']) {
+    expect(audienceOf('trading.restrict')).toBe('trade_ops');
+    for (const t of ['market.vendor.vet', 'academy.ambassador.appoint', 'halt:BTC-USDT', 'other', '']) {
       expect(audienceOf(t)).toBe('operator');
     }
   });

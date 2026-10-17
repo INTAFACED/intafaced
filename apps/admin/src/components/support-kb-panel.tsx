@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import type { SupportKbArticle } from '@intafaced/contracts';
+import { en } from '@intafaced/i18n';
 import { fetchKb, postSupportAction, type ActionReply } from '@/lib/support/browser';
 import type { SupportActionRequest } from '@/lib/support/model';
 import type { SupportKbView } from '@/lib/support/types';
@@ -59,6 +60,13 @@ export function kbPublishWhy(form: KbForm, busy: boolean): string | null {
   return kbPublishRequest(form) ? null : 'Use at most 20 tags.';
 }
 
+/** The English words behind a catalogue key, or null when the catalogue has no text for it. */
+export function kbEnglishText(key: string): string | null {
+  if (!Object.prototype.hasOwnProperty.call(en, key)) return null;
+  const text: unknown = (en as Record<string, unknown>)[key];
+  return typeof text === 'string' && text.trim() !== '' ? text : null;
+}
+
 export interface KbPanelViewProps {
   readonly kb: SupportKbView | null;
   readonly loading: boolean;
@@ -83,6 +91,10 @@ export function KbPanelView(p: KbPanelViewProps) {
         <div>
           <h2>Help articles</h2>
           <p>The published help library customers read. Publish a new article or a new version, or hide one.</p>
+          <p className="dk-muted" data-testid="kb-catalogue-note">
+            Article text lives in the help catalogue in the code, not in a store this desk can write to. Publishing here points an article
+            at catalogue keys. Text for a new article has to be added to the catalogue in the code first.
+          </p>
         </div>
       </div>
       <div className="dk-row">
@@ -105,6 +117,7 @@ export function KbPanelView(p: KbPanelViewProps) {
                 <thead>
                   <tr>
                     <th>Article</th>
+                    <th>Title (English)</th>
                     <th>Title key</th>
                     <th>Topic</th>
                     <th>Revision</th>
@@ -115,6 +128,9 @@ export function KbPanelView(p: KbPanelViewProps) {
                   {articles.data.map((a) => (
                     <tr key={a.id}>
                       <td className="dk-packet">{a.id}</td>
+                      <td data-testid="kb-title">
+                        {kbEnglishText(a.titleKey) ?? <span className="dk-muted">No English text in the catalogue for this key</span>}
+                      </td>
                       <td className="dk-packet">{a.titleKey}</td>
                       <td>{a.category ?? '—'}</td>
                       <td>{a.revision ?? '—'}</td>
@@ -154,8 +170,8 @@ export function KbPanelView(p: KbPanelViewProps) {
 
       <h3>Publish an article</h3>
       <p className="dk-muted">
-        The title and body are translation-catalogue keys, not text. Use 0 as the revision for a new article; for a new version, use the
-        revision in the table.
+        The title and body are translation-catalogue keys, not text, and each key must already have its English text in the catalogue in the
+        code. Use 0 as the revision for a new article; for a new version, use the revision in the table.
       </p>
       <div className="dk-row">
         {(

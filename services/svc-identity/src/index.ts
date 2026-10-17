@@ -157,6 +157,16 @@ await sql`SELECT email_verified_at FROM users LIMIT 0`.catch(() => {
     'identity schema is out of date: users.email_verified_at is missing — apply drizzle/0034_email_confirmation.sql before starting svc-identity',
   );
 });
+await sql`SELECT consumed_by_service, consumed_by_principal, consumed_request_id FROM action_approvals LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: action_approvals consume provenance is missing — apply drizzle/0038_action_approval_consume_provenance.sql before starting svc-identity',
+  );
+});
+await sql`SELECT user_id, restricted, version FROM trading_restrictions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: trading_restrictions is missing — apply drizzle/0038_action_approval_consume_provenance.sql before starting svc-identity',
+  );
+});
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
@@ -238,7 +248,9 @@ auth.useEmailConfirmation({
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
-const founderControls = new FounderControls(sql, founderPair);
+const founderControls = new FounderControls(sql, founderPair, {
+  tradingRestrictRequiresApproval: env.IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL === true,
+});
 await founderControls.bootstrap();
 auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
 

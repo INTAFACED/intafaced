@@ -10,6 +10,10 @@ const pathKeys = {
   builder: 'pathBuilder',
   sovereign: 'pathSovereign',
 } as const;
+const kindKeys = { playbook: 'kindPlaybook', workbook: 'kindWorkbook', lesson: 'kindLesson' } as const;
+/** A lesson's kind as a person reads it. A kind this app does not know is shown as sent. */
+export const kindLabel = (t: (typeof copy)['t'], kind: string): string =>
+  kind in kindKeys ? t(kindKeys[kind as keyof typeof kindKeys]) : kind;
 export const pathLabel = (t: (typeof copy)['t'], path: AcademyPath) => t(pathKeys[path]);
 
 /**

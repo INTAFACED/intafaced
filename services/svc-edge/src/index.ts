@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { AuthError } from '@intafaced/auth';
+import { AuthError, type Principal } from '@intafaced/auth';
 import { assertNoLocalTestFixtures, assertScreeningConfigured } from '@intafaced/config';
 import { createAdminApi, httpLedgerOperator } from './admin-api.js';
 import { readEdgeAuthority } from './live-authority.js';
@@ -19,7 +19,8 @@ import {
   type RateLimitConfig,
 } from './hardening.js';
 import { KillSwitchState } from './kill-switch.js';
-import { registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
+import { httpMatchingApprovalRead, httpMatchingControl, registerMatchingOperatorRoutes } from './matching-proxy.js';
+import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
 import { createQuotaStore, decideGateway, sandboxOf } from './gateway-plane.js';
 import { exchangePrincipal } from './principal-exchange.js';
@@ -178,19 +179,21 @@ const tokenConfig = {
 /** §14.6 — the operator kill-switch, and the first one in the platform anything can reach. */
 const killSwitches = new KillSwitchState({ statePath: env.EDGE_KILL_STATE_PATH });
 
+const sessionLive = async (principal: Principal) => {
+  if (
+    principal.kid ||
+    principal.sub_account ||
+    !(await readEdgeAuthority(principal, {
+      identityUrl: env.IDENTITY_URL,
+      identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
+    }))
+  )
+    throw new AuthError('Operator session is not live', 'token.invalid');
+};
+
 const admin = createAdminApi(killSwitches, {
   tokens: tokenConfig,
-  sessionLive: async (principal) => {
-    if (
-      principal.kid ||
-      principal.sub_account ||
-      !(await readEdgeAuthority(principal, {
-        identityUrl: env.IDENTITY_URL,
-        identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
-      }))
-    )
-      throw new AuthError('Operator session is not live', 'token.invalid');
-  },
+  sessionLive,
   // Null when unset, and the console is told. `LEDGER_URL` is a URL, not a
   // secret — `env.ts` withholds `DATABASE_URL`, `NATS_URL` and
   // `INTERNAL_SERVICE_SECRET` from this service, and none of them is needed
@@ -298,6 +301,21 @@ registerAdminRoutes(
     : null,
 );
 
+const matchingUrl = readMatchingUrl(env.MATCHING_URL);
+const matchingSecret = env.MATCHING_EDGE_SIGNING_SECRET;
+registerMatchingOperatorRoutes(app, {
+  tokens: tokenConfig,
+  authenticateWrite: (header) => admin.authenticate(header),
+  sessionLive,
+  matching: matchingUrl && matchingSecret ? httpMatchingControl(matchingUrl, matchingSecret, env.UPSTREAM_TIMEOUT_MS) : null,
+  blocked: !matchingUrl
+    ? { code: 'matching_unconfigured', key: 'MATCHING_URL' }
+    : !matchingSecret
+      ? { code: 'matching_credential_unconfigured', key: 'MATCHING_EDGE_SIGNING_SECRET' }
+      : null,
+  readApproval: httpMatchingApprovalRead(env.IDENTITY_URL, env.UPSTREAM_TIMEOUT_MS),
+});
+
 registerWidgetRampRoute(app);
 
 /**
@@ -330,7 +348,7 @@ await app.register(async (api) => {
 
     if (isS2sPath(target.path)) {
       // Belt: the onRequest hook already refuses this. Kept so a future route
-      // that skips the hook cannot open the S2S plane.
+      // that skips the hook cannot open the service plane.
       return reply.code(404).send({ error: userCopy('edge.s2s_not_proxied'), code: 'edge.s2s_not_proxied' });
     }
 

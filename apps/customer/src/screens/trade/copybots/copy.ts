@@ -134,6 +134,7 @@ const messages = {
   'Left out (below one lot)': 'Left out (below one lot)',
   'Left to use': 'Left to use',
   'Live account: real orders': 'Live account: real orders',
+  'TEST account: no real money': 'TEST account: no real money',
   'Loss limit': 'Loss limit',
   'Lot size {lot}': 'Lot size {lot}',
   Manage: 'Manage',

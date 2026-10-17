@@ -744,7 +744,7 @@ registerPrivateRest(app, {
   now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),
-  listPositions: (principal, symbol) => positions.listOpen(principal.userId, symbol),
+  listPositions: (principal, symbol, clientOpenId) => positions.listOpen(principal.userId, symbol, clientOpenId),
   listClosedPositions: (principal, input) => positions.listClosed(principal.userId, input),
   getPosition: (principal, positionId) => positions.get(principal.userId, positionId),
   openPosition: (principal, input) =>
@@ -758,10 +758,21 @@ registerPrivateRest(app, {
         marginMode: input.marginMode,
         collateralClass: input.collateralClass,
         clientOpenId: input.clientOpenId,
+        ...(input.reduceOnly ? { reduceOnly: true as const } : {}),
+        ...(input.positionMode ? { positionMode: input.positionMode } : {}),
       },
       principal,
     ),
   closePosition: (principal, positionId) => positions.close(principal.userId, positionId),
+  closePositionQuantity: (principal, positionId, input) =>
+    positions.closeQuantity(principal.userId, positionId, {
+      quantity: parseAmount(input.quantity),
+      clientCloseId: input.clientCloseId,
+    }),
+  closeAllPositions: (principal, input) => positions.closeAll(principal.userId, input),
+  marginSummary: (principal) => positions.marginSummary(principal.userId),
+  readAccountMode: (principal) => positions.readAccountMode(principal.userId),
+  writeAccountMode: (principal, input) => positions.writeAccountMode(principal.userId, input),
   setLeverage: (principal, input) =>
     positions.setLeverage(
       {

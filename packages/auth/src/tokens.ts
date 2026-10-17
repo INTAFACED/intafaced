@@ -31,7 +31,7 @@ export const accessClaimsSchema = z.object({
   key_env: z.enum(['live', 'sandbox']).optional(),
   /** Verification tier at issue time; jurisdiction checks read it. */
   tier: z.enum(['none', 'basic', 'full', 'institutional']).default('none'),
-  /** True once the session has passed 2FA. Gates INTERACTIVE_ONLY_SCOPES. */
+  /** True once the session has passed 2FA. Gates SESSION_MFA_SCOPES. */
   mfa: z.boolean().default(false),
   sid: z.string().uuid(),
 });
@@ -58,18 +58,28 @@ export interface Principal extends AccessClaims {
  * arrive as HTTP 403 and mean completely different things to the person
  * reading the screen:
  *
- *   scope.denied       this credential may never do this — nothing the user
- *                      does to their own account changes it
- *   tier.insufficient  this credential MAY do this, once verification catches
- *                      up — an action the user can take, today
- *   ownership.denied   the credential is fine and the thing belongs to someone
- *                      else — never a prompt, always a bug or an attempt
+ *   scope.denied            this credential may never do this — nothing the user
+ *                           does to their own account changes it
+ *   scope.interactive_only  the scope is on the token, but the credential is an
+ *                           API key. The scope stays on an interactive session.
+ *                           Stepping up the key does not unlock it.
+ *   tier.insufficient       this credential MAY do this, once verification catches
+ *                           up — an action the user can take, today
+ *   ownership.denied        the credential is fine and the thing belongs to someone
+ *                           else — never a prompt, always a bug or an attempt
  *
  * Collapsing them meant the terminal could only say "scope, verification tier
  * or jurisdiction", which sends a verifiable user to support instead of to KYC.
  */
 export type AuthErrorCode =
-  'token.expired' | 'token.invalid' | 'token.malformed' | 'scope.denied' | 'tier.insufficient' | 'ownership.denied' | 'mfa.required';
+  | 'token.expired'
+  | 'token.invalid'
+  | 'token.malformed'
+  | 'scope.denied'
+  | 'scope.interactive_only'
+  | 'tier.insufficient'
+  | 'ownership.denied'
+  | 'mfa.required';
 
 export class AuthError extends Error {
   constructor(

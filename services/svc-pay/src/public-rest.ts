@@ -336,6 +336,7 @@ function statusFor(code: string): number {
     case 'pay.link_not_found':
       return 404;
     case 'pay.merchant_forbidden':
+    case 'pay.sandbox_live_account_refused':
     case 'pay.submerchant_permission_denied':
     case 'pay.submerchant_consent_required':
     case 'pay.submerchant_not_onboarded':
@@ -818,6 +819,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
             instrument: req.body.instrument,
             customerRef: req.body.customerRef,
             metadata: req.body.metadata,
+            ...(principal.key_env === 'sandbox' ? { keyEnv: 'sandbox' as const } : {}),
           });
           assertSandboxKeyDoesNotLookLive(principal.key_env, payment.railAdapter);
           return reply.send(toPaymentBody(payment));
@@ -902,7 +904,11 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
           await assertPaymentAccess(principal.userId, req.params.id, existing.merchantId, areaForSurface('rest.payments.capture'));
           assertSandboxKeyDoesNotLookLive(principal.key_env, existing.railAdapter);
           const opts = req.body?.amount === undefined ? {} : { amount: parseAmount(requireDecimalString(req.body.amount, 'amount')) };
-          const payment = await deps.pay.capture(req.params.id, { ...opts, identityAuthority: credentialAuthority(principal) });
+          const payment = await deps.pay.capture(req.params.id, {
+            ...opts,
+            identityAuthority: credentialAuthority(principal),
+            ...(principal.key_env === 'sandbox' ? { keyEnv: 'sandbox' as const } : {}),
+          });
           return reply.send(toPaymentBody(payment));
         } catch (err) {
           return send(reply, err);
@@ -953,6 +959,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
           const bodyRefundId = typeof req.body.refundId === 'string' ? req.body.refundId.trim() : '';
           const payment = await deps.pay.refund(req.params.id, parseAmount(amount), {
             refundId: bodyRefundId.length > 0 ? bodyRefundId : restRefundId(req.params.id, key),
+            ...(principal.key_env === 'sandbox' ? { keyEnv: 'sandbox' as const } : {}),
           });
           return reply.send(toPaymentBody(payment));
         } catch (err) {

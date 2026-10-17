@@ -52,7 +52,12 @@ export const RECIPE_MATRIX = {
   tradeFill: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service.ts' },
   orderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service.ts' },
   orderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service.ts' },
-  orderHoldAmend: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/qty-up-amend.ts' },
+  orderHoldAmend: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — qty-up extra hold on the orderHold pot. svc-trade native amend only reduces remaining quantity and refuses trade.amend_qty_up, so qty-up-amend.ts no longer posts this. The recipe-gate catalog samples it and does not ledger.post. No production writer on tip.',
+  },
   marketMakerOrderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/mm/seed-market.ts' },
   marketMakerOrderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/mm/seed-market.ts' },
   marketMakerMakerFill: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service.ts' },

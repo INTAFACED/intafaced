@@ -10,7 +10,7 @@
  * 3. Done bar: an `admin:*` and a `support:ops` operator cannot propose, approve, reject or consume a founder type;
  *    a founder pair can; the proposer cannot self-approve; a wrong payload hash is refused and the right one is
  *    accepted; a row approved by a non-founder before this check existed is refused at consume; an unwired founder
- *    directory refuses closed; operator-only types (edge.kill) still run on plain operators.
+ *    directory refuses closed; operator-only types (matching.halt) still run on plain operators.
  * 4. Class M
  * 5. Paths: services/svc-identity/src/action-approval-router.ts, auth/action-approval-audience.ts,
  *    auth/action-approval-service.ts
@@ -80,6 +80,8 @@ const payDeposit = {
   policyVersion: 'v1',
 };
 const edgeKill = { ...payDeposit, actionType: 'edge.kill', targetService: 'svc-edge', targetId: 'kill:trade' };
+const edgeReenable = { ...edgeKill, targetId: 'kill:pay' };
+const marketHalt = { ...payDeposit, actionType: 'matching.halt', targetService: 'svc-matching', targetId: 'halt:market-1' };
 
 const consumeOf = (
   a: { approvalId: string; operationId: string; payloadHash: string; targetId: string; expectedVersion: string },
@@ -133,7 +135,7 @@ describe('audience table: what each registered approval type needs', () => {
     ...protectiveMatching,
     ...matching,
     T('ledger.reconcile', 'svc-ledger', 'posting_reconcile', 'founder'),
-    T('ledger.freeze', 'svc-ledger', 'posting_freeze', 'operator'),
+    T('ledger.freeze', 'svc-ledger', 'posting_freeze', 'founder'),
     T('ledger.unfreeze', 'svc-ledger', 'posting_unfreeze', 'founder'),
     ...[
       'bank.fund_pool',
@@ -153,7 +155,10 @@ describe('audience table: what each registered approval type needs', () => {
     T('identity.change_limit', 'svc-identity', 'identity.change_limit', 'founder'),
     T('affiliates.payout', 'svc-identity', 'affiliates.payout', 'founder'),
     // operator-level: judged not to move money or a venue (see the report)
-    T('edge.kill', 'svc-edge', 'kill:trade', 'operator'),
+    T('edge.kill', 'svc-edge', 'kill:trade', 'founder'),
+    T('edge.kill', 'svc-edge', 'kill:pay', 'founder'),
+    T('trading.restrict', 'svc-identity', '11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'trade_ops'),
+    T('trading.restrict', 'svc-trade', '11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'founder'),
     T('market.vendor.vet', 'svc-market', 'market.vendor.vet', 'operator'),
     T('p2p.method_register', 'svc-p2p', 'p2p.method_register', 'operator'),
     T('p2p.method_set_enabled', 'svc-p2p', 'p2p.method_set_enabled', 'operator'),
@@ -211,7 +216,9 @@ describe('protective verbs, unknown services and the self kind', () => {
   it('is operator for exactly the shared protective list, and founder for a verb that list does not name on the same services', () => {
     for (const row of PROTECTIVE_OPERATOR_APPROVALS) {
       const targetId = row.targetService === 'svc-ledger' || row.targetVerb === 'halt_all' ? row.targetVerb : `${row.targetVerb}:market-1`;
-      expect(audienceOfApproval(sub(row.actionType, row.targetService, targetId))).toBe('operator');
+      expect(audienceOfApproval(sub(row.actionType, row.targetService, targetId))).toBe(
+        row.actionType === 'ledger.freeze' ? 'founder' : 'operator',
+      );
     }
     expect(audienceOfApproval(sub('matching.resume', 'svc-matching', 'resume:market-1'))).toBe('founder');
     expect(audienceOfApproval(sub('ledger.unfreeze', 'svc-ledger', 'posting_unfreeze'))).toBe('founder');
@@ -219,7 +226,7 @@ describe('protective verbs, unknown services and the self kind', () => {
 
   it('a protective verb is operator only when type, service and target verb all agree', () => {
     expect(audienceOfApproval(sub('matching.halt', 'svc-matching', 'halt:market-1'))).toBe('operator');
-    expect(audienceOfApproval(sub('ledger.freeze', 'svc-ledger', 'posting_freeze'))).toBe('operator');
+    expect(audienceOfApproval(sub('ledger.freeze', 'svc-ledger', 'posting_freeze'))).toBe('founder');
     // type says halt but the target opens a market
     expect(audienceOfApproval(sub('matching.halt', 'svc-matching', 'open:market-1'))).toBe('founder');
     // type says halt but the target is another service, or the target is the unfreeze verb
@@ -401,16 +408,16 @@ describe('founder-only types at the door (propose, approve, reject)', () => {
     await expect(r.createCaller(await founder(F1)).actionApproval.propose(spoof)).resolves.toMatchObject({ status: 'PENDING' });
   });
 
-  it('existing four-eyes types keep working on plain operators: edge.kill with two admin operators', async () => {
+  it('a market halt still completes with two admin operators', async () => {
     const { r } = build();
     const a1 = r.createCaller(await admin(ADMIN));
     const a2 = r.createCaller(await admin(ADMIN2));
-    const pending = await a1.actionApproval.propose(edgeKill);
+    const pending = await a1.actionApproval.propose(marketHalt);
     const approved = await a2.actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_A });
     expect(approved.status).toBe('APPROVED');
     const consumed = await r
-      .createCaller({ principal: null, service: 'svc-edge', region: 'DE', requestId: 'x' })
-      .actionApproval.consume(consumeOf(approved, 'svc-edge'));
+      .createCaller({ principal: null, service: 'svc-matching', region: 'DE', requestId: 'x' })
+      .actionApproval.consume(consumeOf(approved, 'svc-matching'));
     expect(consumed).toMatchObject({ status: 'CONSUMED' });
     // operator types carry no founder attestation
     expect(consumed.approverIsFounder).toBeUndefined();
@@ -461,7 +468,7 @@ describe('payload hash binding on approve', () => {
     const { r } = build();
     const a1 = r.createCaller(await admin(ADMIN));
     const a2 = r.createCaller(await admin(ADMIN2));
-    const pending = await a1.actionApproval.propose(edgeKill);
+    const pending = await a1.actionApproval.propose(marketHalt);
     await expect(a2.actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_B })).rejects.toMatchObject({
       message: expect.stringContaining('action_approval.payload_mismatch'),
     });
@@ -562,7 +569,7 @@ describe('consume re-checks the approver and the proposer (no grandfathering)', 
         .createCaller({ principal: null, service: 'svc-pay', region: 'DE', requestId: 'x' })
         .actionApproval.consume(consumeOf(row, 'svc-pay')),
     ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
-    const pending = await service.propose(ADMIN, edgeKill);
+    const pending = await service.propose(ADMIN, marketHalt);
     await expect(service.approve(ADMIN2, pending.approvalId, HASH_A)).resolves.toMatchObject({ status: 'APPROVED' });
   });
 
@@ -592,9 +599,9 @@ describe('consume re-checks the approver and the proposer (no grandfathering)', 
 
   it('operator-only types still consume with no founder directory at all', async () => {
     const { service } = build(null);
-    const pending = await service.propose(ADMIN, edgeKill);
+    const pending = await service.propose(ADMIN, marketHalt);
     const approved = await service.approve(ADMIN2, pending.approvalId, HASH_A);
-    await expect(service.consume('svc-edge', consumeOf(approved, 'svc-edge'))).resolves.toMatchObject({ status: 'CONSUMED' });
+    await expect(service.consume('svc-matching', consumeOf(approved, 'svc-matching'))).resolves.toMatchObject({ status: 'CONSUMED' });
   });
 });
 
@@ -609,5 +616,105 @@ describe('consume compares the payload hash in constant time and still refuses a
       });
     }
     await expect(service.consume('svc-pay', consumeOf(approved, 'svc-pay'))).resolves.toMatchObject({ status: 'CONSUMED' });
+  });
+});
+
+describe('founder-level kill, freeze and unfreeze', () => {
+  const freeze = { ...payDeposit, actionType: 'ledger.freeze', targetService: 'svc-ledger', targetId: 'posting_freeze' };
+  const unfreeze = { ...freeze, actionType: 'ledger.unfreeze', targetId: 'posting_unfreeze' };
+
+  it('refuses an admin:* operator on edge.kill (kill and re-enable); a different founder approves; the requester cannot', async () => {
+    const { r } = build();
+    const maker = r.createCaller(await founder(F1));
+    const checker = r.createCaller(await founder(F2));
+    const operator = r.createCaller(await admin(ADMIN));
+    for (const input of [edgeKill, edgeReenable]) {
+      await expect(operator.actionApproval.propose(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      const pending = await maker.actionApproval.propose(input);
+      await expect(operator.actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_A })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: expect.stringContaining('action_approval.founder_only'),
+      });
+      await expect(maker.actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_A })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: expect.stringContaining('action_approval.same_person'),
+      });
+      await expect(checker.actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_A })).resolves.toMatchObject({
+        status: 'APPROVED',
+        approverId: F2,
+      });
+    }
+  });
+
+  it('refuses an admin:* operator on ledger.freeze and ledger.unfreeze', async () => {
+    const { r } = build();
+    const maker = r.createCaller(await founder(F1));
+    const operator = r.createCaller(await admin(ADMIN));
+    for (const input of [freeze, unfreeze]) {
+      await expect(operator.actionApproval.propose(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      const pending = await maker.actionApproval.propose(input);
+      await expect(operator.actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_A })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      await expect(
+        r.createCaller(await founder(F2)).actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_A }),
+      ).resolves.toMatchObject({ status: 'APPROVED' });
+    }
+  });
+
+  it('re-checks a pending edge.kill that was stored before this audience, at approve time', async () => {
+    const { r, store } = build();
+    const ids = newApprovalIds();
+    const now = new Date();
+    await store.insert({
+      approvalId: ids.approvalId,
+      actionType: 'edge.kill',
+      targetService: 'svc-edge',
+      targetId: 'kill:trade',
+      expectedVersion: '1',
+      payloadHash: HASH_A,
+      requesterId: F1,
+      approverId: null,
+      policyVersion: 'v1',
+      operationId: ids.operationId,
+      status: 'PENDING',
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + 60_000),
+      approvedAt: null,
+      consumedAt: null,
+    });
+    await expect(
+      r.createCaller(await admin(ADMIN)).actionApproval.approve({ approvalId: ids.approvalId, expectedPayloadHash: HASH_A }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      r.createCaller(await founder(F2)).actionApproval.approve({ approvalId: ids.approvalId, expectedPayloadHash: HASH_A }),
+    ).resolves.toMatchObject({ status: 'APPROVED', approverId: F2 });
+  });
+
+  it('a market halt still accepts its operator audience', async () => {
+    const { r } = build();
+    const pending = await r.createCaller(await admin(ADMIN)).actionApproval.propose(marketHalt);
+    await expect(
+      r.createCaller(await admin(ADMIN2)).actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_A }),
+    ).resolves.toMatchObject({ status: 'APPROVED', approverId: ADMIN2 });
+  });
+
+  it('trading.restrict needs the trade-ops permission and a different principal', async () => {
+    const { r } = build();
+    const restrict = { ...payDeposit, actionType: 'trading.restrict', targetService: 'svc-identity', targetId: F1 };
+    await expect(r.createCaller(await support(SUPPORT)).actionApproval.propose(restrict)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('action_approval.trade_ops_only'),
+    });
+    await expect(r.createCaller(await ctxFor(ADMIN, ['market:ops'])).actionApproval.propose(restrict)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    const pending = await r.createCaller(await admin(ADMIN)).actionApproval.propose(restrict);
+    await expect(
+      r.createCaller(await admin(ADMIN)).actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_A }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: expect.stringContaining('action_approval.same_person') });
+    await expect(
+      r.createCaller(await admin(ADMIN2)).actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: HASH_A }),
+    ).resolves.toMatchObject({ status: 'APPROVED', approverId: ADMIN2 });
   });
 });
