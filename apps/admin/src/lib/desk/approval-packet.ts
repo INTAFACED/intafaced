@@ -30,10 +30,14 @@ export type DeskRequest =
   | { readonly kind: 'academy.ambassador.freeze'; readonly userId: string; readonly reason: string }
   | { readonly kind: 'academy.ambassador.unfreeze'; readonly userId: string }
   | { readonly kind: 'academy.ambassador.appoint'; readonly userId: string }
-  | { readonly kind: 'academy.residency.decide'; readonly id: string; readonly decision: ResidencyDecision };
+  | { readonly kind: 'academy.residency.decide'; readonly id: string; readonly decision: ResidencyDecision }
+  | { readonly kind: 'bank.card.status'; readonly cardId: string; readonly status: CardStatus; readonly reason: string }
+  | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string };
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
+export const CARD_STATUSES = ['frozen', 'active'] as const;
+export type CardStatus = (typeof CARD_STATUSES)[number];
 export const RESIDENCY_DECISIONS = ['accepted', 'rejected'] as const;
 export type ResidencyDecision = (typeof RESIDENCY_DECISIONS)[number];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -106,6 +110,20 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.id !== 'string' || !UUID.test(raw.id)) return null;
     if (typeof raw.decision !== 'string' || !(RESIDENCY_DECISIONS as readonly string[]).includes(raw.decision)) return null;
     return { kind: 'academy.residency.decide', id: raw.id, decision: raw.decision as ResidencyDecision };
+  }
+  // svc-bank binds the card and the status to the approval; the reason is required by the service (10+ characters) and recorded
+  // with the freeze, but it is not part of what the second founder signs. It is in the packet so they read it.
+  if (raw.kind === 'bank.card.status') {
+    if (keys !== 'cardId,kind,reason,status') return null;
+    if (typeof raw.cardId !== 'string' || !UUID.test(raw.cardId) || !validReason(raw.reason)) return null;
+    if (typeof raw.status !== 'string' || !(CARD_STATUSES as readonly string[]).includes(raw.status)) return null;
+    return { kind: 'bank.card.status', cardId: raw.cardId, status: raw.status as CardStatus, reason: raw.reason };
+  }
+  // svc-market binds the listing AND the reason to the approval, so a changed reason cannot ride on an approved takedown.
+  if (raw.kind === 'market.listing.takedown') {
+    if (keys !== 'kind,listingId,reason') return null;
+    if (typeof raw.listingId !== 'string' || !UUID.test(raw.listingId) || !validReason(raw.reason)) return null;
+    return { kind: 'market.listing.takedown', listingId: raw.listingId, reason: raw.reason };
   }
   return null;
 }
@@ -192,6 +210,10 @@ export function confirmPhrase(request: DeskRequest): string {
       return `APPOINT AMBASSADOR ${request.userId.slice(0, 8)}`;
     case 'academy.residency.decide':
       return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} RESIDENCY ${request.id.slice(0, 8)}`;
+    case 'bank.card.status':
+      return `${request.status === 'frozen' ? 'FREEZE' : 'UNFREEZE'} CARD ${request.cardId.slice(0, 8)}`;
+    case 'market.listing.takedown':
+      return `TAKE DOWN LISTING ${request.listingId.slice(0, 8)}`;
   }
 }
 
@@ -222,6 +244,12 @@ export function describeRequest(request: DeskRequest): string {
       return request.decision === 'accepted'
         ? `Accept residency application ${request.id}: the application is recorded as accepted.`
         : `Reject residency application ${request.id}: the application is recorded as rejected.`;
+    case 'bank.card.status':
+      return request.status === 'frozen'
+        ? `Freeze card ${request.cardId} as an operator: the card is frozen and its owner cannot unfreeze it. Only an operator can lift it. The owner can still close it.`
+        : `Lift the operator freeze on card ${request.cardId}: it works again for its owner.`;
+    case 'market.listing.takedown':
+      return `Take down market listing ${request.listingId}: it leaves the market for good. Nobody can set it active again, and the vendor cannot restore it. Purchases already settled keep their access, and nothing is refunded.`;
   }
 }
 

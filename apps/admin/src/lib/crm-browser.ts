@@ -1,4 +1,5 @@
 'use client';
+import { formatAsOf } from '@/lib/as-of';
 import { CRM_NOT_CONFIGURED_TEXT, CRM_REFUSED_TEXT, crmRefusalKind, crmUpstreamCode, type CrmRefusalKind } from './crm-refusal';
 /** Writes retain their request identity until a confirmed, validated receipt. */
 export type PendingCrmWrite = { inputKey: string; requestId: string };
@@ -62,6 +63,8 @@ const TIME = new Intl.DateTimeFormat('en-GB', { timeStyle: 'short' });
 const RELATIVE = new Intl.RelativeTimeFormat('en-GB', { numeric: 'auto' });
 export const crmDate = (value: string) => DATE_TIME.format(new Date(value));
 export const crmTime = (value: string) => TIME.format(new Date(value));
+/** "Updated 02:58:05 UTC": when the workspace list was last read, in the shared founder time form, so the zone is never a guess. */
+export const crmUpdatedText = (value: string) => `Updated ${formatAsOf(value)}`;
 /** "in 2 days", "yesterday", "3 hours ago": for due dates and ages, next to crmDate, never instead of it. */
 export function crmRelative(value: string, now = Date.now()): string {
   const seconds = (Date.parse(value) - now) / 1000;

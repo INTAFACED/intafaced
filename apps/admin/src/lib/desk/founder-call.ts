@@ -28,6 +28,7 @@ export type DeskModule =
   | 'market'
   | 'agents'
   | 'quant'
+  | 'mining'
   | 'token'
   | 'protocol'
   | 'indexer'
@@ -84,6 +85,14 @@ function unwrapData(body: unknown): { found: boolean; data: unknown } {
   return { found: true, data: data && typeof data === 'object' && 'json' in data ? (data as { json: unknown }).json : data };
 }
 
+export interface FounderCallOptions {
+  /**
+   * Send an empty object as the input of a GET instead of leaving the input out. A procedure whose input schema is an object
+   * (every field optional) refuses a missing input, so asking for "all of it" needs an explicit `{}`.
+   */
+  readonly sendEmptyInput?: boolean;
+}
+
 export async function founderCall<T>(
   ctx: FounderCallContext,
   module: DeskModule,
@@ -91,8 +100,10 @@ export async function founderCall<T>(
   method: 'GET' | 'POST',
   input: unknown,
   parse: (raw: unknown) => T | null,
+  options: FounderCallOptions = {},
 ): Promise<FounderCallResult<T>> {
-  const hasInput = input !== undefined && input !== null && !(typeof input === 'object' && Object.keys(input as object).length === 0);
+  const empty = typeof input === 'object' && input !== null && Object.keys(input as object).length === 0;
+  const hasInput = input !== undefined && input !== null && (!empty || options.sendEmptyInput === true);
   const query = method === 'GET' && hasInput ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
   let response: Response;
   try {

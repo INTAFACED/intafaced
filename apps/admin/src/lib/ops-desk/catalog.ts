@@ -13,6 +13,7 @@ import type { Column, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } 
  */
 
 const FORBID_BANK = 'svc-bank did not accept your founder session for this read (it needs bank:read).';
+const FORBID_BANK_OPS = 'svc-bank did not accept your founder session for this read (it needs the operator permission admin:read).';
 
 const col = (key: string, label: string, kind: Column['kind'], extra: Partial<Column> = {}): Column => ({ key, label, kind, ...extra });
 const text = (key: string, label: string, extra?: Partial<Column>) => col(key, label, 'text', extra);
@@ -82,15 +83,29 @@ const bankSections: readonly DeskSection[] = [
         emptyText: 'svc-bank lists no earn pools. That means none are configured, not that Earn is healthy.',
         forbiddenText: FORBID_BANK,
       },
+      {
+        id: 'bank.pool-totals',
+        title: 'Money held in each pool',
+        note: 'What each pool holds now (the ledger balance of every active position, added up) and how many people hold a position. Utilisation is not recorded by svc-bank, so no figure is given. If the ledger cannot be read the pool shows the reason, never zero.',
+        module: 'bank',
+        plainName: 'pool balances',
+        procedure: 'ops.poolTotals',
+        shape: 'list',
+        rowsKey: 'pools',
+        idKey: 'poolId',
+        columns: [
+          text('poolId', 'Pool id'),
+          text('assetId', 'Asset'),
+          amount('amountHeld', 'Held in the pool', { nullable: true }),
+          text('amountReason', 'Why there is no figure', { nullable: true }),
+          int('depositorCount', 'People holding a position'),
+          text('utilisationReason', 'Utilisation'),
+        ],
+        emptyText: 'svc-bank has no earn pool to total. That means none are configured.',
+        forbiddenText: 'svc-bank did not accept your founder session for this read (it needs admin:read or admin:treasury).',
+      },
     ],
-    unavailable: [
-      un(
-        'bank.pool-totals',
-        'Pool balances, depositors and utilisation',
-        'svc-bank has no operator read of what is held in a pool or how many people hold it. Every balance read is scoped to the signed-in owner.',
-        13,
-      ),
-    ],
+    unavailable: [],
     disabledActions: [
       {
         id: 'bank.fund-pool',
@@ -104,7 +119,7 @@ const bankSections: readonly DeskSection[] = [
   {
     id: 'loans',
     title: 'Loans book',
-    intro: 'The loan products and the thresholds a borrower is held to.',
+    intro: 'The loan products and the thresholds a borrower is held to, then the book as it stands.',
     reads: [
       {
         id: 'bank.loan-products',
@@ -131,21 +146,49 @@ const bankSections: readonly DeskSection[] = [
         emptyText: 'svc-bank lists no loan products. That means none are configured.',
         forbiddenText: FORBID_BANK,
       },
+      {
+        id: 'bank.loan-book',
+        title: 'Loan book',
+        note: 'Open loans are active, margin-call and liquidating ones. Each is placed in a band using the levels stored on the loan when it opened. A loan with no usable price is counted as unpriced, never as healthy.',
+        module: 'bank',
+        plainName: 'the loan book',
+        procedure: 'ops.loanBook',
+        shape: 'record',
+        columns: [
+          int('openCount', 'Open loans'),
+          col('outstandingPrincipal', 'Outstanding principal', 'assetAmounts'),
+          int('bands.healthy', 'Healthy'),
+          int('bands.marginCall', 'At margin call'),
+          int('bands.liquidation', 'At liquidation'),
+          int('bands.unpriced', 'Without a usable price'),
+          text('oldestPending.id', 'Oldest pending loan', { nullable: true, parentNullable: true }),
+          int('oldestPending.ageSeconds', 'Its age (seconds)', { nullable: true, parentNullable: true }),
+        ],
+        emptyText: '',
+        forbiddenText: FORBID_BANK_OPS,
+      },
+      {
+        id: 'bank.loans-unpriced',
+        title: 'Open loans with no usable price',
+        note: 'Loans svc-bank cannot place in a band, and why. An empty list is not a statement that the book is healthy.',
+        module: 'bank',
+        plainName: 'the loans without a price',
+        procedure: 'ops.loanBook',
+        shape: 'list',
+        rowsKey: 'unpriced',
+        idKey: 'loanId',
+        columns: [text('loanId', 'Loan id'), text('reason', 'Why')],
+        emptyText: 'svc-bank reports no open loan without a usable price. That is not a statement that the book is healthy.',
+        forbiddenText: FORBID_BANK_OPS,
+      },
     ],
-    unavailable: [
-      un(
-        'bank.loan-book',
-        'Loans open, outstanding principal, loans near margin call or liquidation',
-        'svc-bank has no operator read of the loan book. loans.list and loans.health are scoped to one borrower.',
-        14,
-      ),
-    ],
+    unavailable: [],
     disabledActions: [
       {
         id: 'bank.seize-loan',
         label: 'Seize or liquidate a loan',
         reason:
-          'Moves collateral. It is a treasury procedure on Operator tools and is not repeated here without a loan list to choose from (need 14).',
+          'Moves collateral. It is a treasury procedure on Operator tools and is not repeated here: the loan book gives counts and the ids of unpriced loans, not a list of loans to choose from.',
       },
     ],
     links: [
@@ -172,23 +215,38 @@ const bankSections: readonly DeskSection[] = [
         emptyText: '',
         forbiddenText: FORBID_BANK,
       },
-    ],
-    unavailable: [
-      un(
-        'bank.cards-issued',
-        'Cards issued, active and frozen; authorisation volumes and declines',
-        'svc-bank has no operator read of cards. cards.list and cards.authorizations are scoped to one owner.',
-        15,
-      ),
-    ],
-    disabledActions: [
       {
-        id: 'bank.card-freeze',
-        label: 'Freeze a card',
-        reason:
-          'cards.setStatus acts as the card owner (bank:write). An operator freeze of someone else’s card does not exist in svc-bank (need 15).',
+        id: 'bank.card-counts',
+        title: 'Cards issued, last 30 days of activity',
+        note: 'How many cards exist and in what state, across all owners. "Simulated" is the issuer’s own flag: true means no real card was issued.',
+        module: 'bank',
+        plainName: 'card counts',
+        procedure: 'ops.cardProgramme',
+        windowDays: 30,
+        shape: 'record',
+        columns: [bool('simulated', 'Simulated issuer'), int('issued', 'Issued'), int('active', 'Active'), int('frozen', 'Frozen')],
+        emptyText: '',
+        forbiddenText: FORBID_BANK_OPS,
+      },
+      {
+        id: 'bank.card-days',
+        title: 'Card authorisations by day, last 30 days',
+        note: 'Approved volume per asset and declines for each UTC day, from the card authorisations svc-bank decided in the window. A day with nothing shows no volume, not a guess.',
+        module: 'bank',
+        plainName: 'card authorisations',
+        procedure: 'ops.cardProgramme',
+        windowDays: 30,
+        shape: 'list',
+        rowsKey: 'days',
+        idKey: 'day',
+        columns: [text('day', 'Day (UTC)'), col('volume', 'Approved volume', 'assetAmounts'), int('declines', 'Declined')],
+        emptyText: 'svc-bank returned no days for this window.',
+        forbiddenText: FORBID_BANK_OPS,
       },
     ],
+    unavailable: [],
+    disabledActions: [],
+    sectionAction: 'bank.card.status',
     links: [],
   },
   {
@@ -225,12 +283,37 @@ const bankSections: readonly DeskSection[] = [
         emptyText: '',
         forbiddenText: FORBID_BANK,
       },
+      {
+        id: 'bank.ramp-health',
+        title: 'Ramp rails, last 24 hours',
+        note: 'For each rail: when it last succeeded and failed, what is open, and failures out of attempts in the window. An unset provider is not a healthy rail. svc-bank gives no heartbeat, so none is shown.',
+        module: 'bank',
+        plainName: 'ramp health',
+        procedure: 'ops.rampHealth',
+        input: { windowHours: 24 },
+        shape: 'list',
+        rowsKey: 'rails',
+        idKey: 'id',
+        columns: [
+          text('id', 'Rail'),
+          text('provider', 'Provider'),
+          int('openCount', 'Open now'),
+          int('failureCount', 'Failed'),
+          int('totalCount', 'Attempts'),
+          text('failureRate', 'Failed out of attempts', { nullable: true }),
+          time('lastSuccess', 'Last success', { nullable: true }),
+          time('lastFailure', 'Last failure', { nullable: true }),
+          text('reason', 'Heartbeat', { detail: true }),
+        ],
+        emptyText: 'svc-bank lists no ramp rail.',
+        forbiddenText: FORBID_BANK_OPS,
+      },
     ],
     unavailable: [
       un(
-        'bank.ramp-health',
-        'Provider health, ramp volumes and failures by provider',
-        'svc-bank has no operator read of ramps. ramps.onramps and ramps.offramps are scoped to one owner, and no provider heartbeat is exposed.',
+        'bank.ramp-heartbeat',
+        'Provider heartbeat, fiat provider status and ramp volumes',
+        'svc-bank records no heartbeat from any provider and its fiat provider is unset, so the rails above show only what the ledger rail recorded. It gives no ramp volume read.',
         16,
       ),
     ],
@@ -261,15 +344,32 @@ const bankSections: readonly DeskSection[] = [
         emptyText: '',
         forbiddenText: FORBID_BANK,
       },
+      {
+        id: 'bank.business-approvals',
+        title: 'Business transfers waiting for their own checker',
+        note: 'Pending transfers across every business, oldest first by the service’s order. Read-only: the business’s own checker approves or rejects, never an operator. A maker the directory cannot name shows the reason.',
+        module: 'bank',
+        plainName: 'business approvals',
+        procedure: 'ops.businessApprovals',
+        input: { limit: 50 },
+        shape: 'list',
+        rowsKey: 'approvals',
+        anonymousRows: true,
+        page: 50,
+        columns: [
+          text('businessId', 'Business id'),
+          amount('amount', 'Amount'),
+          text('assetId', 'Asset'),
+          amount('rule', 'Business spend threshold'),
+          int('ageSeconds', 'Waiting (seconds)'),
+          text('makerHandle', 'Proposed by', { nullable: true }),
+          text('makerHandleReason', 'Why no name', { nullable: true, detail: true }),
+        ],
+        emptyText: 'No business transfer is waiting for a checker.',
+        forbiddenText: FORBID_BANK_OPS,
+      },
     ],
-    unavailable: [
-      un(
-        'bank.business-queue',
-        'Pending business approvals across all businesses',
-        'business.pending lists the approvals of the businesses the signed-in person belongs to. There is no operator queue across businesses.',
-        17,
-      ),
-    ],
+    unavailable: [],
     disabledActions: [
       {
         id: 'bank.business-approve',
@@ -310,6 +410,77 @@ const bankSections: readonly DeskSection[] = [
 const FORBID_P2P_MOD =
   'svc-p2p did not accept your founder session for this read. Disputes are for moderators: your account must be on P2P_MODERATOR_USER_IDS or hold admin:compliance.';
 const FORBID_P2P_COMPLIANCE = 'svc-p2p did not accept your founder session for this read (it needs admin:compliance).';
+
+type OpsOfferStatus = 'active' | 'paused' | 'closed';
+type OpsTradeStatus = 'created' | 'escrowed' | 'fiat_sent' | 'released' | 'cancelled' | 'disputed';
+
+function p2pOffers(status: OpsOfferStatus, title: string, note: string): ReadSpec {
+  return {
+    id: `p2p.offers-${status}`,
+    title,
+    note: `${note} The 50 newest; the page may be full, so this is not a total (the counts above are).`,
+    module: 'p2p',
+    plainName: `${title.toLowerCase()}`,
+    procedure: 'ops.offers',
+    input: { status, limit: 50 },
+    shape: 'list',
+    rowsKey: 'offers',
+    idKey: 'id',
+    page: 50,
+    columns: [
+      text('side', 'Side'),
+      text('asset', 'Asset'),
+      text('fiatCurrency', 'Currency'),
+      amount('price', 'Price'),
+      amount('remainingAmount', 'Left to trade'),
+      amount('minAmount', 'Minimum'),
+      amount('maxAmount', 'Maximum'),
+      time('createdAt', 'Created'),
+      amount('totalAmount', 'Total offered', { detail: true }),
+      list('methodIds', 'Payment methods (ids)', { detail: true }),
+      text('makerId', 'Maker (account id)', { detail: true }),
+      text('id', 'Offer id', { detail: true }),
+    ],
+    emptyText: `svc-p2p lists no ${status} offers. That means there are none, not that P2P is healthy.`,
+    forbiddenText: FORBID_P2P_COMPLIANCE,
+  };
+}
+
+function p2pTrades(status: OpsTradeStatus, title: string, note: string): ReadSpec {
+  return {
+    id: `p2p.trades-${status}`,
+    title,
+    note: `${note} The 50 newest; the page may be full, so this is not a total (the counts above are).`,
+    module: 'p2p',
+    plainName: title.toLowerCase(),
+    procedure: 'ops.trades',
+    input: { status, limit: 50 },
+    shape: 'list',
+    rowsKey: 'trades',
+    idKey: 'id',
+    page: 50,
+    columns: [
+      text('asset', 'Asset'),
+      amount('amount', 'Amount'),
+      text('fiatCurrency', 'Currency'),
+      amount('fiatAmount', 'Fiat amount'),
+      amount('price', 'Price'),
+      text('method', 'Payment method'),
+      text('resolution', 'Outcome', { nullable: true }),
+      time('createdAt', 'Created'),
+      text('buyerId', 'Buyer (account id)', { detail: true }),
+      text('sellerId', 'Seller (account id)', { detail: true }),
+      text('makerId', 'Maker (account id)', { detail: true }),
+      text('takerId', 'Taker (account id)', { detail: true }),
+      int('feeBps', 'Fee (basis points)', { detail: true }),
+      text('offerId', 'Offer id', { detail: true }),
+      text('status', 'Status', { detail: true }),
+      text('id', 'Trade id', { detail: true }),
+    ],
+    emptyText: `svc-p2p lists no ${status.replace('_', ' ')} trades. That means there are none right now.`,
+    forbiddenText: FORBID_P2P_COMPLIANCE,
+  };
+}
 
 const p2pSections: readonly DeskSection[] = [
   {
@@ -384,6 +555,7 @@ const p2pSections: readonly DeskSection[] = [
         rowsKey: 'disputes',
         idKey: 'tradeId',
         page: 50,
+        rowAction: 'p2p.dispute.escalate',
         columns: [
           text('tradeId', 'Trade'),
           bool('overdue', 'Overdue'),
@@ -396,6 +568,8 @@ const p2pSections: readonly DeskSection[] = [
           text('reason', 'Reason given', { detail: true }),
           text('openedBy', 'Opened by (user id)', { detail: true }),
           text('moderatorId', 'Moderator', { detail: true, nullable: true }),
+          text('escalatedBy', 'Escalated by (user id)', { detail: true, nullable: true }),
+          text('escalationReason', 'Escalation reason', { detail: true, nullable: true }),
           text('status', 'Status', { detail: true }),
           text('id', 'Dispute id', { detail: true }),
         ],
@@ -406,16 +580,10 @@ const p2pSections: readonly DeskSection[] = [
     unavailable: [],
     disabledActions: [
       {
-        id: 'p2p.escalate',
-        label: 'Escalate a dispute',
-        reason:
-          'svc-p2p escalates by itself: its timeout sweep re-arms an overdue dispute and counts it above. It has no manual escalate procedure (need 19).',
-      },
-      {
         id: 'p2p.resolve',
         label: 'Release or refund escrow',
         reason:
-          'This moves escrowed money and svc-p2p has no two-person approval on it (need 19), so the console offers no one-click ruling. A ruling is made by an attributed moderator with the evidence open.',
+          'This moves escrowed money. svc-p2p can now require a second person on a ruling, but ships with that switched off (P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL) and the console cannot tell whether it is on. Until that is decided, a ruling is made by an attributed moderator with the evidence open, not from this page.',
       },
     ],
     links: [],
@@ -456,21 +624,61 @@ const p2pSections: readonly DeskSection[] = [
   },
   {
     id: 'orders',
-    title: 'Offers and orders',
-    intro: 'Every offer and every trade on the platform.',
-    reads: [],
+    title: 'Offers and trades',
+    intro:
+      'Every offer and every trade on the platform, newest first: counts by status, the share of trades that became disputes, then the offers and the trades still in flight. Rows name accounts by id only; payment details and chat are never in these reads.',
+    reads: [
+      {
+        id: 'p2p.counts',
+        title: 'Counts by status',
+        note: 'Offers and trades in each status, counted by svc-p2p over all time. A status with none is a real zero.',
+        module: 'p2p',
+        plainName: 'P2P counts',
+        procedure: 'ops.counts',
+        shape: 'record',
+        columns: [
+          int('offers.active', 'Offers open'),
+          int('offers.paused', 'Offers paused'),
+          int('offers.closed', 'Offers closed'),
+          int('trades.created', 'Trades created'),
+          int('trades.escrowed', 'Trades in escrow'),
+          int('trades.fiat_sent', 'Trades marked paid'),
+          int('trades.released', 'Trades released'),
+          int('trades.cancelled', 'Trades cancelled'),
+          int('trades.disputed', 'Trades disputed'),
+        ],
+        emptyText: '',
+        forbiddenText: FORBID_P2P_COMPLIANCE,
+      },
+      {
+        id: 'p2p.dispute-rate',
+        title: 'Disputes against trades, last 24 hours',
+        note: 'Disputes opened and trades created in the last 24 hours, and their ratio as svc-p2p states it. With no trade in the window there is no ratio, and none is shown.',
+        module: 'p2p',
+        plainName: 'the dispute rate',
+        procedure: 'ops.disputeRate24h',
+        shape: 'record',
+        columns: [
+          int('disputesOpened24h', 'Disputes opened'),
+          int('tradesCreated24h', 'Trades created'),
+          text('rate', 'Disputes out of trades', { nullable: true }),
+        ],
+        emptyText: '',
+        forbiddenText: FORBID_P2P_COMPLIANCE,
+      },
+      p2pOffers('active', 'Open offers', 'Offers that can be taken now.'),
+      p2pOffers('paused', 'Paused offers', 'Offers their maker has paused.'),
+      p2pTrades('disputed', 'Disputed trades', 'Trades in dispute. Their cases are under Disputes above.'),
+      p2pTrades('escrowed', 'Trades in escrow', 'The seller’s coins are locked and the buyer has not yet marked paid.'),
+      p2pTrades('fiat_sent', 'Trades marked paid', 'The buyer says they paid; the seller has not released yet.'),
+      p2pTrades('released', 'Released trades', 'Completed trades, newest first.'),
+    ],
     unavailable: [
       un(
-        'p2p.offers',
-        'Offers: open, paused, closed; by asset and currency',
-        'offers.list and offers.get are scoped to the signed-in merchant. svc-p2p has no operator-wide offers read.',
-        19,
-      ),
-      un(
-        'p2p.trades',
-        'Orders and trades: counts by status, volume, cancel and dispute rates',
-        'trades.list and trades.get are scoped to the two parties. The only operator views are disputes and late settlements above.',
-        19,
+        'p2p.volume',
+        'Traded volume, cancel rate and release time over a period',
+        'svc-p2p counts trades by status and the dispute share of the last 24 hours, but sums no volume and gives no cancel rate or release time over a period.',
+        35,
       ),
     ],
     disabledActions: [],
@@ -725,6 +933,7 @@ const academySections: readonly DeskSection[] = [
 const FORBID_TOKEN_READ =
   'Your console session does not have token read permission yet: svc-token did not accept your founder session for this read (it needs token:read).';
 const FORBID_MARKET_OPS = 'svc-market did not accept your founder session for this read (it needs market:ops).';
+const FORBID_MINING = 'svc-mining-pool did not accept your founder session for this read (it needs admin:read).';
 
 const moreSections: readonly DeskSection[] = [
   {
@@ -779,12 +988,38 @@ const moreSections: readonly DeskSection[] = [
         emptyText: '',
         forbiddenText: 'svc-quant did not answer this read.',
       },
+      {
+        id: 'quant.strategies',
+        title: 'Saved strategies',
+        note: 'Every saved strategy across accounts, newest as the service orders them: name and labels only. The code and blocks are never in this read. Everything here is paper or a historical simulation; the two flags below are pinned, so a strategy claiming to be live is refused as unreadable. The service also limits this read by jurisdiction, so a console with no country may be refused.',
+        module: 'quant',
+        plainName: 'saved strategies',
+        procedure: 'studio.operatorList',
+        input: { limit: 50 },
+        shape: 'list',
+        rowsKey: 'strategies',
+        idKey: 'id',
+        page: 50,
+        columns: [
+          text('name', 'Strategy'),
+          text('environment', 'Environment'),
+          text('kind', 'Kind'),
+          text('claimLabel', 'Label it carries'),
+          bool('simulated', 'Simulated', { mustBe: true }),
+          bool('live', 'Live trading', { mustBe: false }),
+          text('accountId', 'Account id', { nullable: true, detail: true }),
+          text('id', 'Strategy id', { detail: true }),
+        ],
+        emptyText: 'svc-quant lists no saved strategy. That means nobody has saved one, not that Quant is healthy.',
+        forbiddenText:
+          'svc-quant did not accept your founder session for this read (it needs an admin permission such as admin:read, and it is limited by jurisdiction).',
+      },
     ],
     unavailable: [
       un(
         'quant.runs',
         'Backtest and sandbox runs: counts, durations, failures',
-        'svc-quant keeps studio and runs per user and exposes only health to an operator.',
+        'svc-quant lists saved strategies to an operator (above) but keeps backtest and sandbox runs per user, with no read of run counts, durations or failures.',
         22,
       ),
     ],
@@ -794,14 +1029,97 @@ const moreSections: readonly DeskSection[] = [
   {
     id: 'mining',
     title: 'Mining pool',
-    intro: 'Shares, workers and payout windows.',
-    reads: [],
+    intro:
+      'Pool terms, workers, shares and payout windows, as svc-mining-pool reports them. No window is paid today: the payout job refuses until emission is published, so a window showing "open" is expected.',
+    reads: [
+      {
+        id: 'mining.terms',
+        title: 'Pool terms',
+        note: 'The fee and window size from the pool’s configuration. There is no default: an unset value is blank with its reason, not zero.',
+        module: 'mining',
+        plainName: 'mining pool terms',
+        procedure: 'terms',
+        shape: 'record',
+        columns: [
+          bps('feeBps', 'Pool fee', { nullable: true }),
+          text('feeReason', 'Why no fee', { nullable: true }),
+          int('windowSize', 'Window size', { nullable: true }),
+          text('windowSizeReason', 'Why no window size', { nullable: true }),
+        ],
+        emptyText: '',
+        forbiddenText: FORBID_MINING,
+      },
+      {
+        id: 'mining.windows',
+        title: 'Payout windows',
+        note: 'Every window, newest first: its reward and fee as stored on the window, how many shares and how much weight it holds, and when it was paid. A blank reward or fee is blank, never zero.',
+        module: 'mining',
+        plainName: 'mining windows',
+        procedure: 'ops.windows',
+        shape: 'list',
+        rowsKey: 'windows',
+        idKey: 'windowId',
+        columns: [
+          text('windowId', 'Window'),
+          text('assetId', 'Asset'),
+          text('status', 'Status'),
+          amount('reward', 'Reward', { nullable: true }),
+          bps('feeBps', 'Fee', { nullable: true }),
+          int('shareCount', 'Shares'),
+          amount('totalWeight', 'Total weight', { nullable: true }),
+          time('paidAt', 'Paid', { nullable: true }),
+        ],
+        emptyText: 'svc-mining-pool has opened no window.',
+        forbiddenText: FORBID_MINING,
+      },
+      {
+        id: 'mining.shares',
+        title: 'Shares by window',
+        note: 'Shares accepted and refused in each window, and the accepted weight. Refusals are counted only where the miner could be identified.',
+        module: 'mining',
+        plainName: 'mining shares',
+        procedure: 'ops.shares',
+        sendEmptyInput: true,
+        shape: 'list',
+        rowsKey: 'windows',
+        idKey: 'windowId',
+        columns: [
+          text('windowId', 'Window'),
+          int('acceptedCount', 'Accepted'),
+          int('rejectedCount', 'Refused'),
+          amount('acceptedWeight', 'Accepted weight', { nullable: true }),
+        ],
+        emptyText: 'svc-mining-pool has recorded no share in any window.',
+        forbiddenText: FORBID_MINING,
+      },
+      {
+        id: 'mining.workers',
+        title: 'Workers',
+        note: 'Registered workers across accounts, newest first. Registration is refused for now, so this list is expected to be empty until a write permission is chosen.',
+        module: 'mining',
+        plainName: 'mining workers',
+        procedure: 'ops.workers',
+        input: { limit: 50 },
+        shape: 'list',
+        rowsKey: 'workers',
+        idKey: 'id',
+        page: 50,
+        columns: [
+          text('name', 'Worker'),
+          time('createdAt', 'Registered'),
+          text('userId', 'Account id', { detail: true }),
+          text('id', 'Worker id', { detail: true }),
+        ],
+        emptyText: 'svc-mining-pool has no registered worker. Registration is refused until a write permission is chosen.',
+        forbiddenText: FORBID_MINING,
+      },
+    ],
     unavailable: [
       un(
-        'mining.shares',
-        'Workers, shares accepted and rejected, payout windows',
-        'svc-mining-pool answers only /health and /ready over plain HTTP (it has no tRPC), so the edge has no typed read to forward and no share counter is exposed.',
-        23,
+        'mining.payouts',
+        'Payouts made and hashrate of the pool',
+        'No window is marked paid because the payout job refuses until emission is published, and the operator reads give no hashrate (that is per account). Nothing here is estimated.',
+        38,
       ),
     ],
     disabledActions: [],
@@ -910,6 +1228,7 @@ const moreSections: readonly DeskSection[] = [
         shape: 'list',
         idKey: 'id',
         page: 50,
+        rowAction: 'market.listing.takedown',
         columns: [
           text('title', 'Listing'),
           text('offerType', 'Type'),
@@ -926,6 +1245,43 @@ const moreSections: readonly DeskSection[] = [
         forbiddenText: 'svc-market did not answer this read.',
       },
       {
+        id: 'market.sales',
+        title: 'Sales by vendor, last 30 days',
+        note: 'Settled volume, settled count and the house commission for each vendor and asset, for sales settled in the window. The commission is each purchase’s own rate at the time, so changing the rate later changes nothing here. Refused purchases are not in the volume. The 50 first rows; a full page is not a total.',
+        module: 'market',
+        plainName: 'market sales',
+        procedure: 'ops.sales',
+        input: { limit: 50 },
+        windowDays: 30,
+        shape: 'list',
+        rowsKey: 'rows',
+        anonymousRows: true,
+        page: 50,
+        columns: [
+          text('vendorId', 'Vendor id'),
+          text('assetId', 'Asset'),
+          amount('settledVolume', 'Settled volume'),
+          text('settledCount', 'Settled purchases'),
+          amount('commission', 'House commission'),
+        ],
+        emptyText: 'svc-market recorded no settled sale in this window. That means none settled, not that the market is healthy.',
+        forbiddenText: FORBID_MARKET_OPS,
+      },
+      {
+        id: 'market.sales-counts',
+        title: 'Purchases not settled, last 30 days',
+        note: 'Purchases that were refused and purchases still pending in the same window, counted over the whole window and not just the page above.',
+        module: 'market',
+        plainName: 'market purchase counts',
+        procedure: 'ops.sales',
+        input: { limit: 50 },
+        windowDays: 30,
+        shape: 'record',
+        columns: [text('refusedCount', 'Refused'), text('pendingCount', 'Pending')],
+        emptyText: '',
+        forbiddenText: FORBID_MARKET_OPS,
+      },
+      {
         id: 'market.commerce',
         title: 'Commerce programme',
         note: 'The house commission. Blank means listings and purchases refuse.',
@@ -939,19 +1295,13 @@ const moreSections: readonly DeskSection[] = [
     ],
     unavailable: [
       un(
-        'market.volume',
-        'Purchases, volume and subscriptions per vendor',
-        'purchase and myPurchases are the buyer’s own. There is no operator read of sales.',
-        25,
+        'market.subscriptions',
+        'Subscriptions and refunds per vendor',
+        'Subscribing and recurring purchases refuse by design for now, and svc-market has no refund path, so there is nothing to read.',
+        null,
       ),
     ],
-    disabledActions: [
-      {
-        id: 'market.takedown',
-        label: 'Take down a listing',
-        reason: 'archiveListing belongs to the vendor. svc-market has no operator takedown; suspending the vendor is the lever (need 25).',
-      },
-    ],
+    disabledActions: [],
     links: [],
   },
   {
@@ -1212,7 +1562,7 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
     endpoint: '/api/bank-ops',
     title: 'Bank operations',
     intro:
-      'Pools, loans, cards, ramps and business approvals, as svc-bank reports them. Read-only: bank money jobs stay on Operator tools.',
+      'Pools, loans, cards, ramps and business approvals, as svc-bank reports them. The one action here is an operator card freeze, which a second founder must approve. Bank money jobs stay on Operator tools.',
     sections: bankSections,
   },
   p2p: {
@@ -1220,7 +1570,8 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
     module: 'p2p-ops',
     endpoint: '/api/p2p-ops',
     title: 'P2P operations',
-    intro: 'Disputes, late settlements and posture. Read-only: P2P rulings move escrow and have no console path.',
+    intro:
+      'Disputes, late settlements, offers, trades and posture. A moderator can escalate an open dispute from here. Rulings move escrow and stay with an attributed moderator, not this page.',
     sections: p2pSections,
   },
   academy: {

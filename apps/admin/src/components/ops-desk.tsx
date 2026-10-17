@@ -3,7 +3,15 @@
 import Link from 'next/link';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { Chip } from '@/components/chip';
-import { AmbassadorActions, AppointAmbassadorAction, ResidencyActions, VendorActions } from '@/components/ops-actions';
+import {
+  AmbassadorActions,
+  AppointAmbassadorAction,
+  CardStatusAction,
+  DisputeActions,
+  ListingActions,
+  ResidencyActions,
+  VendorActions,
+} from '@/components/ops-actions';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import type { Part } from '@/lib/desk/part';
 import { fetchDesk } from '@/lib/ops-desk/browser';
@@ -89,6 +97,8 @@ function DetailPanel({ spec, row, ctx }: { spec: ReadSpec; row: Row; ctx: RowAct
       {spec.rowAction === 'market.vendor.vet' && <VendorActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'academy.ambassador' && <AmbassadorActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'academy.residency' && <ResidencyActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {spec.rowAction === 'market.listing.takedown' && <ListingActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {spec.rowAction === 'p2p.dispute.escalate' && <DisputeActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
     </div>
   );
 }
@@ -253,6 +263,7 @@ export function SectionView({
         </div>
       )}
       {section.sectionAction === 'academy.ambassador.appoint' && <AppointAmbassadorAction userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {section.sectionAction === 'bank.card.status' && <CardStatusAction userId={ctx.userId} onChanged={ctx.onChanged} />}
       {section.disabledActions.length > 0 && (
         <div className="dk-stack" data-testid="disabled-actions">
           {section.disabledActions.map((a) => (

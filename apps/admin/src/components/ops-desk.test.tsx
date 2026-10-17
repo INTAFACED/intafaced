@@ -1,7 +1,15 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { OpsDeskView, type OpsDeskViewProps } from './ops-desk';
-import { VendorActions, AmbassadorActions, ResidencyActions, AppointAmbassadorAction } from './ops-actions';
+import {
+  VendorActions,
+  AmbassadorActions,
+  ResidencyActions,
+  AppointAmbassadorAction,
+  CardStatusAction,
+  DisputeActions,
+  ListingActions,
+} from './ops-actions';
 import { DESKS, allReads } from '@/lib/ops-desk/catalog';
 import { readData } from '@/lib/ops-desk/model';
 import type { DeskView, OpsDeskId, ReadOutcome, Row } from '@/lib/ops-desk/types';
@@ -64,8 +72,8 @@ describe('bank desk', () => {
         expect(html).toContain(u.reason.slice(0, 40).replace(/&/g, '&amp;').replace(/’/g, '’'));
       }
     }
-    expect(html).toContain('Not available: Pool balances, depositors and utilisation');
-    expect(html).toContain('Back-end need 13');
+    expect(html).toContain('Not available: Provider heartbeat, fiat provider status and ramp volumes');
+    expect(html).toContain('Back-end need 16');
   });
   it('a refused read says it refused the session and shows no table; its neighbours still render', () => {
     const html = render(
@@ -100,7 +108,7 @@ describe('bank desk', () => {
   it('a refresh that failed keeps the earlier read but says so with its time', () => {
     const html = render(props('bank', view('bank', [okOutcome('bank', 'bank.pools', [POOL])]), { stale: true }));
     expect(html).toContain('earlier read');
-    expect(html).toContain(AT);
+    expect(html).toContain('from 03:00:00 UTC');
   });
   it('disabled actions are real disabled buttons with the reason beside them', () => {
     const html = render(props('bank', view('bank', [])));
@@ -115,7 +123,7 @@ describe('bank desk', () => {
 });
 
 describe('p2p desk', () => {
-  it('shows the dispute counts as facts, with escalation and ruling shown as switched off with why', () => {
+  it('shows the dispute counts as facts, with the ruling shown as switched off with why', () => {
     const html = render(
       props(
         'p2p',
@@ -124,9 +132,9 @@ describe('p2p desk', () => {
     );
     expect(html).toContain('Never seen by a moderator');
     expect(html).toMatch(/<dt>Open<\/dt><dd>3<\/dd>/);
-    expect(html).toMatch(/<button[^>]*disabled[^>]*>Escalate a dispute<\/button>/);
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Escalate a dispute<\/button>/);
     expect(html).toMatch(/<button[^>]*disabled[^>]*>Release or refund escrow<\/button>/);
-    expect(html).toContain('Not available: Offers: open, paused, closed');
+    expect(html).toContain('Not available: Traded volume, cancel rate and release time over a period');
   });
 });
 
@@ -138,7 +146,7 @@ describe('academy and more desks', () => {
   });
   it('more names mining, launch and campaigns as not available, and Predict as waiting on a decision', () => {
     const html = render(props('more', view('more', [])));
-    expect(html).toContain('Not available: Workers, shares accepted and rejected, payout windows');
+    expect(html).toContain('Not available: Payouts made and hashrate of the pool');
     expect(html).toContain('Not available: Issuer state');
     expect(html).toContain('Not available: Campaign participation');
     expect(html).toContain('Waiting on a decision, not on code.');
@@ -219,7 +227,7 @@ describe('Export CSV on every list read', () => {
     const html = render(props('bank', view('bank', [okOutcome('bank', 'bank.pools', [POOL, { ...POOL, id: 'pool-2' }])])));
     expect(html).toContain('data-testid="export-csv"');
     expect(html).toContain('Export CSV (2 rows shown)');
-    expect(html).toContain('Exports the 2 rows shown above (not a full table export), as read at 2026-10-17T03:00:00.000Z.');
+    expect(html).toContain('Exports the 2 rows shown above (not a full table export), as read at 17 Oct 2026, 03:00:00 UTC.');
   });
   it('a full page says the file is capped and more rows may exist', () => {
     const rows = Array.from({ length: 200 }, (_, i) => ({ ...POOL, id: `p${i}` }));
@@ -242,7 +250,19 @@ describe('Export CSV on every list read', () => {
           let target = sample;
           for (const part of path.slice(0, -1)) target = (target[part] ??= {}) as Record<string, unknown>;
           target[path[path.length - 1]!] =
-            c.kind === 'int' || c.kind === 'bps' ? 1 : c.kind === 'bool' ? true : c.kind === 'time' ? AT : c.kind === 'list' ? ['a'] : 'x';
+            c.mustBe !== undefined
+              ? c.mustBe
+              : c.kind === 'int' || c.kind === 'bps'
+                ? 1
+                : c.kind === 'bool'
+                  ? true
+                  : c.kind === 'time'
+                    ? AT
+                    : c.kind === 'list'
+                      ? ['a']
+                      : c.kind === 'assetAmounts'
+                        ? [{ assetId: 'USDC', amount: '1' }]
+                        : 'x';
         }
         const raw = spec.rowsKey ? { [spec.rowsKey]: [sample] } : [sample];
         const html = render(props(id, view(id, [okOutcome(id, spec.id, raw)])));
@@ -432,5 +452,163 @@ describe('protocol ops desk', () => {
     expect(html).not.toContain('request-form');
     expect(html).not.toContain('control-desk');
     expect(html).not.toContain('export-csv');
+  });
+});
+
+describe('operator reads wired onto the desks', () => {
+  const ASSET_TOTALS = [
+    { assetId: 'USDC', amount: '1000' },
+    { assetId: 'BTC', amount: '0.5' },
+  ];
+  const LOAN_BOOK = {
+    asOf: AT,
+    openCount: 4,
+    outstandingPrincipal: ASSET_TOTALS,
+    bands: { healthy: 2, marginCall: 1, liquidation: 0, unpriced: 1 },
+    unpriced: [{ loanId: 'loan-9', reason: 'bank.loan_health_price_unset' }],
+    oldestPending: { id: 'loan-3', ageSeconds: 90 },
+  };
+  it('bank: the loan book shows its counts, the principal per asset, the unpriced loan with its reason in words, and the time read', () => {
+    const html = render(
+      props(
+        'bank',
+        view('bank', [
+          okOutcome('bank', 'bank.loan-book', LOAN_BOOK),
+          okOutcome('bank', 'bank.loans-unpriced', LOAN_BOOK),
+          okOutcome('bank', 'bank.pool-totals', {
+            asOf: AT,
+            pools: [
+              {
+                poolId: 'pool-2',
+                assetId: 'BTC',
+                amountHeld: null,
+                amountReason: 'ledger_unavailable',
+                depositorCount: 2,
+                utilisation: null,
+                utilisationReason: 'utilisation_not_recorded',
+              },
+            ],
+          }),
+        ]),
+      ),
+    );
+    expect(html).toContain('1000 USDC, 0.5 BTC');
+    expect(html).toContain('Without a usable price');
+    expect(html).toContain('loan-9');
+    expect(html).toContain('Loan health price unset');
+    expect(html).toContain('The ledger could not be read');
+    expect(html).toContain('Not recorded by svc-bank');
+    // The pool whose ledger could not be read has a dash for the figure, never 0.
+    expect(html).toMatch(/<td>—<\/td>/);
+    expect(html).toContain('3 of 3 reads answered');
+    expect(html).toContain('As of 03:00:00 UTC');
+  });
+  it('bank: the card freeze control is on the cards section, asks for a card id first, and is not a disabled placeholder', () => {
+    const html = render(props('bank', view('bank', [])));
+    expect(html).toContain('data-testid="card-status-action"');
+    expect(html).toContain('Enter the card id above first');
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Freeze a card<\/button>/);
+  });
+  it('the card freeze names the card in the phrase to type, and says the owner cannot undo it', () => {
+    const html = renderToStaticMarkup(<CardStatusAction userId={ME} onChanged={() => undefined} />);
+    expect(html).toContain('Freeze or unfreeze a card');
+    expect(html).toContain('its owner cannot unfreeze it');
+    expect(html).toContain('the reason is recorded with the freeze but is not part of what they sign');
+  });
+  const DISPUTE = {
+    id: '5a3b9c10-1111-4222-8333-444455556666',
+    tradeId: '6b4c0d21-1111-4222-8333-444455556666',
+    openedBy: ME,
+    openedVia: 'party',
+    reason: 'seller never released',
+    chatThreadId: null,
+    status: 'open',
+    moderatorId: null,
+    resolution: null,
+    resolutionNotes: null,
+    deadlineAt: AT,
+    openedAt: AT,
+    resolvedAt: null,
+    evidence: [],
+    overdue: true,
+    escalatedAt: null,
+    escalations: 0,
+    escalatedBy: null,
+    escalationReason: null,
+    fourEyes: null,
+    lastSeenByModeratorAt: null,
+  };
+  const disputeRow = (over: Record<string, unknown> = {}): Row => {
+    const o = okOutcome('p2p', 'p2p.disputes', { disputes: [{ ...DISPUTE, ...over }], nextCursor: null });
+    if (o.part.kind !== 'ok' || o.part.data.shape !== 'list') throw new Error('list expected');
+    return o.part.data.rows[0]!;
+  };
+  it('p2p: an open dispute row opens to the escalation form, with the reason box, and no ruling', () => {
+    const o = okOutcome('p2p', 'p2p.disputes', { disputes: [DISPUTE], nextCursor: null });
+    const html = render(props('p2p', view('p2p', [o]), { openKey: `p2p.disputes:${DISPUTE.tradeId}` }));
+    expect(html).toContain('data-testid="dispute-actions"');
+    expect(html).toContain('Escalate this dispute');
+    expect(html).toContain('asks for no second');
+    expect(html).toContain('No money moves');
+    // The form itself offers an escalation and nothing else: no ruling button inside it.
+    const form = renderToStaticMarkup(<DisputeActions row={disputeRow()} userId={ME} onChanged={() => undefined} />);
+    expect(form).toContain('Escalate this dispute');
+    expect(form).not.toMatch(/Release|Refund/);
+  });
+  it('p2p: a resolved dispute offers nothing to escalate', () => {
+    const html = renderToStaticMarkup(<DisputeActions row={disputeRow({ status: 'resolved' })} userId={ME} onChanged={() => undefined} />);
+    expect(html).toContain('dispute-no-action');
+    expect(html).not.toContain('<form');
+  });
+  it('p2p: the offers, trades and counts blocks name what the service gave and print blanks as blanks', () => {
+    const html = render(
+      props(
+        'p2p',
+        view('p2p', [
+          okOutcome('p2p', 'p2p.counts', {
+            offers: { active: 2, paused: 0, closed: 5 },
+            trades: { created: 1, escrowed: 0, fiat_sent: 0, released: 9, cancelled: 3, disputed: 1 },
+          }),
+          okOutcome('p2p', 'p2p.dispute-rate', { disputesOpened24h: 0, tradesCreated24h: 0, rate: null }),
+        ]),
+      ),
+    );
+    expect(html).toMatch(/<dt>Offers open<\/dt><dd>2<\/dd>/);
+    expect(html).toMatch(/<dt>Trades released<\/dt><dd>9<\/dd>/);
+    expect(html).toMatch(/<dt>Disputes out of trades<\/dt><dd>—<\/dd>/);
+  });
+  const LISTING = {
+    id: '5a3b9c10-1111-4222-8333-444455556666',
+    vendorId: '9f8e7d6c-1111-4222-8333-444455556666',
+    title: 'Chart pack',
+    description: 'd',
+    offerType: 'one_time',
+    price: '9.99',
+    assetId: 'USDC',
+    status: 'active',
+    periodSeconds: null,
+    createdAt: AT,
+  };
+  const listingRow = (over: Record<string, unknown> = {}): Row => {
+    const o = okOutcome('more', 'market.listings', [{ ...LISTING, ...over }]);
+    if (o.part.kind !== 'ok' || o.part.data.shape !== 'list') throw new Error('list expected');
+    return o.part.data.rows[0]!;
+  };
+  it('market: an active listing opens to the takedown request, which says it is permanent and signs the reason', () => {
+    const html = renderToStaticMarkup(<ListingActions row={listingRow()} userId={ME} onChanged={() => undefined} />);
+    expect(html).toContain('TAKE DOWN LISTING 5a3b9c10');
+    expect(html).toContain('leaves the market for good');
+    expect(html).toContain('nothing is refunded');
+    expect(html).toContain('signed by the approver');
+  });
+  it('market: a listing that is not on sale has no takedown to ask for', () => {
+    const html = renderToStaticMarkup(<ListingActions row={listingRow({ status: 'archived' })} userId={ME} onChanged={() => undefined} />);
+    expect(html).toContain('listing-no-action');
+  });
+  it('more: mining and sales sit on the desk, and nothing about them claims a payout or a hashrate', () => {
+    const html = render(props('more', view('more', [])));
+    expect(html).toContain('data-testid="read-mining.windows"');
+    expect(html).toContain('data-testid="read-market.sales"');
+    expect(html).toContain('Not available: Payouts made and hashrate of the pool');
   });
 });
