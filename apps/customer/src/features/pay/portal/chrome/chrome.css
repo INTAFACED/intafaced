@@ -1,4 +1,4 @@
-/* Merchant portal chrome: top bar, business switcher, phone menu, tab rows and the shared "coming soon" card. */
+/* Merchant portal chrome: top bar, business switcher, phone menu, tab rows and the shared not-live card. */
 .pfo-sr {
   position: absolute;
   width: 1px;
@@ -289,7 +289,7 @@
   text-decoration: none;
 }
 
-/* Coming soon: one calm card for a feature that is not live yet */
+/* One calm card for a part that is not live yet. Its first line names what it is waiting for. */
 .pfo-soon {
   display: grid;
   justify-items: start;
@@ -302,6 +302,10 @@
 }
 .pfo-soon--page {
   padding: 40px 24px;
+}
+.pfo-soon .pfo-soon-reason {
+  color: var(--if-fg);
+  font-weight: 500;
 }
 .pfo-soon h3 {
   margin: 8px 0 0;
@@ -371,5 +375,48 @@
   .pfo-search-button span,
   .pfo-search-button kbd {
     display: none;
+  }
+}
+
+/* A person with no business account yet: one calm state, and header actions switched off with their reason. */
+.pfo-nobiz {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 40px 24px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-lg);
+  background: var(--if-panel);
+  color: var(--if-fg);
+}
+.pfo-nobiz h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+.pfo-nobiz p {
+  margin: 0;
+  max-width: 56ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--if-fg-2);
+}
+.pfo-action-off {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+.pfo-action-off small {
+  max-width: 26ch;
+  text-align: right;
+  font-size: 12px;
+  color: var(--if-fg-2);
+}
+@media (max-width: 720px) {
+  .pfo-action-off {
+    justify-items: start;
+  }
+  .pfo-action-off small {
+    text-align: left;
   }
 }

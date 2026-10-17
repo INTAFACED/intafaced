@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
+import { reason } from '../chrome/copy';
 import { useSession } from '../../../session/session';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { StatusTag, Button, DataTable, EmptyState, Field } from '@intafaced/ui';
@@ -217,7 +218,7 @@ export function SubscriptionsView({
           }}
         </Gate>
       </PaySection>
-      <Arrives>{c.t('subscriptionMetricsGap')}</Arrives>
+      <Arrives reason={reason('reasonLists')}>{c.t('subscriptionMetricsGap')}</Arrives>
     </div>
   );
 }
@@ -368,7 +369,7 @@ export function SubscriptionDetailView({
       </PaySection>
       <PaySection title={c.t('history')}>
         <Timeline items={events} label={c.t('history')} />
-        <Arrives>{c.t('subscriptionAuditGap')}</Arrives>
+        <Arrives reason={reason('reasonHistory')}>{c.t('subscriptionAuditGap')}</Arrives>
       </PaySection>
       <PaySection title={c.t('cycleHistory')}>
         <p className="muted">{c.t('loadedWindow')}</p>
@@ -760,7 +761,7 @@ export function CreateSubscriptionView({
           </a>
         )}
       </PaySection>
-      <Arrives>{c.t('termsGap')}</Arrives>
+      <Arrives reason={reason('reasonActions')}>{c.t('termsGap')}</Arrives>
       {pay && <CreateMandate pay={pay} refresh={reload} />}
     </div>
   );

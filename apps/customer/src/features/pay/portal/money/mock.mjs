@@ -1,5 +1,5 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
-import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, iso, ok, refuse } from '../mock/shared.mjs';
+import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, iso, ok, page, refuse } from '../mock/shared.mjs';
 
 /** Settlements, approvals, pricing and limits. */
 export function createMoneyMock(ctx) {
@@ -242,7 +242,13 @@ export function createMoneyMock(ctx) {
           return q ? ok(route, q) : refuse(route, 412, 'pay.pricing_unconfigured');
         }
         case 'merchantControl.approvals.list':
-          return ok(route, approvals.filter((a) => !input.status || a.status === input.status).slice(0, input.limit ?? 50));
+          return ok(
+            route,
+            page(
+              approvals.filter((a) => !input.status || a.status === input.status),
+              input,
+            ),
+          );
         case 'merchantControl.approvals.decide': {
           const a = approvals.find((x) => x.approvalId === input.approvalId);
           if (!a) return refuse(route, 404, 'pay.approval_not_found');

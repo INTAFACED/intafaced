@@ -1,5 +1,6 @@
 import { Button } from '@intafaced/ui';
 import { PayDetails, PaySection } from '../../components';
+import { reason } from '../chrome/copy';
 import { Arrives, CopyReference, PortalBack } from '../ExtensionTools';
 import { extensionCopy as c } from './copy';
 import type { MerchantRecord } from '../schemas';
@@ -36,12 +37,12 @@ export function Settings({ merchant }: { merchant: MerchantRecord | null }) {
         </PaySection>
       )}
       <PaySection title={c.t('profileDetails')}>
-        <Arrives>{c.t('profileGap')}</Arrives>
+        <Arrives reason={reason('reasonProfile')}>{c.t('profileGap')}</Arrives>
         <span title={c.t('profileSaveReason')}>
           <Button disabled>{c.t('saveProfile')}</Button>
         </span>
       </PaySection>
-      <Arrives>{c.t('profileHistoryGap')}</Arrives>
+      <Arrives reason={reason('reasonHistory')}>{c.t('profileHistoryGap')}</Arrives>
     </div>
   );
 }

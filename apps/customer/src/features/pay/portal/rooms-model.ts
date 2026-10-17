@@ -23,6 +23,12 @@ export type RoomDef = {
   header(route: PortalRoute): RoomHeader;
   render(route: PortalRoute, ctx: RoomContext): ReactNode;
   here?: string | ((route: PortalRoute) => string);
+  /**
+   * What the page does for a signed-in person with no business account. Left out, the page shows the one calm
+   * "No business account yet" state and its header action is switched off. `'render'` keeps the page as it is (setup,
+   * where the account is made). A function draws its own body (the team page, for invitations).
+   */
+  withoutBusiness?: 'render' | ((ctx: RoomContext) => ReactNode);
 };
 export type RoomTable = Partial<Record<PortalRoom, RoomDef>>;
 

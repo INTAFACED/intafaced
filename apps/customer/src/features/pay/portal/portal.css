@@ -2,10 +2,6 @@
 @layer components {
   .if-business {
     /* Merchant portal (W3a). Built from the app's tokens only; lime is only the one primary action, the active tab and the focus ring. Links, ids and statuses are never lime. */
-    .pp .text-link,
-    .plo .text-link {
-      color: var(--if-fg);
-    }
     /* Status chips: the word carries the meaning; the dot and the soft tone only back it up. Completed is green, never lime. */
     .pp-chip {
       display: inline-flex;
@@ -17,7 +13,7 @@
       font-size: 12px;
       line-height: 1;
       white-space: nowrap;
-      color: var(--if-fg-2);
+      color: var(--if-fg);
       background: var(--if-raised);
     }
     .pp-chip::before {
@@ -881,4 +877,10 @@
       }
     }
   }
+}
+
+/* Links are never lime. The shared `.text-link` rule sits outside every layer, so this one must too. */
+.if-business .pp .text-link,
+.if-business .plo .text-link {
+  color: var(--if-fg);
 }

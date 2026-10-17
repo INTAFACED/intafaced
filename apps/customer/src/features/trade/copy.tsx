@@ -328,7 +328,7 @@ const en = {
   existingQuoteId: 'Existing quote ID',
   openQuotedOrder: 'Open quoted order ',
   quoteDeskPublished: 'Quote desk published',
-  quoteDeskRestricted: 'Quote desk restricted',
+  quoteDeskRestricted: 'Quote desk not open yet',
   simulatedQuoteSettlementIsUnavailable: 'Simulated quote settlement is unavailable',
   side90eb04: 'Side ',
   buy: 'Buy',
@@ -729,7 +729,7 @@ const en = {
   quotesRequireActualDeskPricingTheNamedCounterpartyAndYourAccount:
     'Quotes require actual desk pricing, the named counterparty, and your account eligibility.',
   deskSpreadStakeEligibilityCounterpartyRoutingOrReferencePricingAuthorityIs:
-    'Desk spread, stake eligibility, counterparty routing, or reference pricing authority is unpublished.',
+    'The quote desk is not open yet. Its prices (the spread added to each quote), the staking level needed to use it, and who takes the other side of your trade have not been approved.',
   theRfqContractHasNoIsolatedSimulatedSettlementContractNoQuote:
     'The RFQ contract has no isolated simulated settlement contract. No quote request is routed from simulation into a live desk.',
   quoteSettledAt: 'Quote {dataQuoteId} settled at {dataFillPrice} {dataQuoteAsset}.',
@@ -1139,7 +1139,7 @@ const es = {
   existingQuoteId: 'ID de cotización existente',
   openQuotedOrder: 'Abrir orden cotizada ',
   quoteDeskPublished: 'Mesa de cotización publicada',
-  quoteDeskRestricted: 'Mesa de cotización restringida',
+  quoteDeskRestricted: 'Mesa de cotización aún no abierta',
   simulatedQuoteSettlementIsUnavailable: 'La liquidación de cotizaciones simuladas no está disponible',
   side90eb04: 'Lado ',
   buy: 'Comprar',
@@ -1553,7 +1553,7 @@ const es = {
   quotesRequireActualDeskPricingTheNamedCounterpartyAndYourAccount:
     'Las cotizaciones requieren precios reales de la mesa, la contraparte identificada y la elegibilidad de tu cuenta.',
   deskSpreadStakeEligibilityCounterpartyRoutingOrReferencePricingAuthorityIs:
-    'La autoridad sobre el diferencial de la mesa, la elegibilidad según los fondos en staking, el enrutamiento a contrapartes o los precios de referencia no está publicada.',
+    'La mesa de cotización aún no está abierta. Sus precios (el diferencial que se añade a cada cotización), el nivel de staking necesario para usarla y quién toma la otra parte de tu operación aún no se han aprobado.',
   theRfqContractHasNoIsolatedSimulatedSettlementContractNoQuote:
     'El contrato RFQ no tiene un contrato aislado de liquidación simulada. Ninguna solicitud de cotización se enruta desde la simulación hacia una mesa real.',
   quoteSettledAt: 'La cotización {dataQuoteId} se ha liquidado a {dataFillPrice} {dataQuoteAsset}.',
@@ -1967,7 +1967,7 @@ const fr = {
   existingQuoteId: 'ID de cotation existante',
   openQuotedOrder: 'Ouvrir l’ordre coté ',
   quoteDeskPublished: 'Bureau de cotation publié',
-  quoteDeskRestricted: 'Bureau de cotation restreint',
+  quoteDeskRestricted: 'Bureau de cotation pas encore ouvert',
   simulatedQuoteSettlementIsUnavailable: 'Le règlement des cotations simulées est indisponible',
   side90eb04: 'Côté ',
   buy: 'Acheter',
@@ -2383,7 +2383,7 @@ const fr = {
   quotesRequireActualDeskPricingTheNamedCounterpartyAndYourAccount:
     'Les cotations nécessitent les prix réels du bureau de négociation, la contrepartie désignée et l’éligibilité de votre compte.',
   deskSpreadStakeEligibilityCounterpartyRoutingOrReferencePricingAuthorityIs:
-    'L’autorité sur l’écart du bureau, l’éligibilité selon les fonds en staking, le routage vers les contreparties ou les prix de référence n’est pas publiée.',
+    'Le bureau de cotation n’est pas encore ouvert. Ses prix (l’écart ajouté à chaque cotation), le niveau de staking requis pour l’utiliser et la contrepartie de votre opération n’ont pas encore été approuvés.',
   theRfqContractHasNoIsolatedSimulatedSettlementContractNoQuote:
     'Le contrat RFQ n’a aucun contrat isolé de règlement simulé. Aucune demande de cotation n’est acheminée depuis la simulation vers un bureau réel.',
   quoteSettledAt: 'La cotation {dataQuoteId} a été réglée à {dataFillPrice} {dataQuoteAsset}.',

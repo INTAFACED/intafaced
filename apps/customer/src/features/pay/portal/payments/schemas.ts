@@ -40,12 +40,3 @@ export type InvoiceLink = z.infer<typeof invoiceLinkSchema>;
 
 export const invoiceSentSchema = z.object({ invoice: invoiceSchema, paymentLink: invoiceLinkSchema.nullable() });
 export type InvoiceSent = z.infer<typeof invoiceSentSchema>;
-
-/** Lists that were arrays and are now `{ items, nextCursor }` pages on main (#4826): read both, so the day a service changes nothing breaks. */
-export const tolerantList = <T extends z.ZodTypeAny>(item: T) =>
-  z.union([z.array(item), z.object({ items: z.array(item), nextCursor: z.string().nullable().optional() })]);
-export function unwrapList<T>(
-  result: import('../../../../shared/api').ApiResult<T[] | { items: T[]; nextCursor?: string | null | undefined }>,
-): import('../../../../shared/api').ApiResult<T[]> {
-  return result.ok ? { ok: true, data: Array.isArray(result.data) ? result.data : result.data.items } : result;
-}

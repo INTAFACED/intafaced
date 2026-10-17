@@ -43,6 +43,13 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
     });
     expect(refusalCopy('trade.convert_spread_unset').action?.href).toBe('/trade');
   });
+  it('operator-not-configured refusals read as "not set up yet", never as the raw code', () => {
+    for (const code of ['token.params_invalid', 'token.params_missing', 'token.proposal_list_limit_unset'])
+      expect(refusalCopy(code)).toEqual({
+        title: 'Not set up yet',
+        body: 'This part of INTAFACED has not been switched on yet. Nothing was changed.',
+      });
+  });
   it('market orders paused', () => {
     expect(refusalCopy('trade.slippage_cap_unset')).toEqual({ title: 'Market orders are paused', body: 'Use a limit order instead.' });
   });

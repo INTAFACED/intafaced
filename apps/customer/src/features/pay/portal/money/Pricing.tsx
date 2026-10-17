@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import type { ApiResult } from '../../../../shared/api';
+import { reason } from '../chrome/copy';
 import { portalAmount } from '../presentation';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable, Field } from '@intafaced/ui';
 import { PayTime, PaySection } from '../../components';
-import { ComingSoon, Facts, Gate, Money, NotConfigured, PortalFailure, ReadAt, SelectField } from '../components';
+import { NotLive, Facts, Gate, Money, NotConfigured, PortalFailure, ReadAt, SelectField } from '../components';
 import { portalCopy } from './copy';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt } from '../hooks';
@@ -106,7 +107,9 @@ export function PricingView({
 
               <FeeCalculator portal={portal} merchantId={merchantId} assets={assets} />
 
-              <ComingSoon title={t('pricingHistorySoonTitle')}>{t('pricingHistorySoonBody')}</ComingSoon>
+              <NotLive reason={reason('reasonFees')} title={t('pricingHistorySoonTitle')}>
+                {t('pricingHistorySoonBody')}
+              </NotLive>
             </>
           );
         }}

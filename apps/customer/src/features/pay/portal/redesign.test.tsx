@@ -70,8 +70,8 @@ describe('Pay redesign boundary', () => {
   });
   it('announces loading and keeps unbuilt backend copy honest', () => {
     expect(renderToString(<PortalLoading label="Loading TEST payments" />)).toContain('aria-busy="true"');
-    const out = renderToString(<Arrives>TEST dependency is unavailable</Arrives>);
-    expect(out).toContain('Coming soon');
+    const out = renderToString(<Arrives reason="TEST reason shown first">TEST dependency is unavailable</Arrives>);
+    expect(out).toContain('TEST reason shown first');
     expect(out).not.toContain('0.00');
   });
 });

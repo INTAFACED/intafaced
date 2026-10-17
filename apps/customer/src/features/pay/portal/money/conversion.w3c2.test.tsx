@@ -6,6 +6,7 @@ vi.mock('../../../../shared/preferences', async (original) => {
 });
 import { ConversionView } from './Conversion';
 import { parsePortalRoute } from '../routes';
+import { notLiveWords } from '../ui/test-words';
 const props = { halts: { status: 'ready' as const, data: { states: [], readable: true } }, reload: () => {} };
 it('routes conversion hub, quote and order independently', () => {
   expect(parsePortalRoute('/pay/conversion')).toEqual({ room: 'conversion' });
@@ -16,7 +17,7 @@ it('labels all routes TEST and never fabricates a rate or quote confirmation', (
   for (const room of ['conversion', 'conversion-new', 'conversion-order']) {
     const out = renderToString(<ConversionView {...props} room={room} orderId="TEST-order" />);
     expect(out).toContain('TEST · Sandbox / testnet only');
-    expect(out).toContain('Coming soon');
+    expect(out).toMatch(notLiveWords);
     expect(out).not.toMatch(/1\.00|0\.00|>Confirm/);
   }
 });
@@ -33,7 +34,7 @@ it('does not leak the existence of an unreadable conversion order', () => {
 
 it('shows unavailable source and target assets until quote configuration exists', () => {
   const out = renderToString(<ConversionView {...props} room="conversion-new" />);
-  expect(out).toMatch(/Source asset<\/dt><dd[^>]*>Coming soon<\/dd>/);
-  expect(out).toMatch(/Target asset<\/dt><dd[^>]*>Coming soon<\/dd>/);
+  expect(out).toMatch(/Source asset<\/dt><dd[^>]*>Not available yet<\/dd>/);
+  expect(out).toMatch(/Target asset<\/dt><dd[^>]*>Not available yet<\/dd>/);
   expect(out).not.toMatch(/<dd[^>]*>(USD|USDT)<\/dd>/);
 });

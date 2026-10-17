@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { plainCode } from '../ui/plain-code';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable, EmptyState } from '@intafaced/ui';
 import { PayTime, PaySection } from '../../components';
@@ -6,7 +7,7 @@ import { PortalReview } from '../ui/PortalReview';
 import {
   BackLink,
   Chip,
-  ComingSoon,
+  NotLive,
   Facts,
   Gate,
   Kpi,
@@ -70,7 +71,7 @@ export function DisputesView({
   retry: () => void;
 }) {
   const { t } = portalCopy.useCopy();
-  // If the dispute reads are not live, say so once; do not paint empty tiles. The failure becomes the Coming soon card when unmounted.
+  // If the dispute reads are not live, say so once; do not paint empty tiles. The failure becomes the not-live card when unmounted.
   const notLive = list.status === 'failed' && summary.status === 'failed';
   if (notLive) return <PortalFailure result={list.failure} retry={retry} />;
   const due = list.status === 'ready' ? nextDueSoonest(list.items) : null;
@@ -145,7 +146,7 @@ export function DisputesView({
                     <td>
                       <Money value={d.amount} asset={d.assetId} />
                     </td>
-                    <td>{d.reasonCode ?? t('notGiven')}</td>
+                    <td>{d.reasonCode ? plainCode(d.reasonCode) : t('notGiven')}</td>
                     <td>
                       <Chip kind="dispute" value={d.status} />
                     </td>
@@ -194,7 +195,7 @@ export function DisputeDetailView({
                   [t('colDispute'), <span className="pp-mono pp-copy">{d.disputeId}</span>],
                   [t('colPayment'), <span className="pp-mono pp-copy">{d.paymentId}</span>],
                   [t('colAmount'), <Money value={d.amount} asset={d.assetId} />],
-                  [t('colReason'), d.reasonCode ?? t('notGiven')],
+                  [t('colReason'), d.reasonCode ? plainCode(d.reasonCode) : t('notGiven')],
                   [t('colStatus'), <Chip kind="dispute" value={d.status} />],
                   [t('colDue'), d.responseDueAt ? <PayTime value={d.responseDueAt} /> : t('noDeadline')],
                   [t('ledgerWire'), d.ledgerWire === 'posted' ? t('ledgerPosted') : t('ledgerNotConnected')],
