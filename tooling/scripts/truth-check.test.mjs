@@ -35,7 +35,7 @@ function fixture(mutate) {
   mkdirSync(join(root, '.cursor/rules'), { recursive: true });
   mkdirSync(join(root, 'docs'), { recursive: true });
   writeFileSync(join(root, 'AGENTS.md'), CLEAN_AGENTS);
-  writeFileSync(join(root, 'CLAUDE.md'), '# claude\n');
+  writeFileSync(join(root, 'CLAUDE.md'), '# agent rules\n');
   writeFileSync(join(root, 'CONTRIBUTING.md'), 'Never run `pnpm wt:rm` or `pnpm wt:gc:apply`.\n');
   writeFileSync(join(root, 'README.md'), '# readme\n');
   writeFileSync(join(root, 'tooling/agent-protocol/AGENT_PROTOCOL.md'), '# protocol\n');
@@ -189,7 +189,7 @@ test('stale text already on base but not changed in this push passes', () => {
       git(root, ['commit', '-am', 'bad base']);
       git(root, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
       git(root, ['checkout', '-b', 'topic']);
-      writeFileSync(join(root, 'CLAUDE.md'), '# claude, edited\n');
+      writeFileSync(join(root, 'CLAUDE.md'), '# agent rules, edited\n');
       git(root, ['commit', '-am', 'unrelated edit']);
     },
     (result) => assert.equal(result.status, 0, result.stderr),
