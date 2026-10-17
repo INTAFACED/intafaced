@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
+import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
+import { attachIcebergDisplay, readRawDisplayQty, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
 import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
 import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
@@ -113,6 +115,8 @@ export interface PrivateRestDeps {
   edgeSecret: string;
   serviceName: string;
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  icebergDisplay?: IcebergDisplayStore;
   openOrders(principal: Principal, marketId: string | undefined, limit: number): Promise<OrderRecord[]>;
   /** Operator projection. Unset mounts a typed refuse, never a fallback book. Limit required — never invent 100. */
   adminOpenOrders?(principal: Principal, limit: number): Promise<OrderRecord[]>;
@@ -881,6 +885,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
+  attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
@@ -2115,8 +2120,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     let input: PlaceOrderInput;
+    let displayQty: string | null = null;
     try {
       input = mapCreateOrderBody(parsed.data);
+      const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
+      input = attached.input;
+      displayQty = attached.displayQty;
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -2125,9 +2134,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     try {
       const order = await deps.placeOrder(principal, input);
+      if (displayQty && deps.icebergDisplay) await deps.icebergDisplay.remember(order.id, principal.userId, displayQty);
+      const stored = deps.icebergDisplay ? await deps.icebergDisplay.read(order.id) : displayQty;
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;
-      return reply.code(201).send(presentCcxtOrder(order, symbol));
+      const wire = presentCcxtOrder(order, symbol);
+      return reply.code(201).send(stored ? { ...wire, displayQty: stored } : wire);
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

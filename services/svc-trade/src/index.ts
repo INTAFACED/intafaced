@@ -32,6 +32,7 @@ import { attachPostOnlyStash, bindPostOnly, installPostOnlyPlace } from './spot/
 import { attachIocStash, bindIoc, installIocPlace } from './spot/ioc-place.js';
 import { attachFokStash, bindFok, installFokPlace } from './spot/fok-place.js';
 import { attachIcebergStash, bindIceberg, installIcebergPlace } from './spot/iceberg-place.js';
+import { sqlIcebergDisplay } from './spot/iceberg-door.js';
 import { attachStopLimitStash, bindStopLimit, installStopLimitPlace } from './spot/stop-limit-place.js';
 import { attachTrailingStopStash, bindTrailingStop, installTrailingStopPlace } from './spot/trailing-stop-place.js';
 import { attachOptionStash, bindOption, installOptionPlace } from './spot/option-place.js';
@@ -833,6 +834,8 @@ registerPrivateRest(app, {
   listAdlDisclosureEvents: async (principal, limit) =>
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
   convertExport: (principal, query) => trade.convertExport(principal, query),
+  rfqExport: (principal, query) => trade.rfqExport(principal, query),
+  icebergDisplay: sqlIcebergDisplay(sql),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
 });

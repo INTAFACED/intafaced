@@ -21,11 +21,22 @@ import {
   parseAmount,
   recipes,
   sub,
+  userAvailable,
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../tracing.js';
 import { queryCandlesFromFills, queryTakerVolumeFromFills } from './candles.js';
+import { listAlgoParents, type AlgoListQuery } from '../algo/algo-list.js';
+import { listOptionsCatalogue, type OptionsCatalogueQuery } from './options-catalogue.js';
+import {
+  optionsExercises as optionsExercisesDoor,
+  optionsMarginPreview as optionsMarginPreviewDoor,
+  optionsPositions as optionsPositionsDoor,
+} from './options-doors.js';
+import { exportRfqHistory, listRfqHistory, type RfqListQuery } from '../otc/rfq-history.js';
+import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInput } from './scale-group.js';
+import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
 import { FeeScheduleError, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from './fees.js';
 import { fillIdFor, fillLegIdFor, orderIdFor } from './ids.js';
@@ -1241,6 +1252,64 @@ export class TradeService {
     return exportConvertHistory(this.sql, principal, query, this.now());
   }
 
+  algoList(principal: Principal, query: AlgoListQuery) {
+    return listAlgoParents(this.sql, principal, query, this.now());
+  }
+
+  algoReports(principal: Principal, query: { algoId: string; limit?: number | null; cursor?: string | null }) {
+    return listAlgoReports(this.sql, principal, query);
+  }
+
+  optionsCatalogue(principal: Principal, query: OptionsCatalogueQuery) {
+    return listOptionsCatalogue(this.sql, principal, query, this.optionsSettlementAssetLaw);
+  }
+
+  optionsPositions(principal: Principal) {
+    return optionsPositionsDoor(principal, this.optionsDoorConfig());
+  }
+
+  optionsExercises(principal: Principal, jobsEnabled: boolean) {
+    return optionsExercisesDoor(principal, { ...this.optionsDoorConfig(), jobsEnabled });
+  }
+
+  optionsMarginPreview(principal: Principal) {
+    return optionsMarginPreviewDoor(principal, this.optionsDoorConfig());
+  }
+
+  rfqList(principal: Principal, query: RfqListQuery) {
+    return listRfqHistory(this.sql, principal, query);
+  }
+
+  rfqExport(principal: Principal, query: { from?: string; to?: string }) {
+    return exportRfqHistory(this.sql, principal, query);
+  }
+
+  scaleCreate(principal: Principal, input: ScaleCreateInput) {
+    return createScaleGroup(this.scalePorts(), principal, input);
+  }
+
+  scaleGet(principal: Principal, groupId: string) {
+    return getScaleGroup(this.scalePorts(), principal, groupId);
+  }
+
+  scaleCancel(principal: Principal, groupId: string) {
+    return cancelScaleGroup(this.scalePorts(), principal, groupId);
+  }
+
+  private optionsDoorConfig() {
+    return { settlementAssetLaw: this.optionsSettlementAssetLaw, settlementFixing: this.optionsSettlementFixing };
+  }
+
+  private scalePorts() {
+    return {
+      sql: this.sql,
+      placeOrder: (principal: Principal, input: PlaceOrderInput) => this.placeOrder(principal, input),
+      cancelOrder: (principal: Principal, orderId: string) => this.cancelOrder(principal, orderId),
+      marketBySymbol: (symbol: string) => this.marketBySymbol(symbol),
+      available: async (userId: string, assetId: string) => (await this.ledger.balance(userAvailable(userId, assetId))).amount,
+    };
+  }
+
   private async buildConvertQuote(userId: string, input: ConvertQuoteRequest) {
     if (!this.convertEnabled) {
       throw new TradeError('convert is disabled by the operator kill-switch', 'trade.convert_disabled');
@@ -2184,6 +2253,14 @@ export class TradeService {
         }
         const newQty = locked.filledQty + newRemaining;
         const amendReleased = locked.amendReleased + release;
+        await appendOrderEvent(tx, {
+          orderId: locked.id,
+          parentId: parentIdFromClientOrder(locked.clientOrderId),
+          kind: 'amend',
+          quantity: formatAmount(newQty),
+          price: formatAmount(locked.price),
+          code: `amend:${version}`,
+        });
         await tx`
           UPDATE trade.orders
              SET qty = ${formatAmount(newQty)}::numeric,
@@ -2574,6 +2651,12 @@ export class TradeService {
       return;
     }
 
+    const accepted = await this.findOrder(orderId);
+    if (accepted) {
+      await this.noteOrderEvent(accepted, 'ack', 'ack');
+      if (result.resting?.orderId === orderId) await this.noteOrderEvent(accepted, 'rest', 'rest');
+    }
+
     if (result.sequence !== null || result.resting?.version != null) {
       const version = result.resting?.version ?? 1;
       await this.sql`
@@ -2951,6 +3034,7 @@ export class TradeService {
       });
 
       await this.refreshFilledQty(taker.id);
+      await this.notePartialIfOpen(taker.id, formatAmount(qty), formatAmount(price), `fill:${fill.sequence}:taker`);
 
       await this.ledger.post(
         withFillLedgerAttribution(
@@ -3103,7 +3187,10 @@ export class TradeService {
     // Recomputed from the fills rather than incremented, so it is idempotent by
     // construction and `filled_qty = Σ fills.qty` is true by definition rather
     // than by hope. A test asserts it anyway.
-    for (const leg of legs) await this.refreshFilledQty(leg.order.id);
+    for (const leg of legs) {
+      await this.refreshFilledQty(leg.order.id);
+      await this.notePartialIfOpen(leg.order.id, formatAmount(qty), formatAmount(price), `fill:${fill.sequence}:${leg.role}`);
+    }
 
     // ── 5 · THE FILL ────────────────────────────────────────────────────────
     //
@@ -3423,6 +3510,16 @@ export class TradeService {
                  updated_at = now()
            WHERE id = ${orderId}
         `;
+        const kind =
+          finalStatus === 'cancelled' ? 'cancel' : finalStatus === 'filled' ? 'fill' : finalStatus === 'expired' ? 'expire' : 'reject';
+        await appendOrderEvent(tx, {
+          orderId,
+          parentId: parentIdFromClientOrder(order.clientOrderId),
+          kind,
+          quantity: formatAmount(order.qty),
+          price: order.price === null ? null : formatAmount(order.price),
+          code: kind === 'reject' ? (reasonCode ?? 'reject') : kind,
+        });
 
         return { order, status: finalStatus };
       },
@@ -4827,6 +4924,30 @@ export class TradeService {
       tif,
       lifecycleProof,
     };
+  }
+
+  private async noteOrderEvent(order: OrderRecord, kind: OrderEventKind, code: string): Promise<void> {
+    await appendOrderEvent(this.sql, {
+      orderId: order.id,
+      parentId: parentIdFromClientOrder(order.clientOrderId),
+      kind,
+      quantity: formatAmount(order.qty),
+      price: order.price === null ? null : formatAmount(order.price),
+      code,
+    });
+  }
+
+  private async notePartialIfOpen(orderId: string, quantity: string, price: string, code: string): Promise<void> {
+    const order = await this.findOrder(orderId);
+    if (!order || order.filledQty <= 0n || order.filledQty >= order.qty) return;
+    await appendOrderEvent(this.sql, {
+      orderId: order.id,
+      parentId: parentIdFromClientOrder(order.clientOrderId),
+      kind: 'partial',
+      quantity,
+      price,
+      code,
+    });
   }
 
   private async refreshFilledQty(orderId: string): Promise<void> {
