@@ -44,7 +44,10 @@ export interface TableColumn<Row> {
   value?: (row: Row) => string | null;
   /** Custom cell content. Prefer the kit's Money, Amount, Pct and Badge parts inside it. */
   cell?: (row: Row, context: { index: number }) => React.ReactNode;
-  /** Figures: right-aligned, tabular figures. Sorts as decimal and starts largest first. */
+  /**
+   * Figures: right-aligned, tabular figures. Sorts as decimal and starts largest first, so `value` (or `sortValue`)
+   * must be a plain decimal string ("1234.5": no thousands separator, currency sign or %). Put formatting in `cell`.
+   */
   numeric?: boolean;
   align?: 'start' | 'end' | 'center';
   sortable?: boolean;
@@ -170,7 +173,8 @@ function RowView<Row>({ row, index, body }: { row: Row; index: number; body: Bod
     >
       {selection === 'multiple' ? (
         <td className={cn('w-10', cellPadding[density])}>
-          <Checkbox aria-label={labels.selectRow} checked={selected} onCheckedChange={() => body.onToggleRow(id)} />
+          {/* Not a tab stop: the row is, and Space toggles it. One Tab stop per row keeps the grid keyboard model. */}
+          <Checkbox aria-label={labels.selectRow} tabIndex={-1} checked={selected} onCheckedChange={() => body.onToggleRow(id)} />
         </td>
       ) : null}
       {columns.map((column, c) => {
@@ -220,14 +224,15 @@ function Spacer({ height, colSpan }: { height: number; colSpan: number }) {
 
 function VirtualRows<Row>({
   body,
-  scrollRef,
+  scrollEl,
   height,
   overscan,
   colSpan,
   pendingFocus,
 }: {
   body: BodyProps<Row>;
-  scrollRef: React.RefObject<HTMLDivElement | null>;
+  /** The scroll container as state, not a ref: the virtualiser must re-subscribe once the element exists. */
+  scrollEl: HTMLDivElement | null;
   height: number;
   overscan: number;
   colSpan: number;
@@ -235,7 +240,7 @@ function VirtualRows<Row>({
 }) {
   const virtualizer = useVirtualizer({
     count: body.rows.length,
-    getScrollElement: () => scrollRef.current,
+    getScrollElement: () => scrollEl,
     estimateSize: () => ROW_PX[body.density],
     overscan,
     // Gives the first (server or headless) render a real window instead of zero rows.
@@ -250,7 +255,7 @@ function VirtualRows<Row>({
   React.useEffect(() => {
     const target = pendingFocus.current;
     if (target === null) return;
-    focusPendingRow(scrollRef.current, pendingFocus);
+    focusPendingRow(scrollEl, pendingFocus);
     if (pendingFocus.current !== null) virtualizer.scrollToIndex(target);
   });
 
@@ -294,6 +299,11 @@ export function Table<Row>({
 }: TableProps<Row>) {
   const labels = { ...defaultLabels, ...labelOverrides };
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  const [scrollEl, setScrollEl] = React.useState<HTMLDivElement | null>(null);
+  const attachScroll = React.useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    setScrollEl(el);
+  }, []);
   const pendingFocus = React.useRef<number | null>(null);
   const [focusIndex, setFocusIndex] = React.useState(0);
   const emptySet = React.useMemo(() => new Set<string>(), []);
@@ -358,13 +368,13 @@ export function Table<Row>({
   return (
     <div data-slot="table" data-density={density} data-status={status} className={cn('relative w-full', className)}>
       <div
-        ref={scrollRef}
+        ref={attachScroll}
         data-slot="table-scroll"
         role={scrollHeight ? 'region' : undefined}
         aria-label={scrollHeight ? label : undefined}
-        tabIndex={scrollHeight && !interactive ? 0 : undefined}
+        tabIndex={scrollHeight && (!interactive || windowed) ? 0 : undefined}
         style={scrollHeight ? { maxHeight: scrollHeight } : undefined}
-        className={cn('w-full overflow-x-auto', scrollHeight && 'overflow-y-auto', scrollHeight && !interactive && focusRing)}
+        className={cn('w-full overflow-x-auto', scrollHeight && 'overflow-y-auto', scrollHeight && (!interactive || windowed) && focusRing)}
       >
         <table
           role={selection !== 'none' || onRowActivate ? 'grid' : undefined}
@@ -412,7 +422,7 @@ export function Table<Row>({
                       alignClass[align],
                       'overflow-hidden text-ellipsis whitespace-nowrap',
                       stickyHeader && 'sticky top-0 z-10',
-                      column.pin === 'start' && c === 0 && 'left-0 z-20',
+                      column.pin === 'start' && c === 0 && cn('left-0 z-20', !stickyHeader && 'sticky'),
                     )}
                   >
                     {sortable ? (
@@ -478,7 +488,7 @@ export function Table<Row>({
             ) : windowed ? (
               <VirtualRows
                 body={body}
-                scrollRef={scrollRef}
+                scrollEl={scrollEl}
                 height={scrollHeight ?? 480}
                 overscan={overscan}
                 colSpan={columnCount}

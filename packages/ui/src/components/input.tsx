@@ -8,6 +8,7 @@
  * disabled from it (Base UI wires the label and aria-describedby).
  */
 import * as React from 'react';
+import { CircleAlert } from 'lucide-react';
 import { Input as InputPrimitive } from '@base-ui/react/input';
 import { cn } from './cn.js';
 import { controlHeight, controlPadX, controlText, DEFAULT_DENSITY, type Density } from './density.js';
@@ -242,7 +243,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
         controlPadX[density],
         invalid ? 'border-error' : 'border-transparent',
         !disabled && !readOnly && 'hover:bg-raised',
-        readOnly && !disabled && 'border-line bg-transparent',
+        readOnly && !disabled && 'bg-panel',
         'has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-lime',
         disabled && 'cursor-not-allowed opacity-40',
         className,
@@ -271,6 +272,10 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
         )}
       />
       {loading ? <Spinner /> : null}
+      {/* Colour is never the only cue: an invalid box always carries an icon (the Field adds the words). */}
+      {invalid ? (
+        <CircleAlert data-slot="input-invalid-icon" size={16} strokeWidth={2} aria-hidden="true" className="shrink-0 text-error-text" />
+      ) : null}
       {trailing ? (
         <span data-slot="input-trailing" className="flex shrink-0 items-center font-medium text-fg-2 [&_svg]:shrink-0">
           {trailing}

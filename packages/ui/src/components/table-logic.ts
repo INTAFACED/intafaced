@@ -78,6 +78,27 @@ export interface SortableColumn<Row> {
   value?: (row: Row) => string | null;
 }
 
+const warned = new Set<string>();
+
+/**
+ * A decimal column whose text is not a plain decimal ("1,000.00", "$12", "+1.5%") would be sorted to the end as if
+ * unknown, which looks like a sort bug and hides real values. Say so once per column. The fix is on the screen:
+ * give the column a plain-decimal `value` or `sortValue` and put the formatting in `cell`.
+ */
+function warnUnparseable<Row>(rows: readonly Row[], read: (row: Row) => string | null, columnId: string): void {
+  if (warned.has(columnId)) return;
+  for (const row of rows) {
+    const v = read(row);
+    if (v != null && v !== '' && parseDecimal(v) === null) {
+      warned.add(columnId);
+      console.error(
+        `Table column "${columnId}" is a decimal column but "${v}" is not a plain decimal, so it sorts as unknown. Use sortValue with a plain decimal string and format in cell.`,
+      );
+      return;
+    }
+  }
+}
+
 /** Returns a new array sorted by the active column. Stable. Missing values stay at the end in both directions. */
 export function sortRows<Row>(rows: readonly Row[], columns: readonly SortableColumn<Row>[], sort: SortState | null): Row[] {
   if (!sort) return [...rows];
@@ -86,6 +107,7 @@ export function sortRows<Row>(rows: readonly Row[], columns: readonly SortableCo
   if (!column || !read) return [...rows];
   const type = column.sortType ?? 'text';
   const sign = sort.direction === 'asc' ? 1 : -1;
+  if (type === 'decimal') warnUnparseable(rows, read, column.id);
   return rows
     .map((row, index) => ({ row, index, value: read(row) }))
     .sort((x, y) => {

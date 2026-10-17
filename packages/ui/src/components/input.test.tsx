@@ -178,3 +178,14 @@ describe('Input inside a Field', () => {
     expect(input).toMatch(/aria-describedby="extra [^"]+"/);
   });
 });
+
+describe('invalid is never colour alone', () => {
+  it('draws an icon next to the red border, with or without a Field message', () => {
+    const out = renderToStaticMarkup(<Input kind="text" value="x" onValueChange={() => undefined} invalid aria-label="x" />);
+    expect(out).toContain('data-slot="input-invalid-icon"');
+    expect(out).toContain('aria-invalid="true"');
+    expect(renderToStaticMarkup(<Input kind="text" value="x" onValueChange={() => undefined} aria-label="x" />)).not.toContain(
+      'input-invalid-icon',
+    );
+  });
+});

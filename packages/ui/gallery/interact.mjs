@@ -67,6 +67,28 @@ const open = async (section) => {
   check('virtual: End scrolls to and focuses row 10,000', bigEnd === '9999', `index ${bigEnd}`);
   const lastText = await page.evaluate(() => document.activeElement?.textContent ?? '');
   check('virtual: the focused row shows the last record', lastText.includes('Row 10000'), lastText.slice(0, 40));
+  // mouse-wheel scroll must keep the window filled (the virtualiser subscribes to the scroll element)
+  await big.hover();
+  await page.mouse.wheel(0, 6000);
+  await page.waitForTimeout(400);
+  const afterWheel = await big.locator('tbody tr[data-slot="table-row"]').count();
+  const firstShown = await big.locator('tbody tr[data-slot="table-row"] td:first-child').first().textContent();
+  check(
+    'virtual: wheel scroll keeps rows on screen and moves the window',
+    afterWheel > 5 && firstShown !== 'Row 1',
+    `${afterWheel} rows, first ${firstShown}`,
+  );
+
+  // one Tab stop per row: the row checkboxes are not tab stops
+  const dense2 = page.getByRole('grid', { name: 'Open orders, dense' });
+  const stops = await dense2.evaluate(
+    (el) => [...el.querySelectorAll('[tabindex]')].filter((n) => n.getAttribute('tabindex') === '0').length,
+  );
+  check(
+    'table: multiple selection has one tabbable row, not one per checkbox',
+    stops <= 2,
+    `${stops} tab stops with tabindex=0 (header box + one row)`,
+  );
   await page.context().close();
 }
 
@@ -81,7 +103,11 @@ const open = async (section) => {
   check('input: the 19th decimal is refused', (await q.inputValue()) === '0.123456789012345678', await q.inputValue());
   await q.fill('');
   await q.pressSequentially('1,234.5');
-  check('input: a group separator typed is not accepted into the value', !(await q.inputValue()).includes(','), await q.inputValue());
+  check(
+    'input: a comma typed on a "." keyboard is refused, never read as a decimal point',
+    (await q.inputValue()) === '1234.5',
+    await q.inputValue(),
+  );
   const p = page.getByLabel('Price (comfortable)');
   await p.fill('0.1');
   await p.press('ArrowUp');

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { sizes } from '../theme/tokens.js';
 import {
   allSelectedState,
@@ -178,5 +178,28 @@ describe('row heights match the tokens', () => {
     expect(`${ROW_PX.dense}px`).toBe(sizes['table-row-h-dense']);
     expect(`${HEAD_PX.comfortable}px`).toBe(sizes['table-head-h']);
     expect(`${HEAD_PX.dense}px`).toBe(sizes['table-head-h-dense']);
+  });
+});
+
+describe('formatted money in a decimal column is reported, not silently buried', () => {
+  it('says so once per column when a value is not a plain decimal', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const formatted: Row[] = [
+      { id: 'a', name: 'a', amount: '1,000.00' },
+      { id: 'b', name: 'b', amount: '5.00' },
+    ];
+    const cols: SortableColumn<Row>[] = [{ id: 'formatted-demo', sortType: 'decimal', value: (r) => r.amount }];
+    sortRows(formatted, cols, { columnId: 'formatted-demo', direction: 'desc' });
+    sortRows(formatted, cols, { columnId: 'formatted-demo', direction: 'asc' });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[0]).toContain('formatted-demo');
+    spy.mockRestore();
+  });
+
+  it('stays quiet for plain decimals and unknowns', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    sortRows(rows, [{ id: 'quiet-demo', sortType: 'decimal', value: (r) => r.amount }], { columnId: 'quiet-demo', direction: 'asc' });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

@@ -83,3 +83,19 @@ describe('asOfIso', () => {
     expect(asOfIso(undefined)).toBeNull();
   });
 });
+
+describe('parseAsOf rejects times that are not milliseconds', () => {
+  it('reads nanosecond, microsecond and seconds epochs as unknown instead of crashing or showing 1970', () => {
+    expect(parseAsOf('1760000000000000000')).toBeNull();
+    expect(parseAsOf('1760000000000000')).toBeNull();
+    expect(parseAsOf('1760000000')).toBeNull();
+    expect(parseAsOf(1760000000)).toBeNull();
+    expect(asOfIso('1760000000000000000')).toBeNull();
+  });
+
+  it('still reads real epoch milliseconds and ISO text', () => {
+    expect(parseAsOf('1760000000000')).toBe(1760000000000);
+    expect(asOfIso(1760000000000)).toBe('2025-10-09T08:53:20.000Z');
+    expect(parseAsOf('2026-10-17T14:05:00Z')).toBe(Date.parse('2026-10-17T14:05:00Z'));
+  });
+});

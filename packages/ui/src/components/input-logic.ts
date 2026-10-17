@@ -28,6 +28,10 @@ export function displayDecimal(value: string, decimalSeparator: DecimalSeparator
  * value, or `prevValue` when the keystroke is refused.
  */
 export function nextDecimalValue(prevValue: string, raw: string, opts: DecimalOptions): string {
+  // The other mark is refused, not read as a decimal point: on a "." keyboard "1,000" must never become 1.000.
+  // Paste still accepts group separators (pastedDecimalValue cleans them).
+  const otherMark = (opts.decimalSeparator ?? '.') === '.' ? ',' : '.';
+  if (raw.includes(otherMark)) return prevValue;
   const next = parseTyped(raw, opts);
   return next === null ? prevValue : next;
 }

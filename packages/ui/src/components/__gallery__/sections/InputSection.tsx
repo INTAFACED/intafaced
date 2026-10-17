@@ -112,7 +112,7 @@ export function InputSection() {
             <Cell caption="loading (aria-busy, still editable)">
               <Input density={density} value="Sample text" onValueChange={noop} loading aria-label="loading" />
             </Cell>
-            <Cell caption="invalid, no message (border only)">
+            <Cell caption="invalid, icon cue (add a message through Field)">
               <Input density={density} value="Sample text" onValueChange={noop} invalid aria-label="invalid" />
             </Cell>
             <Cell caption="leading icon">

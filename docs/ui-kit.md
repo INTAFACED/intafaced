@@ -9,21 +9,21 @@ See every part in every state: `pnpm --filter @intafaced/ui gallery` (http://127
 
 ## Which part for what
 
-| You need                                    | Use                                    | Notes                                                                                                              |
-| ------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Rows and columns of data                    | `Table`                                | Sortable, sticky header, numeric lanes, selection, loading/empty/error rows, `virtualize` for long lists.          |
-| Sort rows on the client                     | `sortRows`, `nextSort`                 | Money columns (`numeric`) compare exact decimals. Unknown values always sort last.                                 |
-| A text box or an amount box                 | `Input` (`kind="text"` or `"decimal"`) | Decimal keeps the string. Typing and paste go through the same parser as `AmountInput`.                            |
-| Label, hint, error, required around a box   | `Field`                                | Wires label, hint and error to the control for screen readers. Error shows an icon and words, not colour alone.    |
-| Order-form amount with Max / BBO / steppers | `AmountInput` (existing)               | Same decimal rules as `Input`.                                                                                     |
-| Page title, actions, breadcrumbs, width     | `Page`, `PageHeader`, `PageSection`    | `width`: `narrow` (672 lane), `content` (1224), `full`. One `h1` per page.                                         |
-| A region with nothing, refused or parked    | `EmptyState`                           | `variant`: `empty`, `refused`, `unavailable`. Refused and unavailable **require** a `reason`. Never "coming soon". |
-| Loading skeleton or retryable error         | `StateBlock` (existing), `Skeleton`    |                                                                                                                    |
-| One headline figure with its time           | `Stat`                                 | `value={null}` draws a dash, never 0. Pass `asOf` to show a freshness chip.                                        |
-| Label/value rows (receipts, detail panes)   | `KeyValue`                             | A real `<dl>`. Values right-aligned in one lane.                                                                   |
-| Small label                                 | `Badge`                                | tone: neutral, lime, warn, error, up, down. up/down only for market direction.                                     |
-| Is this data live, stale, unknown, refused  | `StatusChip`                           | Shape plus word, never colour alone. `freshnessOf` decides from `asOf`, `now`, `staleAfterMs`.                     |
-| Buttons, tabs, menus, dialogs, selects      | the existing parts in `@intafaced/ui`  | `Button`, `Tabs`, `Menu`, `Dialog`, `Select`, `Checkbox`, `Switch`, `Tooltip`, `ToastProvider`.                    |
+| You need                                    | Use                                    | Notes                                                                                                                                                                                                    |
+| ------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rows and columns of data                    | `Table`                                | Sortable, sticky header, numeric lanes, selection, loading/empty/error rows, `virtualize` for long lists.                                                                                                |
+| Sort rows on the client                     | `sortRows`, `nextSort`                 | `numeric` columns compare exact decimals, so their `value`/`sortValue` must be plain decimal strings (format in `cell`); anything else is logged and sorted as unknown. Unknown values always sort last. |
+| A text box or an amount box                 | `Input` (`kind="text"` or `"decimal"`) | Decimal keeps the string. Typing and paste use the `AmountInput` parser, except that typing the other decimal mark (`,` on a `.` keyboard) is refused, so `1,000` is never read as `1.000`.              |
+| Label, hint, error, required around a box   | `Field`                                | Wires label, hint and error to the control for screen readers. Error shows an icon and words, not colour alone.                                                                                          |
+| Order-form amount with Max / BBO / steppers | `AmountInput` (existing)               | Same decimal rules as `Input`.                                                                                                                                                                           |
+| Page title, actions, breadcrumbs, width     | `Page`, `PageHeader`, `PageSection`    | `width`: `narrow` (672 lane), `content` (1224), `full`. One `h1` per page.                                                                                                                               |
+| A region with nothing, refused or parked    | `EmptyState`                           | `variant`: `empty`, `refused`, `unavailable`. Refused and unavailable **require** a `reason`. Never "coming soon".                                                                                       |
+| Loading skeleton or retryable error         | `StateBlock` (existing), `Skeleton`    |                                                                                                                                                                                                          |
+| One headline figure with its time           | `Stat`                                 | `value={null}` draws a dash, never 0. Pass `asOf` to show a freshness chip.                                                                                                                              |
+| Label/value rows (receipts, detail panes)   | `KeyValue`                             | A real `<dl>`. Values right-aligned in one lane.                                                                                                                                                         |
+| Small label                                 | `Badge`                                | tone: neutral, lime, warn, error, up, down. up/down only for market direction.                                                                                                                           |
+| Is this data live, stale, unknown, refused  | `StatusChip`                           | Shape plus word, never colour alone. `freshnessOf` decides from `asOf`, `now`, `staleAfterMs`.                                                                                                           |
+| Buttons, tabs, menus, dialogs, selects      | the existing parts in `@intafaced/ui`  | `Button`, `Tabs`, `Menu`, `Dialog`, `Select`, `Checkbox`, `Switch`, `Tooltip`, `ToastProvider`.                                                                                                          |
 
 ## Rules every part follows
 
@@ -46,13 +46,15 @@ measurement (`MEASURED-TOKENS.md`, cited per token in the file). New this releas
 
 DESIGN.md is the authority; where a measured value disagrees, this is what the kit does. Items marked **decision** change what every live screen looks like, so they are Nitro's taste call and are not applied here.
 
-| #   | DESIGN.md says                                              | Measured / current token                  | Kit does                                                                  |
-| --- | ----------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------- |
-| C1  | text `#F5F5F5`, muted `#A3A3A3`                             | `fg` white, `fg-2` `#909090`              | Keeps current tokens. **Decision**: switching shifts every screen.        |
-| C2  | surfaces `#0D0D0D`/`#171717`, dividers `#262626`/`#303030`  | `panel` `#121212`, `line` `#2E2E2E`       | Keeps current tokens. **Decision**.                                       |
-| C3  | main controls are 44 px targets                             | measured list/table row 60 px             | Table rows 44 (dense 32). The 60 px `row-h` stays for two-line list rows. |
-| C4  | cosmetic dividers are not a substitute for accessible focus | OKX focus is a 1 px white border          | Lime 2 px focus ring, as the rest of the kit.                             |
-| C5  | weights 400, 500, 600 only                                  | `2xl` and `hero` text tokens are 700      | New parts use 400/500/600. The 700 tokens are unchanged. **Decision**.    |
-| C6  | tabular figures on Inter (`tnum`)                           | OKX uses proportional figures off-desk    | Tabular figures everywhere in the kit.                                    |
-| C7  | placeholder and disabled text must stay readable            | OKX placeholder is white at 30%           | Placeholder uses `fg-3`; hints and captions use `fg-2` (AA).              |
-| C8  | n/a                                                         | OKX puts white text on the green buy fill | Keeps near-black text on `up` (white on this green fails AA).             |
+| #   | DESIGN.md says                                              | Measured / current token                  | Kit does                                                                                           |
+| --- | ----------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| C1  | text `#F5F5F5`, muted `#A3A3A3`                             | `fg` white, `fg-2` `#909090`              | Keeps current tokens. **Decision**: switching shifts every screen.                                 |
+| C2  | surfaces `#0D0D0D`/`#171717`, dividers `#262626`/`#303030`  | `panel` `#121212`, `line` `#2E2E2E`       | Keeps current tokens. **Decision**.                                                                |
+| C3  | main controls are 44 px targets                             | measured list/table row 60 px             | Table rows 44 (dense 32). The 60 px `row-h` stays for two-line list rows.                          |
+| C4  | cosmetic dividers are not a substitute for accessible focus | OKX focus is a 1 px white border          | Lime 2 px focus ring, as the rest of the kit.                                                      |
+| C5  | weights 400, 500, 600 only                                  | `2xl` and `hero` text tokens are 700      | New parts use 400/500/600. The 700 tokens are unchanged. **Decision**.                             |
+| C6  | tabular figures on Inter (`tnum`)                           | OKX uses proportional figures off-desk    | Tabular figures everywhere in the kit.                                                             |
+| C7  | placeholder and disabled text must stay readable            | OKX placeholder is white at 30%           | Placeholder uses `fg-3`; hints and captions use `fg-2` (AA).                                       |
+| C8  | n/a                                                         | OKX puts white text on the green buy fill | Keeps near-black text on `up` (white on this green fails AA).                                      |
+| C9  | smallest text is 13 px                                      | `text-xs` and `text-2xs` are 12 px        | Hints, errors, headers and chips use 12 px (OKX measured it). **Decision**.                        |
+| C10 | main controls are 44 px; no arbitrary density scale         | pro desk rows and inputs are 28 to 32 px  | `dense` (32 px) exists for the desk; DESIGN.md allows desk-local density for review. **Decision**. |

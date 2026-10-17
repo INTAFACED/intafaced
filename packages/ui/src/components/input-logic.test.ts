@@ -176,3 +176,21 @@ describe('stepValueForKey (exact decimal stepping)', () => {
     expect(stepValueForKey('1', '0.1', 'a', false, opts)).toBeNull();
   });
 });
+
+describe('the other decimal mark is refused when typing', () => {
+  it('a "," typed on a "." keyboard never becomes a decimal point', () => {
+    expect(nextDecimalValue('1', '1,', { precision: 2 })).toBe('1');
+    expect(nextDecimalValue('1', '1,0', { precision: 2 })).toBe('1');
+    expect(nextDecimalValue('1234', '1,234', { precision: 2 })).toBe('1234');
+  });
+
+  it('a "." typed on a "," keyboard is refused too, and the configured mark still works', () => {
+    expect(nextDecimalValue('1', '1.', { precision: 2, decimalSeparator: ',' })).toBe('1');
+    expect(nextDecimalValue('1', '1,5', { precision: 2, decimalSeparator: ',' })).toBe('1.5');
+    expect(nextDecimalValue('1', '1.5', { precision: 2 })).toBe('1.5');
+  });
+
+  it('paste still understands group separators', () => {
+    expect(pastedDecimalValue('', '1,234.5', { precision: 2 })).toBe('1234.5');
+  });
+});

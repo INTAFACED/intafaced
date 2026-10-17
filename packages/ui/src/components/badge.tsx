@@ -11,7 +11,7 @@ const tones: Record<BadgeTone, { soft: string; outline: string }> = {
   lime: { soft: 'bg-lime-soft text-lime', outline: 'text-lime' },
   warn: { soft: 'bg-warn/15 text-warn', outline: 'text-warn' },
   error: { soft: 'bg-error/15 text-error-text', outline: 'text-error-text' },
-  up: { soft: 'bg-up-bg text-up-text', outline: 'text-up-text' },
+  up: { soft: 'bg-up-bg-soft text-up-text', outline: 'text-up-text' },
   down: { soft: 'bg-down-bg text-down-text', outline: 'text-down-text' },
 };
 

@@ -14,7 +14,15 @@ export type AsOf = string | number | null | undefined;
 /** A timestamp this far ahead of `now` is treated as clock skew and still counts as live; further ahead is unknown. */
 export const CLOCK_SKEW_TOLERANCE_MS = 5000;
 
-/** Epoch milliseconds for `asOf`, or null when it is missing, empty, not a date, or not after 1970. */
+/** Smallest epoch the kit reads as milliseconds (March 1973). Smaller digit strings are seconds, which would be shown as 1970. */
+const MIN_EPOCH_MS = 1e11;
+/** Largest epoch the kit reads as milliseconds (the year 2099). Larger digit strings are microsecond or nanosecond epochs. */
+const MAX_EPOCH_MS = 4.1e12;
+
+/**
+ * Epoch milliseconds for `asOf`, or null when it is missing, empty, not a date, or not plausibly
+ * milliseconds. A seconds, microsecond or nanosecond epoch is "unknown" rather than a wrong time or a crash.
+ */
 export function parseAsOf(asOf: AsOf): number | null {
   if (asOf == null) return null;
   let ms: number;
@@ -25,7 +33,7 @@ export function parseAsOf(asOf: AsOf): number | null {
     if (text === '') return null;
     ms = /^\d+$/.test(text) ? parseInt(text, 10) : Date.parse(text);
   }
-  if (!Number.isFinite(ms) || ms <= 0) return null;
+  if (!Number.isFinite(ms) || ms < MIN_EPOCH_MS || ms > MAX_EPOCH_MS) return null;
   return ms;
 }
 
