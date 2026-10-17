@@ -38,17 +38,19 @@ it('rejects invalid amounts and use caps; requires an asset for a fixed amount w
   expect(createLinkInputSchema.safeParse({ ...input, maxUses: 1.5 }).success).toBe(false);
   expect(createLinkInputSchema.safeParse({ ...input, maxUses: 1_000_001 }).success).toBe(false);
 });
-it('shows exact amounts, scoped loaded counts and the missing backend capabilities', () => {
+it('shows exact amounts and scoped loaded counts, with no placeholder card on a list that works', () => {
   const out = renderToString(<LinksView {...props} resource={{ status: 'ready', data: [link] }} />);
   expect(out).toContain('9,007,199,254,740,993.00');
   expect(out).toContain('1 shown from 1 links.');
-  expect(out).toContain('search your links by date');
+  expect(out).not.toMatch(/You’ll be able to/);
   expect(out).not.toContain('token=');
 });
 it('does not offer a real deactivate action without verified company authority', () => {
   const out = renderToString(<LinksView {...props} linkId={link.id} resource={{ status: 'ready', data: [link] }} />);
   expect(out).toMatch(/disabled=""[^>]*>Deactivate link/);
-  expect(out).toContain('create and turn off payment links');
+  expect(out).toContain('Only the account owner can create or turn off payment links.');
+  expect(out).toContain('Payments made with this link');
+  expect(out).toContain('can’t be filtered by payment link yet');
 });
 it('renders grouped creation fields and keeps the review disabled without authority', () => {
   const out = renderToString(<PaymentLinkForm pay={pay} merchantId={link.id} />);

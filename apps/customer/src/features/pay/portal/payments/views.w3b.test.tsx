@@ -9,6 +9,10 @@ import type { ReactElement } from 'react';
 import type { ApiResult } from '../../../../shared/api';
 import type { Resource } from '../../../../shared/resource';
 import { PaymentDetailView, PaymentsView } from './Payments';
+import { useListFilters } from '../ui/FilterRow';
+import { canRefund, feeSummary, percentOf, totalsPeriod } from './payment-model';
+import type { ListState } from '../hooks';
+import type { PortalApi } from '../api';
 import { portalRefusal } from '../refusal';
 import * as p from '../schemas';
 import { notLiveWords } from '../ui/test-words';
@@ -83,77 +87,81 @@ const settlement = (patch: Partial<p.Settlement> = {}): p.Settlement => ({
   status: 'posted',
   ...patch,
 });
+const portal = {} as PortalApi;
+const listOf = (items: p.Payment[], hasMore = false): ListState<p.Payment> => ({ status: 'ready', items, hasMore, more: 'idle' });
+function ListHarness({
+  list,
+  snapshot: snap,
+  halts,
+}: {
+  list: ListState<p.Payment>;
+  snapshot: Resource<p.Snapshot>;
+  halts: Resource<p.HaltStatus>;
+}) {
+  const filters = useListFilters();
+  return (
+    <PaymentsView portal={portal} filters={filters} range={{}} list={list} snapshot={snap} halts={halts} loadMore={noop} retry={noop} />
+  );
+}
 describe('payments list (P06)', () => {
-  const view = (patch: Partial<Parameters<typeof PaymentsView>[0]> = {}) =>
+  const view = (patch: Partial<Parameters<typeof ListHarness>[0]> = {}) =>
     html(
-      <PaymentsView
-        snapshot={ready(snapshot())}
-        period="rolling_30d"
-        setPeriod={noop}
-        halts={quietHalts}
-        list={ready([
+      <ListHarness
+        list={listOf([
           payment(),
           payment({ id: 'aa000002-0000-4000-8000-000000000002', status: 'failed', capturedAmount: '0', refundedAmount: '0' }),
         ])}
-        loadedAt="2026-10-15T12:00:00.000Z"
-        status=""
-        setStatus={noop}
-        filters={{ q: '', asset: '', from: '', to: '' }}
-        setFilter={noop}
-        sort="newest"
-        setSort={noop}
-        limit={25}
-        setLimit={noop}
-        retry={noop}
+        snapshot={ready(snapshot())}
+        halts={quietHalts}
         {...patch}
       />,
     );
-  it('shows a KPI strip with its period and as-of line, then a table with links, status words and exact amounts', () => {
+  it('shows tiles that each name their period and open the list with the same filter, then rows that open the payment', () => {
     const out = view();
-    expect(out).toContain('Totals for Last 30 days');
-    expect(out).toContain('As of');
-    expect(out).toContain('4 s behind');
+    expect(out).toContain('Last 30 days');
+    expect(out).toContain('href="/pay/payments?status=failed&amp;date=30d"');
+    expect(out).toContain('href="/pay/payments?status=captured&amp;date=30d"');
+    expect(out).toContain('href="/pay/refunds?from=');
+    expect(out).toContain('href="/pay/payments/aa000001-0000-4000-8000-000000000001"');
     expect(out).toContain('Success rate');
     expect(out).toContain('75%');
     expect(out).toContain('3 failed out of 12');
-    expect(out).toContain('href="/pay/payments?status=failed"');
-    expect(out).toContain('href="/pay/payments/aa000001-0000-4000-8000-000000000001"');
-    expect(out).toContain('125.5');
     expect(out).toContain('Paid');
     expect(out).toContain('Failed');
-    expect(out).toContain('Download CSV');
-    expect(out).toContain('2 shown. That is everything.');
+    expect(out).toContain('Export these results');
+    expect(out).toContain('Newest 2');
     expectPlain(out);
   });
-  it('keeps filters in view: status, asset, dates, search, sort and a note on what search covers', () => {
+  it('picks the totals period from the date filter, and says when the list is wider than the totals', () => {
+    expect(totalsPeriod('7d')).toEqual({ period: '7d', matchesList: true });
+    expect(totalsPeriod('')).toEqual({ period: '30d', matchesList: false });
+    expect(totalsPeriod('custom')).toEqual({ period: '30d', matchesList: false });
+    expect(view()).toContain('These totals cover Last 30 days. The list below isn’t limited to that period.');
+  });
+  it('keeps filters in view: search, status, date and asset', () => {
     const out = view();
-    for (const label of ['Status', 'Asset', 'From (UTC day)', 'To (UTC day)', 'Search', 'Sort by']) expect(out).toContain(label);
-    expect(out).toContain('Looks through the payments shown below');
+    for (const label of ['Search', 'Status', 'Date']) expect(out).toContain(label);
   });
-  it('says there is more to load while the page is full, and points at exports once the cap is reached', () => {
-    expect(view({ limit: 2 })).toContain('2 shown so far. More are available.');
-    const many = Array.from({ length: 200 }, (_, i) => payment({ id: `aa${String(i).padStart(6, '0')}-0000-4000-8000-000000000000` }));
-    const out = view({ list: ready(many), limit: 200 });
-    expect(out).toContain('Showing the newest 200. For older records, request an export.');
+  it('offers Load more only while another page exists', () => {
+    expect(view()).not.toContain('Load more</button>');
+    expect(view({ list: listOf([payment()], true) })).toContain('Load more');
   });
-  it('explains an empty account, an empty status and a filter that matches nothing', () => {
-    expect(view({ list: ready<p.Payment[]>([]) })).toContain('No payments yet');
-    expect(view({ list: ready<p.Payment[]>([]), status: 'failed' })).toContain('No payments with that status');
-    const none = view({ filters: { q: 'zzz', asset: '', from: '', to: '' } });
-    expect(none).toContain('No payment shown matches');
-    expect(none).toContain('Clear filters');
+  it('explains an empty account', () => {
+    const out = view({ list: listOf([]) });
+    expect(out).toContain('Your first payment starts here');
+    expect(out).toContain('href="/pay/links/new"');
   });
-  it('shows loading, an unreachable service with a retry, a refusal in plain words, and arrives-soon', () => {
-    expect(view({ list: loading, snapshot: loading })).toContain('aria-busy="true"');
-    const unreachable = view({ list: down, snapshot: down });
+  it('shows loading, an unreachable service with a retry, a refusal in plain words, and the not-live card', () => {
+    expect(view({ list: { status: 'loading' }, snapshot: loading })).toContain('aria-busy="true"');
+    const unreachable = view({ list: { status: 'failed', failure: refusal('', 503, 'unreachable') }, snapshot: down });
     expect(unreachable).toContain('Try again');
     expectPlain(unreachable);
-    const refused = view({ list: forbidden, snapshot: forbidden });
+    const refused = view({ list: { status: 'failed', failure: refusal('pay.merchant_forbidden', 403) }, snapshot: forbidden });
     expect(refused).toContain('Your account does not have access to this.');
     expectPlain(refused);
     expect(view({ snapshot: soon })).toMatch(notLiveWords);
   });
-  it('says it could not check when the pause read fails, is refused, or is unavailable, and never reads that as "nothing paused"', () => {
+  it('says it could not check when the pause read fails, and never reads that as "nothing paused"', () => {
     for (const halts of [down, forbidden, soon, failed('pay.merchant_ops_unavailable', 503, 'unreachable')]) {
       const out = view({ halts });
       expect(out).toContain('We could not check whether new payments are paused.');
@@ -170,10 +178,46 @@ describe('payments list (P06)', () => {
       }),
     });
     expect(paused).toContain('New payments are paused.');
-    expect(paused).toContain('INTAFACED has paused this for every account');
     expect(view({ halts: ready<p.HaltStatus>({ readable: false, states: [] }) })).toContain(
       'treat payments, settlements and payouts as paused',
     );
+  });
+});
+describe('payment summary rules', () => {
+  const snap = (patch = {}) => ({
+    fee: '1.20',
+    assetCode: 'USDT',
+    appliedLayer: 'tier' as const,
+    ruleId: 'r',
+    feeBps: 150,
+    flatFee: '0.30',
+    spreadBps: null,
+    roundingBeneficiary: 'platform' as const,
+    roundingMode: 'ceil' as const,
+    bookedFee: null,
+    reserveAmount: null,
+    recordedAt: '2026-10-14T09:00:00.000Z',
+    ...patch,
+  });
+  it('reads the stored fee and never recomputes one', () => {
+    const base = { assetId: 'USDT', capturedAmount: '125.5' };
+    expect(feeSummary({ ...base, pricingSnapshot: null })).toEqual({ kind: 'none' });
+    expect(feeSummary({ ...base })).toEqual({ kind: 'none' });
+    expect(feeSummary({ ...base, pricingSnapshot: { fee: '2' } })).toEqual({ kind: 'fee', fee: '2', net: '123.5', assetId: 'USDT' });
+    const full = feeSummary({ ...base, pricingSnapshot: snap() });
+    expect(full).toMatchObject({ kind: 'rule', fee: '1.20', net: '124.3', layer: 'tier', percent: '1.5', flatFee: '0.30' });
+  });
+  it('shows no net for an uncaptured payment', () => {
+    expect(feeSummary({ assetId: 'USDT', capturedAmount: '0', pricingSnapshot: { fee: '2' } })).toMatchObject({ kind: 'fee', net: null });
+  });
+  it('writes basis points as an exact percentage', () => {
+    expect([percentOf(150), percentOf(100), percentOf(5), percentOf(250), percentOf(0)]).toEqual(['1.5', '1', '0.05', '2.5', '0']);
+  });
+  it('offers Refund only when something captured is still unrefunded', () => {
+    expect(canRefund({ status: 'captured', capturedAmount: '10', refundedAmount: '4' })).toBe(true);
+    expect(canRefund({ status: 'refunded', capturedAmount: '10', refundedAmount: '10' })).toBe(false);
+    expect(canRefund({ status: 'failed', capturedAmount: '0', refundedAmount: '0' })).toBe(false);
+    expect(canRefund({ status: 'authorized', capturedAmount: '0', refundedAmount: '0' })).toBe(false);
   });
 });
 describe('payment detail (P07)', () => {
@@ -197,7 +241,17 @@ describe('payment detail (P07)', () => {
     ev('settled', { settlementId: 'bb000002-0000-4000-8000-000000000002' }, '2026-10-14T12:00:00.000Z'),
   ];
   const view = (patch: Partial<Parameters<typeof PaymentDetailView>[0]> = {}) =>
-    html(<PaymentDetailView payment={ready(payment())} history={ready(events)} dispute={null} retry={noop} {...patch} />);
+    html(
+      <PaymentDetailView
+        payment={ready(payment())}
+        history={ready(events)}
+        refunds={down}
+        activity={[]}
+        dispute={null}
+        retry={noop}
+        {...patch}
+      />,
+    );
   it('shows key facts, amounts, a plain timeline, refunds, related links and copyable ids', () => {
     const out = view();
     expect(out).toContain('Key facts');
@@ -212,7 +266,7 @@ describe('payment detail (P07)', () => {
     expect(out).toContain('Completed');
     expect(out).toContain('href="/pay/settlements/bb000002-0000-4000-8000-000000000002"');
     expect(out).toContain('TEST-ledger-tx-1');
-    expect(out).toContain('pp-copy');
+    expect(out).toContain('Copy');
     expectPlain(out);
   });
   it('never prints the payer’s instrument or a rail’s internals', () => {
@@ -220,11 +274,67 @@ describe('payment detail (P07)', () => {
     expect(out).not.toContain('tok_TEST_must_never_show');
     expect(out).not.toContain('rail internals');
   });
-  it('says what is not built: fee, net and the pricing rule that applied', () => {
-    const out = view();
-    expect(out).toContain('Fee, net and the price that applied');
-    expect(out).toMatch(notLiveWords);
-    expect(out).toContain('href="/pay/pricing"');
+  it('leads with the amount and status, shows the stored fee, net and the rule, and offers Refund while money remains', () => {
+    const out = view({
+      payment: ready(
+        payment({
+          pricingSnapshot: {
+            fee: '1.20',
+            assetCode: 'USDT',
+            appliedLayer: 'tier',
+            ruleId: 'r',
+            feeBps: 150,
+            flatFee: '0.30',
+            spreadBps: null,
+            roundingBeneficiary: 'platform',
+            roundingMode: 'ceil',
+            bookedFee: null,
+            reserveAmount: null,
+            recordedAt: '2026-10-14T09:00:00.000Z',
+          },
+        }),
+      ),
+    });
+    expect(out).toContain('Summary');
+    expect(out).toContain('1.20');
+    expect(out).toContain('124.30');
+    expect(out).toContain('Your tier’s rate, 1.5% + 0.30 USDT');
+    expect(out).toContain('href="/pay/refunds/new?payment=aa000001-0000-4000-8000-000000000001"');
+    expect(out).not.toContain('Fee details weren’t recorded');
+  });
+  it('says plainly when the fee was not recorded, and offers no Refund once everything is refunded', () => {
+    const out = view({ payment: ready(payment({ pricingSnapshot: null, refundedAmount: '125.5', status: 'refunded' })) });
+    expect(out).toContain('Fee details weren’t recorded for this payment.');
+    expect(out).not.toContain('/pay/refunds/new');
+  });
+  it('lists refunds from the refunds list when it is available, and the activity recorded for the payment', () => {
+    const out = view({
+      refunds: [
+        {
+          id: 'ff000001-0000-4000-8000-000000000001',
+          refundId: 'TEST-refund-1',
+          paymentId: 'aa000001-0000-4000-8000-000000000001',
+          amount: '20',
+          assetId: 'USDT',
+          status: 'posted',
+          createdAt: '2026-10-14T10:00:00.000Z',
+        },
+      ],
+      activity: [
+        {
+          id: 'a1',
+          occurredAt: '2026-10-14T09:01:00.000Z',
+          actorId: 'system',
+          action: 'payment_captured',
+          objectType: 'payment',
+          objectId: 'x',
+          detail: {},
+        },
+      ],
+    });
+    expect(out).toContain('href="/pay/refunds/ff000001-0000-4000-8000-000000000001"');
+    expect(out).toContain('Refund sent');
+    expect(out).toContain('Payment captured');
   });
   it('shows a dispute card with a link, and says when a disputed payment has no linked dispute', () => {
     const dispute: p.DisputeDetail = {
@@ -247,7 +357,7 @@ describe('payment detail (P07)', () => {
     };
     const out = view({ payment: ready(payment({ status: 'disputed' })), dispute: ready<p.DisputeDetail | null>(dispute) });
     expect(out).toContain('href="/pay/disputes/d0000001-0000-4000-8000-000000000001"');
-    expect(out).toContain('fraudulent');
+    expect(out).toContain('Fraud');
     expect(view()).toContain('The customer has not disputed this payment.');
     expect(view({ payment: ready(payment({ status: 'disputed' })) })).toContain('no dispute record could be linked');
   });
@@ -257,6 +367,8 @@ describe('payment detail (P07)', () => {
       <PaymentDetailView
         payment={{ status: 'failed', failure: portalRefusal('rPaymentNotFound') }}
         history={loading}
+        refunds={loading}
+        activity={[]}
         dispute={null}
         retry={noop}
       />,

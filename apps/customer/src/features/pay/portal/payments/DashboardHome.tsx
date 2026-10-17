@@ -11,6 +11,8 @@ import { seriesAssets } from './model';
 import type { MemberRole, MerchantRecord, MetricPreset, Payment, Series, Snapshot } from '../schemas';
 import { layoutCopy as c } from './copy';
 import { MoneyDisplay, paymentLabel, portalAmount } from '../presentation';
+import { TierUsage } from './TierUsage';
+import { dateRange } from '../ui/FilterRow';
 
 export function LayoutDashboard({
   portal,
@@ -40,6 +42,7 @@ export function LayoutDashboard({
         retry={retry}
         todayDay={todayDay}
         activity={role === 'owner' ? <RecentPayments portal={portal} merchantId={merchantId} /> : null}
+        tier={<TierUsage portal={portal} merchantId={merchantId} />}
       />
     </>
   );
@@ -51,6 +54,7 @@ export function LayoutDashboardView({
   retry,
   todayDay,
   activity,
+  tier,
 }: {
   merchant: MerchantRecord | null;
   role: MemberRole | null;
@@ -58,6 +62,7 @@ export function LayoutDashboardView({
   retry: () => void;
   todayDay: string;
   activity?: ReactNode;
+  tier?: ReactNode;
 }) {
   const { t } = c.useCopy();
   const [pickedAsset, setAsset] = useState('');
@@ -133,7 +138,7 @@ export function LayoutDashboardView({
         )}
         {role && <span>{role}</span>}
       </div>
-      <p>{t('tierSoon')}</p>
+      {tier}
       {merchant && (merchant.status !== 'active' || merchant.kybStatus !== 'approved') && <a href={'/pay/onboarding'}>{t('setup')} →</a>}
     </section>
   );
@@ -174,7 +179,7 @@ export function LayoutDashboardView({
       <Gate resource={data[period]} retry={retry} rows={1}>
         {(snap) => (
           <>
-            <MetricStrip snap={snap} period={labels[period]} />
+            <MetricStrip snap={snap} period={labels[period]} key={period} when={period} />
             <AsOf freshness={snap.freshness} />
           </>
         )}
@@ -209,17 +214,23 @@ export function LayoutDashboardView({
   );
 }
 
-function MetricStrip({ snap, period }: { snap: Snapshot; period: string }) {
+const WHEN = { today: 'today', rolling_7d: '7d', rolling_30d: '30d' } as const;
+/** Each tile names its period and opens the list with that same period and filter in the address. */
+export function MetricStrip({ snap, period, when }: { snap: Snapshot; period: string; when: MetricPreset }) {
   const { t } = c.useCopy();
+  const key = WHEN[when];
+  const range = dateRange(key, Date.now());
+  const refunds = `/pay/refunds?${new URLSearchParams({ ...(range.from ? { from: range.from } : {}), ...(range.to ? { to: range.to } : {}) })}`;
+  const payments = (status?: string) => `/pay/payments?${new URLSearchParams({ ...(status ? { status } : {}), date: key })}`;
   return (
     <div className="plo-kpi-strip">
       {[
-        [t('captured'), <MoneyLines items={snap.captured} />],
-        [t('count'), snap.paymentCount],
-        [t('refunded'), <MoneyLines items={snap.refunded} />],
-        [t('net'), <MoneyLines items={snap.net} />],
-      ].map(([label, value], index) => (
-        <a key={index} href={'/pay/payments'}>
+        [t('captured'), <MoneyLines items={snap.captured} />, payments('captured')],
+        [t('count'), snap.paymentCount, payments()],
+        [t('refunded'), <MoneyLines items={snap.refunded} />, refunds],
+        [t('net'), <MoneyLines items={snap.net} />, '/pay/money'],
+      ].map(([label, value, href], index) => (
+        <a key={index} href={href as string}>
           <span>
             {label} · {period}
           </span>

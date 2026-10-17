@@ -36,13 +36,26 @@ const subscriptions: RoomDef = {
   ),
 };
 const invoices: RoomDef = {
-  header: (route) => ({
-    title: extensionCopy.t(route.room === 'invoice' ? 'invoiceTitle' : 'invoicesTitle'),
-    purpose: extensionCopy.t('invoicesPurpose'),
-    action: link('/pay/subscriptions', extensionCopy.t('openSubscriptions')),
-  }),
+  header: (route) =>
+    route.room === 'invoices'
+      ? {
+          title: paymentsCopy.t('invoicesTitle'),
+          purpose: paymentsCopy.t('invoicesPurpose'),
+          action: link('/pay/invoices/new', paymentsCopy.t('inv_create'), 'primary'),
+        }
+      : route.room === 'invoice-new'
+        ? { title: paymentsCopy.t('inv_createTitle'), purpose: paymentsCopy.t('invoiceNewPurpose') }
+        : { title: paymentsCopy.t('invoiceTitle'), purpose: paymentsCopy.t('invoicePurpose') },
   here: '/pay/invoices',
-  render: (route, {}) => <WithAccount>{() => <Invoices invoiceId={route.param} />}</WithAccount>,
+  render: (route, { portal }) => (
+    <WithAccount>
+      {({ merchantId }) => (
+        <Requires need={route.room === 'invoice-new' ? 'invoices.write' : 'invoices.read'}>
+          <Invoices portal={portal} route={route} merchantId={merchantId} />
+        </Requires>
+      )}
+    </WithAccount>
+  ),
 };
 const links: RoomDef = {
   header: (route) =>
@@ -76,7 +89,7 @@ export const paymentsRooms: RoomTable = {
     header: () => ({
       title: t('pageDashboard'),
       purpose: t('purposeDashboard'),
-      action: link('/pay/links', t('actCreateLink'), 'primary'),
+      action: link('/pay/links/new', t('actCreateLink'), 'primary'),
     }),
     here: '/pay/merchant',
     render: (_route, { portal, access, legacyHome }) => (
@@ -118,7 +131,6 @@ export const paymentsRooms: RoomTable = {
     header: () => ({
       title: t('pagePayments'),
       purpose: t('purposePayments'),
-      action: link('/pay/payments?view=tools', t('actPaymentTools'), 'primary'),
     }),
     render: (_route, { portal }) => (
       <WithAccount>
@@ -131,34 +143,22 @@ export const paymentsRooms: RoomTable = {
     ),
   },
   payment: {
-    header: (route) => ({
+    header: () => ({
       title: t('pagePayment'),
       purpose: t('purposePayment'),
-      action: route.param
-        ? link(`/pay/payments?view=tools&payment=${encodeURIComponent(route.param)}`, t('refundOrCapture'), 'primary')
-        : undefined,
     }),
     here: '/pay/payments',
     render: (route, { portal }) => (
       <WithAccount>
-        {() => (
+        {({ merchantId }) => (
           <Requires need="payments.read">
-            <PaymentDetailPage portal={portal} paymentId={route.param!} />
+            <PaymentDetailPage portal={portal} paymentId={route.param!} merchantId={merchantId} />
           </Requires>
         )}
       </WithAccount>
     ),
   },
-  'invoice-new': notLiveRoom(
-    () => ({
-      title: paymentsCopy.t('invoiceNewTitle'),
-      purpose: paymentsCopy.t('invoiceNewPurpose'),
-      body: paymentsCopy.t('invoiceNewSoon'),
-    }),
-    'reasonActions',
-    '/pay/invoices',
-    'the create form (Package 2); merchantOps.invoices.create is on main',
-  ),
+  'invoice-new': invoices,
   'checkout-settings': notLiveRoom(
     () => ({
       title: paymentsCopy.t('checkoutSettingsTitle'),

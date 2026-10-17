@@ -113,3 +113,20 @@ export function paymentSteps(events: readonly PaymentEvent[]): PaymentStep[] {
   }
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
+
+export type SeriesTotal = { assetCode: string; count: number; volume: string };
+/** Sum a customer's daily points from `sinceDay` (YYYY-MM-DD, inclusive), one line per asset. Assets are never added together. */
+export function seriesTotals(
+  items: ReadonlyArray<{ period: string; assetCode: string; count: number; volume: string }>,
+  sinceDay: string,
+): SeriesTotal[] {
+  const by = new Map<string, { count: number; volume: bigint }>();
+  for (const i of items) {
+    if (i.period < sinceDay) continue;
+    const cur = by.get(i.assetCode) ?? { count: 0, volume: 0n };
+    by.set(i.assetCode, { count: cur.count + i.count, volume: cur.volume + parseAmount(i.volume) });
+  }
+  return [...by.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([assetCode, v]) => ({ assetCode, count: v.count, volume: formatAmount(v.volume) }));
+}

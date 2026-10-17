@@ -89,6 +89,96 @@ export function createPaymentsMock(ctx) {
       ],
     })),
   });
+
+  // ---- links, subscriptions, mandates (TEST data; real-shaped ids; lists come back as pages, as on main) ----
+  state.links = activity
+    ? Array.from({ length: 8 }, (_, i) => ({
+        id: hex('1c', i + 1),
+        prefix: `TESTl${i + 1}`,
+        label: `TEST link ${i + 1}`,
+        amount: i % 2 ? '25.00' : null,
+        currency: i % 2 ? 'USDT' : null,
+        active: i !== 3,
+        expiresAt: iso(now + (i === 5 ? -2 : 20) * DAY),
+        maxUses: i % 3 === 0 ? 10 : null,
+        uses: i,
+        createdAt: iso(now - (i + 1) * DAY),
+      }))
+    : [];
+  state.mandates = activity
+    ? Array.from({ length: 4 }, (_, i) => ({
+        id: hex('1d', i + 1),
+        merchantId: MERCHANT_ID,
+        customerId: `TEST-cust-${String(i + 1).padStart(3, '0')}`,
+        assetId: 'USDT',
+        amount: '19.00',
+        ceiling: i % 2 ? '25.00' : null,
+        cadence: 'monthly',
+        startsAt: iso(now - 40 * DAY),
+        endsAt: null,
+        railAdapter: 'crypto-native',
+        railMandateRef: null,
+        status: i === 3 ? 'cancelled' : 'active',
+        cancelledAt: i === 3 ? iso(now - DAY) : null,
+        createdAt: iso(now - 40 * DAY),
+      }))
+    : [];
+  state.subscriptions = activity
+    ? state.mandates.map((m, i) => ({
+        id: hex('1e', i + 1),
+        mandateId: m.id,
+        merchantId: MERCHANT_ID,
+        customerId: m.customerId,
+        nextRunAt: iso(now + (i + 1) * DAY),
+        status: ['active', 'active', 'paused', 'cancelled'][i],
+        cancelledAt: i === 3 ? iso(now - DAY) : null,
+        path: 'crypto_invoice',
+        createdAt: iso(now - 40 * DAY),
+        anchorAt: iso(now - 40 * DAY),
+        anchorOccurrence: 1,
+        pausedAt: i === 2 ? iso(now - 2 * DAY) : null,
+        resumedAt: null,
+        stalledAt: i === 2 ? iso(now - 2 * DAY) : null,
+        stallReason: i === 2 ? 'arrears' : null,
+      }))
+    : [];
+
+  // ---- invoices (TEST data): every status, so the list, the filters and each action can be shown ----
+  const invoiceRow = (n, status, extra = {}) => ({
+    id: hex('1a', n),
+    status,
+    assetId: 'USDT',
+    amount: '120.00',
+    customerRef: `TEST-cust-${String(n).padStart(3, '0')}`,
+    description: `TEST invoice ${n}`,
+    paymentLinkId: status === 'sent' || status === 'paid' ? hex('1b', n) : null,
+    paymentId: null,
+    sentAt: status === 'sent' || status === 'paid' ? iso(now - (n + 1) * DAY) : null,
+    voidedAt: status === 'void' ? iso(now - n * DAY) : null,
+    paidAt: null,
+    createdAt: iso(now - (n + 2) * DAY),
+    updatedAt: iso(now - n * DAY),
+    ...extra,
+  });
+  state.invoices = activity
+    ? [
+        invoiceRow(1, 'draft', { amount: '250.5', customerRef: null }),
+        invoiceRow(2, 'sent', { amount: '47.13', customerRef: 'TEST-cust-001' }),
+        invoiceRow(3, 'paid', { amount: '54.26', paymentId: hex('aa', 2), paidAt: iso(now - DAY) }),
+        invoiceRow(4, 'void'),
+        invoiceRow(5, 'sent', { amount: '1999.999999' }),
+        ...Array.from({ length: 24 }, (_, i) => invoiceRow(6 + i, ['draft', 'sent', 'paid', 'void'][i % 4], { amount: `${100 + i}.00` })),
+      ]
+    : [];
+  const invoiceActions = new Map();
+  const mintLink = (invoice) => ({
+    id: invoice.paymentLinkId,
+    prefix: 'TESTlink',
+    expiresAt: iso(now + 30 * DAY),
+    maxUses: 1,
+    token: `TEST-token-${invoice.id.slice(0, 8)}`,
+    alreadyIssued: false,
+  });
   const STATUSES = ['captured', 'settled', 'captured', 'refunded', 'failed', 'settled', 'authorized', 'captured', 'disputed', 'created'];
   const payments = activity
     ? Array.from({ length: 60 }, (_, i) => {
@@ -102,6 +192,8 @@ export function createPaymentsMock(ctx) {
           id: n === 3 ? 'aa000003-0000-4000-8000-000000000003' : hex('aa', n),
           merchantId: MERCHANT_ID,
           profileId: null,
+          customerRef: `TEST-cust-${String(((n - 1) % 12) + 1).padStart(3, '0')}`,
+          description: `TEST order ${1000 + n}`,
           amount,
           assetId: asset,
           method: n % 2 ? 'TEST-crypto-transfer' : 'TEST-card-sandbox',
@@ -111,6 +203,24 @@ export function createPaymentsMock(ctx) {
           capturedAmount: taken ? amount : '0',
           refundedAmount: status === 'refunded' ? amount : '0',
           createdAt: iso(now - n * 3 * 3600_000),
+          pricingSnapshot:
+            n % 5 === 0
+              ? null
+              : {
+                  fee: '1.20',
+                  assetCode: asset,
+                  appliedLayer: 'tier',
+                  ruleId: hex('ab', 1),
+                  feeBps: 150,
+                  flatFee: '0.30',
+                  spreadBps: null,
+                  roundingBeneficiary: 'platform',
+                  roundingMode: 'ceil',
+                  bookedFee: null,
+                  reserveAmount: null,
+                  recordedAt: iso(now - n * 3 * 3600_000),
+                },
+          failure: status === 'failed' ? { code: 'card_declined', message: 'The card was declined.' } : null,
         };
       })
     : [];
@@ -159,8 +269,54 @@ export function createPaymentsMock(ctx) {
     async handle(procedure, input, route) {
       switch (procedure) {
         case 'payment.list': {
-          const rows = payments.filter((p) => !input.status || p.status === input.status).slice(0, input.limit ?? 25);
-          return ok(route, { items: rows, nextCursor: null });
+          const rows = payments.filter(
+            (p) =>
+              (!input.status || p.status === input.status) &&
+              (!input.assetId || p.assetId === input.assetId) &&
+              (!input.from || p.createdAt >= input.from) &&
+              (!input.to || p.createdAt < input.to) &&
+              (!input.search || p.customerRef === input.search || p.id === input.search.toLowerCase()),
+          );
+          return ok(route, page(rows, input));
+        }
+        case 'payment.refunds.list': {
+          const p = payments.find((x) => x.id === input.paymentId);
+          if (!p || p.status !== 'refunded') return ok(route, { items: [], nextCursor: null });
+          return ok(route, {
+            items: [
+              {
+                id: hex('rf', 1),
+                refundId: 'TEST-refund-1',
+                paymentId: p.id,
+                merchantId: MERCHANT_ID,
+                amount: p.amount,
+                assetId: p.assetId,
+                reason: null,
+                actor: null,
+                status: 'posted',
+                createdAt: iso(Date.parse(p.createdAt) + 900_000),
+                settledAt: null,
+                source: 'clearing',
+                ledgerEffect: { recorded: true, pot: 'clearing', ledgerTxId: null, direction: 'credit' },
+                payment: { paymentId: p.id, status: p.status },
+              },
+            ],
+            nextCursor: null,
+          });
+        }
+        case 'merchantOps.activity.list': {
+          const items = input.search
+            ? ['created', 'captured'].map((action, k) => ({
+                id: `act-${k}`,
+                occurredAt: iso(now - (k + 1) * 3600_000),
+                actorId: 'system',
+                action: `payment_${action}`,
+                objectType: 'payment',
+                objectId: input.search,
+                detail: { status: action },
+              }))
+            : [];
+          return ok(route, { items, nextCursor: null });
         }
         case 'payment.get': {
           const p = payments.find((x) => x.id === input.paymentId);
@@ -169,6 +325,151 @@ export function createPaymentsMock(ctx) {
         case 'payment.history': {
           const p = payments.find((x) => x.id === input.paymentId);
           return p ? ok(route, historyOf(p)) : refuse(route, 404, 'pay.payment_not_found');
+        }
+        case 'merchantControl.tiers.list':
+          return ok(route, {
+            status: 'configured',
+            ownTierId: 'standard',
+            tiers: [{ id: 'standard', name: 'Standard (TEST)', archetype: 'standard', caps: [], reserve: null, version: 'v1' }],
+          });
+        case 'merchantOps.invoices.list': {
+          const inRange = (i) => (!input.from || i.createdAt >= input.from) && (!input.to || i.createdAt < input.to);
+          const rows = state.invoices.filter(
+            (i) =>
+              (!input.status || i.status === input.status) &&
+              (!input.assetId || i.assetId === input.assetId) &&
+              inRange(i) &&
+              (!input.search || i.customerRef === input.search || i.id === input.search.toLowerCase()),
+          );
+          return ok(route, page(rows, input));
+        }
+        case 'merchantOps.invoices.get': {
+          const i = state.invoices.find((x) => x.id === input.invoiceId);
+          return i ? ok(route, i) : refuse(route, 404, 'pay.invoice_not_found');
+        }
+        case 'merchantOps.invoices.create': {
+          const seen = invoiceActions.get(input.requestId);
+          if (seen) return ok(route, seen);
+          if (!/^\d+(\.\d+)?$/.test(input.amount) || !/[1-9]/.test(input.amount)) return refuse(route, 400, 'pay.invoice_amount_invalid');
+          const row = invoiceRow(state.invoices.length + 40, 'draft', {
+            amount: input.amount,
+            assetId: input.assetId,
+            customerRef: input.customerRef ?? null,
+            description: input.description ?? null,
+            createdAt: iso(Date.now()),
+            updatedAt: iso(Date.now()),
+          });
+          state.invoices.unshift(row);
+          invoiceActions.set(input.requestId, row);
+          return ok(route, row);
+        }
+        case 'merchantOps.invoices.send':
+        case 'merchantOps.invoices.reissueLink': {
+          const i = state.invoices.find((x) => x.id === input.invoiceId);
+          if (!i) return refuse(route, 404, 'pay.invoice_not_found');
+          const sending = procedure.endsWith('send');
+          if (sending && i.status !== 'draft')
+            return refuse(route, 409, i.status === 'sent' ? 'pay.invoice_already_sent' : 'pay.invoice_not_draft');
+          if (!sending && i.status !== 'sent') return refuse(route, 409, 'pay.invoice_not_draft');
+          const seen = invoiceActions.get(input.requestId);
+          if (seen) return ok(route, { invoice: i, paymentLink: { ...seen, token: null, alreadyIssued: true } });
+          if (sending) {
+            i.status = 'sent';
+            i.sentAt = iso(Date.now());
+          }
+          i.paymentLinkId = hex('1c', Math.floor(Math.random() * 1e6));
+          i.updatedAt = iso(Date.now());
+          const link = mintLink(i);
+          invoiceActions.set(input.requestId, link);
+          return ok(route, { invoice: i, paymentLink: link });
+        }
+        case 'merchantOps.invoices.void': {
+          const i = state.invoices.find((x) => x.id === input.invoiceId);
+          if (!i) return refuse(route, 404, 'pay.invoice_not_found');
+          if (i.status === 'paid') return refuse(route, 409, 'pay.invoice_paid');
+          if (i.status === 'void') return refuse(route, 409, 'pay.invoice_void');
+          i.status = 'void';
+          i.voidedAt = iso(Date.now());
+          i.updatedAt = iso(Date.now());
+          return ok(route, i);
+        }
+        case 'merchantOps.invoices.markPaidByPayment': {
+          const i = state.invoices.find((x) => x.id === input.invoiceId);
+          if (!i) return refuse(route, 404, 'pay.invoice_not_found');
+          if (i.status !== 'draft' && i.status !== 'sent')
+            return refuse(route, 409, i.status === 'paid' ? 'pay.invoice_paid' : 'pay.invoice_void');
+          const p = payments.find((x) => x.id === input.paymentId);
+          if (!p) return refuse(route, 404, 'pay.invoice_payment_not_found');
+          if (!['captured', 'settled'].includes(p.status)) return refuse(route, 412, 'pay.invoice_payment_not_paid');
+          if (p.assetId !== i.assetId || Number(p.amount) !== Number(i.amount)) return refuse(route, 412, 'pay.invoice_payment_mismatch');
+          i.status = 'paid';
+          i.paymentId = p.id;
+          i.paidAt = iso(Date.now());
+          i.updatedAt = iso(Date.now());
+          return ok(route, i);
+        }
+        case 'merchant.listLinks':
+          return ok(route, page(state.links, input));
+        case 'subscription.list':
+          return ok(route, page(state.subscriptions, input));
+        case 'mandate.list':
+          return ok(route, page(state.mandates, input));
+        case 'subscription.get': {
+          const x = state.subscriptions.find((y) => y.id === input.subscriptionId);
+          return x ? ok(route, x) : refuse(route, 404, 'pay.subscription_not_found');
+        }
+        case 'mandate.get': {
+          const x = state.mandates.find((y) => y.id === input.mandateId);
+          return x ? ok(route, x) : refuse(route, 404, 'pay.mandate_not_found');
+        }
+        case 'subscription.listExecutions':
+          return ok(
+            route,
+            [1, 2].map((n) => ({
+              id: hex('1f', n),
+              subscriptionId: input.subscriptionId,
+              occurrence: n,
+              amount: '19.00',
+              status: n === 1 ? 'settled' : 'rejected',
+              paymentId: n === 1 ? hex('aa', 1) : null,
+              rejectionCode: n === 1 ? null : 'pay.insufficient_funds',
+              attemptedAt: iso(now - (3 - n) * 10 * DAY),
+              settledAt: n === 1 ? iso(now - 29 * DAY) : null,
+              createdAt: iso(now - (3 - n) * 10 * DAY),
+              notifyStatus: null,
+              notifyCode: null,
+            })),
+          );
+        case 'subscription.cycles':
+          return ok(route, { subscriptionId: input.subscriptionId, cycles: [] });
+        case 'subscription.productReady':
+          return ok(route, {
+            paths: [{ path: 'crypto_invoice', charge: 'open_crypto_invoice', opensMoney: true, posture: 'TEST posture' }],
+            preChargeNotify: { status: 'unwired', notified: false, merchantReadable: 'TEST notices are not connected' },
+            card: { status: 'refuse_closed', code: 'pay.mandate_rail_absent' },
+          });
+        case 'merchantOps.disputes.uploadEvidence': {
+          const row = {
+            evidenceId: `e${Date.now()}`,
+            kind: input.kind,
+            fileName: input.fileName,
+            contentType: input.contentType,
+            sizeBytes: String(Math.floor((input.contentBase64.length * 3) / 4)),
+            sha256: input.sha256 ?? 'cd'.repeat(32),
+            note: input.note ?? null,
+            addedBy: USER_ID,
+            createdAt: iso(Date.now()),
+            hasContent: true,
+          };
+          (state.evidence[input.disputeId] ??= []).push({ ...row, content: input.contentBase64 });
+          return ok(route, row);
+        }
+        case 'merchantOps.disputes.getEvidence': {
+          const all = Object.values(state.evidence).flat();
+          const e = all.find((x) => x.evidenceId === input.evidenceId);
+          if (!e) return refuse(route, 404, 'pay.dispute_evidence_not_found');
+          if (!e.content) return refuse(route, 409, 'pay.dispute_evidence_content_absent');
+          return ok(route, e);
         }
         case 'merchantOps.disputes.summary': {
           const by = { open: 0, contested: 0, accepted: 0, won: 0, lost: 0 };
@@ -237,6 +538,22 @@ export function createPaymentsMock(ctx) {
             ? state.customers.filter((c) => c.customerRef.toLowerCase().startsWith(input.search.toLowerCase()))
             : state.customers;
           return ok(route, page(rows, input));
+        }
+        case 'merchantOps.customers.series': {
+          const days = [0, 1, 2, 4, 9, 20];
+          return ok(route, {
+            customerRef: input.customerRef,
+            bucket: 'day',
+            from: input.from.slice(0, 10),
+            to: input.to.slice(0, 10),
+            items: days.map((d) => ({
+              period: iso(now - d * DAY).slice(0, 10),
+              assetCode: 'USDT',
+              count: 1 + (d % 3),
+              volume: `${40 + d * 7}.50`,
+            })),
+            nextCursor: null,
+          });
         }
         case 'merchantOps.customers.get': {
           const c = state.customers.find((x) => x.customerRef === input.customerRef);
