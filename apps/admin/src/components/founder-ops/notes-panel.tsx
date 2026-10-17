@@ -6,6 +6,7 @@ import type { NotePage } from '@/lib/founder-ops/notes';
 import { hrefWith, one, type Query } from '@/lib/founder-ops/read-model';
 import { Pager } from './section-panels';
 import { AddNoteForm, RetractNoteForm } from './note-forms';
+import './screens.css';
 
 /**
  * Operator notes for one merchant (`founderAdmin.ops.notes.*`). Listing is a read; adding and retracting go through the

@@ -94,6 +94,7 @@ export function PendingClearsPanel({
     return (
       <StateBlock kind="empty" title="No clear is waiting for a second founder">
         When one founder proposes clearing a halt, it is listed here until a different founder confirms it. A halt stays on until then.
+        {result.data.nextCursor ? ' More pending clears may be on later pages; only the first page was checked.' : ''}
       </StateBlock>
     );
   return (
@@ -150,7 +151,12 @@ export function PendingClearsPanel({
       </div>
       <p className="mp-footnote mp-mt">
         The halt is still on for every row above. A proposal older than the store&apos;s confirm window is not listed, because it can no
-        longer be confirmed.{result.data.nextCursor ? ' More proposals exist than are shown; confirm these first.' : ''}
+        longer be confirmed.
+        {result.data.nextCursor
+          ? merchantId
+            ? ' More pending clears may be on later pages; only the first page was checked for this merchant.'
+            : ' More proposals exist than are shown; confirm these first.'
+          : ''}
       </p>
     </>
   );

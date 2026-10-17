@@ -562,6 +562,7 @@ export function ListFilters({
   const status = statusParam ? one(query, statusParam) : undefined;
   const search = searchParam ? one(query, searchParam) : undefined;
   const active = (status !== undefined && statuses?.includes(status)) || search !== undefined;
+  if (!(statusParam && statuses) && !searchParam) return null;
   return (
     <form className="mp-filters" method="get" action={path} aria-label={`${label} filters`}>
       {kept.map(([key, value]) => (
