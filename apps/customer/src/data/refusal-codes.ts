@@ -37,6 +37,7 @@ export type RefusalKind =
   | 'accountOnHold'
   | 'notFound'
   | 'duplicate'
+  | 'notSetUp'
   | 'unknown';
 
 /** Exact codes first. */
@@ -131,6 +132,7 @@ const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
   ['denied.', 'screening'],
   ['kyc.', 'verify'],
   ['kyc_', 'verify'],
+  ['token.params_', 'notSetUp'],
   ['trade.lifecycle', 'marketNotOpen'],
   ['trade.market_', 'marketNotOpen'],
   ['trade.venue_', 'marketNotOpen'],
@@ -141,7 +143,12 @@ const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
   ['trade.fx_', 'marketNotOpen'],
 ];
 
-const SUFFIXES: ReadonlyArray<readonly [suffix: string, kind: RefusalKind]> = [['.tier_required', 'verify']];
+// `*_unset` / `*_unwired` are the services' "an operator has not configured this yet" refusals.
+const SUFFIXES: ReadonlyArray<readonly [suffix: string, kind: RefusalKind]> = [
+  ['.tier_required', 'verify'],
+  ['_unset', 'notSetUp'],
+  ['_unwired', 'notSetUp'],
+];
 
 /** Sort a service code into a kind; unknown and empty codes are `unknown`. */
 export function classifyRefusal(code: string | null | undefined): RefusalKind {

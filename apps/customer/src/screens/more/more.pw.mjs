@@ -14,6 +14,22 @@ const tiles = [
   ['display', '/view', 'Display and language', 'Language, time zone and how numbers look'],
   ['notifications', '/notifications', 'Notifications', 'Updates about your orders and account'],
   ['help', '/support', 'Help', 'Answers and support'],
+  ['bank', '/bank', 'Bank', 'Spaces, transfers, earn, loans and cards'],
+  ['merchant', '/pay/merchant', 'Merchant', 'Accept payments and run your business'],
+  ['academy', '/academy', 'Academy', 'Learning paths and certificates'],
+  ['agents', '/agents', 'Agents', 'Your agent fleet'],
+  ['quant', '/quant', 'Quant', 'Research and strategy sandbox'],
+  ['launch', '/launch', 'Launch', 'Issue and list an asset'],
+  ['market', '/market', 'Market', 'Browse available listings'],
+  ['predict', '/predict', 'Predict', 'Browse and trade predictions'],
+  ['mining', '/mining', 'Mining', 'Pool activity and payouts'],
+  ['token', '/token', 'Token', 'Access and staking'],
+  ['blueprint', '/blueprint', 'Blueprint', 'Your profile and connected intelligence'],
+  ['campaigns', '/campaigns', 'Campaigns', 'Activities you can join'],
+  ['promotions', '/uc/promotion', 'Promotions', 'Referrals, invitations and dividends'],
+  ['chain', '/chain', 'Chain', 'Parked – view blockers'],
+  ['dex', '/dex', 'DEX', 'Parked – view blockers'],
+  ['protocol', '/protocol', 'Protocol', 'Parked – view blockers'],
 ];
 
 test('More at 1440x900 and 1280x800: sections, tile sizes, words, no dead links', async ({ page }) => {
@@ -22,7 +38,7 @@ test('More at 1440x900 and 1280x800: sections, tile sizes, words, no dead links'
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   await page.goto('/more');
   await expect(page.locator('.more-title')).toHaveText('More');
-  expect(await page.locator('.more-h2').allTextContents()).toEqual(['Account', 'Settings', 'Help']);
+  expect(await page.locator('.more-h2').allTextContents()).toEqual(['Account', 'Settings', 'Help', 'Explore', 'Protocol']);
   expect(await page.locator('.more-tile').count()).toBe(tiles.length);
 
   for (const [id, href, title, line] of tiles) {

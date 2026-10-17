@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Panel } from '@intafaced/ui';
+import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import { consoleCopy } from '@/lib/console-copy';
-import type { AuthorityStatus } from '@/lib/console-status';
+import { describeUnconfigured, type AuthorityStatus } from '@/lib/console-status';
 import { fetchFreeze, type FreezeResult } from '@/lib/ledger-freeze-browser';
-import { decodeFreezeState, freezeUnavailable } from '@/lib/ledger-freeze-contract';
+import { decodeFreezeState, freezeUnavailable, type FreezeState } from '@/lib/ledger-freeze-contract';
 import { ledgerCopy, type LedgerLocale } from '@/lib/ledger-ops-copy';
-import { reconcileLedger, SIMULATED_NOTICE, type ReconcileReport, type SimulatedResult } from '@/lib/operator-commands';
+import { RECONCILE_AVAILABILITY } from '@/lib/operator-commands';
 import './ledger-ops.css';
 
 export const FREEZE_CONFIRM_PHRASE = 'FREEZE LEDGER';
@@ -15,12 +16,17 @@ export const UNFREEZE_CONFIRM_PHRASE = 'UNFREEZE LEDGER';
 export interface LedgerOpsProps {
   treasury: AuthorityStatus;
   initialFreeze: FreezeResult;
+  /** The signed-in founder's identity user id: tells the requester from the second founder. */
+  userId: string;
 }
 
-/** Read-only desk. The deployment transport is distinct from human action authority. */
-export function LedgerOps({ treasury, initialFreeze }: LedgerOpsProps) {
+/**
+ * The ledger desk. It reads the posting record and asks two founders to freeze or unfreeze it; the deployment
+ * transport is distinct from the people who must agree.
+ */
+export function LedgerOps({ treasury, initialFreeze, userId }: LedgerOpsProps) {
   const [freeze, setRead] = useState(initialFreeze);
-  const [reconcile, setReconcile] = useState<SimulatedResult<ReconcileReport> | null>(null);
+  const [readAt, setReadAt] = useState<string | null>(initialFreeze.kind === 'reachable' ? new Date().toISOString() : null);
   const sequence = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const read = useCallback(async () => {
@@ -30,7 +36,10 @@ export function LedgerOps({ treasury, initialFreeze }: LedgerOpsProps) {
     controller.current = own;
     setRead(freezeUnavailable('loading', 'Reading the ledger posting record.', 'admin.ledger_read_loading', 0));
     const result = await fetchFreeze(own.signal);
-    if (request === sequence.current && !own.signal.aborted) setRead(result);
+    if (request === sequence.current && !own.signal.aborted) {
+      setReadAt(result.kind === 'reachable' ? new Date().toISOString() : null);
+      setRead(result);
+    }
   }, []);
   useEffect(() => {
     void read();
@@ -39,30 +48,30 @@ export function LedgerOps({ treasury, initialFreeze }: LedgerOpsProps) {
       controller.current?.abort();
     };
   }, [read]);
-  return (
-    <LedgerOpsView
-      treasury={treasury}
-      freeze={freeze}
-      reconcile={reconcile}
-      onRead={() => void read()}
-      onReconcile={() => setReconcile(reconcileLedger())}
-    />
-  );
+  return <LedgerOpsView treasury={treasury} freeze={freeze} readAt={readAt} userId={userId} onRead={() => void read()} />;
 }
 
 export interface LedgerOpsViewProps {
   treasury: AuthorityStatus;
   freeze: FreezeResult;
-  reconcile: SimulatedResult<ReconcileReport> | null;
+  /** When this console received the posting record, or null when there is no usable read. */
+  readAt: string | null;
+  userId: string;
   onRead: () => void;
-  onReconcile: () => void;
   /** Admin has no mounted locale selection; this seam supports the local copy family. */
   locale?: LedgerLocale;
 }
-export function LedgerOpsView({ treasury, freeze, reconcile, onRead, onReconcile, locale = 'en' }: LedgerOpsViewProps) {
+export function LedgerOpsView({ treasury, freeze, readAt, userId, onRead, locale = 'en' }: LedgerOpsViewProps) {
   const c = ledgerCopy(locale);
   const state = freeze.ok && freeze.kind === 'reachable' ? decodeFreezeState(freeze.state) : null;
   const loading = freeze.kind === 'loading';
+  const blocked = !treasury.configured
+    ? describeUnconfigured(treasury)
+    : !state
+      ? c.stateUnknown
+      : state.version === undefined
+        ? c.versionMissing
+        : null;
   const title = state
     ? state.frozen
       ? c.frozen
@@ -121,6 +130,14 @@ export function LedgerOpsView({ treasury, freeze, reconcile, onRead, onReconcile
                       <time dateTime={state.changedAt}>{state.changedAt}</time>
                     </dd>
                   </div>
+                  {readAt && (
+                    <div>
+                      <dt>{c.asOf}</dt>
+                      <dd lang="zxx">
+                        <time dateTime={readAt}>{readAt}</time>
+                      </dd>
+                    </div>
+                  )}
                 </dl>
               ) : (
                 <>
@@ -144,9 +161,6 @@ export function LedgerOpsView({ treasury, freeze, reconcile, onRead, onReconcile
         <div className="lo-procedures">
           <Panel title={c.commands} className="lo-commands">
             <div className="lo-stack">
-              <p className="lo-muted" id="lo-command-boundary">
-                {c.missingAuthority}
-              </p>
               <div className="lo-transport">
                 <h3>{c.transport}</h3>
                 <p className="lo-muted">
@@ -160,78 +174,53 @@ export function LedgerOpsView({ treasury, freeze, reconcile, onRead, onReconcile
                 </p>
                 <p className="lo-muted">{consoleCopy('admin.console.transport.treasury.guards', {}, locale)}</p>
               </div>
-              <details className="lo-requirements">
-                <summary>{c.requirements}</summary>
-                <div className="lo-stack">
-                  <p className="lo-muted">{c.consequence}</p>
-                  <div className="adm-field">
-                    <label htmlFor="freeze-reason">{c.inputReason}</label>
-                    <textarea id="freeze-reason" className="adm-textarea" disabled value="" placeholder={c.reasonPlaceholder} readOnly />
-                  </div>
-                  <div className="adm-field">
-                    <label htmlFor="freeze-confirm">
-                      {c.confirm} <code lang="en">{FREEZE_CONFIRM_PHRASE}</code> {c.confirmEnd}
-                    </label>
-                    <input id="freeze-confirm" className="adm-input" disabled value="" readOnly autoComplete="off" spellCheck={false} />
-                  </div>
-                  <label className="adm-check">
-                    <input type="checkbox" disabled checked={false} readOnly />
-                    <span>{c.freezeAck}</span>
-                  </label>
-                  <label className="adm-check">
-                    <input type="checkbox" disabled checked={false} readOnly />
-                    <span>{c.thawAck}</span>
-                  </label>
-                  <div className="adm-field">
-                    <label htmlFor="unfreeze-confirm">
-                      {c.confirm} <code lang="en">{UNFREEZE_CONFIRM_PHRASE}</code> {c.confirmEnd}
-                    </label>
-                    <input id="unfreeze-confirm" className="adm-input" disabled value="" readOnly autoComplete="off" spellCheck={false} />
-                  </div>
-                </div>
-              </details>
-              <div className="lo-buttons">
-                <button type="button" className="adm-btn" disabled aria-describedby="lo-command-boundary">
-                  {c.freezeButton}
-                </button>
-                <button type="button" className="adm-btn" disabled aria-describedby="lo-command-boundary">
-                  {c.thawButton}
-                </button>
+              <div lang="en">
+                <ControlDesk
+                  endpoint="/api/ledger-freeze"
+                  userId={userId}
+                  blockedReason={blocked}
+                  action={blocked || !state ? null : freezeAction(state)}
+                  consequence={state?.frozen ? c.consequenceThaw : c.consequenceFreeze}
+                  blockedButtonLabel={state?.frozen ? 'Unfreeze ledger unavailable' : 'Freeze ledger unavailable'}
+                  onChanged={onRead}
+                />
               </div>
             </div>
           </Panel>
           <section className="lo-section" aria-labelledby="lo-reconcile">
             <h2 id="lo-reconcile">{c.reconcile}</h2>
-            <p className="lo-muted">{c.reconcileMissing}</p>
-            <button type="button" className="adm-btn" onClick={onReconcile}>
-              {c.reconcileButton}
-            </button>
-            {reconcile && (
-              <div className="lo-stack" data-testid="reconcile-preview">
-                <strong>{c.simulated}</strong>
-                <p className="lo-muted">{c.delivered}</p>
-                <dl className="lo-values">
-                  <div>
-                    <dt>{c.accounts}</dt>
-                    <dd>{c.notCounted}</dd>
-                  </div>
-                  <div>
-                    <dt>{c.chain}</dt>
-                    <dd>{c.notCounted}</dd>
-                  </div>
-                  <div>
-                    <dt>{c.assets}</dt>
-                    <dd>{c.notChecked}</dd>
-                  </div>
-                </dl>
-                <p className="lo-muted" lang="en">
-                  {SIMULATED_NOTICE}
-                </p>
-              </div>
-            )}
+            <p className="lo-muted" data-testid="reconcile-unavailable" data-available={String(RECONCILE_AVAILABILITY.available)}>
+              {c.reconcileMissing}
+            </p>
+            <p className="lo-muted">{c.reconcileWhy}</p>
           </section>
         </div>
       </div>
     </div>
   );
+}
+
+/**
+ * The one request that makes sense for the current record: unfreeze when frozen, freeze when not. Both are bound to
+ * the ledger's own version token, which `blocked` has already required to be present.
+ */
+function freezeAction(state: FreezeState): ControlAction | null {
+  const version = state.version;
+  if (version === undefined) return null;
+  return state.frozen
+    ? {
+        heading: 'Unfreeze the ledger',
+        submitLabel: 'Ask a second founder to approve the unfreeze',
+        needsReason: false,
+        reasonLabel: '',
+        build: () => ({ kind: 'ledger.unfreeze', version }),
+      }
+    : {
+        heading: 'Freeze the ledger',
+        submitLabel: 'Ask a second founder to approve the freeze',
+        needsReason: true,
+        reasonLabel: 'Why (recorded with the freeze, 12 to 500 characters)',
+        build: (reason) => ({ kind: 'ledger.freeze', reason, version }),
+        danger: true,
+      };
 }
