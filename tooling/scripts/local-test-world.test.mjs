@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { selectPendingForApproval } from './local-test-gates.mjs';
 import {
   ACADEMY_PATHS,
   GuardError,
@@ -67,6 +68,7 @@ import {
   localEmailOutboxPath,
   MERCHANT_OWNER,
   OwnerFactor,
+  enrolledTestOperatorPair,
   readMerchantOwner,
   accessTokenMfa,
   freshTotpCode,
@@ -766,6 +768,59 @@ try {
   const cmdFn = worldSrc.slice(worldSrc.indexOf('async function cmdPopulate'), worldSrc.indexOf('async function main'));
   assert.equal(/OwnerFactor|totp|factor/i.test(cmdFn), false, 'the main test account signs in with a password only');
   assert.equal(worldSrc.includes('world-owner-factor'), false);
+  {
+    const pending = [
+      { id: 'r1', userId: 'u1', tier: 'full' },
+      { id: 'r2', userId: 'u2', tier: 'full' },
+      { id: 'r3', userId: 'u1', tier: 'basic' },
+      { id: 'r4', userId: 'u1', tier: 'institutional' },
+    ];
+    assert.deepEqual(
+      selectPendingForApproval(pending).map((r) => r.id),
+      ['r1', 'r2', 'r3'],
+    );
+    assert.deepEqual(
+      selectPendingForApproval(pending, ['u1']).map((r) => r.id),
+      ['r1', 'r3'],
+      'a request from anyone else is never picked',
+    );
+    assert.deepEqual(selectPendingForApproval(pending, ['nobody']), []);
+    assert.match(worldSrc, /approvePending\(gctx, null, \{ userIds: \[friend\.userId\] \}\)/);
+    assert.match(worldSrc, /approvePending\(gctx, null, \{ userIds: \[userId\] \}\)/);
+  }
+  {
+    const op = (l, extra = {}) => ({
+      handle: `local_test_operator_${l}`,
+      userId: `00000000-0000-4000-8000-00000000000${l === 'a' ? 1 : 2}`,
+      password: 'pw',
+      totpSecret: 'SECRETSECRETSECRET',
+      lastStep: 5,
+      ...extra,
+    });
+    const ready = { operators: { a: op('a'), b: op('b') } };
+    assert.deepEqual(
+      enrolledTestOperatorPair(ready).map((x) => x.handle),
+      ['local_test_operator_a', 'local_test_operator_b'],
+    );
+    assert.equal(JSON.stringify(enrolledTestOperatorPair(ready)).includes('SECRET'), false, 'no secret leaves the file');
+    assert.equal(enrolledTestOperatorPair(null), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a') } }), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { totpSecret: '' }) } }), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { password: undefined }) } }), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { handle: 'real_person' }) } }), null);
+    assert.equal(
+      enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { userId: op('a').userId }) } }),
+      null,
+      'two distinct people',
+    );
+    const pairFn = worldSrc.slice(
+      worldSrc.indexOf('async function signInTestOperatorPair'),
+      worldSrc.indexOf('function loadEnrolledFounders'),
+    );
+    assert.match(pairFn, /operatorSessions/);
+    assert.equal(pairFn.includes('writePrivate') || pairFn.includes('writeFileSync'), false, 'never writes a second credentials file');
+    assert.match(worldSrc, /signedIn = founders \? await signInLocalFounders[\s\S]*signInTestOperatorPair/);
+  }
   const kycFn = worldSrc.slice(
     worldSrc.indexOf('async function ensureOwnerKycFull'),
     worldSrc.indexOf('async function populateMerchantStep'),

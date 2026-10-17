@@ -1419,7 +1419,7 @@ async function verifyFriend(ctx, friend) {
       ok: false,
       why: `${others.length} other pending verification request(s) exist; populate approves only the friend's, so it stopped`,
     };
-  const rows = await gates.approvePending(gctx);
+  const rows = await gates.approvePending(gctx, null, { userIds: [friend.userId] });
   const mine = rows.filter((r) => r.ok).length;
   return { ok: mine > 0 || submitted.some((x) => x.ok) || after.approved.get(friend.userId)?.has('full'), why: `${mine} approved` };
 }
@@ -2188,7 +2188,7 @@ async function ensureOwnerKycFull(ctx) {
     return { ok: false, changed: false };
   }
   const gctx = await gates.makeContext({ log });
-  const rows = await gates.approvePending(gctx);
+  const rows = await gates.approvePending(gctx, null, { userIds: [userId] });
   const failed = rows.find((r) => !r.ok);
   if (failed || !has(tiers())) {
     record('merchant', item, 'refused', failed ? `approval refused: ${oneLine(failed.why, 200)}` : 'approval did not produce tier full');
@@ -2227,6 +2227,7 @@ async function populateMerchantStep(baseCtx) {
 
   // Onboarding first: rail health and the catalogue need pay:read, which a session only gets once the
   // owner's merchant is KYB-approved. So create, submit KYB, approve, sign in again, then read.
+  let onboardedNow = false;
   if (me.data?.kybStatus !== 'approved') {
     const onboard = planMerchantPopulate({
       userId: user.account.userId,
@@ -2242,6 +2243,7 @@ async function populateMerchantStep(baseCtx) {
       );
       return;
     }
+    onboardedNow = true;
     let onboardingId = me.data?.id ?? null;
     for (const action of onboard.actions.filter((x) => ['create-merchant', 'submit-kyb', 'decide-kyb'].includes(x.kind))) {
       if (!onboardingId && action.kind !== 'create-merchant') {
@@ -2255,6 +2257,9 @@ async function populateMerchantStep(baseCtx) {
     me = await call(user, 'q', 'pay', 'merchant.me');
     if (!me.ok) return record('merchant', 'merchant.me', 'refused', me.refusal);
     if (!me.data) return; // the refusal that stopped create is already recorded
+  }
+  if (!onboardedNow) {
+    record('merchant', `merchant "${MERCHANT_LEGAL_NAME}"`, 'exists', `${me.data.id}, KYB ${me.data.kybStatus}`);
   }
 
   const userId = user.account.userId;
@@ -2372,6 +2377,50 @@ function trpcData(res) {
   return data;
 }
 
+/**
+ * The stack's two LOCAL TEST operators (operators.json, written by local-test-gates), as the KYB founder
+ * pair when no founder vault exists. Nothing is copied or written: this only says whether the file holds
+ * a ready pair. Sign-in goes through gates.operatorSessions, which keeps each operator's TOTP lastStep
+ * in that same file. Returns the two ids [a, b] or null.
+ */
+export function enrolledTestOperatorPair(file) {
+  const ops = file && typeof file === 'object' ? file.operators : null;
+  const out = [];
+  for (const letter of ['a', 'b']) {
+    const o = ops?.[letter];
+    if (!o || !isOperatorAccount(o.handle)) return null;
+    if (typeof o.userId !== 'string' || !o.userId) return null;
+    if (typeof o.password !== 'string' || !o.password) return null;
+    if (typeof o.totpSecret !== 'string' || !o.totpSecret) return null;
+    out.push({ key: letter, handle: o.handle, userId: o.userId });
+  }
+  return out[0].userId === out[1].userId ? null : out;
+}
+
+/** Operator A and B signed in with their TOTP (replay-safe, through gates). Sessions carry the admin-scoped approval token. */
+async function signInTestOperatorPair(gctx, gates) {
+  if (!enrolledTestOperatorPair(readJson(gctx.paths.operators, null))) return null;
+  let sessions;
+  try {
+    sessions = await gates.operatorSessions(gctx);
+  } catch (err) {
+    return { ok: false, refusal: `${KYB_FOUNDERS_MISSING} (${oneLine(err.message)})` };
+  }
+  const out = [];
+  for (const letter of ['a', 'b']) {
+    const sess = sessions[letter];
+    const token = await sess.approvalToken();
+    let tier = 'none';
+    try {
+      tier = JSON.parse(Buffer.from(String(sess.token).split('.')[1], 'base64url').toString('utf8')).tier ?? 'none';
+    } catch {
+      /* tier stays none */
+    }
+    out.push({ token, userId: sess.op.userId, sessionId: sess.op.sessionId, tier });
+  }
+  return { ok: true, sessions: out };
+}
+
 function loadEnrolledFounders(gctx) {
   for (const file of founderVaultFiles({ stateDir: gctx?.paths?.stateDir })) {
     const pair = enrolledLocalFounders(readJson(file, null));
@@ -2453,9 +2502,9 @@ async function decideKybByFounderPair(log, merchantId) {
   const gates = await gatesApi();
   const gctx = await gates.makeContext({ log: (m) => log(`merchant kyb: ${m}`) });
   const founders = loadEnrolledFounders(gctx);
-  if (!founders) return { ok: false, refusal: KYB_FOUNDERS_MISSING };
-
-  const signedIn = await signInLocalFounders(gctx, gates, founders);
+  // No founder vault: the stack's two LOCAL TEST operators are the pair (in memory, no second credentials file).
+  const signedIn = founders ? await signInLocalFounders(gctx, gates, founders) : await signInTestOperatorPair(gctx, gates);
+  if (!signedIn) return { ok: false, refusal: KYB_FOUNDERS_MISSING };
   if (!signedIn.ok) return signedIn;
 
   let compliance;
@@ -2526,7 +2575,7 @@ async function decideKybByFounderPair(log, merchantId) {
   );
   const data = trpcData(decided);
   if (!data?.kybStatus) return { ok: false, refusal: gates.refusalText(decided) };
-  return { ok: true, kybStatus: data.kybStatus };
+  return { ok: true, kybStatus: data.kybStatus, approvalId: approval.approvalId, operationId: approval.operationId };
 }
 
 async function runMerchantAction(ctx, action, merchantId) {
@@ -2575,7 +2624,7 @@ async function runMerchantAction(ctx, action, merchantId) {
       record('merchant', 'KYB pending', 'refused', founders.refusal);
       return { moneyClosed: true };
     }
-    record('merchant', 'KYB decision', 'created', `founder pair ${founders.kybStatus}`);
+    record('merchant', 'KYB decision', 'created', `founder pair ${founders.kybStatus}, approval ${founders.approvalId}`);
     const signed = await resignInForMerchantScopes(user, record, 'sign-in after KYB approval');
     return signed ? {} : { moneyClosed: true };
   }
