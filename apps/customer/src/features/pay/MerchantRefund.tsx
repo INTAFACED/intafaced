@@ -490,8 +490,8 @@ export function MerchantRefund({
           </Button>
         ))}
       {failure && (
-        <p role="alert" lang={authoredFailure ? requestedLocale : 'und'}>
-          {authoredFailure ? failureText : failure.message}
+        <p role="alert" lang={requestedLocale}>
+          {authoredFailure ? failureText : t('readFailed')}
         </p>
       )}
       {shown?.busy && (

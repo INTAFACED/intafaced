@@ -244,7 +244,8 @@ test('analytics: volume and fees read the period, bucket and asset the person ch
   await expect.poll(() => b.calls.some((c) => c.procedure === 'merchantAnalytics.volume' && c.input.assetId === 'USD')).toBe(true);
   await go(page, '/pay/analytics/fees');
   await expect(page.getByRole('heading', { name: 'Fees', level: 1, exact: true })).toBeVisible();
-  await expect(page.getByText('No rate shown yet')).toBeVisible();
+  // The rate is worked out per asset from the fees and gross on the page (fees ÷ gross), so a complete period shows it.
+  await expect(page.getByText('Effective fee rate by asset')).toBeVisible();
   await look(page, 'P51-fees', { phone: true });
 });
 

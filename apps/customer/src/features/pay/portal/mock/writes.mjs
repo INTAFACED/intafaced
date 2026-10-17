@@ -19,6 +19,7 @@ const OWNER_ONLY = new Set([
   'subscription.cancel',
   'mandate.create',
   'mandate.cancel',
+  'merchant.profile',
 ]);
 
 export function createWritesMock(ctx) {
@@ -111,6 +112,11 @@ export function createWritesMock(ctx) {
             domains: ['checkout.shop.example.test'],
             createdAt: iso(now - 80 * DAY),
           });
+        }
+        case 'merchant.profile': {
+          // Saves the checkout domains (a new checkout profile). The read above keeps answering from its fixed record.
+          if (!Array.isArray(input.domains) || input.domains.length === 0) return refuse(route, 400, 'pay.invalid_input');
+          return ok(route, { id: uuid('ab', 10), merchantId: MERCHANT_ID });
         }
         case 'mandate.create': {
           const row = {

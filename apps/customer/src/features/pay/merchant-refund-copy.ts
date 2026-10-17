@@ -46,6 +46,7 @@ const en = {
   checking: 'Checking the original refund…',
   loading: 'Reading the captured payment…',
   readRetry: 'Retry payment read',
+  readFailed: 'This didn’t go through. Check the payment and try again.',
   noCaptured: 'No captured amount is available to refund.',
   unavailableBody: 'The original refund could not be verified. Keep its reference and retry the protected history check.',
   contextChanged: 'The account or review changed. Review the current payment again.',
@@ -99,6 +100,7 @@ const es: Record<keyof typeof en, string> = {
   checking: 'Comprobando el reembolso original…',
   loading: 'Leyendo el pago capturado…',
   readRetry: 'Reintentar lectura del pago',
+  readFailed: 'No se ha completado. Revisa el pago e inténtalo de nuevo.',
   noCaptured: 'No hay importe capturado disponible para reembolso.',
   unavailableBody:
     'No se pudo verificar el reembolso original. Conserva su referencia y reintenta la comprobación protegida del historial.',
@@ -155,6 +157,7 @@ const fr: Record<keyof typeof en, string> = {
   checking: 'Vérification du remboursement original…',
   loading: 'Lecture du paiement capturé…',
   readRetry: 'Réessayer la lecture du paiement',
+  readFailed: 'L’opération n’a pas abouti. Vérifiez le paiement et réessayez.',
   noCaptured: 'Aucun montant capturé n’est disponible pour remboursement.',
   unavailableBody:
     'Le remboursement original n’a pas pu être vérifié. Conservez sa référence et réessayez la vérification protégée de l’historique.',
