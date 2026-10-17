@@ -2985,6 +2985,9 @@ describe('svc-bank money PG-hard', () => {
         // payment goes through at a till.
         'cards.per_authorization_limit':
           'a POLICY ceiling on ONE authorisation; it does not fall as the card is used and no money path writes it',
+        'cards.daily_limit': 'a POLICY ceiling for a UTC day; NULL means no ceiling; spend is summed from authorisation records',
+        'cards.monthly_limit': 'a POLICY ceiling for a UTC month; NULL means no ceiling; not a running total',
+        'cards.cash_limit': 'a POLICY ceiling for ATM cash in a UTC day; NULL means no ceiling; not a remaining balance',
         'card_authorizations.amount': 'a RECORD of one authorisation request, in the funding asset; written once',
         'card_settlements.amount': 'a RECORD of one completed capture or reversal; written once with its ledger tx id',
         'card_cashback.amount': 'a RECORD of one reward; summing the table is the lifetime figure',

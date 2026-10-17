@@ -216,6 +216,8 @@ export function issueCardBinding(i: {
   settlementAssetId: string | undefined;
   cashbackBps: number | undefined;
   perAuthorizationLimit: string;
+  cardType?: string;
+  shippingAddress?: string;
 }): DoorBinding {
   return {
     actionType: 'bank.step_up.cards.issue',
@@ -227,6 +229,61 @@ export function issueCardBinding(i: {
       settlementAssetId: i.settlementAssetId ?? '',
       cashbackBps: i.cashbackBps === undefined ? '' : String(i.cashbackBps),
       perAuthorizationLimit: i.perAuthorizationLimit,
+      cardType: i.cardType ?? 'virtual',
+      shippingAddress: i.shippingAddress ?? '',
     },
+  };
+}
+
+/**
+ * Loosening a spending ceiling. The PIN is deliberately absent: a 4-digit secret
+ * must not be recoverable from the stored payload hash.
+ */
+export function setCardLimitsBinding(i: {
+  actor: string;
+  cardId: string;
+  commandId: string;
+  perAuthorizationLimit: string;
+  dailyLimit: string;
+  monthlyLimit: string;
+  cashLimit: string;
+}): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.setLimits',
+    operationKey: i.commandId,
+    fields: {
+      actor: i.actor,
+      cardId: i.cardId,
+      commandId: i.commandId,
+      perAuthorizationLimit: i.perAuthorizationLimit,
+      dailyLimit: i.dailyLimit,
+      monthlyLimit: i.monthlyLimit,
+      cashLimit: i.cashLimit,
+    },
+  };
+}
+
+export function revealCardBinding(i: { actor: string; cardId: string; revealId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.reveal',
+    operationKey: i.revealId,
+    fields: { actor: i.actor, cardId: i.cardId, revealId: i.revealId },
+  };
+}
+
+export function revealCardPinBinding(i: { actor: string; cardId: string; revealId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.pinReveal',
+    operationKey: i.revealId,
+    fields: { actor: i.actor, cardId: i.cardId, revealId: i.revealId },
+  };
+}
+
+/** Binds the attempt, not the PIN. See `setCardLimitsBinding`. */
+export function setCardPinBinding(i: { actor: string; cardId: string; commandId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.pinSet',
+    operationKey: i.commandId,
+    fields: { actor: i.actor, cardId: i.cardId, commandId: i.commandId },
   };
 }

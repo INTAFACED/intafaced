@@ -114,6 +114,26 @@ export interface CardIssuerAdapter {
 
   /** Freeze, unfreeze or close the card at the issuer. */
   setStatus(input: { cardId: string; issuerRef: string; status: 'active' | 'frozen' | 'closed' }): Promise<void>;
+
+  /**
+   * Return the PAN, expiry and CVV. Optional because `card-sim` has none.
+   *
+   * CardService calls this only for a non-simulated programme and never writes
+   * the result. Absent means `bank.card_pan_issuer_unset` (`socket.live-issuer`).
+   */
+  revealCredentials?(input: { cardId: string; issuerRef: string }): Promise<{ pan: string; expiry: string; cvv: string }>;
+
+  /** View the PIN. Same rule as `revealCredentials`: not stored, not on card-sim. */
+  revealPin?(input: { cardId: string; issuerRef: string }): Promise<{ pin: string }>;
+
+  /** Set the PIN at the issuer. The PIN is not stored here. */
+  setPin?(input: { cardId: string; issuerRef: string; pin: string }): Promise<void>;
+
+  /**
+   * Opaque push-provisioning payload for Apple Pay or Google Pay.
+   * CardService does not store the payload. Absent means `bank.card_wallet_issuer_unset`.
+   */
+  provisionWallet?(input: { cardId: string; issuerRef: string; wallet: 'apple' | 'google'; nonce: string }): Promise<{ payload: string }>;
 }
 
 /**

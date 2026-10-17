@@ -566,6 +566,8 @@ describe('flag required: business and cards', () => {
       settlementAssetId: '',
       cashbackBps: '',
       perAuthorizationLimit: '1000',
+      cardType: 'virtual',
+      shippingAddress: '',
     });
     await expect(f.caller().cards.issue({ ...issue, stepUpApprovalId: bigger })).rejects.toMatchObject({
       message: expect.stringContaining('bank.step_up_mismatch'),
@@ -577,6 +579,8 @@ describe('flag required: business and cards', () => {
       settlementAssetId: '',
       cashbackBps: '',
       perAuthorizationLimit: '10',
+      cardType: 'virtual',
+      shippingAddress: '',
     });
     await expect(f.caller().cards.issue({ ...issue, stepUpApprovalId: ok })).resolves.toMatchObject({ id: CARD });
   });

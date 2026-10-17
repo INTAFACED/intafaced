@@ -243,6 +243,36 @@ export type BankErrorCode =
    * The missing piece is an outside company, the card issuer.
    */
   | 'bank.rewards_issuer_unset'
+  /**
+   * Cashback for this user is posted in more than one asset.
+   * The read will not add those figures into one number.
+   */
+  | 'bank.rewards_asset_ambiguous'
+  /** A physical card was asked for without a delivery address. */
+  | 'bank.card_shipping_address_required'
+  /** A retried issue disagreed with the card type or delivery address already stored. */
+  | 'bank.card_issue_conflict'
+  /** A command id was reused for a different card change. */
+  | 'bank.card_command_conflict'
+  /** A replacement id was reused for a different card, or the reason disagreed. */
+  | 'bank.card_replace_conflict'
+  /**
+   * No live issuer can return a PAN. card-sim has no card number.
+   * The missing piece is `socket.live-issuer`.
+   */
+  | 'bank.card_pan_issuer_unset'
+  /**
+   * No live issuer can view or set a PIN.
+   * The missing piece is `socket.live-issuer`.
+   */
+  | 'bank.card_pin_issuer_unset'
+  /** A PIN was not 4 to 12 digits. The refusal never echoes the PIN. */
+  | 'bank.card_pin_invalid'
+  /**
+   * No live issuer can push a card into Apple Pay or Google Pay.
+   * The missing piece is `socket.live-issuer`.
+   */
+  | 'bank.card_wallet_issuer_unset'
   // ── Ramps (§8.1 / D-S-09, crypto ledger half) ──────────────────────────
   /**
    * NO RAMP PROGRAMME IS CONFIGURED.
