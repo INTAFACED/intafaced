@@ -163,7 +163,8 @@
     max-width: 208px;
     padding: 8px;
     border-radius: var(--if-r-md);
-    background: #ffffff;
+    /* QR codes need fixed dark-on-light contrast in every theme, so plain keywords, not theme tokens. */
+    background: white;
     line-height: 0;
   }
   .pay-qr svg {

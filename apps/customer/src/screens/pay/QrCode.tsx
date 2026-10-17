@@ -16,7 +16,7 @@ export function QrCode({ value }: { value: string }) {
   return (
     <div className="pay-qr" data-testid="pay-qr">
       <svg viewBox={`0 0 ${drawn.size} ${drawn.size}`} role="img" aria-label={t('qrLabel')} shapeRendering="crispEdges">
-        <path d={drawn.d} fill="#000000" />
+        <path d={drawn.d} fill="black" />
       </svg>
     </div>
   );
