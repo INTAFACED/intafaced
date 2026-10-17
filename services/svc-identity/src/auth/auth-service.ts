@@ -1416,6 +1416,85 @@ export class AuthService {
     });
   }
 
+  /**
+   * What the customer step-up sheet can ask for. A passkey challenge issued here
+   * is not stored as kind `step-up`, so it cannot be spent on `auth.stepUp`
+   * (that door mints a trade:withdraw bearer). Neither factor enrolled refuses.
+   */
+  async customerStepUpMaterial(userId: string): Promise<{ totp: boolean; credentials: StoredWebAuthnCredential[] }> {
+    const rows = await this.sql<
+      Array<{ status: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    const credentials = asCredentialList(user.webauthn_creds);
+    const totpEnrolled = typeof user.totp_secret === 'string' && user.totp_secret.length > 0;
+    if (!totpEnrolled && credentials.length === 0) {
+      throw new AuthError('Enrol two-factor authentication before confirming this payment', 'auth.mfa_not_enrolled');
+    }
+    return { totp: totpEnrolled, credentials };
+  }
+
+  passkeyOptions(credentials: readonly StoredWebAuthnCredential[], challenge: string): AuthenticationOptionsJSON {
+    return createAuthenticationOptions(this.webauthn, credentials, challenge);
+  }
+
+  /**
+   * Prove a fresh factor for a customer step-up. Does not mint a token.
+   * A recovery code is refused and is not spent. The passkey challenge must be
+   * the one `stepUp.begin` stored; a login or bearer step-up challenge is not accepted.
+   */
+  async proveFreshFactor(input: {
+    userId: string;
+    sessionId: string;
+    totpCode?: string;
+    webauthn?: AuthenticationResponseJSON;
+    webauthnChallenge?: string;
+  }): Promise<void> {
+    const hasTotp = typeof input.totpCode === 'string' && input.totpCode.length > 0;
+    const hasWebauthn = input.webauthn !== undefined && input.webauthn !== null;
+    if (hasTotp === hasWebauthn) {
+      throw new AuthError('Provide either a TOTP code or a WebAuthn assertion', 'auth.mfa_invalid');
+    }
+    const users = await this.sql<
+      Array<{ totp_secret: string | null; status: string; webauthn_creds: unknown }>
+    >`SELECT totp_secret, status, webauthn_creds FROM users WHERE id = ${input.userId}`;
+    const user = users[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    const sessions = await this.sql<
+      Array<{ id: string }>
+    >`SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()`;
+    if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+    if (hasTotp) {
+      if (!/^\d{6}$/.test(input.totpCode!)) {
+        throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      }
+      if (!user.totp_secret) {
+        throw new AuthError('Enrol two-factor authentication before confirming this payment', 'auth.mfa_not_enrolled');
+      }
+      await this.reserve(input.userId, 'mfa');
+      const secret = this.tryOpenTotpSecret(input.userId, user.totp_secret);
+      if (secret === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      await this.consumeTotpCode(input.userId, secret, input.totpCode!);
+      await recordSuccess(this.sql, input.userId, 'mfa');
+      return;
+    }
+    const expected = input.webauthnChallenge;
+    if (!expected) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    if (asCredentialList(user.webauthn_creds).length === 0) {
+      throw new AuthError('Enrol a security key before confirming with a passkey', 'auth.webauthn_not_enrolled');
+    }
+    const clientChallenge = readClientChallenge(input.webauthn!.response.clientDataJSON);
+    if (!clientChallenge || clientChallenge !== expected) {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    }
+    await this.verifyAssertionAndAdvanceCounter(input.userId, expected, input.webauthn!, () => {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    });
+  }
+
   async stepUp(input: {
     userId: string;
     sessionId: string;
